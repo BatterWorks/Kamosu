@@ -225,6 +225,72 @@ _warn-cache-size:
         echo "         Reclaim it with 'just dev-clean' (the next build is a full rebuild)."
     fi
 
+# ── Looking at the dev instance ───────────────────────────────────────────────
+
+# The tools every ticket with something to look at needs (#216): sign in,
+# photograph a screen at each size, compare two sets of pictures, capture the
+# real screens for a prototype and serve it. The scripts are in ui/tools/, and
+# the sizes they all use are in ui/tools/sizes.mjs. They reach the dev instance
+# at the address the gitignored .env names in KAMOSU_DEV_HOST, signed in as the
+# account .env names beside it, so `just dev-start` comes first.
+
+# The Session `screens` and `proto-new` sign in as. It is kept between runs:
+# signing in is throttled, and a ticket runs these many times over. Its cookie
+# sits beside .env, which holds the password itself. `just dev-session-end
+# tools` ends it.
+tools_session := "tools"
+
+# Sign in to the dev instance as the account in .env. The Session is named
+# <label> and its cookie is kept in .dev/sessions/<label>.cookie. Prints that
+# path and nothing else: hand the path to a script, which reads the cookie
+# itself. A label whose Session is still good is handed back as it is.
+dev-session label:
+    @node ui/tools/dev-session.mjs start "{{label}}"
+
+# End the Session `just dev-session <label>` made, and no other.
+dev-session-end label:
+    @node ui/tools/dev-session.mjs end "{{label}}"
+
+# Photograph each path on the dev instance at every size, whole page, into
+# <folder> as <path>.<size>.png. Fails when a page logged a console error or
+# scrolls sideways. Take the "before" set when a ticket is claimed, while the
+# worktree is still clean, and the "after" set once it is built. Add --webkit
+# to run it in Safari's engine, fetched once with
+# `cd ui && npx playwright install webkit`.
+screens folder +$paths:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _npm-deps
+    session="$(just dev-session {{tools_session}})"
+    # The paths are split on spaces and nothing more: a `?` or `&` in one is
+    # part of the address, not a pattern or a second command.
+    set -f
+    node ui/tools/screens.mjs --session "${session}" "{{folder}}" ${paths}
+
+# Name the pictures that differ between two folders `just screens` filled, and
+# fail if any do. This is the "the phone is unchanged" check.
+screens-same before after:
+    @node ui/tools/screens-same.mjs "{{before}}" "{{after}}"
+
+# Start a prototype: .dev/prototypes/<name>/ holding each path as the dev
+# instance draws it today, at every size, as static pages with no scripts,
+# beside the photographs they show and a copy of assets/. <name> is
+# <issue>-<slug>, as in `just proto-new 216-tools /recipes`.
+proto-new name +$paths:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _npm-deps
+    session="$(just dev-session {{tools_session}})"
+    set -f
+    node ui/tools/proto-new.mjs --session "${session}" "{{name}}" ${paths}
+
+# Serve a prototype to the LAN with caching off, and print its address. Stays
+# in the foreground until stopped. <folder> is a prototype's name under
+# .dev/prototypes/ and nothing else, since the whole LAN can read what it
+# serves. The port is one this host lets through its firewall.
+proto-serve folder port:
+    @node ui/tools/proto-serve.mjs "{{folder}}" "{{port}}"
+
 # ── Checking the code ─────────────────────────────────────────────────────────
 
 # Run everything: the behaviour suite, and the interface's screen-seam tests.

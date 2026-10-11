@@ -83,6 +83,40 @@ just dev-stop   # stops both process groups
 just docker-build && just docker-run   # the one-mount-one-port install, as a stranger runs it
 ```
 
+**Looking at the dev instance has recipes of its own** (#216), so no ticket
+writes a browser script by hand. The scripts are in `ui/tools/`, and Playwright
+is a dev dependency of `ui/`: never load it from anywhere else.
+
+```sh
+just dev-session <label>          # sign in as the account in .env; prints the cookie file's path, nothing else
+just dev-session-end <label>      # end that one Session
+just screens <folder> <path>…     # a whole-page picture of each path at every size; fails on a console error or a sideways scroll
+just screens-same <before> <after>   # names the pictures that differ, and fails if any do
+just proto-new <issue>-<slug> <path>…   # .dev/prototypes/<issue>-<slug>/: the real screens as static pages
+just proto-serve <name> <port>    # serve .dev/prototypes/<name>/ to the LAN, caching off
+```
+
+- **The sizes are written once**, in `ui/tools/sizes.mjs`. A script that needs a
+  screen size imports it from there.
+- **"Is the phone unchanged?" is two sets of pictures.** Run `just screens` into
+  a "before" folder under `.dev/` when a ticket is claimed, while the worktree is
+  still clean, and into an "after" folder once it is built. `just screens-same`
+  compares them. No stash and no second worktree.
+- **A Session's Secret stays out of the transcript.** A script is handed the
+  path of a cookie file and gives the cookie to its browser itself, as
+  `signedInContext` in `ui/tools/dev.mjs` does. `screens` and `proto-new` sign in
+  on their own as a Session named `tools`.
+- **`just screens … --webkit` runs in Safari's engine**, which has shown a fault
+  Chrome did not (#198). Fetch it once with `cd ui && npx playwright install webkit`.
+- **`.env` at the repo root says where and as whom.** `KAMOSU_DEV_HOST` is the
+  dev instance's address, reached over HTTPS because a Session cookie is Secure.
+  `KAMOSU_DEV_ADMIN_NAME` and `KAMOSU_DEV_ADMIN_PASSWORD` are the account. The
+  browser is the Chrome on the path unless `KAMOSU_DEV_BROWSER` names another.
+- **A path with `?` in it is quoted** at the prompt, as in
+  `just screens .dev/after '/recipes?q=tart'`, or the shell reads it as a pattern.
+- **`just proto-serve` serves a prototype by name and nothing else.** The whole
+  LAN can read what it serves, and the repo root holds `.env`.
+
 **Development is two processes side by side** (ADR 0028): the binary serves the
 Operations on **5266**, vite serves the interface on **5174** and proxies
 everything the binary owns to it, so a browser only ever talks to one origin.
@@ -277,6 +311,8 @@ tests/*_corpus.rs   the same, against the real 86-recipe Crouton export —
                     meaning_corpus.rs also wants a network and ~220 MB of model,
                     which it keeps in .dev/meaning-model between runs
 ui/                 the Svelte app; ui/src/app.css is the design tokens' source
+ui/tools/           the dev tools `just` runs against the dev instance: sign in,
+                    photograph screens, capture and serve a prototype (#216)
 docs/svelte/        Svelte's documentation for models, pinned (read this first)
 ```
 
