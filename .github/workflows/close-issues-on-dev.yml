@@ -9,8 +9,13 @@ name: Close issues on dev
 # with a closing keyword (close, fix, resolve and their -s/-d forms). An issue
 # that is already closed is left alone.
 
+# `pull_request_target`, not `pull_request`: a pull request from a fork runs
+# `pull_request` with a read-only token whatever `permissions` says, so it
+# could close nothing. This is safe here because no code is checked out; the
+# job reads the pull request's text through the API and nothing else.
+
 on:
-  pull_request:
+  pull_request_target:
     types: [closed]
     branches: [dev]
 
@@ -44,8 +49,16 @@ jobs:
           for number in $numbers; do
             # Issues and pull requests share one number space; a pull request
             # named here is never closed.
-            state="$(gh api "repos/$REPO/issues/$number" \
-              --jq 'if .pull_request then "pull-request" else .state end' 2>/dev/null || echo missing)"
+            # A number that names nothing is skipped. Any other failure, such
+            # as a rate limit, stops the run red, so it never passes for
+            # "nothing to close".
+            if ! state="$(gh api "repos/$REPO/issues/$number" \
+              --jq 'if .pull_request then "pull-request" else .state end' 2>&1)"; then
+              case "$state" in
+                *"HTTP 404"*) state=missing ;;
+                *) echo "::error::Could not read #$number: $state"; exit 1 ;;
+              esac
+            fi
             case "$state" in
               open)
                 gh issue close "$number" --repo "$REPO" --reason completed \
