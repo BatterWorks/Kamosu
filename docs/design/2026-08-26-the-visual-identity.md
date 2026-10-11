@@ -7,11 +7,11 @@ It says what was chosen on one day and why. The mockups beside it, in
 recipes on that day — nothing more. They are **not** a reference to build against and
 must never be treated as one: the screens in them were borrowed from an earlier
 prototype in order to have something real to judge a palette against, and the real
-screens are decided in [#37](https://github.com/BattermanZ/Kamosu/issues/37) and the
+screens are decided in [#37](https://github.com/BatterWorks/Kamosu/issues/37) and the
 screen tickets. A mockup that no longer matches the app is a confident lie about what
 Kamosu looks like; this one stays true precisely because updating it is forbidden.
 
-What *is* always current lives in [#80](https://github.com/BattermanZ/Kamosu/issues/80):
+What *is* always current lives in [#80](https://github.com/BatterWorks/Kamosu/issues/80):
 a tokens page rendered from the real stylesheet, which cannot drift because it is the code.
 
 ## What was chosen

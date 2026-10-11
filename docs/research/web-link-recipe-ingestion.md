@@ -218,7 +218,7 @@ Concretely:
 
 ---
 
-## Addendum (2026-08-25, from [#31](https://github.com/BattermanZ/Kamosu/issues/31)): `rust-recipe` audited in source
+## Addendum (2026-08-25, from [#31](https://github.com/BatterWorks/Kamosu/issues/31)): `rust-recipe` audited in source
 
 §2 rejected `rust-recipe` on metrics — downloads, staleness, one author — without opening it. That is not evidence, and the same reasoning was overturned in the same session when `reqwest-ssrf-guard` (860 downloads) turned out on reading to be better than a hand-rolled equivalent. So the crate was audited properly: repo `BreD1810/rust-recipe` HEAD `a86bb48` and the v0.2.0 tarball are byte-identical in `src/` and `tests/`; 573 lines of library code, MIT.
 

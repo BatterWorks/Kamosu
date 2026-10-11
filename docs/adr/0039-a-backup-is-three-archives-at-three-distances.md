@@ -1,6 +1,6 @@
 # A Backup is three archives at three distances
 
-A **Backup** is one archive holding a consistent copy of the database and every **Photograph** ([#78](https://github.com/BattermanZ/Kamosu/issues/78)). Kamosu keeps exactly **three** of them under `/data/backups`, and what distinguishes the three is not which is newest but **how far back each one reaches**:
+A **Backup** is one archive holding a consistent copy of the database and every **Photograph** ([#78](https://github.com/BatterWorks/Kamosu/issues/78)). Kamosu keeps exactly **three** of them under `/data/backups`, and what distinguishes the three is not which is newest but **how far back each one reaches**:
 
 | Slot | Replaced | Reaches back |
 | --- | --- | --- |

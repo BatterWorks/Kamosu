@@ -1,6 +1,6 @@
 # Type follows the reader's text size, up to 135%
 
-Kamosu's type grows with the text size a person has set on their phone or tablet, from the sizes it was drawn at up to 135% of them, and stops there. At the system's default setting nothing changes. Settled on 2026-10-11 on [#228](https://github.com/BattermanZ/Kamosu/issues/228). Until then every size was a fixed number of px and the setting did nothing.
+Kamosu's type grows with the text size a person has set on their phone or tablet, from the sizes it was drawn at up to 135% of them, and stops there. At the system's default setting nothing changes. Settled on 2026-10-11 on [#228](https://github.com/BatterWorks/Kamosu/issues/228). Until then every size was a fixed number of px and the setting did nothing.
 
 ## What was decided
 

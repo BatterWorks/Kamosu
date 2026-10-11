@@ -1,6 +1,6 @@
 # Kamosu has one paper, and no dark mode
 
-Kamosu is indigo ink on unbleached paper whatever the device is set to. It does not follow the system's dark setting, and `ui/src/app.css` holds no `prefers-color-scheme` rule on purpose. Settled on 2026-10-11 on [#228](https://github.com/BattermanZ/Kamosu/issues/228), after the audit of 9 October 2026 found that nothing recorded the answer.
+Kamosu is indigo ink on unbleached paper whatever the device is set to. It does not follow the system's dark setting, and `ui/src/app.css` holds no `prefers-color-scheme` rule on purpose. Settled on 2026-10-11 on [#228](https://github.com/BatterWorks/Kamosu/issues/228), after the audit of 9 October 2026 found that nothing recorded the answer.
 
 ## What was decided
 
