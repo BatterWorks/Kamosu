@@ -60,28 +60,51 @@ struct Word {
 /// ([`reading::joins_two_foods`]).
 const NAME_BREAKS: &[char] = &[',', '&', '/', '+', ';', '(', ')'];
 
-/// The folded words of `text`, split at anything that is not a letter or a
-/// digit, each with the number of `breaks` that came before it.
+/// The folded words of `text`, split at anything that is not a letter, a
+/// digit or an accent typed as its own character, each with the number of
+/// `breaks` that came before it.
 fn split_words(text: &str, breaks: &[char]) -> Vec<(String, usize)> {
+    use unicode_normalization::char::is_combining_mark;
     let mut words: Vec<(String, usize)> = Vec::new();
     let mut part = 0;
     let mut current = String::new();
-    for c in folded_for_search(text).chars() {
-        if c.is_alphanumeric() {
+    let mut close = |current: &mut String, part: usize| {
+        let word = folded_word(&std::mem::take(current));
+        if !word.is_empty() {
+            words.push((word, part));
+        }
+    };
+    for c in text.chars() {
+        if c.is_alphanumeric() || is_combining_mark(c) {
             current.push(c);
             continue;
         }
-        if !current.is_empty() {
-            words.push((std::mem::take(&mut current), part));
-        }
+        close(&mut current, part);
         if breaks.contains(&c) {
             part += 1;
         }
     }
-    if !current.is_empty() {
-        words.push((current, part));
-    }
+    close(&mut current, part);
     words
+}
+
+/// One word folded for comparison: case and accents gone, as a search folds
+/// it. A word [`reading::accented_name`] knows keeps its accent, since the
+/// accent is all that tells *thé* from *the* (#230).
+fn folded_word(word: &str) -> String {
+    let plural = word
+        .strip_suffix(['s', 'S'])
+        .and_then(reading::accented_name);
+    match (reading::accented_name(word), plural) {
+        (Some(name), _) => name.to_string(),
+        (None, Some(name)) => format!("{name}s"),
+        (None, None) => folded_for_search(word),
+    }
+}
+
+/// Whether [`folded_word`] kept this word's accent, one trailing `s` forgiven.
+fn kept_its_accent(word: &str) -> bool {
+    reading::accented_name(word).is_some() || reading::accented_name(singular(word)).is_some()
 }
 
 /// The folded words of a Step, each marked with whether an [`UNTIL`] clause
@@ -115,8 +138,20 @@ fn words_of(text: &str) -> Vec<Word> {
 }
 
 /// Two folded words are one word here if they differ by at most one trailing
-/// `s` — the plural tolerance a Step has always had.
+/// `s` — the plural tolerance a Step has always had. An accent
+/// [`folded_word`] kept is not looked at, so *the vert* typed without it is
+/// still *thé vert*.
 fn same_word(a: &str, b: &str) -> bool {
+    same_to_the_accent(a, b)
+        // Only a kept accent is left to tell two folded words apart.
+        || ((kept_its_accent(a) || kept_its_accent(b))
+            && same_to_the_accent(&folded_for_search(a), &folded_for_search(b)))
+}
+
+/// Two folded words that differ by at most one trailing `s`, an accent
+/// [`folded_word`] kept counting as a difference: *thé* and *thés* are one
+/// word here, and *the* is another.
+fn same_to_the_accent(a: &str, b: &str) -> bool {
     a == b || a.strip_suffix('s') == Some(b) || b.strip_suffix('s') == Some(a)
 }
 
@@ -182,6 +217,14 @@ fn main_words(words: &[String], foods: &[Range<usize>], language: Option<&str>) 
     let mut walk = |inward: &mut dyn Iterator<Item = usize>| {
         for at in inward {
             if reading::only_joins(&words[at]) {
+                continue;
+            }
+            // *Dés de jambon* is called *les dés* and *le jambon* alike, so
+            // the walk marks such a word and goes on past it, to the word
+            // that was the main one while this passed for a joining word
+            // (#230).
+            if kept_its_accent(&words[at]) {
+                main[at] = true;
                 continue;
             }
             main[at] = true;
@@ -262,7 +305,10 @@ impl Mention {
 fn names_the_food(run: &[String]) -> bool {
     match run {
         [] => false,
-        [only] => only.chars().count() >= 3 && !reading::names_nothing_alone(only),
+        [only] => {
+            (only.chars().count() >= 3 || kept_its_accent(only))
+                && !reading::names_nothing_alone(only)
+        }
         [first, .., last] => {
             !reading::only_joins(first)
                 && !reading::only_joins(last)
@@ -275,12 +321,20 @@ fn names_the_food(run: &[String]) -> bool {
 fn mentions_of(line: &Line, step: &[Word]) -> Vec<Mention> {
     let mut found = Vec::new();
     for (run, whole) in &line.runs {
+        // A run of nothing but words an accent sets apart from a joining
+        // word is named only with the accent: *the* alone is no tea (#230).
+        let by_accent = run.iter().all(|word| kept_its_accent(word));
+        let same = if by_accent {
+            same_to_the_accent
+        } else {
+            same_word
+        };
         for start in 0..step.len().saturating_sub(run.len() - 1) {
             let there = &step[start..start + run.len()];
             if there
                 .iter()
                 .zip(run)
-                .all(|(word, want)| same_word(&word.text, want))
+                .all(|(word, want)| same(&word.text, want))
             {
                 found.push(Mention {
                     line: line.index,
@@ -457,6 +511,94 @@ mod tests {
                 step(&[]),
                 step(&[5]),
             ]
+        );
+    }
+
+    #[test]
+    fn an_accented_word_spelt_like_a_joining_word_names_its_food() {
+        // Tea and diced pieces in French: `thé` and `dés` are the food, where
+        // `the` and `des` are articles (#230).
+        const TEA: &str = "Faites infuser le thé 3 minutes, puis ajoutez le miel.";
+        const DICE: &str = "Ajoutez les dés et le miel.";
+        for language in [None, Some("fr")] {
+            assert_eq!(
+                uses_in(language, &[TEA], &["thé vert", "miel"]),
+                [step(&[0, 1])]
+            );
+            assert_eq!(
+                uses_in(language, &[DICE], &["dés de jambon", "miel"]),
+                [step(&[0, 1])]
+            );
+            // The accent typed as its own character is the same word.
+            assert_eq!(
+                uses_in(
+                    language,
+                    &["Faites infuser le the\u{301} 3 minutes, puis ajoutez le miel."],
+                    &["thé vert", "miel"]
+                ),
+                [step(&[0, 1])]
+            );
+            assert_eq!(
+                uses_in(
+                    language,
+                    &["Ajoutez les de\u{301}s et le miel."],
+                    &["dés de jambon", "miel"]
+                ),
+                [step(&[0, 1])]
+            );
+            assert_eq!(
+                uses_in(language, &["Incorporez le dé."], &["dé de beurre"]),
+                [step(&[0])]
+            );
+            assert_eq!(
+                uses_in(language, &["Servez les thés."], &["thé"]),
+                [step(&[0])]
+            );
+            assert_eq!(
+                uses_in(language, &["SERVEZ LES THÉS."], &["thé vert"]),
+                [step(&[0])]
+            );
+            // The other noun of such a name still names it.
+            assert_eq!(
+                uses_in(
+                    language,
+                    &["Faites revenir le jambon.", "Ajoutez le beurre."],
+                    &["dés de jambon", "dé de beurre"]
+                ),
+                [step(&[0]), step(&[1])]
+            );
+        }
+    }
+
+    #[test]
+    fn a_joining_word_with_no_accent_names_no_food() {
+        for language in [None, Some("en"), Some("fr")] {
+            assert_eq!(
+                uses_in(
+                    language,
+                    &["Add the honey to the pan."],
+                    &["thé vert", "honey"]
+                ),
+                [step(&[1])]
+            );
+            assert_eq!(
+                uses_in(language, &["Add the honey to the pan."], &["thé", "honey"]),
+                [step(&[1])]
+            );
+            assert_eq!(
+                uses_in(
+                    language,
+                    &["Ajoutez des oignons."],
+                    &["dés de jambon", "dé de beurre", "oignons"]
+                ),
+                [step(&[2])]
+            );
+        }
+        // Beside another word of the name it is the name still, as a Step
+        // typed without its accents has always been read.
+        assert_eq!(
+            uses_in(Some("fr"), &["Faites infuser le the vert."], &["thé vert"]),
+            [step(&[0])]
         );
     }
 

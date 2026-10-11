@@ -649,15 +649,19 @@ fn is_glue(word: &str) -> bool {
 /// Whether a word is one of [`GLUE`], which a word of [`ACCENTED_NAMES`] is
 /// not, whatever [`folded`] makes of it.
 fn listed_as_glue(word: &str) -> bool {
-    listed(GLUE, word) && !is_an_accented_name(word)
+    listed(GLUE, word) && accented_name(word).is_none()
 }
 
-/// Whether a word is one of [`ACCENTED_NAMES`], accent and all.
-fn is_an_accented_name(word: &str) -> bool {
+/// **The word of [`ACCENTED_NAMES`] this is, accent and all**, as the list
+/// spells it, and nothing for any other word. The Step linker compares words
+/// with their accents gone, and asks this first so that `thé` does not reach
+/// [`only_joins`] as `the` (#230).
+pub fn accented_name(word: &str) -> Option<&'static str> {
     let word = folded_keeping_accents(word);
     ACCENTED_NAMES
         .iter()
-        .any(|name| folded_keeping_accents(name) == word)
+        .copied()
+        .find(|name| folded_keeping_accents(name) == word)
 }
 
 fn listed(list: &[&str], word: &str) -> bool {
@@ -674,7 +678,11 @@ fn listed(list: &[&str], word: &str) -> bool {
 /// taste` is not such a line: the phrase is dropped and it reads as `salt and
 /// pepper` does (#163).
 pub fn read_line(line: &str) -> Option<Reading> {
-    let line = without_brackets(line);
+    use unicode_normalization::UnicodeNormalization;
+    // An accent typed as its own character is put back on its letter, so one
+    // name read from two keyboards is one spelling (#230). Only the Reading
+    // is respelt: the line itself is the recipe's, and stays as written.
+    let line: String = without_brackets(line).nfc().collect();
     // The slashes are stood apart only to find a restated measure. Where
     // there is none, the line is read as written, so `salt/2 tsp pepper`
     // names the Food the cook spelt and not a respaced copy of it (#182).
@@ -2004,6 +2012,7 @@ const LONGEST_FOOD_NAME: usize = 6;
 /// remains is prose. Refusing to name a Food is ADR 0002's "shown whole rather
 /// than guessed at" — the line still reads exactly as written.
 fn rejoin(words: &[&str]) -> Option<String> {
+    use unicode_normalization::char::is_combining_mark;
     if words.len() > LONGEST_FOOD_NAME {
         return None;
     }
@@ -2012,7 +2021,10 @@ fn rejoin(words: &[&str]) -> Option<String> {
         .replace("' ", "'")
         .replace("\u{2019} ", "\u{2019}")
         .trim()
-        .trim_matches(|c: char| !c.is_alphanumeric())
+        .trim_start_matches(|c: char| !c.is_alphanumeric())
+        // An accent no single character holds is still standing apart here,
+        // and belongs to the letter before it, not to the punctuation (#230).
+        .trim_end_matches(|c: char| !c.is_alphanumeric() && !is_combining_mark(c))
         .to_string();
     (!name.is_empty() && name.chars().any(char::is_alphanumeric)).then_some(name)
 }
@@ -3220,6 +3232,55 @@ mod tests {
         assert_eq!(
             read("2 sachets de THÉ, bio"),
             parts(Some("2"), Some("sachets"), Some("THÉ"))
+        );
+    }
+
+    #[test]
+    fn an_accent_typed_as_its_own_character_reads_as_the_one_character_spelling() {
+        // Some keyboards write an accented letter as the letter and then the
+        // accent. The name is the same name either way, byte for byte (#230).
+        assert_eq!(
+            read("1 sel rose\u{301}"),
+            parts(Some("1"), None, Some("sel rosé"))
+        );
+        assert_eq!(
+            read("200 ml de the\u{301}"),
+            parts(Some("200"), Some("ml"), Some("thé"))
+        );
+        assert_eq!(
+            read("1 sachet de the\u{301}"),
+            parts(Some("1"), Some("sachet"), Some("thé"))
+        );
+        assert_eq!(read("the\u{301}"), parts(None, None, Some("thé")));
+        assert_eq!(
+            read("1 the\u{301} vert"),
+            parts(Some("1"), None, Some("thé vert"))
+        );
+        assert_eq!(
+            read("2 cre\u{300}me bru\u{302}le\u{301}e"),
+            parts(Some("2"), None, Some("crème brûlée"))
+        );
+        // Punctuation after the accent still goes, and the accent stays.
+        assert_eq!(
+            read("1 pa\u{302}te\u{301},"),
+            parts(Some("1"), None, Some("pâté"))
+        );
+        assert_eq!(
+            read("1 sel rose\u{301}."),
+            parts(Some("1"), None, Some("sel rosé"))
+        );
+        assert_eq!(
+            read("1 sel rosé."),
+            parts(Some("1"), None, Some("sel rosé"))
+        );
+        assert_eq!(
+            read("1 sel rosé,"),
+            parts(Some("1"), None, Some("sel rosé"))
+        );
+        // An accent no single character holds is kept as it was typed.
+        assert_eq!(
+            read("1 sel x\u{303}"),
+            parts(Some("1"), None, Some("sel x\u{303}"))
         );
     }
 
