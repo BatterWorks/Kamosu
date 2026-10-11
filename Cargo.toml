@@ -180,6 +180,13 @@ test = false
 name = "shopping_corpus"
 test = false
 
+# The release checklist's library check, run by `just release-library` against
+# a copy of a real library (docs/releasing.md). Kept out of the default set for
+# the same reason as the corpus checks.
+[[test]]
+name = "release_library"
+test = false
+
 [[test]]
 name = "translations_corpus"
 test = false

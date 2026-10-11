@@ -21,6 +21,10 @@ npx sv create                  # scaffolds SvelteKit at its current version
 A version string typed by hand into `Cargo.toml` or `package.json` is a bug,
 the same way a permission check inside a Door is a bug.
 
+**Kamosu's own version is set by `just release-prepare` and by nothing else**
+(ADR 0047). It stands in `Cargo.toml`, `Cargo.lock`, `ui/package.json` and
+`ui/package-lock.json`, and a hand edit to any of the four is the same bug.
+
 **Svelte's own documentation for models is committed to this repo.** Read
 `docs/svelte/llms-small.txt` before writing any Svelte or SvelteKit code, and
 search `docs/svelte/llms-full.txt` for what the small file omits. This is not
@@ -81,6 +85,11 @@ Use `feature/`, `fix/`, `docs/`, or `refactor/` as the prefix. Push that branch
 and open a pull request against `dev`; `main` is the release branch and receives
 only merges from `dev`, which `.github/workflows/release-source.yml` checks.
 
+**While a release is open, nothing else merges into `dev`.** From the moment
+`just release-prepare` cuts `docs/release-v<version>` until `just
+release-publish` has merged the release, leave every other pull request open
+(see Releasing).
+
 `dev` refuses a direct push, so cutting the branch after the work is committed
 means moving commits off a branch you cannot push, not a quick fix. Check first.
 
@@ -125,6 +134,33 @@ to these instructions.
   of definitions at the foot of the section, in number order. A change with no
   issue names its pull request the same way.
 - **The changelog is public.** It names no instance, no host and no person.
+
+## Releasing
+
+A release is cut by two commands and nothing else (ADR 0047). **Read
+`docs/releasing.md` before running either**: it is the runbook, with the
+checklist, the release hook's contract and every refusal.
+
+```sh
+just release-prepare <version>   # the bump pull request, its checklist and a draft release; run again after the bump merges, the pull request into main
+just release-publish <version>   # merge, tag, have the hook build the images, publish
+just release-library <folder>    # the checklist's library check: a copy of a real library through every migration
+```
+
+- **Only the maintainer approves a release's title and notes.** Show the draft
+  as it stands on GitHub and stop. Run `just release-publish` only after the
+  reply "approved" in this same session, and ask again if the text changed or
+  the session is new.
+- **Both commands resume.** One run again after a failure carries on at the
+  first step not done. Never finish a step by hand in its place.
+- **Neither force-pushes, moves a tag or replaces a published version.** A
+  release found broken after publishing is fixed by the next patch version.
+- **The bump branch is pushed by `just release-prepare` and no other way.** It
+  runs `just check` and `just test` before it pushes, and trusts a commit
+  already on the remote to have passed them.
+- **The scripts are in `ui/tools/`**, and their tests run in `just test`.
+  `release-publish` reads a checklist item only in its exact wording, which
+  `ui/tools/release-common.mjs` holds for both commands.
 
 ## Building, testing and running
 
@@ -382,9 +418,15 @@ tests/*_corpus.rs   the same, against the real 86-recipe Crouton export —
                     still builds and runs it, exactly as that command does.
                     meaning_corpus.rs also wants a network and ~220 MB of model,
                     which it keeps in .dev/meaning-model between runs
+tests/release_library.rs
+                    a copy of a real library carried through every migration,
+                    for the release checklist. `#[ignore]`d and `test = false`
+                    like the corpus checks; `just release-library` runs it
 ui/                 the Svelte app; ui/src/app.css is the design tokens' source
 ui/tools/           the dev tools `just` runs against the dev instance: sign in,
-                    photograph screens, capture and serve a prototype (#216)
+                    photograph screens, capture and serve a prototype (#216).
+                    The two release commands live here too (ADR 0047)
+docs/releasing.md   the release runbook
 docs/svelte/        Svelte's documentation for models, pinned (read this first)
 ```
 

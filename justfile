@@ -291,6 +291,37 @@ proto-new name +$paths:
 proto-serve folder port:
     @node ui/tools/proto-serve.mjs "{{folder}}" "{{port}}"
 
+# ── Cutting a release ─────────────────────────────────────────────────────────
+
+# A release is cut by these two commands and nothing else (ADR 0047). The
+# runbook is docs/releasing.md: read it before running either. Each works out
+# where the release stands from git and GitHub, so running one again after a
+# failure carries on at the first step not done. Neither force-pushes, moves a
+# tag or replaces a published version.
+
+# Prepare a release. The first run cuts docs/release-v<version> from dev, sets
+# the version, dates the changelog, runs `just check` and `just test`, and
+# opens the version-bump pull request with the release checklist beside a draft
+# GitHub Release. Run again once the bump has merged, it opens Release
+# v<version> from dev into main. It merges nothing. <version> is bare, as in
+# `just release-prepare 0.2.0`.
+release-prepare version:
+    @node ui/tools/release-prepare.mjs '{{version}}'
+
+# Publish a release: merge the release pull request, tag the merge, have the
+# release hook build and push the images, and publish the GitHub Release as
+# latest. Run it only after the maintainer approved the release title and notes
+# in this session. KAMOSU_RELEASE_HOOK names the hook.
+release-publish version:
+    @node ui/tools/release-publish.mjs '{{version}}'
+
+# The release checklist's library check: carry a copy of a library left by the
+# previous release through every migration, and count the Versions whose id is
+# not the fingerprint of their content, failing unless there are none. <folder> holds a kamosu.db, as an
+# unzipped Backup does, and is left as it was.
+release-library folder:
+    KAMOSU_RELEASE_LIBRARY="$(realpath '{{folder}}')" cargo test --test release_library -- --ignored --nocapture
+
 # ── Checking the code ─────────────────────────────────────────────────────────
 
 # Run everything: the behaviour suite, and the interface's screen-seam tests.
@@ -308,6 +339,10 @@ ui-test:
     set -euo pipefail
     just _npm-deps
     cd ui && npm run --silent test
+    # The release commands' tests (#234). They drive the two scripts against
+    # throwaway git repositories and stand-ins for `gh`, `just` and the release
+    # hook, so they run under Node's own test runner, outside jsdom.
+    node --test tools/release-*.test.mjs
 
 # Check formatting and lints without changing anything. Also verifies the
 # committed design-token stylesheet and icons are fresh against their sources:
@@ -325,8 +360,9 @@ check: _check-tokens-fresh _check-client-fresh _check-cover-fresh _check-message
     cargo fmt --check && cargo clippy --all-targets -- -D warnings
     cargo clippy --features test-jobs {{ CORPUS_TARGETS }} -- -D warnings
 
-# Every tests/*_corpus.rs, as clippy target flags. One list, used by `check`.
-CORPUS_TARGETS := "--test cooking_corpus --test crouton_corpus --test home_corpus --test meaning_corpus --test pasting_corpus --test photographs_corpus --test reading_corpus --test shelf_corpus --test shopping_corpus --test translations_corpus"
+# Every tests/*_corpus.rs and the release's library check, as clippy target
+# flags. One list, used by `check`.
+CORPUS_TARGETS := "--test cooking_corpus --test crouton_corpus --test home_corpus --test meaning_corpus --test pasting_corpus --test photographs_corpus --test reading_corpus --test shelf_corpus --test shopping_corpus --test translations_corpus --test release_library"
 
 # svelte-check in strict mode, with Svelte's accessibility warnings treated as
 # failures (ADR 0012): the compiler is the reviewer this frontend does not have.
