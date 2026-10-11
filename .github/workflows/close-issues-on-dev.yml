@@ -9,12 +9,24 @@ name: Close issues on dev
 # with a closing keyword (close, fix, resolve and their -s/-d forms). An issue
 # that is already closed is left alone.
 
-# `pull_request_target`, not `pull_request`: a pull request from a fork runs
-# `pull_request` with a read-only token whatever `permissions` says, so it
-# could close nothing. This is safe here because no code is checked out; the
-# job reads the pull request's text through the API and nothing else.
+# Two triggers, because each covers what the other cannot:
+#
+# - `pull_request` reads this file from the pull request itself, so it works
+#   on `dev` before this file has ever reached `main`. A pull request from a
+#   fork runs it with a read-only token, so the job skips those.
+# - `pull_request_target` runs with a token that can close an issue whoever
+#   opened the pull request, but GitHub reads this file from the default
+#   branch, `main`, so it does nothing until a release carries it there. It is
+#   safe because no code is checked out: the job reads the pull request's text
+#   through the API and nothing else.
+#
+# Once the file is on `main`, a pull request from this repository runs both.
+# The second finds its issues already closed and says so.
 
 on:
+  pull_request:
+    types: [closed]
+    branches: [dev]
   pull_request_target:
     types: [closed]
     branches: [dev]
@@ -26,7 +38,10 @@ permissions:
 jobs:
   close:
     name: close
-    if: ${{ github.event.pull_request.merged }}
+    if: >-
+      ${{ github.event.pull_request.merged
+      && (github.event_name == 'pull_request_target'
+      || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
     steps:
       - name: Close the issues this pull request resolves
