@@ -989,9 +989,11 @@ export type CreateRecipeOutput = {
 		last_cooked_at: string | null;
 		ratings: {
 			at: string;
+			given_on: "newest" | "older" | "another";
 			name: string;
 			person_id: string;
 			rating: "again" | "tweak" | "no";
+			version_id: string | null;
 		}[];
 	};
 	hand_id: string;
@@ -1257,9 +1259,11 @@ export type StartVariationOutput = {
 		last_cooked_at: string | null;
 		ratings: {
 			at: string;
+			given_on: "newest" | "older" | "another";
 			name: string;
 			person_id: string;
 			rating: "again" | "tweak" | "no";
+			version_id: string | null;
 		}[];
 	};
 	hand_id: string;
@@ -1513,9 +1517,11 @@ export type StartTranslationOutput = {
 		last_cooked_at: string | null;
 		ratings: {
 			at: string;
+			given_on: "newest" | "older" | "another";
 			name: string;
 			person_id: string;
 			rating: "again" | "tweak" | "no";
+			version_id: string | null;
 		}[];
 	};
 	hand_id: string;
@@ -2125,9 +2131,11 @@ export type GetRecipeOutput = {
 		last_cooked_at: string | null;
 		ratings: {
 			at: string;
+			given_on: "newest" | "older" | "another";
 			name: string;
 			person_id: string;
 			rating: "again" | "tweak" | "no";
+			version_id: string | null;
 		}[];
 	};
 	hand_id: string;
@@ -9900,6 +9908,15 @@ export const CATALOGUE = [
 									"at": {
 										"type": "string"
 									},
+									"given_on": {
+										"description": "The Version rated: this recipe's newest, an older one, or another Branch's.",
+										"enum": [
+											"newest",
+											"older",
+											"another"
+										],
+										"type": "string"
+									},
 									"name": {
 										"type": "string"
 									},
@@ -9913,13 +9930,22 @@ export const CATALOGUE = [
 											"no"
 										],
 										"type": "string"
+									},
+									"version_id": {
+										"description": "An older Version this recipe still holds; null otherwise.",
+										"type": [
+											"string",
+											"null"
+										]
 									}
 								},
 								"required": [
 									"person_id",
 									"name",
 									"rating",
-									"at"
+									"at",
+									"given_on",
+									"version_id"
 								],
 								"type": "object"
 							},
@@ -11378,6 +11404,15 @@ export const CATALOGUE = [
 									"at": {
 										"type": "string"
 									},
+									"given_on": {
+										"description": "The Version rated: this recipe's newest, an older one, or another Branch's.",
+										"enum": [
+											"newest",
+											"older",
+											"another"
+										],
+										"type": "string"
+									},
 									"name": {
 										"type": "string"
 									},
@@ -11391,13 +11426,22 @@ export const CATALOGUE = [
 											"no"
 										],
 										"type": "string"
+									},
+									"version_id": {
+										"description": "An older Version this recipe still holds; null otherwise.",
+										"type": [
+											"string",
+											"null"
+										]
 									}
 								},
 								"required": [
 									"person_id",
 									"name",
 									"rating",
-									"at"
+									"at",
+									"given_on",
+									"version_id"
 								],
 								"type": "object"
 							},
@@ -12763,6 +12807,15 @@ export const CATALOGUE = [
 									"at": {
 										"type": "string"
 									},
+									"given_on": {
+										"description": "The Version rated: this recipe's newest, an older one, or another Branch's.",
+										"enum": [
+											"newest",
+											"older",
+											"another"
+										],
+										"type": "string"
+									},
 									"name": {
 										"type": "string"
 									},
@@ -12776,13 +12829,22 @@ export const CATALOGUE = [
 											"no"
 										],
 										"type": "string"
+									},
+									"version_id": {
+										"description": "An older Version this recipe still holds; null otherwise.",
+										"type": [
+											"string",
+											"null"
+										]
 									}
 								},
 								"required": [
 									"person_id",
 									"name",
 									"rating",
-									"at"
+									"at",
+									"given_on",
+									"version_id"
 								],
 								"type": "object"
 							},
@@ -15839,6 +15901,15 @@ export const CATALOGUE = [
 									"at": {
 										"type": "string"
 									},
+									"given_on": {
+										"description": "The Version rated: this recipe's newest, an older one, or another Branch's.",
+										"enum": [
+											"newest",
+											"older",
+											"another"
+										],
+										"type": "string"
+									},
 									"name": {
 										"type": "string"
 									},
@@ -15852,13 +15923,22 @@ export const CATALOGUE = [
 											"no"
 										],
 										"type": "string"
+									},
+									"version_id": {
+										"description": "An older Version this recipe still holds; null otherwise.",
+										"type": [
+											"string",
+											"null"
+										]
 									}
 								},
 								"required": [
 									"person_id",
 									"name",
 									"rating",
-									"at"
+									"at",
+									"given_on",
+									"version_id"
 								],
 								"type": "object"
 							},

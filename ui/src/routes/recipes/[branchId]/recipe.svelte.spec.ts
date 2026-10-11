@@ -871,12 +871,32 @@ describe('the Cooked section', () => {
 							name: 'Stéphane',
 							rating: 'again' as const,
 							at: '2026-08-14T18:30:00Z',
+							given_on: 'newest' as const,
+							version_id: null,
 						},
 						{
 							person_id: 'p_marie',
 							name: 'Marie',
 							rating: 'tweak' as const,
 							at: '2026-08-02T19:00:00Z',
+							given_on: 'older' as const,
+							version_id: 'v_older',
+						},
+						{
+							person_id: 'p_camille',
+							name: 'Camille',
+							rating: 'no' as const,
+							at: '2026-07-20T19:00:00Z',
+							given_on: 'older' as const,
+							version_id: null,
+						},
+						{
+							person_id: 'p_bruno',
+							name: 'Bruno',
+							rating: 'no' as const,
+							at: '2026-07-11T19:00:00Z',
+							given_on: 'another' as const,
+							version_id: null,
 						},
 					],
 					...extra,
@@ -897,6 +917,34 @@ describe('the Cooked section', () => {
 		expect(screen.queryByText(/average/i)).not.toBeInTheDocument();
 		expect(screen.queryByText(/★/)).not.toBeInTheDocument();
 		expect(screen.queryByText(/out of 5/i)).not.toBeInTheDocument();
+	});
+
+	// #229, the quiet mark of ADR 0005: a verdict on the recipe as it was must
+	// not read as a verdict on the recipe as it stands.
+	it('marks a verdict given on an older Version, and leaves one on the newest bare', async () => {
+		renderRecipe(cooked());
+		const row = async (name: string) => (await screen.findByText(name)).closest('li')!;
+
+		expect(within(await row('Stéphane')).queryByText('on an older Version')).toBeNull();
+		expect(within(await row('Stéphane')).queryByRole('link')).toBeNull();
+
+		// Where the recipe still carries that Version, the mark opens it.
+		const kept = within(await row('Marie')).getByRole('link', { name: 'on an older Version' });
+		expect(kept).toHaveAttribute('href', '/recipes/mine/versions/v_older');
+		expect(within(await row('Marie')).getByText('Tweak it')).toBeInTheDocument();
+
+		// Where a later save folded it away there is no such page, so the mark
+		// is still there and opens the Thread.
+		const folded = within(await row('Camille')).getByRole('link', {
+			name: 'on an older Version',
+		});
+		expect(folded).toHaveAttribute('href', '/recipes/mine/thread');
+
+		// A verdict on a variation or a Translation is not an older state of
+		// this recipe, and is not called one.
+		expect(within(await row('Bruno')).queryByText('on an older Version')).toBeNull();
+		const sibling = within(await row('Bruno')).getByRole('link', { name: 'on another Version' });
+		expect(sibling).toHaveAttribute('href', '/recipes/mine/thread');
 	});
 
 	it('says how many times and when last, counting every cooking', async () => {

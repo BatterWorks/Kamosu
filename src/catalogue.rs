@@ -3991,8 +3991,19 @@ fn cooking_record_schema() -> Value {
                         "name": { "type": "string" },
                         "rating": { "type": "string", "enum": ["again", "tweak", "no"] },
                         "at": { "type": "string" },
+                        "given_on": {
+                            "type": "string",
+                            "enum": ["newest", "older", "another"],
+                            // Kept short, as the next one is: get_recipe's
+                            // meanings only just fit an MCP description (#187).
+                            "description": "The Version rated: this recipe's newest, an older one, or another Branch's.",
+                        },
+                        "version_id": {
+                            "type": ["string", "null"],
+                            "description": "An older Version this recipe still holds; null otherwise.",
+                        },
                     },
-                    "required": ["person_id", "name", "rating", "at"],
+                    "required": ["person_id", "name", "rating", "at", "given_on", "version_id"],
                     "additionalProperties": false,
                 },
             },

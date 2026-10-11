@@ -1256,7 +1256,7 @@
 				{/if}
 
 				{#if recipe}
-					<Cooked cooked={recipe.cooked}>
+					<Cooked cooked={recipe.cooked} {branchId}>
 						<MyPictures
 							{branchId}
 							pictures={pictures.list}

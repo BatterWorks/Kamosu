@@ -822,6 +822,9 @@
   .w-\[var\(--step-photo\)\] {
     width: var(--step-photo);
   }
+  .w-fit {
+    width: fit-content;
+  }
   .w-full {
     width: 100%;
   }
@@ -1457,6 +1460,10 @@
   }
   .text-read {
     font-size: var(--text-read);
+  }
+  .leading-\[1\.3\] {
+    --tw-leading: 1.3;
+    line-height: 1.3;
   }
   .leading-tight {
     --tw-leading: var(--leading-tight);

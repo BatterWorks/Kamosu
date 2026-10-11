@@ -834,7 +834,7 @@ impl Core {
                 // the Versions and never inside one — an Attempt is a private
                 // diary entry, not part of what the recipe is, which is the
                 // whole of why none of this can reach a Share Link.
-                "cooked": cooking_record(conn, &lineage_id, person_id)?,
+                "cooked": cooking_record(conn, &lineage_id, branch_id, &head_version_id, person_id)?,
             }))
         })
     }
@@ -2124,7 +2124,23 @@ fn attempts_for_lineage(
 /// An unfinished Attempt counts toward both the count and the date (ADR 0010):
 /// a cooking is real from the moment it starts, and the library must not be
 /// systematically wrong because nobody filed paperwork.
-fn cooking_record(conn: &Connection, lineage_id: &str, person_id: &str) -> Result<Value, OpError> {
+///
+/// **A rating says which Version it was given on** (#229), the quiet mark
+/// ADR 0005 asks for: a "no" from before a recipe was fixed must not read as a
+/// "no" to the recipe as it stands. That Version is the one that was eaten,
+/// worked out as `attempts_for_lineage` does for the Thread, and it is set
+/// against the head of the Branch being read: `newest` where it is that head,
+/// `older` where it is an earlier state of this Branch, and `another` where
+/// only a variation or a Translation holds it. The collapse described above is
+/// why the rating is compared and never joined: one whose Version no Branch
+/// carries any more is `older`, and it is marked and kept.
+fn cooking_record(
+    conn: &Connection,
+    lineage_id: &str,
+    branch_id: &str,
+    head_version_id: &str,
+    person_id: &str,
+) -> Result<Value, OpError> {
     let household = company_of("?2");
 
     let (count, last_cooked_at): (i64, Option<String>) = conn
@@ -2150,7 +2166,8 @@ fn cooking_record(conn: &Connection, lineage_id: &str, person_id: &str) -> Resul
     // Person twice and hand the screen a duplicate key. The id breaks the tie.
     let mut statement = conn
         .prepare(&format!(
-            "SELECT attempts.person_id, people.name, attempts.rating, attempts.created_at \
+            "SELECT attempts.person_id, people.name, attempts.rating, attempts.created_at, \
+                    attempts.version_id, attempts.as_cooked_version_id \
                FROM attempts JOIN people ON people.id = attempts.person_id \
               WHERE attempts.lineage_id = ?1 AND attempts.person_id IN ({household}) \
                 AND attempts.id = ( \
@@ -2162,9 +2179,9 @@ fn cooking_record(conn: &Connection, lineage_id: &str, person_id: &str) -> Resul
               ORDER BY attempts.created_at DESC, people.name ASC"
         ))
         .map_err(|e| OpError::internal(format!("cannot read ratings: {e}")))?;
-    let ratings: Vec<Value> = statement
+    let rows: Vec<(Value, String, Option<String>)> = statement
         .query_map(params![lineage_id, person_id], |row| {
-            Ok(json!({
+            let rating = json!({
                 "person_id": row.get::<_, String>(0)?,
                 // The Person's name as it stands now, not as it stood when
                 // they cooked: renaming yourself reaches your own history
@@ -2173,11 +2190,73 @@ fn cooking_record(conn: &Connection, lineage_id: &str, person_id: &str) -> Resul
                 "name": row.get::<_, String>(1)?,
                 "rating": row.get::<_, String>(2)?,
                 "at": row.get::<_, String>(3)?,
-            }))
+            });
+            Ok((rating, row.get(4)?, row.get(5)?))
         })
         .map_err(|e| OpError::internal(format!("cannot read ratings: {e}")))?
         .collect::<Result<_, _>>()
         .map_err(|e| OpError::internal(format!("cannot read ratings: {e}")))?;
+
+    // Where the reader's Thread holds a Version: on the Branch being read, on
+    // another Branch of the Lineage they may see, or on none.
+    #[derive(PartialEq)]
+    enum Held {
+        Here,
+        Elsewhere,
+        Nowhere,
+    }
+    let mut holding = conn
+        .prepare(&format!(
+            "SELECT MAX(branches.id = ?3) \
+               FROM branch_versions JOIN branches ON branches.id = branch_versions.branch_id \
+              WHERE branch_versions.version_id = ?1 AND branches.lineage_id = ?4 AND {} \
+             HAVING COUNT(*) > 0",
+            visible_to("branches", "?2"),
+        ))
+        .map_err(|e| OpError::internal(format!("cannot read ratings: {e}")))?;
+    let mut held = |version_id: &str| -> Result<Held, OpError> {
+        let here: Option<bool> = holding
+            .query_row(
+                params![version_id, person_id, branch_id, lineage_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| OpError::internal(format!("cannot read ratings: {e}")))?;
+        Ok(match here {
+            Some(true) => Held::Here,
+            Some(false) => Held::Elsewhere,
+            None => Held::Nowhere,
+        })
+    };
+    let mut ratings: Vec<Value> = Vec::with_capacity(rows.len());
+    for (mut rating, started_from, as_cooked) in rows {
+        // What was eaten (#209): the As Cooked once somebody kept it as a
+        // Version, otherwise the Version the cooking started from. The same
+        // rule, in the same order, as the Thread hangs a cooking by.
+        let eaten = match as_cooked {
+            Some(as_cooked) if held(&as_cooked)? != Held::Nowhere => as_cooked,
+            _ => started_from,
+        };
+        let (given_on, version_id) = if eaten == head_version_id {
+            ("newest", Value::Null)
+        } else {
+            match held(&eaten)? {
+                // Named only here, where the older Version's page can open
+                // it. An As Cooked nobody kept is on no Branch, so its
+                // fingerprint never leaves this way.
+                Held::Here => ("older", json!(eaten)),
+                // A variation's or a Translation's: no older state of this
+                // recipe, so the screen must not call it one.
+                Held::Elsewhere => ("another", Value::Null),
+                // Folded away by a collapsing save. Still a rating, and still
+                // from before the recipe was what it is now.
+                Held::Nowhere => ("older", Value::Null),
+            }
+        };
+        rating["given_on"] = json!(given_on);
+        rating["version_id"] = version_id;
+        ratings.push(rating);
+    }
 
     Ok(json!({
         "count": count,

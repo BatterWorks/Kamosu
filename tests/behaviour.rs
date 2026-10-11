@@ -13547,9 +13547,218 @@ async fn a_collapsing_edit_never_makes_a_recipe_forget_it_was_cooked() {
         Some(&key),
         &json!({ "branch_id": branch_id }).to_string(),
     );
+    let cooked_after = &after["result"]["cooked"];
     assert_eq!(
-        after["result"]["cooked"], cooked_before,
+        cooked_after["count"], cooked_before["count"],
         "editing a recipe must not change how many times it has been cooked"
+    );
+    assert_eq!(
+        cooked_after["last_cooked_at"],
+        cooked_before["last_cooked_at"]
+    );
+
+    // The rating is still there, and it now says it was given on an older
+    // Version (#229). Which one cannot be said: no Branch carries it any more,
+    // so the Thread has no page of it to send a reader to.
+    assert_eq!(cooked_before["ratings"][0]["given_on"], json!("newest"));
+    let rating = &cooked_after["ratings"][0];
+    assert_eq!(rating["rating"], json!("again"), "{cooked_after}");
+    assert_eq!(rating["given_on"], json!("older"), "{cooked_after}");
+    assert_eq!(rating["version_id"], Value::Null, "{cooked_after}");
+}
+
+/// The quiet mark of ADR 0005 (#229): a rating says whether it was given on a
+/// Version other than the newest, so a "no" from before the recipe was fixed
+/// is not read as a "no" to the recipe as it stands.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rating_says_when_it_was_given_on_an_older_version() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Stéphane");
+    let rating_of = || {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        (
+            read["result"]["head_version_id"].clone(),
+            read["result"]["cooked"]["ratings"][0].clone(),
+        )
+    };
+
+    cook_it(&app, &key, &branch_id, json!({ "rating": "no" }));
+    let (rated_version, rating) = rating_of();
+    assert_eq!(
+        rating["given_on"],
+        json!("newest"),
+        "given on the newest Version: {rating}"
+    );
+    assert_eq!(rating["version_id"], Value::Null, "{rating}");
+
+    // The recipe is fixed, hours later, so the save appends a Version and the
+    // one that was rated stays on the Thread.
+    age_branch_head(&app, &branch_id);
+    let mut fixed = katsu_as_written();
+    fixed["ingredients"][1]["text"] = json!("300 g de riz");
+    fixed["branch_id"] = json!(branch_id);
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &fixed.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["collapsed"], json!(false), "{saved}");
+
+    let (head, rating) = rating_of();
+    assert_ne!(head, rated_version);
+    assert_eq!(rating["rating"], json!("no"));
+    assert_eq!(rating["given_on"], json!("older"), "{rating}");
+    assert_eq!(
+        rating["version_id"], rated_version,
+        "the Branch still carries the Version it was given on: {rating}"
+    );
+}
+
+/// What was eaten is what a rating is about (#209). A cooking that was tweaked
+/// and then kept as the newest Version was rated on that Version, whichever
+/// one it started from, so it carries no mark (#229).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rating_on_a_cooking_kept_as_the_newest_version_is_not_marked() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Stéphane");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+    let mut cooked = katsu_as_written();
+    cooked["ingredients"][1]["text"] = json!("150 g de riz");
+    let (_, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    let as_cooked_version_id = deviated["result"]["as_cooked"]["version_id"].clone();
+    let (status, finished) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "rating": "again" }).to_string(),
+    );
+    assert_eq!(status, 200, "{finished}");
+
+    let read = || {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        read["result"].clone()
+    };
+
+    // Not kept yet: an As Cooked nobody kept is no Version of the recipe, so
+    // the rating stands on the Version the cooking started from, the newest.
+    let before = read();
+    assert_eq!(
+        before["cooked"]["ratings"][0]["given_on"],
+        json!("newest"),
+        "{before}"
+    );
+
+    age_branch_head(&app, &branch_id);
+    let (status, promoted) = app.post_op(
+        "promote_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+
+    let after = read();
+    assert_eq!(after["head_version_id"], as_cooked_version_id);
+    let rating = &after["cooked"]["ratings"][0];
+    assert_eq!(rating["given_on"], json!("newest"), "{rating}");
+    assert_eq!(rating["version_id"], Value::Null, "{rating}");
+}
+
+/// Keeping a cooking within the hour of the recipe's last save folds away the
+/// Version the cooking started from (#209). The rating was given on what was
+/// kept, the newest Version, and carries no mark (#229).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rating_kept_by_a_collapsing_save_is_not_marked() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Stéphane");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+    let mut cooked = katsu_as_written();
+    cooked["ingredients"][1]["text"] = json!("150 g de riz");
+    app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    let (status, finished) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "rating": "again" }).to_string(),
+    );
+    assert_eq!(status, 200, "{finished}");
+    let (status, promoted) = app.post_op(
+        "promote_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+    assert_eq!(promoted["result"]["collapsed"], json!(true), "{promoted}");
+
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let rating = &read["result"]["cooked"]["ratings"][0];
+    assert_eq!(rating["given_on"], json!("newest"), "{rating}");
+    assert_eq!(rating["version_id"], Value::Null, "{rating}");
+}
+
+/// A recipe's variations share its cooking record. A rating given on a
+/// variation is no verdict on an older state of the recipe it varies, so each
+/// page says where the rating stands from its own side (#229).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rating_given_on_a_variation_is_from_another_version_and_never_an_older_one() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Stéphane");
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "name": "Sans friture" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let variation_id = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    age_branch_head(&app, &variation_id);
+    let mut baked = katsu_as_written();
+    baked["steps"][1]["text"] = json!("Cuire au four");
+    baked["branch_id"] = json!(variation_id);
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &baked.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["copied"], json!(false), "{saved}");
+
+    cook_it(&app, &key, &variation_id, json!({ "rating": "tweak" }));
+
+    let rating_on = |branch: &str| {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        read["result"]["cooked"]["ratings"][0].clone()
+    };
+    let on_the_variation = rating_on(&variation_id);
+    assert_eq!(
+        on_the_variation["given_on"],
+        json!("newest"),
+        "{on_the_variation}"
+    );
+    let on_the_recipe = rating_on(&branch_id);
+    assert_eq!(on_the_recipe["rating"], json!("tweak"));
+    assert_eq!(
+        on_the_recipe["given_on"],
+        json!("another"),
+        "{on_the_recipe}"
+    );
+    assert_eq!(
+        on_the_recipe["version_id"],
+        Value::Null,
+        "the older Version's page is one Branch at two moments, and this is two Branches"
     );
 }
 

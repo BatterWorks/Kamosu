@@ -9,6 +9,14 @@
 	Person who cooked and said nothing simply does not appear: silence is not a
 	score of zero.
 
+	A verdict given on a Version other than the newest says so in small words
+	under the name (#229, ADR 0005's quiet mark), so a "no" from before the
+	recipe was fixed is not read as a "no" to the recipe as it stands. The
+	words lead to that Version where this recipe still carries it, and to the
+	Thread where a later save folded it away. A verdict on a variation or a
+	Translation is no older state of this recipe: it says "another", and leads
+	to the Thread, where the Branches are side by side.
+
 	Worded impersonally, as the delete confirmation is (`DeleteRecipe.svelte`):
 	the count is the household's, never the reader's.
 -->
@@ -21,11 +29,13 @@
 
 	interface Props {
 		cooked: GetRecipeOutput['cooked'];
+		/** The recipe on the page, which the mark on an older verdict links into. */
+		branchId: string;
 		/** What else belongs among how the dish has gone: your own pictures of it. */
 		children?: Snippet;
 	}
 
-	let { cooked, children }: Props = $props();
+	let { cooked, branchId, children }: Props = $props();
 </script>
 
 <h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
@@ -44,7 +54,23 @@
 		<ul>
 			{#each cooked.ratings as verdict (verdict.person_id)}
 				<li class="flex items-baseline justify-between gap-3 border-b border-rule py-2">
-					<span class="text-line">{verdict.name}</span>
+					<span class="text-line">
+						{verdict.name}
+						{#if verdict.given_on !== 'newest'}
+							<!-- 1.3, as the chosen page drew the words under the name (#229).
+							     Only as wide as its words, so the patch under the pointer is too. -->
+							<a
+								href={verdict.version_id
+									? `/recipes/${branchId}/versions/${verdict.version_id}`
+									: `/recipes/${branchId}/thread`}
+								class="block w-fit text-read leading-[1.3] text-ink-2 underline underline-offset-4"
+							>
+								{verdict.given_on === 'another'
+									? m.recipe_cooked_another_version()
+									: m.recipe_cooked_older_version()}
+							</a>
+						{/if}
+					</span>
 					<span class="text-read text-accent uppercase">{ratingLabel(verdict.rating)}</span>
 				</li>
 			{/each}

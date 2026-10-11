@@ -623,6 +623,8 @@
   "recipe_cooked_differently": "You cooked this differently",
   "recipe_cooked_differently_on": "On {when}, you cooked this recipe with words of your own.",
   "recipe_cooked_never": "Not cooked yet.",
+  "recipe_cooked_another_version": "on another Version",
+  "recipe_cooked_older_version": "on an older Version",
   "recipe_cooked_once": "Cooked once · last on {when}",
   "recipe_cooked_times": "Cooked {count} times · last on {when}",
   "recipe_delete": "Delete this recipe",
