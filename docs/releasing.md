@@ -26,6 +26,7 @@ Say so in every session that shares the repository before running `release-prepa
 
 - Run the commands from the repository root on the maintainer's build machine. `release-publish` needs the release hook and the registry's credentials, which exist only there.
 - The working tree must be clean, untracked files included. `release-prepare` refuses otherwise. It switches the checkout to the bump branch, so no other session may be working in the same checkout.
+- A clone that has never built the interface runs `just ui-build` once first. `just check` type-checks the screens against the messages a build compiles, and refuses with `just check` in a clone that has none.
 - `gh` must be logged in to an account that can push branches and tags, open and merge pull requests, and create releases on the repository.
 - `KAMOSU_RELEASE_HOOK` must hold the path to the release hook (see [The release hook](#the-release-hook)). Only `release-publish` reads it.
 - `## Unreleased` in `CHANGELOG.md` on `dev` must have entries. With nothing under it there is nothing to release.
