@@ -12,7 +12,9 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 - **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh issue close <number> --comment "..."`
+- **Close**: `gh issue close <number> --comment "..."`. A ticket built in code
+  is closed by its pull request merging, never by hand (`AGENTS.md`,
+  "Branching"). This is for a ticket that ends with no pull request.
 - **`ready-for-agent` goes on a ticket to build, never on a parent spec.** A spec
   whose work is its child tickets (each child names it under `## Parent`) is read
   when a child needs it and closed when its last child closes. Labelled, it is
@@ -50,9 +52,12 @@ section go.
 
 When set to `yes`, PRs run through the same labels and states as issues, using the `gh pr` equivalents:
 
-- **Read a PR**: `gh pr view <number> --comments` and `gh pr diff <number>` for the
-  diff. Untested here, since this repo has no pull requests; if it returns the
-  same Projects-classic error the issue view does, reach for `--json` the same way.
+- **Read a PR**: `gh pr view <number> --json number,title,state,body,comments,reviews`
+  and `gh pr diff <number>` for the diff. Bare `gh pr view`, `--comments` and
+  `gh pr edit` fail with the same Projects-classic error the issue view does
+  (checked on #236); `gh pr diff`, `create` and `merge` do not ask for
+  `projectCards`. Assign through the API:
+  `gh api --method POST repos/<owner>/<repo>/issues/<number>/assignees -f 'assignees[]=<login>'`.
 - **List external PRs for triage**: `gh pr list --state open --json number,title,body,labels,author,authorAssociation,comments` then keep only `authorAssociation` of `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, or `NONE` (drop `OWNER`/`MEMBER`/`COLLABORATOR`).
 - **Comment / label / close**: `gh pr comment`, `gh pr edit --add-label`/`--remove-label`, `gh pr close`.
 
