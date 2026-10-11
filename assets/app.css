@@ -3,7 +3,7 @@
 @layer theme, base, components, utilities;
 @layer theme {
   :root, :host {
-    --container-2xl: 42rem;
+    --container-2xl: 672px;
     --leading-tight: 1.25;
     --default-transition-duration: 150ms;
     --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
@@ -31,27 +31,28 @@
     --font-weight-normal: 400;
     --font-weight-medium: 500;
     --font-weight-semibold: 600;
-    --text-step: 26px;
+    --type-unit: clamp(1px, calc(1rem / 16), 1.35px);
+    --text-step: calc(26 * var(--type-unit));
     --text-step--line-height: 1.24;
     --text-step--letter-spacing: -0.015em;
-    --text-title: 25px;
+    --text-title: calc(25 * var(--type-unit));
     --text-title--line-height: 1.16;
     --text-title--letter-spacing: -0.012em;
-    --text-line: 17px;
+    --text-line: calc(17 * var(--type-unit));
     --text-line--line-height: 1.4;
-    --text-list-title: 17px;
+    --text-list-title: calc(17 * var(--type-unit));
     --text-list-title--line-height: 1.2;
-    --text-shelf-heading: 18px;
+    --text-shelf-heading: calc(18 * var(--type-unit));
     --text-shelf-heading--line-height: 1.2;
-    --text-tile-title: 15px;
+    --text-tile-title: calc(15 * var(--type-unit));
     --text-tile-title--line-height: 1.22;
-    --text-panel-figure: 21px;
-    --text-body: 16px;
+    --text-panel-figure: calc(21 * var(--type-unit));
+    --text-body: calc(16 * var(--type-unit));
     --text-body--line-height: 1.55;
-    --text-read: 12.5px;
-    --text-step-reading: 15px;
+    --text-read: calc(12.5 * var(--type-unit));
+    --text-step-reading: calc(15 * var(--type-unit));
     --text-step-reading--letter-spacing: 0em;
-    --text-label: 12px;
+    --text-label: calc(12 * var(--type-unit));
     --text-label--letter-spacing: 0.15em;
     --spacing-0: 0px;
     --spacing-1: 4px;
@@ -73,17 +74,17 @@
     --noren-h: 3px;
     --photo-thumb: 72px;
     --step-photo: 96px;
-    --text-step-far: 38px;
+    --text-step-far: calc(38 * var(--type-unit));
     --text-step-far--line-height: 1.22;
-    --text-step-reading-far: 22px;
-    --text-panel-figure-far: 27px;
+    --text-step-reading-far: calc(22 * var(--type-unit));
+    --text-panel-figure-far: calc(27 * var(--type-unit));
     --leading-figure-far: 1.25;
-    --text-body-far: 20px;
-    --text-line-far: 22px;
-    --text-read-far: 16px;
-    --text-label-far: 12px;
-    --text-foot-far: 22px;
-    --text-next-step: 21px;
+    --text-body-far: calc(20 * var(--type-unit));
+    --text-line-far: calc(22 * var(--type-unit));
+    --text-read-far: calc(16 * var(--type-unit));
+    --text-label-far: calc(12 * var(--type-unit));
+    --text-foot-far: calc(22 * var(--type-unit));
+    --text-next-step: calc(21 * var(--type-unit));
     --text-next-step--line-height: 1.3;
     --noren-h-far: 6px;
     --cook-tick-far: 22px;
@@ -390,8 +391,8 @@
   .sheet-window {
     top: 50%;
     transform: translateY(-50%);
-    max-width: 30rem;
-    max-height: min(80vh, 44rem);
+    max-width: 480px;
+    max-height: min(80vh, 704px);
     overflow-y: auto;
     border: 1px solid var(--color-rule);
     border-radius: var(--radius-sm);
@@ -653,7 +654,7 @@
     border-radius: 50%;
     background: var(--color-card);
     color: var(--color-accent);
-    font-size: 20px;
+    font-size: calc(20 * var(--type-unit));
     line-height: 1;
     &:disabled {
       opacity: 0.4;
@@ -794,12 +795,6 @@
   .w-12 {
     width: var(--spacing-12);
   }
-  .w-\[5\.5rem\] {
-    width: 5.5rem;
-  }
-  .w-\[18\.75rem\] {
-    width: 18.75rem;
-  }
   .w-\[18px\] {
     width: 18px;
   }
@@ -811,6 +806,12 @@
   }
   .w-\[72px\] {
     width: 72px;
+  }
+  .w-\[88px\] {
+    width: 88px;
+  }
+  .w-\[300px\] {
+    width: 300px;
   }
   .w-\[calc\(100\%-2\*var\(--spacing-gutter\)\)\] {
     width: calc(100% - 2 * var(--spacing-gutter));
@@ -844,8 +845,8 @@
   .max-w-2xl {
     max-width: var(--container-2xl);
   }
-  .max-w-\[34rem\] {
-    max-width: 34rem;
+  .max-w-\[544px\] {
+    max-width: 544px;
   }
   .max-w-\[560px\] {
     max-width: 560px;
@@ -1641,11 +1642,6 @@
   .has-disabled\:opacity-60:has(:disabled) {
     opacity: 60%;
   }
-  @media (width >= 40rem) {
-    .sm\:grid-cols-3 {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-  }
   @media (min-width: 700px) and (min-height: 560px) {
     .wide\:mx-0 {
       margin-inline: var(--spacing-0);
@@ -1700,6 +1696,9 @@
     }
     .wide\:flex-1 {
       flex: 1;
+    }
+    .wide\:grid-cols-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
     .wide\:flex-col {
       flex-direction: column;
@@ -2022,10 +2021,21 @@
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @layer base {
+  @supports (font: -apple-system-body) and (-webkit-touch-callout: none) {
+    :root {
+      --type-unit: clamp(1px, calc(1rem / 17), 1.35px);
+    }
+    html {
+      font: -apple-system-body;
+      font-family: var(--font-sans);
+      line-height: 1.5;
+    }
+  }
   body {
     background-color: var(--color-ground);
     color: var(--color-ink);
     font-family: var(--font-sans);
+    font-size: var(--text-body);
     font-variant-numeric: tabular-nums;
   }
   :focus-visible {

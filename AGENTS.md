@@ -174,6 +174,15 @@ pointer until it has a line there, and a screen test fails until it does. The ru
 so they beat the utility a control was written with. A picture that is itself
 the thing to click takes the class `brightens`.
 
+**A type size is a count of `--type-unit`, and no other length is written in rem**
+(#228, ADR 0046). The unit is 1px until the reader's own text size moves it, up
+to 1.35px, so `calc(26 * var(--type-unit))` is 26px at rest. The root's font
+size is the system's text size, and a width in rem would grow with someone's
+reading. Never write a font size in px on a screen: use a `text-*` token, and add
+one beside the others when a new size is chosen. `ui/src/lib/type-unit.spec.ts`
+fails on a px font size or a rem length in `ui/src/app.css`. Kamosu has no dark
+mode, on purpose (ADR 0045).
+
 **Tailwind reads `ui/src/` and nothing else**, declared with `source(none)` and
 an explicit `@source` at the top of `ui/src/app.css`. The automatic detection
 that replaced sweeps every non-gitignored file under `ui/` — including config

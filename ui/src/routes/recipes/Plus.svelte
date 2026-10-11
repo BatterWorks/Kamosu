@@ -148,7 +148,7 @@
 		{#if open}
 			<div
 				id={listId}
-				class="absolute top-full right-0 z-30 mt-2 w-[18.75rem] max-w-[calc(100vw-2*var(--spacing-gutter))] rounded-sm border border-rule bg-card shadow-[0_8px_24px_color-mix(in_srgb,var(--color-ink)_12%,transparent)]"
+				class="absolute top-full right-0 z-30 mt-2 w-[300px] max-w-[calc(100vw-2*var(--spacing-gutter))] rounded-sm border border-rule bg-card shadow-[0_8px_24px_color-mix(in_srgb,var(--color-ink)_12%,transparent)]"
 			>
 				<p class="border-b border-rule px-3 pt-3 pb-2 text-label text-ink-2 uppercase">
 					{m.plus_label()}

@@ -3,7 +3,7 @@
 //! This is the Rust half of a drawing that lives in two places, and it exists
 //! because the Share Link page is rendered by the server as plain HTML (#65,
 //! ADR 0012) while the app draws its own Covers in Svelte. The eight dyes and
-//! eight shapes are **generated** into `cover_faces.rs` from the TypeScript, so
+//! sixteen shapes are **generated** into `cover_faces.rs` from the TypeScript, so
 //! the artwork itself cannot drift. What is written twice is the arithmetic
 //! below — a hash and four remainders — and the tests at the foot of this file
 //! pin it against fixtures taken from the TypeScript, so the two cannot part
@@ -159,7 +159,9 @@ mod tests {
             (
                 "l_663dbc0e0c771e1a",
                 "ai",
-                "conchiglie",
+                // conchiglie until #228 doubled the shapes; this is the one
+                // eight places further on.
+                "fagottini",
                 0.857_992_589,
                 316.866_892_073,
                 0.495_633_609,
@@ -216,7 +218,7 @@ mod tests {
     #[test]
     fn the_two_lists_are_not_empty() {
         assert_eq!(DYES.len(), 8);
-        assert_eq!(PASTA_SHAPES.len(), 8);
+        assert_eq!(PASTA_SHAPES.len(), 16);
         for shape in PASTA_SHAPES {
             assert!(!shape.body.is_empty(), "{} has no body", shape.key);
         }

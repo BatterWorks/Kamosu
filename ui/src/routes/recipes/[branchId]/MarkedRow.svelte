@@ -202,8 +202,8 @@
 		content: '';
 		position: absolute;
 		left: 0;
-		top: 0.5rem;
-		bottom: 0.5rem;
+		top: 8px;
+		bottom: 8px;
 		width: 2px;
 		background: var(--whose);
 	}

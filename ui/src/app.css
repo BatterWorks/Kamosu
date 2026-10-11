@@ -111,6 +111,20 @@
      utility (`font-semibold`) cannot collide with the `font-display` family. */
   --font-weight-semibold: 600; /* steps, titles, covers, panel figures */
 
+  /* ── The reader's own text size (#228, ADR 0046) ──────────────────────────
+     One step of type. Every size below is a count of it, so "26" is the 26px
+     it always was while the unit is 1px, which it is until someone moves their
+     phone's text-size setting. The unit follows the root's font size, and the
+     system sets that: Chrome on Android through the `text-scale` meta in
+     `app.html`, iOS through the rule under "The root's font size" below.
+
+     It never goes under 1px, since a field's text under 16px makes iOS zoom
+     the page when the field is tapped. It stops at 1.35px, the top of the
+     iPhone's ordinary Text Size slider. The prototypes on #228 held there and
+     broke at 200% and at the 310% that Larger Accessibility Sizes reaches.
+     Only type follows: spacing, pictures and the height of a control are px. */
+  --type-unit: clamp(1px, calc(1rem / 16), 1.35px);
+
   /* ── Type scale — fitted to real content, not modular ────────────────────
      Ranking is spec (ADR 0011): the Step is the largest type in the app, the
      Ingredient Line sits at full size above body, its Reading subordinate. */
@@ -126,35 +140,35 @@
      the app, which that ADR records as spec — stays true rather than being
      reopened. The record of 26 August says these sizes were fitted to content
      rather than derived, and asked for them to be ratified; this is that. */
-  --text-step: 26px;            /* the Step — largest type in the app (#88) */
+  --text-step: calc(26 * var(--type-unit));            /* the Step — largest type in the app (#88) */
   --text-step--line-height: 1.24; /* 1.34 before #88, tightened with the size */
   --text-step--letter-spacing: -0.015em;
-  --text-title: 25px;           /* recipe title — under the Step, by #88 */
+  --text-title: calc(25 * var(--type-unit));           /* recipe title — under the Step, by #88 */
   --text-title--line-height: 1.16;
   --text-title--letter-spacing: -0.012em;
-  --text-line: 17px;            /* ingredient line — larger than body, deliberately */
+  --text-line: calc(17 * var(--type-unit));            /* ingredient line — larger than body, deliberately */
   --text-line--line-height: 1.4;
-  --text-list-title: 17px;      /* recipes list card title */
+  --text-list-title: calc(17 * var(--type-unit));      /* recipes list card title */
   --text-list-title--line-height: 1.2;
   /* These three finish tokenising sizes that the #36 record found still
      hard-coded in the chosen direction's shape.css (tag
      prototype/36-visual-identity): shelf headings (.k-shelf-h h2), tile titles
      (.k-tile h3) and the amounts-panel figure (.k-need b). The record names
      them as #80's to tokenise; the numbers are theirs, not invented here. */
-  --text-shelf-heading: 18px;   /* shelf headings on Home */
+  --text-shelf-heading: calc(18 * var(--type-unit));   /* shelf headings on Home */
   --text-shelf-heading--line-height: 1.2;
-  --text-tile-title: 15px;      /* tile titles beneath covers */
+  --text-tile-title: calc(15 * var(--type-unit));      /* tile titles beneath covers */
   --text-tile-title--line-height: 1.22;
-  --text-panel-figure: 21px;    /* numerals in the cooking amounts panel */
-  --text-body: 16px;            /* interface body text */
+  --text-panel-figure: calc(21 * var(--type-unit));    /* numerals in the cooking amounts panel */
+  --text-body: calc(16 * var(--type-unit));            /* interface body text */
   --text-body--line-height: 1.55;
-  --text-read: 12.5px;          /* a reading, subordinate under its line */
-  --text-step-reading: 15px;    /* a reading inside the 26px Step at the stove (#150, option A) */
+  --text-read: calc(12.5 * var(--type-unit));          /* a reading, subordinate under its line */
+  --text-step-reading: calc(15 * var(--type-unit));    /* a reading inside the 26px Step at the stove (#150, option A) */
   --text-step-reading--letter-spacing: 0em; /* undoes the Step's tightening around it */
   /* 10.5 until #225: the audit of 9 October 2026 found it at the edge of
      legibility on a phone (TAGS, INGREDIENTS, the bar's words), and the record
      of 26 August asked for the fitted sizes to be ratified, not inherited. */
-  --text-label: 12px;           /* uppercase labels */
+  --text-label: calc(12 * var(--type-unit));           /* uppercase labels */
   --text-label--letter-spacing: 0.15em;
 
   /* ── Spacing — seven steps and a gutter, nothing else exists ──────────────
@@ -174,6 +188,10 @@
      on 5 October 2026 (#194, ADR 0044), narrow so that an upright tablet
      keeps almost all of its width for the page. */
   --spacing-rail: 88px;
+  /* The page's column, 672. Tailwind writes it as 42rem, and the root's font
+     size is the reader's text size since #228, so in rem the column would
+     widen with their type. */
+  --container-2xl: 672px;
   /* ── Shape ──────────────────────────────────────────────────────────────── */
   --radius-sm: 2px;             /* near-square is the direction: everywhere, */
   --radius-md: 2px;             /* including buttons and fields */
@@ -218,19 +236,19 @@
      fitted the phone's: every Step in the library, each with its own amounts,
      at the iPad Pro 11"'s height in the installed app. The figures are on #197.
      38px keeps the Step the largest type in the app (ADR 0011). */
-  --text-step-far: 38px;
+  --text-step-far: calc(38 * var(--type-unit));
   --text-step-far--line-height: 1.22;
-  --text-step-reading-far: 22px;
-  --text-panel-figure-far: 27px;
+  --text-step-reading-far: calc(22 * var(--type-unit));
+  --text-panel-figure-far: calc(27 * var(--type-unit));
   /* An amount that wraps keeps its two lines together. The phone's inherits
      the body's, which at 27px left a gap as tall as the one between amounts. */
   --leading-figure-far: 1.25;
-  --text-body-far: 20px;
-  --text-line-far: 22px;        /* still larger than body, as on the phone */
-  --text-read-far: 16px;
-  --text-label-far: 12px;
-  --text-foot-far: 22px;        /* Back and Next */
-  --text-next-step: 21px;       /* the next Step, small beside this one */
+  --text-body-far: calc(20 * var(--type-unit));
+  --text-line-far: calc(22 * var(--type-unit));        /* still larger than body, as on the phone */
+  --text-read-far: calc(16 * var(--type-unit));
+  --text-label-far: calc(12 * var(--type-unit));
+  --text-foot-far: calc(22 * var(--type-unit));        /* Back and Next */
+  --text-next-step: calc(21 * var(--type-unit));       /* the next Step, small beside this one */
   --text-next-step--line-height: 1.3;
   --noren-h-far: 6px;
   --cook-tick-far: 22px;        /* an amount's tick box; 16 on the phone */
@@ -414,10 +432,36 @@
 }
 
 @layer base {
+  /* The root's font size (#228, ADR 0046) is the system's text size, read
+     through `--type-unit` and by nothing else. iOS offers no switch for a web
+     page to follow Dynamic Type. What it has is a font named for the system's
+     body style, whose size is the setting's: 17px at rest, 14 to 23 along the
+     Text Size slider, up to 53 with Larger Accessibility Sizes. Naming it on
+     the root makes 1rem that size, and the unit divides by 17 here where
+     everywhere else divides by 16. The shorthand also sets a family and a
+     line height, so the two Tailwind's reset gave the root are said after it.
+
+     The second half of the test is what keeps a Mac out: Safari there knows
+     the font too, at 13px, and would set everything at three quarters. */
+  @supports (font: -apple-system-body) and (-webkit-touch-callout: none) {
+    :root {
+      --type-unit: clamp(1px, calc(1rem / 17), 1.35px);
+    }
+
+    html {
+      font: -apple-system-body;
+      font-family: var(--font-sans);
+      line-height: 1.5;
+    }
+  }
+
   body {
     background-color: var(--color-ground);
     color: var(--color-ink);
     font-family: var(--font-sans);
+    /* Said here so that words with no size of their own are body text, and
+       not whatever the root's size happens to be (#228). */
+    font-size: var(--text-body);
     font-variant-numeric: tabular-nums;
   }
 
@@ -626,8 +670,8 @@
 @utility sheet-window {
   top: 50%;
   transform: translateY(-50%);
-  max-width: 30rem;
-  max-height: min(80vh, 44rem);
+  max-width: 480px;
+  max-height: min(80vh, 704px);
   /* For the sheets that never needed to scroll at the foot of a phone and so
      never said how. One that scrolls a part of itself still does. */
   overflow-y: auto;
@@ -892,7 +936,7 @@
   border-radius: 50%;
   background: var(--color-card);
   color: var(--color-accent);
-  font-size: 20px;
+  font-size: calc(20 * var(--type-unit));
   line-height: 1;
 
   &:disabled {

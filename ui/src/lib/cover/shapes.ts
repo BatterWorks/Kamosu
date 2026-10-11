@@ -1,5 +1,7 @@
 /**
- * The eight pasta shapes a Cover is drawn from (#46).
+ * The sixteen pasta shapes a Cover is drawn from: eight from #46 and eight
+ * more from #228, when a library of ninety recipes showed the same shape too
+ * often.
  *
  * Each shape is authored in a `0 0 100 100` viewBox with absolute
  * coordinates and closed subpaths only — no strokes, no transforms — so a
@@ -25,7 +27,16 @@ export interface PastaShape {
 /**
  * Order is part of the contract. A Cover is chosen by index, so inserting or
  * reordering a shape changes the face of every recipe already on every
- * instance — and a Cover that changes is a Cover that has failed.
+ * instance — and a Cover that changes is a Cover that has failed. A new shape
+ * goes on the end.
+ *
+ * There are sixteen because there were eight (#228). A Cover reads the Lineage
+ * id alone, so no rule can keep every Cover already drawn and still reach a
+ * new shape. Doubling the list costs the least there is to pay: a number's
+ * remainder by sixteen is its remainder by eight, or that plus eight, so each
+ * Lineage has the shape it had or the one eight places further on. About half
+ * changed, once, and none moved from one old shape to another. Any length that
+ * is no multiple of the last one reshuffles them all.
  */
 export const PASTA_SHAPES: readonly PastaShape[] = [
 	{
@@ -131,6 +142,123 @@ export const PASTA_SHAPES: readonly PastaShape[] = [
 		],
 		detail: [
 			'M 50 42.5 C 54.1 42.5 57.5 45.9 57.5 50 C 57.5 54.1 54.1 57.5 50 57.5 C 45.9 57.5 42.5 54.1 42.5 50 C 42.5 45.9 45.9 42.5 50 42.5 Z',
+		],
+	},
+	// The eight #228 added, each eight places after the shape it took over from.
+	{
+		key: 'ravioli',
+		name: 'Ravioli',
+		body: [
+			'M 15 15 Q 20 9.5 25 15 Q 30 9.5 35 15 Q 40 9.5 45 15 Q 50 9.5 55 15 Q 60 9.5 65 15 Q 70 9.5 75 15 Q 80 9.5 85 15 Q 90.5 20 85 25 Q 90.5 30 85 35 Q 90.5 40 85 45 Q 90.5 50 85 55 Q 90.5 60 85 65 Q 90.5 70 85 75 Q 90.5 80 85 85 Q 80 90.5 75 85 Q 70 90.5 65 85 Q 60 90.5 55 85 Q 50 90.5 45 85 Q 40 90.5 35 85 Q 30 90.5 25 85 Q 20 90.5 15 85 Q 9.5 80 15 75 Q 9.5 70 15 65 Q 9.5 60 15 55 Q 9.5 50 15 45 Q 9.5 40 15 35 Q 9.5 30 15 25 Q 9.5 20 15 15 Z',
+		],
+		detail: [
+			'M 36 27 C 46 25.5 56 25.5 65 27 C 70 28 72.5 30.5 73.5 36 C 75 46 75 56 73.5 65 C 72.5 70 70 72.5 65 73.5 C 55 75 45 75 36 73.5 C 30.5 72.5 28 70 27 65 C 25.5 55 25.5 45 27 36 C 28 30.5 30.5 28 36 27 Z M 37 29.5 C 32.5 30 30 32.5 29.5 37 C 28.5 46 28.5 54 29.5 62 C 30 66.5 32 69 36.5 69.5 C 45 70.5 54 70.5 62 69.5 C 66.5 69 69 66.5 69.5 62 C 70.5 54 70.5 46 69.5 37 C 69 32.5 66.5 30 62 29.5 C 54 28.5 46 28.5 37 29.5 Z',
+			'M 36 35 C 42 33.5 50 33 57 33.5 C 50 35 42 36.5 36.5 39 Z',
+		],
+	},
+	{
+		key: 'tortellini',
+		name: 'Tortellini',
+		body: [
+			'M 50 8 C 57 20 72 30 84 44 C 93 55 90 74 76 84 C 62 93 38 93 24 84 C 10 74 7 55 16 44 C 28 30 43 20 50 8 Z M 50 52 C 41 52 35 58 35 65 C 35 72 41 78 50 78 C 59 78 65 72 65 65 C 65 58 59 52 50 52 Z',
+		],
+		detail: [
+			'M 14 53 C 27 44 40 39.5 50 39.5 C 60 39.5 73 44 86 53 C 73 47.5 61 44.5 50 44.5 C 39 44.5 27 47.5 14 53 Z',
+			'M 50 14 C 47.8 22 47.4 30 48.6 37 C 51.2 30 51.8 22 50 14 Z',
+			'M 48.5 79 C 50 83 52.5 87 56 90.5 C 52 88.5 49 84.5 47 79.5 Z',
+		],
+	},
+	{
+		key: 'caramelle',
+		name: 'Caramelle',
+		body: [
+			'M 32 34 C 40 29 60 29 68 34 C 72 37 73 42 74 45 C 80 40 86 32 90 25 Q 93.5 31 91 37.5 Q 95.5 43.5 92 50 Q 95.5 56.5 91 62.5 Q 93.5 69 90 75 C 86 68 80 60 74 55 C 73 58 72 63 68 66 C 60 71 40 71 32 66 C 28 63 27 58 26 55 C 20 60 14 68 10 75 Q 6.5 69 9 62.5 Q 4.5 56.5 8 50 Q 4.5 43.5 9 37.5 Q 6.5 31 10 25 C 14 32 20 40 26 45 C 27 42 28 37 32 34 Z',
+		],
+		detail: [
+			'M 71 38 C 74.5 44 74.5 56 71 62 C 77 56 77 44 71 38 Z',
+			'M 29 38 C 25.5 44 25.5 56 29 62 C 23 56 23 44 29 38 Z',
+			'M 78 47 C 82 43 86 37 89 30 C 88 39 85 45.5 80.5 49.5 Z',
+			'M 78 53 C 82 57 86 63 89 70 C 88 61 85 54.5 80.5 50.5 Z',
+			'M 22 47 C 18 43 14 37 11 30 C 12 39 15 45.5 19.5 49.5 Z',
+			'M 22 53 C 18 57 14 63 11 70 C 12 61 15 54.5 19.5 50.5 Z',
+			'M 37 38 C 45 34.5 56 34.5 64 38 C 56 37 45 37.5 37.5 41 Z',
+		],
+	},
+	{
+		key: 'fagottini',
+		name: 'Fagottini',
+		body: [
+			'M 44 35 C 40 28 34 20 27 14 Q 32.5 8 38 13 Q 43 6.5 48 12 Q 53 6 58 12 Q 63 7.5 67.5 13 Q 72.5 10.5 74 15.5 C 67 21 60 28 56 35 C 68 38 82 48 83 64 C 84 80 68 91 50 91 C 32 91 16 80 17 64 C 18 48 32 38 44 35 Z',
+		],
+		detail: [
+			'M 43 33.5 C 47 36.5 53 36.5 57 33.5 C 56.5 38 53 40 50 40 C 47 40 43.5 38 43 33.5 Z',
+			'M 47 42 C 42 52 38 64 37 78 C 41.5 64 45.5 52 49.7 42 Z',
+			'M 53 42 C 58 52 62 64 63 78 C 58.5 64 54.5 52 50.3 42 Z',
+			'M 40 42 C 32 48 26 57 23 68 C 29.5 58 35.5 50 42.5 44.5 Z',
+			'M 60 42 C 68 48 74 57 77 68 C 70.5 58 64.5 50 57.5 44.5 Z',
+			'M 46 31.5 C 43 25 39 19.5 34.5 15 C 40.5 19.5 45 25.5 48 31.5 Z',
+			'M 54 31.5 C 57 25 61 19.5 65.5 15 C 59.5 19.5 55 25.5 52 31.5 Z',
+			'M 49.2 30.5 C 48.9 24 49.3 17.5 50 12.5 C 50.7 17.5 51.1 24 50.8 30.5 Z',
+		],
+	},
+	{
+		key: 'gnocchi',
+		name: 'Gnocchi',
+		body: [
+			'M 50 10 C 68 10 81 27 81 50 C 81 73 68 90 50 90 C 32 90 19 73 19 50 C 19 27 32 10 50 10 Z',
+		],
+		detail: [
+			'M 33 22 C 41.5 28 58.5 28 67 22 C 58.5 31.5 41.5 31.5 33 22 Z',
+			'M 26 34 C 38 40 62 40 74 34 C 62 43.5 38 43.5 26 34 Z',
+			'M 24 46 C 37 52 63 52 76 46 C 63 55.5 37 55.5 24 46 Z',
+			'M 25 58 C 37.5 64 62.5 64 75 58 C 62.5 67.5 37.5 67.5 25 58 Z',
+			'M 31 70 C 40.5 76 59.5 76 69 70 C 59.5 79.5 40.5 79.5 31 70 Z',
+		],
+	},
+	{
+		key: 'lasagne',
+		name: 'Lasagne ricce',
+		body: [
+			'M 5 30 Q 9.5 24 14 30 Q 18.5 36 23 30 Q 27.5 24 32 30 Q 36.5 36 41 30 Q 45.5 24 50 30 Q 54.5 36 59 30 Q 63.5 24 68 30 Q 72.5 36 77 30 Q 81.5 24 86 30 Q 90.5 36 95 30 C 96.5 43 96.5 57 95 70 Q 90.5 76 86 70 Q 81.5 64 77 70 Q 72.5 76 68 70 Q 63.5 64 59 70 Q 54.5 76 50 70 Q 45.5 64 41 70 Q 36.5 76 32 70 Q 27.5 64 23 70 Q 18.5 76 14 70 Q 9.5 64 5 70 C 3.5 57 3.5 43 5 30 Z',
+		],
+		detail: [
+			'M 7 39.5 C 30 38 70 38 93 39.5 C 70 41.6 30 41.6 7 42.5 Z',
+			'M 7 57.5 C 30 58.4 70 58.4 93 60.5 C 70 62 30 62 7 60.5 Z',
+			'M 14 31 C 15.5 33.5 15.5 36 14 38.5 C 12.8 36 12.8 33.5 14 31 Z',
+			'M 32 31 C 33.5 33.5 33.5 36 32 38.5 C 30.8 36 30.8 33.5 32 31 Z',
+			'M 50 31 C 51.5 33.5 51.5 36 50 38.5 C 48.8 36 48.8 33.5 50 31 Z',
+			'M 68 31 C 69.5 33.5 69.5 36 68 38.5 C 66.8 36 66.8 33.5 68 31 Z',
+			'M 86 31 C 87.5 33.5 87.5 36 86 38.5 C 84.8 36 84.8 33.5 86 31 Z',
+			'M 23 61.5 C 24.5 64 24.5 66.5 23 69 C 21.8 66.5 21.8 64 23 61.5 Z',
+			'M 41 61.5 C 42.5 64 42.5 66.5 41 69 C 39.8 66.5 39.8 64 41 61.5 Z',
+			'M 59 61.5 C 60.5 64 60.5 66.5 59 69 C 57.8 66.5 57.8 64 59 61.5 Z',
+			'M 77 61.5 C 78.5 64 78.5 66.5 77 69 C 75.8 66.5 75.8 64 77 61.5 Z',
+		],
+	},
+	{
+		key: 'campanelle',
+		name: 'Campanelle',
+		body: [
+			'M 50 92 C 44 78 30 56 12 33 Q 15.5 22 24 26.5 Q 28 13.5 37 21 Q 43 9.5 50 19 Q 57 9.5 63 21 Q 72 13.5 76 26.5 Q 84.5 22 88 33 C 70 56 56 78 50 92 Z',
+		],
+		detail: [
+			'M 21 33 C 34 27.5 66 27.5 79 33 C 66 39.5 34 39.5 21 33 Z',
+			'M 33 44 C 39.5 57 45 71 49 85 C 42.5 71 37 57.5 30 45.5 Z',
+			'M 67 44 C 60.5 57 55 71 51 85 C 57.5 71 63 57.5 70 45.5 Z',
+			'M 49.1 45 C 48.8 58 49.3 70 50 81 C 50.7 70 51.2 58 50.9 45 Z',
+		],
+	},
+	{
+		key: 'orecchiette',
+		name: 'Orecchiette',
+		body: [
+			'M 50 11 C 73 10 91 28 90 51 C 89 73 72 90 49 89 C 27 88 10 71 11 49 C 12 27 28 12 50 11 Z',
+		],
+		detail: [
+			'M 26 40 C 23 59 38 76 57 75 C 69 74.5 77 66 79 55 C 73 64 64.5 68.5 54 67.5 C 40 66 29 55 26 40 Z',
+			'M 21 31 C 27 22.5 35.5 17 45 15.5 C 37 19.5 30 25 25 33 Z',
+			'M 58 16 C 67 18 75 23.5 80 31 C 74 25.5 67 21.5 58.5 19.5 Z',
+			'M 40 28 C 47 25.5 55 26 62 29 C 55 28.5 47 29 41 31.5 Z',
 		],
 	},
 ];

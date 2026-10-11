@@ -550,7 +550,7 @@
 	.langs {
 		display: flex;
 		align-items: center;
-		font-size: 12px;
+		font-size: var(--text-label);
 		letter-spacing: 0.08em;
 		color: var(--color-ink-2);
 	}
@@ -559,7 +559,7 @@
 	}
 	.chrome button {
 		font: inherit;
-		font-size: 12px;
+		font-size: var(--text-label);
 		color: var(--color-ink-2);
 		background: none;
 		border: 0;
@@ -701,7 +701,7 @@
 		bottom: 18px;
 		margin: 0;
 		text-align: center;
-		font-size: 12px;
+		font-size: var(--text-label);
 		letter-spacing: 0.06em;
 		color: var(--color-ink-2);
 		opacity: 0;
@@ -1784,7 +1784,7 @@
 	.cta {
 		display: block;
 		text-align: center;
-		font-size: 16px;
+		font-size: var(--text-body);
 		font-weight: 700;
 		color: var(--color-on-accent);
 		background: var(--color-accent);

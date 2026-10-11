@@ -1253,7 +1253,7 @@
 		<div class="border-t border-rule p-2">
 			<span id="{uid}-makes" class="block text-label text-ink-2 uppercase">{m.write_makes()}</span>
 			<div class="mt-1 flex gap-2">
-				<div class="w-[5.5rem] shrink-0">
+				<div class="w-[88px] shrink-0">
 					<input
 						bind:value={yieldAmount}
 						inputmode="numeric"

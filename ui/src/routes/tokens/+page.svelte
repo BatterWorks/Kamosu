@@ -36,7 +36,7 @@
 
 <Screen title={m.tokens_title()} blurb={m.tokens_blurb()}>
 	<Section heading={m.tokens_colour()}>
-		<ul class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+		<ul class="grid grid-cols-2 gap-2 wide:grid-cols-3">
 			{#each colours as colour (colour.name)}
 				<li class="overflow-hidden rounded-sm border border-rule bg-card">
 					<div class="h-12" style="background-color: var({colour.name})"></div>

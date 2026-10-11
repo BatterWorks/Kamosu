@@ -232,13 +232,19 @@ mod tests {
         // phone actually gives it once Safari's URL bar is counted. A future
         // change that shrinks the Step past the title breaks the ADR, and this
         // is what says so.
+        // A type size is a count of `--type-unit` (#228), which is 1px until
+        // the reader's own text size moves it, so the count is the size in px.
         let px = |name: &str| -> f32 {
             vars.get(name)
-                .and_then(|value| value.strip_suffix("px"))
+                .and_then(|value| value.strip_prefix("calc("))
+                .and_then(|value| value.strip_suffix(" * var(--type-unit))"))
                 .and_then(|value| value.parse().ok())
-                .unwrap_or_else(|| panic!("{name} is missing or is not a px value"))
+                .unwrap_or_else(|| panic!("{name} is missing or is not a count of the type unit"))
         };
-        assert_eq!(vars.get("--text-step").map(String::as_str), Some("26px"));
+        assert_eq!(
+            vars.get("--text-step").map(String::as_str),
+            Some("calc(26 * var(--type-unit))")
+        );
         assert!(
             px("--text-step") > px("--text-title"),
             "ADR 0011: the Step is the largest type in the app"

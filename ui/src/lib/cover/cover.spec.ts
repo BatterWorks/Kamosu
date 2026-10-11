@@ -58,7 +58,7 @@ describe('a Cover is the same wherever it is drawn', () => {
 				return `${cover.dye.key}/${cover.shape.key}/${cover.rotation}`;
 			}),
 		);
-		// 400 ids over 64 dye-and-shape pairs, each with a continuous rotation:
+		// 400 ids over 128 dye-and-shape pairs, each with a continuous rotation:
 		// collisions on the whole face should be vanishingly rare.
 		expect(faces.size).toBeGreaterThan(395);
 	});
@@ -119,6 +119,68 @@ describe('a Cover is painted in the app’s own colours', () => {
 	});
 });
 
+describe('more shapes cost the least they can (#228)', () => {
+	// The shape each of these wore while there were eight, taken from `coverFor`
+	// as it stood before #228. A Cover reads the Lineage id alone, so no rule
+	// can keep every Cover already drawn and still reach a new shape. What can
+	// be kept is this: a Lineage has the shape it had, or one of the new ones.
+	// It holds because sixteen is twice eight (see `shapes.ts`), and it fails
+	// the day the list takes a length that is no multiple of eight.
+	const before: [string, string][] = [
+		['l_3cbb8cf9dfa8c767', 'penne'],
+		['l_622bdd6ca3076374', 'ruote'],
+		['l_08afc10f286ccac0', 'farfalle'],
+		['l_8b5ebd95b115e9bc', 'fusilli'],
+		['l_2acd5b76479f4e15', 'stelline'],
+		['l_991e3aed69377659', 'fusilli'],
+		['l_5d579743c813e9d8', 'farfalle'],
+		['l_e1f5fc4b1b1c7cce', 'conchiglie'],
+		['l_42c2322e2eee64bf', 'ruote'],
+		['l_2de4a36aac040123', 'ruote'],
+		['l_6c38c116462d7c44', 'ruote'],
+		['l_e4df29694943a864', 'ruote'],
+		['l_3016947bb71cbd24', 'stelline'],
+		['l_0d4ccb4b6ac1d923', 'fettuccine'],
+		['l_506f2d02f4df6be3', 'fettuccine'],
+		['l_1a878677257cebf2', 'fusilli'],
+	];
+	const added = PASTA_SHAPES.slice(8).map((shape) => shape.key);
+
+	it('has sixteen shapes, the first eight where they were', () => {
+		expect(PASTA_SHAPES.map((shape) => shape.key)).toEqual([
+			'farfalle',
+			'fusilli',
+			'penne',
+			'conchiglie',
+			'ruote',
+			'gomiti',
+			'fettuccine',
+			'stelline',
+			'ravioli',
+			'tortellini',
+			'caramelle',
+			'fagottini',
+			'gnocchi',
+			'lasagne',
+			'campanelle',
+			'orecchiette',
+		]);
+	});
+
+	it('never moves a Lineage from one of the first eight to another', () => {
+		let kept = 0;
+		for (const [id, was] of before) {
+			const now = coverFor(id).shape.key;
+			if (now === was) kept++;
+			else expect(added, `${id} was ${was} and is ${now}`).toContain(now);
+		}
+		// About half keep theirs. All sixteen keeping it would mean no new shape
+		// is ever reached, and none keeping it would mean every Cover changed.
+		expect(kept).toBeGreaterThan(3);
+		expect(kept).toBeLessThan(13);
+	});
+});
+
 describe('a shelf of Covers looks like a shelf', () => {
 	// The first draft of this hashed with plain FNV-1a, whose low bits are
 	// poorly mixed: on twelve real recipes one dye landed five times and one
@@ -164,7 +226,7 @@ describe('a shelf of Covers looks like a shelf', () => {
 
 	it('does not correlate the dye with the shape', () => {
 		// Independent choices, not one hash sliced twice: if dye and shape moved
-		// together a library would show only eight faces instead of sixty-four.
+		// together a library would show only sixteen faces instead of 128.
 		const perDye = new Map<string, Set<string>>();
 		for (const id of ids) {
 			const cover = coverFor(id);

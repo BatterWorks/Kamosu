@@ -88,14 +88,29 @@ export interface TypeStep {
 	letterSpacing: string;
 }
 
+/**
+ * A type size as the browser draws it now. A size is declared as a count of
+ * `--type-unit` (#228, ADR 0046), which reads back as the sum it is written
+ * as, so the size is taken from something set in it: 26px at rest, and more
+ * on a device whose text size has been raised.
+ */
+function drawnSize(name: string): string {
+	const probe = document.createElement('span');
+	probe.style.fontSize = `var(${name})`;
+	document.body.append(probe);
+	const size = getComputedStyle(probe).fontSize;
+	probe.remove();
+	return size;
+}
+
 /** Every step of the scale, with the line height and tracking declared beside it. */
 export function readTypeScale(): TypeStep[] {
-	return TYPE_ORDER.map((name) => ({
+	return TYPE_ORDER.filter((name) => readToken(name) !== '').map((name) => ({
 		name,
-		size: readToken(name),
+		size: drawnSize(name),
 		lineHeight: readToken(`${name}--line-height`),
 		letterSpacing: readToken(`${name}--letter-spacing`),
-	})).filter((step) => step.size !== '');
+	}));
 }
 
 export function readSpacing(): { name: string; value: string }[] {

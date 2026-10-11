@@ -549,6 +549,7 @@ fn shell(language: &str, title: &str, head: String, body: String) -> String {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="text-scale" content="scale">
 {mark}
 <title>{title}</title>
 <link rel="stylesheet" href="/assets/app.css">
@@ -571,7 +572,7 @@ fn plain_page(language: &str, heading: &str, body: &str) -> String {
         &format!("{} · Kamosu", escape(heading)),
         String::new(),
         format!(
-            r#"<div class="mx-auto max-w-[34rem] px-4 py-12">
+            r#"<div class="mx-auto max-w-[544px] px-4 py-12">
   <div class="rounded-sm border border-rule bg-card p-6">
     <h1 class="font-display text-title font-semibold">{}</h1>
     <p class="mt-3 text-body text-ink-2">{}</p>
@@ -650,7 +651,7 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
     let thread = thread_of(shared, words);
 
     let body = format!(
-        r#"<div class="mx-auto max-w-[34rem] px-4 py-6 pb-12">
+        r#"<div class="mx-auto max-w-[544px] px-4 py-6 pb-12">
   <p class="flex items-center gap-2 px-2 pb-3 text-read text-ink-2">
     <span class="h-4 w-4 shrink-0 rounded-sm bg-accent" aria-hidden="true"></span>
     <span>{sharer_line}</span>
@@ -1360,6 +1361,15 @@ mod tests {
         assert_eq!(words("es").standing, ES.standing);
         // An unknown Language falls back rather than showing nothing.
         assert_eq!(words("de").standing, EN.standing);
+    }
+
+    /// A stranger's type follows their phone's text size as a member's does
+    /// (#228). The stylesheet does the rest, and Chrome on Android gives it the
+    /// system's size only to a page that asks this way.
+    #[test]
+    fn the_page_asks_for_the_systems_text_size() {
+        let html = shell("en", "t", String::new(), String::new());
+        assert!(html.contains(r#"<meta name="text-scale" content="scale">"#));
     }
 
     /// A Cover never wears the wash (#46, #81): its dye was chosen.

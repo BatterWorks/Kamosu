@@ -8,6 +8,10 @@
 		<!-- Filled in from --color-ground by the root layout: a colour typed here
 		     would be a second place the look lives. -->
 		<meta name="theme-color" />
+		<!-- Chrome on Android sets the root's font size from the system's text
+		     size once a page asks for it this way (#228). `--type-unit` in
+		     `app.css` is what reads it, and iOS is asked there. -->
+		<meta name="text-scale" content="scale" />
 		<meta name="mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-title" content="Kamosu" />
 		<link rel="manifest" href="/manifest.webmanifest" />
