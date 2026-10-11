@@ -613,8 +613,11 @@ pub fn list_tags(core: &Core, invocation: &Invocation, input: Value) -> Result<V
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let kitchen_id = input.get("kitchen_id").and_then(Value::as_str);
+    let cookbook_id = input.get("cookbook_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
-    Ok(json!({ "tags": core.list_tags(&caller.person_id, everywhere, kitchen_id)? }))
+    Ok(json!({
+        "tags": core.list_tags(&caller.person_id, everywhere, kitchen_id, cookbook_id)?
+    }))
 }
 
 pub fn rename_tag(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
@@ -1256,10 +1259,18 @@ pub fn search_recipes(
 ) -> Result<Value, OpError> {
     let query = input.get("query").and_then(Value::as_str);
     let kitchen_id = input.get("kitchen_id").and_then(Value::as_str);
+    let cookbook_id = input.get("cookbook_id").and_then(Value::as_str);
     let mine = input.get("mine").and_then(Value::as_bool).unwrap_or(false);
     let tag_id = input.get("tag_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
-    core.search_recipes(&caller.person_id, query, kitchen_id, mine, tag_id)
+    core.search_recipes(
+        &caller.person_id,
+        query,
+        kitchen_id,
+        cookbook_id,
+        mine,
+        tag_id,
+    )
 }
 
 /// Home's computed shelves (#64). Like the diary it takes no input: whose Home

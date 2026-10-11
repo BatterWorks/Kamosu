@@ -833,6 +833,7 @@ export type CreateTagOutput = {
 
 /** List every Tag your own Cookbook files by. Each is shown in the reader's Reading Language where it has a name there. With `everywhere`, every word any Cookbook you may see files by, one entry per word — what a shelf filters by. With a `kitchen_id`, the same for the Cookbooks seen in that one Kitchen of yours. */
 export type ListTagsInput = {
+	cookbook_id?: string;
 	everywhere?: boolean;
 	kitchen_id?: string;
 };
@@ -1961,6 +1962,7 @@ export type UploadPhotographOutput = {
 
 /** The shelf, and searching it. With no query: everything the Kitchens this Person cooks in hold, merged, alphabetical, one entry per Lineage, each titled in the reader's Reading Language with a marked fallback. With a query: the same shelf narrowed to what matched, an exact title first, every entry quoting the line that matched. One Operation either way — Meaning Search arrives here rather than beside it (ADR 0027, ADR 0029). */
 export type SearchRecipesInput = {
+	cookbook_id?: string | null;
 	kitchen_id?: string | null;
 	mine?: boolean;
 	query?: string | null;
@@ -9210,6 +9212,10 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"cookbook_id": {
+					"description": "One Cookbook you can see: the words it files by. One you cannot see is answered as not found.",
+					"type": "string"
+				},
 				"everywhere": {
 					"type": "boolean"
 				},
@@ -15131,6 +15137,13 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"cookbook_id": {
+					"description": "Only recipes with a Branch in this Cookbook, each entry opening that Branch. Your own Cookbook or any other you can see: `list_kitchens` answers their ids. One you cannot see is answered as not found.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
 				"kitchen_id": {
 					"type": [
 						"string",

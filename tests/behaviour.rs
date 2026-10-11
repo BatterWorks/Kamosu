@@ -29460,3 +29460,121 @@ mod reading_a_recipe_pdf {
         );
     }
 }
+
+/// **The shelf narrows to one Cookbook** (#231): the reader's own or any other
+/// they can see. A recipe with a Branch there is on the narrowed shelf and its
+/// card opens that Branch, the filter composes with the others, and a Cookbook
+/// the caller may not see is absent, at both Doors.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_shelf_narrows_to_one_cookbook_and_opens_its_branch() {
+    let app = support::spawn_app();
+    let (_, stephane) = someone(&app, "Stéphane");
+    let (_, helene) = someone(&app, "Hélène");
+    kitchen_of(&app, &stephane, "Family", &[&helene]);
+    let mousse = written(&app, &stephane, "Mousse");
+    let his_tartiflette = written(&app, &stephane, "Tartiflette");
+    let tarte = written(&app, &helene, "Tarte");
+    written(&app, &helene, "Soupe");
+    // She changes his Tartiflette, which starts a Branch of it in her Cookbook.
+    let (status, changed) = app.post_op(
+        "edit_recipe",
+        Some(&helene),
+        &json!({ "branch_id": his_tartiflette, "note": "With more reblochon." }).to_string(),
+    );
+    assert_eq!(status, 200, "{changed}");
+    let her_tartiflette = changed["result"]["branch_id"].as_str().unwrap().to_string();
+    assert_ne!(her_tartiflette, his_tartiflette, "{changed}");
+    let cookbook_of = |branch: &str| read_as(&app, &stephane, branch).1["cookbook"]["id"].clone();
+    let (his, hers) = (cookbook_of(&mousse), cookbook_of(&tarte));
+
+    // Unnarrowed, his Tartiflette card opens his own Branch. Narrowed to her
+    // Cookbook it opens hers, never one the filter left out.
+    let whole = shelf(&app, &stephane, json!({}));
+    assert_eq!(titles(&whole), ["Mousse", "Soupe", "Tarte", "Tartiflette"]);
+    assert_eq!(whole[3]["branch_id"], json!(his_tartiflette));
+    let of_hers = shelf(&app, &stephane, json!({ "cookbook_id": hers }));
+    assert_eq!(titles(&of_hers), ["Soupe", "Tarte", "Tartiflette"]);
+    assert_eq!(of_hers[2]["branch_id"], json!(her_tartiflette));
+    let of_his = shelf(&app, &stephane, json!({ "cookbook_id": his }));
+    assert_eq!(titles(&of_his), ["Mousse", "Tartiflette"]);
+    assert_eq!(of_his[1]["branch_id"], json!(his_tartiflette));
+    // `null` is no filter, as it is for a Kitchen.
+    assert_eq!(
+        shelf(&app, &stephane, json!({ "cookbook_id": null })).len(),
+        4
+    );
+
+    // It composes: with the words typed, with a Tag, with the history.
+    let found = shelf(
+        &app,
+        &stephane,
+        json!({ "cookbook_id": hers, "query": "tart" }),
+    );
+    let mut found = titles(&found);
+    found.sort();
+    assert_eq!(found, ["Tarte", "Tartiflette"]);
+    let dessert = tag_in(&app, &helene, "en", "Dessert");
+    file_under(&app, &helene, &tarte, &dessert, true);
+    let his_dessert = tag_in(&app, &stephane, "en", "dessert");
+    file_under(&app, &stephane, &mousse, &his_dessert, true);
+    let tagged = shelf(
+        &app,
+        &stephane,
+        json!({ "cookbook_id": hers, "tag_id": dessert }),
+    );
+    assert_eq!(titles(&tagged), ["Tarte"], "Mousse is filed in his");
+    cook_it(&app, &stephane, &tarte, json!({}));
+    let cooked = shelf(
+        &app,
+        &stephane,
+        json!({ "cookbook_id": hers, "mine": true }),
+    );
+    assert_eq!(titles(&cooked), ["Tarte", "Tartiflette"]);
+
+    // One Cookbook's own words, for the Tag row of a shelf narrowed to it.
+    let (status, words) = app.post_op(
+        "list_tags",
+        Some(&stephane),
+        &json!({ "cookbook_id": hers }).to_string(),
+    );
+    assert_eq!(status, 200, "{words}");
+    let words = words["result"]["tags"].as_array().unwrap();
+    assert_eq!(words.len(), 1, "{words:?}");
+    assert_eq!(words[0]["id"], json!(dessert));
+
+    // The MCP Door answers the same shelf.
+    let call = |arguments: Value, key: &str| {
+        let call = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": "search_recipes", "arguments": arguments },
+        });
+        app.post_mcp(&call.to_string(), Some(key)).1["result"].clone()
+    };
+    let through_mcp = call(json!({ "cookbook_id": hers }), &stephane);
+    assert_eq!(
+        through_mcp["structuredContent"]["recipes"],
+        json!(of_hers),
+        "{through_mcp}"
+    );
+
+    // A Cookbook the caller may not see is absent, and reads exactly as one
+    // that does not exist does (ADR 0040).
+    let (_, marc) = someone(&app, "Marc");
+    for operation in ["search_recipes", "list_tags"] {
+        let ask = |cookbook: &Value| {
+            app.post_op(
+                operation,
+                Some(&marc),
+                &json!({ "cookbook_id": cookbook }).to_string(),
+            )
+        };
+        let (status, unseen) = ask(&hers);
+        assert_eq!(status, 404, "{operation}: {unseen}");
+        assert_eq!(unseen, ask(&json!("c_nobody")).1, "{operation}");
+    }
+    let unseen = call(json!({ "cookbook_id": hers }), &marc);
+    assert_eq!(unseen["isError"], json!(true), "{unseen}");
+    assert_eq!(unseen, call(json!({ "cookbook_id": "c_nobody" }), &marc));
+}

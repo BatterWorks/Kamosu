@@ -857,7 +857,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "everywhere": { "type": "boolean" }, "kitchen_id": { "type": "string", "description": "One of your Kitchens: every word its Cookbooks file by, one entry per word." } }, "additionalProperties": false }),
+            input_schema: json!({ "type": "object", "properties": { "everywhere": { "type": "boolean" }, "kitchen_id": { "type": "string", "description": "One of your Kitchens: every word its Cookbooks file by, one entry per word." }, "cookbook_id": { "type": "string", "description": "One Cookbook you can see: the words it files by. One you cannot see is answered as not found." } }, "additionalProperties": false }),
             output_schema: json!({
                 "type": "object",
                 "properties": { "tags": { "type": "array", "items": tag_schema() } },
@@ -1664,6 +1664,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     // forgot you set is the Kitchen switcher wearing a hat.
                     // A Kitchen narrows to the Cookbooks seen in it.
                     "kitchen_id": { "type": ["string", "null"] },
+                    // One Cookbook alone, the reader's own or any other they
+                    // see (#231). A Cookbook is whole wherever it is seen, so
+                    // this beside a Kitchen narrows no further than it does
+                    // alone; where the Kitchen does not see it, nothing is left.
+                    "cookbook_id": {
+                        "type": ["string", "null"],
+                        "description": "Only recipes with a Branch in this Cookbook, each entry opening that Branch. Your own Cookbook or any other you can see: `list_kitchens` answers their ids. One you cannot see is answered as not found.",
+                    },
                     // Created, branched or cooked by this Person — a history,
                     // not an ownership, and one that needs no curating ever.
                     // Not the `mine` each entry answers with (#177).

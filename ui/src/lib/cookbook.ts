@@ -41,6 +41,19 @@ export function cookbookWhose(cookbook: CookbookLabel): string {
 	return cookbook.name ?? m.cookbook_whose({ names: cookbookPlainName(cookbook) });
 }
 
+/**
+ * A Cookbook named on a chip in a line headed *Cookbooks* (#231): its own
+ * name, or whose it is with the names joined the short way, "Sam & Inès’s",
+ * because a chip is one line on a phone.
+ */
+export function cookbookOnChip(cookbook: CookbookLabel): string {
+	if (cookbook.name !== null) return cookbook.name;
+	const names = new Intl.ListFormat(getLocale(), { type: 'conjunction', style: 'short' }).format(
+		cookbook.authors.map((author) => author.name),
+	);
+	return m.cookbook_whose({ names });
+}
+
 /** A Cookbook named as itself: "Hélène’s Cookbook", or the name it was given. */
 export function cookbookCalled(cookbook: CookbookLabel): string {
 	return cookbook.name ?? m.cookbook_called({ names: cookbookPlainName(cookbook) });

@@ -268,7 +268,12 @@ impl Core {
     /// convention: a card cannot print a fence that is not there (ADR 0027),
     /// and the surest way to keep it off the card is to never send it.
     ///
-    /// Both filters are the caller's to pass on each request and are held
+    /// `cookbook_id` narrows to one Cookbook the reader sees, their own or
+    /// another (#231), as `kitchen_id` narrows to the Cookbooks seen in one
+    /// Kitchen: the shelf is built from that Cookbook's Branches alone, so the
+    /// card opens one of them and the search reads no other.
+    ///
+    /// The filters are the caller's to pass on each request and are held
     /// nowhere: a filter that persists is a mode, and a mode you forgot you
     /// set is the Kitchen switcher wearing a hat. `tag_id` is the third and
     /// behaves the same way (#104) — it is what makes a Tag something you can
@@ -292,6 +297,7 @@ impl Core {
         person_id: &str,
         query: Option<&str>,
         kitchen_id: Option<&str>,
+        cookbook_id: Option<&str>,
         mine: bool,
         tag_id: Option<&str>,
     ) -> Result<Value, OpError> {
@@ -311,6 +317,11 @@ impl Core {
             if let Some(kitchen_id) = kitchen_id {
                 ensure_member(conn, kitchen_id, person_id)?;
             }
+            // A Cookbook the caller may not see is not here at all, the
+            // answer a Tag of one gets just below (ADR 0040).
+            if let Some(cookbook_id) = cookbook_id {
+                ensure_sees_or_absent(conn, cookbook_id, person_id, no_such_cookbook)?;
+            }
             // A Tag of a Cookbook the caller may not see is not here at all,
             // rather than here and refused (ADR 0040) — the same answer
             // `set_recipe_tag` gives for the same id.
@@ -323,7 +334,8 @@ impl Core {
                 None => None,
             };
             let reading_language = reading_language_of(conn, person_id)?;
-            let (lineages, branches) = shelf_of(conn, person_id, kitchen_id, &reading_language)?;
+            let (lineages, branches) =
+                shelf_of(conn, person_id, kitchen_id, cookbook_id, &reading_language)?;
             let own_cookbook_id = cookbook_of_person(conn, person_id)?;
 
             // Every Lineage's best block, against this query — over exactly the

@@ -86,3 +86,13 @@ export function tagWord(tag: Tag): TagWord {
 export function byWord(tags: Tag[]): Tag[] {
 	return tags.toSorted((a, b) => tagWord(a).name.localeCompare(tagWord(b).name));
 }
+
+/**
+ * Whether two Tags say the same word, whatever its case and however its
+ * accents were typed: the fold the Core files a word under. Two Cookbooks
+ * each keep their own Tag for *Dessert*, and a shelf treats them as one.
+ */
+export function sameWord(one: Tag, other: Tag): boolean {
+	const folded = (tag: Tag) => tag.name?.normalize('NFD').toLocaleLowerCase().normalize('NFD');
+	return one.name !== null && folded(one) === folded(other);
+}

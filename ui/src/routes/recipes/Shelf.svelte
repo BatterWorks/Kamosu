@@ -6,9 +6,17 @@
 	through the back door, and it taxes every search with a permissions question
 	you should never have to answer to find the katsu curry on a Tuesday.
 
-	The three filters are **held here and nowhere else**, which is the whole of
+	The filters are **held here and nowhere else**, which is the whole of
 	how "no filter sticks" is built: leaving the screen destroys this component,
 	and coming back makes a new one on the whole shelf.
+
+	They answer two different questions (#231). *Whose recipes* is one Cookbook
+	or one Kitchen, each a headed line of chips that works as the Tags line
+	does: a tap holds a chip and a second tap lets it go. One of the two is
+	held at a time, since a Cookbook holds the same recipes in every Kitchen
+	that sees it. *Cooked or written by me* is about the reader and the recipe,
+	whoever's Cookbook it is in, so it is a tick beside the count and it
+	combines with everything else.
 
 	Going back is the one return that is not a fresh start (#191). Open a result,
 	find it is not the one, go back: the words, the filters, the answer and the
@@ -32,6 +40,8 @@
 	answer can say that nothing was close enough and these are the nearest.
 -->
 <script lang="ts" module>
+	import type { ListKitchensOutput } from '$lib/api/catalogue';
+
 	/**
 	 * The shelf as it was left, for going back to it (#191). SvelteKit keeps it
 	 * in `sessionStorage`, so it is plain JSON and deliberately small: what the
@@ -40,7 +50,10 @@
 	 */
 	export interface LeftShelf {
 		typed: string;
-		filter: { kind: 'all' } | { kind: 'mine' } | { kind: 'kitchen'; id: string };
+		/** Whose recipes: everyone's, one Kitchen's or one Cookbook's (#231). */
+		filter: { kind: 'all' } | { kind: 'kitchen'; id: string } | { kind: 'cookbook'; id: string };
+		/** Only what the reader cooked or wrote, on top of whatever else is held (#231). */
+		cookedOrWritten: boolean;
 		tag: string | null;
 		/** How far down the page was, in pixels. */
 		scrolled: number;
@@ -52,16 +65,29 @@
 	 * older Kamosu can be handed back after an update; one that no longer fits
 	 * is dropped, and the shelf starts whole instead of holding nonsense.
 	 */
+	/**
+	 * Every Cookbook some Kitchens see, once each however many of them see it,
+	 * the reader's own first: `list_kitchens` answers each Kitchen's Cookbooks
+	 * with the reader's own at the head.
+	 */
+	function cookbooksSeenIn(kitchens: ListKitchensOutput['kitchens']) {
+		const seen = new Map(
+			kitchens.flatMap((kitchen) => kitchen.cookbooks).map((cookbook) => [cookbook.id, cookbook]),
+		);
+		return [...seen.values()];
+	}
+
 	function isLeftShelf(held: unknown): held is LeftShelf {
 		if (typeof held !== 'object' || held === null) return false;
-		const { typed, filter, tag, scrolled } = held as Record<string, unknown>;
+		const { typed, filter, cookedOrWritten, tag, scrolled } = held as Record<string, unknown>;
 		if (typeof filter !== 'object' || filter === null) return false;
 		const { kind, id } = filter as Record<string, unknown>;
 		return (
 			typeof typed === 'string' &&
+			typeof cookedOrWritten === 'boolean' &&
 			(tag === null || typeof tag === 'string') &&
 			typeof scrolled === 'number' &&
-			(kind === 'all' || kind === 'mine' || (kind === 'kitchen' && typeof id === 'string'))
+			(kind === 'all' || ((kind === 'kitchen' || kind === 'cookbook') && typeof id === 'string'))
 		);
 	}
 </script>
@@ -73,8 +99,8 @@
 	import { OperationError } from '$lib/api/client';
 	import { MeaningSearch } from '$lib/meaning.svelte';
 	import { RecipeSearch } from '$lib/search.svelte';
-	import { byWord, tagWord, type Tag } from '$lib/tags';
-	import type { ListKitchensOutput } from '$lib/api/catalogue';
+	import { byWord, sameWord, tagWord, type Tag } from '$lib/tags';
+	import { cookbookOnChip, kitchenName } from '$lib/cookbook';
 	import Screen from '$lib/shell/Screen.svelte';
 	import { recipeSearchBox } from '$lib/shell/slash';
 	import Empty from '$lib/shell/Empty.svelte';
@@ -95,13 +121,14 @@
 
 	/** What is typed, moment to moment. The Operation is asked on a short delay. */
 	let typed = $state('');
-	/** Which filter is held right now: the whole shelf, this Person's own, or one Kitchen. */
+	/** Whose recipes are showing: everyone's, one Kitchen's or one Cookbook's. */
 	let filter = $state<LeftShelf['filter']>({ kind: 'all' });
+	/** Whether the shelf is down to what this Person created, branched or cooked (ADR 0027). */
+	let cookedOrWritten = $state(false);
 	/**
-	 * The Tag this shelf is narrowed to, or nothing (#104). A third filter
-	 * beside the two above and held exactly as they are — here, and nowhere
-	 * else. It composes with both: the recipes Marc tagged *spicy*, searched
-	 * for *chicken*, is one ask.
+	 * The Tag this shelf is narrowed to, or nothing (#104). Held exactly as
+	 * the two above are: here, and nowhere else. It composes with both: the
+	 * recipes Marc tagged *spicy*, searched for *chicken*, is one ask.
 	 *
 	 * Seeded once from the route's `?tag=`, because a chip on a recipe page
 	 * arrives by navigating. The query string is how that screen says which
@@ -129,6 +156,8 @@
 	 * really files by.
 	 */
 	let kitchenTags = $state<Record<string, Tag[]>>({});
+	/** Each Cookbook's own words, by Cookbook id, read the same way and for the same reason (#231). */
+	let cookbookTags = $state<Record<string, Tag[]>>({});
 	/**
 	 * Whether this Kamosu matches on meaning, and whether this reader is the
 	 * one to be asked about it. Both come from the Operation rather than being
@@ -143,6 +172,15 @@
 	 * does nothing teaches people that controls do nothing.
 	 */
 	const several = $derived(kitchens.length > 1);
+	/** Every Cookbook the reader sees, their own first. */
+	const cookbooks = $derived(cookbooksSeenIn(kitchens));
+	/** The reader's own, which its chip calls *Mine*. */
+	const ownCookbook = $derived(cookbooks[0]?.id ?? null);
+	/**
+	 * A line of Cookbooks only appears where the reader sees more than their
+	 * own, for the reason a single Kitchen gets no line.
+	 */
+	const severalCookbooks = $derived(cookbooks.length > 1);
 	/**
 	 * Whether the Kitchens and their words have been asked about, answered or
 	 * not. The rows of chips above the list are drawn from them, so the list
@@ -160,19 +198,29 @@
 				// Every word of every Cookbook on the shelf, merged by the Core
 				// into one entry per word — the same merge the shelf itself is
 				// (ADR 0027). Failing costs only the row, never the shelf.
-				const read = (input: { everywhere: true } | { kitchen_id: string }) =>
+				const read = (
+					input: { everywhere: true } | { kitchen_id: string } | { cookbook_id: string },
+				) =>
 					kamosu.listTags(input).catch((error: unknown) => {
 						if (!(error instanceof OperationError)) throw error;
 						return { tags: [] };
 					});
-				const [words, ...perKitchen] = await Promise.all([
+				// Not `cookbooks`: that follows `kitchens`, and reading it here
+				// would run this again on the answer it has just been given.
+				const seen = cookbooksSeenIn(held.kitchens);
+				const [words, perKitchen, perCookbook] = await Promise.all([
 					read({ everywhere: true }),
-					...held.kitchens.map((kitchen) => read({ kitchen_id: kitchen.id })),
+					Promise.all(held.kitchens.map((kitchen) => read({ kitchen_id: kitchen.id }))),
+					// One Cookbook is no line of chips, so its words are never asked for.
+					Promise.all(seen.length > 1 ? seen.map(({ id }) => read({ cookbook_id: id })) : []),
 				]);
 				if (current) {
 					tags = words.tags;
 					kitchenTags = Object.fromEntries(
 						held.kitchens.map((kitchen, index) => [kitchen.id, perKitchen[index]?.tags ?? []]),
+					);
+					cookbookTags = Object.fromEntries(
+						seen.map((cookbook, index) => [cookbook.id, perCookbook[index]?.tags ?? []]),
 					);
 				}
 			})
@@ -191,46 +239,64 @@
 	});
 
 	/**
-	 * A Kitchen filter with no chip to turn it off, which only going back can
-	 * produce (#191): the reader has left that Kitchen since, or is down to one
-	 * and the row is gone. It falls back to the whole shelf, as the Tag filter
-	 * below does for the same reason.
+	 * A Kitchen or a Cookbook held with no chip to let it go, which only going
+	 * back can produce (#191): the reader has left that Kitchen since, or its
+	 * line is gone. It falls back to the whole shelf, as the Tag filter below
+	 * does for the same reason.
 	 */
 	$effect(() => {
 		const held = filter;
-		if (held.kind !== 'kitchen' || !chipsSettled) return;
-		if (!several || !kitchens.some((kitchen) => kitchen.id === held.id)) filter = { kind: 'all' };
+		if (held.kind === 'all' || !chipsSettled) return;
+		const offered =
+			held.kind === 'kitchen'
+				? several && kitchens.some((kitchen) => kitchen.id === held.id)
+				: severalCookbooks && cookbooks.some((cookbook) => cookbook.id === held.id);
+		if (!offered) filter = { kind: 'all' };
 	});
 
+	/** Hold a Kitchen or a Cookbook, or let it go where it is the one held. */
+	function hold(kind: 'kitchen' | 'cookbook', id: string) {
+		filter = filter.kind === kind && filter.id === id ? { kind: 'all' } : { kind, id };
+	}
+
 	/**
-	 * The Tags to offer: those of the Cookbooks seen in the Kitchen being
-	 * filtered to, or all of them.
-	 * Narrowed HERE rather than by asking again, so the row follows a Kitchen
-	 * chip the moment it is tapped — a chip that can only ever find nothing is
+	 * The Tags to offer: those of the Cookbook being filtered to, those of
+	 * the Cookbooks seen in the Kitchen being filtered to, or all of them.
+	 * Narrowed HERE rather than by asking again, so the row follows a chip
+	 * the moment it is tapped — a chip that can only ever find nothing is
 	 * worse than no chip.
 	 */
 	const chips = $derived.by(() => {
 		// Read into a local first, as the search below does: a union held
 		// in state does not stay narrowed across the closure that reads it.
 		const held = filter;
-		return byWord(held.kind === 'kitchen' ? (kitchenTags[held.id] ?? []) : tags);
+		if (held.kind === 'kitchen') return byWord(kitchenTags[held.id] ?? []);
+		if (held.kind === 'cookbook') return byWord(cookbookTags[held.id] ?? []);
+		return byWord(tags);
 	});
 
 	/** The Tag being filtered by, once the list holding it has been read. */
 	const filtering = $derived(
-		[tags, ...Object.values(kitchenTags)].flat().find((held) => held.id === tag) ?? null,
+		[tags, ...Object.values(kitchenTags), ...Object.values(cookbookTags)]
+			.flat()
+			.find((held) => held.id === tag) ?? null,
 	);
 	/** Its word, for the count and the nothing-found line. */
 	const filteringWord = $derived(filtering ? tagWord(filtering).name : null);
 
 	/**
 	 * A Tag chip that goes out of reach keeps its filter on with no way to turn
-	 * it off — which is what happens when a Kitchen chip narrows the row past
-	 * the Tag being filtered by. So the filter follows the row: taking the chip
+	 * it off — which is what happens when a Kitchen or a Cookbook chip narrows
+	 * the row past the Tag being filtered by. So the filter follows the row: taking the chip
 	 * away takes the narrowing with it.
 	 */
 	$effect(() => {
-		if (tag !== null && tags.length > 0 && !chips.some((held) => held.id === tag)) tag = null;
+		if (tag === null || tags.length === 0 || chips.some((held) => held.id === tag)) return;
+		// The same word in the new row is the same filter under that row's
+		// own id: each Cookbook keeps its own Tag for a word, and the Core
+		// matches a Tag by its word across the Cookbooks on the shelf (#231).
+		const word = filtering;
+		tag = (word && chips.find((held) => sameWord(held, word))?.id) || null;
 	});
 
 	// Asked on open, and again whenever turning Meaning Search on or declining
@@ -253,7 +319,8 @@
 			return {
 				query: query === '' ? null : query,
 				kitchen_id: asked.kind === 'kitchen' ? asked.id : null,
-				mine: asked.kind === 'mine',
+				cookbook_id: asked.kind === 'cookbook' ? asked.id : null,
+				mine: cookedOrWritten,
 				tag_id: tag,
 			};
 		},
@@ -280,9 +347,37 @@
 	 */
 	const unmatched = $derived(query !== null && (entries.length === 0 || closest) ? query : null);
 
+	/**
+	 * How many recipes are showing, in words, or `null` where the answer is
+	 * not a list to count: still loading, failed, or nothing found.
+	 */
+	const count = $derived.by(() => {
+		if (failed || !answer || unmatched !== null || entries.length === 0) return null;
+		const one = entries.length === 1;
+		// Counted by the Tag rather than by the shelf, because that is the
+		// question the reader just asked. It counts what is on this answer, so
+		// it is the Tag's own number only while no other filter is narrowing it
+		// further — Settings counts a Tag across its whole Kitchen and says so
+		// there.
+		if (filteringWord && query === null) {
+			return one
+				? m.tags_shelf_count_one({ tag: filteringWord })
+				: m.tags_shelf_count({ count: entries.length, tag: filteringWord });
+		}
+		if (query === null)
+			return one ? m.recipes_count_one() : m.recipes_count({ count: entries.length });
+		return one ? m.recipes_found_one() : m.recipes_found({ count: entries.length });
+	});
+
 	/** The shelf as the reader is leaving it: the route hands this to SvelteKit (#191). */
 	export function capture(): LeftShelf {
-		return { typed, filter: $state.snapshot(filter), tag, scrolled: window.scrollY };
+		return {
+			typed,
+			filter: $state.snapshot(filter),
+			cookedOrWritten,
+			tag,
+			scrolled: window.scrollY,
+		};
 	}
 
 	/**
@@ -302,6 +397,7 @@
 		if (!isLeftShelf(left)) return;
 		typed = left.typed;
 		filter = left.filter;
+		cookedOrWritten = left.cookedOrWritten;
 		tag = left.tag;
 		scrollBack = { to: left.scrolled, over: answer };
 	}
@@ -358,40 +454,57 @@
 			</Plus>
 		</div>
 
-		<div class="mt-3 flex flex-wrap gap-2">
-			{#snippet chip(name: string, held: boolean, choose: () => void)}
-				<button
-					type="button"
-					aria-pressed={held}
-					onclick={choose}
-					class="min-h-8 rounded-sm border px-3 text-read {held
-						? 'border-accent bg-accent text-on-accent'
-						: 'border-rule text-ink-2'}"
-				>
-					{name}
-				</button>
-			{/snippet}
-
-			{@render chip(
-				m.recipes_filter_all(),
-				filter.kind === 'all',
-				() => (filter = { kind: 'all' }),
-			)}
-			{@render chip(
-				m.recipes_filter_mine(),
-				filter.kind === 'mine',
-				() => (filter = { kind: 'mine' }),
-			)}
-			{#if several}
-				{#each kitchens as kitchen (kitchen.id)}
-					{@render chip(
-						kitchen.nickname ?? kitchen.name,
-						filter.kind === 'kitchen' && filter.id === kitchen.id,
-						() => (filter = { kind: 'kitchen', id: kitchen.id }),
-					)}
+		<!--
+			Whose recipes: a line of Cookbooks and a line of Kitchens, each under
+			its heading and each drawn as the Tags line below is (#231). Either
+			is absent where it would hold one chip, which would filter nothing.
+		-->
+		{#snippet line(
+			title: string,
+			named: { id: string; name: string; held: boolean }[],
+			choose: (id: string) => void,
+		)}
+			<h2 class="mt-4 text-label text-ink-2 uppercase">{title}</h2>
+			<div
+				class="relative -mx-gutter mt-2 flex [scrollbar-width:none] flex-nowrap gap-2 overflow-x-auto px-gutter wide:mx-0 wide:flex-wrap wide:overflow-visible wide:px-0"
+			>
+				{#each named as chip (chip.id)}
+					<button
+						type="button"
+						aria-pressed={chip.held}
+						onclick={() => choose(chip.id)}
+						class="min-h-8 shrink-0 rounded-sm border px-3 text-read {chip.held
+							? 'border-accent bg-accent text-on-accent'
+							: 'border-rule text-ink-2'}"
+					>
+						{chip.name}
+					</button>
 				{/each}
-			{/if}
-		</div>
+			</div>
+		{/snippet}
+
+		{#if severalCookbooks}
+			{@render line(
+				m.recipes_cookbooks_title(),
+				cookbooks.map((cookbook) => ({
+					id: cookbook.id,
+					name: cookbook.id === ownCookbook ? m.recipes_cookbook_mine() : cookbookOnChip(cookbook),
+					held: filter.kind === 'cookbook' && filter.id === cookbook.id,
+				})),
+				(id) => hold('cookbook', id),
+			)}
+		{/if}
+		{#if several}
+			{@render line(
+				m.recipes_kitchens_title(),
+				kitchens.map((kitchen) => ({
+					id: kitchen.id,
+					name: kitchenName(kitchen),
+					held: filter.kind === 'kitchen' && filter.id === kitchen.id,
+				})),
+				(id) => hold('kitchen', id),
+			)}
+		{/if}
 
 		<!--
 			The tags, as ONE SIDEWAYS LINE and never a block that wraps (#104).
@@ -438,10 +551,46 @@
 		{/if}
 	</search>
 
+	<!--
+		The count, and the tick beside it (#231). The row is drawn whatever the
+		answer, so a tick that narrowed the shelf to nothing is still there to
+		take off. The count is the answer's and only stands where there is one.
+	-->
+	<div class="mt-4 mb-3 flex min-h-8 items-center gap-6">
+		{#if count !== null}
+			<p class="text-label text-ink-2 uppercase" role="status">{count}</p>
+		{/if}
+		<!-- A checkbox drawn as the chosen page drew it: a square that fills
+		     with the accent, and words that darken with it. -->
+		<label
+			class="ml-auto flex min-h-8 items-center gap-2 text-read wide:ml-0 {cookedOrWritten
+				? 'text-ink'
+				: 'text-ink-2'}"
+		>
+			<span class="grid h-4 w-4 place-items-center">
+				<input
+					type="checkbox"
+					bind:checked={cookedOrWritten}
+					class="col-start-1 row-start-1 h-4 w-4 appearance-none rounded-sm border {cookedOrWritten
+						? 'border-accent bg-accent'
+						: 'border-ink-2'}"
+				/>
+				{#if cookedOrWritten}
+					<span
+						aria-hidden="true"
+						class="pointer-events-none col-start-1 row-start-1 text-label leading-none text-on-accent"
+						>✓</span
+					>
+				{/if}
+			</span>
+			{m.recipes_history()}
+		</label>
+	</div>
+
 	{#if failed}
-		<p class="mt-6 text-body text-support" role="alert">{m.recipes_failed()}</p>
+		<p class="text-body text-support" role="alert">{m.recipes_failed()}</p>
 	{:else if !answer}
-		<p class="mt-6 text-body text-ink-2">{m.loading()}</p>
+		<p class="text-body text-ink-2">{m.loading()}</p>
 	{:else if unmatched !== null}
 		<!--
 			Nothing found is not an empty screen. It says what was looked
@@ -449,7 +598,7 @@
 			because with a library this size a search that finds nothing usually
 			means you do not have it yet (ADR 0027).
 		-->
-		<div class="mt-6 max-w-2xl">
+		<div class="max-w-2xl">
 			<h2 class="font-display text-shelf-heading font-semibold">
 				{m.recipes_nothing_title({ query: unmatched })}
 			</h2>
@@ -495,27 +644,17 @@
 			back out, which is the chip that is still lit above.
 		-->
 		<Empty>
-			{filteringWord ? m.tags_shelf_none({ tag: filteringWord }) : m.recipes_empty()}
+			{#if filteringWord}
+				{m.tags_shelf_none({ tag: filteringWord })}
+			{:else if cookedOrWritten || filter.kind !== 'all'}
+				<!-- The same lie avoided for the other filters (#231): the
+				     library is still there behind whatever is held. -->
+				{m.recipes_none_held()}
+			{:else}
+				{m.recipes_empty()}
+			{/if}
 		</Empty>
 	{:else}
-		<p class="mt-4 mb-3 text-label text-ink-2 uppercase" role="status">
-			{#if filteringWord && query === null}
-				<!--
-					Counted by the Tag rather than by the shelf, because that is
-					the question the reader just asked. It counts what is on this
-					answer, so it is the Tag's own number only while no other
-					filter is narrowing it further — Settings counts a Tag across
-					its whole Kitchen and says so there.
-				-->
-				{entries.length === 1
-					? m.tags_shelf_count_one({ tag: filteringWord })
-					: m.tags_shelf_count({ count: entries.length, tag: filteringWord })}
-			{:else if query === null}
-				{entries.length === 1 ? m.recipes_count_one() : m.recipes_count({ count: entries.length })}
-			{:else}
-				{entries.length === 1 ? m.recipes_found_one() : m.recipes_found({ count: entries.length })}
-			{/if}
-		</p>
 		<ul class="tile-grid">
 			{#each entries as entry (entry.lineage_id)}
 				<Tile {entry} />

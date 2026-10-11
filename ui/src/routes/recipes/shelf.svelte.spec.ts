@@ -550,7 +550,7 @@ describe('the recipes screen', () => {
 		expect(screen.queryByText(/^In /)).not.toBeInTheDocument();
 	});
 
-	it('names no Kitchen on a card, and offers a Kitchen filter only where there are several', async () => {
+	it('names no Kitchen on a card, and offers a line of Kitchens only where there are several', async () => {
 		renderScreen(Recipes, {
 			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
@@ -560,8 +560,9 @@ describe('the recipes screen', () => {
 
 		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'Maison' })).not.toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'My recipes' })).toBeInTheDocument();
+		expect(screen.queryByRole('heading', { name: 'Kitchens' })).not.toBeInTheDocument();
+		// No chip stands for the whole shelf: with nothing held, that is what shows (#231).
+		expect(screen.queryByRole('button', { name: 'All' })).not.toBeInTheDocument();
 	});
 
 	it('offers one filter per Kitchen where the Person cooks in several, and asks with it', async () => {
@@ -604,10 +605,10 @@ describe('the recipes screen', () => {
 		});
 
 		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
-		// A heading over nothing is worse than no heading. The two filters that
-		// always exist are untouched.
+		// A heading over nothing is worse than no heading. The tick that
+		// always exists is untouched.
 		expect(screen.queryByText('Tags')).not.toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
+		expect(screen.getByRole('checkbox', { name: 'Cooked or written by me' })).toBeInTheDocument();
 	});
 
 	it('narrows the shelf by a tag, through the Operation, and counts by that tag', async () => {
@@ -720,7 +721,9 @@ describe('the recipes screen', () => {
 			expect(asked.at(-1)?.input).toMatchObject({ tag_id: 't_ines' });
 		});
 		expect(screen.getByRole('button', { name: /from Marc/ })).toBeInTheDocument();
-		expect(kamosu.calls.filter((call) => call.operation === 'list_tags')).toHaveLength(4);
+		// Once for every word, once for each of three Kitchens, once for each of
+		// the three Cookbooks they see (#231).
+		expect(kamosu.calls.filter((call) => call.operation === 'list_tags')).toHaveLength(7);
 
 		// Filtering to Marc's Kitchen offers his Kitchen's words: Inès's goes,
 		// and the narrowing goes with it rather than stranding an invisible
@@ -738,7 +741,7 @@ describe('the recipes screen', () => {
 		});
 	});
 
-	it('asks once for every word on the shelf, and once for each Kitchen’s (#131)', async () => {
+	it('asks once for every word on the shelf, and once for each Kitchen’s and each Cookbook’s (#131, #231)', async () => {
 		const { kamosu } = renderScreen(Recipes, {
 			list_tags: { tags: [shelfTag('t_spicy', 'spicy', 14)] },
 			list_kitchens: { kitchens: [kitchen, marcsKitchen] },
@@ -747,7 +750,7 @@ describe('the recipes screen', () => {
 		});
 		expect(await screen.findByRole('button', { name: /spicy/ })).toBeInTheDocument();
 		await vi.waitFor(() =>
-			expect(kamosu.calls.filter((call) => call.operation === 'list_tags')).toHaveLength(3),
+			expect(kamosu.calls.filter((call) => call.operation === 'list_tags')).toHaveLength(5),
 		);
 		const asked = kamosu.calls
 			.filter((call) => call.operation === 'list_tags')
@@ -756,6 +759,8 @@ describe('the recipes screen', () => {
 			{ everywhere: true },
 			{ kitchen_id: kitchen.id },
 			{ kitchen_id: 'k_marc' },
+			{ cookbook_id: 'c_1' },
+			{ cookbook_id: 'c_marc' },
 		]);
 	});
 
@@ -840,7 +845,7 @@ describe('the recipes screen', () => {
 		expect(await screen.findByText('Katsu Curry')).toBeInTheDocument();
 		expect(screen.queryByText('Miso Soup')).not.toBeInTheDocument();
 
-		await fireEvent.click(screen.getByRole('button', { name: 'My recipes' }));
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Cooked or written by me' }));
 		await vi.waitFor(() => {
 			expect(searches(kamosu).at(-1)).toMatchObject({ query: 'curry', mine: true });
 		});
@@ -1737,7 +1742,10 @@ describe('going back to the shelf (#191)', () => {
 			expect(screen.getByRole('button', { name: /spicy/ })).toHaveAttribute('aria-pressed', 'true'),
 		);
 		expect(screen.getByRole('searchbox')).toHaveValue('');
-		expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+		expect(screen.getByRole('button', { name: 'Chez Marc' })).toHaveAttribute(
+			'aria-pressed',
+			'false',
+		);
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({
 				query: null,
@@ -1765,7 +1773,6 @@ describe('going back to the shelf (#191)', () => {
 		await vi.waitFor(() =>
 			expect(searches(fewer).at(-1)).toMatchObject({ kitchen_id: null, mine: false }),
 		);
-		expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
 		expect(screen.queryByRole('button', { name: 'Chez Marc' })).not.toBeInTheDocument();
 	});
 
@@ -1824,12 +1831,263 @@ describe('going back to the shelf (#191)', () => {
 
 		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
 		expect(screen.getByRole('searchbox')).toHaveValue('');
-		expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+		expect(screen.getByRole('button', { name: 'Chez Marc' })).toHaveAttribute(
+			'aria-pressed',
+			'false',
+		);
 		expect(searches(kamosu).at(-1)).toMatchObject({
 			query: null,
 			kitchen_id: null,
 			mine: false,
 			tag_id: null,
 		});
+	});
+});
+
+describe('filtering the shelf to one Cookbook (#231)', () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	const marcs = cookbookLabel('c_marc', ['Marc']);
+	/** One Kitchen whose two members each write a Cookbook: the case that was asked for. */
+	const shared = kitchenAnswer('k_home', { name: 'Maison', cookbooks: [cookbookLabel(), marcs] });
+	/** Two more Kitchens: one sees Marc's again, the other a Cookbook two people named. */
+	const club = kitchenAnswer('k_club', { name: 'Club', cookbooks: [cookbookLabel(), marcs] });
+	const family = kitchenAnswer('k_family', {
+		name: 'Famille',
+		cookbooks: [cookbookLabel(), cookbookLabel('c_mamie', ['Odile', 'Inès'], 'Les carnets')],
+	});
+
+	const shelf = (kitchens: (typeof shared)[], tags = [shelfTag('t_spicy', 'spicy', 14)]) =>
+		standIn({
+			list_tags: { tags },
+			list_kitchens: { kitchens },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: null, closest: false, recipes: [entry()] },
+		});
+	const show = (kamosu: StandIn) =>
+		render(ShelfTestHarness, { props: { client: kamosu.client, tag: null } });
+	/** The chips under one heading, by what each says. */
+	const line = (heading: string) => {
+		const row = screen.getByRole('heading', { name: heading }).nextElementSibling;
+		return [...(row?.querySelectorAll('button') ?? [])].map((chip) => chip.textContent?.trim());
+	};
+
+	it('names each Cookbook under its own heading where one Kitchen sees two', async () => {
+		const kamosu = shelf([shared]);
+		show(kamosu);
+
+		const his = await screen.findByRole('button', { name: 'Marc’s' });
+		expect(line('Cookbooks')).toEqual(['Mine', 'Marc’s']);
+		expect(screen.queryByRole('heading', { name: 'Kitchens' })).not.toBeInTheDocument();
+
+		await fireEvent.click(his);
+		await vi.waitFor(() =>
+			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', kitchen_id: null }),
+		);
+		expect(his).toHaveAttribute('aria-pressed', 'true');
+
+		// Each line works as the Tags line does: a second tap lets go.
+		await fireEvent.click(his);
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: null }));
+		expect(his).toHaveAttribute('aria-pressed', 'false');
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Mine' }));
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_1' }));
+	});
+
+	it('names every Cookbook once and every Kitchen, and holds one of them at a time', async () => {
+		const kamosu = shelf([shared, club, family]);
+		show(kamosu);
+
+		await screen.findByRole('button', { name: 'Club' });
+		// Marc's is seen in two Kitchens and is one chip. A Cookbook that was
+		// given a name says it.
+		expect(line('Cookbooks')).toEqual(['Mine', 'Marc’s', 'Les carnets']);
+		expect(line('Kitchens')).toEqual(['Maison', 'Club', 'Famille']);
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Club' }));
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ kitchen_id: 'k_club' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Les carnets' }));
+		await vi.waitFor(() =>
+			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_mamie', kitchen_id: null }),
+		);
+		expect(screen.getByRole('button', { name: 'Club' })).toHaveAttribute('aria-pressed', 'false');
+	});
+
+	it('shows no Cookbook line to a reader who sees only their own', async () => {
+		const kamosu = shelf([kitchen]);
+		show(kamosu);
+
+		expect(await screen.findByRole('button', { name: /spicy/ })).toBeInTheDocument();
+		expect(screen.queryByRole('heading', { name: 'Cookbooks' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Mine' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('heading', { name: 'Kitchens' })).not.toBeInTheDocument();
+		// Nothing to choose between, so nothing was asked about one Cookbook.
+		expect(
+			kamosu.calls.filter((call) => call.operation === 'list_tags').map((call) => call.input),
+		).toEqual([{ everywhere: true }, { kitchen_id: 'k_home' }]);
+	});
+
+	it('ticks the history on top of a Cookbook rather than in place of it', async () => {
+		const kamosu = shelf([shared]);
+		show(kamosu);
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Marc’s' }));
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Cooked or written by me' }));
+		await vi.waitFor(() =>
+			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', mine: true }),
+		);
+		expect(screen.getByRole('button', { name: 'Marc’s' })).toHaveAttribute('aria-pressed', 'true');
+	});
+
+	it('keeps the tick in reach when it narrows the shelf to nothing', async () => {
+		const kamosu = standIn({
+			list_tags: { tags: [] },
+			list_kitchens: { kitchens: [shared] },
+			meaning_search_status: meaningOff(),
+			search_recipes: ({ mine }) => ({
+				query: null,
+				closest: false,
+				recipes: mine ? [] : [entry()],
+			}),
+		});
+		show(kamosu);
+
+		await fireEvent.click(await screen.findByRole('checkbox', { name: 'Cooked or written by me' }));
+		// Not "the shelf is empty": the library is still there behind the tick.
+		expect(await screen.findByText(/Nothing here matches/)).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Cooked or written by me' }));
+		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
+	});
+
+	it('offers only the chosen Cookbook’s Tags, and lets go of one it no longer offers', async () => {
+		const spicy = shelfTag('t_spicy', 'spicy', 14);
+		const fromMarc = shelfTag('t_marc', 'from Marc', 3, 'c_marc');
+		const kamosu = standIn({
+			list_tags: () => {
+				const asked = kamosu.calls.filter((call) => call.operation === 'list_tags').at(-1)
+					?.input as { cookbook_id?: string } | undefined;
+				if (asked?.cookbook_id === 'c_marc') return { tags: [fromMarc] };
+				if (asked?.cookbook_id) return { tags: [spicy] };
+				return { tags: [spicy, fromMarc] };
+			},
+			list_kitchens: { kitchens: [shared] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: null, closest: false, recipes: [entry()] },
+		});
+		show(kamosu);
+
+		await fireEvent.click(await screen.findByRole('button', { name: /spicy/ }));
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ tag_id: 't_spicy' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Marc’s' }));
+
+		await vi.waitFor(() =>
+			expect(screen.queryByRole('button', { name: /spicy/ })).not.toBeInTheDocument(),
+		);
+		expect(screen.getByRole('button', { name: /from Marc/ })).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', tag_id: null }),
+		);
+	});
+
+	it('keeps a word held across a Cookbook chip, under that Cookbook’s own Tag for it', async () => {
+		const mine = shelfTag('t_dessert', 'Dessert', 4);
+		const his = shelfTag('t_dessert_marc', 'dessert', 2, 'c_marc');
+		const kamosu = standIn({
+			list_tags: () => {
+				const asked = kamosu.calls.filter((call) => call.operation === 'list_tags').at(-1)
+					?.input as { cookbook_id?: string } | undefined;
+				// One entry per word everywhere, the reader's own first.
+				return { tags: [asked?.cookbook_id === 'c_marc' ? his : mine] };
+			},
+			list_kitchens: { kitchens: [shared] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: null, closest: false, recipes: [entry()] },
+		});
+		show(kamosu);
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Dessert' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Marc’s' }));
+		await vi.waitFor(() =>
+			expect(searches(kamosu).at(-1)).toMatchObject({
+				cookbook_id: 'c_marc',
+				tag_id: 't_dessert_marc',
+			}),
+		);
+		expect(screen.getByRole('button', { name: 'dessert' })).toHaveAttribute('aria-pressed', 'true');
+
+		// And back again when the Cookbook is let go.
+		await fireEvent.click(screen.getByRole('button', { name: 'Marc’s' }));
+		await vi.waitFor(() =>
+			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: null, tag_id: 't_dessert' }),
+		);
+	});
+
+	it('joins two writers the short way on a chip', async () => {
+		const together = kitchenAnswer('k_home', {
+			cookbooks: [cookbookLabel(), cookbookLabel('c_two', ['Sam', 'Inès'])],
+		});
+		show(shelf([together]));
+		expect(await screen.findByRole('button', { name: 'Sam & Inès’s' })).toBeInTheDocument();
+	});
+
+	/** Leaving for a recipe and going back, as the #191 tests above do it. */
+	const leaveAndGoBack = (
+		first: ReturnType<typeof render<typeof RouteTestHarness>>,
+		to: StandIn,
+	) => {
+		const left = first.component.snapshot().capture();
+		cleanup();
+		const route = render(RouteTestHarness, { props: { client: to.client } });
+		route.component.snapshot().restore(left);
+	};
+
+	it('comes back to the Cookbook and the tick on going back, and to neither by the tab bar', async () => {
+		vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+		const kamosu = shelf([shared]);
+		const first = render(RouteTestHarness, { props: { client: kamosu.client } });
+		await fireEvent.click(await screen.findByRole('button', { name: 'Marc’s' }));
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Cooked or written by me' }));
+		await vi.waitFor(() =>
+			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', mine: true }),
+		);
+
+		leaveAndGoBack(first, kamosu);
+		expect(await screen.findByRole('button', { name: 'Marc’s' })).toHaveAttribute(
+			'aria-pressed',
+			'true',
+		);
+		expect(screen.getByRole('checkbox', { name: 'Cooked or written by me' })).toBeChecked();
+		expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', mine: true });
+
+		// The tab bar is a new visit: SvelteKit restores nothing into it.
+		cleanup();
+		render(RouteTestHarness, { props: { client: kamosu.client } });
+		expect(await screen.findByRole('button', { name: 'Marc’s' })).toHaveAttribute(
+			'aria-pressed',
+			'false',
+		);
+		expect(screen.getByRole('checkbox', { name: 'Cooked or written by me' })).not.toBeChecked();
+		await vi.waitFor(() =>
+			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: null, mine: false }),
+		);
+	});
+
+	it('lets go of a Cookbook it can no longer offer a chip for', async () => {
+		vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+		const kamosu = shelf([shared]);
+		const first = render(RouteTestHarness, { props: { client: kamosu.client } });
+		await fireEvent.click(await screen.findByRole('button', { name: 'Marc’s' }));
+		await vi.waitFor(() =>
+			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc' }),
+		);
+
+		// Marc has left the Kitchen since, so his Cookbook is out of sight.
+		const alone = shelf([kitchen]);
+		leaveAndGoBack(first, alone);
+		await vi.waitFor(() => expect(searches(alone).at(-1)).toMatchObject({ cookbook_id: null }));
+		expect(screen.queryByRole('button', { name: 'Marc’s' })).not.toBeInTheDocument();
 	});
 });
