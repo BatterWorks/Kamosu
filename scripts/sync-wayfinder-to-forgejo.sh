@@ -4,7 +4,7 @@ set -euo pipefail
 
 MODE=dry-run
 STATE_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/kamosu/wayfinder-forgejo.json"
-GH_REPO="${GH_REPO:-BattermanZ/Kamosu}"
+GH_REPO="${GH_REPO:-BatterWorks/Kamosu}"
 FORGEJO_REPO="${FORGEJO_REPO:-battermanz/Kamosu}"
 FORGEJO_API="${FORGEJO_API:-https://forgejo.batterlan.cc/api/v1}"
 

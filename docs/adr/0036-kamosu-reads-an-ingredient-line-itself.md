@@ -4,7 +4,7 @@
 
 Reading a line is one job: deciding where the number ends, where the **Unit** ends and where the **Food** begins. What the number is worth and what the Unit is were already answered by `src/units.rs`, which spells every convertible Unit in all three interface Languages. `src/reading.rs` is the split and nothing else.
 
-This **reverses** [#71](https://github.com/BattermanZ/Kamosu/issues/71)'s first acceptance criterion and the line in the spec ([#32](https://github.com/BattermanZ/Kamosu/issues/32)) deferring ingredient parsing to a subprocess worker. It leaves [ADR 0021](./0021-a-reading-is-kamosus-reading-not-the-recipe.md) standing exactly as written: that ADR's argument is that *a parser is a moving part and must stay outside the fingerprint*, which is true of a parser in this process as much as one in another — more so, since this one is now ours to change.
+This **reverses** [#71](https://github.com/BatterWorks/Kamosu/issues/71)'s first acceptance criterion and the line in the spec ([#32](https://github.com/BatterWorks/Kamosu/issues/32)) deferring ingredient parsing to a subprocess worker. It leaves [ADR 0021](./0021-a-reading-is-kamosus-reading-not-the-recipe.md) standing exactly as written: that ADR's argument is that *a parser is a moving part and must stay outside the fingerprint*, which is true of a parser in this process as much as one in another — more so, since this one is now ours to change.
 
 ## Why
 
