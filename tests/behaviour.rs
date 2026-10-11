@@ -9920,6 +9920,36 @@ fn a_failing_migration_refuses_to_serve_and_leaves_a_restorable_snapshot() {
     assert_eq!(stored_schema_version(&data_dir), db::LATEST_SCHEMA_VERSION);
 }
 
+/// Whether this process holds a lock on `file`, read from the kernel's record
+/// of each descriptor this process has open on it.
+///
+/// It used to be read from `/proc/locks`, which lists every lock on the
+/// machine, and that was a race (#215). A reader takes that list a piece at a
+/// time and finds its place again by counting, so a lock released anywhere on
+/// the machine between two pieces moves every later line up by one and the
+/// reader steps over a lock that never went away. A descriptor's own record
+/// is a few lines the kernel writes in one go.
+fn holds_a_lock_on(file: &std::path::Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let wanted = std::fs::metadata(file).unwrap();
+    std::fs::read_dir("/proc/self/fd")
+        .unwrap()
+        .flatten()
+        .filter(|descriptor| {
+            // Other tests open and close descriptors in this process all the
+            // while, so one listed a moment ago may be gone by now.
+            std::fs::metadata(descriptor.path()).is_ok_and(|its_file| {
+                its_file.dev() == wanted.dev() && its_file.ino() == wanted.ino()
+            })
+        })
+        .filter_map(|descriptor| {
+            let record = std::path::Path::new("/proc/self/fdinfo").join(descriptor.file_name());
+            std::fs::read_to_string(record).ok()
+        })
+        .any(|record| record.lines().any(|line| line.starts_with("lock:")))
+}
+
 /// **Taking the Snapshot leaves the server holding its lock** (#130).
 ///
 /// On Linux, closing any descriptor to a file drops every POSIX lock the
@@ -9933,12 +9963,10 @@ fn a_failing_migration_refuses_to_serve_and_leaves_a_restorable_snapshot() {
 /// connection inside this one shares SQLite's lock bookkeeping. And it has to
 /// be an older SQLite than the one Kamosu bundles: newer SQLite also checks the
 /// shared-memory file before deleting the WAL, which hides the lost lock from
-/// `kamosu status` without putting it back. So the test also reads
-/// `/proc/locks` for the lock itself, whatever SQLite the tool happens to be.
+/// `kamosu status` without putting it back. So the test also asks Linux for
+/// the lock itself, whatever SQLite the tool happens to be.
 #[test]
 fn another_process_opening_the_database_after_a_migration_loses_no_write() {
-    use std::os::unix::fs::MetadataExt;
-
     let dir = tempfile::tempdir().unwrap();
     let data_dir = dir.path().join("data");
     build_v1_database(&data_dir);
@@ -9947,18 +9975,9 @@ fn another_process_opening_the_database_after_a_migration_loses_no_write() {
     // A migration is owed, so opening writes a Snapshot first.
     let server = db::Db::open(&data_dir).expect("the migrated database");
 
-    let inode = std::fs::metadata(&db_path).unwrap().ino();
-    let pid = std::process::id();
-    let locks = std::fs::read_to_string("/proc/locks").unwrap();
     assert!(
-        locks.lines().any(|line| {
-            let fields: Vec<&str> = line.split_whitespace().collect();
-            fields.get(4) == Some(&pid.to_string().as_str())
-                && fields
-                    .get(5)
-                    .is_some_and(|file| file.ends_with(&format!(":{inode}")))
-        }),
-        "this process must still hold its lock on the database file:\n{locks}"
+        holds_a_lock_on(&db_path),
+        "this process must still hold its lock on the database file"
     );
 
     let other = std::process::Command::new("sqlite3")
