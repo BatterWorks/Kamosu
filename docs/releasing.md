@@ -132,6 +132,7 @@ These are the checks only a reader can make. `release-prepare` puts them on the 
 
 - **The changelog section lists everything that shipped since the previous release, and nothing that did not.** Compare the `## v<version>` section against the pull requests merged into `dev` since the last release tag (`git log --merges --first-parent v<previous>..origin/dev`). Nothing listed may have been reverted or replaced, and every change a cook, an Operator or an agent at the MCP Door would notice needs its line. A step someone must take when upgrading sits under `### After upgrading`.
 - **The README describes what shipped, and its image-tag examples name this version.** New screens, settings, environment variables and Operations are described, and nothing it describes was removed or changed without an update. An example that names a version tag names this one. `latest` needs no change.
+- **The Docker Hub overview describes what shipped.** `docs/docker-hub/overview.md` and `docs/docker-hub/short-description.txt` are what the release publishes as the page of `battermanz/kamosu` (see [The release hook](#the-release-hook)). Read both against the README and `docker-compose.yml`: the Compose file, the tags, the port and the data folder are the ones this release ships, and nothing the page promises was removed.
 - **No ADR is contradicted by what shipped, and `GLOSSARY.md` holds every word the release added.** An ADR the release went against is amended or superseded, not left stale. A word the interface, the Catalogue or the changelog now uses as a term has its entry.
 - **A library left by the previous release opens under this one: every migration runs, and no Version's id differs from the fingerprint of its content.** How to check it is under [The previous release's library](#the-previous-releases-library).
 - **`just audit` is clean, or each advisory it reports is recorded in `deny.toml` with its reasoning.** Read what it reports instead of obeying it. A remedy `npm audit` suggests is often a downgrade.
@@ -183,6 +184,10 @@ The machines that build the images and the credentials that push them are not de
 - Push four tags to `battermanz/kamosu` on Docker Hub, each for amd64 and arm64: `<version>` and `latest` from a Docker build, `podman-<version>` and `podman-latest` from a Podman build. The two pairs are separate builds, not copies of each other.
 - Skip a tag that already points at the image it would push, and refuse if a different image sits under the version. A published version is never overwritten.
 - Never move `latest` or `podman-latest` backwards. A patch to an older line leaves them where they are.
+- Publish the Docker Hub page of `battermanz/kamosu` once the tags above are in place: `docs/docker-hub/overview.md` as the overview and the one line of `docs/docker-hub/short-description.txt`, without its final newline, as the short description. Read both from the tagged commit, never from a working tree that may have moved on. Docker Hub accepts at most 25,000 bytes of overview and 100 characters of short description, and `ui/tools/docker-hub-page.test.mjs` holds the files to that in `just test`. Publishing the same text again changes nothing, so the duty is safe to repeat. A failure here fails `images` like any other: the release stays a draft and the next run tries again.
+- Publish the page only for the release `latest` points at. A patch to an older line leaves the page as it is, as it leaves `latest`.
+
+The Docker Hub page changes at a release and at no other time. `release-publish` never talks to Docker Hub itself. Edit the two files like any other documentation, through a pull request into `dev`, or on the bump branch when the checklist finds them stale.
 
 ## When a step fails
 

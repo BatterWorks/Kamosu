@@ -341,8 +341,9 @@ ui-test:
     cd ui && npm run --silent test
     # The release commands' tests (#234). They drive the two scripts against
     # throwaway git repositories and stand-ins for `gh`, `just` and the release
-    # hook, so they run under Node's own test runner, outside jsdom.
-    node --test tools/release-*.test.mjs
+    # hook, so they run under Node's own test runner, outside jsdom. The Docker
+    # Hub page's limits (#235) run beside them.
+    node --test tools/*.test.mjs
 
 # Check formatting and lints without changing anything. Also verifies the
 # committed design-token stylesheet and icons are fresh against their sources:

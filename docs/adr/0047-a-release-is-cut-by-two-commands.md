@@ -28,7 +28,7 @@
 - **No What's new page, no docs-freshness check, no roadmap.** Kamosu has none of the three, so their checks and refusals are left out.
 - **The changelog keeps an empty `## Unreleased`.** `release-prepare` dates the section and leaves a new, empty one above it, because a ticket adds its line under that heading in the same commit as its change.
 - **Two gates in place of one.** Kamosu has no `just check-full`. The bump must pass `just check` and then `just test`.
-- **Four checklist items of Kamosu's own**: the glossary, the previous release's library, `just audit` and `THIRD_PARTY_NOTICES.md`.
+- **Five checklist items of Kamosu's own**: the glossary, the previous release's library, `just audit`, `THIRD_PARTY_NOTICES.md` and the Docker Hub overview. The last came with [#235](https://github.com/BatterWorks/Kamosu/issues/235), when the hook took on publishing that page.
 
 ## Considered options
 

@@ -1,0 +1,1 @@
+Self-hosted cookbook for the people you cook with: a web app for you, MCP for your AI agent.

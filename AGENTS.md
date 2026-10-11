@@ -427,6 +427,9 @@ ui/tools/           the dev tools `just` runs against the dev instance: sign in,
                     photograph screens, capture and serve a prototype (#216).
                     The two release commands live here too (ADR 0047)
 docs/releasing.md   the release runbook
+docs/docker-hub/    the Docker Hub page of the image: its overview and its one-line
+                    description, published by a release and never edited on
+                    Docker Hub (#235)
 docs/svelte/        Svelte's documentation for models, pinned (read this first)
 ```
 

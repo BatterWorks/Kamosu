@@ -270,6 +270,7 @@ export function setVersions(files, version) {
 export const CHECKLIST_ITEMS = [
 	'The changelog section lists everything that shipped since the previous release, and nothing that did not.',
 	'The README describes what shipped, and its image-tag examples name this version.',
+	'The Docker Hub overview describes what shipped.',
 	'No ADR is contradicted by what shipped, and `GLOSSARY.md` holds every word the release added.',
 	"A library left by the previous release opens under this one: every migration runs, and no Version's id differs from the fingerprint of its content.",
 	'`just audit` is clean, or each advisory it reports is recorded in `deny.toml` with its reasoning.',
