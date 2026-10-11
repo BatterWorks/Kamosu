@@ -102,6 +102,30 @@ tickets take `Closes #1, closes #2`, and it does not read the sentence around
 the keyword: "does not fix #7" closes #7. Never close a ticket by hand before
 its pull request has merged.
 
+## The changelog
+
+`CHANGELOG.md` opens with `## Unreleased`, and a release is cut from it.
+
+**A ticket that changes what a person running Kamosu sees or does adds its line
+under `## Unreleased`, in the same commit as the change.** That person is a
+cook, an Operator, or an agent at the MCP Door. A ticket with nothing for them
+to notice adds no line: a refactor, a test, a tool under `ui/tools/`, a change
+to these instructions.
+
+- **One line per change**, written for that reader in the voice the file
+  already has: what Kamosu does now, and what it did before where that is the
+  news.
+- **Under the heading it belongs to**: Added, Changed or Fixed. A change someone
+  must act on when upgrading goes under `### After upgrading`, which comes
+  first.
+- **A fix to something still under `## Unreleased` gets no line of its own.**
+  Correct the line already there. The same goes for a change that is reverted
+  or replaced before a release: take its line out.
+- **End the line with its issue as `[#N]`**, and add `[#N]: <url>` to the block
+  of definitions at the foot of the section, in number order. A change with no
+  issue names its pull request the same way.
+- **The changelog is public.** It names no instance, no host and no person.
+
 ## Building, testing and running
 
 Everything runs through `just` at the repo root — never a hand-rolled
