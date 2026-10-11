@@ -396,6 +396,11 @@ docker build -t kamosu .
 podman build --format docker --ulimit nofile=65536:65536 -t kamosu .
 ```
 
+Add `--build-arg VERSION=<version> --build-arg GIT_SHA=<commit>` to either
+command and the image says which build it is, in its
+`org.opencontainers.image.version` and `org.opencontainers.image.revision`
+labels. Left out, both labels are empty.
+
 With Podman, `--format docker` keeps the image's health check, which Podman's
 default format drops, and the higher open-files limit lets the interface build
 write its files; Podman's default of 1024 is too few. The image carries one binary with the web app compiled

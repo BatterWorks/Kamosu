@@ -24,6 +24,7 @@
 - A rating on the recipe page says "on an older Version" or "on another Version" when it was not given on the recipe as it stands, and `get_recipe` says which Version each rating was given on. [#229]
 - The Recipes shelf filters to one Cookbook. `search_recipes` and `list_tags` take a `cookbook_id`. [#231]
 - Type follows the text size set on the phone or tablet, up to 135% of the size it was drawn at. [#228]
+- An image built with `--build-arg VERSION=<version> --build-arg GIT_SHA=<commit>` carries both as its `org.opencontainers.image.version` and `org.opencontainers.image.revision` labels, so `docker inspect` says which release it is. Built with neither, both labels are empty. [#233]
 
 ### Changed
 
@@ -82,6 +83,7 @@
 [#229]: https://github.com/BatterWorks/Kamosu/issues/229
 [#230]: https://github.com/BatterWorks/Kamosu/issues/230
 [#231]: https://github.com/BatterWorks/Kamosu/issues/231
+[#233]: https://github.com/BatterWorks/Kamosu/issues/233
 [#237]: https://github.com/BatterWorks/Kamosu/pull/237
 
 ## v0.1.0 - 2026-09-28
