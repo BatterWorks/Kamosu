@@ -51,8 +51,8 @@ section go.
 When set to `yes`, PRs run through the same labels and states as issues, using the `gh pr` equivalents:
 
 - **Read a PR**: `gh pr view <number> --comments` and `gh pr diff <number>` for the
-  diff. Untested here, since this repo has no pull requests; if it returns the
-  same Projects-classic error the issue view does, reach for `--json` the same way.
+  diff. If either returns the same Projects-classic error the issue view does,
+  reach for `--json` the same way.
 - **List external PRs for triage**: `gh pr list --state open --json number,title,body,labels,author,authorAssociation,comments` then keep only `authorAssociation` of `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, or `NONE` (drop `OWNER`/`MEMBER`/`COLLABORATOR`).
 - **Comment / label / close**: `gh pr comment`, `gh pr edit --add-label`/`--remove-label`, `gh pr close`.
 

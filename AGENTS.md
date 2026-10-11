@@ -63,6 +63,35 @@ every machine and every CI run builds identically. Pinning the toolchain and
 letting crates float are not in conflict: one is the kitchen, the other is the
 ingredients.
 
+## Branching
+
+All work happens on a branch off `dev`. Never commit to `dev` or `main`
+directly, whatever the size of the change.
+
+Before the first edit, check the current branch and cut one if you are sitting
+on a protected branch:
+
+```sh
+git branch --show-current
+git switch -c <prefix>/<short-slug> dev
+```
+
+Use `feature/`, `fix/`, `docs/`, or `refactor/` as the prefix. Push that branch
+and open a pull request against `dev`; `main` is the release branch and receives
+only merges from `dev`, which `.github/workflows/release-source.yml` checks.
+
+`dev` refuses a direct push, so cutting the branch after the work is committed
+means moving commits off a branch you cannot push, not a quick fix. Check first.
+
+Every merge is a merge commit, including `dev` into `main`. Do not squash, do
+not rebase-merge, and never force-push `dev` or `main`.
+
+**A pull request closes its ticket by naming it**: `Closes #N` in the title, the
+body or a commit message. GitHub acts on that only for the default branch, which
+is `main`, so `.github/workflows/close-issues-on-dev.yml` does it when a pull
+request merges into `dev`. Never close a ticket by hand before its pull request
+has merged.
+
 ## Building, testing and running
 
 Everything runs through `just` at the repo root — never a hand-rolled
