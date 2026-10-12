@@ -19,6 +19,8 @@
     --color-on-accent: #f4efe3;
     --color-support: #b8474b;
     --color-support-2: #7d8b5c;
+    --color-support-3: #3a7488;
+    --color-support-4: #774d80;
     --color-cook-ground: #131c33;
     --color-cook-ink: #f4efe3;
     --color-cook-ink-2: #9aa8c4;
@@ -524,9 +526,6 @@
   .mt-auto {
     margin-top: auto;
   }
-  .mr-1 {
-    margin-right: var(--spacing-1);
-  }
   .-mb-px {
     margin-bottom: -1px;
   }
@@ -1019,9 +1018,6 @@
   }
   .self-start {
     align-self: flex-start;
-  }
-  .self-stretch {
-    align-self: stretch;
   }
   .truncate {
     overflow: hidden;

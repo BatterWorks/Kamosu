@@ -293,8 +293,9 @@ mod tests {
         // order it shows them (ui/src/lib/tokens.ts), and a second hand-kept
         // list here would be one more thing to fall behind the stylesheet.
         let colours = vars.keys().filter(|k| k.starts_with("--color-")).count();
-        // Seventeen from #36, and the indigo under the pointer from #203.
-        assert_eq!(colours, 18, "the whole palette is present");
+        // Seventeen from #36, the indigo under the pointer from #203, and the
+        // History's fourth and fifth line colours from #250.
+        assert_eq!(colours, 20, "the whole palette is present");
         let steps = vars
             .keys()
             .filter(|k| {

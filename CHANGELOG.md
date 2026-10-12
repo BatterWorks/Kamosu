@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Changed
+
+- In the History, a line comes out of the dot of the Version it started from, and the band saying "Splits into 2 Branches here" is gone. A Translation sits directly under the Version it translates, whenever it was written, where it used to leave the top of the page as if the recipe had split before its first Version. [#250]
+
+### Fixed
+
+- The History shows a variation nothing has been saved on yet, and a recipe that arrived and was never edited, under the Version it starts from. A recipe left as it was while a variation of it went on changing is shown under its last Version. It left all three out. [#250]
+- The History draws five Branches in five colours. The fourth used to take the first one's colour. [#250]
+
+[#250]: https://github.com/BatterWorks/Kamosu/issues/250
+
 ## v0.2.0 - 2026-10-12
 
 ### After upgrading
