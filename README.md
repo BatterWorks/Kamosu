@@ -14,17 +14,21 @@
 
 # Kamosu
 
-**A self-hosted cookbook for the people you cook with. Everyone keeps their own
-recipes, a Kitchen lets you cook from each other's, and your AI agent can do
-everything you can.**
+**A self-hosted cookbook that keeps every version of your recipes. Nothing you
+change is ever lost, everyone you cook with keeps their own recipes, and your
+AI agent can do everything you can.**
 
-Kamosu keeps your recipes, every change ever made to them, each time someone
-cooked one and how it went, and the shopping list for the dishes you picked
-this week. Each person writes in their own Cookbook. Put the people you cook
-with in a Kitchen, your household, your parents, a group of friends, and each
-of you can open, cook and record how it went for everyone else's recipes,
-while only the person who wrote a recipe can change it. Change someone else's,
-and you get your own version of it, side by side with theirs.
+Kamosu keeps your recipes and every change ever made to them. Every save is a
+new version, so you can open an older one, cook from it, or see line by line
+what has changed since. It keeps each time someone cooked a recipe and how it
+went, with what they did differently that day, and a change that earned its
+place becomes the recipe's next version.
+
+Each person writes in their own Cookbook. Put the people you cook with in a
+Kitchen, your household, your parents, a group of friends, and each of you can
+open, cook and record how it went for everyone else's recipes, while only the
+person who wrote a recipe can change it. Change someone else's, and you get
+your own version of it, side by side with theirs.
 
 Everything you can do in the web app, an agent can do over MCP (the Model
 Context Protocol), because both are built from the same list of operations.
@@ -48,8 +52,8 @@ port, and it sends your data nowhere.
       <p align="center"><sub><b>Home</b> on a phone</sub></p>
     </td>
     <td width="50%" valign="top" align="center">
-      <img src="docs/readme/recipe.png" width="260" alt="A recipe page on a phone, with its photo and servings">
-      <p align="center"><sub><b>A recipe</b></sub></p>
+      <img src="docs/readme/history.png" width="260" alt="A recipe's History on a phone: Mum's original, your two versions with what changed written under each, a French translation, and how each cooking went">
+      <p align="center"><sub><b>History</b></sub></p>
     </td>
   </tr>
   <tr>
@@ -58,8 +62,8 @@ port, and it sends your data nowhere.
       <p align="center"><sub><b>Cooking mode</b></sub></p>
     </td>
     <td width="50%" valign="top" align="center">
-      <img src="docs/readme/shopping.png" width="260" alt="A shopping list on a phone, worked out from three chosen recipes">
-      <p align="center"><sub><b>Shopping</b></sub></p>
+      <img src="docs/readme/cooked-changed.png" width="260" alt="A cooking in the diary on a phone: more garlic, basil added and a reworded step, each above the line it replaced, and a button to keep them as a new version">
+      <p align="center"><sub><b>Cooked</b></sub></p>
     </td>
   </tr>
 </table>
