@@ -198,7 +198,11 @@ describe('the Thread screen', () => {
 			},
 		});
 
-		expect(await screen.findByText('Splits into 2 Branches here.')).toBeInTheDocument();
+		expect(await screen.findByText('Hotter second fry')).toBeInTheDocument();
+		// No row of its own says the recipe splits (#250): Marc's line comes
+		// out of the dot of the Version the two share.
+		expect(screen.queryByText(/Splits into/)).toBeNull();
+		expect(screen.getAllByRole('listitem')[0].querySelectorAll('svg path')).toHaveLength(1);
 		// Each Branch is named as the version switch names it (#131): your own
 		// is Yours, another Cookbook's is whose it is. Each Version still says
 		// who wrote it.
@@ -367,11 +371,14 @@ describe('the Thread screen', () => {
 			},
 		});
 
-		// Two forks happened: v1 splits mine from {marc, camille}, then m1
-		// splits marc from camille. Both are two-way, so the marker text
-		// repeats — proving there are genuinely two fork sections, not one.
-		const forkMarkers = await screen.findAllByText('Splits into 2 Branches here.');
-		expect(forkMarkers).toHaveLength(2);
+		// Two partings happened: v1 parts mine from {marc, camille}, then m1
+		// parts marc from camille. Each is one line coming out of one dot.
+		await screen.findByText(/Kid-friendly/);
+		const sprouting = screen
+			.getAllByRole('listitem')
+			.filter((item) => item.querySelector('svg path'));
+		expect(sprouting).toHaveLength(2);
+		expect(within(sprouting[1]).getByText('Air fryer')).toBeInTheDocument();
 
 		// "Air fryer" (m_1's change note) must appear exactly once: Marc and
 		// Camille share it, so it is one row, not one per Branch.
@@ -744,9 +751,8 @@ describe('naming a Version from the Thread (#115)', () => {
 		};
 	}
 
-	/** The Versions drawn, in order: every list item but a split's. */
-	const rows = () =>
-		screen.getAllByRole('listitem').filter((item) => !item.textContent?.includes('Splits into'));
+	/** The Versions drawn, in order. */
+	const rows = () => screen.getAllByRole('listitem');
 
 	it('names your quiet save in place, and offers nothing on a Version another cook saved', async () => {
 		const world = threadKeepingNames([
@@ -840,7 +846,7 @@ describe('naming a Version from the Thread (#115)', () => {
 		);
 		const { kamosu } = renderThread('b_mine', world);
 
-		expect(await screen.findByText('Splits into 2 Branches here.')).toBeInTheDocument();
+		expect(await screen.findByText('Less salt')).toBeInTheDocument();
 		await fireEvent.click(within(rows()[0]).getByRole('button', { name: 'Name it' }));
 		await fireEvent.input(screen.getByRole('textbox'), { target: { value: 'The first' } });
 		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -872,7 +878,7 @@ describe('naming a Version from the Thread (#115)', () => {
 			),
 		);
 
-		expect(await screen.findByText('Splits into 2 Branches here.')).toBeInTheDocument();
+		expect(await screen.findByText('Less salt')).toBeInTheDocument();
 		expect(within(rows()[0]).queryByRole('button', { name: /Name it|Rename/ })).toBeNull();
 		expect(within(rows()[1]).getByRole('button', { name: 'Name it' })).toBeInTheDocument();
 	});
@@ -897,5 +903,149 @@ describe('naming a Version from the Thread (#115)', () => {
 		await vi.waitFor(() =>
 			expect(kamosu.calls.filter((call) => call.operation === 'get_thread')).toHaveLength(2),
 		);
+	});
+});
+
+describe('a Translation, and a Branch nothing was saved on, in the Thread (#250)', () => {
+	const saved = (
+		branch_id: string,
+		sequence: number,
+		version_id: string,
+		day: string,
+		extra: Partial<GetThreadOutput['versions'][number]> = {},
+	): GetThreadOutput['versions'][number] => ({
+		branch_id,
+		sequence,
+		version_id,
+		parent_version_id: null,
+		hand_id: 'p_stephane',
+		hand_name: 'Stéphane',
+		name: null,
+		change_note: null,
+		created_at: `2026-05-${day}T00:00:00Z`,
+		translates_version_id: null,
+		language: 'en',
+		...extra,
+	});
+	const recipe = [
+		saved('b_mine', 1, 'v_1', '03', { name: 'The original' }),
+		saved('b_mine', 2, 'v_2', '10', { change_note: 'More flour' }),
+		saved('b_mine', 3, 'v_3', '12', { change_note: 'One more egg' }),
+	];
+	const french = threadBranch('b_fr', { language: 'fr' });
+	const rows = () => screen.getAllByRole('listitem');
+
+	it('puts a Translation under the Version it translates, however late it was written', async () => {
+		renderThread('b_mine', {
+			get_thread: {
+				lineage_id: 'l_1',
+				branches: [threadBranch('b_mine'), french],
+				versions: [
+					...recipe,
+					saved('b_fr', 1, 'v_fr', '24', { translates_version_id: 'v_1', language: 'fr' }),
+				],
+				attempts: [],
+			},
+		});
+		await screen.findByText('One more egg');
+		// Written last and drawn second: the first row is the first Version.
+		expect(rows()).toHaveLength(4);
+		expect(within(rows()[0]).getByText(/The original/)).toBeInTheDocument();
+		// Its line comes out of that Version's dot.
+		expect(rows()[0].querySelectorAll('svg path')).toHaveLength(1);
+		// The row names its Branch and keeps its date; nothing says what it
+		// translates, since where it sits does.
+		expect(rows()[1]).toHaveTextContent('Yours (French)');
+		expect(rows()[1]).toHaveTextContent('2026-05-24');
+		expect(screen.queryByText(/Translates/)).toBeNull();
+		expect(screen.queryByText(/Splits into/)).toBeNull();
+		// Rows name their Branch from the second line on, and not before it.
+		expect(rows()[0]).not.toHaveTextContent('Yours');
+		expect(rows()[2]).toHaveTextContent('Yours');
+	});
+
+	it('says so where the Version a Translation translates is not in the History', async () => {
+		renderThread('b_mine', {
+			get_thread: {
+				lineage_id: 'l_1',
+				branches: [threadBranch('b_mine'), french],
+				versions: [
+					...recipe,
+					saved('b_fr', 1, 'v_fr', '04', { translates_version_id: 'v_elsewhere', language: 'fr' }),
+				],
+				attempts: [],
+			},
+		});
+		const said = await screen.findByText('Translates a Version that is not in this History.');
+		// At the foot, whatever its date, and nothing claims the recipe split.
+		expect(rows().at(-1)).toContainElement(said);
+		// Two Branches and no dot to say where they part: every row names its own.
+		expect(rows()[0]).toHaveTextContent('Yours');
+		expect(document.querySelector('ul svg')).toBeNull();
+	});
+
+	it('gives a variation nothing was saved on a row of its own, by the name it was given', async () => {
+		renderThread('b_mine', {
+			get_thread: {
+				lineage_id: 'l_1',
+				branches: [threadBranch('b_mine'), threadBranch('b_gf', { name: 'Gluten-free' })],
+				versions: [
+					...recipe,
+					saved('b_gf', 1, 'v_1', '03', { name: 'The original' }),
+					saved('b_gf', 2, 'v_2', '10', { change_note: 'More flour' }),
+				],
+				attempts: [],
+			},
+		});
+		await screen.findByText('One more egg');
+		// Under the Version it starts from, and before the recipe's next one.
+		expect(rows()[2]).toHaveTextContent('Gluten-free');
+		expect(rows()[2]).toHaveTextContent('Starts here. Nothing changed yet.');
+		// It is no Version: nothing to open, name or cook from.
+		expect(within(rows()[2]).queryByRole('button')).toBeNull();
+		expect(rows()[3]).toHaveTextContent('One more egg');
+	});
+
+	it('says nothing changed since on the recipe, where only its variation went on', async () => {
+		renderThread('b_mine', {
+			get_thread: {
+				lineage_id: 'l_1',
+				branches: [threadBranch('b_mine'), threadBranch('b_vegan', { name: 'Vegan' })],
+				versions: [
+					...recipe,
+					...recipe.map((each) => ({ ...each, branch_id: 'b_vegan' })),
+					saved('b_vegan', 4, 'v_vegan', '20', { change_note: 'No eggs' }),
+				],
+				attempts: [],
+			},
+		});
+		await screen.findByText('No eggs');
+		// Under the last Version it holds, by its own name: it did not start there.
+		expect(rows()[3]).toHaveTextContent('Yours');
+		expect(rows()[3]).toHaveTextContent('Nothing changed since.');
+		expect(screen.queryByText('Starts here. Nothing changed yet.')).toBeNull();
+		expect(rows()[4]).toHaveTextContent('Vegan');
+	});
+
+	it('draws five Branches in five colours', async () => {
+		const ids = ['b_mine', 'b_2', 'b_3', 'b_4', 'b_5'];
+		renderThread('b_mine', {
+			get_thread: {
+				lineage_id: 'l_1',
+				branches: ids.map((id, index) =>
+					threadBranch(id, index ? { name: `Variation ${index}` } : {}),
+				),
+				versions: ids.flatMap((id, index) => [
+					saved(id, 1, 'v_1', '03'),
+					saved(id, 2, `v_${id}`, `1${index}`, { change_note: `Change ${index}` }),
+				]),
+				attempts: [],
+			},
+		});
+		await screen.findByText('Change 4');
+		const colours = rows()
+			.slice(1)
+			.map((row) => row.querySelector('span[style^="color"]')?.getAttribute('style'));
+		expect(new Set(colours).size).toBe(5);
 	});
 });

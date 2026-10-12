@@ -23,6 +23,8 @@ export const COLOUR_ORDER = [
 	'--color-on-accent',
 	'--color-support',
 	'--color-support-2',
+	'--color-support-3',
+	'--color-support-4',
 	'--color-cook-ground',
 	'--color-cook-ink',
 	'--color-cook-ink-2',
