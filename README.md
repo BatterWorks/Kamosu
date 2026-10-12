@@ -31,25 +31,35 @@ Context Protocol), because both are built from the same list of operations.
 Kamosu runs on a machine you own, in one container with one folder and one
 port, and it sends your data nowhere.
 
+<p align="center">
+  <img src="docs/readme/wide-recipe.png" width="880" alt="A recipe on a computer: a sidebar on the left, the photograph across the top, the ingredients and the method in two columns">
+</p>
+<p align="center"><sub><b>A recipe</b> on a tablet or a computer</sub></p>
+
+<p align="center">
+  <img src="docs/readme/wide-cooking.png" width="880" alt="Cooking mode on a tablet: one step in large type, the amounts it uses, a timer, and the next step beside it">
+</p>
+<p align="center"><sub><b>Cooking mode</b>: one step, what it uses, the next one</sub></p>
+
 <table>
   <tr>
     <td width="50%" valign="top" align="center">
-      <img src="docs/readme/home-shelves.png" width="260" alt="Home: recipe shelves for recently added and most cooked">
-      <p align="center"><sub><b>Home</b>: shelves worked out from what you cook</sub></p>
+      <img src="docs/readme/home-shelves.png" width="260" alt="Home on a phone: recipe shelves for recently added and most cooked">
+      <p align="center"><sub><b>Home</b> on a phone</sub></p>
     </td>
     <td width="50%" valign="top" align="center">
-      <img src="docs/readme/recipe.png" width="260" alt="A recipe page with its photo, times and servings">
-      <p align="center"><sub><b>A recipe</b>, with its whole history behind it</sub></p>
+      <img src="docs/readme/recipe.png" width="260" alt="A recipe page on a phone, with its photo and servings">
+      <p align="center"><sub><b>A recipe</b></sub></p>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top" align="center">
-      <img src="docs/readme/cooking.png" width="260" alt="Cooking mode on one step, with its ingredients to tick off">
-      <p align="center"><sub><b>Cooking mode</b>: one step and what it uses</sub></p>
+      <img src="docs/readme/cooking.png" width="260" alt="Cooking mode on a phone, on one step, with its ingredients to tick off and a timer">
+      <p align="center"><sub><b>Cooking mode</b></sub></p>
     </td>
     <td width="50%" valign="top" align="center">
-      <img src="docs/readme/shopping.png" width="260" alt="A shopping list worked out from three chosen recipes">
-      <p align="center"><sub><b>Shopping</b>, added up from the recipes you chose</sub></p>
+      <img src="docs/readme/shopping.png" width="260" alt="A shopping list on a phone, worked out from three chosen recipes">
+      <p align="center"><sub><b>Shopping</b></sub></p>
     </td>
   </tr>
 </table>
