@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.2.0 - 2026-10-12
+
 ### After upgrading
 
 - An Operator presses "Read every line again" on the Operator page once. The reader of Ingredient Lines was fixed in four places, listed under Fixed, and a line already saved keeps its old Reading until it is read again. A Reading somebody set by hand is left alone. [#207] [#208] [#213] [#230]
