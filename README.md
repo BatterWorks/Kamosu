@@ -31,25 +31,41 @@ Context Protocol), because both are built from the same list of operations.
 Kamosu runs on a machine you own, in one container with one folder and one
 port, and it sends your data nowhere.
 
+<p align="center">
+  <img src="docs/readme/wide-recipe.png" width="820" alt="A recipe on a tablet: a sidebar on the left, the ingredients and the method in two columns">
+</p>
+<p align="center"><sub><b>A recipe</b> on a tablet or a computer, the ingredients in view while the method scrolls</sub></p>
+
 <table>
   <tr>
     <td width="50%" valign="top" align="center">
-      <img src="docs/readme/home-shelves.png" width="260" alt="Home: recipe shelves for recently added and most cooked">
-      <p align="center"><sub><b>Home</b>: shelves worked out from what you cook</sub></p>
+      <img src="docs/readme/wide-cooking.png" width="400" alt="Cooking mode on a tablet: one step, the amounts it uses, and the next step beside it">
+      <p align="center"><sub><b>Cooking mode</b>: one step, what it uses, and the next one</sub></p>
     </td>
     <td width="50%" valign="top" align="center">
-      <img src="docs/readme/recipe.png" width="260" alt="A recipe page with its photo, times and servings">
-      <p align="center"><sub><b>A recipe</b>, with its whole history behind it</sub></p>
+      <img src="docs/readme/wide-shopping.png" width="400" alt="Shopping on a tablet: the chosen recipes on the left, what to buy on the right">
+      <p align="center"><sub><b>Shopping</b>, added up from the recipes you chose</sub></p>
     </td>
   </tr>
+</table>
+
+<table>
   <tr>
-    <td width="50%" valign="top" align="center">
-      <img src="docs/readme/cooking.png" width="260" alt="Cooking mode on one step, with its ingredients to tick off">
-      <p align="center"><sub><b>Cooking mode</b>: one step and what it uses</sub></p>
+    <td width="25%" valign="top" align="center">
+      <img src="docs/readme/home-shelves.png" width="190" alt="Home on a phone: recipe shelves for recently added and most cooked">
+      <p align="center"><sub><b>Home</b>: shelves worked out from what you cook</sub></p>
     </td>
-    <td width="50%" valign="top" align="center">
-      <img src="docs/readme/shopping.png" width="260" alt="A shopping list worked out from three chosen recipes">
-      <p align="center"><sub><b>Shopping</b>, added up from the recipes you chose</sub></p>
+    <td width="25%" valign="top" align="center">
+      <img src="docs/readme/recipe.png" width="190" alt="A recipe page on a phone, with its photo, time and servings">
+      <p align="center"><sub><b>A recipe</b>, with its whole history behind it</sub></p>
+    </td>
+    <td width="25%" valign="top" align="center">
+      <img src="docs/readme/cooking.png" width="190" alt="Cooking mode on a phone, on one step, with its ingredients to tick off">
+      <p align="center"><sub><b>At the stove</b>, on the phone it was drawn for</sub></p>
+    </td>
+    <td width="25%" valign="top" align="center">
+      <img src="docs/readme/shopping.png" width="190" alt="A shopping list on a phone, worked out from three chosen recipes">
+      <p align="center"><sub><b>The list</b>, in your pocket at the shop</sub></p>
     </td>
   </tr>
 </table>
