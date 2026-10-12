@@ -21,6 +21,7 @@ Everything you can do in the web app, an agent can do over MCP (the Model Contex
 ## What you get
 
 - **Cook from your phone, offline.** Cooking mode walks you through the steps with the amounts each step needs, lets you tick off ingredients, and turns a time in the step text into a timer. Install it to your home screen like an app.
+- **On a tablet or a computer too.** A wider window gets a sidebar where the phone has its tab bar, and a recipe in two columns.
 - **Kitchens.** Cook from the recipes of everyone you share a Kitchen with, and see how it went when they cooked yours.
 - **A recipe keeps its whole history.** Every save is a new version and none is ever lost. Start a variation or a translation beside the original, and Kamosu shows how two versions differ line by line.
 - **A diary of what you cooked.** Each cooking is dated and rated, with photos, notes, and what you actually did if it differed from the recipe.
@@ -89,7 +90,7 @@ Kamosu serves plain HTTP and never handles a certificate. Put your own reverse p
 
 ## Connecting an agent
 
-In Kamosu, open **Settings**, then **Access Keys**, and create one. Tick **Read-only** if the agent only needs to look things up. Point any MCP client at `https://your-kamosu/mcp` with the key as a bearer token. The [GitHub README](https://github.com/BatterWorks/Kamosu#connecting-an-agent) has the exact configuration for Claude Code, Codex and Hermes.
+In Kamosu, open **Settings**, then **Account**, and create an Access Key. Tick **Read-only** if the agent only needs to look things up. Point any MCP client at `https://your-kamosu/mcp` with the key as a bearer token. The [GitHub README](https://github.com/BatterWorks/Kamosu#connecting-an-agent) has the exact configuration for Claude Code, Codex and Hermes.
 
 ## Your data
 

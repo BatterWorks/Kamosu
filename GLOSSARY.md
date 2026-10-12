@@ -117,7 +117,7 @@ A recipe present in a **Bundle** only because something else in it needed it —
 _Avoid_: Dependency, attachment, extra, sub-recipe
 
 **Sheet**:
-One recipe rendered for paper — the printable form a **Share Link** offers beside the **Bundle**, made by anyone who can see the recipe and a stranger holding a link alike. It carries the recipe, not the library: what is a fact about the dish is on it, what is a fact about how Kamosu files the dish is not — so Tags, Attempts, the **Thread** and every past Version stay behind. It is one **Branch**, the one on screen, printed as it stands there with any scaling already applied and no dialog of its own; **Components** unfold after it, parent first, each already scaled. The written **Ingredient Line** is what is printed and a **Reading** is not, save for a scaled amount beneath a line and a Component's page number. It ends with a small block saying which **Version** it came from and whose **Hand** wrote it, so a page found in a drawer can still say what it is. Dead in both directions: nothing leads back into Kamosu from it, and nothing is ever read out of it.
+One recipe rendered for paper — the printable form a **Share Link** offers beside the **Bundle**, made by anyone who can see the recipe and a stranger holding a link alike. It carries the recipe, not the library: what is a fact about the dish is on it, what is a fact about how Kamosu files the dish is not — so Tags, Attempts, the **Thread** and every past Version stay behind. It is one **Branch**, the one on screen, printed as it stands there with any scaling already applied and no dialog of its own; **Components** unfold after it, parent first, each already scaled. The written **Ingredient Line** is what is printed and a **Reading** is not, save for a scaled amount beneath a line and a Component's page number. It ends with a small block saying which **Version** it came from and whose **Hand** wrote it, so a page found in a drawer can still say what it is. Dead in both directions: nothing leads back into Kamosu from it, and nothing is ever read out of it. Not the *bottom sheet*, which is the panel that rises over a screen and has nothing to do with paper.
 _Avoid_: PDF, printout, export, print view, hard copy
 
 **Vault**:
@@ -179,7 +179,7 @@ What one cup of a Food weighs, about — the one figure that lets a volume becom
 _Avoid_: Density, specific gravity, conversion factor, weight, gram weight
 
 **Step**:
-One instruction in a recipe, in order. Its truth is its text. It may also carry a photo of what the step should look like. Which Ingredients it uses is worked out from their Readings rather than carried — nothing points at anything and nobody types a link. A duration, a temperature or an amount is read out of that text, never typed beside it — a duration becoming a timer that can be started, and a temperature in the other system or an amount with a convertible Unit ("425°", "1 lb.") becoming its conversion, drawn straight after what it converts; an amount's is scaled to the Yield being cooked. None of them is ever written into the text.
+One instruction in a recipe, in order. Its truth is its text. It may also carry a photo of what the step should look like. A recipe's Steps together are headed *Method* on screen. Which Ingredients it uses is worked out from their Readings rather than carried — nothing points at anything and nobody types a link. A duration, a temperature or an amount is read out of that text, never typed beside it — a duration becoming a timer that can be started, and a temperature in the other system or an amount with a convertible Unit ("425°", "1 lb.") becoming its conversion, drawn straight after what it converts; an amount's is scaled to the Yield being cooked. None of them is ever written into the text.
 _Avoid_: Instruction, direction, method, procedure
 
 **Section**:
@@ -195,7 +195,7 @@ Free text about the recipe as written — serving suggestions, substitutions, "t
 _Avoid_: Comment, remark, tip, annotation
 
 **Tag**:
-A word a recipe can be described by, kept once in a single list belonging to a Kitchen and pointed at by every recipe of that Kitchen which uses it — so renaming or merging one reaches all of them at once, and named per Language rather than split by it. A tag arriving with a recipe from elsewhere lands in the receiving Kitchen's list; what one Kitchen means by "quick" is its own business. Flat: tags have no hierarchy.
+A word a recipe can be described by, kept once in a single list belonging to a **Cookbook** and pointed at by every recipe of that Cookbook which uses it — so renaming or merging one reaches all of them at once, and named per Language rather than split by it. Whoever writes in the Cookbook keeps its list, and everyone who sees its recipes through a Kitchen sees its Tags on them. A tag arriving with a recipe from elsewhere lands in the receiving Cookbook's list; what one Cookbook means by "quick" is its own business. Flat: tags have no hierarchy.
 _Avoid_: Keyword, category, label, folder
 
 **Related Recipe**:
@@ -231,7 +231,7 @@ What Kamosu shows on a screen when a Photograph is asked for — the Photograph 
 _Avoid_: Thumbnail, resized image, derivative, optimised image, web version
 
 **Cover**:
-What leads a recipe that has no **Main Photo** — a coloured ground carrying the recipe's title, generated from the recipe's **Lineage** id and therefore the same after a rename, the same on every instance the recipe reaches, and the same across its **Translation**s. Used on a card and at the top of a page, in the space a Photograph would have filled. Not a placeholder for something missing: a recipe needs only a title, and roughly a third of a real library has no photograph at all.
+What leads a recipe that has no **Main Photo** — a coloured ground carrying the recipe's title and one of sixteen pasta shapes, generated from the recipe's **Lineage** id and therefore the same after a rename, the same on every instance the recipe reaches, and the same across its **Translation**s. Used on a card and at the top of a page, in the space a Photograph would have filled. Not a placeholder for something missing: a recipe needs only a title, and roughly a third of a real library has no photograph at all.
 _Avoid_: Placeholder, fallback image, default image, thumbnail, avatar, identicon
 
 ### Identity and history
@@ -260,6 +260,10 @@ _Avoid_: Global id, canonical id, origin id, foreign id (that is what an importe
 The id one instance files its own copy of a **Branch** under — what every Operation asks for, what every URL carries, and the only one of the two a person ever sees. It is this instance's to mint, so a Branch that arrived from elsewhere has a local id that is not its **Travelling id**. On a Branch that started here the two are the same.
 _Avoid_: Row id, primary key, internal id, database id
 
+**Divergence**:
+Two Versions of one Lineage laid over each other: two whole recipes and the rows between them, never a list of differences. Each row carries both sides' own words, and a line only one side has is a **Ghost**; which line is which is a **Pairing**. Asked of two Branches it is read against their **Branch Point**. Asked of one Branch it is an older Version beside the one it has now, which is what `changed_since` answers. Kamosu shows it and never merges the two sides.
+_Avoid_: Diff, conflict, merge, delta
+
 **Branch Point**:
 The last Version two Branches share — a fact computed by walking both parent chains until they meet, not something anyone declares. What "you diverged here" means. It always exists between two valid Branches of one Lineage, because every chain reaches the same first Version; a chain that does not is a damaged bundle.
 _Avoid_: Common ancestor, base, merge base, split
@@ -273,7 +277,7 @@ A line one Branch has and the other has not, shown on the recipe that has not go
 _Avoid_: Diff, deletion, phantom, missing line
 
 **Pairing**:
-Kamosu deciding that a line of one Branch and a line of the other are the same line, changed — worked out by reading them against the **Branch Point**, never by any name a line carries, because a line carries none. Only lines somebody actually edited need one; anything neither side touched is identical on both sides already. Where the reading is uncertain Kamosu declines to pair and shows both lines, one of them as a **Ghost**, and it never labels a Pairing as a guess: both texts are on screen in full, which is better evidence than a badge about them. It reaches the whole recipe, not only the two lists — Sections and Notes pair as lines do, single values such as the title or the Yield are simply the same or not, and a Photograph is exact because it is known by its own contents. Tags are left out, being how a Kitchen files a recipe rather than anything about the dish.
+Kamosu deciding that a line of one Branch and a line of the other are the same line, changed — worked out by reading them against the **Branch Point**, never by any name a line carries, because a line carries none. Only lines somebody actually edited need one; anything neither side touched is identical on both sides already. Where the reading is uncertain Kamosu declines to pair and shows both lines, one of them as a **Ghost**, and it never labels a Pairing as a guess: both texts are on screen in full, which is better evidence than a badge about them. It reaches the whole recipe, not only the two lists — Sections and Notes pair as lines do, single values such as the title or the Yield are simply the same or not, and a Photograph is exact because it is known by its own contents. Tags are left out, being how a Cookbook files a recipe rather than anything about the dish.
 _Avoid_: Diff, match, alignment, correlation, line id, key
 
 ### Language and measures
@@ -309,7 +313,7 @@ The complete recipe state an Attempt actually cooked, held only when it differed
 _Avoid_: Deviation, adjustment, diff, draft, variant, modification
 
 **Promotion**:
-The deliberate act of taking something provisional out of an Attempt and making it part of the recipe — an As Cooked becoming a Version, or an Attempt photograph becoming the Main Photo or a Step's photo. The point at which an Attempt's freedoms end and the recipe's rules begin: what is promoted is append-only, and promoting requires the right to edit the recipe.
+The deliberate act of taking something provisional out of an Attempt and making it part of the recipe — an As Cooked becoming a Version, or an Attempt photograph becoming the Main Photo or a Step's photo. The interface says *keep*: a cooking whose changed lines were never promoted is *unkept*, and Cooked offers to keep them as a Version. The point at which an Attempt's freedoms end and the recipe's rules begin: what is promoted is append-only, and promoting requires the right to edit the recipe.
 _Avoid_: Apply, merge, commit, save back, accept
 
 ### Shopping
