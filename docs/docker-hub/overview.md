@@ -2,37 +2,35 @@
 
 # Kamosu
 
-**A self-hosted cookbook for recipes that keep changing. Kamosu keeps every version of a recipe, each time you cooked it, and what you did differently that day.**
+**A self-hosted cookbook that keeps every version of your recipes. Nothing you change is ever lost, everyone you cook with keeps their own recipes, and your AI agent can do everything you can.**
 
-A recipe is never finished. You halve the oil, your mum adds a pinch of sugar, and one Sunday the basil goes in because it was there. Kamosu keeps all of it. Every save is a new version and none is ever lost. Each cooking is a dated entry in a diary, with the lines you changed at the stove, and you can keep those as the recipe's next version.
+Kamosu keeps your recipes and every change ever made to them. Every save is a new version, so you can open an older one, cook from it, or see line by line what has changed since. It keeps each time someone cooked a recipe and how it went, with what they did differently that day, and a change that earned its place becomes the recipe's next version.
 
-Everyone writes in their own Cookbook. Put the people you cook with in a Kitchen, your household, your parents, a group of friends, and each of you can open and cook everyone else's recipes, while only the person who wrote a recipe can change it. Change someone else's and you get your own version beside theirs, with every line the two don't share marked.
+Each person writes in their own Cookbook. Put the people you cook with in a Kitchen, your household, your parents, a group of friends, and each of you can open, cook and record how it went for everyone else's recipes, while only the person who wrote a recipe can change it. Change someone else's, and you get your own version of it, side by side with theirs.
 
-Your AI agent can do everything you can. The web app and the MCP (Model Context Protocol) endpoint are built from the same list of operations. Kamosu runs on a machine you own, in one container with one folder and one port, and it sends your data nowhere.
+Everything you can do in the web app, an agent can do over MCP (the Model Context Protocol), because both are built from the same list of operations. Kamosu runs on a machine you own, in one container with one folder and one port, and it sends your data nowhere.
 
-![Mum's ratatouille read from your copy of it: her olive oil and her pinch of sugar are marked as not yours, and your vinegar and your roasting step are struck through as not in hers](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/wide-two-versions.png)
+![A recipe on a computer: a sidebar on the left, the photograph across the top, the ingredients and the method in two columns](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/wide-recipe.png)
 
-**Mum's ratatouille, read from yours**: every line the two don't share is marked
+**A recipe** on a tablet or a computer
 
 | | |
 | --- | --- |
-| ![A recipe's History: Mum's original, the point where your copy parts from hers, your versions with what changed beside each, a French translation, and how each cooking went](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/history.png) | ![A cooking in the diary: more garlic, basil added and a reworded step, each beside the line it replaced, and a button to keep them as a new version](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/cooked-changed.png) |
-| **A recipe's History**: Mum's original, your changes, a translation, and how each cooking went | **Cooked**: what you changed at the stove, to keep if it earned its place |
-| ![Cooking mode on one step, with its ingredients to tick off](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/cooking.png) | ![A recipe page with its photo and servings](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/recipe.png) |
-| **Cooking mode**: one step and what it uses | **A recipe** |
-| ![Home: recipe shelves for recently added and most cooked](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/home-shelves.png) | ![A shopping list worked out from three chosen recipes](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/shopping.png) |
-| **Home**: shelves worked out from what you cook | **Shopping**, added up from the recipes you chose |
+| ![Home: recipe shelves for recently added and most cooked](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/home-shelves.png) | ![A recipe's History: Mum's original, your two versions with what changed under each, a French translation, and how each cooking went](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/history.png) |
+| **Home**: shelves worked out from what you cook | **History**: every version of a recipe, and how each cooking went |
+| ![Cooking mode on one step, with its ingredients to tick off](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/cooking.png) | ![A cooking in the diary: more garlic, basil added and a reworded step, each above the line it replaced, and a button to keep them as a new version](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/cooked-changed.png) |
+| **Cooking mode**: one step and what it uses | **Cooked**: what you changed at the stove, to keep as a new version |
 
 - **Source and full README:** https://github.com/BatterWorks/Kamosu
 - **Changelog:** https://github.com/BatterWorks/Kamosu/blob/main/CHANGELOG.md
 
 ## What you get
 
-- **A recipe keeps its whole history.** Every save is a new version and none is ever lost. Open an older one, cook from it, or carry a line back. Start a variation or a translation beside the original, and Kamosu shows how two versions differ line by line.
-- **A diary of what you cooked.** Each cooking is dated and rated, with photos, notes, and what you actually did if it differed from the recipe. Keep a change as the recipe's next version when it earned its place.
-- **Kitchens.** Cook from the recipes of everyone you share a Kitchen with, and see how it went when they cooked yours.
 - **Cook from your phone, offline.** Cooking mode walks you through the steps with the amounts each step needs, lets you tick off ingredients, and turns a time in the step text into a timer. Install it to your home screen like an app.
 - **On a tablet or a computer too.** A wider window gets a sidebar where the phone has its tab bar, and a recipe in two columns.
+- **Kitchens.** Cook from the recipes of everyone you share a Kitchen with, and see how it went when they cooked yours.
+- **A recipe keeps its whole history.** Every save is a new version and none is ever lost. Start a variation or a translation beside the original, and Kamosu shows how two versions differ line by line.
+- **A diary of what you cooked.** Each cooking is dated and rated, with photos, notes, and what you actually did if it differed from the recipe.
 - **Scaling and conversions.** Cook for 3 instead of 6 and every amount follows, with metric or US measures beside the amounts as written.
 - **A shopping list worked out from recipes.** Pick dishes and how many you are cooking for. Flour from three recipes becomes one row.
 - **Search by words, or by meaning.** Turn on Meaning Search and "that thing with aubergines" finds a recipe that never says aubergine.
@@ -43,7 +41,7 @@ Your AI agent can do everything you can. The web app and the MCP (Model Context 
 
 ## Who it is for
 
-Kamosu suits people who change a recipe a little each time they cook it and want to see how it got to where it is: one person, a household, or a family spread over several homes. They keep their recipes on their own server, cook from a phone, and let an agent add, fix or translate recipes for them.
+Kamosu suits a person, a household or a group of people who want to keep their recipes on their own server, cook from a phone, and let an agent add, fix or translate recipes for them.
 
 It is not a hosted service, a meal planner, a nutrition tracker or a public recipe site. Every account starts from an invite, and nothing is visible to strangers unless you share a link.
 

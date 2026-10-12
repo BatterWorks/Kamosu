@@ -14,68 +14,56 @@
 
 # Kamosu
 
-**A self-hosted cookbook for recipes that keep changing. Kamosu keeps every
-version of a recipe, each time you cooked it, and what you did differently
-that day.**
+**A self-hosted cookbook that keeps every version of your recipes. Nothing you
+change is ever lost, everyone you cook with keeps their own recipes, and your
+AI agent can do everything you can.**
 
-A recipe is never finished. You halve the oil, your mum adds a pinch of sugar,
-and one Sunday the basil goes in because it was there. Kamosu keeps all of it.
-Every save is a new version and none is ever lost. Each cooking is a dated
-entry in a diary, with the lines you changed at the stove, and you can keep
-those as the recipe's next version.
+Kamosu keeps your recipes and every change ever made to them. Every save is a
+new version, so you can open an older one, cook from it, or see line by line
+what has changed since. It keeps each time someone cooked a recipe and how it
+went, with what they did differently that day, and a change that earned its
+place becomes the recipe's next version.
 
-Everyone writes in their own Cookbook. Put the people you cook with in a
+Each person writes in their own Cookbook. Put the people you cook with in a
 Kitchen, your household, your parents, a group of friends, and each of you can
-open and cook everyone else's recipes, while only the person who wrote a
-recipe can change it. Change someone else's and you get your own version
-beside theirs, with every line the two don't share marked.
+open, cook and record how it went for everyone else's recipes, while only the
+person who wrote a recipe can change it. Change someone else's, and you get
+your own version of it, side by side with theirs.
 
-Your AI agent can do everything you can. The web app and the MCP (Model
-Context Protocol) endpoint are built from the same list of operations, so the
-agent you already use can add a recipe it read off a photo, fix one, or
-translate it. Kamosu runs on a machine you own, in one container with one
-folder and one port, and it sends your data nowhere.
-
-<table>
-  <tr>
-    <td width="33%" valign="top" align="center">
-      <img src="docs/readme/history.png" width="250" alt="A recipe's History on a phone: Mum's original at the top, the point where your copy parts from hers, two of your versions with what changed written beside each, a French translation, and how each cooking went">
-      <p align="center"><sub><b>A recipe's History</b>: Mum's original, your changes, a translation, and how each cooking went</sub></p>
-    </td>
-    <td width="33%" valign="top" align="center">
-      <img src="docs/readme/cooked-changed.png" width="250" alt="A cooking in the diary on a phone: more garlic, basil added and a reworded step, each beside the line it replaced, and a button to keep them as a new version">
-      <p align="center"><sub><b>Cooked</b>: what you changed at the stove, to keep if it earned its place</sub></p>
-    </td>
-    <td width="33%" valign="top" align="center">
-      <img src="docs/readme/cooking.png" width="250" alt="Cooking mode on a phone, on one step, with its ingredients to tick off and a timer">
-      <p align="center"><sub><b>Cooking mode</b>: one step and what it uses</sub></p>
-    </td>
-  </tr>
-</table>
+Everything you can do in the web app, an agent can do over MCP (the Model
+Context Protocol), because both are built from the same list of operations.
+Kamosu runs on a machine you own, in one container with one folder and one
+port, and it sends your data nowhere.
 
 <p align="center">
-  <img src="docs/readme/wide-two-versions.png" width="880" alt="Mum's ratatouille read from your copy of it: her olive oil and her pinch of sugar are marked as not yours, and your vinegar and your roasting step are struck through as not in hers">
+  <img src="docs/readme/wide-recipe.png" width="880" alt="A recipe on a computer: a sidebar on the left, the photograph across the top, the ingredients and the method in two columns">
 </p>
-<p align="center"><sub><b>Mum's ratatouille, read from yours</b>: every line the two don't share is marked</sub></p>
+<p align="center"><sub><b>A recipe</b> on a tablet or a computer</sub></p>
 
 <p align="center">
   <img src="docs/readme/wide-cooking.png" width="880" alt="Cooking mode on a tablet: one step in large type, the amounts it uses, a timer, and the next step beside it">
 </p>
-<p align="center"><sub><b>Cooking mode</b> on a tablet: one step, what it uses, the next one</sub></p>
+<p align="center"><sub><b>Cooking mode</b>: one step, what it uses, the next one</sub></p>
 
 <table>
   <tr>
-    <td width="33%" valign="top" align="center">
-      <img src="docs/readme/home-shelves.png" width="250" alt="Home on a phone: recipe shelves for recently added and most cooked">
-      <p align="center"><sub><b>Home</b></sub></p>
+    <td width="50%" valign="top" align="center">
+      <img src="docs/readme/home-shelves.png" width="260" alt="Home on a phone: recipe shelves for recently added and most cooked">
+      <p align="center"><sub><b>Home</b> on a phone</sub></p>
     </td>
-    <td width="33%" valign="top" align="center">
-      <img src="docs/readme/recipe.png" width="250" alt="A recipe page on a phone, with its photo and servings">
-      <p align="center"><sub><b>A recipe</b></sub></p>
+    <td width="50%" valign="top" align="center">
+      <img src="docs/readme/history.png" width="260" alt="A recipe's History on a phone: Mum's original, your two versions with what changed written under each, a French translation, and how each cooking went">
+      <p align="center"><sub><b>History</b></sub></p>
     </td>
-    <td width="33%" valign="top" align="center">
-      <img src="docs/readme/shopping.png" width="250" alt="A shopping list on a phone, worked out from three chosen recipes">
-      <p align="center"><sub><b>Shopping</b></sub></p>
+  </tr>
+  <tr>
+    <td width="50%" valign="top" align="center">
+      <img src="docs/readme/cooking.png" width="260" alt="Cooking mode on a phone, on one step, with its ingredients to tick off and a timer">
+      <p align="center"><sub><b>Cooking mode</b></sub></p>
+    </td>
+    <td width="50%" valign="top" align="center">
+      <img src="docs/readme/cooked-changed.png" width="260" alt="A cooking in the diary on a phone: more garlic, basil added and a reworded step, each above the line it replaced, and a button to keep them as a new version">
+      <p align="center"><sub><b>Cooked</b></sub></p>
     </td>
   </tr>
 </table>
@@ -100,16 +88,6 @@ folder and one port, and it sends your data nowhere.
 
 ## What you get
 
-- **A recipe keeps its whole history.** Every save is a new version and none is
-  ever lost. Open an older one, cook from it, or carry a line back. Start a
-  variation beside the original, or a translation into another language, and
-  Kamosu shows how two versions differ line by line.
-- **A diary of what you cooked.** Each cooking is an Attempt: dated, rated,
-  with photos, notes, and what you actually did if it differed from the
-  recipe. Keep a change as the recipe's next version when it earned its place.
-- **Kitchens.** Cook from the recipes of everyone you share a Kitchen with, and
-  see how it went when they cooked yours. See
-  [Kitchens and Cookbooks](#kitchens-and-cookbooks).
 - **Cook from your phone, offline.** Cooking mode walks you through the steps
   with the amounts each step needs, lets you tick off ingredients, and turns a
   time in the step text into a timer. Recipes stay readable with no signal, and
@@ -119,6 +97,15 @@ folder and one port, and it sends your data nowhere.
   phone has its tab bar, a recipe in two columns with the ingredients in view
   while the method scrolls, and lists that stay beside what you opened from
   them. Type follows the text size set on the device.
+- **Kitchens.** Cook from the recipes of everyone you share a Kitchen with, and
+  see how it went when they cooked yours. See
+  [Kitchens and Cookbooks](#kitchens-and-cookbooks).
+- **A recipe keeps its whole history.** Every save is a new version and none is
+  ever lost. Start a variation beside the original, or a translation into
+  another language, and Kamosu shows how two versions differ line by line.
+- **A diary of what you cooked.** Each cooking is an Attempt: dated, rated,
+  with photos, notes, and what you actually did if it differed from the
+  recipe. Promote a change into the recipe when it earned its place.
 - **Scaling and conversions.** Cook for 3 instead of 6 and every amount
   follows. Kamosu shows metric or US measures beside the amounts as written,
   and oven temperatures in the other scale.
@@ -178,19 +165,16 @@ only way a recipe reaches someone outside your Kitchens.
 
 ## Who it is for
 
-Kamosu suits people who change a recipe a little each time they cook it and
-want to see how it got to where it is. That can be one person, a household, or
-a family spread over several homes. They keep their recipes on their own
-server, cook from a phone, and let an agent add, fix or translate recipes for
-them.
+Kamosu suits a person, a household or a group of people who want to keep their
+recipes on their own server, cook from a phone, and let an agent add, fix or
+translate recipes for them.
 
 It is not:
 
 - **A hosted service.** There is no Kamosu cloud and no sync between servers.
   Recipes move between instances as files or Share Links.
-- **A meal planner or nutrition tracker.** There is no weekly plan and no
-  pantry, and each person's shopping list is their own. A recipe can carry one
-  calorie figure you typed. Kamosu never calculates nutrition from ingredients.
+- **A meal planner or nutrition tracker.** A recipe can carry one calorie
+  figure you typed. Kamosu never calculates nutrition from ingredients.
 - **A public recipe site.** There is no signup. Every account starts from an
   invite, and nothing is visible to strangers unless you share a link.
 - **Finished.** This is 0.2.0. It is used in one kitchen, and nobody else has
