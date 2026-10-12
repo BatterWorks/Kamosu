@@ -7,6 +7,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
+import type { GetThreadOutput } from '$lib/api/catalogue';
 import ThreadTestHarness from './ThreadTestHarness.svelte';
 import { cookbookLabel, threadBranch } from '../../../../testing/recipes';
 
@@ -24,7 +25,7 @@ describe('the Thread screen', () => {
 		renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',
-				branches: [threadBranch('b_mine', { cookbook: cookbookLabel('c_1', ['Aurélien']) })],
+				branches: [threadBranch('b_mine', { cookbook: cookbookLabel('c_1', ['Stéphane']) })],
 				versions: [],
 				attempts: [],
 			},
@@ -39,12 +40,12 @@ describe('the Thread screen', () => {
 				branches: [
 					{
 						branch_id: 'b_mine',
-						cookbook: cookbookLabel('c_1', ['Aurélien']),
+						cookbook: cookbookLabel('c_1', ['Stéphane']),
 						name: null,
 						mine: true,
 						arrived: false,
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
+						hand_id: 'h_stephane',
+						hand_name: 'Stéphane',
 						language: 'en',
 						head_version_id: 'v_2',
 						translation: null,
@@ -56,8 +57,8 @@ describe('the Thread screen', () => {
 						sequence: 1,
 						version_id: 'v_1',
 						parent_version_id: null,
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
+						hand_id: 'h_stephane',
+						hand_name: 'Stéphane',
 						name: null,
 						change_note: 'Imported from mykoreankitchen.com',
 						created_at: '2026-03-03T00:00:00Z',
@@ -69,8 +70,8 @@ describe('the Thread screen', () => {
 						sequence: 2,
 						version_id: 'v_2',
 						parent_version_id: 'v_1',
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
+						hand_id: 'h_stephane',
+						hand_name: 'Stéphane',
 						name: 'Hotter second fry',
 						change_note: null,
 						created_at: '2026-03-14T00:00:00Z',
@@ -94,6 +95,7 @@ describe('the Thread screen', () => {
 						created_at: '2026-03-21T00:00:00Z',
 						last_action_at: '2026-03-21T00:00:00Z',
 						as_cooked: null,
+						eaten_version_id: 'v_1',
 						photographs: [],
 					},
 				],
@@ -115,12 +117,12 @@ describe('the Thread screen', () => {
 				branches: [
 					{
 						branch_id: 'b_mine',
-						cookbook: cookbookLabel('c_1', ['Aurélien']),
+						cookbook: cookbookLabel('c_1', ['Stéphane']),
 						name: null,
 						mine: true,
 						arrived: false,
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
+						hand_id: 'h_stephane',
+						hand_name: 'Stéphane',
 						language: 'en',
 						head_version_id: 'v_3',
 						translation: null,
@@ -144,8 +146,8 @@ describe('the Thread screen', () => {
 						sequence: 1,
 						version_id: 'v_1',
 						parent_version_id: null,
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
+						hand_id: 'h_stephane',
+						hand_name: 'Stéphane',
 						name: null,
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
@@ -157,8 +159,8 @@ describe('the Thread screen', () => {
 						sequence: 1,
 						version_id: 'v_1',
 						parent_version_id: null,
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
+						hand_id: 'h_stephane',
+						hand_name: 'Stéphane',
 						name: null,
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
@@ -170,8 +172,8 @@ describe('the Thread screen', () => {
 						sequence: 2,
 						version_id: 'v_3',
 						parent_version_id: 'v_1',
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
+						hand_id: 'h_stephane',
+						hand_name: 'Stéphane',
 						name: null,
 						change_note: 'Hotter second fry',
 						created_at: '2026-08-09T00:00:00Z',
@@ -202,10 +204,10 @@ describe('the Thread screen', () => {
 		// who wrote it.
 		expect(screen.getAllByText('Yours').length).toBeGreaterThan(0);
 		expect(screen.getAllByText('Marc’s').length).toBeGreaterThan(0);
-		expect(screen.getAllByText('Aurélien').length).toBeGreaterThan(0);
+		expect(screen.getAllByText('Stéphane').length).toBeGreaterThan(0);
 		expect(screen.getAllByText('Marc').length).toBeGreaterThan(0);
 		// A Hand is shown by its name, never by the id a person cannot read (#113).
-		expect(screen.queryByText(/h_aurelien|h_marc/)).not.toBeInTheDocument();
+		expect(screen.queryByText(/h_stephane|h_marc/)).not.toBeInTheDocument();
 		expect(screen.getByText('Hotter second fry')).toBeInTheDocument();
 		expect(screen.getByText('Air fryer')).toBeInTheDocument();
 	});
@@ -220,12 +222,12 @@ describe('the Thread screen', () => {
 				branches: [
 					{
 						branch_id: 'b_mine',
-						cookbook: cookbookLabel('c_1', ['Aurélien']),
+						cookbook: cookbookLabel('c_1', ['Stéphane']),
 						name: null,
 						mine: true,
 						arrived: false,
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
+						hand_id: 'h_stephane',
+						hand_name: 'Stéphane',
 						language: 'en',
 						head_version_id: 'v_2',
 						translation: null,
@@ -261,8 +263,8 @@ describe('the Thread screen', () => {
 						sequence: 1,
 						version_id: 'v_1',
 						parent_version_id: null,
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
+						hand_id: 'h_stephane',
+						hand_name: 'Stéphane',
 						name: null,
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
@@ -274,8 +276,8 @@ describe('the Thread screen', () => {
 						sequence: 1,
 						version_id: 'v_1',
 						parent_version_id: null,
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
+						hand_id: 'h_stephane',
+						hand_name: 'Stéphane',
 						name: null,
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
@@ -287,8 +289,8 @@ describe('the Thread screen', () => {
 						sequence: 1,
 						version_id: 'v_1',
 						parent_version_id: null,
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
+						hand_id: 'h_stephane',
+						hand_name: 'Stéphane',
 						name: null,
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
@@ -300,8 +302,8 @@ describe('the Thread screen', () => {
 						sequence: 2,
 						version_id: 'v_2',
 						parent_version_id: 'v_1',
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
+						hand_id: 'h_stephane',
+						hand_name: 'Stéphane',
 						name: null,
 						change_note: 'Hotter second fry',
 						created_at: '2026-08-09T00:00:00Z',
@@ -379,118 +381,50 @@ describe('the Thread screen', () => {
 		expect(screen.getByText('Translated into French')).toBeInTheDocument();
 	});
 
-	it('opens a past Version in full and cooks from it', async () => {
-		const { kamosu } = renderThread('b_mine', {
+	it('opens a past Version as a page of its own, and the newest as the recipe (#211)', async () => {
+		const went: string[] = [];
+		const version = (sequence: number, change_note: string) => ({
+			branch_id: 'b_mine',
+			sequence,
+			version_id: `v_${sequence}`,
+			parent_version_id: sequence === 1 ? null : `v_${sequence - 1}`,
+			hand_id: 'h_stephane',
+			hand_name: 'Stéphane',
+			name: null,
+			change_note,
+			created_at: `2026-03-0${sequence}T00:00:00Z`,
+			translates_version_id: null,
+			language: 'en',
+		});
+		const kamosu = standIn({
+			get_person: NOBODY,
 			get_thread: {
 				lineage_id: 'l_1',
 				branches: [
-					{
-						branch_id: 'b_mine',
-						cookbook: cookbookLabel('c_1', ['Aurélien']),
-						name: null,
-						mine: true,
-						arrived: false,
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
-						language: 'en',
-						head_version_id: 'v_1',
-						translation: null,
-					},
+					threadBranch('b_mine', {
+						cookbook: cookbookLabel('c_1', ['Stéphane']),
+						head_version_id: 'v_2',
+					}),
 				],
-				versions: [
-					{
-						branch_id: 'b_mine',
-						sequence: 1,
-						version_id: 'v_1',
-						parent_version_id: null,
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
-						name: null,
-						change_note: 'Imported',
-						created_at: '2026-03-03T00:00:00Z',
-						translates_version_id: null,
-						language: 'en',
-					},
-				],
+				versions: [version(1, 'Imported'), version(2, 'Less sugar')],
 				attempts: [],
 			},
-			get_recipe: {
-				branch_id: 'b_mine',
-				lineage_id: 'l_1',
-				cookbook: cookbookLabel('c_1', ['Aurélien']),
-				name: null,
-				writes: true,
-				mine: true,
-				arrived: false,
-				hand_id: 'h_aurelien',
-				language: 'en',
-				origin_address: null,
-				head_version_id: 'v_1',
-				translation: null,
-				versions: [
-					{
-						sequence: 1,
-						scaled_to: null,
-						version_id: 'v_1',
-						parent_version_id: null,
-						hand_id: 'h_aurelien',
-						name: null,
-						change_note: 'Imported',
-						created_at: '2026-03-03T00:00:00Z',
-						translates_version_id: null,
-						language: 'en',
-						// A recipe that composes nothing, which is nearly all of them (#50).
-						components: [],
-						content: {
-							title: 'Korean Fried Chicken',
-							yield: null,
-							prep_time_minutes: null,
-							cook_time_minutes: null,
-							note: null,
-							main_photo: null,
-							nutrition: null,
-							source: null,
-							ingredients: [{ kind: 'ingredient', text: '1.4 kg whole chicken' }],
-							steps: [{ kind: 'step', text: 'Marinate the chicken.', photo: null }],
-						},
-						readings: [null],
-						measured: { ingredients: [null], steps: [null] },
-						cooking: { steps: [{ uses: [], timer_seconds: null }] },
-					},
-				],
-				tags: [],
-				related_recipes: [],
-				cooked: { count: 0, last_cooked_at: null, ratings: [] },
-			},
-			start_attempt: {
-				id: 'at_2',
-				lineage_id: 'l_1',
-				person_id: 'p_1',
-				version_id: 'v_1',
-				current_step_index: 0,
-				ticked_ingredients: [],
-				cooking_yield: null,
-				note: null,
-				rating: null,
-				finished_at: null,
-				resumable: true,
-				created_at: '2026-08-28T00:00:00Z',
-				last_action_at: '2026-08-28T00:00:00Z',
-				as_cooked: null,
-				photographs: [],
+		});
+		render(ThreadTestHarness, {
+			props: {
+				client: kamosu.client,
+				branchId: 'b_mine',
+				navigate: async (to: string) => void went.push(to),
 			},
 		});
 
 		await fireEvent.click(await screen.findByText('Imported'));
-		expect(await screen.findByText('Korean Fried Chicken')).toBeInTheDocument();
-		expect(screen.getByText('1.4 kg whole chicken')).toBeInTheDocument();
-		expect(screen.getByText('Marinate the chicken.')).toBeInTheDocument();
-		expect(kamosu.calls.map((call) => call.operation)).toContain('get_recipe');
+		expect(went).toEqual(['/recipes/b_mine/versions/v_1']);
+		// No sheet over the Thread: the Version is a page.
+		expect(screen.queryByRole('dialog')).toBeNull();
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Cook this Version' }));
-		expect(await screen.findByText(/Started/)).toBeInTheDocument();
-		const startCall = kamosu.calls.find((call) => call.operation === 'start_attempt');
-		expect(startCall?.input).toEqual({ branch_id: 'b_mine', version_id: 'v_1' });
+		await fireEvent.click(screen.getByText('Less sugar'));
+		expect(went.at(-1)).toBe('/recipes/b_mine');
 	});
 
 	it('collapses a run of four or more quiet saves, and expands it on request', async () => {
@@ -499,8 +433,8 @@ describe('the Thread screen', () => {
 			sequence: n,
 			version_id: `v_${n}`,
 			parent_version_id: n === 1 ? null : `v_${n - 1}`,
-			hand_id: 'h_aurelien',
-			hand_name: 'Aurélien',
+			hand_id: 'h_stephane',
+			hand_name: 'Stéphane',
 			name: null,
 			change_note: null,
 			created_at: `2026-08-1${n}T00:00:00Z`,
@@ -514,12 +448,12 @@ describe('the Thread screen', () => {
 				branches: [
 					{
 						branch_id: 'b_mine',
-						cookbook: cookbookLabel('c_1', ['Aurélien']),
+						cookbook: cookbookLabel('c_1', ['Stéphane']),
 						name: null,
 						mine: true,
 						arrived: false,
-						hand_id: 'h_aurelien',
-						hand_name: 'Aurélien',
+						hand_id: 'h_stephane',
+						hand_name: 'Stéphane',
 						language: 'en',
 						head_version_id: 'v_4',
 						translation: null,
@@ -539,6 +473,93 @@ describe('the Thread screen', () => {
 	});
 });
 
+describe('a cooking that changed the recipe, in the Thread (#209)', () => {
+	const version = (sequence: number, change_note: string) => ({
+		branch_id: 'b_mine',
+		sequence,
+		version_id: `v_${sequence}`,
+		parent_version_id: sequence === 1 ? null : `v_${sequence - 1}`,
+		hand_id: 'h_stephane',
+		hand_name: 'Stéphane',
+		name: null,
+		change_note,
+		created_at: `2026-03-0${sequence}T00:00:00Z`,
+		translates_version_id: null,
+		language: 'en',
+	});
+
+	/** A cooking that started from the first Version and was rated Again. */
+	const tweaked = (eaten_version_id: string) => ({
+		id: 'at_1',
+		lineage_id: 'l_1',
+		person_id: 'p_1',
+		version_id: 'v_1',
+		eaten_version_id,
+		current_step_index: 0,
+		ticked_ingredients: [],
+		cooking_yield: null,
+		note: null,
+		rating: 'again' as const,
+		finished_at: '2026-03-02T00:00:00Z',
+		resumable: false,
+		created_at: '2026-03-02T00:00:00Z',
+		last_action_at: '2026-03-02T00:00:00Z',
+		as_cooked: null,
+		photographs: [],
+	});
+
+	/** Two Versions on one Branch, and whichever cookings a test hangs off them. */
+	const threadWith = <Cooking>(attempts: Cooking[]) => ({
+		lineage_id: 'l_1',
+		branches: [threadBranch('b_mine', { head_version_id: 'v_2' })],
+		versions: [version(1, 'As it came'), version(2, 'Less five-spice')],
+		attempts,
+	});
+
+	function renderCooked(eaten_version_id: string) {
+		renderThread('b_mine', { get_thread: threadWith([tweaked(eaten_version_id)]) });
+	}
+
+	const rowOf = async (changeNote: string) =>
+		(await screen.findByText(changeNote)).closest('li') as HTMLElement;
+
+	it('shows the cooking and its rating under the Version it was kept as, and nowhere else', async () => {
+		renderCooked('v_2');
+
+		const keptAs = await rowOf('Less five-spice');
+		expect(within(keptAs).getByRole('button', { name: /🍲 Again/ })).toBeInTheDocument();
+		const startedFrom = await rowOf('As it came');
+		expect(within(startedFrom).queryByRole('button', { name: /🍲/ })).not.toBeInTheDocument();
+	});
+
+	it('leaves a cooking nobody kept under the Version it started from', async () => {
+		renderCooked('v_1');
+
+		const startedFrom = await rowOf('As it came');
+		expect(within(startedFrom).getByRole('button', { name: /🍲 Again/ })).toBeInTheDocument();
+		const newer = await rowOf('Less five-spice');
+		expect(within(newer).queryByRole('button', { name: /🍲/ })).not.toBeInTheDocument();
+	});
+
+	it('keeps a cooking on the History where a Thread kept on the phone names no eaten Version', async () => {
+		// Built by hand, past the stand-in's check: this is the shape an answer
+		// kept before #209 has, and the Catalogue no longer declares it.
+		const before: Partial<ReturnType<typeof tweaked>> = tweaked('v_1');
+		delete before.eaten_version_id;
+		const onThePhone = threadWith([before]) as GetThreadOutput;
+		const { client } = standIn({ get_person: NOBODY });
+		render(ThreadTestHarness, {
+			props: {
+				client: { ...client, getThread: () => Promise.resolve(onThePhone) },
+				branchId: 'b_mine',
+			},
+		});
+
+		const startedFrom = await rowOf('As it came');
+		expect(within(startedFrom).getByRole('button', { name: /🍲 Again/ })).toBeInTheDocument();
+	});
+});
+
 describe('a Language said, in the Thread', () => {
 	/** One occurrence on one Branch, with everything the Catalogue requires. */
 	const occurrence = (sequence: number, version_id: string, language: string, extra = {}) => ({
@@ -546,8 +567,8 @@ describe('a Language said, in the Thread', () => {
 		sequence,
 		version_id,
 		parent_version_id: sequence === 1 ? null : 'v_1',
-		hand_id: 'h_aurelien',
-		hand_name: 'Aurélien',
+		hand_id: 'h_stephane',
+		hand_name: 'Stéphane',
 		name: null,
 		change_note: null,
 		created_at: '2026-09-22T00:00:00Z',
@@ -567,12 +588,12 @@ describe('a Language said, in the Thread', () => {
 			branches: [
 				{
 					branch_id: 'b_mine',
-					cookbook: cookbookLabel('c_1', ['Aurélien']),
+					cookbook: cookbookLabel('c_1', ['Stéphane']),
 					name: null,
 					mine: true,
 					arrived: false,
-					hand_id: 'h_aurelien',
-					hand_name: 'Aurélien',
+					hand_id: 'h_stephane',
+					hand_name: 'Stéphane',
 					language: 'fr',
 					head_version_id: 'v_1',
 					translation: null,
@@ -627,7 +648,7 @@ describe('who wrote each Version, in the Thread (#113)', () => {
 		sequence,
 		version_id: `v_${sequence}`,
 		parent_version_id: sequence === 1 ? null : `v_${sequence - 1}`,
-		hand_id: sequence === 1 ? 'p_stranger' : 'p_aurelien',
+		hand_id: sequence === 1 ? 'p_stranger' : 'p_stephane',
 		hand_name,
 		name: null,
 		change_note: `Save ${sequence}`,
@@ -656,22 +677,22 @@ describe('who wrote each Version, in the Thread (#113)', () => {
 				],
 				// The server names a Hand live, so the oldest Version of a
 				// Person who renamed themselves carries the new name too.
-				versions: [version(1, null), version(2, 'Aurélien Dupont'), version(3, 'Aurélien Dupont')],
+				versions: [version(1, null), version(2, 'Stéphane Dupont'), version(3, 'Stéphane Dupont')],
 				attempts: [],
 			},
 		});
 
-		expect(await screen.findAllByText('Aurélien Dupont')).toHaveLength(2);
+		expect(await screen.findAllByText('Stéphane Dupont')).toHaveLength(2);
 		expect(screen.getByText('Someone Kamosu has no name for')).toBeInTheDocument();
-		expect(screen.queryByText(/p_stranger|p_aurelien/)).not.toBeInTheDocument();
+		expect(screen.queryByText(/p_stranger|p_stephane/)).not.toBeInTheDocument();
 	});
 });
 
 describe('naming a Version from the Thread (#115)', () => {
-	const ME = { person_id: 'p_aurelien', name: 'Aurélien' };
+	const ME = { person_id: 'p_stephane', name: 'Stéphane' };
 	const branch = (branch_id: string, hand_name: string) =>
 		threadBranch(branch_id, {
-			cookbook: cookbookLabel(`c_${branch_id}`, ['Aurélien', 'Camille'], hand_name),
+			cookbook: cookbookLabel(`c_${branch_id}`, ['Stéphane', 'Camille'], hand_name),
 			hand_id: `c_${branch_id}`,
 			hand_name,
 			head_version_id: 'v_3',
@@ -687,7 +708,7 @@ describe('naming a Version from the Thread (#115)', () => {
 		version_id: `v_${sequence}`,
 		parent_version_id: sequence === 1 ? null : `v_${sequence - 1}`,
 		hand_id,
-		hand_name: hand_id === 'p_aurelien' ? 'Aurélien' : 'Camille',
+		hand_name: hand_id === 'p_stephane' ? 'Stéphane' : 'Camille',
 		name: null,
 		change_note: null,
 		created_at: `2026-09-0${sequence}T00:00:00Z`,
@@ -730,7 +751,7 @@ describe('naming a Version from the Thread (#115)', () => {
 	it('names your quiet save in place, and offers nothing on a Version another cook saved', async () => {
 		const world = threadKeepingNames([
 			saved('b_mine', 1, 'p_camille', { change_note: 'Mamie’s way' }),
-			saved('b_mine', 2, 'p_aurelien'),
+			saved('b_mine', 2, 'p_stephane'),
 		]);
 		const { kamosu } = renderThread('b_mine', {
 			...world,
@@ -753,7 +774,7 @@ describe('naming a Version from the Thread (#115)', () => {
 			'Named. Nothing else about this Version changed.',
 		);
 		// The name sits after its writer with a space either side of the dot.
-		expect(rows()[1]).toHaveTextContent('Aurélien · “Weeknight”');
+		expect(rows()[1]).toHaveTextContent('Stéphane · “Weeknight”');
 		const renames = kamosu.calls.filter((call) => call.operation === 'rename_version');
 		expect(renames.map((call) => call.input)).toEqual([
 			{ branch_id: 'b_mine', sequence: 2, name: 'Weeknight' },
@@ -764,7 +785,7 @@ describe('naming a Version from the Thread (#115)', () => {
 
 	it('clears a name as an ordinary answer, never as a mistake', async () => {
 		const world = threadKeepingNames([
-			saved('b_mine', 1, 'p_aurelien', { name: 'Sunday gratin', change_note: 'Gruyère on top' }),
+			saved('b_mine', 1, 'p_stephane', { name: 'Sunday gratin', change_note: 'Gruyère on top' }),
 		]);
 		const { kamosu } = renderThread('b_mine', {
 			...world,
@@ -794,7 +815,7 @@ describe('naming a Version from the Thread (#115)', () => {
 	it('shows what changed beside the name, and never as something to edit', async () => {
 		renderThread(
 			'b_mine',
-			threadKeepingNames([saved('b_mine', 1, 'p_aurelien', { change_note: 'Gruyère on top' })]),
+			threadKeepingNames([saved('b_mine', 1, 'p_stephane', { change_note: 'Gruyère on top' })]),
 		);
 
 		await fireEvent.click(await screen.findByRole('button', { name: 'Name it' }));
@@ -810,9 +831,9 @@ describe('naming a Version from the Thread (#115)', () => {
 	it('names a Version several Branches share on each of them, since it is drawn once', async () => {
 		const world = threadKeepingNames(
 			[
-				saved('b_mine', 1, 'p_aurelien', { change_note: 'Written down' }),
-				saved('b_chalet', 1, 'p_aurelien', { change_note: 'Written down' }),
-				saved('b_mine', 2, 'p_aurelien', { version_id: 'v_mine', change_note: 'Less salt' }),
+				saved('b_mine', 1, 'p_stephane', { change_note: 'Written down' }),
+				saved('b_chalet', 1, 'p_stephane', { change_note: 'Written down' }),
+				saved('b_mine', 2, 'p_stephane', { version_id: 'v_mine', change_note: 'Less salt' }),
 				saved('b_chalet', 2, 'p_camille', { version_id: 'v_chalet', change_note: 'More salt' }),
 			],
 			[branch('b_mine', 'Chez nous'), branch('b_chalet', 'Le Chalet')],
@@ -842,9 +863,9 @@ describe('naming a Version from the Thread (#115)', () => {
 			'b_mine',
 			threadKeepingNames(
 				[
-					saved('b_mine', 1, 'p_aurelien', { change_note: 'Written down' }),
+					saved('b_mine', 1, 'p_stephane', { change_note: 'Written down' }),
 					saved('b_chalet', 1, 'p_camille', { change_note: 'Written down' }),
-					saved('b_mine', 2, 'p_aurelien', { version_id: 'v_mine', change_note: 'Less salt' }),
+					saved('b_mine', 2, 'p_stephane', { version_id: 'v_mine', change_note: 'Less salt' }),
 					saved('b_chalet', 2, 'p_camille', { version_id: 'v_chalet', change_note: 'More salt' }),
 				],
 				[branch('b_mine', 'Chez nous'), branch('b_chalet', 'Le Chalet')],
@@ -858,7 +879,7 @@ describe('naming a Version from the Thread (#115)', () => {
 
 	it('says a failed rename failed, and reads the Thread again to show what did land', async () => {
 		const world = threadKeepingNames([
-			saved('b_mine', 1, 'p_aurelien', { change_note: 'Gruyère' }),
+			saved('b_mine', 1, 'p_stephane', { change_note: 'Gruyère' }),
 		]);
 		const { kamosu } = renderThread('b_mine', {
 			...world,

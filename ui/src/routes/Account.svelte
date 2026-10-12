@@ -18,6 +18,7 @@
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
 	import { deviceName } from '$lib/device-name';
+	import { heardWhetherSignedIn, signingIn } from '$lib/shell/signing-in.svelte';
 	import type { Snippet } from 'svelte';
 
 	interface Props {
@@ -37,7 +38,7 @@
 		onSignedIn?: () => void;
 		/**
 		 * A login asked for by another page rather than by `/`: the page a Share
-		 * Link's *Import this recipe* opens (#170, Aurélien's choice 2). It
+		 * Link's *Import this recipe* opens (#170, choice 2). It
 		 * brings its own heading, its own words on the button, and what it
 		 * offers above and below the form. Worn only by a login: an instance
 		 * not yet set up asks for its first Person whoever sent you.
@@ -55,6 +56,15 @@
 
 	const kamosu = useKamosu();
 	const auth = useAuth();
+
+	// The wide layout draws no sidebar beside this form (#194).
+	$effect(() => {
+		signingIn.showing = true;
+		return () => {
+			signingIn.showing = false;
+		};
+	});
+
 	let setupComplete = $state<boolean | undefined>(undefined);
 	/** The shortest password Kamosu accepts where one is set, as it says (#138). */
 	let passwordMinimum = $state(0);
@@ -186,6 +196,7 @@
 				link: invite ?? recovery,
 			});
 			if (mode === 'first-person' || mode === 'invite') setupComplete = true;
+			heardWhetherSignedIn(true);
 			onSignedIn?.();
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;

@@ -50,9 +50,11 @@ impl Core {
     /// one entry, whichever Cookbooks use it: "Dessert" from two Cookbooks is
     /// one filter, and filtering by it finds both (#131, question 3).
     ///
-    /// Three reaches: your own Cookbook's Tags (the default, what Settings
-    /// renames); with `everywhere`, every word of every Cookbook you may see;
+    /// Four reaches: your own Cookbook's Tags (the default, what Settings
+    /// renames); with a Cookbook, the Tags of that one, which you must see
+    /// (#231); with `everywhere`, every word of every Cookbook you may see;
     /// with a Kitchen, every word of the Cookbooks seen in that Kitchen. The
+    /// A Cookbook named beside a Kitchen answers for the Cookbook alone. The
     /// last two answer one entry per word, your own first, since a shelf's
     /// filter matches the word across Cookbooks (#131, answer 3).
     pub fn list_tags(
@@ -60,9 +62,13 @@ impl Core {
         person_id: &str,
         everywhere: bool,
         kitchen_id: Option<&str>,
+        cookbook_id: Option<&str>,
     ) -> Result<Vec<Value>, OpError> {
         self.db().with_conn(|conn| {
             let own = cookbook_of_person(conn, person_id)?;
+            if let Some(cookbook_id) = cookbook_id {
+                ensure_sees_or_absent(conn, cookbook_id, person_id, no_such_cookbook)?;
+            }
             if let Some(kitchen_id) = kitchen_id {
                 ensure_member(conn, kitchen_id, person_id)?;
             }
@@ -72,6 +78,7 @@ impl Core {
                     .prepare(&format!(
                         "SELECT tags.id FROM tags \
                           WHERE CASE \
+                                  WHEN ?5 IS NOT NULL THEN tags.cookbook_id = ?5 \
                                   WHEN ?4 IS NOT NULL THEN tags.cookbook_id IN ({}) \
                                   WHEN ?2 THEN tags.cookbook_id IN \
                                     (SELECT cookbook_id FROM visible_cookbooks WHERE person_id = ?3) \
@@ -82,9 +89,10 @@ impl Core {
                     ))
                     .map_err(|e| OpError::internal(format!("cannot list Tags: {e}")))?;
                 statement
-                    .query_map(params![own, everywhere, person_id, kitchen_id], |row| {
-                        row.get(0)
-                    })
+                    .query_map(
+                        params![own, everywhere, person_id, kitchen_id, cookbook_id],
+                        |row| row.get(0),
+                    )
                     .map_err(|e| OpError::internal(format!("cannot list Tags: {e}")))?
                     .collect::<Result<_, _>>()
                     .map_err(|e| OpError::internal(format!("cannot list Tags: {e}")))?
@@ -145,7 +153,7 @@ impl Core {
 
     /// Merge two of a Cookbook's Tags into one: every recipe filed under the
     /// merged Tag is filed under the kept one instead, and the merged Tag is
-    /// gone. The other half of what CONTEXT.md says a Tag is — "renaming or
+    /// gone. The other half of what GLOSSARY.md says a Tag is — "renaming or
     /// merging one reaches all of them at once".
     ///
     /// The kept Tag keeps its own names. Where it has no name in a Language and
@@ -336,7 +344,7 @@ pub(super) fn tag_id_for_word(
 }
 
 /// The Tag a recipe arriving from elsewhere is filed under, in the receiving
-/// Cookbook's own list (CONTEXT.md, "Tag"): a word this Cookbook already files
+/// Cookbook's own list (GLOSSARY.md, "Tag"): a word this Cookbook already files
 /// by, in that Language, is that Tag; otherwise one is made, named in every
 /// Language it arrived in. `None` when there is no name to file by. A Bundle's
 /// tags, a Crouton library's (#128), and a Branch copied from another

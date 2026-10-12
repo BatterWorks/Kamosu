@@ -1,7 +1,7 @@
 <!--
 	One Food: what it is called, what a cup of it weighs, and how much it matters (#107).
 
-	Chosen by Aurélien on 22 September 2026 from three designs drawn at a phone
+	Chosen on 22 September 2026 from three designs drawn at a phone
 	viewport — a Food is a page, reached two ways: from the Ingredient Line that
 	named it, and from the Foods list in Settings. The alternative designs put
 	the whole of this inside the Reading corrector, or only in Settings; the
@@ -25,8 +25,8 @@
 	says so, because "add French" on a screen full of English otherwise reads as
 	an offer to translate a recipe.
 
-	**SEVERAL NAMES IN ONE LANGUAGE ARE ONE ROW** (#179, option B, chosen by
-	Aurélien on 27 September 2026 over a row per name). A Food may answer to
+	**SEVERAL NAMES IN ONE LANGUAGE ARE ONE ROW** (#179, option B, chosen on
+	27 September 2026 over a row per name). A Food may answer to
 	"œufs" and "œuf", and a line naming either reads as it. The row shows them
 	joined "œufs · œuf", as the Foods list already does, and Change opens a box
 	per name with Take off beside it, an empty box for another, and one Save for
@@ -43,10 +43,19 @@
 	per-recipe field and deferred per-ingredient data, and all 607 Foods answer
 	`nutrition: null` correctly. No merge, no delete, no merge preview: those are
 	the Operator's and live on the Operator's screen (#103).
+
+	**ON THE WIDE LAYOUT IT IS A CARD BESIDE THE FOODS LIST** (#199, ADR 0044),
+	and one Food follows another there without the page being left. The Food on
+	screen stays until the next has been read, so walking the list with the
+	arrows does not blink "Loading" between every two. Nothing can be saved in
+	that moment, since what is on screen is no longer the Food the address
+	names.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
+	import { useRoom } from '$lib/room.svelte';
+	import { useCorrected } from '../corrected.svelte';
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Section from '$lib/shell/Section.svelte';
@@ -67,6 +76,13 @@
 	let { foodId }: Props = $props();
 
 	const kamosu = useKamosu();
+	const room = useRoom();
+	const corrected = useCorrected();
+	/**
+	 * A card, where the Foods list is beside this page: on the wide layout,
+	 * which is the one place the list is kept (`Foods.svelte`, #199).
+	 */
+	const card = $derived(room.wide);
 
 	let food = $state<Food | undefined>(undefined);
 	/** Set when the Food itself could not be read: there is no page without it. */
@@ -74,6 +90,13 @@
 	/** A refusal from an act, shown in the words it arrived in. */
 	let said = $state<string | undefined>(undefined);
 	let working = $state(false);
+	/**
+	 * The Food the address names is being read. Where one Food follows another
+	 * (#199), the last one is still on screen meanwhile and nothing of it may
+	 * be saved.
+	 */
+	let reading = $state(false);
+	const held = $derived(working || reading);
 
 	/**
 	 * Which Language's names are open, the names it had as they are being
@@ -88,16 +111,24 @@
 
 	$effect(() => {
 		let current = true;
+		// What was open or said about the last Food is not about this one.
+		unreachable = false;
+		said = undefined;
+		editing = null;
+		reading = true;
 		kamosu
 			.getFood({ food_id: foodId })
 			.then((answer) => {
 				if (!current) return;
+				reading = false;
 				food = answer;
 				grams = cupWeightBox(answer.cup_weight_grams);
 			})
 			.catch((error: unknown) => {
 				if (!(error instanceof OperationError)) throw error;
-				if (current) unreachable = true;
+				if (!current) return;
+				reading = false;
+				unreachable = true;
 			});
 		return () => {
 			current = false;
@@ -109,16 +140,24 @@
 	 * one is the Core's own answer rather than anything patched together here.
 	 */
 	async function act(run: () => Promise<Food>) {
+		const acted = foodId;
+		// Another Food may be opened in place of this one before the answer
+		// arrives (#199). The answer is still told to the list, whose row it is,
+		// and no longer drawn here, where it would be the last Food under this
+		// one's address.
+		const still = () => foodId === acted;
 		working = true;
 		said = undefined;
 		try {
 			const answered = await run();
+			if (corrected) corrected.latest = answered;
+			if (!still()) return;
 			food = answered;
 			grams = cupWeightBox(answered.cup_weight_grams);
 			editing = null;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
-			said = error.message;
+			if (still()) said = error.message;
 		} finally {
 			working = false;
 		}
@@ -169,11 +208,11 @@
 </script>
 
 {#if unreachable}
-	<Screen title={m.food_unknown_title()} blurb={m.food_unknown_blurb()} />
+	<Screen {card} title={m.food_unknown_title()} blurb={m.food_unknown_blurb()} />
 {:else if food === undefined}
-	<Screen title={m.loading()} />
+	<Screen {card} title={m.loading()} />
 {:else}
-	<Screen title={food.name ?? m.food_unnamed()} blurb={m.food_blurb()}>
+	<Screen {card} title={food.name ?? m.food_unnamed()} blurb={m.food_blurb()}>
 		<p class="text-body text-ink-2">
 			{linesPointingAt(food.reading_count)}
 		</p>
@@ -183,59 +222,66 @@
 				{@const named = namesIn(food, language)}
 				<div class="border-b border-rule py-3">
 					{#if editing === language}
-						<span class="block text-label text-ink-2 uppercase">{languageName(language)}</span>
-						{#each drafts, index}
-							{@const label = m.food_name_numbered({
-								language: languageName(language),
-								number: index + 1,
-							})}
-							<div class="mt-2 flex items-center gap-2">
-								<input
-									bind:value={drafts[index]}
-									aria-label={label}
-									class="w-full min-w-0 rounded-sm border border-rule bg-ground p-2 text-body"
-								/>
-								<!--
+						<!-- A form, so Enter in a name saves the names (#203). -->
+						<form
+							onsubmit={(event) => {
+								event.preventDefault();
+								void saveNames(language);
+							}}
+						>
+							<span class="block text-label text-ink-2 uppercase">{languageName(language)}</span>
+							{#each drafts, index}
+								{@const label = m.food_name_numbered({
+									language: languageName(language),
+									number: index + 1,
+								})}
+								<div class="mt-2 flex items-center gap-2">
+									<input
+										bind:value={drafts[index]}
+										aria-label={label}
+										class="w-full min-w-0 rounded-sm border border-rule bg-ground p-2 text-body"
+									/>
+									<!--
 									Absent on a Food's only name: the Core refuses it, and the
 									sentence below the names says why. Typing a replacement into
 									the empty box makes it a name that may go.
 								-->
-								{#if wanted.length > 1 || namedElsewhere}
-									<button
-										type="button"
-										onclick={() => takeOff(index)}
-										aria-label={m.food_name_remove_named({ name: drafts[index].trim() || label })}
-										class="shrink-0 rounded-sm border border-rule px-2 py-2 text-read whitespace-nowrap text-ink-2"
-									>
-										{m.food_name_remove()}
-									</button>
-								{/if}
+									{#if wanted.length > 1 || namedElsewhere}
+										<button
+											type="button"
+											onclick={() => takeOff(index)}
+											aria-label={m.food_name_remove_named({ name: drafts[index].trim() || label })}
+											class="shrink-0 rounded-sm border border-rule px-2 py-2 text-read whitespace-nowrap text-ink-2"
+										>
+											{m.food_name_remove()}
+										</button>
+									{/if}
+								</div>
+							{/each}
+							<input
+								bind:value={another}
+								aria-label={m.food_name_another({ language: languageName(language) })}
+								placeholder={m.food_name_another({ language: languageName(language) })}
+								class="mt-2 w-full rounded-sm border border-rule bg-ground p-2 text-body"
+							/>
+							<p class="mt-2 text-read text-ink-2">{m.food_names_first_shown()}</p>
+							<div class="mt-2 flex gap-2">
+								<button
+									type="submit"
+									disabled={held || (wanted.length === 0 && !namedElsewhere)}
+									class="flex-1 rounded-sm bg-accent p-2 text-center text-read text-on-accent"
+								>
+									{m.food_name_save()}
+								</button>
+								<button
+									type="button"
+									onclick={() => (editing = null)}
+									class="rounded-sm border border-rule px-3 py-2 text-read text-ink-2"
+								>
+									{m.food_name_cancel()}
+								</button>
 							</div>
-						{/each}
-						<input
-							bind:value={another}
-							aria-label={m.food_name_another({ language: languageName(language) })}
-							placeholder={m.food_name_another({ language: languageName(language) })}
-							class="mt-2 w-full rounded-sm border border-rule bg-ground p-2 text-body"
-						/>
-						<p class="mt-2 text-read text-ink-2">{m.food_names_first_shown()}</p>
-						<div class="mt-2 flex gap-2">
-							<button
-								type="button"
-								disabled={working || (wanted.length === 0 && !namedElsewhere)}
-								onclick={() => saveNames(language)}
-								class="flex-1 rounded-sm bg-accent p-2 text-center text-read text-on-accent"
-							>
-								{m.food_name_save()}
-							</button>
-							<button
-								type="button"
-								onclick={() => (editing = null)}
-								class="rounded-sm border border-rule px-3 py-2 text-read text-ink-2"
-							>
-								{m.food_name_cancel()}
-							</button>
-						</div>
+						</form>
 					{:else}
 						<div class="flex items-center justify-between gap-3">
 							<span class="min-w-0">
@@ -257,7 +303,7 @@
 							-->
 							<button
 								type="button"
-								disabled={working}
+								disabled={held}
 								onclick={() => startEditing(language)}
 								aria-label={named.length === 0
 									? m.food_name_add_in({ language: languageName(language) })
@@ -272,31 +318,38 @@
 			{/each}
 
 			{#if nameCount <= 1}
-				<p class="mt-3 text-read text-support">{m.food_keeps_one_name()}</p>
+				<p class="mt-3 text-read text-ink-2">{m.food_keeps_one_name()}</p>
 			{/if}
 			<p class="mt-3 text-read text-ink-2">{m.food_names_not_a_translation()}</p>
 		</Section>
 
 		<Section heading={m.food_cup_weight()}>
-			<div class="flex gap-2">
-				<input
-					bind:value={grams}
-					inputmode="decimal"
-					aria-label={m.food_cup_weight()}
-					placeholder={m.food_cup_weight_none()}
-					class="w-full rounded-sm border border-rule bg-ground p-2 text-body"
-				/>
-				<span class="text-body text-ink-2">{m.food_grams()}</span>
-			</div>
-			<p class="mt-2 text-read text-ink-2">{m.food_cup_weight_explained()}</p>
-			<button
-				type="button"
-				disabled={working}
-				onclick={saveCupWeight}
-				class="mt-3 w-full rounded-sm bg-accent p-2 text-center text-read text-on-accent"
+			<!-- A form, so Enter in the box saves what a cup weighs (#203). -->
+			<form
+				onsubmit={(event) => {
+					event.preventDefault();
+					void saveCupWeight();
+				}}
 			>
-				{m.food_cup_weight_save()}
-			</button>
+				<div class="flex gap-2">
+					<input
+						bind:value={grams}
+						inputmode="decimal"
+						aria-label={m.food_cup_weight()}
+						placeholder={m.food_cup_weight_none()}
+						class="w-full rounded-sm border border-rule bg-ground p-2 text-body"
+					/>
+					<span class="text-body text-ink-2">{m.food_grams()}</span>
+				</div>
+				<p class="mt-2 text-read text-ink-2">{m.food_cup_weight_explained()}</p>
+				<button
+					type="submit"
+					disabled={held}
+					class="mt-3 w-full rounded-sm bg-accent p-2 text-center text-read text-on-accent"
+				>
+					{m.food_cup_weight_save()}
+				</button>
+			</form>
 		</Section>
 
 		{#if said}

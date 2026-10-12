@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { m } from '$lib/paraglide/messages';
 
 	interface Props {
 		title: string;
@@ -15,13 +16,49 @@
 		 * card elsewhere grows into it rather than the screen swapping (ADR 0012).
 		 */
 		expandsFrom?: string;
+		/**
+		 * Drawn as a card, where the screen is what is open beside a list on
+		 * the wide layout (#199).
+		 */
+		card?: boolean;
+		/**
+		 * Runs to the window's right edge on the wide layout, for one of the
+		 * browsing screens (#201). The phone's column is unchanged.
+		 */
+		fills?: boolean;
+		/**
+		 * As wide as a recipe's page on the wide layout, for a screen that
+		 * lays two columns out there (#202). The phone's column is unchanged.
+		 */
+		columns?: boolean;
 		children?: Snippet;
 	}
 
-	let { title, blurb, expandsFrom, children }: Props = $props();
+	let {
+		title,
+		blurb,
+		expandsFrom,
+		card = false,
+		fills = false,
+		columns = false,
+		children,
+	}: Props = $props();
 </script>
 
-<div class="mx-auto max-w-2xl px-gutter pt-6 pb-tabbar">
+<!-- The tab, the history and a bookmark read the page's name (#224). -->
+<svelte:head>
+	<title>{title} · {m.app_name()}</title>
+</svelte:head>
+
+<div
+	class={card
+		? 'open-card'
+		: [
+				'mx-auto px-gutter pt-6 pb-tabbar',
+				columns ? 'two-column-page' : 'max-w-2xl',
+				fills && 'wide:max-w-none',
+			]}
+>
 	<h1
 		class="font-display text-title font-semibold"
 		style={expandsFrom
@@ -31,7 +68,7 @@
 		{title}
 	</h1>
 	{#if blurb}
-		<p class="mt-1 text-read text-ink-2">{blurb}</p>
+		<p class="mt-1 max-w-2xl text-read text-ink-2">{blurb}</p>
 	{/if}
 
 	{#if children}

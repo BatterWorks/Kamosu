@@ -1,7 +1,7 @@
 <!--
 	Writing a recipe (#83). The other half of #81, which only reads.
 
-	THE PAGE IS THE PAGE. Aurélien chose direction A on 20 September 2026,
+	THE PAGE IS THE PAGE. Direction A was chosen on 20 September 2026,
 	against four full mockups drawn on Dan Dan Noodles out of the real
 	86-recipe export, and the reasoning is on #83 rather than repeated here.
 	What it settled, and what this file has to keep true:
@@ -17,7 +17,7 @@
 	    each drops the new thing in where the cursor is, so a heading goes into
 	    the middle of a list without retyping what follows it.
 
-	One argument was put to Aurélien for the separate screen and it was wrong:
+	One argument was put for the separate screen and it was wrong:
 	that a long list gets more room there. The hero scrolls away, so it does
 	not. That mistake is recorded on #83 so nobody re-derives it.
 
@@ -29,7 +29,7 @@
 	screen (ADR 0021).
 
 	ONE PART OF THE READING IS HERE, AND ONLY ONE (#87): whether the line names
-	a RECIPE rather than a Food. Aurélien settled on 20 September 2026 that the
+	a RECIPE rather than a Food. It was settled on 20 September 2026 that the
 	act of saying *this line is a recipe* is designed once against both screens
 	and wears the same small matcha control on both, so it is here as well as in
 	the reading page's corrector.
@@ -57,7 +57,7 @@
 	A LINE IS DRAGGED, AND THE LIST REARRANGES UNDER IT. You put the line where
 	you can see it going, rather than describing the move and watching it
 	happen afterwards. This is the handle the mockup drew, and it is the
-	control Aurélien approved, so a two-step *move, then choose where* is not
+	control that was approved, so a two-step *move, then choose where* is not
 	a substitute for it.
 
 	It is built on pointer events. HTML5 drag-and-drop does not fire on touch
@@ -105,6 +105,7 @@
 	import { tick } from 'svelte';
 	import type { Attachment } from 'svelte/attachments';
 	import { m } from '$lib/paraglide/messages';
+	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { usePhotograph } from '$lib/api/upload';
@@ -114,6 +115,10 @@
 	import { hostOf } from '$lib/source';
 	import { copySaid, type Whose } from '$lib/cookbook';
 	import Cover from '$lib/cover/Cover.svelte';
+	import { FilePlace, isPicture } from '$lib/drop.svelte';
+	import { DRAWN, drawnFor } from '$lib/drop-drawings';
+	import DropCover from '$lib/DropCover.svelte';
+	import DropHere from '$lib/DropHere.svelte';
 	import ComponentPicker, { type NamedRecipe } from './ComponentPicker.svelte';
 	import PasteCheck from '$lib/PasteCheck.svelte';
 	import { drafted as splitPaste, readPasted } from '$lib/pasted.svelte';
@@ -580,6 +585,9 @@
 	// only be dragged cannot be reached from a keyboard at all, and
 	// `svelte-check` counts that as a build failure here (ADR 0012).
 
+	/** The box the Ingredient Lines stay in view in, on a roomy window (#198). */
+	let linesStayEl = $state<HTMLElement | undefined>(undefined);
+
 	/** Where the finger is, kept so the scroll tick can re-read it. */
 	let pointerAt = 0;
 	let ticking = 0;
@@ -623,10 +631,31 @@
 		const EDGE = 96;
 		const above = pointerAt - EDGE;
 		const below = window.innerHeight - EDGE - pointerAt;
-		if (above < 0) window.scrollBy(0, Math.max(-20, above / 3));
-		else if (below < 0) window.scrollBy(0, Math.min(20, -below / 3));
+		const by = above < 0 ? Math.max(-20, above / 3) : below < 0 ? Math.min(20, -below / 3) : 0;
+		if (by !== 0 && !scrollTheLines(by)) window.scrollBy(0, by);
 		settle();
 		ticking = requestAnimationFrame(autoScroll);
+	}
+
+	/**
+	 * Where the window is roomy the Ingredient Lines stay in view in a box that
+	 * scrolls on its own once it is taller than the window (#198). A line
+	 * dragged to the edge scrolls that box, and the page is left where it is:
+	 * the box stays put while the page moves, so scrolling the page would move
+	 * nothing under the pointer and run off to the foot of the Method. The
+	 * page is scrolled only to bring the rest of the box into the window.
+	 *
+	 * Everywhere else the box scrolls nothing, this answers no, and the page
+	 * scrolls as it always did.
+	 */
+	function scrollTheLines(by: number) {
+		const box = dragging?.list === 'lines' ? linesStayEl : undefined;
+		if (!box || getComputedStyle(box).overflowY !== 'auto') return false;
+		const before = box.scrollTop;
+		box.scrollBy(0, by);
+		if (box.scrollTop !== before) return true;
+		const { top, bottom } = box.getBoundingClientRect();
+		return by > 0 ? bottom <= window.innerHeight : top >= 0;
 	}
 
 	function startDrag(list: 'lines' | 'steps', index: number, event: PointerEvent) {
@@ -717,6 +746,39 @@
 		input.value = '';
 		if (file) void takePhoto(file, onto);
 	};
+
+	/**
+	 * A photograph dropped where it goes (ADR 0044, #205): onto the recipe's
+	 * own, or onto a Step. Each is what the button there does, through
+	 * `takePhoto`, so it says what the button says when the picture cannot be
+	 * sent. The recipe's photograph is covered while one is held over it, as
+	 * Recipes is; a Step is too small for that and is framed instead.
+	 */
+	const mainPlace = new FilePlace(isPicture, (file) => {
+		void takePhoto(file, (name) => (mainPhoto = name));
+	});
+	const MAIN_SAYS = {
+		ok: [m.drop_photo_recipe, m.drop_photo_recipe_then],
+		unsure: [m.drop_photo_recipe_unsure, m.drop_photo_recipe_then],
+		no: [m.drop_recipes_no, m.drop_photo_recipe_takes],
+	};
+
+	/** Each Step's place, made the first time the Step is drawn and kept by the row's id. */
+	const stepPlaces = new Map<number, FilePlace>();
+	function stepPlace(id: number): FilePlace {
+		let place = stepPlaces.get(id);
+		if (!place) {
+			place = new FilePlace(isPicture, (file) => {
+				// Found again when the picture lands: the row may have moved since.
+				void takePhoto(file, (name) => {
+					const row = steps.find((step) => step.id === id);
+					if (row) row.photo = name;
+				});
+			});
+			stepPlaces.set(id, place);
+		}
+		return place;
+	}
 
 	// ---- saving ---------------------------------------------------------
 
@@ -1011,6 +1073,14 @@
 		'min-h-12 w-full min-w-0 rounded-sm border border-rule bg-card px-2 text-body text-ink';
 	const QUIET = 'rounded-sm border border-rule px-2 py-1 text-read text-ink-2';
 	/**
+	 * A tool beside a line or a Step, as a mark and no word (#225): twenty lines
+	 * carried forty words of button. The word is the accessible name, and the
+	 * title says it under a pointer. Drawn at 32 and tapped at 48 through
+	 * `tap-out` (ADR 0044, 10 October 2026), so the tools in a row stand 16
+	 * apart.
+	 */
+	const TOOL = 'tap-out flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border';
+	/**
 	 * The way in to the library, in matcha — the colour of a Reading that points
 	 * at a recipe everywhere else (#50). `Correcting.svelte` wears the same one
 	 * on the same act, which is what "one control on both screens" means (#83).
@@ -1018,7 +1088,7 @@
 	const MATCHA = 'rounded-sm border border-support-2 px-2 py-1 text-read text-support-2';
 </script>
 
-<div class="mx-auto max-w-2xl pb-tabbar">
+<div class="mx-auto recipe-page pb-tabbar">
 	<!--
 		The bar that says you are writing. It stays at the top of the page
 		rather than following the scroll: this is one page, and a bar pinned
@@ -1081,7 +1151,7 @@
 	<!--
 		And in the open on a recipe that holds nothing yet, which is when you
 		actually have one as text and there is nothing to lose by pasting it.
-		A card with the page's one filled button (#175, Aurélien's option 1):
+		A card with the page's one filled button (#175, option 1):
 		it was a quiet outlined button before, easy to miss, and its name said
 		"paste" but not that Kamosu sorts the text out for you.
 	-->
@@ -1101,7 +1171,7 @@
 	{/if}
 
 	<!-- The hero, and the title typed onto it — #81's layout, made writable. -->
-	<div class="relative overflow-hidden">
+	<div class="relative overflow-hidden" {@attach mainPlace.listen}>
 		{#if mainPhoto}
 			<img
 				src="/api/photographs/{mainPhoto}/page"
@@ -1124,6 +1194,15 @@
 				></textarea>
 			</label>
 		</div>
+		{#if mainPlace.held}
+			<DropCover
+				class="absolute inset-0 z-20"
+				icon={drawnFor(mainPlace.held, DRAWN.picture)}
+				headline={MAIN_SAYS[mainPlace.held][0]()}
+				sentence={MAIN_SAYS[mainPlace.held][1]()}
+				refuses={mainPlace.held === 'no'}
+			/>
+		{/if}
 	</div>
 	<div class="flex flex-wrap items-center gap-2 border-b border-rule px-gutter py-2">
 		<label class="{QUIET} cursor-pointer text-accent">
@@ -1132,7 +1211,10 @@
 				type="file"
 				accept="image/*"
 				class="hidden"
-				onchange={(event) => pick(event, (name) => (mainPhoto = name))}
+				onchange={(event) => {
+					mainPlace.refused = false;
+					pick(event, (name) => (mainPhoto = name));
+				}}
 			/>
 		</label>
 		{#if mainPhoto}
@@ -1146,9 +1228,14 @@
 	{#if photoFailed}
 		<p class="px-gutter pt-2 text-read text-support" role="alert">{m.write_photo_failed()}</p>
 	{/if}
+	{#if mainPlace.refused}
+		<p class="px-gutter pt-2 text-read text-support" role="alert">
+			{m.drop_photo_recipe_refused()}
+		</p>
+	{/if}
 
 	<!--
-		The facts (#175, Aurélien's option A): #81's strip, in two rows now so
+		The facts (#175, option A): #81's strip, in two rows now so
 		real labels fit on a phone. Every field is named by words on the screen,
 		not by an `aria-label` only a screen reader hears. The reading page's
 		"min prep" read as nonsense here, above an empty box, and the yield was
@@ -1166,7 +1253,7 @@
 		<div class="border-t border-rule p-2">
 			<span id="{uid}-makes" class="block text-label text-ink-2 uppercase">{m.write_makes()}</span>
 			<div class="mt-1 flex gap-2">
-				<div class="w-[5.5rem] shrink-0">
+				<div class="w-[88px] shrink-0">
 					<input
 						bind:value={yieldAmount}
 						inputmode="numeric"
@@ -1193,39 +1280,47 @@
 		</div>
 	</div>
 	<!-- An overnight prove is cook time, or the quick tonight shelf suggests the
-	     bread for a Tuesday (#32's item 43). Aurélien's wording, 1B (#118). -->
+	     bread for a Tuesday (#32's item 43). The wording is 1B on #118. -->
 	<p id={cookHintId} class="px-gutter pt-2 text-read text-ink-2">{m.write_cook_hint()}</p>
 
-	<!-- Ingredients. -->
-	<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-		{m.recipe_ingredients()}
-	</h2>
-	<ul bind:this={linesEl}>
-		{#each lines as row, index (row.id)}
-			<li
-				data-row
-				class="flex items-start gap-2 border-b border-rule px-gutter py-2 {dragging?.list ===
-					'lines' && dragging.index === index
-					? 'bg-card'
-					: ''}"
-			>
-				{@render handle('lines', index)}
-				{#if row.kind === 'ingredient'}
-					<span class="ingredient-marker shrink-0 bg-accent" aria-hidden="true"></span>
-				{/if}
-				<div class="min-w-0 flex-1">
-					<textarea
-						bind:value={row.text}
-						rows="1"
-						{@attach grows(row.text)}
-						aria-label={row.kind === 'section'
-							? m.write_heading_aria()
-							: m.write_line_aria({ number: lineNumbers[index] ?? 0 })}
-						class={row.kind === 'section' ? HEADING_FIELD : FIELD}
-						onfocus={() => (cursor = { list: 'lines', index })}
-						onkeydown={(event) => onKey(event, 'lines', index)}></textarea>
-					<div class="flex flex-wrap items-center gap-2 pt-1">
-						<!--
+	<!--
+		The page's two columns where the window is roomy (#198), since the
+		editor is the page (#83). `Recipe.svelte` holds the choice and why the
+		part that stays in view is a box inside the left column.
+	-->
+	<div class="recipe-columns">
+		<div>
+			<div class="stays-in-view" bind:this={linesStayEl}>
+				<!-- Ingredients. -->
+				<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
+					{m.recipe_ingredients()}
+				</h2>
+				<ul bind:this={linesEl}>
+					{#each lines as row, index (row.id)}
+						<li
+							data-row
+							class="flex items-start gap-2 border-b border-rule px-gutter py-2 {dragging?.list ===
+								'lines' && dragging.index === index
+								? 'bg-card'
+								: ''}"
+						>
+							{@render handle('lines', index)}
+							{#if row.kind === 'ingredient'}
+								<span class="ingredient-marker shrink-0 bg-accent" aria-hidden="true"></span>
+							{/if}
+							<div class="min-w-0 flex-1">
+								<textarea
+									bind:value={row.text}
+									rows="1"
+									{@attach grows(row.text)}
+									aria-label={row.kind === 'section'
+										? m.write_heading_aria()
+										: m.write_line_aria({ number: lineNumbers[index] ?? 0 })}
+									class={row.kind === 'section' ? HEADING_FIELD : FIELD}
+									onfocus={() => (cursor = { list: 'lines', index })}
+									onkeydown={(event) => onKey(event, 'lines', index)}></textarea>
+								<div class="flex flex-wrap items-center gap-4 pt-1">
+									<!--
 							THE ONE PART OF THE READING THAT IS EDITED HERE (#87):
 							whether this line names a Recipe rather than a Food.
 							Matcha, which is the colour of a Reading that points at a
@@ -1236,50 +1331,86 @@
 							control: `set_reading` refuses one on a section, and a
 							button that always fails is worse than no button.
 						-->
-						{#if row.kind === 'ingredient'}
-							{#if row.namedRecipe}
-								<button type="button" class={MATCHA} onclick={() => (picking = row.id)}>
-									{m.write_line_names({
-										title: row.namedRecipe.title ?? m.write_line_recipe(),
-									})}
-								</button>
-								<button type="button" class={QUIET} onclick={() => (row.namedRecipe = null)}>
-									{m.write_line_not_recipe()}
-								</button>
-							{:else}
-								<button type="button" class={MATCHA} onclick={() => (picking = row.id)}>
-									{m.write_line_recipe()}
-								</button>
-							{/if}
-						{/if}
-						<button
-							type="button"
-							class="{QUIET} text-support"
-							onclick={() => remove('lines', index)}
-						>
-							{m.write_remove()}
-						</button>
-					</div>
+									{#if row.kind === 'ingredient'}
+										{#if row.namedRecipe}
+											<button type="button" class={MATCHA} onclick={() => (picking = row.id)}>
+												{m.write_line_names({
+													title: row.namedRecipe.title ?? m.write_line_recipe(),
+												})}
+											</button>
+											<button type="button" class={QUIET} onclick={() => (row.namedRecipe = null)}>
+												{m.write_line_not_recipe()}
+											</button>
+										{:else}
+											<button
+												type="button"
+												class="{TOOL} border-support-2 text-support-2"
+												aria-label={m.write_line_recipe()}
+												title={m.write_line_recipe()}
+												onclick={() => (picking = row.id)}
+											>
+												<svg
+													viewBox="0 0 24 24"
+													aria-hidden="true"
+													class="h-4 w-4"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="1.5"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													><path
+														d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"
+													/></svg
+												>
+											</button>
+										{/if}
+									{/if}
+									<button
+										type="button"
+										class="{TOOL} border-rule text-support"
+										aria-label={m.write_remove()}
+										title={m.write_remove()}
+										onclick={() => remove('lines', index)}
+									>
+										<svg
+											viewBox="0 0 24 24"
+											aria-hidden="true"
+											class="h-4 w-4"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="1.75"
+											stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg
+										>
+									</button>
+								</div>
+							</div>
+						</li>
+					{/each}
+				</ul>
+				{#if lines.length === 0}
+					<p class="px-gutter py-2 text-read text-ink-2">{m.write_empty_ingredients()}</p>
+				{/if}
+				<div class="flex gap-2 px-gutter pt-2">
+					<button
+						type="button"
+						class="{QUIET} flex-1 text-accent"
+						onclick={() => addLine('ingredient')}
+					>
+						{m.write_add_line()}
+					</button>
+					<button
+						type="button"
+						class="{QUIET} flex-1 text-accent"
+						onclick={() => addLine('section')}
+					>
+						{m.write_add_heading()}
+					</button>
 				</div>
-			</li>
-		{/each}
-	</ul>
-	{#if lines.length === 0}
-		<p class="px-gutter py-2 text-read text-ink-2">{m.write_empty_ingredients()}</p>
-	{/if}
-	<div class="flex gap-2 px-gutter pt-2">
-		<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addLine('ingredient')}>
-			{m.write_add_line()}
-		</button>
-		<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addLine('section')}>
-			{m.write_add_heading()}
-		</button>
-	</div>
-	<p class="px-gutter pt-2 text-read text-ink-2">{m.write_add_where()}</p>
+				<p class="px-gutter pt-2 text-read text-ink-2">{m.write_add_where()}</p>
 
-	<!--
+				<!--
 		The Nutrition figure, typed where it is read (#84): at the foot of the
-		Ingredients, which is the treatment Aurélien chose on 21 September 2026
+		Ingredients, which is the treatment chosen on 21 September 2026
 		for both surfaces. Reading and writing share it rather than each making
 		their own choice.
 
@@ -1289,142 +1420,209 @@
 		empty field — and the hint says so, since a box under a list of
 		ingredients otherwise looks like one it would fill in.
 	-->
-	<div class="mt-4 flex items-end gap-2 border-t border-rule px-gutter pt-3">
-		<label class="flex-1">
-			<span class="block text-label text-ink-2 uppercase">{m.write_nutrition_label()}</span>
-			<!--
+				<div class="mt-4 flex items-end gap-2 border-t border-rule px-gutter pt-3">
+					<label class="flex-1">
+						<span class="block text-label text-ink-2 uppercase">{m.write_nutrition_label()}</span>
+						<!--
 				`decimal` rather than `numeric`: a source page stating 154.5 per
 				100 g is stating a figure Kamosu does not round, and a
 				digits-only keypad has no separator to type it with.
 			-->
-			<input bind:value={calories} inputmode="decimal" class={SMALL} />
-		</label>
-		<!--
+						<input bind:value={calories} inputmode="decimal" class={SMALL} />
+					</label>
+					<!--
 			No visible label on the basis: its own two options say what it is,
 			beside a box that says Calories. The name is there for anyone not
 			reading it off the screen.
 		-->
-		<select bind:value={basis} aria-label={m.write_nutrition_basis()} class="{SMALL} flex-1">
-			<option value="per_serving">{m.write_nutrition_per_serving()}</option>
-			<option value="per_100g">{m.write_nutrition_per_100g()}</option>
-		</select>
-	</div>
-	<p class="px-gutter pt-2 text-read text-ink-2">{m.write_nutrition_hint()}</p>
-
-	<!-- The Method, underneath the ingredients on the same page. -->
-	<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-		{m.recipe_method()}
-	</h2>
-	<ol bind:this={stepsEl}>
-		{#each steps as row, index (row.id)}
-			<li
-				data-row
-				class="flex items-start gap-2 border-b border-rule px-gutter py-2 {dragging?.list ===
-					'steps' && dragging.index === index
-					? 'bg-card'
-					: ''}"
-			>
-				{@render handle('steps', index)}
-				{#if row.kind === 'step'}
-					<span class="w-6 shrink-0 pt-1 font-display text-line font-semibold text-accent">
-						{stepNumbers[index]}
-					</span>
-				{/if}
-				<div class="min-w-0 flex-1">
-					<textarea
-						bind:value={row.text}
-						rows="1"
-						{@attach grows(row.text)}
-						aria-label={row.kind === 'section'
-							? m.write_heading_aria()
-							: m.write_step_aria({ number: stepNumbers[index] ?? 0 })}
-						class={row.kind === 'section' ? HEADING_FIELD : FIELD}
-						onfocus={() => (cursor = { list: 'steps', index })}
-						onkeydown={(event) => onKey(event, 'steps', index)}></textarea>
-					<div class="flex flex-wrap items-center gap-2 pt-1">
+					<select bind:value={basis} aria-label={m.write_nutrition_basis()} class="{SMALL} flex-1">
+						<option value="per_serving">{m.write_nutrition_per_serving()}</option>
+						<option value="per_100g">{m.write_nutrition_per_100g()}</option>
+					</select>
+				</div>
+				<p class="px-gutter pt-2 text-read text-ink-2">{m.write_nutrition_hint()}</p>
+			</div>
+		</div>
+		<div>
+			<!-- The Method: underneath the Ingredients, or beside them where the window is roomy. -->
+			<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
+				{m.recipe_method()}
+			</h2>
+			<ol bind:this={stepsEl}>
+				{#each steps as row, index (row.id)}
+					{@const place = row.kind === 'step' ? stepPlace(row.id) : null}
+					<li
+						data-row
+						class="relative flex items-start gap-2 border-b border-rule px-gutter py-2 {dragging?.list ===
+							'steps' && dragging.index === index
+							? 'bg-card'
+							: ''}"
+						{@attach place?.listen}
+					>
+						{#if place?.held}
+							<DropHere part="frame" held={place.held} />
+						{/if}
+						{@render handle('steps', index)}
 						{#if row.kind === 'step'}
-							<label class="{QUIET} cursor-pointer text-accent">
-								{row.photo ? m.write_photo_change() : m.write_step_photo()}
-								<input
-									type="file"
-									accept="image/*"
-									class="hidden"
-									onchange={(event) => pick(event, (name) => (row.photo = name))}
-								/>
-							</label>
-							{#if row.photo}
+							<span class="w-6 shrink-0 pt-1 font-display text-line font-semibold text-accent">
+								{stepNumbers[index]}
+							</span>
+						{/if}
+						<div class="min-w-0 flex-1">
+							<textarea
+								bind:value={row.text}
+								rows="1"
+								{@attach grows(row.text)}
+								aria-label={row.kind === 'section'
+									? m.write_heading_aria()
+									: m.write_step_aria({ number: stepNumbers[index] ?? 0 })}
+								class={row.kind === 'section' ? HEADING_FIELD : FIELD}
+								onfocus={() => (cursor = { list: 'steps', index })}
+								onkeydown={(event) => onKey(event, 'steps', index)}></textarea>
+							<div class="flex flex-wrap items-center gap-4 pt-1">
+								{#if row.kind === 'step'}
+									<label
+										class="{TOOL} relative cursor-pointer border-rule text-accent"
+										title={row.photo ? m.write_photo_change() : m.write_step_photo()}
+									>
+										{#if place?.held}
+											{@const number = stepNumbers[index] ?? 0}
+											<DropHere
+												part="words"
+												held={place.held}
+												icon={DRAWN.picture}
+												edged
+												says={{
+													ok: m.drop_photo_step({ number }),
+													unsure: m.drop_photo_step_unsure({ number }),
+													no: m.drop_photo_step_only(),
+												}}
+											/>
+										{/if}
+										<svg
+											viewBox="0 0 24 24"
+											aria-hidden="true"
+											class="h-4 w-4"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="1.5"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
+											<path d="M4 7h3l2-2h6l2 2h3v12H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8" />
+										</svg>
+										<span class="sr-only"
+											>{row.photo ? m.write_photo_change() : m.write_step_photo()}</span
+										>
+										<input
+											type="file"
+											accept="image/*"
+											class="hidden"
+											onchange={(event) => pick(event, (name) => (row.photo = name))}
+										/>
+									</label>
+									{#if row.photo}
+										<button
+											type="button"
+											class="{TOOL} border-rule text-support"
+											aria-label={m.write_step_photo_remove()}
+											title={m.write_step_photo_remove()}
+											onclick={() => (row.photo = null)}
+										>
+											<svg
+												viewBox="0 0 24 24"
+												aria-hidden="true"
+												class="h-4 w-4"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="1.75"
+												stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg
+											>
+										</button>
+									{/if}
+								{/if}
 								<button
 									type="button"
-									class="{QUIET} text-support"
-									onclick={() => (row.photo = null)}
+									class="{TOOL} border-rule text-support"
+									aria-label={m.write_remove()}
+									title={m.write_remove()}
+									onclick={() => remove('steps', index)}
 								>
-									{m.write_step_photo_remove()}
+									<svg
+										viewBox="0 0 24 24"
+										aria-hidden="true"
+										class="h-4 w-4"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="1.75"
+										stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg
+									>
 								</button>
+							</div>
+							{#if place?.refused}
+								<p class="pt-1 text-read text-support" role="alert">
+									{m.drop_photo_step_refused()}
+								</p>
 							{/if}
-						{/if}
-						<button
-							type="button"
-							class="{QUIET} text-support"
-							onclick={() => remove('steps', index)}
-						>
-							{m.write_remove()}
-						</button>
-					</div>
-				</div>
-			</li>
-		{/each}
-	</ol>
-	{#if steps.length === 0}
-		<p class="px-gutter py-2 text-read text-ink-2">{m.write_empty_steps()}</p>
-	{/if}
-	<div class="flex gap-2 px-gutter pt-2">
-		<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addStep('step')}>
-			{m.write_add_step()}
-		</button>
-		<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addStep('section')}>
-			{m.write_add_heading()}
-		</button>
+						</div>
+					</li>
+				{/each}
+			</ol>
+			{#if steps.length === 0}
+				<p class="px-gutter py-2 text-read text-ink-2">{m.write_empty_steps()}</p>
+			{/if}
+			<div class="flex gap-2 px-gutter pt-2">
+				<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addStep('step')}>
+					{m.write_add_step()}
+				</button>
+				<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addStep('section')}>
+					{m.write_add_heading()}
+				</button>
+			</div>
+			<p class="px-gutter pt-2 text-read text-ink-2">{m.write_step_rule()}</p>
+		</div>
 	</div>
-	<p class="px-gutter pt-2 text-read text-ink-2">{m.write_step_rule()}</p>
 
-	<!-- The note, and where the recipe came from. -->
-	<label class="mt-6 block px-gutter">
-		<span class="block text-label text-ink-2 uppercase">{m.write_note_label()}</span>
-		<textarea
-			bind:value={note}
-			rows="3"
-			class="mt-1 block w-full rounded-sm border border-rule bg-card p-2 text-body text-ink"
-		></textarea>
-	</label>
-	<label class="mt-4 block px-gutter">
-		<span class="block text-label text-ink-2 uppercase">{m.write_source_text()}</span>
-		<input bind:value={sourceText} class="mt-1 {SMALL}" />
-	</label>
-	<label class="mt-2 block px-gutter">
-		<span class="block text-label text-ink-2 uppercase">{m.write_source_link()}</span>
-		<input bind:value={sourceLink} type="url" placeholder="https://" class="mt-1 {SMALL}" />
-	</label>
+	<!-- The note, and where the recipe came from, back in the one column (#198). -->
+	<div class="roomy:mx-auto roomy:max-w-2xl">
+		<label class="mt-6 block px-gutter">
+			<span class="block text-label text-ink-2 uppercase">{m.write_note_label()}</span>
+			<textarea
+				bind:value={note}
+				rows="3"
+				class="mt-1 block w-full rounded-sm border border-rule bg-card p-2 text-body text-ink"
+			></textarea>
+		</label>
+		<label class="mt-4 block px-gutter">
+			<span class="block text-label text-ink-2 uppercase">{m.write_source_text()}</span>
+			<input bind:value={sourceText} class="mt-1 {SMALL}" />
+		</label>
+		<label class="mt-2 block px-gutter">
+			<span class="block text-label text-ink-2 uppercase">{m.write_source_link()}</span>
+			<input bind:value={sourceLink} type="url" placeholder="https://" class="mt-1 {SMALL}" />
+		</label>
 
-	{#if failed}
-		<p class="mt-4 px-gutter text-read text-support" role="alert">{failed}</p>
-	{/if}
-
-	<div class="px-gutter py-6">
-		{#if wrong}
-			<p class="mb-2 text-read text-support" role="alert">{wrong}</p>
+		{#if failed}
+			<p class="mt-4 px-gutter text-read text-support" role="alert">{failed}</p>
 		{/if}
-		<button
-			type="button"
-			class="block w-full p-4 text-center font-display text-body {!wrong
-				? act.grave
-					? 'bg-support text-on-accent'
-					: 'bg-accent text-on-accent'
-				: 'border border-rule text-ink-2'}"
-			disabled={saving || Boolean(wrong)}
-			onclick={openSheet}
-		>
-			{act.does}
-		</button>
+
+		<div class="px-gutter py-6">
+			{#if wrong}
+				<p class="mb-2 text-read text-support" role="alert">{wrong}</p>
+			{/if}
+			<button
+				type="button"
+				class="block w-full p-4 text-center font-display text-body {!wrong
+					? act.grave
+						? 'bg-support text-on-accent'
+						: 'bg-accent text-on-accent'
+					: 'border border-rule text-ink-2'}"
+				disabled={saving || Boolean(wrong)}
+				onclick={openSheet}
+			>
+				{act.does}
+			</button>
+		</div>
 	</div>
 </div>
 
@@ -1477,12 +1675,11 @@
 	second time and no request is made.
 -->
 {#if pasteOpen}
-	<div class="fixed inset-0 z-40 bg-accent/40"></div>
-	<div
-		class="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[85vh] max-w-2xl overflow-y-auto bg-ground px-gutter pt-4 pb-safe"
-		role="dialog"
-		aria-modal="true"
-		aria-label={m.write_paste_offer()}
+	<SheetFrame
+		label={m.write_paste_offer()}
+		tall={85}
+		class="overflow-y-auto bg-ground px-gutter pt-4"
+		onclose={() => (pasteOpen = false)}
 	>
 		<p class="text-label text-ink-2 uppercase">{m.write_paste_offer()}</p>
 
@@ -1546,7 +1743,7 @@
 		>
 			{m.write_back()}
 		</button>
-	</div>
+	</SheetFrame>
 {/if}
 
 {#snippet time(
@@ -1586,12 +1783,24 @@
 	are the same word for different acts.
 -->
 {#if asking}
-	<div class="fixed inset-0 z-40 bg-accent/40"></div>
-	<div
-		class="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[78vh] max-w-2xl overflow-y-auto bg-ground px-gutter pt-4 pb-safe"
-		role="dialog"
-		aria-modal="true"
-		aria-label={act.called}
+	<!--
+		Enter saves, from the sheet or from one of its fields (#196), under the
+		same conditions the button is held to. Only where the sheet asks one
+		thing, a copy or a translation: with onto and beside to choose between,
+		a key must not choose, which is `Confirm`'s rule as well.
+	-->
+	<SheetFrame
+		label={act.called}
+		tall={78}
+		class="overflow-y-auto bg-ground px-gutter pt-4"
+		onclose={() => {
+			if (!saving) asking = false;
+		}}
+		onconfirm={forking || translating
+			? () => {
+					if (!saving) void save();
+				}
+			: undefined}
 	>
 		<!--
 			A translation is neither of the two saves #54 named. It is never a
@@ -1675,5 +1884,5 @@
 		>
 			{m.write_back()}
 		</button>
-	</div>
+	</SheetFrame>
 {/if}

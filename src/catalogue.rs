@@ -30,7 +30,7 @@ pub enum Permission {
 /// envelope, `{ "job_id": ... }`, read back through `get_job` and `list_jobs`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    /// An Operation that answers within a single request (CONTEXT.md).
+    /// An Operation that answers within a single request (GLOSSARY.md).
     Immediate,
     /// An Operation too slow to answer within a single request: asking returns
     /// a job id at once; state, progress and result are ordinary Operations.
@@ -857,7 +857,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "everywhere": { "type": "boolean" }, "kitchen_id": { "type": "string", "description": "One of your Kitchens: every word its Cookbooks file by, one entry per word." } }, "additionalProperties": false }),
+            input_schema: json!({ "type": "object", "properties": { "everywhere": { "type": "boolean" }, "kitchen_id": { "type": "string", "description": "One of your Kitchens: every word its Cookbooks file by, one entry per word." }, "cookbook_id": { "type": "string", "description": "One Cookbook you can see: the words it files by. One you cannot see is answered as not found." } }, "additionalProperties": false }),
             output_schema: json!({
                 "type": "object",
                 "properties": { "tags": { "type": "array", "items": tag_schema() } },
@@ -1664,6 +1664,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     // forgot you set is the Kitchen switcher wearing a hat.
                     // A Kitchen narrows to the Cookbooks seen in it.
                     "kitchen_id": { "type": ["string", "null"] },
+                    // One Cookbook alone, the reader's own or any other they
+                    // see (#231). A Cookbook is whole wherever it is seen, so
+                    // this beside a Kitchen narrows no further than it does
+                    // alone; where the Kitchen does not see it, nothing is left.
+                    "cookbook_id": {
+                        "type": ["string", "null"],
+                        "description": "Only recipes with a Branch in this Cookbook, each entry opening that Branch. Your own Cookbook or any other you can see: `list_kitchens` answers their ids. One you cannot see is answered as not found.",
+                    },
                     // Created, branched or cooked by this Person — a history,
                     // not an ownership, and one that needs no curating ever.
                     // Not the `mine` each entry answers with (#177).
@@ -1951,7 +1959,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Read the Thread: every Branch of one Lineage you may \
                       see. It holds every Version of every Branch of the \
                       Lineage this Person can see, oldest first per Branch, \
-                      with every Attempt hanging off it. branch_id is only the \
+                      with every Attempt hanging off it. An Attempt's \
+                      eaten_version_id is the Version its rating is about: the \
+                      As Cooked once that was kept as a Version, otherwise the \
+                      Version it started from. branch_id is only the \
                       entry point — any Branch of the Lineage answers the same \
                       Thread.",
             permission: Permission::Person,
@@ -2333,6 +2344,35 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             }),
             output_schema: divergence_schema(),
             handler: crate::operations::divergence,
+        },
+        Operation {
+            name: "changed_since",
+            summary: "See what changed on a recipe since an older Version. \
+                      That Version of a Branch is laid over the newest Version \
+                      of the same Branch. The answer is a divergence's, two \
+                      whole recipes and the rows between them (ADR 0014). \
+                      `mine` is the Branch as it stands and `theirs` is the \
+                      Branch at the Version named. A row only `theirs` has is \
+                      a line taken out since; a row only `mine` has is a line \
+                      written since. The newest Version answers with every \
+                      row the same and `newest` true. `writes` says whether \
+                      the caller may save onto this Branch.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "version_id": { "type": "string" },
+                },
+                "required": ["branch_id", "version_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: changed_since_schema(),
+            handler: crate::operations::changed_since,
         },
         Operation {
             name: "set_reading",
@@ -3959,8 +3999,19 @@ fn cooking_record_schema() -> Value {
                         "name": { "type": "string" },
                         "rating": { "type": "string", "enum": ["again", "tweak", "no"] },
                         "at": { "type": "string" },
+                        "given_on": {
+                            "type": "string",
+                            "enum": ["newest", "older", "another"],
+                            // Kept short, as the next one is: get_recipe's
+                            // meanings only just fit an MCP description (#187).
+                            "description": "The Version rated: this recipe's newest, an older one, or another Branch's.",
+                        },
+                        "version_id": {
+                            "type": ["string", "null"],
+                            "description": "An older Version this recipe still holds; null otherwise.",
+                        },
                     },
-                    "required": ["person_id", "name", "rating", "at"],
+                    "required": ["person_id", "name", "rating", "at", "given_on", "version_id"],
                     "additionalProperties": false,
                 },
             },
@@ -4000,7 +4051,7 @@ fn translation_schema() -> Value {
 /// One occurrence of one Version on one Branch, as the Thread shows it —
 /// deliberately lighter than a `recipe_schema` entry: no content, no
 /// Readings, since the Thread reads back names and *what changed* lines, not
-/// the recipe itself (CONTEXT.md, "Thread").
+/// the recipe itself (GLOSSARY.md, "Thread").
 fn thread_version_schema() -> Value {
     json!({
         "type": "object",
@@ -4071,7 +4122,7 @@ fn thread_schema() -> Value {
             "lineage_id": { "type": "string" },
             "branches": { "type": "array", "items": thread_branch_schema() },
             "versions": { "type": "array", "items": thread_version_schema() },
-            "attempts": { "type": "array", "items": attempt_schema() },
+            "attempts": { "type": "array", "items": thread_attempt_schema() },
         },
         "required": ["lineage_id", "branches", "versions", "attempts"],
         "additionalProperties": false,
@@ -4093,7 +4144,7 @@ fn yield_schema() -> Value {
         "type": ["object", "null"],
         "properties": {
             "amount": { "type": "string" },
-            // Named `noun`, not `unit`: CONTEXT.md's Yield ("4 servings",
+            // Named `noun`, not `unit`: GLOSSARY.md's Yield ("4 servings",
             // "24 cookies") is a different concept from its Unit glossary
             // entry (grams, cups, spoons — a closed, convertible list).
             "noun": { "type": "string" },
@@ -4118,7 +4169,7 @@ fn recipe_content_properties() -> Value {
         },
         "note": { "type": ["string", "null"] },
         // The single Photograph that stands for the recipe wherever it is
-        // listed (CONTEXT.md, "Main Photo") — a reference only; storing the
+        // listed (GLOSSARY.md, "Main Photo") — a reference only; storing the
         // picture itself is `upload_photograph` (#45, ADR 0017).
         "main_photo": { "type": ["string", "null"] },
         "source": {
@@ -4130,7 +4181,7 @@ fn recipe_content_properties() -> Value {
             "required": ["text", "link"],
             "additionalProperties": false,
         },
-        // v1's whole of nutrition (CONTEXT.md, "Nutrition"): a figure the cook
+        // v1's whole of nutrition (GLOSSARY.md, "Nutrition"): a figure the cook
         // types, or one a source page's own structured data stated — never
         // computed from the Ingredient Lines or the Foods they name. The basis
         // is required alongside the number because 308 says nothing until it
@@ -4312,6 +4363,36 @@ fn divergence_schema() -> Value {
     })
 }
 
+/// A divergence, and which Version of the Branch `theirs` is (#211).
+fn changed_since_schema() -> Value {
+    let mut schema = divergence_schema();
+    schema["properties"]["version"] = json!({
+        "type": "object",
+        "properties": {
+            "version_id": { "type": "string" },
+            "sequence": { "type": "integer" },
+            "name": { "type": ["string", "null"] },
+            "change_note": { "type": ["string", "null"] },
+            "created_at": { "type": "string" },
+            "hand_id": { "type": "string" },
+            "hand_name": { "type": ["string", "null"] },
+            // The Version named is the Branch's head: the recipe itself.
+            "newest": { "type": "boolean" },
+        },
+        "required": [
+            "version_id", "sequence", "name", "change_note", "created_at",
+            "hand_id", "hand_name", "newest",
+        ],
+        "additionalProperties": false,
+    });
+    schema["properties"]["writes"] = json!({ "type": "boolean" });
+    schema["required"]
+        .as_array_mut()
+        .expect("a divergence declares what it requires")
+        .extend([json!("version"), json!("writes")]);
+    schema
+}
+
 /// A Version's content exactly as stored and read back: every field above,
 /// always present — absent input normalises to `null` or `[]` rather than
 /// being left out (see `parse_recipe_content` in `core/recipes.rs`).
@@ -4398,7 +4479,7 @@ fn create_recipe_input_schema() -> Value {
 /// `save_recipe_version`'s input: the whole recipe as it now reads, replacing
 /// what was on the Branch — a title is the one field that must be there. A
 /// save by anybody who does not write the Branch's Cookbook starts a Copy in
-/// their own (CONTEXT.md, "Copy"; ADR 0041), so there is never a place to
+/// their own (GLOSSARY.md, "Copy"; ADR 0041), so there is never a place to
 /// name.
 fn save_recipe_version_input_schema() -> Value {
     let mut properties = recipe_content_input_properties();
@@ -4591,7 +4672,7 @@ fn pasted_recipe_schema() -> Value {
 }
 
 /// Every importer's eventual result: the Import Report, a ledger read by a
-/// person rather than an error log (ADR 0025, CONTEXT.md "Import Report").
+/// person rather than an error log (ADR 0025, GLOSSARY.md "Import Report").
 /// Every candidate lands in exactly one bucket — `arrived` covers a recipe
 /// freshly made, one already matched and found unchanged, and a Branch a
 /// Bundle extended, told apart by `status`; `offered` is a previously-seen
@@ -5128,7 +5209,7 @@ fn measured_step_schema() -> Value {
 }
 
 /// **What the cooking screen reads out of each Step**, and Kamosu stores
-/// nowhere (ADR 0011, CONTEXT.md "Step"): which Ingredient Lines the Step uses,
+/// nowhere (ADR 0011, GLOSSARY.md "Step"): which Ingredient Lines the Step uses,
 /// and the duration it offers as a timer.
 ///
 /// One slot per row of the Version's `steps`, in the same order `measured`
@@ -5418,7 +5499,7 @@ fn set_as_cooked_input_schema() -> Value {
 /// Deliberately not a number. ADR 0015 refuses to average ratings, and a scale
 /// out of five invites a reader to do that arithmetic in their own head even
 /// where Kamosu never does; three words make the refusal self-evident. The
-/// scale was Aurélien's choice, recorded on #59 before this was written.
+/// scale was chosen on #59, before this was written.
 fn rating_schema() -> Value {
     json!({
         "type": ["string", "null"],
@@ -5431,6 +5512,32 @@ fn rating_schema() -> Value {
 fn attempt_or_null_schema() -> Value {
     let mut schema = attempt_schema();
     schema["type"] = json!(["object", "null"]);
+    schema
+}
+
+/// A cooking as the Thread hangs it off a Version (#209): an ordinary Attempt,
+/// plus the Version it counts for.
+///
+/// `version_id` goes on saying which Version the cooking started from, and
+/// Promotion leaves it alone on purpose. `eaten_version_id` is the one to file
+/// a cooking and its rating under: the As Cooked's, once that As Cooked has
+/// been kept and is a Version on this Thread, and otherwise the same as
+/// `version_id`. It is served for every cook, a Kitchen-mate whose As Cooked
+/// is withheld included, and it only ever names a Version already on the
+/// Thread.
+fn thread_attempt_schema() -> Value {
+    attempt_schema_with("eaten_version_id", json!({ "type": "string" }))
+}
+
+/// `attempt_schema` with one more required field. How the Thread and the
+/// diary each grow their own Attempt from the one declared shape.
+fn attempt_schema_with(field: &str, declared: Value) -> Value {
+    let mut schema = attempt_schema();
+    schema["properties"][field] = declared;
+    schema["required"]
+        .as_array_mut()
+        .expect("attempt_schema declares its required fields as an array")
+        .push(json!(field));
     schema
 }
 
@@ -5447,31 +5554,58 @@ fn attempt_or_null_schema() -> Value {
 /// still offered is In Progress, not finished and no longer offered is a
 /// cooking somebody walked away from — which happened all the same (ADR 0010).
 fn diary_entry_schema() -> Value {
-    let mut schema = attempt_schema();
-    schema["properties"]["recipe"] = json!({
-        "type": "object",
+    let mut schema = attempt_schema_with(
+        "recipe",
+        json!({
+            "type": "object",
+            "properties": {
+                // The Branch this entry opens, chosen the way the shelf chooses
+                // which Branch a card opens. **Null** where the recipe has left
+                // the caller's shelf — they left the Kitchen holding it, say. The
+                // Attempt is theirs and stays; the pointer is the part that goes
+                // (the rule #52 settled for Related Recipes).
+                "branch_id": { "type": ["string", "null"] },
+                // The name the recipe goes by now where it is still on the shelf,
+                // and the name it was known by — off the Version actually cooked —
+                // where it is not. Text is better than a broken pointer.
+                "title": { "type": "string" },
+                // What the Version cooked says it makes, so a cooking at another
+                // amount can say both (#109).
+                "written_yield": yield_schema(),
+            },
+            "required": ["branch_id", "title", "written_yield"],
+            "additionalProperties": false,
+        }),
+    );
+    // This cooking's changes not yet kept, as where keeping them as a Version
+    // would land (#210), so the diary can offer it on the entry. **Null** where there is nothing to
+    // keep: the cooking followed the recipe, the recipe has left the shelf,
+    // or the As Cooked is already a Version on a Branch of it the caller
+    // sees. Not nulled by `promotion_declined`, which answers the recipe page.
+    schema["properties"]["unkept"] = json!({
+        "type": ["object", "null"],
         "properties": {
-            // The Branch this entry opens, chosen the way the shelf chooses
-            // which Branch a card opens. **Null** where the recipe has left
-            // the caller's shelf — they left the Kitchen holding it, say. The
-            // Attempt is theirs and stays; the pointer is the part that goes
-            // (the rule #52 settled for Related Recipes).
-            "branch_id": { "type": ["string", "null"] },
-            // The name the recipe goes by now where it is still on the shelf,
-            // and the name it was known by — off the Version actually cooked —
-            // where it is not. Text is better than a broken pointer.
-            "title": { "type": "string" },
-            // What the Version cooked says it makes, so a cooking at another
-            // amount can say both (#109).
-            "written_yield": yield_schema(),
+            // The Branch `promote_as_cooked` is to be called with: the one
+            // that was cooked, which is not always the one `recipe.branch_id`
+            // opens. A cooking of a variation is kept onto the variation.
+            "branch_id": { "type": "string" },
+            // Whether the recipe has changed since this cooking, so keeping
+            // would replace what it says now (ADR 0004).
+            "moved_on": { "type": "boolean" },
+            // Whose the recipe is and whether keeping lands on it or starts
+            // the caller's own Copy: the facts `get_recipe` answers (#132).
+            "cookbook": cookbook_label_schema(),
+            "writes": { "type": "boolean" },
+            "mine": { "type": "boolean" },
+            "arrived": { "type": "boolean" },
         },
-        "required": ["branch_id", "title", "written_yield"],
+        "required": ["branch_id", "moved_on", "cookbook", "writes", "mine", "arrived"],
         "additionalProperties": false,
     });
     schema["required"]
         .as_array_mut()
         .expect("attempt_schema declares its required fields as an array")
-        .push(json!("recipe"));
+        .push(json!("unkept"));
     schema
 }
 

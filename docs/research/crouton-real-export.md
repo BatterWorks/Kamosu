@@ -1,10 +1,10 @@
 # Crouton: what a real 86-recipe library actually contains
 
-Source: `Crouton Recipes - 20 Aug 2026.zip`, Aurélien's own library, exported 2026-08-20.
+Source: `Crouton Recipes - 20 Aug 2026.zip`, the first Operator's own library, exported 2026-08-20.
 Files lived at `samples/crouton/` (gitignored — 110 MB, mostly photos, and personal);
 since #128 this export sits in `samples/crouton-2026-08-20/` and the 23 September 2026
 one is the corpus. See *Update, 23 September 2026* at the end.
-Resolves issue [#5](https://github.com/BattermanZ/Kamosu/issues/5).
+Resolves issue [#5](https://github.com/BatterWorks/Kamosu/issues/5).
 
 This is the real-data counterpart to `recipe-app-formats.md`, which read the format from
 documentation. Where the two disagree, this document wins: it is measured.
@@ -37,7 +37,7 @@ you get**, and duplicate names get a `-1` suffix.
 | `tags`, `folderIDs`, `isPublicRecipe` | 86 | **0** | present but never populated |
 | `duplicatedFromRecipeUUID` | 1 | 1 | and its source is not in the export |
 
-**`tags` and `folderIDs` are empty in all 86 recipes.** Whatever organisation Aurélien has
+**`tags` and `folderIDs` are empty in all 86 recipes.** Whatever organisation the first Operator has
 in Crouton, the export does not carry it — worth confirming with him before assuming he
 has none.
 
@@ -118,7 +118,7 @@ recipe because the app has nowhere else to put it. `duplicatedFromRecipeUUID` ex
 schema and is used exactly once, pointing at a recipe **not present in the export** — so
 even Crouton's own lineage field does not survive its own backup.
 
-**This is direct evidence for issue [#9](https://github.com/BattermanZ/Kamosu/issues/9)**
+**This is direct evidence for issue [#9](https://github.com/BatterWorks/Kamosu/issues/9)**
 (attempts, adjustments, versions): the need is not hypothetical, it is already being met
 badly by copy-paste.
 
@@ -152,7 +152,7 @@ entry is two nutrition panels concatenated. Crouton scrapes it and never parses 
 
 **For Kamosu:** either parse nutrition into structured fields at import, or keep it as
 opaque text and be honest that it is not queryable. The half-measure Crouton took gives
-you neither. Relevant to issue [#4](https://github.com/BattermanZ/Kamosu/issues/4).
+you neither. Relevant to issue [#4](https://github.com/BatterWorks/Kamosu/issues/4).
 
 ### 8. Photos are inline base64, and that is the whole 110 MB
 
@@ -178,7 +178,7 @@ title is English but whose ingredient section header is French.
 
 There is no language field anywhere in the format. Language is implicit in the text, mixed
 *within* a single recipe, and roughly 10% of a real library. Issue
-[#10](https://github.com/BattermanZ/Kamosu/issues/10) is confirmed as a live concern, not a
+[#10](https://github.com/BatterWorks/Kamosu/issues/10) is confirmed as a live concern, not a
 someday-nice-to-have — and note the unit of language may be smaller than the recipe.
 
 ## Importer gotchas, concretely

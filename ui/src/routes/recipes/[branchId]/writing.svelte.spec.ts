@@ -4,7 +4,7 @@
  * it, and so is every input the screen sends — a field renamed in
  * `src/catalogue.rs` fails this test in the same commit.
  *
- * What is being tested is the shape Aurélien chose on 20 September 2026:
+ * What is being tested is the shape chosen on 20 September 2026:
  * ONE PAGE, both lists on it, an Ingredient Line as one free-text field, and
  * a save that says which of two things it is about to do. If an assertion here
  * starts describing a second screen, or a line split into amount and unit
@@ -21,8 +21,10 @@ import { tick } from 'svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
 import type { Whose } from '$lib/cookbook';
+import type { Room } from '$lib/room.svelte';
 import WritingTestHarness from './WritingTestHarness.svelte';
 import { recipeAnswer, writtenByMe } from '../../../testing/recipes';
+import { carrying } from '../../../testing/drops';
 
 type Content = GetRecipeOutput['versions'][number]['content'];
 
@@ -142,7 +144,7 @@ const READ_BACK = {
 	get_recipe: {
 		branch_id: 'mine',
 		lineage_id: 'l_1',
-		cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Aurélien' }] },
+		cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Stéphane' }] },
 		name: null,
 		writes: true,
 		mine: true,
@@ -577,13 +579,13 @@ describe('writing a recipe', () => {
 
 	/**
 	 * THE FIGURE IS TYPED WHERE IT IS READ (#84): at the foot of the
-	 * Ingredients, which is the treatment Aurélien chose on 21 September 2026
+	 * Ingredients, which is the treatment chosen on 21 September 2026
 	 * for both surfaces. Reading and writing share it rather than each making
 	 * their own choice.
 	 *
 	 * The basis is typed with the number and is not a setting. 308 says nothing
 	 * until it says what it counts, and the two do not convert into each other
-	 * without a weight a recipe does not carry (CONTEXT.md, "Nutrition").
+	 * without a weight a recipe does not carry (GLOSSARY.md, "Nutrition").
 	 */
 	it('types the figure at the foot of the Ingredients, with what it counts', async () => {
 		const { kamosu } = renderWriting();
@@ -704,7 +706,7 @@ describe('writing a recipe', () => {
 		const sent: Omit<Whose, 'writes'> = {
 			mine: true,
 			arrived: true,
-			cookbook: { id: 'c_me', name: null, authors: [{ person_id: 'p_me', name: 'Aurélien' }] },
+			cookbook: { id: 'c_me', name: null, authors: [{ person_id: 'p_me', name: 'Stéphane' }] },
 		};
 		renderWriting({}, false, [], content(), undefined, sent);
 		await fireEvent.click(
@@ -715,8 +717,8 @@ describe('writing a recipe', () => {
 				'You were sent this recipe, so your changes go into your own copy of Dan Dan Noodles, in your Cookbook. The one you were sent stays as it arrived.',
 			),
 		).toBeInTheDocument();
-		// Not "in Aurélien's Cookbook": it is in the reader's own.
-		expect(screen.queryByText(/Aurélien/)).not.toBeInTheDocument();
+		// Not "in Stéphane's Cookbook": it is in the reader's own.
+		expect(screen.queryByText(/Stéphane/)).not.toBeInTheDocument();
 	});
 
 	it('names a Cookbook by the name its writers gave it (#132)', async () => {
@@ -978,6 +980,74 @@ describe('writing a recipe', () => {
  * checks that the recipe was CHOSEN. Nothing on this screen may ever arrive at
  * a pointer by matching words.
  */
+describe('two columns where the window is roomy (#198)', () => {
+	/** The same edit, made in a window of the given Room, and what it saved. */
+	async function editIn(room: Room) {
+		const kamosu = standIn({ ...SAVED });
+		const { unmount } = render(WritingTestHarness, {
+			props: { client: kamosu.client, content: content(), room },
+		});
+		const line = await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+		await fireEvent.input(line, { target: { value: '3 tbsp Chinese sesame paste' } });
+		const step = screen.getByRole('textbox', { name: 'Step 1' });
+		await fireEvent.input(step, { target: { value: 'Mix everything, the oil last.' } });
+		// A row moved from the keyboard, in each list.
+		for (const field of [line, step]) {
+			await fireEvent.keyDown(
+				within(field.closest('li')!).getByRole('button', { name: /Drag to move/ }),
+				{ key: 'ArrowDown' },
+			);
+		}
+		await saveThrough(/Save onto mine/);
+		const input = sent(kamosu);
+		unmount();
+		return input;
+	}
+
+	// The ticket asks for this by name. It holds today because the columns are
+	// the stylesheet's and the editor never asks the Room anything, and a
+	// screen test lays nothing out. It is here for the day somebody draws the
+	// two columns as a second editor.
+	it('saves from two columns exactly what the same edit saves on the phone', async () => {
+		const onThePhone = await editIn('phone');
+		const inTwoColumns = await editIn('roomy');
+
+		expect(onThePhone?.ingredients).toContainEqual({
+			kind: 'ingredient',
+			text: '3 tbsp Chinese sesame paste',
+		});
+		expect(inTwoColumns).toEqual(onThePhone);
+	});
+
+	it('puts the Ingredient Lines in one column and the Steps in the other', async () => {
+		renderWriting();
+		const line = await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+		const step = screen.getByRole('textbox', { name: 'Step 1' });
+
+		const columns = line.closest('.recipe-columns')!;
+		expect(columns).not.toBeNull();
+		expect(columns.children).toHaveLength(2);
+		expect(columns.children[0]).toContainElement(line);
+		expect(columns.children[1]).toContainElement(step);
+
+		// The part that stays in view is a box inside the left column, never
+		// the column. As the column it stayed for the whole page and rode over
+		// everything under the Method, which was found on the iPad.
+		const stays = line.closest('.stays-in-view')!;
+		expect(stays.parentElement).toBe(columns.children[0]);
+		expect(stays).not.toContainElement(step);
+
+		// The note, the Source and the save are under both columns, not in one.
+		for (const below of [
+			screen.getByRole('textbox', { name: 'A note about this recipe' }),
+			screen.getByRole('textbox', { name: 'Source' }),
+			screen.getAllByRole('button', { name: /Save onto mine/ }).at(-1)!,
+		]) {
+			expect(columns).not.toContainElement(below);
+		}
+	});
+});
+
 describe('where a Copy goes (#111, #131)', () => {
 	it('never asks: a Copy is started in your own Cookbook', async () => {
 		const { kamosu } = renderWriting({}, false);
@@ -1527,5 +1597,143 @@ describe('the Language offer a save answers', () => {
 		await saveThrough(/Save onto mine/);
 
 		expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ language_offer: 'fr' }));
+	});
+});
+
+describe('dropping a photograph where it goes (#205)', () => {
+	const picture = () => new File([new Uint8Array([1, 2, 3])], 'plate.jpg', { type: 'image/jpeg' });
+	const aPdf = () => new File(['%PDF'], 'tarte.pdf', { type: 'application/pdf' });
+
+	function drawn() {
+		const photograph = vi.fn(async () => 'p_dropped');
+		const kamosu = standIn({ ...SAVED });
+		render(WritingTestHarness, {
+			props: { client: kamosu.client, content: content(), photograph },
+		});
+		return { kamosu, photograph };
+	}
+
+	it("makes a photograph dropped on the recipe's photograph the recipe's, as its button does", async () => {
+		const { kamosu, photograph } = drawn();
+		const hero = screen.getByLabelText('Title');
+		const dataTransfer = carrying({ files: [picture()] });
+
+		await fireEvent.dragEnter(hero, { dataTransfer });
+		expect(screen.getByText('Drop to use this photograph')).toBeInTheDocument();
+		expect(
+			screen.getByText("It becomes the recipe's photograph when you save."),
+		).toBeInTheDocument();
+		// Holding it there is what lets a browser send the drop at all.
+		expect(await fireEvent.dragOver(hero, { dataTransfer })).toBe(false);
+		expect(await fireEvent.drop(hero, { dataTransfer })).toBe(false);
+		expect(screen.queryByText('Drop to use this photograph')).not.toBeInTheDocument();
+		await vi.waitFor(() => expect(photograph).toHaveBeenCalledOnce());
+
+		await saveThrough(/Save onto mine/);
+		expect(sent(kamosu)?.main_photo).toBe('p_dropped');
+	});
+
+	it('puts a photograph dropped on a Step on that Step, and on no other', async () => {
+		const { kamosu, photograph } = drawn();
+		const step = screen.getByLabelText('Step 2');
+		const dataTransfer = carrying({ files: [picture()] });
+
+		await fireEvent.dragEnter(step, { dataTransfer });
+		expect(screen.getByText('Drop to add it to step 2')).toBeInTheDocument();
+		expect(screen.queryByText('Drop to add it to step 1')).not.toBeInTheDocument();
+		await fireEvent.drop(step, { dataTransfer });
+		await vi.waitFor(() => expect(photograph).toHaveBeenCalledOnce());
+
+		await saveThrough(/Save onto mine/);
+		expect((sent(kamosu)?.steps as { photo: string | null }[]).map((s) => s.photo)).toEqual([
+			null,
+			null,
+			null,
+			'p_dropped',
+		]);
+		expect(sent(kamosu)?.main_photo).toBeNull();
+	});
+
+	it('says before it is let go that something else does not go there, and keeps nothing', async () => {
+		const { photograph } = drawn();
+		const step = screen.getByLabelText('Step 1');
+		const dataTransfer = carrying({ files: [aPdf()] });
+
+		await fireEvent.dragEnter(step, { dataTransfer });
+		expect(screen.getByText('Only a photograph goes here')).toBeInTheDocument();
+		// Taken and refused, so the browser never opens the file in place of Kamosu.
+		expect(await fireEvent.drop(step, { dataTransfer })).toBe(false);
+		expect(screen.getByRole('alert')).toHaveTextContent(
+			"That didn't go anywhere. A step's photograph has to be a picture.",
+		);
+		expect(photograph).not.toHaveBeenCalled();
+
+		// The next thing held over it is a new try.
+		await fireEvent.dragEnter(step, { dataTransfer: carrying({ files: [picture()] }) });
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+	});
+
+	it("refuses anything but a picture on the recipe's photograph, in words", async () => {
+		const { photograph } = drawn();
+		const hero = screen.getByLabelText('Title');
+		const dataTransfer = carrying({ files: [aPdf()] });
+
+		await fireEvent.dragEnter(hero, { dataTransfer });
+		expect(screen.getByText("This doesn't go here")).toBeInTheDocument();
+		expect(screen.getByText("A recipe's photograph has to be a picture.")).toBeInTheDocument();
+		await fireEvent.drop(hero, { dataTransfer });
+		expect(screen.getByRole('alert')).toHaveTextContent(
+			"That didn't go anywhere. A recipe's photograph has to be a picture.",
+		);
+		expect(photograph).not.toHaveBeenCalled();
+	});
+
+	it('refuses two photographs at once, since the button takes one', async () => {
+		const { photograph } = drawn();
+		const step = screen.getByLabelText('Step 1');
+		const dataTransfer = carrying({ files: [picture(), picture()] });
+		await fireEvent.dragEnter(step, { dataTransfer });
+		expect(screen.getByText('Only a photograph goes here')).toBeInTheDocument();
+		await fireEvent.drop(step, { dataTransfer });
+		expect(photograph).not.toHaveBeenCalled();
+	});
+
+	it('asks for a photograph where the browser cannot name the file yet, and judges it by name once dropped', async () => {
+		const { photograph } = drawn();
+		const step = screen.getByLabelText('Step 1');
+		const dataTransfer = carrying({ files: [new File(['x'], 'plate.HEIC', { type: '' })] });
+		await fireEvent.dragEnter(step, { dataTransfer });
+		expect(screen.getByText('Drop a photograph for step 1')).toBeInTheDocument();
+		await fireEvent.drop(step, { dataTransfer });
+		await vi.waitFor(() => expect(photograph).toHaveBeenCalledOnce());
+
+		const unknown = carrying({ files: [new File(['x'], 'notes', { type: '' })] });
+		await fireEvent.dragEnter(step, { dataTransfer: unknown });
+		await fireEvent.drop(step, { dataTransfer: unknown });
+		expect(screen.getByRole('alert')).toBeInTheDocument();
+		expect(photograph).toHaveBeenCalledOnce();
+	});
+
+	it('leaves a link held over a Step to be typed into its field', async () => {
+		drawn();
+		const step = screen.getByLabelText('Step 1');
+		const dataTransfer = carrying({ link: 'https://example.test/a' });
+		await fireEvent.dragEnter(step, { dataTransfer });
+		expect(screen.queryByRole('status')).not.toBeInTheDocument();
+		expect(await fireEvent.dragOver(step, { dataTransfer })).toBe(true);
+	});
+
+	it('says what the button says when the picture cannot be sent', async () => {
+		const photograph = vi.fn(async () => {
+			throw new Error('offline');
+		});
+		render(WritingTestHarness, {
+			props: { client: standIn({ ...SAVED }).client, content: content(), photograph },
+		});
+		const hero = screen.getByLabelText('Title');
+		const dataTransfer = carrying({ files: [picture()] });
+		await fireEvent.dragEnter(hero, { dataTransfer });
+		await fireEvent.drop(hero, { dataTransfer });
+		expect(await screen.findByRole('alert')).toHaveTextContent('That picture could not be kept.');
 	});
 });

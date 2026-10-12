@@ -3,12 +3,18 @@
 	saying that a cooking of this dish departed from the words below, and
 	offering to keep them.
 
-	IT IS HERE RATHER THAN IN THE DIARY, and that was Aurélien's choice on
+	IT IS HERE RATHER THAN IN THE DIARY, and that was the choice on
 	4 September 2026 against a treatment that put it beside the cooking's
 	rating. The argument that won: what you are being asked is a question about
 	the recipe — should these words become part of it — and this is where the
 	recipe's Versions already live. You are standing in the thing you would be
 	changing, with the Thread one control away.
+
+	THE DIARY OFFERS IT TOO, SINCE #210, and asks nothing. Having to leave the
+	diary and find the recipe is why a tweak got kept late or not at all, so an
+	open cooking there has a section of its own (`cooked/KeepCooking.svelte`)
+	that keeps through the same Operation. The question, and the answer
+	"Leave it in the diary", are still only here.
 
 	PRESSING IT DOES NOT MINT A VERSION. It opens what you would be keeping,
 	and the save is a second, deliberate tap. Promotion is the point at which an
@@ -43,8 +49,8 @@
 	would say it had.
 -->
 <script lang="ts">
+	import { aDay } from '$lib/dates';
 	import { m } from '$lib/paraglide/messages';
-	import { getLocale } from '$lib/paraglide/runtime';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { goto } from '$app/navigation';
@@ -52,6 +58,8 @@
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
 	import { Online } from '$lib/offline/device.svelte';
 	import { copySaid, type Whose } from '$lib/cookbook';
+	import { changedLines } from '$lib/as-cooked';
+	import ChangedLines from '$lib/ChangedLines.svelte';
 
 	type Attempt = GetThreadOutput['attempts'][number];
 
@@ -120,35 +128,10 @@
 		pending !== undefined && versions.at(-1)?.version_id !== pending.version_id,
 	);
 
-	const when = $derived(
-		pending
-			? new Date(pending.created_at).toLocaleDateString(getLocale(), {
-					day: 'numeric',
-					month: 'long',
-				})
-			: '',
-	);
+	const when = $derived(pending ? aDay(pending.created_at) : '');
 
-	/**
-	 * The lines this cooking did not leave alone, in the recipe's own order —
-	 * rewritten, dropped, or written from nothing. A row the cook left alone is
-	 * not shown: what is being confirmed is what would change.
-	 */
-	type Marked = { key: string; state: string; now: string | null; was: string | null };
-	const marked = $derived.by(() => {
-		const against = pending?.as_cooked?.against;
-		if (!against) return [];
-		const of = (rows: typeof against.ingredients, list: string): Marked[] =>
-			rows
-				.filter((row) => row.state !== 'same')
-				.map((row, at) => ({
-					key: `${list}-${at}`,
-					state: row.state,
-					now: row.theirs?.text ?? null,
-					was: row.mine?.text ?? null,
-				}));
-		return [...of(against.ingredients, 'i'), ...of(against.steps, 's')];
-	});
+	/** The lines this cooking did not leave alone, in the recipe's own order. */
+	const marked = $derived(changedLines(pending?.as_cooked?.against));
 
 	/**
 	 * The diary is where it stays. This answers the offer and touches the As
@@ -209,30 +192,7 @@
 				<p class="mt-3 text-read text-support">{m.recipe_moved_on_since()}</p>
 			{/if}
 			<h2 class="mt-4 text-label text-ink-2 uppercase">{m.recipe_as_cooked_lines()}</h2>
-			<ul>
-				{#each marked as line (line.key)}
-					<li class="border-b border-rule py-2">
-						{#if line.state === 'only-mine'}
-							<!-- A line the cook left out. It reads as the recipe has it,
-							     struck, because that is what would go. -->
-							<span class="block text-label text-ink-2 uppercase">
-								{m.recipe_as_cooked_dropped()}
-							</span>
-							<span class="block font-display text-line text-ink-2 line-through">{line.was}</span>
-						{:else}
-							{#if line.state === 'only-theirs'}
-								<span class="block text-label text-ink-2 uppercase">
-									{m.recipe_as_cooked_added()}
-								</span>
-							{/if}
-							<span class="block font-display text-line">{line.now}</span>
-							{#if line.was}
-								<span class="block text-read text-ink-2 line-through">{line.was}</span>
-							{/if}
-						{/if}
-					</li>
-				{/each}
-			</ul>
+			<ChangedLines lines={marked} />
 
 			{#if forking && pending.as_cooked}
 				<p class="mt-4 text-label text-support uppercase">{m.write_will_fork()}</p>

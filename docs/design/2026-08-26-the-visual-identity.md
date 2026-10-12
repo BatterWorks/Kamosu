@@ -7,16 +7,16 @@ It says what was chosen on one day and why. The mockups beside it, in
 recipes on that day — nothing more. They are **not** a reference to build against and
 must never be treated as one: the screens in them were borrowed from an earlier
 prototype in order to have something real to judge a palette against, and the real
-screens are decided in [#37](https://github.com/BattermanZ/Kamosu/issues/37) and the
+screens are decided in [#37](https://github.com/BatterWorks/Kamosu/issues/37) and the
 screen tickets. A mockup that no longer matches the app is a confident lie about what
 Kamosu looks like; this one stays true precisely because updating it is forbidden.
 
-What *is* always current lives in [#80](https://github.com/BattermanZ/Kamosu/issues/80):
+What *is* always current lives in [#80](https://github.com/BatterWorks/Kamosu/issues/80):
 a tokens page rendered from the real stylesheet, which cannot drift because it is the code.
 
 ## What was chosen
 
-**Noren · tight** — the indigo-over-unbleached-paper direction Aurélien first chose in
+**Noren · tight** — the indigo-over-unbleached-paper direction first chosen in
 `prototype/13-look-and-feel-attempt-2`, with its Japanese typefaces kept and its type
 scale tightened.
 
@@ -139,5 +139,6 @@ them rather than copy the numbers across.
 ## Where the working is kept
 
 The full six directions, interactive, are the primary source for this decision and live on
-the throwaway branch **`prototype/36-visual-identity`**. They are not on `main` and are not
-maintained.
+the tag **`prototype/36-visual-identity`**. It was a throwaway branch until 2026-09-28, when
+it became a tag. The code is not on `main` or `dev` and is not maintained.
+`git checkout prototype/36-visual-identity` opens it.

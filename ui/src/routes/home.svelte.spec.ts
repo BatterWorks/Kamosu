@@ -52,12 +52,12 @@ const ALONE: GetCookbookOutput = {
 
 type Join = GetCookbookOutput['joins'][number];
 
-/** Camille, who writes with Tom, said yes to Aurélien's Invite; Aurélien writes with Bob. */
+/** Camille, who writes with Tom, said yes to Stéphane's Invite; Stéphane writes with Bob. */
 const joinOf = (over: Partial<Join> = {}): Join => ({
 	join_id: 'cj_1',
 	state: 'waiting',
 	accepted_by: { person_id: 'p_2', name: 'Camille' },
-	invited_by: { person_id: 'p_3', name: 'Aurélien' },
+	invited_by: { person_id: 'p_3', name: 'Stéphane' },
 	joining: {
 		id: 'c_1',
 		name: null,
@@ -70,7 +70,7 @@ const joinOf = (over: Partial<Join> = {}): Join => ({
 		id: 'c_2',
 		name: null,
 		authors: [
-			{ person_id: 'p_3', name: 'Aurélien' },
+			{ person_id: 'p_3', name: 'Stéphane' },
 			{ person_id: 'p_4', name: 'Bob' },
 		],
 	},
@@ -105,9 +105,9 @@ describe('a Cookbook join waiting on you (#135)', () => {
 		});
 
 		expect(
-			await screen.findByRole('heading', { name: 'Write one Cookbook with Aurélien and Bob?' }),
+			await screen.findByRole('heading', { name: 'Write one Cookbook with Stéphane and Bob?' }),
 		).toBeInTheDocument();
-		expect(screen.getByText('Aurélien invited Camille, who said yes.')).toBeInTheDocument();
+		expect(screen.getByText('Stéphane invited Camille, who said yes.')).toBeInTheDocument();
 		expect(
 			screen.getByText(
 				'42 recipes in one Cookbook, which all of you can change. Nothing changes until everyone says yes.',
@@ -122,7 +122,7 @@ describe('a Cookbook join waiting on you (#135)', () => {
 		});
 		await vi.waitFor(() =>
 			expect(
-				screen.queryByRole('heading', { name: 'Write one Cookbook with Aurélien and Bob?' }),
+				screen.queryByRole('heading', { name: 'Write one Cookbook with Stéphane and Bob?' }),
 			).not.toBeInTheDocument(),
 		);
 	});
@@ -149,7 +149,7 @@ describe('a Cookbook join waiting on you (#135)', () => {
 			},
 		});
 		expect(
-			await screen.findByRole('heading', { name: 'Write one Cookbook with Aurélien and Bob?' }),
+			await screen.findByRole('heading', { name: 'Write one Cookbook with Stéphane and Bob?' }),
 		).toBeInTheDocument();
 		expect(screen.queryByText(/^Waiting for/)).not.toBeInTheDocument();
 	});
@@ -167,6 +167,30 @@ describe('a Cookbook join waiting on you (#135)', () => {
 });
 
 describe('Home', () => {
+	it('gives each shelf an earlier and a later button that a pointer sees and a finger does not (#223)', async () => {
+		const scrollBy = vi.fn();
+		Element.prototype.scrollBy = scrollBy;
+		renderScreen(Page, {
+			get_cookbook: ALONE,
+			home_shelves: home([{ name: 'cooked_most', recipes: [card({ title: 'Katsu Curry' })] }]),
+		});
+		await screen.findByRole('heading', { name: 'Cooked most' });
+
+		const later = screen.getByRole('button', { name: 'Later' });
+		const earlier = screen.getByRole('button', { name: 'Earlier' });
+		// Hidden until `(hover: hover)` holds, which only a pointer answers; jsdom
+		// cannot say, so what is pinned is the gate, not the showing.
+		expect(later.parentElement?.className).toContain('pointer-only');
+		expect(earlier.parentElement?.className).toContain('pointer-only');
+		expect(later.className).toContain('shelf-arrow');
+
+		await fireEvent.click(later);
+		expect(scrollBy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }));
+		expect(scrollBy.mock.calls[0]?.[0].left).toBeGreaterThan(0);
+		await fireEvent.click(earlier);
+		expect(scrollBy.mock.calls[1]?.[0].left).toBeLessThan(0);
+	});
+
 	it('shows each shelf the Core sent, under its own heading', async () => {
 		renderScreen(Page, {
 			get_cookbook: ALONE,
@@ -217,7 +241,7 @@ describe('Home', () => {
 		});
 
 		const heading = await screen.findByRole('heading', { name: 'Recently added' });
-		// First on the screen, where Aurélien put it (#151). The Core decides
+		// First on the screen, where #151 put it. The Core decides
 		// the order, and the screen draws what it was sent without resorting.
 		expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent?.trim())).toEqual([
 			'Recently added',
@@ -298,7 +322,7 @@ describe('Home', () => {
 			create_recipe: {
 				branch_id: 'b_new',
 				lineage_id: 'l_new',
-				cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Aurélien' }] },
+				cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Stéphane' }] },
 				name: null,
 				writes: true,
 				mine: true,

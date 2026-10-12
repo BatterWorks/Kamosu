@@ -26,6 +26,7 @@
 	(ADR 0040). It does not render an explanation of what it would have held.
 -->
 <script lang="ts">
+	import { aDate } from '$lib/dates';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -134,7 +135,7 @@
 	// ── Saying what went wrong ────────────────────────────────────────────────
 	//
 	// A refusal is shown in the words it arrived in. The Core's refusals are
-	// written to be read by a person — "'Aurélien' is the only Operator this
+	// written to be read by a person — "'Stéphane' is the only Operator this
 	// instance has…" — so paraphrasing one here would lose the reason and keep
 	// only the fact.
 	let said = $state<string | undefined>(undefined);
@@ -274,7 +275,7 @@
 	/** Megabytes, to one place. An archive is never small enough for bytes. */
 	const weight = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`;
 
-	const when = (at: string) => new Date(at).toLocaleDateString();
+	const when = (at: string) => aDate(at);
 
 	// ── Photographs, and reading the library's lines ──────────────────────────
 
@@ -843,24 +844,33 @@
 					<div class="rounded-sm border border-rule bg-card p-3">
 						<p class="text-read text-ink-2">{m.operator_address_current()}</p>
 						<p class="text-body text-ink">{address ?? m.operator_address_none()}</p>
-						<label class="mt-3 block">
-							<span class="sr-only">{m.operator_address_heading()}</span>
-							<input
-								type="url"
-								bind:value={typedAddress}
-								placeholder="https://kamosu.example"
-								class="min-h-12 w-full rounded-sm border border-rule bg-ground px-3 text-body"
-							/>
-						</label>
-						<button
-							type="button"
-							disabled={working || typedAddress.trim() === ''}
-							onclick={saveAddress}
-							class="mt-2 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium
-						text-accent disabled:opacity-60"
+						<!-- A form, so Enter in the box saves the address (#203).
+						     `novalidate` leaves refusing one to the Core, as before. -->
+						<form
+							novalidate
+							onsubmit={(event) => {
+								event.preventDefault();
+								void saveAddress();
+							}}
 						>
-							{m.operator_address_save()}
-						</button>
+							<label class="mt-3 block">
+								<span class="sr-only">{m.operator_address_heading()}</span>
+								<input
+									type="url"
+									bind:value={typedAddress}
+									placeholder="https://kamosu.example"
+									class="min-h-12 w-full rounded-sm border border-rule bg-ground px-3 text-body"
+								/>
+							</label>
+							<button
+								type="submit"
+								disabled={working || typedAddress.trim() === ''}
+								class="mt-2 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium
+						text-accent disabled:opacity-60"
+							>
+								{m.operator_address_save()}
+							</button>
+						</form>
 						{#if addressSaved}
 							<p class="mt-2 text-body text-ink" role="status">{m.operator_address_saved()}</p>
 						{/if}

@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput, StartAttemptOutput } from '$lib/api/catalogue';
+import type { Room } from '$lib/room.svelte';
 import CookingTestHarness from './CookingTestHarness.svelte';
 import { fresh } from './fresh';
 import { keepingForTests } from '../../../testing/render';
@@ -83,7 +84,7 @@ function answers(over: Answers = {}): Answers {
 		get_recipe: {
 			branch_id: 'b_1',
 			lineage_id: 'l_1',
-			cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Aurélien' }] },
+			cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Stéphane' }] },
 			name: null,
 			writes: true,
 			mine: true,
@@ -161,9 +162,9 @@ function withCooking(cooking: GetRecipeOutput['versions'][number]['cooking']): G
  * hands over the screen standing on the first Step. `asked: true` leaves the
  * question open for the tests about it.
  */
-const cook = async (over: Answers = {}, { asked = false } = {}) => {
+const cook = async (over: Answers = {}, { asked = false, room = 'phone' as Room } = {}) => {
 	const kamosu = standIn(answers(over));
-	render(CookingTestHarness, { props: { client: kamosu.client, branchId: 'b_1' } });
+	render(CookingTestHarness, { props: { client: kamosu.client, branchId: 'b_1', room } });
 	const start = over.start_attempt ?? attempt();
 	const opensOnTheQuestion =
 		typeof start === 'object' && 'current_step_index' in start && fresh(start);
@@ -403,6 +404,8 @@ describe('the cooking screen', () => {
 		// Starting counts as a cooking (ADR 0010), so opening the steps out of
 		// curiosity would register as one. This is the counterweight, and it is
 		// here at the stove where the false start happened.
+		// Under the ⋯ since #222, with the screen's sleep.
+		await fireEvent.click(await screen.findByRole('button', { name: /^more$/i }));
 		await fireEvent.click(await screen.findByRole('button', { name: /not really cooking/i }));
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('delete_attempt');
 
@@ -415,19 +418,85 @@ describe('the cooking screen', () => {
 		await cook();
 		// jsdom has none, which is the honest case this must handle: no fallback
 		// hack, no silent video trick — the screen says what is true.
+		await fireEvent.click(await screen.findByRole('button', { name: /^more$/i }));
 		const toggle = await screen.findByRole('button', { name: /screen may sleep/i });
 		expect(toggle).toBeDisabled();
 	});
 });
 
 /**
- * Saying *I did it differently* (#58, ADR 0005). Aurélien chose this treatment
+ * Saying *I did it differently* (#58, ADR 0005). This treatment was chosen
  * on 4 September 2026 against one built around a sheet: the step's own words
  * become fields where they already stand, and nothing opens over the Step.
  *
  * The rule every test below is really guarding: **a cooking that deviated from
  * nothing costs the screen one word and the server nothing at all.**
  */
+describe('the cooking screen on a tablet on the counter (#197)', () => {
+	/** The next Step, small, where the screen draws one. */
+	const comingNext = () => screen.queryByRole('complementary', { name: /^Next · / });
+
+	it('shows the next Step small beside the one the cook is on', async () => {
+		await cook({}, { room: 'wide' });
+		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+		const next = comingNext();
+		expect(next).toBeInTheDocument();
+		// The Section the recipe opens with is not a Step, so it is not counted.
+		expect(within(next!).getByText('Next · 2/3')).toBeInTheDocument();
+		expect(
+			within(next!).getByText('Pour in the water and simmer for about 7 minutes.'),
+		).toBeInTheDocument();
+		// Read ahead, and nothing else: the next Step's amounts stay off the
+		// screen until the cook is on it (ADR 0011).
+		expect(screen.queryByText('800 ml water')).not.toBeInTheDocument();
+	});
+
+	it('follows the cook forward', async () => {
+		await cook({ start_attempt: attempt({ current_step_index: 2 }) }, { room: 'roomy' });
+		expect(await exactly('Pour in the water and simmer for about 7 minutes.')).toBeInTheDocument();
+		expect(comingNext()).toContainElement(await exactly('Season with salt and leave it alone.'));
+		expect(within(comingNext()!).getByText('Next · 3/3')).toBeInTheDocument();
+	});
+
+	it('shows none on the last Step', async () => {
+		await cook({ start_attempt: attempt({ current_step_index: 3 }) }, { room: 'roomy' });
+		expect(await exactly('Season with salt and leave it alone.')).toBeInTheDocument();
+		expect(comingNext()).not.toBeInTheDocument();
+	});
+
+	it('shows none on the phone, where the Step needs every line', async () => {
+		await cook();
+		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+		expect(comingNext()).not.toBeInTheDocument();
+		expect(
+			screen.queryByText('Pour in the water and simmer for about 7 minutes.'),
+		).not.toBeInTheDocument();
+	});
+
+	it('ticks an amount and offers a timer as the phone does', async () => {
+		const kamosu = await cook(
+			{ start_attempt: attempt({ current_step_index: 2 }) },
+			{ room: 'wide' },
+		);
+		expect(await screen.findByRole('button', { name: /7 min/i })).toBeInTheDocument();
+		await fireEvent.click(await screen.findByRole('button', { name: /800 ml water/i }));
+		const ticked = kamosu.calls.find((call) => call.operation === 'advance_attempt');
+		expect(ticked?.input).toMatchObject({ ticked_ingredients: [3] });
+	});
+
+	it('asks how much before a fresh cooking starts, with no next Step over the question', async () => {
+		await cook({}, { asked: true, room: 'wide' });
+		expect(await screen.findByRole('button', { name: 'Start cooking' })).toBeInTheDocument();
+		expect(comingNext()).not.toBeInTheDocument();
+	});
+
+	it('gives the room back while the cook is writing on the Step', async () => {
+		await cook({}, { room: 'wide' });
+		await fireEvent.click(await screen.findByRole('button', { name: 'Changed it' }));
+		expect(comingNext()).not.toBeInTheDocument();
+	});
+});
+
 describe('writing down what you actually cooked', () => {
 	/** Turn the step in front of the cook into fields. */
 	async function startWriting() {
@@ -646,7 +715,7 @@ describe('photographing the cooking (#77)', () => {
 		expect(screen.getByText('The recipe makes 4 servings.')).toBeInTheDocument();
 		// The question stands where the Step will: the Step is not on screen yet.
 		expect(screen.queryByText('Coat the chicken in panko.')).not.toBeInTheDocument();
-		// Aurélien's one change to B: no Start button of its own. The foot's
+		// The one change made to B: no Start button of its own. The foot's
 		// right-hand button is it, and Back has nowhere to go.
 		expect(screen.getAllByRole('button', { name: 'Start cooking' })).toHaveLength(1);
 		expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled();
@@ -813,7 +882,7 @@ describe('a Step’s photograph while cooking', () => {
 });
 
 /**
- * When Kamosu itself goes wrong mid-cook (#119, option B — Aurélien, 23
+ * When Kamosu itself goes wrong mid-cook (#119, option B, chosen 23
  * September 2026). Everywhere else #98's card says so at the top of the page;
  * here it would cost the Step its height and put *Got it* under a wet thumb, so
  * the cooking screen says it in two words on the row it already has, and the
@@ -843,9 +912,10 @@ describe('a mistake in Kamosu, mid-cook (#119)', () => {
 
 		const mark = await screen.findByRole('button', { name: 'Kamosu went wrong' });
 		expect(mark).toHaveTextContent('Went wrong');
-		// On the row with the other ways off the step, not above the Step.
+		// On the row with the other ways off the step, not above the Step. The
+		// false start is under the ⋯ since #222; the ⋯ is on the row.
 		expect(mark.closest('header')).toBe(
-			screen.getByRole('button', { name: /not really cooking/i }).closest('header'),
+			screen.getByRole('button', { name: /^more$/i }).closest('header'),
 		);
 		// Said aloud as well as shown: a screen reader hears it without finding it.
 		expect(screen.getByRole('alert')).toHaveTextContent('Kamosu went wrong');
@@ -903,6 +973,7 @@ describe('a mistake in Kamosu, mid-cook (#119)', () => {
 
 	it('draws the card over a cooking thrown away, beside the way back it has', async () => {
 		const kamosu = await cook();
+		await fireEvent.click(await screen.findByRole('button', { name: /^more$/i }));
 		await fireEvent.click(await screen.findByRole('button', { name: /not really cooking/i }));
 		await fireEvent.click(await screen.findByRole('button', { name: /throw it away/i }));
 		await screen.findByRole('status');

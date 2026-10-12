@@ -213,6 +213,12 @@ struct AsWritten {
 /// puts it after a sibilant (`pinch` · `pinches`), and nothing else. Two-letter
 /// stems are left whole, so `os` stays `os`.
 pub fn unit_key(word: &str) -> String {
+    // A lone `t` is a teaspoon and a lone `T` a tablespoon (#208), the one
+    // pair the fold would add together. A capital can be no other key, since
+    // every other key is folded.
+    if let Some(letter) = units::lone_spoon(word) {
+        return letter.to_string();
+    }
     let folded = units::fold(word);
     let sibilant = |stem: &str| {
         stem.ends_with(['s', 'x', 'z']) || stem.ends_with("ch") || stem.ends_with("sh")
@@ -354,7 +360,7 @@ pub fn rows(
                 .map(|first| first.text.as_str())
                 .unwrap_or_default()),
             // Which Language that name is in, so a name borrowed from another
-            // Language can be marked as borrowed (CONTEXT.md, "Shopping Row").
+            // Language can be marked as borrowed (GLOSSARY.md, "Shopping Row").
             "name_language": food["name_language"],
             "parts": parts_json(&parts_for(&contributions, measures, language)),
             "lines": contributions
@@ -429,7 +435,7 @@ pub fn sort_key(name: &str) -> String {
 /// a number, because there is only one number.
 ///
 /// **Every line under the header is one thing to buy, written as a Markdown
-/// checklist item** — the shape Aurélien chose on #74. The Shortcut appends it
+/// checklist item** — the shape chosen on #74. The Shortcut appends it
 /// to a note as Markdown, or strips the `- [ ] ` and hands each line to Notes'
 /// *Append Checklist Item*; either way each line becomes a checkbox, so no
 /// line may be anything but a thing to buy. That is why a row that could not
@@ -682,6 +688,13 @@ mod tests {
         // `os` is a word, not a plural: two letters are left alone.
         assert_eq!(unit_key("os"), "os");
         assert_eq!(unit_key("choux"), "chou");
+
+        // A lone `t` is a teaspoon and a lone `T` a tablespoon, so the two
+        // never add, with or without the full stop (#208).
+        assert_eq!(unit_key("t"), unit_key("t."));
+        assert_eq!(unit_key("T"), unit_key("T."));
+        assert_ne!(unit_key("t"), unit_key("T"));
+        assert_eq!(unit_key("Tbsp"), unit_key("tbsp"));
     }
 
     #[test]
@@ -1212,7 +1225,7 @@ mod tests {
 
     /// **The phone adds a Shopping List up exactly as the server does** (#77).
     ///
-    /// Aurélien chose, on #77, to have a phone with no network work the rows
+    /// The choice on #77 was to have a phone with no network work the rows
     /// out itself rather than wait for the server, which means the sum exists
     /// twice: here, and in `ui/src/lib/offline/shopping.ts`. This is what keeps
     /// the two one sum. It writes every case above, with what this file

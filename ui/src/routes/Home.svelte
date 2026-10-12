@@ -7,7 +7,7 @@
 	where you go when you know what you are looking for, and this is where you
 	go when you do not.
 
-	**The arrangement is Aurélien's, chosen on 2026-08-30 from four full-screen
+	**The arrangement was chosen on 2026-08-30 from four full-screen
 	options drawn over the real 86-recipe library; the reasoning is on #64.** It
 	takes the labelled section from one option and the sideways rail from
 	another. What the choice settles:
@@ -49,6 +49,19 @@
 
 	type ShelfName = HomeShelvesOutput['shelves'][number]['name'];
 
+	/** Each shelf's rail, for the earlier and later buttons a pointer gets (#223). */
+	let rails = $state<Partial<Record<ShelfName, HTMLUListElement>>>({});
+
+	/**
+	 * Most of a window of tiles, so the last one seen is still in view after
+	 * the move, and never less than one tile.
+	 */
+	function scroll(name: ShelfName, by: 1 | -1) {
+		const rail = rails[name];
+		if (rail)
+			rail.scrollBy({ left: by * Math.max(rail.clientWidth - 80, 168), behavior: 'smooth' });
+	}
+
 	/**
 	 * What each shelf is called, and the sentence under it. The sentence does
 	 * the explaining so the heading can stay two words, with the longer phrase
@@ -86,12 +99,16 @@
 	};
 </script>
 
+<svelte:head>
+	<title>{m.home_title()} · {m.app_name()}</title>
+</svelte:head>
+
 <div class="pt-6 pb-tabbar">
-	<div class="mx-auto max-w-2xl px-gutter">
+	<div class="mx-auto max-w-2xl px-gutter wide:max-w-none">
 		<h1 class="font-display text-title font-semibold">{m.home_title()}</h1>
-		<p class="mt-1 text-read text-ink-2">{m.home_blurb()}</p>
+		<p class="mt-1 max-w-2xl text-read text-ink-2">{m.home_blurb()}</p>
 		{#if asking}
-			<div class="mt-4 grid gap-3">{@render asking()}</div>
+			<div class="mt-4 grid max-w-2xl gap-3">{@render asking()}</div>
 		{/if}
 	</div>
 
@@ -103,7 +120,7 @@
 			gives on the Recipes screen, because it is the same situation: you do
 			not have it yet, and adding it was what you came to do (ADR 0027).
 		-->
-		<div class="mx-auto mt-8 max-w-2xl px-gutter">
+		<div class="mx-auto mt-8 max-w-2xl px-gutter wide:mx-0">
 			<div class="rounded-sm border border-dashed border-rule bg-ground-2 p-6">
 				<h2 class="font-display text-shelf-heading font-semibold">{m.home_empty_title()}</h2>
 				<p class="mt-2 text-read text-ink-2">{m.home_empty_why()}</p>
@@ -120,7 +137,7 @@
 	{:else}
 		{#each home.shelves as on (on.name)}
 			<section class="mt-8">
-				<div class="mx-auto max-w-2xl px-gutter">
+				<div class="mx-auto max-w-2xl px-gutter wide:max-w-none">
 					<div class="mb-1 flex items-baseline justify-between gap-3 border-b border-rule pb-2">
 						<h2 class="text-label font-medium text-accent uppercase">
 							{shelf[on.name].heading()}
@@ -138,7 +155,51 @@
 							not by *cooked most*, so a link there would land you on the
 							whole library having promised this shelf.
 						-->
-						<span class="text-read text-ink-2">{on.recipes.length}</span>
+						<span class="flex items-center gap-3">
+							<!--
+								Earlier and later, for a pointer only (#223): a finger flicks
+								the rail, and a mouse has no way to scroll one sideways but
+								shift-wheel. `pointer-only` is the hover block's gate (#203),
+								so an iPad gets them with a trackpad and not before.
+							-->
+							<span class="pointer-only gap-4">
+								<button
+									type="button"
+									class="shelf-arrow"
+									aria-label={m.shelf_earlier()}
+									onclick={() => scroll(on.name, -1)}
+								>
+									<svg
+										viewBox="0 0 24 24"
+										aria-hidden="true"
+										class="h-4 w-4"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="1.75"
+										stroke-linecap="round"
+										stroke-linejoin="round"><path d="m15 5-7 7 7 7" /></svg
+									>
+								</button>
+								<button
+									type="button"
+									class="shelf-arrow"
+									aria-label={m.shelf_later()}
+									onclick={() => scroll(on.name, 1)}
+								>
+									<svg
+										viewBox="0 0 24 24"
+										aria-hidden="true"
+										class="h-4 w-4"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="1.75"
+										stroke-linecap="round"
+										stroke-linejoin="round"><path d="m9 5 7 7-7 7" /></svg
+									>
+								</button>
+							</span>
+							<span class="text-read text-ink-2">{on.recipes.length}</span>
+						</span>
 					</div>
 					<p class="text-read text-ink-2">{shelf[on.name].why()}</p>
 				</div>
@@ -153,9 +214,15 @@
 					without it the rail silently scrolls the gutter away at rest and
 					the first card sits flush against the side of the phone while its
 					own heading is still indented.
+
+					On the wide layout the rail runs to the window's right edge
+					(#201), and the cards keep the phone's width: an iPad on its
+					side then shows two whole shelves before scrolling, where
+					wider cards showed one and a half.
 				-->
 				<ul
-					class="mx-auto mt-3 flex max-w-2xl snap-x snap-mandatory scroll-pl-gutter gap-3 overflow-x-auto px-gutter [&>li]:w-[var(--tile-w)] [&>li]:shrink-0 [&>li]:snap-start"
+					bind:this={rails[on.name]}
+					class="mx-auto mt-3 flex max-w-2xl snap-x snap-mandatory scroll-pl-gutter gap-3 overflow-x-auto px-gutter wide:max-w-none [&>li]:w-[var(--tile-w)] [&>li]:shrink-0 [&>li]:snap-start"
 				>
 					{#each on.recipes as entry (entry.lineage_id)}
 						<Tile {entry} />

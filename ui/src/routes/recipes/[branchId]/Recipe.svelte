@@ -16,7 +16,7 @@
 	Which line is which is read against the Branch Point by the `divergence`
 	Operation (ADR 0019). Nothing here pairs anything, and no line carries an id.
 
-	THE PAGE'S OWN LAYOUT was chosen by Aurélien on 29 August 2026 against three
+	THE PAGE'S OWN LAYOUT was chosen on 29 August 2026 against three
 	full mockups drawn on real recipes, and the reasoning is on #81 rather than
 	repeated here. What it settled:
 
@@ -69,7 +69,7 @@
 	respect but two: the square in front of it is matcha rather than indigo, and
 	it opens.
 
-	What it opens into was chosen by Aurélien on 3 September 2026 against two
+	What it opens into was chosen on 3 September 2026 against two
 	treatments drawn on real recipes, recorded on #50. He was offered A · the
 	nest, which put the inner recipe's Steps inside the row with its
 	Ingredients, and chose B · the annexe:
@@ -116,6 +116,7 @@
 </script>
 
 <script lang="ts">
+	import { aDate } from '$lib/dates';
 	// What the page is made of. The screen keeps its own state — the recipe it
 	// is reading, the Thread around it, the Divergence, how much it is read at,
 	// and what the last save did — and composes the rest. Each concern that
@@ -132,7 +133,7 @@
 	//   · `my-pictures.svelte.ts` and `MyPictures`: your pictures of the
 	//     dish (#110);
 	//   · `HowMuchRow`, `ShoppingListButton`, `MetaStrip`, `Cooked`,
-	//     `language-family.ts`, `sharing-a-chain.ts` and `thread-line.ts`:
+	//     `language-family.ts` and `sharing-a-chain.ts`:
 	//     the rest.
 	//
 	// The sheets a component raises — deleting's confirmation, the save of
@@ -191,7 +192,6 @@
 	import { marking } from './marking.svelte';
 	import { myPictures } from './my-pictures.svelte';
 	import { languageFamily } from './language-family';
-	import { threadLine } from './thread-line';
 	import { sharingAChain } from './sharing-a-chain';
 
 	interface Props {
@@ -232,14 +232,6 @@
 	 * (#106, ADR 0006): see `language-family.ts`.
 	 */
 	let lineageBranches = $state<GetThreadOutput['branches']>([]);
-	/**
-	 * Every Version on every Branch of this Lineage, which the Thread answers
-	 * anyway. The button into it says how many are this Branch's own and when
-	 * the last was saved (#133), so a cook can tell before tapping whether
-	 * anything is behind it.
-	 */
-	let lineageVersions = $state<GetThreadOutput['versions']>([]);
-	const historyLine = $derived(threadLine(lineageVersions, branchId));
 	/** Bumped after a Promotion, to read the recipe back with its new Version. */
 	let reread = $state(0);
 
@@ -273,7 +265,7 @@
 
 	// ---- how much, for the errands (#109) ---------------------------------
 	//
-	// A VIEW THAT CARRIES FORWARD, Aurélien's choice of 23 September 2026. The
+	// A VIEW THAT CARRIES FORWARD, the choice of 23 September 2026. The
 	// amounts are asked of the Core at the Yield named here, and nothing is
 	// stored for having named it: Add to shopping list puts the recipe on the
 	// list at it, Cook this opens the cooking's own question already set to it,
@@ -297,8 +289,8 @@
 
 	/**
 	 * Whether the page is being written on rather than read (#83). It is the
-	 * same page either way, which is the whole of the direction Aurélien
-	 * chose: no second route, no compose screen.
+	 * same page either way, which is the whole of the direction
+	 * chosen: no second route, no compose screen.
 	 */
 	let writing = $state(false);
 	/**
@@ -568,7 +560,6 @@
 				if (!current) return;
 				attempts = thread.attempts;
 				lineageBranches = thread.branches;
-				lineageVersions = thread.versions;
 				// Every Copy and variation of it, and never a Translation: see
 				// `sharing-a-chain.ts` for why a Translation cannot be paired.
 				versions = sharingAChain(thread, branchId);
@@ -695,7 +686,7 @@
 </script>
 
 <!--
-	The Source line, wherever it is set (#152, Aurélien's choice A of
+	The Source line, wherever it is set (#152, choice A of
 	25 September 2026). Where the Source has a web link, the line itself is the
 	link: the same place, size and colour, with an underline and a ↗ so it does
 	not lean on colour alone, which on the wash it could not. It opens outside
@@ -736,7 +727,7 @@
 
 <!--
 	Writing (#83). The page becomes writable in place, which is why this is a
-	swap on the same route and not a screen of its own: Aurélien chose that
+	swap on the same route and not a screen of its own: that was chosen
 	over a separate compose screen, and a `/recipes/<id>/edit` route would be
 	the rejected option wearing the chosen one's name. `Writing.svelte` holds
 	why the shape is what it is.
@@ -783,7 +774,7 @@
 	/>
 {:else}
 	<div
-		class="mx-auto max-w-2xl pb-tabbar"
+		class="mx-auto pb-tabbar {divergence ? 'max-w-2xl' : 'recipe-page'}"
 		data-side={divergent.side}
 		data-whose={recipe && !recipe.writes ? 'theirs' : 'mine'}
 	>
@@ -849,7 +840,7 @@
 
 			<!--
 			What this recipe says about its Language, and nothing at all on the
-			ordinary recipe that has nothing to say (#106, ADR 0006). Aurélien's
+			ordinary recipe that has nothing to say (#106, ADR 0006). The
 			choice of 22 September 2026; `Language.svelte` holds the reasoning
 			and the rule that an empty state here would undo it.
 
@@ -875,8 +866,25 @@
 			{/each}
 
 			<!--
+			Into the cooking screen (#61, ADR 0011), alone, directly under the
+			servings (#220, 10 October 2026). It stood at the foot of the page
+			among the other acts, five screens down on a phone, and it is the
+			one act a cook opened the page for; every other act, Edit included,
+			is in the grid at the foot. A link rather than a button that starts
+			something: opening the screen IS starting the Attempt, and one
+			already In Progress is handed back rather than doubled — so there is
+			nothing here to press twice by mistake.
+		-->
+			<a
+				href="/cook/{branchId}{toSearch(pageScaledTo)}"
+				class="mx-gutter mt-4 flex min-h-12 items-center justify-center rounded-sm bg-accent px-4 text-center font-display text-body font-semibold text-on-accent"
+			>
+				{m.recipe_cook_this()}
+			</a>
+
+			<!--
 			What this Kitchen says about the dish, above the dish itself (#104).
-			The row is drawn on every recipe, tagged or not — Aurélien's choice,
+			The row is drawn on every recipe, tagged or not, by choice,
 			and `Tags.svelte` holds why.
 
 			NOT DRAWN WHEN YOU HAVE CROSSED TO THE OTHER BRANCH. A Divergence
@@ -892,13 +900,13 @@
 			<!--
 			`nutrition` is deliberately absent from that loop. Its mark goes with
 			the figure, at the foot of the Ingredients, because that is where
-			Aurélien put the figure (#84) and a mark separated from the thing it
+			#84 put the figure and a mark separated from the thing it
 			marks is a sentence about nothing.
 		-->
 
 			{#if phone.onlyKept && phone.keptOn}
 				<p class="mt-3 px-gutter text-read text-ink-2">
-					{m.offline_kept_from({ date: phone.keptOn.toLocaleDateString() })}
+					{m.offline_kept_from({ date: aDate(phone.keptOn) })}
 				</p>
 			{/if}
 
@@ -999,8 +1007,8 @@
 
 			<!--
 			A Step's photograph, where it has one (#110): a small square at the end
-			of the row, which opens the picture across the screen. Aurélien's
-			choice (R2) over a full-width picture beneath the words, which pulled
+			of the row, which opens the picture across the screen. Chosen
+			(R2) over a full-width picture beneath the words, which pulled
 			the Method apart; `StepPhoto` holds the rest.
 		-->
 			{#snippet stepPhoto(photo: string | null | undefined, n: number | null)}
@@ -1013,34 +1021,58 @@
 				{/if}
 			{/snippet}
 
-			<!-- Ingredients ------------------------------------------------------ -->
-			<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-				{m.recipe_ingredients()}
-			</h2>
-			{#if !divergence}
-				<HowMuchRow
-					written={content.yield}
-					scaledTo={pageScaledTo}
-					bind:choosing={choosingHowMuch}
-					failed={howMuchFailed}
-					onchoose={(chosen) => void chooseHowMuch(chosen)}
-				/>
-			{/if}
-			<ul class="px-gutter">
-				{#if divergent.showing && divergence}
-					{#each divergence.ingredients as row, index (rowKey('ingredients', index))}
-						{@const key = rowKey('ingredients', index)}
-						{@const own = divergent.side === 'mine' ? row.mine : row.theirs}
-						{#if row.kind === 'section'}
-							<li class="border-b border-rule py-4 pb-1">
-								<h3 class="font-display text-label text-ink-2 uppercase">
-									{(own ?? row.mine ?? row.theirs)?.text}
-								</h3>
-							</li>
-						{:else if row.state === 'same'}
-							{@render ingredientLine(own?.text ?? '', own?.index ?? -1)}
-						{:else}
-							<!--
+			<!--
+			TWO COLUMNS WHERE THE WINDOW IS ROOMY (#198, ADR 0044): the Ingredients
+			on the left in two fifths, the Method on the right in three, and the
+			Ingredients staying in view while the Method scrolls. This was
+			chosen on 5 October 2026 over two even halves that both scroll away, and
+			over a narrower Ingredients column beside the photograph. Everywhere
+			else, a phone and an upright tablet included, these are plain boxes
+			and the page is the one column it was.
+
+			The part that stays is a box INSIDE the left column, and the column
+			is as tall as the Method. Making the column itself the part that
+			stays held it for the whole page, and it rode over Related recipes,
+			Cooked and the buttons; he found that on the iPad.
+
+			NOT WHILE THE PAGE IS A DIVERGENCE. A recipe read against another
+			Branch stays one column at reading width (#192, story 64): its marks
+			and Ghosts are read down one list, and nobody chose a layout for
+			them side by side.
+		-->
+			<div class={{ 'recipe-columns': !divergence }}>
+				<div>
+					<div class={{ 'stays-in-view': !divergence }}>
+						<!-- Ingredients ------------------------------------------------------ -->
+						<h2
+							class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase"
+						>
+							{m.recipe_ingredients()}
+						</h2>
+						{#if !divergence}
+							<HowMuchRow
+								written={content.yield}
+								scaledTo={pageScaledTo}
+								bind:choosing={choosingHowMuch}
+								failed={howMuchFailed}
+								onchoose={(chosen) => void chooseHowMuch(chosen)}
+							/>
+						{/if}
+						<ul class="px-gutter">
+							{#if divergent.showing && divergence}
+								{#each divergence.ingredients as row, index (rowKey('ingredients', index))}
+									{@const key = rowKey('ingredients', index)}
+									{@const own = divergent.side === 'mine' ? row.mine : row.theirs}
+									{#if row.kind === 'section'}
+										<li class="border-b border-rule py-4 pb-1">
+											<h3 class="font-display text-label text-ink-2 uppercase">
+												{(own ?? row.mine ?? row.theirs)?.text}
+											</h3>
+										</li>
+									{:else if row.state === 'same'}
+										{@render ingredientLine(own?.text ?? '', own?.index ?? -1)}
+									{:else}
+										<!--
 							A CHANGED LINE THAT NAMES A RECIPE still says which one, in
 							the same slot (#50). It does not unfold: a marked row is
 							already carrying two Kitchens' words and a take-his offer,
@@ -1048,48 +1080,48 @@
 							than this ticket's. The sentence is what stops the row
 							going silent about what it is.
 						-->
-							{@const marked = own ? unfold.at([], own.index) : undefined}
-							<MarkedRow
-								{row}
-								side={divergent.side}
-								{otherKitchen}
-								beneath={marked?.said ?? (own ? fixes.beneathLine(own.index) : '')}
-								open={divergent.isOpen(key)}
-								taken={divergent.taken.get(key)}
-								onToggle={() => divergent.toggle(key)}
-								onCarry={(what) => divergent.carry(key, what)}
-								onFixReading={correctable && own ? () => fixes.toggle(own.index) : undefined}
-							/>
-							{#if correctable && own && fixes.correcting === own.index}
-								<li class="border-b border-rule pb-3 pl-3">
-									<Correcting
-										{branchId}
-										lineIndex={own.index}
-										line={own.text}
-										reading={fixes.readingAt(own.index)}
-										componentTitle={marked?.title}
-										onDone={(next, converted) => corrected(own.index, next, converted)}
-										onCancel={fixes.close}
-									/>
-								</li>
+										{@const marked = own ? unfold.at([], own.index) : undefined}
+										<MarkedRow
+											{row}
+											side={divergent.side}
+											{otherKitchen}
+											beneath={marked?.said ?? (own ? fixes.beneathLine(own.index) : '')}
+											open={divergent.isOpen(key)}
+											taken={divergent.taken.get(key)}
+											onToggle={() => divergent.toggle(key)}
+											onCarry={(what) => divergent.carry(key, what)}
+											onFixReading={correctable && own ? () => fixes.toggle(own.index) : undefined}
+										/>
+										{#if correctable && own && fixes.correcting === own.index}
+											<li class="border-b border-rule pb-3 pl-3">
+												<Correcting
+													{branchId}
+													lineIndex={own.index}
+													line={own.text}
+													reading={fixes.readingAt(own.index)}
+													componentTitle={marked?.title}
+													onDone={(next, converted) => corrected(own.index, next, converted)}
+													onCancel={fixes.close}
+												/>
+											</li>
+										{/if}
+									{/if}
+								{/each}
+							{:else}
+								{#each content.ingredients as item, index (index)}
+									{#if item.kind === 'section'}
+										<li class="border-b border-rule py-4 pb-1">
+											<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
+										</li>
+									{:else}
+										{@render ingredientLine(item.text, index)}
+									{/if}
+								{/each}
 							{/if}
-						{/if}
-					{/each}
-				{:else}
-					{#each content.ingredients as item, index (index)}
-						{#if item.kind === 'section'}
-							<li class="border-b border-rule py-4 pb-1">
-								<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
-							</li>
-						{:else}
-							{@render ingredientLine(item.text, index)}
-						{/if}
-					{/each}
-				{/if}
-			</ul>
+						</ul>
 
-			<!--
-			THE NUTRITION FIGURE CLOSES THE LIST (#84). Aurélien chose this on
+						<!--
+			THE NUTRITION FIGURE CLOSES THE LIST (#84). This was chosen on
 			21 September 2026 against four treatments drawn on both surfaces —
 			a fourth cell in the meta strip, a line directly under the strip,
 			this, and a place beside the Source. The list is where what goes
@@ -1098,102 +1130,114 @@
 
 			It always says what it counts: 308 on its own says nothing, and a
 			serving and 100 g do not convert into each other without a weight
-			the recipe does not carry (CONTEXT.md, "Nutrition"). Most recipes
+			the recipe does not carry (GLOSSARY.md, "Nutrition"). Most recipes
 			carry no figure, and then there is nothing here at all — no dash, no
 			placeholder and no zero, because zero would be a claim.
 		-->
-			{#if nutritionText(content.nutrition ?? null)}
-				<p class="mt-3 px-gutter text-read text-ink-2">
-					{nutritionText(content.nutrition ?? null)}
-				</p>
-			{/if}
-			{#if divergent.markOf('nutrition')}
-				<p class="mt-1 px-gutter text-read text-accent">{divergent.markOf('nutrition')}</p>
-			{/if}
-
-			<!-- Method ----------------------------------------------------------- -->
-			<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-				{m.recipe_method()}
-			</h2>
-			<ol class="px-gutter">
-				{#if divergent.showing && divergence}
-					{@const number = numbering()}
-					{#each divergence.steps as row, index (rowKey('steps', index))}
-						{@const key = rowKey('steps', index)}
-						{@const own = divergent.side === 'mine' ? row.mine : row.theirs}
-						{@const n = number(!own)}
-						{#if row.kind === 'section'}
-							<li class="border-b border-rule py-4 pb-1">
-								<h3 class="font-display text-label text-ink-2 uppercase">
-									{(own ?? row.mine ?? row.theirs)?.text}
-								</h3>
-							</li>
-						{:else if row.state === 'same'}
-							<li class="flex gap-3 border-b border-rule py-3">
-								<span class="w-6 shrink-0 font-display text-line font-semibold text-accent"
-									>{n}</span
-								>
-								<div class="min-w-0 flex-1">
-									{@render stepWithAdditions(own?.text ?? '', own?.index ?? -1)}
-								</div>
-								{@render stepPhoto(own ? (content.steps[own.index]?.photo ?? null) : null, n)}
-							</li>
-						{:else}
-							<MarkedRow
-								{row}
-								side={divergent.side}
-								{otherKitchen}
-								number={n}
-								conversions={own ? (measured.steps[own.index] ?? []) : []}
-								photo={own ? (content.steps[own.index]?.photo ?? null) : null}
-								open={divergent.isOpen(key)}
-								taken={divergent.taken.get(key)}
-								onToggle={() => divergent.toggle(key)}
-								onCarry={(what) => divergent.carry(key, what)}
-							/>
+						{#if nutritionText(content.nutrition ?? null)}
+							<p class="mt-3 px-gutter text-read text-ink-2">
+								{nutritionText(content.nutrition ?? null)}
+							</p>
 						{/if}
-					{/each}
-				{:else}
-					{@const number = numbering()}
-					{#each content.steps as item, index (index)}
-						{#if item.kind === 'section'}
-							<li class="border-b border-rule py-4 pb-1">
-								<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
-							</li>
-						{:else}
-							{@const n = number(false)}
-							<li class="flex gap-3 border-b border-rule py-3">
-								<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">
-									{n}
-								</span>
-								<div class="min-w-0 flex-1">
-									{@render stepWithAdditions(item.text, index)}
-								</div>
-								{@render stepPhoto(item.photo, n)}
-							</li>
+						{#if divergent.markOf('nutrition')}
+							<p class="mt-1 px-gutter text-read text-accent">{divergent.markOf('nutrition')}</p>
 						{/if}
-					{/each}
-				{/if}
-			</ol>
-
-			<!-- The annexe (#50): every Component's Steps, in the order the page met them. -->
-			{#each unfold.annexes as component (component.path.join('.'))}
-				<Annexe {component} />
-			{/each}
-
-			{#if content.note}
-				<div
-					class="mx-gutter mt-6 border-l-2 border-accent py-1 pl-4 text-body whitespace-pre-wrap"
-				>
-					{content.note}
+					</div>
 				</div>
-			{/if}
-			{#if divergent.markOf('note')}
-				<p class="mx-gutter mt-1 text-read text-accent">{divergent.markOf('note')}</p>
-			{/if}
+				<div>
+					<!-- Method ----------------------------------------------------------- -->
+					<h2
+						class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase"
+					>
+						{m.recipe_method()}
+					</h2>
+					<ol class="px-gutter">
+						{#if divergent.showing && divergence}
+							{@const number = numbering()}
+							{#each divergence.steps as row, index (rowKey('steps', index))}
+								{@const key = rowKey('steps', index)}
+								{@const own = divergent.side === 'mine' ? row.mine : row.theirs}
+								{@const n = number(!own)}
+								{#if row.kind === 'section'}
+									<li class="border-b border-rule py-4 pb-1">
+										<h3 class="font-display text-label text-ink-2 uppercase">
+											{(own ?? row.mine ?? row.theirs)?.text}
+										</h3>
+									</li>
+								{:else if row.state === 'same'}
+									<li class="flex gap-3 border-b border-rule py-3">
+										<span class="w-6 shrink-0 font-display text-line font-semibold text-accent"
+											>{n}</span
+										>
+										<div class="min-w-0 flex-1">
+											{@render stepWithAdditions(own?.text ?? '', own?.index ?? -1)}
+										</div>
+										{@render stepPhoto(own ? (content.steps[own.index]?.photo ?? null) : null, n)}
+									</li>
+								{:else}
+									<MarkedRow
+										{row}
+										side={divergent.side}
+										{otherKitchen}
+										number={n}
+										conversions={own ? (measured.steps[own.index] ?? []) : []}
+										photo={own ? (content.steps[own.index]?.photo ?? null) : null}
+										open={divergent.isOpen(key)}
+										taken={divergent.taken.get(key)}
+										onToggle={() => divergent.toggle(key)}
+										onCarry={(what) => divergent.carry(key, what)}
+									/>
+								{/if}
+							{/each}
+						{:else}
+							{@const number = numbering()}
+							{#each content.steps as item, index (index)}
+								{#if item.kind === 'section'}
+									<li class="border-b border-rule py-4 pb-1">
+										<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
+									</li>
+								{:else}
+									{@const n = number(false)}
+									<li class="flex gap-3 border-b border-rule py-3">
+										<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">
+											{n}
+										</span>
+										<div class="min-w-0 flex-1">
+											{@render stepWithAdditions(item.text, index)}
+										</div>
+										{@render stepPhoto(item.photo, n)}
+									</li>
+								{/if}
+							{/each}
+						{/if}
+					</ol>
+
+					<!-- The annexe (#50): every Component's Steps, in the order the page met them. -->
+					{#each unfold.annexes as component (component.path.join('.'))}
+						<Annexe {component} />
+					{/each}
+
+					{#if content.note}
+						<div
+							class="mx-gutter mt-6 border-l-2 border-accent py-1 pl-4 text-body whitespace-pre-wrap"
+						>
+							{content.note}
+						</div>
+					{/if}
+					{#if divergent.markOf('note')}
+						<p class="mx-gutter mt-1 text-read text-accent">{divergent.markOf('note')}</p>
+					{/if}
+				</div>
+			</div>
 
 			<!--
-			What this recipe goes with (#105, #52). Aurélien's choice of
+			What follows the two columns goes back to the one column every other
+			page is drawn in (#198). A button 1040 wide says no more than one 672
+			wide, and a diary line that long is hard to read.
+		-->
+			<div class="roomy:mx-auto roomy:max-w-2xl">
+				<!--
+			What this recipe goes with (#105, #52). The choice of
 			22 September 2026: the shelf's own cards, here between the Method and
 			Cooked, and `RelatedRecipes.svelte` holds why.
 
@@ -1203,55 +1247,55 @@
 			nothing of theirs to show, and showing yours beside their recipe
 			would say something false about whose shelf the links are on.
 		-->
-			{#if recipe}
-				<RelatedRecipes
-					branchId={recipe.branch_id}
-					writes={recipe.writes}
-					related={recipe.related_recipes}
-				/>
-			{/if}
-
-			{#if recipe}
-				<Cooked cooked={recipe.cooked}>
-					<MyPictures
-						{branchId}
-						pictures={pictures.list}
-						onPromoted={(landed) => {
-							// Nothing to name: a promotion changes a photograph and
-							// no Ingredient Line, so no Component is left behind.
-							afterSave({ ...landed, named: true });
-						}}
+				{#if recipe}
+					<RelatedRecipes
+						branchId={recipe.branch_id}
+						writes={recipe.writes}
+						related={recipe.related_recipes}
 					/>
-				</Cooked>
-			{/if}
+				{/if}
 
-			{#if copiedInto?.branchId === branchId}
-				<p class="mx-gutter mt-4 text-read text-accent" role="status">
-					{copiedInto.varied
-						? m.write_saved_varied({ name: copiedInto.varied })
-						: m.write_saved_copied()}
-				</p>
-			{:else if wrote}
-				<p class="mx-gutter mt-4 text-read text-accent" role="status">
-					{m.write_saved()}{#if wrote.collapsed}&nbsp;{m.write_saved_collapsed()}{/if}
-				</p>
-			{/if}
-			<!--
+				{#if recipe}
+					<Cooked cooked={recipe.cooked} {branchId}>
+						<MyPictures
+							{branchId}
+							pictures={pictures.list}
+							onPromoted={(landed) => {
+								// Nothing to name: a promotion changes a photograph and
+								// no Ingredient Line, so no Component is left behind.
+								afterSave({ ...landed, named: true });
+							}}
+						/>
+					</Cooked>
+				{/if}
+
+				{#if copiedInto?.branchId === branchId}
+					<p class="mx-gutter mt-4 text-read text-accent" role="status">
+						{copiedInto.varied
+							? m.write_saved_varied({ name: copiedInto.varied })
+							: m.write_saved_copied()}
+					</p>
+				{:else if wrote}
+					<p class="mx-gutter mt-4 text-read text-accent" role="status">
+						{m.write_saved()}{#if wrote.collapsed}&nbsp;{m.write_saved_collapsed()}{/if}
+					</p>
+				{/if}
+				<!--
 				The Version landed and a line naming another recipe did not take
 				(#87). Said apart from the save rather than instead of it: the
 				recipe IS saved, and a line that reads correctly but is not a
 				Component is exactly the failure nobody would otherwise notice.
 			-->
-			{#if (wrote && !wrote.named) || (copiedInto?.branchId === branchId && !copiedInto.named)}
-				<p class="mx-gutter mt-2 text-read text-support" role="alert">
-					{m.write_components_failed()}
-				</p>
-			{/if}
+				{#if (wrote && !wrote.named) || (copiedInto?.branchId === branchId && !copiedInto.named)}
+					<p class="mx-gutter mt-2 text-read text-support" role="alert">
+						{m.write_components_failed()}
+					</p>
+				{/if}
 
-			<!--
+				<!--
 			The Language offer, put to the cook (#106, ADR 0006) — the half of
 			that ADR the interface never kept. It lands HERE, under the save's
-			own line, which is Aurélien's choice of 22 September 2026 against a
+			own line, which is the choice of 22 September 2026 against a
 			band at the top of the page: the offer arrives at the moment of
 			saving, so it goes where the save already speaks.
 
@@ -1260,162 +1304,150 @@
 			declining ends it, and `wrote` being cleared when the page moves to
 			another recipe ends it too.
 		-->
-			{#if recipe && offeredLanguage}
-				<LanguageOffer
-					branchId={recipe.branch_id}
-					filed={recipe.language}
-					offered={offeredLanguage}
-					onSaid={(landed) => {
-						if (!follow(landed.branch_id)) reread += 1;
-					}}
-				/>
-			{/if}
+				{#if recipe && offeredLanguage}
+					<LanguageOffer
+						branchId={recipe.branch_id}
+						filed={recipe.language}
+						offered={offeredLanguage}
+						onSaid={(landed) => {
+							if (!follow(landed.branch_id)) reread += 1;
+						}}
+					/>
+				{/if}
 
-			{#if divergent.saved === 'yes'}
-				<p class="mx-gutter mt-4 text-read text-accent" role="status">{m.divergence_saved()}</p>
-			{:else if divergent.saved === 'failed'}
-				<p class="mx-gutter mt-4 text-read text-support" role="alert">
-					{m.divergence_save_failed()}
-				</p>
-			{/if}
+				{#if divergent.saved === 'yes'}
+					<p class="mx-gutter mt-4 text-read text-accent" role="status">{m.divergence_saved()}</p>
+				{:else if divergent.saved === 'failed'}
+					<p class="mx-gutter mt-4 text-read text-support" role="alert">
+						{m.divergence_save_failed()}
+					</p>
+				{/if}
 
-			<!--
-			Into the cooking screen (#61, ADR 0011). It is a link rather than a
-			button that starts something: opening the screen IS starting the
-			Attempt, and one already In Progress is handed back rather than
-			doubled — so there is nothing here to press twice by mistake.
-		-->
-			<!--
-			Promotion (#58, ADR 0005). Above `Cook this` because it is a question
+				<!--
+			Promotion (#58, ADR 0005). Above the acts because it is a question
 			about the recipe you are standing in, and drawn at all only where a
 			cooking departed from these words and nobody has decided about it yet.
 			A recipe nobody cooked differently carries nothing here — which is
 			every recipe, nearly always.
 		-->
-			{#if recipe}
-				<Promotion
-					{branchId}
-					whose={recipe}
-					{attempts}
-					versions={recipe.versions}
-					promoted={() => (reread += 1)}
-				/>
-			{/if}
-
-			<!--
-			Writing (#83). Drawn with `NeedsServer` because editing is on the
-			server's side of the line and is never queued: an offline edit
-			queue is a merge, and Kamosu does not merge (ADR 0013, #76). The
-			phrase it wears offline was written for this button before the
-			button existed.
-		-->
-			<NeedsServer
-				label={m.write_edit()}
-				waiting={m.offline_waits_edit()}
-				onclick={() => (writing = true)}
-				shapeClass="mx-gutter mt-6 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
-				lookClass="border border-rule text-accent"
-			/>
-
-			<a
-				href="/cook/{branchId}{toSearch(pageScaledTo)}"
-				class="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] bg-accent p-4 text-center font-display text-body text-on-accent"
-			>
-				{m.recipe_cook_this()}
-			</a>
-			<!--
-			Into the Thread, under the word a cook already knows for it (#133,
-			Aurélien's choice A of 24 September 2026). The screen keeps the
-			Thread's name in the code and the docs; the button says History
-			because "The thread" told nobody what was behind it. It never says
-			"version": on this page that word already means one of the recipe's
-			versions in the strip at the top.
-
-			The line under it is built like the Cooked line: how many saves, and
-			when the last was. On a recipe straight from an import it says one,
-			which is the honest answer to "is anything back there?".
-		-->
-			<a
-				href="/recipes/{branchId}/thread"
-				class="mx-gutter mt-2 block border border-rule p-4 text-center font-display text-body text-accent"
-			>
-				{m.recipe_the_thread()}
-				{#if historyLine}
-					<span class="mt-1 block font-sans text-read text-ink-2">{historyLine}</span>
+				{#if recipe}
+					<Promotion
+						{branchId}
+						whose={recipe}
+						{attempts}
+						versions={recipe.versions}
+						promoted={() => (reread += 1)}
+					/>
 				{/if}
-			</a>
-			<!--
-			Saying what Language this recipe is in, and translating it (#106).
-			Here among the acts rather than up beside the Tags row, because
-			both mint a Version and the Tags row is explicitly the place where
-			nothing does (ADR 0035, ADR 0006).
 
-			`NeedsServer` for the reason editing is: both Operations are on the
-			server's side of the line and neither is ever queued. An offline
-			queue for a Language would be two Kitchens disagreeing about what a
-			recipe is written in, and Kamosu does not merge (ADR 0013, #76).
+				<!--
+			THE OTHER ACTS, as a grid of small buttons (#220; option 1 of the
+			audit of 9 October 2026, chosen on 10 October over a list of rows,
+			which had been built first). Each is `act-tile` in app.css, and
+			every component below draws its one with it.
+		-->
+				<div class="mx-gutter mt-6 grid grid-cols-2 gap-2">
+					<!--
+				Writing (#83). Drawn with `NeedsServer` because editing is on the
+				server's side of the line and is never queued: an offline edit
+				queue is a merge, and Kamosu does not merge (ADR 0013, #76). The
+				phrase it wears offline was written for this button before the
+				button existed.
+			-->
+					<NeedsServer
+						label={m.write_edit()}
+						waiting={m.offline_waits_edit()}
+						onclick={() => (writing = true)}
+						shapeClass="act-tile"
+						lookClass="text-accent"
+						idleClass="text-ink-2 opacity-55"
+					/>
+					<!--
+				Into the Thread, under the word a cook already knows for it (#133,
+				choice A of 24 September 2026). The screen keeps the
+				Thread's name in the code and the docs; the button says History
+				because "The thread" told nobody what was behind it. It never says
+				"version": on this page that word already means one of the recipe's
+				versions in the strip at the top.
 
-			Drawn only in your own Branch, as the Tags row and the Related
-			strip are: it changes the recipe, and the recipe you are standing
-			in across a Divergence is not yours to change.
-		-->
-			{#if recipe}
-				<NeedsServer
-					label={m.recipe_language_title()}
-					waiting={m.offline_waits_edit()}
-					onclick={() => (sayingLanguage = true)}
-					shapeClass="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
-					lookClass="border border-rule text-accent"
-				/>
-			{/if}
-			<!--
-			Naming this version (#134, Aurélien's choice B of 24 September 2026):
-			a line among the acts, directly below Language, opening a small
-			sheet. `RenameSheet.svelte` holds why it says "version" and what it
-			promises about the History.
+				One line, like every tile beside it: a second line under History
+				made it taller than its neighbours (10 October 2026). How many saves
+				there are, and when the last was, is the History page's own first line.
+			-->
+					<a href="/recipes/{branchId}/thread" class="act-tile text-accent"
+						>{m.recipe_the_thread()}</a
+					>
+					<!--
+				Saying what Language this recipe is in, and translating it (#106).
+				Here among the acts rather than up beside the Tags row, because
+				both mint a Version and the Tags row is explicitly the place where
+				nothing does (ADR 0035, ADR 0006).
 
-			`NeedsServer` because a Branch's name is on the server's side of the
-			line and never queued, like every change to what a recipe is.
-		-->
-			{#if offersRename && recipe}
-				<NeedsServer
-					label={renameLabel}
-					waiting={m.offline_waits_version_name()}
-					onclick={() => (renaming = true)}
-					shapeClass="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
-					lookClass="border border-rule text-accent"
-				/>
-			{/if}
-			<!--
-			Into the share screen (#65, ADR 0026). A link rather than a switch
-			here on purpose: turning sharing on is one deliberate act taken on a
-			screen that says what it means, not a toggle brushed past on the way
-			to cooking.
-		-->
-			<a
-				href="/recipes/{branchId}/share"
-				class="mx-gutter mt-2 block border border-rule p-4 text-center font-display text-body text-accent"
-			>
-				{m.share_title()}
-			</a>
-			<!--
+				`NeedsServer` for the reason editing is: both Operations are on the
+				server's side of the line and neither is ever queued. An offline
+				queue for a Language would be two Kitchens disagreeing about what a
+				recipe is written in, and Kamosu does not merge (ADR 0013, #76).
+
+				Drawn only in your own Branch, as the Tags row and the Related
+				strip are: it changes the recipe, and the recipe you are standing
+				in across a Divergence is not yours to change.
+			-->
+					{#if recipe}
+						<NeedsServer
+							label={m.recipe_language_title()}
+							waiting={m.offline_waits_edit()}
+							onclick={() => (sayingLanguage = true)}
+							shapeClass="act-tile"
+							lookClass="text-accent"
+							idleClass="text-ink-2 opacity-55"
+						/>
+					{/if}
+					<!--
+				Naming this version (#134, choice B of 24 September 2026):
+				one of the acts, directly after Language, opening a small
+				sheet. `RenameSheet.svelte` holds why it says "version" and what it
+				promises about the History.
+
+				`NeedsServer` because a Branch's name is on the server's side of the
+				line and never queued, like every change to what a recipe is.
+			-->
+					{#if offersRename && recipe}
+						<NeedsServer
+							label={renameLabel}
+							waiting={m.offline_waits_version_name()}
+							onclick={() => (renaming = true)}
+							shapeClass="act-tile"
+							lookClass="text-accent"
+							idleClass="text-ink-2 opacity-55"
+						/>
+					{/if}
+					<!--
+				Into the share screen (#65, ADR 0026). A link rather than a switch
+				here on purpose: turning sharing on is one deliberate act taken on a
+				screen that says what it means, not a toggle brushed past on the way
+				to cooking.
+			-->
+					<a href="/recipes/{branchId}/share" class="act-tile text-accent">{m.share_title()}</a>
+					<!--
 				At the amount on screen: the page is what a Sheet prints (ADR 0023).
 				Not while a Divergence is shown, where the amounts on screen are
 				`divergence`'s and the scaler is not offered (`pageScaledTo`).
 			-->
-			<SheetAction
-				sheet={paper}
-				print={() => void paper.print(branchId, divergence ? undefined : named)}
-			/>
-			<ShoppingListButton {branchId} scaledTo={pageScaledTo} bind:onTheList />
+					<SheetAction
+						sheet={paper}
+						print={() => void paper.print(branchId, divergence ? undefined : named)}
+					/>
+					<ShoppingListButton {branchId} scaledTo={pageScaledTo} bind:onTheList />
+				</div>
 
-			{#if recipe?.writes}
-				<DeleteRecipe
-					{branchId}
-					title={recipe.versions.at(-1)?.content.title ?? ''}
-					cookings={recipe.cooked.count}
-				/>
-			{/if}
+				{#if recipe?.writes}
+					<DeleteRecipe
+						{branchId}
+						title={recipe.versions.at(-1)?.content.title ?? ''}
+						cookings={recipe.cooked.count}
+					/>
+				{/if}
+			</div>
 		{/if}
 
 		{#if divergence}
@@ -1429,6 +1461,11 @@
 	patched in, so the chip and the line under the title say what the Core now
 	holds.
 -->
+<!-- The tab, the history and a bookmark read the recipe's name (#224). -->
+<svelte:head>
+	<title>{content ? `${content.title} · ` : ''}{m.app_name()}</title>
+</svelte:head>
+
 {#if renaming && recipe}
 	<RenameSheet
 		branchId={recipe.branch_id}

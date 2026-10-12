@@ -16,10 +16,11 @@
 	from somewhere else and ends on the element's own style, so taking the
 	animation away leaves exactly the last frame.
 
-	The direction (Paper), the storyboard and every sentence were chosen by
-	Aurélien on prototypes, 25 September 2026; the issue holds the record.
+	The direction (Paper), the storyboard and every sentence were chosen on
+	prototypes, 25 September 2026; the issue holds the record.
 -->
 <script lang="ts">
+	import { useRoom } from '$lib/room.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { getLocale, locales, setLocale, type Locale } from '$lib/paraglide/runtime';
 	import { story } from './showing.svelte';
@@ -120,6 +121,8 @@
 			go(at + 1);
 		}
 	}
+
+	const room = useRoom();
 </script>
 
 <svelte:window {onkeydown} />
@@ -257,7 +260,7 @@
 									</div>
 									<div class="ev ev-off">
 										<span class="nowifi"></span>
-										<b>{m.story_offline({}, L)}</b>
+										<b>{(room.wide ? m.story_offline_device : m.story_offline)({}, L)}</b>
 									</div>
 								{:else}
 									{@render phone('waiting', false)}
@@ -547,7 +550,7 @@
 	.langs {
 		display: flex;
 		align-items: center;
-		font-size: 12px;
+		font-size: var(--text-label);
 		letter-spacing: 0.08em;
 		color: var(--color-ink-2);
 	}
@@ -556,7 +559,7 @@
 	}
 	.chrome button {
 		font: inherit;
-		font-size: 12px;
+		font-size: var(--text-label);
 		color: var(--color-ink-2);
 		background: none;
 		border: 0;
@@ -574,6 +577,18 @@
 	}
 	.corner {
 		letter-spacing: 0.04em !important;
+	}
+	/* Under the pointer (#203). The story draws itself and `app.css` does not
+	   reach its buttons, so the same shades are said again here: the darker
+	   paper under the small words, the lighter indigo on the one button. The
+	   two tap zones cover the page and stay as they are. */
+	@media (hover: hover) {
+		.chrome button:hover {
+			background: var(--color-ground-2);
+		}
+		.cta:hover {
+			background: var(--color-accent-2);
+		}
 	}
 	button:focus-visible {
 		outline: 2px solid var(--color-accent);
@@ -686,7 +701,7 @@
 		bottom: 18px;
 		margin: 0;
 		text-align: center;
-		font-size: 12px;
+		font-size: var(--text-label);
 		letter-spacing: 0.06em;
 		color: var(--color-ink-2);
 		opacity: 0;
@@ -1769,7 +1784,7 @@
 	.cta {
 		display: block;
 		text-align: center;
-		font-size: 16px;
+		font-size: var(--text-body);
 		font-weight: 700;
 		color: var(--color-on-accent);
 		background: var(--color-accent);

@@ -1,9 +1,9 @@
 # Kamosu is one file and one directory
 
-Kamosu is delivered as **one executable and one data directory**. The web interface ([#14](https://github.com/BattermanZ/Kamosu/issues/14): SvelteKit `adapter-static`) is compiled **into** the binary rather than copied beside it, and every durable thing Kamosu owns — the database, the Photographs, the Display Copies, the Backups, the Snapshots, and the model if one was ever downloaded — lives under a single `/data`.
+Kamosu is delivered as **one executable and one data directory**. The web interface ([#14](https://github.com/BatterWorks/Kamosu/issues/14): SvelteKit `adapter-static`) is compiled **into** the binary rather than copied beside it, and every durable thing Kamosu owns — the database, the Photographs, the Display Copies, the Backups, the Snapshots, and the model if one was ever downloaded — lives under a single `/data`.
 
-- **One container image**: the binary, and nothing else. No Node at runtime ([#14](https://github.com/BattermanZ/Kamosu/issues/14)), no browser ([ADR 0023](./0023-a-sheet-carries-the-recipe-not-the-library.md) set the Sheet in Typst as a library), no `git` (the Vault is deferred past v1 by [#12](https://github.com/BattermanZ/Kamosu/issues/12)), and **no model** ([ADR 0029](./0029-kamosu-ships-no-model.md)).
-- **One mount**, `/data`. Users never type a filesystem path ([#7](https://github.com/BattermanZ/Kamosu/issues/7)), so where it lands on the host is the mount's business and never Kamosu's.
+- **One container image**: the binary, and nothing else. No Node at runtime ([#14](https://github.com/BatterWorks/Kamosu/issues/14)), no browser ([ADR 0023](./0023-a-sheet-carries-the-recipe-not-the-library.md) set the Sheet in Typst as a library), no `git` (the Vault is deferred past v1 by [#12](https://github.com/BatterWorks/Kamosu/issues/12)), and **no model** ([ADR 0029](./0029-kamosu-ships-no-model.md)).
+- **One mount**, `/data`. Users never type a filesystem path ([#7](https://github.com/BatterWorks/Kamosu/issues/7)), so where it lands on the host is the mount's business and never Kamosu's.
 - **One published port**, plain HTTP. Kamosu never handles a certificate.
 - **A healthcheck the binary runs against itself**, because a distroless image has no shell and no `curl`.
 
@@ -21,7 +21,7 @@ Kamosu is delivered as **one executable and one data directory**. The web interf
 
 - **Web files copied beside the binary**, Hatchdoor's shape. Rejected: it permits the binary and the interface to disagree, and it means the "just run this file" story needs a second file.
 - **Separate mounts for photographs, database and models.** Rejected: no mount here is user-owned, so every split is friction without a reason.
-- **A configurable data path.** Rejected by [#7](https://github.com/BattermanZ/Kamosu/issues/7): users never type a filesystem path. The container path is fixed; the host path is the mount.
+- **A configurable data path.** Rejected by [#7](https://github.com/BatterWorks/Kamosu/issues/7): users never type a filesystem path. The container path is fixed; the host path is the mount.
 
 ## Consequences
 

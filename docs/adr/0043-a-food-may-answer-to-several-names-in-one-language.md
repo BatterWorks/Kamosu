@@ -10,7 +10,7 @@ A **Food** holds any number of names in a Language, in order. "œufs" and "œuf"
 
 ## Why
 
-- **The same ingredient is written in both numbers.** A recipe library says "1 œuf" and "3 œufs", "1 avocat" and "2 avocats". Whichever form the Food was not named in read as a new Food and split the shopping list. Translating 12 recipes into French on the live instance on 2026-09-27, about a third of the corrections were singular/plural misses ([#179](https://github.com/BattermanZ/Kamosu/issues/179)).
+- **The same ingredient is written in both numbers.** A recipe library says "1 œuf" and "3 œufs", "1 avocat" and "2 avocats". Whichever form the Food was not named in read as a new Food and split the shopping list. Translating 12 recipes into French on the live instance on 2026-09-27, about a third of the corrections were singular/plural misses ([#179](https://github.com/BatterWorks/Kamosu/issues/179)).
 - **The merge that was supposed to repair it did not stick.** Merging the stray "œuf" into "œufs" dropped the word "œuf", so the next "1 œuf" minted the same stray again. ADR 0022 promised that the near-duplicate tail decays once a cluster is merged. With one name per Language, that held across Languages and failed within one.
 - **Nothing is guessed.** A person, or a merge the Operator chose, puts both words on the Food. ADR 0022's case against a plural rule stands: a per-Language rule for how words pluralise is usually right and wrong in the welding direction, and a weld cannot be undone.
 
@@ -18,7 +18,7 @@ A **Food** holds any number of names in a Language, in order. "œufs" and "œuf"
 
 - **A small plural rule per Language** (French adds *s* or *x*, English *s*, *es* or *ies*). Rejected: it guesses, and it welds the pairs a cook keeps apart. It would also have superseded part of ADR 0022.
 - **Several names and the plural rule as a fallback.** Rejected for the same reason: the guessing is the risk, whether or not it runs first.
-- **Several names per Language** (chosen by Aurélien on 2026-09-27).
+- **Several names per Language** (chosen on 2026-09-27).
 
 ## Consequences
 

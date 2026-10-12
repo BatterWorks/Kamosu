@@ -4,7 +4,7 @@
 
 Reading a line is one job: deciding where the number ends, where the **Unit** ends and where the **Food** begins. What the number is worth and what the Unit is were already answered by `src/units.rs`, which spells every convertible Unit in all three interface Languages. `src/reading.rs` is the split and nothing else.
 
-This **reverses** [#71](https://github.com/BattermanZ/Kamosu/issues/71)'s first acceptance criterion and the line in the spec ([#32](https://github.com/BattermanZ/Kamosu/issues/32)) deferring ingredient parsing to a subprocess worker. It leaves [ADR 0021](./0021-a-reading-is-kamosus-reading-not-the-recipe.md) standing exactly as written: that ADR's argument is that *a parser is a moving part and must stay outside the fingerprint*, which is true of a parser in this process as much as one in another — more so, since this one is now ours to change.
+This **reverses** [#71](https://github.com/BatterWorks/Kamosu/issues/71)'s first acceptance criterion and the line in the spec ([#32](https://github.com/BatterWorks/Kamosu/issues/32)) deferring ingredient parsing to a subprocess worker. It leaves [ADR 0021](./0021-a-reading-is-kamosus-reading-not-the-recipe.md) standing exactly as written: that ADR's argument is that *a parser is a moving part and must stay outside the fingerprint*, which is true of a parser in this process as much as one in another — more so, since this one is now ours to change.
 
 ## Why
 
@@ -20,7 +20,7 @@ This **reverses** [#71](https://github.com/BattermanZ/Kamosu/issues/71)'s first 
 
 - **Both libraries carry an English-only vocabulary of Units, and Kamosu already has a trilingual one.** This is the whole result. `20 cl de crème fraîche` is read correctly here and by neither library: they do not know centilitres, and they take the article into the Food, leaving `de crème fraîche` — a Food that will never match the `crème fraîche` beside it. Adopting either would have meant two vocabularies of Units in one program, the worse one deciding where a Food begins.
 
-- **It removes a limitation rather than accepting one.** The subprocess route would have read 77 of Aurélien's 86 recipes, because `ingredient-parser-nlp` supports `lang="en"` and nothing else. This reads all 86. Kamosu's own corpus is 9-in-86 non-English and its interface is in three Languages; a reader that works in one of them was never the right shape.
+- **It removes a limitation rather than accepting one.** The subprocess route would have read 77 of the first Operator's 86 recipes, because `ingredient-parser-nlp` supports `lang="en"` and nothing else. This reads all 86. Kamosu's own corpus is 9-in-86 non-English and its interface is in three Languages; a reader that works in one of them was never the right shape.
 
 - **It dissolves a deployment problem instead of paying for one.** [ADR 0028](./0028-kamosu-is-one-file-and-one-directory.md) promises one distroless image holding the binary and nothing else. A Python worker needed roughly 150 MB of interpreter and packages inside that image — doubling it — or a second container, or a download-on-demand machinery in the shape of [ADR 0029](./0029-kamosu-ships-no-model.md). Every one of those was a real cost to every person who installs Kamosu, paid for a parser that was not better. In-process Rust costs nothing and runs at 0.04 ms a line against Python's 1.9.
 

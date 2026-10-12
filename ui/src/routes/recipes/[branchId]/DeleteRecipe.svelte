@@ -1,13 +1,15 @@
 <!--
-	Deleting this recipe (#120). Set apart from the stack above, below a rule
-	and a gap, as small underlined text rather than a seventh full-width
-	button — the choice of 22 September 2026, over putting it in the stack.
+	Deleting this recipe (#120). Set apart from the grid of acts above, below
+	a rule and a gap, as small underlined text rather than another tile. That
+	was the choice of 22 September 2026 and option 1 of the audit of
+	9 October 2026 kept it (#220, chosen on 10 October over a list of rows in
+	which it was the last).
 
 	The reasoning is about the thumb, not the look. Everything above is the
-	same shape in the same column, and *Add to shopping list* is the one people
-	tap most often without reading; a destructive row directly beneath it is a
-	mis-tap waiting to happen. Something that is not button-shaped, past the
-	end of the actions, cannot be reached by the habit that reaches for those.
+	same shape, and *Add to shopping list* is the one people tap most often
+	without reading; a destructive tile beside it is a mis-tap waiting to
+	happen. Something that is not button-shaped, past the end of the acts,
+	cannot be reached by the habit that reaches for those.
 
 	NOT in Writing, where the mockup drew it: that screen holds an unsaved
 	draft the whole time it is open, and a screen that can both lose your

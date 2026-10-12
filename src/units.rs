@@ -220,9 +220,26 @@ pub const UNITS: &[Unit] = &[
             "cuil a cafe",
             "cuill à café",
             "cuill a cafe",
+            // The same spoon as Quebec names it. `thé` is a word of a Food's
+            // name everywhere else, so the reader needs the whole Unit to
+            // know this one is not (#213).
+            "cuillère à thé",
+            "cuillere a the",
+            "cuillères à thé",
+            "cuilleres a the",
+            "c à thé",
+            "c a the",
+            "cuil à thé",
+            "cuil a the",
+            "cuill à thé",
+            "cuill a the",
             "c à c",
             "càc",
             "cac",
+            // *Cuillère à café*, never a cubic centimetre. The accepted cost
+            // is an English `5 cc`, which reads five times too big (#208).
+            "cc",
+            "c.c.",
             "cucharadita",
             "cucharaditas",
             "cdta",
@@ -256,6 +273,8 @@ pub const UNITS: &[Unit] = &[
             "c à s",
             "càs",
             "cas",
+            "cs",
+            "c.s.",
             "cucharada",
             "cucharadas",
             "cda",
@@ -438,11 +457,40 @@ impl Unit {
 /// The Unit a written word names, or nothing — which is not an error. A word
 /// outside the closed set is no less real a Unit; it simply never converts.
 pub fn recognise(word: &str) -> Option<&'static Unit> {
+    if let Some(letter) = lone_spoon(word) {
+        let id = if letter == "t" {
+            "teaspoon"
+        } else {
+            "tablespoon"
+        };
+        return Some(unit_by_id(id));
+    }
     let folded = fold(word);
     if folded.is_empty() {
         return None;
     }
     BY_SPELLING.get(&folded).copied()
+}
+
+/// **The one Unit whose case matters** (#208). American recipes write a
+/// teaspoon as a lone `t` and a tablespoon as a lone `T`, with or without a
+/// full stop, and [`fold`] would make the two one word. So this is asked
+/// before anything is folded, and every other spelling stays blind to case:
+/// `Tbsp` and `TBSP` are the same tablespoon.
+///
+/// [`recognise`] asks it first, so reading a line and working out what a
+/// stored `T` is worth cannot answer differently.
+///
+/// The answer is the letter with its full stop gone, `t` or `T`. Two callers
+/// need more than the Unit: the reader, because a single letter is a Unit
+/// only where an amount stands before it, and the shopping list, because the
+/// letter's case has to survive where two Units are compared by spelling.
+pub fn lone_spoon(word: &str) -> Option<&'static str> {
+    match word.trim().trim_end_matches('.') {
+        "t" => Some("t"),
+        "T" => Some("T"),
+        _ => None,
+    }
 }
 
 // --- Reading a quantity ------------------------------------------------------
@@ -637,7 +685,7 @@ static BY_STAPLE: LazyLock<HashMap<String, f64>> = LazyLock::new(|| {
 /// ordinary answer and is not a gap: a Food with no Cup Weight is a line that
 /// offers millilitres instead of grams.
 ///
-/// The match is exact on the fold, exactly as a Food Match is (CONTEXT.md) —
+/// The match is exact on the fold, exactly as a Food Match is (GLOSSARY.md) —
 /// `farine T55` is its own Food and gets silence rather than a guess at which
 /// flour somebody meant. That silence is the designed failure mode, not a bug.
 pub fn shipped_cup_weight<'a>(names: impl IntoIterator<Item = &'a str>) -> Option<f64> {
@@ -1313,7 +1361,7 @@ enum Scale {
 }
 
 /// **The conversion offered beside a Step**, or nothing — an addition beside the
-/// sentence and never written into it (CONTEXT.md: a Step's truth is its text).
+/// sentence and never written into it (GLOSSARY.md: a Step's truth is its text).
 ///
 /// Nothing is the answer where the step carries no temperature, where it
 /// already carries both — which 20 of the 39 real steps with a temperature do —
@@ -1573,7 +1621,7 @@ fn scale_after(characters: &[char], mut index: usize) -> Option<(Scale, usize)> 
 /// a French recipe read by an English cook still says *minutes* in its own
 /// text, so the reader is never told which Language to expect.
 ///
-/// The bare `h` is here although Aurélien's 86-recipe export contains not one
+/// The bare `h` is here although the real 86-recipe export contains not one
 /// — `1 h 30` is the ordinary French spelling and its absence from 579 real
 /// Steps is a fact about those recipes rather than about French. What is *not*
 /// here is a bare `m` or `s`: a metre and a gram's neighbour are too close, and
@@ -1636,7 +1684,7 @@ const MORE_WORDS: &[&str] = &[
 ///
 /// A phrase counts only directly against its duration: after the unit word
 /// (*2 minutes and a half*) or between the number and it (*2 and a half
-/// minutes*). The set was settled with Aurélien in #157; *trois quarts
+/// minutes*). The set was settled in #157; *trois quarts
 /// d'heure* and the other spelled-out fractions are not in it.
 const SPOKEN_PARTS: &[(&[&str], f64)] = &[
     (&["et", "demie"], 0.5),
@@ -1674,7 +1722,7 @@ const JOINING_WORDS: &[&str] = &[
 /// between two numbers is otherwise a range (*cuire 20/25 minutes*), which is
 /// how French writes one.
 ///
-/// **Only an hour is written as a fraction** (#157, Aurélien's choice). Before
+/// **Only an hour is written as a fraction** (#157, chosen there). Before
 /// minutes the slash stays a range, because *cuire 3/4 minutes* is French for
 /// three to four, and a written fraction of a minute is rare where that range
 /// is common.
@@ -1719,11 +1767,11 @@ fn fold_loosely(word: &str) -> String {
 /// **The timer a Step offers**, in seconds, or nothing.
 ///
 /// Read out of the Step's own text at display time and stored nowhere
-/// (ADR 0011, CONTEXT.md "Step"): nothing is typed beside the sentence and the
+/// (ADR 0011, GLOSSARY.md "Step"): nothing is typed beside the sentence and the
 /// Step's truth stays its text. One tap starts it; Kamosu never writes it down.
 ///
 /// Nothing is the answer for roughly three Steps in four — 425 of the 579 real
-/// Steps in Aurélien's export carry no duration at all — and that is not a
+/// Steps in the real export carry no duration at all — and that is not a
 /// failure. A Step with no timer simply offers none.
 ///
 /// **A range answers with its lower end.** 154 real Steps carry a duration and
@@ -1764,7 +1812,7 @@ pub fn step_duration(text: &str) -> Option<i64> {
 /// The longest duration this offers a timer for: a week.
 ///
 /// Not a guess at what a recipe means — a 48-hour ferment and an overnight
-/// marinade are real, and the longest in Aurélien's export is twelve hours. It
+/// marinade are real, and the longest in the real export is twelve hours. It
 /// is a floor under nonsense: past a week the number was not a duration
 /// somebody meant to time, and a countdown running for years is worse than no
 /// timer at all.
@@ -1791,7 +1839,7 @@ fn seconds_each(word: &str) -> Option<i64> {
 /// *1 h 5.* is an hour and five minutes, but *cook 5 minutes 2 at a time* is a
 /// count, and an hour's minutes and a sear's seconds are written in tens.
 ///
-/// None of these is in Aurélien's 86-recipe export, which is why they are
+/// None of these is in the real 86-recipe export, which is why they are
 /// handled from the language rather than from the corpus: `1 h 30` is how
 /// French writes an hour and a half, and *2 minutes 30* how it writes a sear.
 fn rest_after_unit(pieces: &[Piece], unit: usize, unit_seconds: i64) -> f64 {

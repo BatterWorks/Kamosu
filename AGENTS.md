@@ -1,29 +1,8 @@
 # AGENTS.md
 
 Project conventions for Kamosu. Host-specific conventions live in
-`AGENTS.local.md`; vocabulary lives in `CONTEXT.md`; decisions live in
+`AGENTS.local.md`; vocabulary lives in `GLOSSARY.md`; decisions live in
 `docs/adr/`. **Where the spec and an ADR disagree, the ADR wins.**
-
-## CodeGraph
-
-**When a `.codegraph/` directory exists at the repository root, reach for
-CodeGraph before grep, find, or reading source files** — both locating code and
-understanding it go through it first.
-
-```sh
-codegraph explore "<symbols or question>"
-```
-
-Prefer the `codegraph_explore` MCP tool where it is available: it returns the
-relevant source, the call paths between the symbols, and a blast-radius summary
-in one query — a round trip a grep-and-read loop cannot match.
-
-The index is machine-local and gitignored, so **a fresh clone has none.** When
-`.codegraph/` is absent, use the ordinary search and read tools and do not
-initialize an index automatically; `codegraph init` at the repo root is a
-human's decision, not an agent's. Where the directory exists but neither the MCP
-tool nor the CLI is reachable, fall back to normal search rather than blocking
-the task.
 
 ## Dependencies
 
@@ -41,6 +20,10 @@ npx sv create                  # scaffolds SvelteKit at its current version
 
 A version string typed by hand into `Cargo.toml` or `package.json` is a bug,
 the same way a permission check inside a Door is a bug.
+
+**Kamosu's own version is set by `just release-prepare` and by nothing else**
+(ADR 0047). It stands in `Cargo.toml`, `Cargo.lock`, `ui/package.json` and
+`ui/package-lock.json`, and a hand edit to any of the four is the same bug.
 
 **Svelte's own documentation for models is committed to this repo.** Read
 `docs/svelte/llms-small.txt` before writing any Svelte or SvelteKit code, and
@@ -84,6 +67,101 @@ every machine and every CI run builds identically. Pinning the toolchain and
 letting crates float are not in conflict: one is the kitchen, the other is the
 ingredients.
 
+## Branching
+
+All work happens on a branch off `dev`. Never commit to `dev` or `main`
+directly, whatever the size of the change. Both are protected on GitHub: each
+takes a pull request and nothing else, from an admin too.
+
+Before the first edit, check the current branch and cut one if you are sitting
+on a protected branch:
+
+```sh
+git branch --show-current
+git switch -c <prefix>/<short-slug> dev
+```
+
+Use `feature/`, `fix/`, `docs/`, or `refactor/` as the prefix. Push that branch
+and open a pull request against `dev`; `main` is the release branch and receives
+only merges from `dev`, which `.github/workflows/release-source.yml` checks.
+
+**While a release is open, nothing else merges into `dev`.** From the moment
+`just release-prepare` cuts `docs/release-v<version>` until `just
+release-publish` has merged the release, leave every other pull request open
+(see Releasing).
+
+`dev` refuses a direct push, so cutting the branch after the work is committed
+means moving commits off a branch you cannot push, not a quick fix. Check first.
+
+Every merge is a merge commit, including `dev` into `main`. Do not squash, do
+not rebase-merge, and never force-push `dev` or `main`.
+
+**Whoever built a pull request merges it.** GitHub asks for nobody's approval,
+so the gate is the work's own: `just check` and `just test` pass, the review's findings are
+settled, and live acceptance has passed on the code being merged. Then merge
+with a merge commit, as `gh pr merge <number> --merge` does, and confirm the
+merge commit is on `dev`. A host that keeps a second copy of the repository
+says in its `AGENTS.local.md` what to do after a merge; do that before moving on.
+
+**A pull request closes its ticket by naming it**: `Closes #N` in the title, the
+body or a commit message. GitHub acts on that only for the default branch, which
+is `main`, so `.github/workflows/close-issues-on-dev.yml` does it when a pull
+request merges into `dev`. It reads one number after each keyword, so two
+tickets take `Closes #1, closes #2`, and it does not read the sentence around
+the keyword: "does not fix #7" closes #7. Never close a ticket by hand before
+its pull request has merged.
+
+## The changelog
+
+`CHANGELOG.md` opens with `## Unreleased`, and a release is cut from it.
+
+**A ticket that changes what a person running Kamosu sees or does adds its line
+under `## Unreleased`, in the same commit as the change.** That person is a
+cook, an Operator, or an agent at the MCP Door. A ticket with nothing for them
+to notice adds no line: a refactor, a test, a tool under `ui/tools/`, a change
+to these instructions.
+
+- **One line per change**, written for that reader in the voice the file
+  already has: what Kamosu does now, and what it did before where that is the
+  news.
+- **Under the heading it belongs to**: Added, Changed or Fixed. A change someone
+  must act on when upgrading goes under `### After upgrading`, which comes
+  first.
+- **A fix to something still under `## Unreleased` gets no line of its own.**
+  Correct the line already there. The same goes for a change that is reverted
+  or replaced before a release: take its line out.
+- **End the line with its issue as `[#N]`**, and add `[#N]: <url>` to the block
+  of definitions at the foot of the section, in number order. A change with no
+  issue names its pull request the same way.
+- **The changelog is public.** It names no instance, no host and no person.
+
+## Releasing
+
+A release is cut by two commands and nothing else (ADR 0047). **Read
+`docs/releasing.md` before running either**: it is the runbook, with the
+checklist, the release hook's contract and every refusal.
+
+```sh
+just release-prepare <version>   # the bump pull request, its checklist and a draft release; run again after the bump merges, the pull request into main
+just release-publish <version>   # merge, tag, have the hook build the images, publish
+just release-library <folder>    # the checklist's library check: a copy of a real library through every migration
+```
+
+- **Only the maintainer approves a release's title and notes.** Show the draft
+  as it stands on GitHub and stop. Run `just release-publish` only after the
+  reply "approved" in this same session, and ask again if the text changed or
+  the session is new.
+- **Both commands resume.** One run again after a failure carries on at the
+  first step not done. Never finish a step by hand in its place.
+- **Neither force-pushes, moves a tag or replaces a published version.** A
+  release found broken after publishing is fixed by the next patch version.
+- **The bump branch is pushed by `just release-prepare` and no other way.** It
+  runs `just check` and `just test` before it pushes, and trusts a commit
+  already on the remote to have passed them.
+- **The scripts are in `ui/tools/`**, and their tests run in `just test`.
+  `release-publish` reads a checklist item only in its exact wording, which
+  `ui/tools/release-common.mjs` holds for both commands.
+
 ## Building, testing and running
 
 Everything runs through `just` at the repo root — never a hand-rolled
@@ -104,6 +182,40 @@ just dev-stop   # stops both process groups
 just docker-build && just docker-run   # the one-mount-one-port install, as a stranger runs it
 ```
 
+**Looking at the dev instance has recipes of its own** (#216), so no ticket
+writes a browser script by hand. The scripts are in `ui/tools/`, and Playwright
+is a dev dependency of `ui/`: never load it from anywhere else.
+
+```sh
+just dev-session <label>          # sign in as the account in .env; prints the cookie file's path, nothing else
+just dev-session-end <label>      # end that one Session
+just screens <folder> <path>…     # a whole-page picture of each path at every size; fails on a console error or a sideways scroll
+just screens-same <before> <after>   # names the pictures that differ, and fails if any do
+just proto-new <issue>-<slug> <path>…   # .dev/prototypes/<issue>-<slug>/: the real screens as static pages
+just proto-serve <name> <port>    # serve .dev/prototypes/<name>/ to the LAN, caching off
+```
+
+- **The sizes are written once**, in `ui/tools/sizes.mjs`. A script that needs a
+  screen size imports it from there.
+- **"Is the phone unchanged?" is two sets of pictures.** Run `just screens` into
+  a "before" folder under `.dev/` when a ticket is claimed, while the worktree is
+  still clean, and into an "after" folder once it is built. `just screens-same`
+  compares them. No stash and no second worktree.
+- **A Session's Secret stays out of the transcript.** A script is handed the
+  path of a cookie file and gives the cookie to its browser itself, as
+  `signedInContext` in `ui/tools/dev.mjs` does. `screens` and `proto-new` sign in
+  on their own as a Session named `tools`.
+- **`just screens … --webkit` runs in Safari's engine**, which has shown a fault
+  Chrome did not (#198). Fetch it once with `cd ui && npx playwright install webkit`.
+- **`.env` at the repo root says where and as whom.** `KAMOSU_DEV_HOST` is the
+  dev instance's address, reached over HTTPS because a Session cookie is Secure.
+  `KAMOSU_DEV_ADMIN_NAME` and `KAMOSU_DEV_ADMIN_PASSWORD` are the account. The
+  browser is the Chrome on the path unless `KAMOSU_DEV_BROWSER` names another.
+- **A path with `?` in it is quoted** at the prompt, as in
+  `just screens .dev/after '/recipes?q=tart'`, or the shell reads it as a pattern.
+- **`just proto-serve` serves a prototype by name and nothing else.** The whole
+  LAN can read what it serves, and the repo root holds `.env`.
+
 **Development is two processes side by side** (ADR 0028): the binary serves the
 Operations on **5266**, vite serves the interface on **5174** and proxies
 everything the binary owns to it, so a browser only ever talks to one origin.
@@ -113,8 +225,9 @@ another port cannot happen. `dev-start` is always safe to re-run for both.
 
 **`just test` needs Linux and the `sqlite3` command-line tool on the path.**
 One behaviour test runs `sqlite3` as the other process that opens the database
-beside a running Kamosu, and reads `/proc/locks` (#130). The SQLite Kamosu
-bundles hides the fault that test looks for, and an older one does not.
+beside a running Kamosu, and reads `/proc/self/fdinfo` (#130, #215). The
+SQLite Kamosu bundles hides the fault that test looks for, and an older one
+does not.
 
 `dev-clean` deletes `target/` to reclaim build cache; the next build is a full
 rebuild. Dev state lives in gitignored `.dev/`.
@@ -151,6 +264,24 @@ never needs Node — but `just check` regenerates it into a temp directory and
 **fails if what is committed has drifted from `ui/`**. Never hand-edit
 `assets/app.css`; change `ui/src/app.css` and run `just css`.
 
+**What a control looks like under the pointer is written once**, at the foot of
+`ui/src/app.css` (#203, ADR 0044), for every link, button and list row there is.
+Never write a `hover:` class on a screen. A surface says what darkens on it through
+`--under-pointer`, and a control with a fill of its own is named in that block
+fill by fill. A new fill class on something clickable does nothing under the
+pointer until it has a line there, and a screen test fails until it does. The rules sit outside every layer on purpose,
+so they beat the utility a control was written with. A picture that is itself
+the thing to click takes the class `brightens`.
+
+**A type size is a count of `--type-unit`, and no other length is written in rem**
+(#228, ADR 0046). The unit is 1px until the reader's own text size moves it, up
+to 1.35px, so `calc(26 * var(--type-unit))` is 26px at rest. The root's font
+size is the system's text size, and a width in rem would grow with someone's
+reading. Never write a font size in px on a screen: use a `text-*` token, and add
+one beside the others when a new size is chosen. `ui/src/lib/type-unit.spec.ts`
+fails on a px font size or a rem length in `ui/src/app.css`. Kamosu has no dark
+mode, on purpose (ADR 0045).
+
 **Tailwind reads `ui/src/` and nothing else**, declared with `source(none)` and
 an explicit `@source` at the top of `ui/src/app.css`. The automatic detection
 that replaced sweeps every non-gitignored file under `ui/` — including config
@@ -180,6 +311,23 @@ fails if what is committed has drifted.
 against the output schema the Catalogue declares first. A test can lie about the
 values; it cannot lie about the shape. Screens take their client from context,
 never from `fetch`.
+
+**Every bottom sheet is drawn by one frame, `ui/src/lib/SheetFrame.svelte`**
+(#196, ADR 0044): a bottom sheet on the phone layout, a window in the middle of
+the room on the wide one. This is the panel that rises over a screen, and has
+nothing to do with the **Sheet** of `GLOSSARY.md`, a recipe set for paper. The frame owns the dimmed page, Escape, the caret going in and
+coming back, and Enter. A screen hands it content and never writes
+`role="dialog"` itself; a screen test fails if one does.
+
+**A file or a link is dropped only where a drop has one meaning, and both halves
+of that are in `ui/src/lib/drop.svelte.ts`** (#204, ADR 0044). `DropZone` is one
+place that takes a drop: it says what is held over it and hands over what was let
+go. `keepDropsOut`, started once by the root layout, turns away every drop no
+zone took, so a browser never opens a dropped file in place of Kamosu. `FilePlace`
+is a zone for one file of one kind, a photograph or a Crouton export (#205): the
+place wears `DropCover` where it is big enough and `DropHere` where it is not. A drop is
+the act a button already does, run through that button's own code, and it says
+offline what the button says. Never read `dataTransfer` on a screen.
 
 **`svelte-check` runs strict and its warnings are failures**, Svelte's
 accessibility warnings included (ADR 0012). **Paraglide compiles every phrase to
@@ -246,7 +394,9 @@ src/reading.rs      reading an Ingredient Line into a Reading — where the
                     number ends, the Unit ends and the Food begins. Its
                     vocabulary is units.rs's, not its own (ADR 0036)
 src/step_uses.rs    which Ingredient Lines a Step uses, by the short names
-                    recipes call them after the list (#184)
+                    recipes call them after the list (#184). A short name
+                    holds the name's main word, which sits at the end the
+                    Branch's Language puts it (#212)
 src/pdf.rs          the text out of a recipe PDF, for the paste reader; a
                     scan holds none and is refused (#176)
 src/web_door.rs     Axum router generated by walking the Catalogue
@@ -268,7 +418,18 @@ tests/*_corpus.rs   the same, against the real 86-recipe Crouton export —
                     still builds and runs it, exactly as that command does.
                     meaning_corpus.rs also wants a network and ~220 MB of model,
                     which it keeps in .dev/meaning-model between runs
+tests/release_library.rs
+                    a copy of a real library carried through every migration,
+                    for the release checklist. `#[ignore]`d and `test = false`
+                    like the corpus checks; `just release-library` runs it
 ui/                 the Svelte app; ui/src/app.css is the design tokens' source
+ui/tools/           the dev tools `just` runs against the dev instance: sign in,
+                    photograph screens, capture and serve a prototype (#216).
+                    The two release commands live here too (ADR 0047)
+docs/releasing.md   the release runbook
+docs/docker-hub/    the Docker Hub page of the image: its overview and its one-line
+                    description, published by a release and never edited on
+                    Docker Hub (#235)
 docs/svelte/        Svelte's documentation for models, pinned (read this first)
 ```
 
@@ -363,5 +524,5 @@ not assume its Markdown-is-truth rule applies here. Deleting Kamosu's database
 loses every account, cooking history and shopping list, and no Vault rebuilds
 them.
 
-Vocabulary lives in `CONTEXT.md`; decisions live in `docs/adr/`. Where the spec
+Vocabulary lives in `GLOSSARY.md`; decisions live in `docs/adr/`. Where the spec
 and an ADR disagree, the ADR wins.

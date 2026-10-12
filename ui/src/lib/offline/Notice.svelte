@@ -1,5 +1,5 @@
 <!--
-	One "not right now" card (#76, option C — Aurélien, 19 September 2026).
+	One "not right now" card (#76, option C, chosen 19 September 2026).
 
 	Kamosu says a thing once, in sentences, at the top of the page, and the
 	person puts it away. Four tones share this one shape so they read as one
@@ -26,8 +26,10 @@
 	let { title, tone = 'plain', actions = [], children }: Props = $props();
 </script>
 
+<!-- On the wide layout the card sits in the page's column rather than running
+     the window's width with two enormous buttons (#226). -->
 <section
-	class="mx-gutter my-4 border border-rule bg-card p-4 text-read text-ink
+	class="mx-gutter my-4 border border-rule bg-card p-4 text-read text-ink wide:mx-auto wide:w-[calc(100%-2*var(--spacing-gutter))] wide:max-w-2xl
 	{tone === 'warning' ? 'border-t-3 border-t-support' : ''}
 	{tone === 'pause' ? 'border-t-3 border-t-accent' : ''}"
 	aria-label={title}
@@ -43,7 +45,7 @@
 				<button
 					type="button"
 					onclick={action.act}
-					class="flex-1 border p-3 text-read
+					class="flex-1 border p-3 text-read wide:max-w-[240px]
 					{action.primary ? 'border-accent bg-accent text-on-accent' : 'border-rule text-accent'}"
 				>
 					{action.label}

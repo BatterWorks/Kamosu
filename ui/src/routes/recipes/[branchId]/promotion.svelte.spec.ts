@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
+import type { DeclinePromotionOutput, GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
 import type { Whose } from '$lib/cookbook';
 import PromotionTestHarness from './PromotionTestHarness.svelte';
 
@@ -78,7 +78,8 @@ const CONTENT = {
 	steps: [{ kind: 'step' as const, text: 'Coat the chicken in panko.', photo: null }],
 };
 
-const attempt = (over: Partial<Attempt> = {}): Attempt => ({
+/** A cooking as an Operation on one cooking answers it. */
+const cooking = (): DeclinePromotionOutput => ({
 	id: 'at_1',
 	lineage_id: 'l_1',
 	person_id: 'p_1',
@@ -99,6 +100,12 @@ const attempt = (over: Partial<Attempt> = {}): Attempt => ({
 		against: AGAINST,
 		promotion_declined: false,
 	},
+});
+
+/** The same cooking on the Thread, which also says which Version it counts for (#209). */
+const attempt = (over: Partial<Attempt> = {}): Attempt => ({
+	...cooking(),
+	eaten_version_id: 'v_1',
 	...over,
 });
 
@@ -130,7 +137,7 @@ function show(
 ) {
 	const kamosu = standIn({
 		promote_as_cooked: saved,
-		decline_promotion: attempt(),
+		decline_promotion: cooking(),
 		...answers,
 	});
 	render(PromotionTestHarness, {
@@ -289,7 +296,7 @@ describe('promotion onto a recipe somebody else writes (#111, #131)', () => {
 		show([attempt()], ['v_1'], {}, false, {
 			mine: true,
 			arrived: true,
-			cookbook: { id: 'c_me', name: null, authors: [{ person_id: 'p_me', name: 'Aurélien' }] },
+			cookbook: { id: 'c_me', name: null, authors: [{ person_id: 'p_me', name: 'Stéphane' }] },
 		});
 		await fireEvent.click(await screen.findByRole('button', { name: /keep it as your own copy/i }));
 		expect(

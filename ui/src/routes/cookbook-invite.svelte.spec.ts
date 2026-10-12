@@ -10,12 +10,13 @@ import { standIn, type Answers } from '$lib/api/stand-in';
 import type { AuthClient } from '$lib/auth';
 import { went } from '../testing/navigation';
 import LinkTestHarness from './LinkTestHarness.svelte';
+import { signingIn } from '$lib/shell/signing-in.svelte';
 import CookbookInviteRoute from './cookbook-invite/[secret]/+page.svelte';
 
 const ALREADY = {
-	id: 'c_aurelien',
+	id: 'c_stephane',
 	name: null,
-	authors: [{ person_id: 'p_1', name: 'Aurélien' }],
+	authors: [{ person_id: 'p_1', name: 'Stéphane' }],
 	recipe_count: 87,
 	kitchens: [],
 	invites: [],
@@ -44,7 +45,7 @@ describe('a Cookbook Invite link', () => {
 		const { kamosu } = open({
 			read_cookbook_invite: {
 				cookbook: ALREADY,
-				invited_by: { person_id: 'p_1', name: 'Aurélien' },
+				invited_by: { person_id: 'p_1', name: 'Stéphane' },
 				their_recipes: 87,
 				your_recipes: 12,
 				together_recipes: 99,
@@ -57,7 +58,7 @@ describe('a Cookbook Invite link', () => {
 
 		expect(
 			await screen.findByRole('heading', {
-				name: 'Aurélien asks you to write one Cookbook together',
+				name: 'Stéphane asks you to write one Cookbook together',
 			}),
 		).toBeInTheDocument();
 		expect(
@@ -82,7 +83,7 @@ describe('a Cookbook Invite link', () => {
 				input: { secret: 'the-cookbook-secret' },
 			}),
 		);
-		await waitFor(() => expect(went).toHaveBeenCalledWith('/settings'));
+		await waitFor(() => expect(went).toHaveBeenCalledWith('/settings/kitchens'));
 	});
 
 	it('names who else will be asked, and once accepted says whom it waits for (#135)', async () => {
@@ -94,7 +95,7 @@ describe('a Cookbook Invite link', () => {
 		const { kamosu } = open({
 			read_cookbook_invite: () => ({
 				cookbook: ALREADY,
-				invited_by: { person_id: 'p_1', name: 'Aurélien' },
+				invited_by: { person_id: 'p_1', name: 'Stéphane' },
 				their_recipes: 87,
 				your_recipes: 12,
 				together_recipes: 99,
@@ -112,9 +113,9 @@ describe('a Cookbook Invite link', () => {
 							join_id: 'cj_1',
 							state: 'waiting',
 							accepted_by: { person_id: 'p_2', name: 'Camille' },
-							invited_by: { person_id: 'p_1', name: 'Aurélien' },
+							invited_by: { person_id: 'p_1', name: 'Stéphane' },
 							joining: { id: 'c_camille', name: null, authors: [] },
-							into: { id: 'c_aurelien', name: null, authors: ALREADY.authors },
+							into: { id: 'c_stephane', name: null, authors: ALREADY.authors },
 							together_recipes: 99,
 							waiting_on: asks,
 							you: 'accepted',
@@ -142,7 +143,7 @@ describe('a Cookbook Invite link', () => {
 			await screen.findByText('You said yes. Waiting for Tom and Bob to say yes too.'),
 		).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'Write together' })).not.toBeInTheDocument();
-		expect(went).not.toHaveBeenCalledWith('/settings');
+		expect(went).not.toHaveBeenCalledWith('/settings/kitchens');
 		expect(kamosu.calls.filter((call) => call.operation === 'read_cookbook_invite')).toHaveLength(
 			2,
 		);
@@ -152,7 +153,7 @@ describe('a Cookbook Invite link', () => {
 		const { kamosu } = open({
 			read_cookbook_invite: {
 				cookbook: ALREADY,
-				invited_by: { person_id: 'p_1', name: 'Aurélien' },
+				invited_by: { person_id: 'p_1', name: 'Stéphane' },
 				their_recipes: 87,
 				your_recipes: 12,
 				together_recipes: 99,
@@ -180,7 +181,7 @@ describe('a Cookbook Invite link', () => {
 		open({
 			read_cookbook_invite: {
 				cookbook: ALREADY,
-				invited_by: { person_id: 'p_1', name: 'Aurélien' },
+				invited_by: { person_id: 'p_1', name: 'Stéphane' },
 				their_recipes: 87,
 				your_recipes: 87,
 				together_recipes: 87,
@@ -200,7 +201,7 @@ describe('a Cookbook Invite link', () => {
 				signedIn
 					? {
 							cookbook: ALREADY,
-							invited_by: { person_id: 'p_1', name: 'Aurélien' },
+							invited_by: { person_id: 'p_1', name: 'Stéphane' },
 							their_recipes: 87,
 							your_recipes: 12,
 							together_recipes: 99,
@@ -222,8 +223,50 @@ describe('a Cookbook Invite link', () => {
 
 		expect(
 			await screen.findByRole('heading', {
-				name: 'Aurélien asks you to write one Cookbook together',
+				name: 'Stéphane asks you to write one Cookbook together',
 			}),
 		).toBeInTheDocument();
+	});
+
+	// The shell keeps a signed-in Person's navigation on this page and draws
+	// none for anybody else (#214), by what the page says it heard.
+	describe('tells the shell whether a Person is signed in', () => {
+		it('says one is when the link is read', async () => {
+			signingIn.signedIn = undefined;
+			open({
+				read_cookbook_invite: {
+					cookbook: ALREADY,
+					invited_by: { person_id: 'p_1', name: 'Stéphane' },
+					their_recipes: 87,
+					your_recipes: 12,
+					together_recipes: 99,
+					already_yours: false,
+					asks: [],
+					waiting: false,
+				},
+			});
+
+			await screen.findByRole('button', { name: 'Write together' });
+			expect(signingIn.signedIn).toBe(true);
+		});
+
+		it('says one is when the link is gone and it is a Person asking', async () => {
+			signingIn.signedIn = undefined;
+			open({ read_cookbook_invite: { refuse: 'unauthorized' }, get_cookbook: ALREADY });
+
+			await screen.findByText('This invite has been used or ended. Ask for a new one.');
+			expect(signingIn.signedIn).toBe(true);
+		});
+
+		it('says nobody is when the sign-in form is what it draws', async () => {
+			signingIn.signedIn = true;
+			open({
+				read_cookbook_invite: { refuse: 'unauthorized' },
+				get_cookbook: { refuse: 'unauthorized' },
+			});
+
+			await screen.findByRole('heading', { name: 'Welcome back' });
+			expect(signingIn.signedIn).toBe(false);
+		});
 	});
 });

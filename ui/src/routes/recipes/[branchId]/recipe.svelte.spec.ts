@@ -11,9 +11,11 @@
  * wrong.
  */
 
+import { aDate } from '$lib/dates';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import { tick, type ComponentProps } from 'svelte';
+import userEvent from '@testing-library/user-event';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import { realFiles } from '$lib/api/files';
 import { OperationError } from '$lib/api/client';
@@ -41,9 +43,9 @@ const line = (text: string, index: number) => ({
 });
 const step = (text: string, index: number) => ({ kind: 'step', text, index });
 
-/** Aurélien's own Cookbook, under the name he gave it. */
-const MY_COOKBOOK = cookbookLabel('c_mine', ['Aurélien'], 'Maison Batterman');
-/** Marc's, which Aurélien sees because they share a Kitchen and never writes. */
+/** Stéphane's own Cookbook, under the name he gave it. */
+const MY_COOKBOOK = cookbookLabel('c_mine', ['Stéphane'], 'Maison Batterman');
+/** Marc's, which Stéphane sees because they share a Kitchen and never writes. */
 const MARCS_COOKBOOK = cookbookLabel('c_marc', ['Marc'], 'Chez Marc');
 
 const branch = (
@@ -311,7 +313,7 @@ function forked(extra: Answers = {}) {
 
 /**
  * Marc's version as `get_recipe` answers it, opened from the strip: his words,
- * in his Cookbook, which Aurélien may read and cook and not change.
+ * in his Cookbook, which Stéphane may read and cook and not change.
  */
 function marcsRecipe(): GetRecipeOutput {
 	const mine = forked().get_recipe as GetRecipeOutput;
@@ -865,16 +867,36 @@ describe('the Cooked section', () => {
 					last_cooked_at: '2026-08-14T18:30:00Z',
 					ratings: [
 						{
-							person_id: 'p_aurelien',
-							name: 'Aurélien',
+							person_id: 'p_stephane',
+							name: 'Stéphane',
 							rating: 'again' as const,
 							at: '2026-08-14T18:30:00Z',
+							given_on: 'newest' as const,
+							version_id: null,
 						},
 						{
 							person_id: 'p_marie',
 							name: 'Marie',
 							rating: 'tweak' as const,
 							at: '2026-08-02T19:00:00Z',
+							given_on: 'older' as const,
+							version_id: 'v_older',
+						},
+						{
+							person_id: 'p_camille',
+							name: 'Camille',
+							rating: 'no' as const,
+							at: '2026-07-20T19:00:00Z',
+							given_on: 'older' as const,
+							version_id: null,
+						},
+						{
+							person_id: 'p_bruno',
+							name: 'Bruno',
+							rating: 'no' as const,
+							at: '2026-07-11T19:00:00Z',
+							given_on: 'another' as const,
+							version_id: null,
 						},
 					],
 					...extra,
@@ -885,7 +907,7 @@ describe('the Cooked section', () => {
 	it('shows each Person’s own verdict beside their name, and never a score', async () => {
 		renderRecipe(cooked());
 
-		expect(await screen.findByText('Aurélien')).toBeInTheDocument();
+		expect(await screen.findByText('Stéphane')).toBeInTheDocument();
 		expect(screen.getByText('Again')).toBeInTheDocument();
 		expect(screen.getByText('Marie')).toBeInTheDocument();
 		expect(screen.getByText('Tweak it')).toBeInTheDocument();
@@ -895,6 +917,34 @@ describe('the Cooked section', () => {
 		expect(screen.queryByText(/average/i)).not.toBeInTheDocument();
 		expect(screen.queryByText(/★/)).not.toBeInTheDocument();
 		expect(screen.queryByText(/out of 5/i)).not.toBeInTheDocument();
+	});
+
+	// #229, the quiet mark of ADR 0005: a verdict on the recipe as it was must
+	// not read as a verdict on the recipe as it stands.
+	it('marks a verdict given on an older Version, and leaves one on the newest bare', async () => {
+		renderRecipe(cooked());
+		const row = async (name: string) => (await screen.findByText(name)).closest('li')!;
+
+		expect(within(await row('Stéphane')).queryByText('on an older Version')).toBeNull();
+		expect(within(await row('Stéphane')).queryByRole('link')).toBeNull();
+
+		// Where the recipe still carries that Version, the mark opens it.
+		const kept = within(await row('Marie')).getByRole('link', { name: 'on an older Version' });
+		expect(kept).toHaveAttribute('href', '/recipes/mine/versions/v_older');
+		expect(within(await row('Marie')).getByText('Tweak it')).toBeInTheDocument();
+
+		// Where a later save folded it away there is no such page, so the mark
+		// is still there and opens the Thread.
+		const folded = within(await row('Camille')).getByRole('link', {
+			name: 'on an older Version',
+		});
+		expect(folded).toHaveAttribute('href', '/recipes/mine/thread');
+
+		// A verdict on a variation or a Translation is not an older state of
+		// this recipe, and is not called one.
+		expect(within(await row('Bruno')).queryByText('on an older Version')).toBeNull();
+		const sibling = within(await row('Bruno')).getByRole('link', { name: 'on another Version' });
+		expect(sibling).toHaveAttribute('href', '/recipes/mine/thread');
 	});
 
 	it('says how many times and when last, counting every cooking', async () => {
@@ -911,65 +961,19 @@ describe('the Cooked section', () => {
 });
 
 /**
- * The way into the Thread (#133, Aurélien's choice A). The button says
- * *History* rather than the Thread's own name, and carries a line built like
- * the Cooked line above it: how many saves are behind it and when the last
- * was. It never says "version", which on this page already means one of the
- * recipe's versions in the strip.
+ * The way into the Thread (#133, choice A). The button says
+ * *History* rather than the Thread's own name. It never says "version", which
+ * on this page already means one of the recipe's versions in the strip. The
+ * line it carried under the word, how many saves and when the last was, went
+ * on 10 October 2026: it made the button taller than its neighbours.
  */
 describe('the way into the Thread', () => {
-	const at = (occurrence: ReturnType<typeof occurrenceOf>, created_at: string) => ({
-		...occurrence,
-		created_at,
-	});
-	const withSaves = (versions: ReturnType<typeof occurrenceOf>[]) =>
-		forked({
-			get_thread: {
-				...(forked().get_thread as Record<string, unknown>),
-				versions,
-			},
-		} as Answers);
-	const day = (iso: string) => new Date(iso).toLocaleDateString();
 	const button = () => screen.findByRole('link', { name: /^History/ });
-	/** The line under the button, once the Thread it counts has been read. */
-	const saying = async (text: string) => {
-		const line = await screen.findByText(text);
-		expect(line.closest('a')).toBe(await button());
-	};
 
 	it('says History and leads to the Thread', async () => {
 		renderRecipe();
 		expect((await button()).getAttribute('href')).toBe('/recipes/mine/thread');
 		expect(screen.queryByText(/the thread/i)).not.toBeInTheDocument();
-	});
-
-	it('counts the saves on this recipe’s own chain and dates the last', async () => {
-		renderRecipe(
-			withSaves([
-				at(occurrenceOf('mine', 1, 'v_root', null), '2026-08-01T10:00:00Z'),
-				at(occurrenceOf('mine', 2, 'v_mine', 'v_root'), '2026-08-09T10:00:00Z'),
-				at(occurrenceOf('theirs', 1, 'v_root', null), '2026-08-01T10:00:00Z'),
-				// Marc's save is later, and is his: it is neither counted nor dated.
-				at(occurrenceOf('theirs', 2, 'v_theirs', 'v_root'), '2026-09-02T10:00:00Z'),
-			]),
-		);
-		await saying(`Saved twice · last on ${day('2026-08-09T10:00:00Z')}`);
-	});
-
-	it('says one save plainly, which is every recipe straight from an import', async () => {
-		renderRecipe(withSaves([at(occurrenceOf('mine', 1, 'v_mine', null), '2026-09-23T16:00:00Z')]));
-		await saying(`Saved once · on ${day('2026-09-23T16:00:00Z')}`);
-	});
-
-	it('counts past two in figures', async () => {
-		renderRecipe(
-			withSaves([
-				at(occurrenceOf('mine', 1, 'v_1', null), '2026-08-01T10:00:00Z'),
-				at(occurrenceOf('mine', 2, 'v_2', 'v_1'), '2026-08-05T10:00:00Z'),
-				at(occurrenceOf('mine', 3, 'v_mine', 'v_2'), '2026-08-20T10:00:00Z'),
-			]),
-		);
-		await saying(`Saved 3 times · last on ${day('2026-08-20T10:00:00Z')}`);
 	});
 });
 
@@ -978,7 +982,7 @@ describe('the way into the Thread', () => {
  * the Sections, correcting a Reading in place, and a recipe wearing none of
  * the optional things.
  *
- * The layout was chosen by Aurélien on 29 August 2026 and the reasoning is on
+ * The layout was chosen on 29 August 2026 and the reasoning is on
  * the issue. What is tested here is not how it looks but what ADR 0002 makes
  * true of it: the written Line is the truth of the ingredient, a Reading is
  * subordinate to it, a Reading may be absent, and nothing on the page marks
@@ -1231,8 +1235,8 @@ describe('the recipe screen', () => {
 	});
 
 	/**
-	 * THE NUTRITION FIGURE CLOSES THE INGREDIENTS (#84). Aurélien chose that
-	 * placement on 21 September 2026 against four treatments drawn on both
+	 * THE NUTRITION FIGURE CLOSES THE INGREDIENTS (#84). That
+	 * placement was chosen on 21 September 2026 against four treatments drawn on both
 	 * surfaces: a fourth cell in the meta strip, a line directly under the
 	 * strip, this, and a place beside the Source. The list is where what goes
 	 * into the dish is already the subject, and the strip keeps the three cells
@@ -1240,7 +1244,7 @@ describe('the recipe screen', () => {
 	 *
 	 * The figure always says what it counts. 308 on its own says nothing, and
 	 * the two bases do not convert into each other without a weight the recipe
-	 * does not carry (CONTEXT.md, "Nutrition").
+	 * does not carry (GLOSSARY.md, "Nutrition").
 	 */
 	it('closes the Ingredients with the figure, saying what it counts', async () => {
 		renderRecipe(solo({ nutrition: { calories: 308, basis: 'per_serving' } }));
@@ -1562,6 +1566,26 @@ describe('the recipe screen', () => {
 		// And you are still on the recipe — the correction landed under the line.
 		expect(await screen.findByText('500 ml frying oil')).toBeInTheDocument();
 		expect(screen.getByText('Some cooking oil (for deep frying)')).toBeInTheDocument();
+	});
+
+	it('saves a Reading on Enter from any of its boxes (#203)', async () => {
+		const user = userEvent.setup();
+		const { kamosu } = renderRecipe({
+			...solo(),
+			set_reading: {
+				line_index: 2,
+				reading: { amount: '500', unit: 'ml', target: null, lineage_id: null },
+				measured: null,
+			},
+		});
+
+		await user.click(await screen.findByText('Some cooking oil (for deep frying)'));
+		await user.type(screen.getByLabelText(/^Amount$/i), '500');
+		await user.type(screen.getByLabelText(/^Unit$/i), 'ml{Enter}');
+
+		const sent = kamosu.calls.filter((call) => call.operation === 'set_reading');
+		expect(sent).toHaveLength(1);
+		expect(sent[0].input).toMatchObject({ line_index: 2, amount: '500', unit: 'ml' });
 	});
 
 	/**
@@ -1948,7 +1972,7 @@ describe('the recipe screen', () => {
 	// rather than a Food. Everything the screen shows about one — which recipe,
 	// how much of it, and the three sentences for when there is nothing to
 	// unfold — is worded in the Core, so what these tests hold is the LAYOUT
-	// Aurélien chose on 3 September 2026: B, the annexe.
+	// Chosen on 3 September 2026: B, the annexe.
 
 	/** A recipe whose first line names another recipe. */
 	function withComponent(
@@ -2148,8 +2172,10 @@ describe('correcting a Reading beside a Divergence', () => {
 			branch_id: 'mine',
 		});
 
-		// What it stores is the choosing, so the button now offers the way back.
+		// What it stores is the choosing, so the button now offers the way back,
+		// and wears the done fill so the state is read at a glance (#220).
 		const on = await screen.findByRole('button', { name: /On your shopping list/i });
+		expect(on.className).toContain('act-tile-done');
 		await fireEvent.click(on);
 		expect(
 			kamosu.calls.find((call) => call.operation === 'remove_from_shopping_list')?.input,
@@ -2525,7 +2551,7 @@ describe('on the phone (#76)', () => {
 		localStorage.setItem('kamosu.library', JSON.stringify({ held: ['another'] }));
 		offlineWithKeptCopy();
 		renderRecipe();
-		expect(await screen.findByText(`Kept from ${kept.toLocaleDateString()}`)).toBeInTheDocument();
+		expect(await screen.findByText(`Kept from ${aDate(kept)}`)).toBeInTheDocument();
 	});
 
 	it('says nothing of the kind before the phone knows what its library holds', async () => {
@@ -2566,7 +2592,7 @@ describe('deleting a recipe', () => {
 		shared,
 		share_id: shared ? 'sh_1' : null,
 		url: shared ? 'https://kamosu.example/s/tk_1' : null,
-		shared_by: shared ? 'Aurélien' : null,
+		shared_by: shared ? 'Stéphane' : null,
 		created_at: shared ? '2026-09-20T00:00:00Z' : null,
 		public_address: 'https://kamosu.example',
 	});
@@ -2592,17 +2618,37 @@ describe('deleting a recipe', () => {
 		expect(screen.queryByRole('button', { name: 'Delete this recipe' })).toBeNull();
 	});
 
-	it('is set apart from the actions rather than standing among them', async () => {
+	it('is set apart from the grid of acts rather than standing among them (#220)', async () => {
 		renderRecipe(forked({ get_share_link: shareLink(false) }));
 		const affordance = await screen.findByRole('button', { name: 'Delete this recipe' });
 
-		// Every action above it is a full-width row in one column. This one is
-		// not shaped like them, which is the whole of why a thumb reaching for
-		// `Add to shopping list` cannot land on it.
+		// Every act at the foot is a tile in a grid (option 1 of the audit of
+		// 9 October 2026, chosen on 10 October). This one is not shaped like
+		// them, which is the whole of why a thumb reaching for *Add to shopping
+		// list* cannot land on it, and it comes after them all.
 		const shopping = screen.getByRole('button', { name: /shopping list/i });
-		expect(shopping.className).toContain('w-[calc(100%-2*var(--spacing-gutter))]');
-		expect(affordance.className).not.toContain('w-[calc(100%-2*var(--spacing-gutter))]');
+		expect(shopping.className).toContain('act-tile');
+		expect(affordance.className).not.toContain('act-tile');
 		expect(affordance.className).toContain('underline');
+		expect(
+			shopping.compareDocumentPosition(affordance) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+
+	it('puts Cook this alone under the servings, before the Ingredients, and Edit among the acts at the foot (#220)', async () => {
+		renderRecipe(forked({ get_share_link: shareLink(false) }));
+		const cook = await screen.findByRole('link', { name: 'Cook this' });
+		const edit = screen.getByRole('button', { name: 'Edit this recipe' });
+		const ingredients = screen.getByRole('heading', { name: /ingredients/i });
+
+		expect(
+			cook.compareDocumentPosition(ingredients) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(
+			ingredients.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(cook.className).toContain('bg-accent');
+		expect(edit.className).toContain('act-tile');
 	});
 
 	it('asks before it does anything, and asking alone deletes nothing', async () => {
@@ -2852,7 +2898,7 @@ describe('the Language offer on the recipe', () => {
 });
 
 /**
- * Naming a version of the recipe from its page (#134, Aurélien's choice B): a
+ * Naming a version of the recipe from its page (#134, choice B): a
  * line among the actions opening a small sheet. A "version" here is a Branch,
  * the thing the strip at the top counts, and never one saved Version.
  */
@@ -3058,10 +3104,12 @@ describe('naming a version (#134)', () => {
 				},
 			});
 
-		renderRecipe(alone(null));
-		// The count under History comes from the same read of the Thread that
-		// says how many versions there are, so the page knows by then.
-		expect(await screen.findByText(/^Saved once/)).toBeInTheDocument();
+		const { kamosu } = renderRecipe(alone(null));
+		// Whether a name is offered is read off the Thread, so wait for that read.
+		await vi.waitFor(() =>
+			expect(kamosu.calls.some((call) => call.operation === 'get_thread')).toBe(true),
+		);
+		await tick();
 		expect(screen.queryByRole('button', { name: 'Name this version' })).toBeNull();
 		cleanup();
 
@@ -3072,7 +3120,7 @@ describe('naming a version (#134)', () => {
 });
 
 /**
- * A recipe's Source line, where its link can be tapped (#152, Aurélien's
+ * A recipe's Source line, where its link can be tapped (#152,
  * choice A). The line is set on the photograph when there is one and on paper
  * under a Cover when there is not (#81), and the same holds in both places.
  */
@@ -3122,4 +3170,49 @@ describe('the Source line', () => {
 			expect(document.querySelector('a[href^="javascript"]')).toBeNull();
 		});
 	}
+});
+
+describe('two columns where the window is roomy (#198)', () => {
+	it('puts the Ingredients in one column, the Method in the other, and the rest under both', async () => {
+		renderRecipe();
+		const line = await screen.findByText('1 cup potato starch (or corn starch)');
+		const step = screen.getByText('Deep fry at 190 C until crisp.');
+
+		const columns = line.closest('.recipe-columns')!;
+		expect(columns).not.toBeNull();
+		expect(columns.children).toHaveLength(2);
+		expect(columns.children[0]).toContainElement(line);
+		expect(columns.children[0]).toContainElement(
+			screen.getByRole('heading', { name: 'Ingredients' }),
+		);
+		expect(columns.children[1]).toContainElement(step);
+		expect(columns.children[1]).toContainElement(screen.getByRole('heading', { name: 'Method' }));
+
+		// The part that stays in view is a box inside the left column, never
+		// the column. As the column it stayed for the whole page and rode over
+		// everything under the Method, which was found on the iPad.
+		const stays = line.closest('.stays-in-view')!;
+		expect(stays.parentElement).toBe(columns.children[0]);
+		expect(stays).not.toContainElement(step);
+
+		// What leads the page is above both columns, and what follows is under
+		// both: neither is squeezed into one of them.
+		for (const outside of [
+			screen.getByRole('heading', { name: 'Tags' }),
+			screen.getByRole('heading', { name: 'Cooked' }),
+			screen.getByRole('button', { name: 'Edit this recipe' }),
+			screen.getByRole('link', { name: 'Cook this' }),
+		]) {
+			expect(columns).not.toContainElement(outside);
+		}
+	});
+
+	it('keeps a recipe read against another Branch in one column (#192)', async () => {
+		renderRecipe(onTheirs(), 'theirs');
+		await compared();
+
+		expect(document.querySelector('.recipe-columns')).toBeNull();
+		expect(document.querySelector('.stays-in-view')).toBeNull();
+		expect(document.querySelector('.recipe-page')).toBeNull();
+	});
 });

@@ -24,7 +24,7 @@ Photographs nothing points at are removed by a **sweep** that runs daily, works 
 
 ## The facts that decided it
 
-Measured directly from Aurélien's 86-recipe Crouton export ([#5](https://github.com/BattermanZ/Kamosu/issues/5)), and by encoding his own camera originals on the target server:
+Measured directly from the first Operator's 86-recipe Crouton export ([#5](https://github.com/BatterWorks/Kamosu/issues/5)), and by encoding his own camera originals on the target server:
 
 - **The library is 60 photographs, not 86.** 27 recipes carry none, 58 carry one, one carries two. Decoded, they are **82 MB** — the export's oft-quoted 110 MB is the archive, not the pictures.
 - **`sourceImage` is not a second copy of the photo.** On all 44 recipes that have one it is the **source website's favicon**: median **32 pixels wide, 2.2 KB**, 0.17 MB for all 44 together. Seven are the identical Instagram icon. Not one matches a real photograph. The importer's supposed deduplication question did not exist.
@@ -43,12 +43,12 @@ Measured directly from Aurélien's 86-recipe Crouton export ([#5](https://github
 - **A second, human-named folder tree** mirroring the library. See above: it cannot name the case that matters.
 - **One Display Copy size.** A shelf of 60 cards built from 1400px pictures is roughly a quarter of a gigabyte of decoding to draw pictures the size of a stamp — on iOS, the platform [ADR 0012](./0012-the-compiler-is-the-reviewer-the-frontend-does-not-have.md) chose to test against because it is tightest. The card size costs 42 KB and a thirtieth of a second, made once.
 - **Deleting an orphan the moment it is orphaned**, which would make an ordinary act destroy something unrecoverably as a side effect, and **never sweeping automatically**, which puts housekeeping on a person who does not know the feature exists.
-- **Keeping `sourceImage` as a site icon.** It would be a fourth kind of image in a model that has three, needing its own answer to every question settled here — fingerprint, bundle, Display Copies, sweep — for a 32-pixel decoration. [#6](https://github.com/BattermanZ/Kamosu/issues/6) already ruled that Source is attribution, never identity.
+- **Keeping `sourceImage` as a site icon.** It would be a fourth kind of image in a model that has three, needing its own answer to every question settled here — fingerprint, bundle, Display Copies, sweep — for a 32-pixel decoration. [#6](https://github.com/BatterWorks/Kamosu/issues/6) already ruled that Source is attribution, never identity.
 
 ## Consequences
 
 - **Replacing a photograph mints a Version**, and the history says so. Accepted as honest: the picture is part of what you would hand someone.
 - **A Backup taken from Kamosu does not return the bytes that left the phone.** It returns the remade Photograph. Stated here so it is not discovered later.
-- **The data directory is not browsable.** Photographs sit under names that are their own contents. Anyone wanting readable files runs a **Backup**, a v1 Operation at both doors ([#7](https://github.com/BattermanZ/Kamosu/issues/7)).
+- **The data directory is not browsable.** Photographs sit under names that are their own contents. Anyone wanting readable files runs a **Backup**, a v1 Operation at both doors ([#7](https://github.com/BatterWorks/Kamosu/issues/7)).
 - **Display Copy sizes and format are free to change in v2**, over the library that already exists, without touching a recipe — they are computed-on-top under [ADR 0009](./0009-the-v1-cut-line-is-drawn-at-shape-not-at-features.md). The **Photograph's** own form is stored shape and is not.
-- **31% of real recipes have no photograph**, and ADR 0011 does not say what leads a recipe page when there is none. Handed to [#29](https://github.com/BattermanZ/Kamosu/issues/29) as a requirement.
+- **31% of real recipes have no photograph**, and ADR 0011 does not say what leads a recipe page when there is none. Handed to [#29](https://github.com/BatterWorks/Kamosu/issues/29) as a requirement.

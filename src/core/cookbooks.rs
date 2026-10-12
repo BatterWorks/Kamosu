@@ -380,6 +380,12 @@ pub(super) fn ensure_sees_or_absent(
     }
 }
 
+/// What a Cookbook the caller may not see answers, and one that does not
+/// exist: the two are one answer (ADR 0040).
+pub(super) fn no_such_cookbook() -> OpError {
+    OpError::not_found("no such Cookbook")
+}
+
 /// **May see** a Branch: the check nearly every recipe Operation opens with.
 /// Answers the Branch's Cookbook, which is what the Operation asks next.
 pub(super) fn ensure_sees_branch(

@@ -51,7 +51,7 @@ impl Core {
     /// already there mints nothing.
     ///
     /// Changing a recipe your Cookbook did not write is a **Copy**
-    /// (CONTEXT.md, "Copy"; ADR 0041): it happens here, at the moment of the
+    /// (GLOSSARY.md, "Copy"; ADR 0041): it happens here, at the moment of the
     /// change, never at the moment of merely reading `branch_id`. Somebody
     /// who is not one of the Branch's Co-authors — a Kitchen-mate, or anyone
     /// saving onto a Branch that arrived in their own Cookbook from elsewhere
@@ -466,7 +466,7 @@ impl Core {
     }
 
     /// Rename a Version — the one thing about it that can change later
-    /// (CONTEXT.md, "Version"). An absent or empty name clears it. Targeted
+    /// (GLOSSARY.md, "Version"). An absent or empty name clears it. Targeted
     /// by `sequence` rather than `version_id`: the same content can recur
     /// more than once on one Branch (a save reverting to exact earlier
     /// text), and each occurrence carries its own independent name — the
@@ -769,7 +769,11 @@ impl Core {
                 // every read, so nothing about which Ingredients a Step uses is
                 // ever stored — and so both Doors say the same thing.
                 let readings = version["readings"].as_array().cloned().unwrap_or_default();
-                version["cooking"] = cooking_for_version(&version["content"], &readings);
+                version["cooking"] = cooking_for_version(
+                    &version["content"],
+                    &readings,
+                    version["language"].as_str(),
+                );
                 // A Component unfolded (ADR 0008): the inner recipe, already
                 // scaled by how much of it this line asks for, to whatever
                 // depth the composition goes. Empty for nearly every recipe.
@@ -830,14 +834,14 @@ impl Core {
                 // the Versions and never inside one — an Attempt is a private
                 // diary entry, not part of what the recipe is, which is the
                 // whole of why none of this can reach a Share Link.
-                "cooked": cooking_record(conn, &lineage_id, person_id)?,
+                "cooked": cooking_record(conn, &lineage_id, branch_id, &head_version_id, person_id)?,
             }))
         })
     }
 
     /// Read the Thread: every Version of every Branch of one Lineage this
     /// Person can see, oldest first per Branch, with every Attempt hanging
-    /// off it (CONTEXT.md, "Thread"). `branch_id` is only the entry point —
+    /// off it (GLOSSARY.md, "Thread"). `branch_id` is only the entry point —
     /// any Branch of the Lineage answers the same Thread. Forking itself is
     /// left for the caller to read out of `parent_version_id`, or to ask
     /// `branch_point` to compute authoritatively; this never calls it, so
@@ -965,7 +969,7 @@ impl Core {
     }
 
     /// The Branch Point between two Branches: the last Version they share,
-    /// found by walking both chains back until they meet (CONTEXT.md,
+    /// found by walking both chains back until they meet (GLOSSARY.md,
     /// "Branch Point") — never declared, always computed. Every valid
     /// Branch's chain is contiguous back to a first Version with no parent;
     /// a chain that is not, or two chains that never converge, is reported
@@ -1046,65 +1050,173 @@ impl Core {
                     ))
                 })?;
 
-            let base = version_content(conn, branch_point_id)?;
-            let content_mine = version_content(conn, &mine.head_version_id)?;
-            let content_theirs = version_content(conn, &theirs.head_version_id)?;
-
-            let rows = |field: &str| -> Vec<Value> {
-                crate::pairing::read(
-                    &crate::pairing::Line::list_from(&base, field),
-                    &crate::pairing::Line::list_from(&content_mine, field),
-                    &crate::pairing::Line::list_from(&content_theirs, field),
-                )
-                .iter()
-                .map(crate::pairing::Row::to_json)
-                .collect()
-            };
-
-            // The marking covers the whole recipe, not only the two lists
-            // (ADR 0019). These are single values: same or not, with nothing to
-            // pair and nothing to get wrong. Tags are deliberately absent —
-            // what one Kitchen means by "quick" is its own business (ADR 0035).
-            let field = |name: &str| {
-                crate::pairing::compare_field(
-                    content_mine.get(name).unwrap_or(&Value::Null),
-                    content_theirs.get(name).unwrap_or(&Value::Null),
-                )
-            };
-
-            Ok(json!({
-                "lineage_id": mine.lineage_id,
-                "branch_point_version_id": branch_point_id,
-                // Each side scales to its OWN written Yield: the two Branches
-                // may disagree about it, and the cook is making one number of
-                // servings either way.
-                "mine": mine.to_json(
-                    conn,
-                    &content_mine,
-                    person_id,
-                    cooking_scale(conn, &mine.lineage_id, person_id, &content_mine)?,
-                )?,
-                "theirs": theirs.to_json(
-                    conn,
-                    &content_theirs,
-                    person_id,
-                    cooking_scale(conn, &theirs.lineage_id, person_id, &content_theirs)?,
-                )?,
-                "ingredients": rows("ingredients"),
-                "steps": rows("steps"),
-                "fields": {
-                    "title": field("title"),
-                    "yield": field("yield"),
-                    "prep_time_minutes": field("prep_time_minutes"),
-                    "cook_time_minutes": field("cook_time_minutes"),
-                    "source": field("source"),
-                    "note": field("note"),
-                    "nutrition": field("nutrition"),
-                    "main_photo": field("main_photo"),
-                },
-            }))
+            two_whole_recipes(conn, person_id, branch_point_id, &mine, &theirs)
         })
     }
+
+    /// **An older Version read against the newest Version of its Branch**
+    /// (#211): the same two whole recipes a Divergence answers (ADR 0014),
+    /// where the two are one Branch at two moments. `mine` is the Branch as it
+    /// stands and `theirs` is the Branch at the Version named, so a screen
+    /// standing in the older Version reads the rows from the `theirs` side.
+    ///
+    /// The older Version is the point the two share, so it is what both are
+    /// read against (ADR 0019). A row only `theirs` has is a line taken out
+    /// since; a row only `mine` has is a line written since.
+    ///
+    /// The newest Version answers too, with every row the same and `newest`
+    /// true: it is the recipe, and there is nothing to mark.
+    pub fn changed_since(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+        version_id: &str,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            // `ordered_chain` checks the caller may see the Branch.
+            let chain = ordered_chain(conn, branch_id, person_id)?;
+            if !chain.iter().any(|each| each == version_id) {
+                return Err(OpError::bad_request(
+                    "version_id is not a Version of this Branch",
+                ));
+            }
+
+            let now = branch_head(conn, branch_id)?;
+            // The same content can recur on one Branch. The last time it was
+            // saved is the one the Thread shows nearest the head.
+            let (sequence, hand_id, name, change_note, created_at, hand_name): (
+                i64,
+                String,
+                Option<String>,
+                Option<String>,
+                String,
+                Option<String>,
+            ) = conn
+                .query_row(
+                    &format!(
+                        "SELECT sequence, hand_id, name, change_note, created_at, {} \
+                           FROM branch_versions WHERE branch_id = ?1 AND version_id = ?2 \
+                          ORDER BY sequence DESC LIMIT 1",
+                        hand_name_sql("branch_versions.hand_id"),
+                    ),
+                    params![branch_id, version_id],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                        ))
+                    },
+                )
+                .map_err(|e| OpError::internal(format!("cannot read Version: {e}")))?;
+            let then = BranchHead {
+                branch_id: branch_id.to_string(),
+                lineage_id: now.lineage_id.clone(),
+                cookbook_id: now.cookbook_id.clone(),
+                name: now.name.clone(),
+                arrived: now.arrived,
+                hand_id: hand_id.clone(),
+                language: now.language.clone(),
+                head_version_id: version_id.to_string(),
+            };
+
+            let mut answer = two_whole_recipes(conn, person_id, version_id, &now, &then)?;
+            answer["version"] = json!({
+                "version_id": version_id,
+                "sequence": sequence,
+                "name": name,
+                "change_note": change_note,
+                "created_at": created_at,
+                "hand_id": hand_id,
+                "hand_name": hand_name,
+                "newest": version_id == now.head_version_id,
+            });
+            // Whether the reader writes this Branch, as `get_recipe` says it:
+            // only then can a line be written back into the recipe.
+            answer["writes"] = json!(cookbook_writes_branch(
+                conn,
+                &cookbook_of_person(conn, person_id)?,
+                branch_id,
+            )?);
+            Ok(answer)
+        })
+    }
+}
+
+/// **Two whole recipes and the rows between them** (ADR 0014): what a
+/// Divergence answers, and what an older Version read against its own Branch
+/// answers too (#211). Both sides are read against `shared_version_id`, the
+/// last Version the two have in common (ADR 0019). For two Branches that is
+/// their Branch Point. For one Branch at two moments it is the older Version
+/// itself, and the answer still calls it `branch_point_version_id`, the one
+/// name a screen reads either answer by.
+fn two_whole_recipes(
+    conn: &Connection,
+    person_id: &str,
+    shared_version_id: &str,
+    mine: &BranchHead,
+    theirs: &BranchHead,
+) -> Result<Value, OpError> {
+    let base = version_content(conn, shared_version_id)?;
+    let content_mine = version_content(conn, &mine.head_version_id)?;
+    let content_theirs = version_content(conn, &theirs.head_version_id)?;
+
+    let rows = |field: &str| -> Vec<Value> {
+        crate::pairing::read(
+            &crate::pairing::Line::list_from(&base, field),
+            &crate::pairing::Line::list_from(&content_mine, field),
+            &crate::pairing::Line::list_from(&content_theirs, field),
+        )
+        .iter()
+        .map(crate::pairing::Row::to_json)
+        .collect()
+    };
+
+    // The marking covers the whole recipe, not only the two lists
+    // (ADR 0019). These are single values: same or not, with nothing to
+    // pair and nothing to get wrong. Tags are deliberately absent —
+    // what one Kitchen means by "quick" is its own business (ADR 0035).
+    let field = |name: &str| {
+        crate::pairing::compare_field(
+            content_mine.get(name).unwrap_or(&Value::Null),
+            content_theirs.get(name).unwrap_or(&Value::Null),
+        )
+    };
+
+    Ok(json!({
+        "lineage_id": mine.lineage_id,
+        "branch_point_version_id": shared_version_id,
+        // Each side scales to its OWN written Yield: the two may disagree
+        // about it, and the cook is making one number of servings either
+        // way.
+        "mine": mine.to_json(
+            conn,
+            &content_mine,
+            person_id,
+            cooking_scale(conn, &mine.lineage_id, person_id, &content_mine)?,
+        )?,
+        "theirs": theirs.to_json(
+            conn,
+            &content_theirs,
+            person_id,
+            cooking_scale(conn, &theirs.lineage_id, person_id, &content_theirs)?,
+        )?,
+        "ingredients": rows("ingredients"),
+        "steps": rows("steps"),
+        "fields": {
+            "title": field("title"),
+            "yield": field("yield"),
+            "prep_time_minutes": field("prep_time_minutes"),
+            "cook_time_minutes": field("cook_time_minutes"),
+            "source": field("source"),
+            "note": field("note"),
+            "nutrition": field("nutrition"),
+            "main_photo": field("main_photo"),
+        },
+    }))
 }
 
 /// Carry a Reading forward onto a freshly saved Version wherever the
@@ -1516,7 +1628,7 @@ fn held_from(
 }
 
 /// **What the cooking screen reads out of each Step, and stores nowhere**
-/// (ADR 0011, CONTEXT.md "Step"): which Ingredient Lines the Step uses, and
+/// (ADR 0011, GLOSSARY.md "Step"): which Ingredient Lines the Step uses, and
 /// the duration it offers as a timer.
 ///
 /// One slot per row of `content.steps`, in the same order — the shape
@@ -1534,10 +1646,10 @@ fn held_from(
 /// It is worked out in the Core rather than on the screen so that both Doors
 /// get it: an agent asked to read out the next step names the same amounts the
 /// phone on the worktop is showing (ADR 0001, ADR 0010).
-fn cooking_for_version(content: &Value, readings: &[Value]) -> Value {
+fn cooking_for_version(content: &Value, readings: &[Value], language: Option<&str>) -> Value {
     let no_lines = Vec::new();
     let step_lines = content["steps"].as_array().unwrap_or(&no_lines);
-    let uses = crate::step_uses::step_uses(step_lines, readings);
+    let uses = crate::step_uses::step_uses(step_lines, readings, language);
 
     let steps: Vec<Value> = step_lines
         .iter()
@@ -1608,7 +1720,7 @@ fn whole_word_at(haystack: &str, start: usize, needle: &str) -> bool {
 /// autosave, so genuinely separate editing sessions land far apart in
 /// practice — there is no realistic pattern this window would wrongly merge,
 /// while it comfortably absorbs one meandering sitting, pauses included
-/// (decided with Aurélien on issue #42).
+/// (decided on issue #42).
 pub const COLLAPSE_WINDOW_SECONDS: i64 = 3600;
 
 /// How a save says the recipe's new content: whole, already parsed, or as
@@ -1659,7 +1771,7 @@ fn merged_onto_head(head: &Value, changes: &Value) -> Value {
 /// request input (#43): the title, the optional Yield, Prep/Cook Time, Note,
 /// Source and Nutrition figure, and the Ingredient Line and Step lists — each a flat, ordered
 /// sequence in which a Section is a real entry rather than a faked line
-/// (CONTEXT.md, "Section"). Every field but the title is optional and
+/// (GLOSSARY.md, "Section"). Every field but the title is optional and
 /// normalises to `null` or `[]` when absent, so `{ "title": "..." }` alone is
 /// a complete, valid Recipe. This is the whole state, never a delta: calling
 /// it again with fields left out replaces them, exactly as a fresh save of
@@ -1719,7 +1831,7 @@ pub(super) fn parse_recipe_content(input: &Value) -> Result<Value, OpError> {
 }
 
 /// Nutrition, all of it v1 has: one figure and what that figure counts
-/// (CONTEXT.md, "Nutrition"). Kamosu never works the number out from the
+/// (GLOSSARY.md, "Nutrition"). Kamosu never works the number out from the
 /// Ingredient Lines or the Foods they name — #12 defers CIQUAL and the
 /// compute button past v1 — so this is only ever what somebody typed, or
 /// what a source page's own structured data stated (#70, ADR 0025).
@@ -1749,7 +1861,7 @@ fn parse_nutrition(value: &Value) -> Result<Value, OpError> {
 }
 
 /// A Yield: one amount and what it is an amount of — "4 servings", "24
-/// cookies", "1.5 litres" are all the same field (CONTEXT.md, "Yield"), kept
+/// cookies", "1.5 litres" are all the same field (GLOSSARY.md, "Yield"), kept
 /// as written rather than parsed into a number and a Unit. The noun is a
 /// distinct concept from Unit (grams, cups, spoons — a closed, convertible
 /// list), so it is never called `unit` here.
@@ -1803,7 +1915,7 @@ pub(super) fn parse_named_yield(value: &Value) -> Result<Value, OpError> {
 /// Prep Time and Cook Time are whole minutes; Cook Time includes resting,
 /// proving, marinating and chilling — one field for however the dish spends
 /// unattended time, documented at the Catalogue level for any Door reading
-/// it (CONTEXT.md, "Cook Time").
+/// it (GLOSSARY.md, "Cook Time").
 fn parse_optional_minutes(value: Option<&Value>, field: &str) -> Result<Option<i64>, OpError> {
     match value {
         None | Some(Value::Null) => Ok(None),
@@ -1823,7 +1935,7 @@ fn parse_optional_minutes(value: Option<&Value>, field: &str) -> Result<Option<i
 }
 
 /// A Source: free text with an optional link — "Mum's ring binder, p.40" is
-/// as real an attribution as a URL (CONTEXT.md, "Source").
+/// as real an attribution as a URL (GLOSSARY.md, "Source").
 fn parse_source(value: &Value) -> Result<Value, OpError> {
     let object = value.as_object().ok_or_else(|| {
         OpError::bad_request("source must be an object with text and an optional link")
@@ -1883,7 +1995,7 @@ fn parse_line_list(value: Option<&Value>, field: &str, line_kind: &str) -> Resul
 
 /// The Step list: the same flat Section-and-entry shape as the Ingredient
 /// list, where a Step carries text and an optional photo — no timer or
-/// temperature field to fill in (CONTEXT.md, "Step"). The photo is carried
+/// temperature field to fill in (GLOSSARY.md, "Step"). The photo is carried
 /// only as a reference to a Photograph already uploaded through
 /// `upload_photograph`, unvalidated here the way any other pointer in this
 /// codebase is (ADR 0017).
@@ -1932,6 +2044,12 @@ fn parse_step_list(value: Option<&Value>) -> Result<Value, OpError> {
 /// (ADR 0010). The count, the date and the rating travel; the recipe they
 /// wrote at their own stove does not. Stripped in the Core rather than left to
 /// a screen to omit, because a second Door would omit it differently.
+///
+/// **`eaten_version_id` says which Version a cooking counts for** (#209), as
+/// `thread_attempt_schema` declares it. Worked out here, before the strip,
+/// because a Kitchen-mate's screen is never handed the As Cooked to work it
+/// out from. An As Cooked nobody kept is on no Branch, so its fingerprint
+/// never leaves this way.
 fn attempts_for_lineage(
     conn: &Connection,
     lineage_id: &str,
@@ -1955,18 +2073,23 @@ fn attempts_for_lineage(
         .map_err(|e| OpError::internal(format!("cannot read Attempts: {e}")))?;
     Ok(rows
         .into_iter()
-        .filter(|attempt| {
-            visible_version_ids.contains(
-                attempt["version_id"]
-                    .as_str()
-                    .expect("version_id is always a string"),
-            )
-        })
-        .map(|mut attempt| {
+        .filter_map(|mut attempt| {
+            let on_the_thread = |id: &Value| {
+                id.as_str()
+                    .filter(|id| visible_version_ids.contains(*id))
+                    .map(|id| json!(id))
+            };
+            // A cooking is on the Thread where the Version it counts for is.
+            // Asked of what was eaten first, since a Promotion inside the
+            // collapse window folds away the very Version the cooking started
+            // from and leaves only the one it was kept as.
+            let eaten = on_the_thread(&attempt["as_cooked"]["version_id"])
+                .or_else(|| on_the_thread(&attempt["version_id"]))?;
+            attempt["eaten_version_id"] = eaten;
             if attempt["person_id"] != json!(viewer_person_id) {
                 attempt["as_cooked"] = Value::Null;
             }
-            attempt
+            Some(attempt)
         })
         .collect())
 }
@@ -2001,7 +2124,23 @@ fn attempts_for_lineage(
 /// An unfinished Attempt counts toward both the count and the date (ADR 0010):
 /// a cooking is real from the moment it starts, and the library must not be
 /// systematically wrong because nobody filed paperwork.
-fn cooking_record(conn: &Connection, lineage_id: &str, person_id: &str) -> Result<Value, OpError> {
+///
+/// **A rating says which Version it was given on** (#229), the quiet mark
+/// ADR 0005 asks for: a "no" from before a recipe was fixed must not read as a
+/// "no" to the recipe as it stands. That Version is the one that was eaten,
+/// worked out as `attempts_for_lineage` does for the Thread, and it is set
+/// against the head of the Branch being read: `newest` where it is that head,
+/// `older` where it is an earlier state of this Branch, and `another` where
+/// only a variation or a Translation holds it. The collapse described above is
+/// why the rating is compared and never joined: one whose Version no Branch
+/// carries any more is `older`, and it is marked and kept.
+fn cooking_record(
+    conn: &Connection,
+    lineage_id: &str,
+    branch_id: &str,
+    head_version_id: &str,
+    person_id: &str,
+) -> Result<Value, OpError> {
     let household = company_of("?2");
 
     let (count, last_cooked_at): (i64, Option<String>) = conn
@@ -2027,7 +2166,8 @@ fn cooking_record(conn: &Connection, lineage_id: &str, person_id: &str) -> Resul
     // Person twice and hand the screen a duplicate key. The id breaks the tie.
     let mut statement = conn
         .prepare(&format!(
-            "SELECT attempts.person_id, people.name, attempts.rating, attempts.created_at \
+            "SELECT attempts.person_id, people.name, attempts.rating, attempts.created_at, \
+                    attempts.version_id, attempts.as_cooked_version_id \
                FROM attempts JOIN people ON people.id = attempts.person_id \
               WHERE attempts.lineage_id = ?1 AND attempts.person_id IN ({household}) \
                 AND attempts.id = ( \
@@ -2039,9 +2179,9 @@ fn cooking_record(conn: &Connection, lineage_id: &str, person_id: &str) -> Resul
               ORDER BY attempts.created_at DESC, people.name ASC"
         ))
         .map_err(|e| OpError::internal(format!("cannot read ratings: {e}")))?;
-    let ratings: Vec<Value> = statement
+    let rows: Vec<(Value, String, Option<String>)> = statement
         .query_map(params![lineage_id, person_id], |row| {
-            Ok(json!({
+            let rating = json!({
                 "person_id": row.get::<_, String>(0)?,
                 // The Person's name as it stands now, not as it stood when
                 // they cooked: renaming yourself reaches your own history
@@ -2050,11 +2190,73 @@ fn cooking_record(conn: &Connection, lineage_id: &str, person_id: &str) -> Resul
                 "name": row.get::<_, String>(1)?,
                 "rating": row.get::<_, String>(2)?,
                 "at": row.get::<_, String>(3)?,
-            }))
+            });
+            Ok((rating, row.get(4)?, row.get(5)?))
         })
         .map_err(|e| OpError::internal(format!("cannot read ratings: {e}")))?
         .collect::<Result<_, _>>()
         .map_err(|e| OpError::internal(format!("cannot read ratings: {e}")))?;
+
+    // Where the reader's Thread holds a Version: on the Branch being read, on
+    // another Branch of the Lineage they may see, or on none.
+    #[derive(PartialEq)]
+    enum Held {
+        Here,
+        Elsewhere,
+        Nowhere,
+    }
+    let mut holding = conn
+        .prepare(&format!(
+            "SELECT MAX(branches.id = ?3) \
+               FROM branch_versions JOIN branches ON branches.id = branch_versions.branch_id \
+              WHERE branch_versions.version_id = ?1 AND branches.lineage_id = ?4 AND {} \
+             HAVING COUNT(*) > 0",
+            visible_to("branches", "?2"),
+        ))
+        .map_err(|e| OpError::internal(format!("cannot read ratings: {e}")))?;
+    let mut held = |version_id: &str| -> Result<Held, OpError> {
+        let here: Option<bool> = holding
+            .query_row(
+                params![version_id, person_id, branch_id, lineage_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| OpError::internal(format!("cannot read ratings: {e}")))?;
+        Ok(match here {
+            Some(true) => Held::Here,
+            Some(false) => Held::Elsewhere,
+            None => Held::Nowhere,
+        })
+    };
+    let mut ratings: Vec<Value> = Vec::with_capacity(rows.len());
+    for (mut rating, started_from, as_cooked) in rows {
+        // What was eaten (#209): the As Cooked once somebody kept it as a
+        // Version, otherwise the Version the cooking started from. The same
+        // rule, in the same order, as the Thread hangs a cooking by.
+        let eaten = match as_cooked {
+            Some(as_cooked) if held(&as_cooked)? != Held::Nowhere => as_cooked,
+            _ => started_from,
+        };
+        let (given_on, version_id) = if eaten == head_version_id {
+            ("newest", Value::Null)
+        } else {
+            match held(&eaten)? {
+                // Named only here, where the older Version's page can open
+                // it. An As Cooked nobody kept is on no Branch, so its
+                // fingerprint never leaves this way.
+                Held::Here => ("older", json!(eaten)),
+                // A variation's or a Translation's: no older state of this
+                // recipe, so the screen must not call it one.
+                Held::Elsewhere => ("another", Value::Null),
+                // Folded away by a collapsing save. Still a rating, and still
+                // from before the recipe was what it is now.
+                Held::Nowhere => ("older", Value::Null),
+            }
+        };
+        rating["given_on"] = json!(given_on);
+        rating["version_id"] = version_id;
+        ratings.push(rating);
+    }
 
     Ok(json!({
         "count": count,
@@ -2380,7 +2582,7 @@ fn version_is_held_by_another_branch(
     })
 }
 
-/// Start a **Copy** (CONTEXT.md, "Copy"): a new Branch of the same Lineage in
+/// Start a **Copy** (GLOSSARY.md, "Copy"): a new Branch of the same Lineage in
 /// `cookbook_id`, under that Cookbook's own Hand, carrying the whole chain of
 /// `branch_id` behind it verbatim — same Versions, same Hands, same names and
 /// *what changed* lines, nothing truncated (ADR 0018). The caller appends the

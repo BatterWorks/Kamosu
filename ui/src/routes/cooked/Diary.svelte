@@ -15,22 +15,26 @@
 	nothing to say about whose diary it is: it is yours, and there is no other.
 -->
 <script lang="ts">
+	import { aMonth } from '$lib/dates';
 	import { m } from '$lib/paraglide/messages';
-	import { getLocale } from '$lib/paraglide/runtime';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { ratingLabel } from '$lib/rating';
-	import type { ListAttemptsOutput } from '$lib/api/catalogue';
+	import type { ListAttemptsOutput, PromoteAsCookedOutput } from '$lib/api/catalogue';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
 	import { rereads } from '$lib/offline/device.svelte';
 	import { useKeeping } from '$lib/offline/outbox';
 	import { photographCooking, pickedFile } from '$lib/offline/photograph';
+	import { FilePlace, isPicture } from '$lib/drop.svelte';
+	import { DRAWN } from '$lib/drop-drawings';
+	import DropHere from '$lib/DropHere.svelte';
 	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
 	import { said } from '$lib/how-much';
 	import { cookingDay } from '$lib/cooking-day';
 	import { onlyOnThisPhone } from '$lib/offline/outbox';
 	import PhotoToRecipe from '$lib/PhotoToRecipe.svelte';
+	import KeepCooking from './KeepCooking.svelte';
 
 	const kamosu = useKamosu();
 	const keeping = useKeeping();
@@ -86,10 +90,7 @@
 			} else {
 				grouped.push({
 					key,
-					heading: when.toLocaleDateString(getLocale(), {
-						month: 'long',
-						year: 'numeric',
-					}),
+					heading: aMonth(when),
 					of: [entry],
 				});
 			}
@@ -161,8 +162,7 @@
 	 * beside the one at the stove, for the plate photographed at the table.
 	 */
 	let photographing = $state(false);
-	async function photograph(entry: Entry, event: Event) {
-		const picture = pickedFile(event);
+	async function photograph(entry: Entry, picture: File | undefined) {
 		if (!picture) return;
 		photographing = true;
 		writeFailed = undefined;
@@ -176,6 +176,20 @@
 			photographing = false;
 		}
 	}
+
+	/**
+	 * A photograph dropped on the open cooking's own (ADR 0044, #205), which
+	 * is Add a photo by another road: the same `photograph`, kept on the phone
+	 * where there is no network, and not while one is already on its way.
+	 */
+	const photoPlace = new FilePlace(
+		isPicture,
+		(picture) => {
+			const entry = entries?.find((entry) => entry.id === opened);
+			if (entry) void photograph(entry, picture);
+		},
+		() => !photographing,
+	);
 
 	/**
 	 * A cooking's picture on its way to the recipe (#110, option A): the one
@@ -196,6 +210,21 @@
 	 */
 	const promotable = (entry: Entry, photograph: string) =>
 		entry.recipe.branch_id !== null && !onlyOnThisPhone(photograph);
+
+	/**
+	 * The cookings whose changes were kept as a Version from here (#210), each
+	 * with what `promote_as_cooked` answered: it names the Branch the Version
+	 * is on now, which after a Copy is not the one the cooking was of. Held
+	 * here and not in the section, so that reading the diary again does not
+	 * take the words away. The entry is told at once that nothing is unkept,
+	 * so it cannot offer again what was just kept.
+	 */
+	let keptAs = $state<Record<Entry['id'], PromoteAsCookedOutput>>({});
+
+	function kept(entry: Entry, landed: PromoteAsCookedOutput) {
+		keptAs[entry.id] = landed;
+		layOver(entry.id, { unkept: null });
+	}
 
 	async function remove(entry: Entry) {
 		deleting = true;
@@ -232,7 +261,7 @@
 	}
 </script>
 
-<Screen title={m.cooked_title()} blurb={m.cooked_blurb()}>
+<Screen title={m.cooked_title()} blurb={m.cooked_blurb()} fills>
 	{#if failed}
 		<p class="text-body text-support" role="alert">{m.cooked_failed()}</p>
 	{:else if !entries}
@@ -249,16 +278,26 @@
 				<h2 class="mb-2 border-b border-rule pb-2 text-label font-medium text-accent uppercase">
 					{month.heading}
 				</h2>
-				<ul>
+				<!--
+					On the wide layout a month is a grid of cards (#201), and a
+					cooking opens inside its own card. A card is as tall as the
+					tallest in its row. Its button fills it and holds the card's
+					padding, so a tap anywhere on a card opens it, the foot of a
+					short one included.
+				-->
+				<ul class="diary-grid">
 					{#each month.of as entry (entry.id)}
-						<li class="border-b border-rule py-3">
+						<li
+							class="border-b border-rule py-3 wide:flex wide:flex-col wide:rounded-sm wide:border wide:bg-card wide:p-0"
+						>
 							<button
 								type="button"
-								class="block w-full text-left"
+								class="block w-full text-left wide:flex wide:flex-1 wide:flex-col wide:px-4 wide:py-3"
 								aria-expanded={opened === entry.id}
 								onclick={() => open(entry)}
 							>
-								<span class="flex items-baseline justify-between gap-3">
+								<!-- The day goes under the name in a card, which is narrower than the phone's row. -->
+								<span class="flex items-baseline justify-between gap-3 wide:flex-col wide:gap-0">
 									<span class="min-w-0 font-display text-line">{entry.recipe.title}</span>
 									<span class="shrink-0 text-read text-ink-2">{cookingDay(entry.created_at)}</span>
 								</span>
@@ -297,7 +336,12 @@
 							</button>
 
 							{#if opened === entry.id}
-								<div class="mt-3 rounded-sm border border-rule bg-ground-2 p-3">
+								<!-- Inside a card on the wide layout it is the card's own body under a
+							     hairline, not a second box: boxed and tinted it read as the card
+							     having ended where the body began (#227). -->
+								<div
+									class="mt-3 rounded-sm border border-rule bg-ground-2 p-3 wide:mx-4 wide:mt-0 wide:mb-3 wide:rounded-none wide:border-0 wide:border-t wide:bg-transparent wide:px-0 wide:pt-3"
+								>
 									{#if entry.recipe.branch_id}
 										<a
 											href={`/recipes/${entry.recipe.branch_id}`}
@@ -348,7 +392,10 @@
 										option A). Taken at the stove or here, with or without a
 										network: one not yet sent is shown from the phone.
 									-->
-									<div class="mt-3 border-t border-rule pt-3">
+									<div class="relative mt-3 border-t border-rule pt-3" {@attach photoPlace.listen}>
+										{#if photoPlace.held}
+											<DropHere part="frame" held={photoPlace.held} off />
+										{/if}
 										<h3 class="mb-2 text-label text-ink-2 uppercase">
 											{m.cooked_photographs()}
 										</h3>
@@ -367,9 +414,22 @@
 												{/if}
 											{/each}
 											<label
-												class="flex min-h-12 cursor-pointer items-center rounded-sm border border-rule px-3 text-read text-ink-2
+												class="relative flex min-h-12 cursor-pointer items-center rounded-sm border border-rule px-3 text-read text-ink-2
 													{photographing ? 'opacity-60' : ''}"
 											>
+												{#if photoPlace.held}
+													<DropHere
+														part="words"
+														held={photoPlace.held}
+														icon={DRAWN.picture}
+														edged
+														says={{
+															ok: m.drop_photo_cooking(),
+															unsure: m.drop_photo_cooking_unsure(),
+															no: m.drop_photo_cooking_only(),
+														}}
+													/>
+												{/if}
 												{entry.photographs.length > 0
 													? m.cooked_add_another()
 													: m.cooked_add_photo()}
@@ -378,10 +438,15 @@
 													accept="image/*"
 													class="sr-only"
 													disabled={photographing}
-													onchange={(event) => photograph(entry, event)}
+													onchange={(event) => photograph(entry, pickedFile(event))}
 												/>
 											</label>
 										</div>
+										{#if photoPlace.refused}
+											<p class="mt-2 text-read text-support" role="alert">
+												{m.drop_photo_cooking_refused()}
+											</p>
+										{/if}
 										{#if promoted?.entry === entry.id}
 											<p class="mt-2 text-read text-accent" role="status">
 												{#if promoted.copied}
@@ -401,6 +466,19 @@
 											<p class="mt-2 text-read text-ink-2">{m.cooked_tap_photo()}</p>
 										{/if}
 									</div>
+
+									<!--
+										What this cooking changed, and keeping it as a Version
+										(#210, option A). `?? null` because a diary the phone kept
+										before #210 has no `unkept` on it.
+									-->
+									{#if (entry.unkept ?? null) !== null || keptAs[entry.id]}
+										<KeepCooking
+											{entry}
+											kept={keptAs[entry.id] ?? null}
+											onKept={(landed) => kept(entry, landed)}
+										/>
+									{/if}
 
 									<label class="mt-3 grid gap-1 text-label text-ink-2 uppercase">
 										{m.cooked_note()}
@@ -424,7 +502,8 @@
 
 										{#if confirming}
 											<p class="text-read text-support">{m.cooked_delete_confirm()}</p>
-											<div class="flex gap-2">
+											<!-- In a card the two wrap onto two rows where their words do not fit side by side. -->
+											<div class="flex gap-2 wide:flex-wrap">
 												<button
 													type="button"
 													onclick={() => remove(entry)}

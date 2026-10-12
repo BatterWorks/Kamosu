@@ -32,7 +32,7 @@ impl Core {
     pub fn home_shelves(&self, person_id: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let reading_language = reading_language_of(conn, person_id)?;
-            let (lineages, branches) = shelf_of(conn, person_id, None, &reading_language)?;
+            let (lineages, branches) = shelf_of(conn, person_id, None, None, &reading_language)?;
             let own_cookbook_id = cookbook_of_person(conn, person_id)?;
 
             // This Person's own cooking, and nobody else's. An Attempt is on the
@@ -163,7 +163,7 @@ impl Core {
 
             shuffle(&mut never, self.shelf_seed());
 
-            // *Recently added* first, where Aurélien put it (#151): nobody has
+            // *Recently added* first, where #151 put it: nobody has
             // to have cooked anything for it to have something to say, and a
             // recipe that just came in is the likeliest reason to open Home.
             // Then the spec's order, each shelf ordered by its own fact:
@@ -263,7 +263,9 @@ type Shelf = (Vec<String>, HashMap<String, Vec<ShelfBranch>>);
 /// before any variation — and otherwise the original, the oldest (ADR 0041).
 /// Never the most recently changed, for the reason ADR 0027 refused
 /// reordering behind your back. Filtered to one Kitchen this is the Cookbooks
-/// seen in that Kitchen alone, because no other was selected.
+/// seen in that Kitchen alone, because no other was selected. Filtered to one
+/// Cookbook it is that Cookbook's Branches alone (#231), so the card opens
+/// one of them even where the reader's own Cookbook holds another.
 ///
 /// Who may see a Cookbook is the whole boundary on a shelf and the only one
 /// (ADR 0026), which is why neither caller asks a permission question again
@@ -272,6 +274,7 @@ pub(super) fn shelf_of(
     conn: &Connection,
     person_id: &str,
     kitchen_id: Option<&str>,
+    cookbook_id: Option<&str>,
     reading_language: &str,
 ) -> Result<Shelf, OpError> {
     let mut statement = conn
@@ -284,13 +287,14 @@ pub(super) fn shelf_of(
                FROM branches \
               WHERE {} \
                 AND (?2 IS NULL OR branches.cookbook_id IN ({})) \
+                AND (?3 IS NULL OR branches.cookbook_id = ?3) \
               ORDER BY branches.created_at ASC, branches.id ASC",
             visible_to("branches", "?1"),
             cookbooks_seen_in("?2"),
         ))
         .map_err(|e| OpError::internal(format!("cannot read the shelf: {e}")))?;
     let held: Vec<ShelfBranch> = statement
-        .query_map(params![person_id, kitchen_id], |row| {
+        .query_map(params![person_id, kitchen_id, cookbook_id], |row| {
             Ok(ShelfBranch {
                 branch_id: row.get(0)?,
                 lineage_id: row.get(1)?,

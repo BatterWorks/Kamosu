@@ -232,17 +232,42 @@ mod tests {
         // phone actually gives it once Safari's URL bar is counted. A future
         // change that shrinks the Step past the title breaks the ADR, and this
         // is what says so.
+        // A type size is a count of `--type-unit` (#228), which is 1px until
+        // the reader's own text size moves it, so the count is the size in px.
         let px = |name: &str| -> f32 {
             vars.get(name)
-                .and_then(|value| value.strip_suffix("px"))
+                .and_then(|value| value.strip_prefix("calc("))
+                .and_then(|value| value.strip_suffix(" * var(--type-unit))"))
                 .and_then(|value| value.parse().ok())
-                .unwrap_or_else(|| panic!("{name} is missing or is not a px value"))
+                .unwrap_or_else(|| panic!("{name} is missing or is not a count of the type unit"))
         };
-        assert_eq!(vars.get("--text-step").map(String::as_str), Some("26px"));
+        assert_eq!(
+            vars.get("--text-step").map(String::as_str),
+            Some("calc(26 * var(--type-unit))")
+        );
         assert!(
             px("--text-step") > px("--text-title"),
             "ADR 0011: the Step is the largest type in the app"
         );
+        // The wide layout sets the cooking screen larger (#197), and the same
+        // ranking holds there: nothing the screen draws is larger than its Step.
+        let far = px("--text-step-far");
+        for other in [
+            "--text-step",
+            "--text-step-reading-far",
+            "--text-panel-figure-far",
+            "--text-body-far",
+            "--text-line-far",
+            "--text-read-far",
+            "--text-label-far",
+            "--text-foot-far",
+            "--text-next-step",
+        ] {
+            assert!(
+                far > px(other),
+                "ADR 0011: the Step is the largest type in the app, and {other} is not smaller"
+            );
+        }
         assert_eq!(
             vars.get("--spacing-gutter").map(String::as_str),
             Some("20px")
@@ -268,7 +293,8 @@ mod tests {
         // order it shows them (ui/src/lib/tokens.ts), and a second hand-kept
         // list here would be one more thing to fall behind the stylesheet.
         let colours = vars.keys().filter(|k| k.starts_with("--color-")).count();
-        assert_eq!(colours, 17, "the whole palette from #36 is present");
+        // Seventeen from #36, and the indigo under the pointer from #203.
+        assert_eq!(colours, 18, "the whole palette is present");
         let steps = vars
             .keys()
             .filter(|k| {
@@ -278,9 +304,11 @@ mod tests {
             })
             .count();
         assert_eq!(
-            steps, 11,
+            steps, 20,
             "step, title, line, list-title, shelf-heading, tile-title, panel-figure, body, \
-             step-reading, read, label"
+             step-reading, read, label; and the cooking screen read from the counter (#197): \
+             step-far, step-reading-far, panel-figure-far, body-far, line-far, read-far, label-far, \
+             foot-far, next-step"
         );
     }
 }

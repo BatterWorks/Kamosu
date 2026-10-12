@@ -81,6 +81,15 @@ RUN --mount=type=cache,id=kamosu-cargo-registry,target=/usr/local/cargo/registry
     && cp target/release/kamosu /kamosu \
     && mkdir /data-empty
 
+# The two build arguments, written to a file the image copies in above its
+# labels (see the foot of this file for why). This stage has a shell, which the
+# image does not, and nothing is built on it, so a changed argument reruns one
+# `printf` and no compile.
+FROM chef AS stamp
+ARG VERSION=""
+ARG GIT_SHA=""
+RUN printf '%s\n%s\n' "$VERSION" "$GIT_SHA" > /stamp
+
 # Pinned by digest so a rebuild months from now runs on the same base; move the
 # digest deliberately, the way a dependency is upgraded. `nonroot` runs Kamosu
 # as uid 65532 rather than root, so an escape from the process lands in an
@@ -100,3 +109,19 @@ USER 65532:65532
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s CMD ["/app/kamosu", "health-check"]
 ENTRYPOINT ["/app/kamosu"]
 CMD ["serve"]
+# Which release this image is (#233), the one thing about a build that a
+# registry lookup can read. Both are empty unless the build passes them:
+# `--build-arg VERSION=0.2.0 --build-arg GIT_SHA=<commit>`.
+# Declared here, last in the last stage: a changed argument throws away the
+# layers below its declaration, and from here that is the copy of two lines of
+# text and the labels.
+#
+# The COPY is what makes Podman write the labels again. Podman 4.9 reuses a
+# LABEL step by its text, `${VERSION}` unread, so with the layers above
+# unchanged a new commit kept the last one's label. A copied file is compared
+# by what it holds. tests/image_labels.rs holds the file to all of it.
+ARG VERSION=""
+ARG GIT_SHA=""
+COPY --from=stamp /stamp /app/stamp
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}"

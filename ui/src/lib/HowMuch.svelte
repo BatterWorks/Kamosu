@@ -3,7 +3,7 @@
 
 	The cooking screen asks it before a fresh cooking starts, in the place the
 	amounts and the Step will stand; the recipe page opens it under the
-	ingredients' heading, for the errands. Aurélien chose that shape on
+	ingredients' heading, for the errands. That shape was chosen on
 	23 September 2026 from three built against the real corpus (option B on
 	#109); the reasoning is there.
 
@@ -53,7 +53,7 @@
 	{m.how_much_question()}
 </p>
 {#if counts(written) && written}
-	<div class="flex items-center gap-4 py-3">
+	<div class="flex items-center gap-4 py-3 wide:max-w-[360px]">
 		<button
 			type="button"
 			class="min-h-12 w-12 rounded-sm border font-display text-title disabled:opacity-40

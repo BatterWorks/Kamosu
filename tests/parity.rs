@@ -174,6 +174,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "get_thread"
             | "branch_point"
             | "divergence"
+            | "changed_since"
             | "set_reading"
             | "read_ingredient_lines"
             | "reread_ingredient_lines"
@@ -368,6 +369,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "get_thread"
                 | "branch_point"
                 | "divergence"
+                | "changed_since"
                 | "set_reading"
                 | "read_ingredient_lines"
                 | "reread_ingredient_lines"
@@ -640,7 +642,7 @@ async fn every_tools_first_sentence_fits_a_short_listing() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_read_only_access_keys_mcp_tool_list_carries_exactly_the_reads() {
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let read_only_key = app
         .core
         .mint_access_key(&person, "read-only agent", true)

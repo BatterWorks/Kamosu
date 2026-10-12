@@ -23,12 +23,13 @@
 
 	THE LINK IS SHOWN FOR AS LONG AS IT LIVES (#171, ADR 0031 as amended), in
 	the block it had at minting: the address, Copy and Open, above "End the
-	link" (option 1, Aurélien, 26 September 2026). Sending the recipe to a
+	link" (option 1, chosen 26 September 2026). Sending the recipe to a
 	second person is copying it again, never ending the link and minting a new
 	one, which would break every copy already sent. A link minted before Kamosu
 	kept its address has none to show, and the screen says so and how to get one.
 -->
 <script lang="ts">
+	import { aDate } from '$lib/dates';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -68,7 +69,7 @@
 	 * Read up front and not on the tap, because this screen says what an act
 	 * means **before** you do it: the standing line does, the line about
 	 * components does, and a file that announced itself only once it had gone
-	 * would be the one thing here that breaks the habit (option C, Aurélien,
+	 * would be the one thing here that breaks the habit (option C, chosen
 	 * 20 September 2026). The photograph that has gone missing is the case that
 	 * proves it — worth knowing beforehand, worth nothing after.
 	 *
@@ -217,7 +218,7 @@
 	 * In the app installed on an iPhone or iPad that address would open in the
 	 * app's own window, which has no Share or Save to Files (#156). There the
 	 * file is fetched here, and this same button then shares it (`shareIt`;
-	 * option A, Aurélien, 27 September 2026), as a Sheet is (#149). Holding
+	 * option A, chosen 27 September 2026), as a Sheet is (#149). Holding
 	 * the file until the second tap is the cost of that path.
 	 */
 	async function save() {
@@ -294,7 +295,7 @@
 			<p class="mt-1 text-read text-ink-2">
 				{m.share_shared_by({
 					name: link.shared_by,
-					when: new Date(link.created_at).toLocaleDateString(),
+					when: aDate(link.created_at),
 				})}
 			</p>
 		{/if}
@@ -335,30 +336,40 @@
 	{:else if link}
 		<p class="mt-6 text-body text-ink-2">{m.share_not_shared()}</p>
 
-		{#if !knowsAddress}
-			<!-- Asked once, at the first Share Link, and kept in the database —
-			     never an environment variable (#65). -->
-			<label class="mt-6 block text-label text-ink-2 uppercase" for="public-address">
-				{m.share_address_label()}
-			</label>
-			<input
-				id="public-address"
-				type="url"
-				bind:value={address}
-				placeholder="https://kamosu.example.com"
-				class="mt-1 w-full rounded-sm border border-rule bg-card p-3 text-body"
-			/>
-			<p class="mt-2 text-read text-ink-2">{m.share_address_hint()}</p>
-		{/if}
-
-		<button
-			type="button"
-			onclick={turnOn}
-			disabled={working}
-			class="mt-6 block w-full bg-accent p-4 text-center font-display text-body text-on-accent"
+		<!-- A form, so Enter in the address turns the link on (#203). `novalidate`
+		     keeps an address the Core would refuse a matter for the Core, whose
+		     sentence says what is wrong with it. -->
+		<form
+			novalidate
+			onsubmit={(event) => {
+				event.preventDefault();
+				void turnOn();
+			}}
 		>
-			{m.share_turn_on()}
-		</button>
+			{#if !knowsAddress}
+				<!-- Asked once, at the first Share Link, and kept in the database —
+			     never an environment variable (#65). -->
+				<label class="mt-6 block text-label text-ink-2 uppercase" for="public-address">
+					{m.share_address_label()}
+				</label>
+				<input
+					id="public-address"
+					type="url"
+					bind:value={address}
+					placeholder="https://kamosu.example.com"
+					class="mt-1 w-full rounded-sm border border-rule bg-card p-3 text-body"
+				/>
+				<p class="mt-2 text-read text-ink-2">{m.share_address_hint()}</p>
+			{/if}
+
+			<button
+				type="submit"
+				disabled={working}
+				class="mt-6 block w-full bg-accent p-4 text-center font-display text-body text-on-accent"
+			>
+				{m.share_turn_on()}
+			</button>
+		</form>
 	{/if}
 
 	<!--

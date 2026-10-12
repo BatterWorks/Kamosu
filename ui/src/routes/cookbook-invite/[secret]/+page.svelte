@@ -1,6 +1,6 @@
 <!--
 	`/cookbook-invite/<secret>`: the page a Cookbook Invite link opens (#131,
-	Aurélien's screen choice 2 of 24 September 2026).
+	screen choice 2 of 24 September 2026).
 
 	It says what saying yes does before anything happens: who sent it (one
 	Person, where their Cookbook may have several writers),
@@ -16,6 +16,10 @@
 	a Kitchen Invite's job. So a reader who is not signed in gets the ordinary
 	sign-in form here, and the same question once they are.
 
+	A Person who is signed in keeps their navigation on this page, and nobody
+	else is shown any (#214, choice of 11 October 2026). The shell decides that
+	by what this page says it heard, as it does on `/`.
+
 	The secret arrives as the `params` prop, as on `/invite/<secret>`, so a test
 	can render this route itself with a secret of its choosing.
 -->
@@ -25,6 +29,7 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { joinedNames } from '$lib/cookbook';
+	import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
 	import type { ReadCookbookInviteOutput } from '$lib/api/catalogue';
 	import Account from '../../Account.svelte';
 	import type { PageProps } from './$types';
@@ -51,6 +56,8 @@
 		kamosu
 			.readCookbookInvite({ secret })
 			.then((answer) => {
+				// The shell keeps a Person's navigation on this answer (#214).
+				heardWhetherSignedIn(true);
 				if (current) invite = answer;
 			})
 			.catch(async (error: unknown) => {
@@ -71,6 +78,8 @@
 						return false;
 					},
 				);
+				// And draws none for a reader it has to sign in first.
+				heardWhetherSignedIn(signedIn);
 				if (current) invite = signedIn ? 'gone' : 'sign-in';
 			});
 		return () => {
@@ -89,7 +98,7 @@
 				return;
 			}
 			// Settings, where the joined Cookbook's card now names you both.
-			await goto('/settings');
+			await goto('/settings/kitchens');
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			failed = error.message;
@@ -98,6 +107,14 @@
 		}
 	}
 </script>
+
+<svelte:head>
+	<title
+		>{typeof invite === 'object'
+			? m.cookbook_invite_title({ names: invite.invited_by.name })
+			: m.app_name()}</title
+	>
+</svelte:head>
 
 {#if invite === 'sign-in'}
 	<Account onSignedIn={() => (asked += 1)} />
@@ -110,7 +127,7 @@
 			<a class="mt-4 inline-block text-label text-accent underline" href="/">{m.home_title()}</a>
 		{:else if invite.already_yours}
 			<p class="text-body text-ink">{m.cookbook_invite_already()}</p>
-			<a class="mt-4 inline-block text-label text-accent underline" href="/settings"
+			<a class="mt-4 inline-block text-label text-accent underline" href="/settings/kitchens"
 				>{m.settings_title()}</a
 			>
 		{:else}
@@ -134,7 +151,7 @@
 				<p class="mt-3 text-body text-ink" role="status">
 					{m.cookbook_invite_waiting_on({ names: others })}
 				</p>
-				<a class="mt-4 inline-block text-label text-accent underline" href="/settings"
+				<a class="mt-4 inline-block text-label text-accent underline" href="/settings/kitchens"
 					>{m.settings_title()}</a
 				>
 			{:else}

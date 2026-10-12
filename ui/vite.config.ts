@@ -84,7 +84,8 @@ export default defineConfig({
 		// the screen tests' 48 seconds (#122). What a shared environment lets one
 		// file leave for the next, `setup.ts` puts back at the top of every file.
 		isolate: false,
-		include: ['src/**/*.{test,spec}.{js,ts}'],
+		// The dev tools' own rules are tested beside them, outside src/ (#216).
+		include: ['src/**/*.{test,spec}.{js,ts}', 'tools/**/*.test.js'],
 	},
 
 	// Screens are exercised as a browser would run them, so the browser build of

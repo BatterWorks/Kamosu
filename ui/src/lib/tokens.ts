@@ -19,6 +19,7 @@ export const COLOUR_ORDER = [
 	'--color-ink-2',
 	'--color-rule',
 	'--color-accent',
+	'--color-accent-2',
 	'--color-on-accent',
 	'--color-support',
 	'--color-support-2',
@@ -33,7 +34,10 @@ export const COLOUR_ORDER = [
 
 export const RADIUS_ORDER = ['--radius-sm', '--radius-md', '--radius-lg', '--radius-pill'] as const;
 
-/** The type scale, largest first — the ranking is spec (ADR 0011). */
+/**
+ * The type scale, largest first — the ranking is spec (ADR 0011). Then the
+ * cooking screen's sizes on the wide layout, largest first again.
+ */
 export const TYPE_ORDER = [
 	'--text-step',
 	'--text-title',
@@ -46,6 +50,17 @@ export const TYPE_ORDER = [
 	'--text-step-reading',
 	'--text-read',
 	'--text-label',
+	// The cooking screen on the wide layout, read from the counter (#197).
+	// Its Step is larger than everything above.
+	'--text-step-far',
+	'--text-panel-figure-far',
+	'--text-foot-far',
+	'--text-step-reading-far',
+	'--text-line-far',
+	'--text-next-step',
+	'--text-body-far',
+	'--text-read-far',
+	'--text-label-far',
 ] as const;
 
 /** Zero, the seven steps, and the gutter. No other step exists to reach for. */
@@ -73,14 +88,29 @@ export interface TypeStep {
 	letterSpacing: string;
 }
 
+/**
+ * A type size as the browser draws it now. A size is declared as a count of
+ * `--type-unit` (#228, ADR 0046), which reads back as the sum it is written
+ * as, so the size is taken from something set in it: 26px at rest, and more
+ * on a device whose text size has been raised.
+ */
+function drawnSize(name: string): string {
+	const probe = document.createElement('span');
+	probe.style.fontSize = `var(${name})`;
+	document.body.append(probe);
+	const size = getComputedStyle(probe).fontSize;
+	probe.remove();
+	return size;
+}
+
 /** Every step of the scale, with the line height and tracking declared beside it. */
 export function readTypeScale(): TypeStep[] {
-	return TYPE_ORDER.map((name) => ({
+	return TYPE_ORDER.filter((name) => readToken(name) !== '').map((name) => ({
 		name,
-		size: readToken(name),
+		size: drawnSize(name),
 		lineHeight: readToken(`${name}--line-height`),
 		letterSpacing: readToken(`${name}--letter-spacing`),
-	})).filter((step) => step.size !== '');
+	}));
 }
 
 export function readSpacing(): { name: string; value: string }[] {

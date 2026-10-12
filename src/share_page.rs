@@ -20,7 +20,7 @@
 //! drawn from tags in the HTML a crawler is served, which a client-rendered
 //! page has none of.
 //!
-//! What it shows was chosen by Aurélien on 30 August 2026 against three full
+//! What it shows was chosen on 30 August 2026 against three full
 //! directions drawn on real recipes, recorded on #65 rather than repeated here.
 //! What that settled:
 //!
@@ -37,7 +37,7 @@
 //!     no second piece of art to keep true;
 //!   · a share names the **Person** who shared it and never the Kitchen. A
 //!     Kitchen's Nickname is private to the member who set it and could not
-//!     appear here in any case (CONTEXT.md, "Kitchen").
+//!     appear here in any case (GLOSSARY.md, "Kitchen").
 //!
 //! **No Attempt appears here in any form** (ADR 0005, ADR 0026). That is not a
 //! filter this file applies; `read_shared_recipe` has no field for one.
@@ -549,6 +549,7 @@ fn shell(language: &str, title: &str, head: String, body: String) -> String {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="text-scale" content="scale">
 {mark}
 <title>{title}</title>
 <link rel="stylesheet" href="/assets/app.css">
@@ -571,7 +572,7 @@ fn plain_page(language: &str, heading: &str, body: &str) -> String {
         &format!("{} · Kamosu", escape(heading)),
         String::new(),
         format!(
-            r#"<div class="mx-auto max-w-[34rem] px-4 py-12">
+            r#"<div class="mx-auto max-w-[544px] px-4 py-12">
   <div class="rounded-sm border border-rule bg-card p-6">
     <h1 class="font-display text-title font-semibold">{}</h1>
     <p class="mt-3 text-body text-ink-2">{}</p>
@@ -650,7 +651,7 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
     let thread = thread_of(shared, words);
 
     let body = format!(
-        r#"<div class="mx-auto max-w-[34rem] px-4 py-6 pb-12">
+        r#"<div class="mx-auto max-w-[544px] px-4 py-6 pb-12">
   <p class="flex items-center gap-2 px-2 pb-3 text-read text-ink-2">
     <span class="h-4 w-4 shrink-0 rounded-sm bg-accent" aria-hidden="true"></span>
     <span>{sharer_line}</span>
@@ -684,7 +685,7 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
         rather than anything done here: the page it opens is where the reader
         signs in, or names their own Kamosu, and is told what importing would
         do before it happens. One button for every reader, because this page
-        never asks who is looking (Aurélien's choices 2 and 3).
+        never asks who is looking (choices 2 and 3).
       -->
       <div class="mt-8 border-t border-rule pt-4">
         <a href="{sheet_href}" class="block rounded-sm bg-accent p-3 text-center font-display text-read text-on-accent">{sheet}</a>
@@ -832,7 +833,7 @@ fn source_on_paper(content: &Value, words: &Words) -> String {
 
 /// What the Source line says, wherever it is set, escaped and ready to place.
 /// Where the Source has a web link the line itself is the link, with an
-/// underline and a ↗ so it does not lean on colour alone (#152, Aurélien's
+/// underline and a ↗ so it does not lean on colour alone (#152,
 /// choice A, the recipe page's own). It opens outside Kamosu. A link that is
 /// not an `http:` or `https:` address is not offered: `parse_source` stores
 /// any string and this page is public, and the CSP blocking a `javascript:`
@@ -903,14 +904,14 @@ fn meta(content: &Value, words: &Words) -> String {
 }
 
 /// **The Nutrition figure, closing the Ingredients** (#84) — the treatment
-/// Aurélien chose on 21 September 2026 against four drawn on both surfaces: a
+/// chosen on 21 September 2026 against four drawn on both surfaces: a
 /// fourth cell in the meta strip, a line directly under the strip, this, and a
 /// place beside the Source. The list is where what goes into the dish is
 /// already the subject, and the strip keeps the three cells #65 gave it.
 ///
 /// It always says what it counts. 308 on its own says nothing, and a serving
 /// and 100 g do not convert into each other without a weight the recipe does
-/// not carry (CONTEXT.md, "Nutrition").
+/// not carry (GLOSSARY.md, "Nutrition").
 ///
 /// Empty for the great majority of recipes, which carry no figure — and then
 /// there is nothing here at all, not a dash and not a zero. Zero would be a
@@ -963,7 +964,7 @@ fn ingredients(content: &Value, carried: &[Value], words: &Words) -> String {
 /// ADR 0008): the inner recipe's own lines, indented under the row that names
 /// them behind a matcha rule, so the list stays a list you can shop from. Its
 /// Steps are not here — they are set at the foot of the page by [`annexes`],
-/// which is the treatment Aurélien chose on 3 September 2026.
+/// which is the treatment chosen on 3 September 2026.
 ///
 /// `here` is the path of line indexes this list sits at: empty for the recipe
 /// itself, `[0]` inside the Component on its first line. `carried` is every
@@ -1133,7 +1134,7 @@ fn steps(content: &Value) -> String {
 
 /// **The annexe** (#50, ADR 0008): a Component's own Steps, set at the foot of
 /// the page after the recipe's Method, under a heading of their own — the
-/// treatment Aurélien chose on 3 September 2026.
+/// treatment chosen on 3 September 2026.
 ///
 /// Composition says *what*, never *when*, so the dough's Steps are never
 /// spliced into the pizza's method: Kamosu does not know the dough is made the
@@ -1362,6 +1363,15 @@ mod tests {
         assert_eq!(words("de").standing, EN.standing);
     }
 
+    /// A stranger's type follows their phone's text size as a member's does
+    /// (#228). The stylesheet does the rest, and Chrome on Android gives it the
+    /// system's size only to a page that asks this way.
+    #[test]
+    fn the_page_asks_for_the_systems_text_size() {
+        let html = shell("en", "t", String::new(), String::new());
+        assert!(html.contains(r#"<meta name="text-scale" content="scale">"#));
+    }
+
     /// A Cover never wears the wash (#46, #81): its dye was chosen.
     #[test]
     fn a_cover_hero_carries_no_wash() {
@@ -1415,7 +1425,7 @@ mod tests {
     #[test]
     fn the_cards_lines_do_not_repeat_each_other() {
         let shared = serde_json::json!({
-            "shared_by": "Aurélien",
+            "shared_by": "Stéphane",
             "public_address": "https://kamosu.example",
             "recipe": { "content": {
                 "title": "Korean Fried Chicken",
@@ -1425,9 +1435,9 @@ mod tests {
                 "source": { "text": "mykoreankitchen.com", "link": null },
             }},
         });
-        let tags = open_graph("tok", &shared, "Korean Fried Chicken", "Aurélien", "en");
+        let tags = open_graph("tok", &shared, "Korean Fried Chicken", "Stéphane", "en");
         assert!(
-            tags.contains(r#"og:title" content="Shared by Aurélien"#),
+            tags.contains(r#"og:title" content="Shared by Stéphane"#),
             "og:title names the person, never the recipe: {tags}"
         );
         assert!(

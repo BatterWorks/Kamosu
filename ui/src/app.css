@@ -81,6 +81,7 @@
   --color-ink-2: #5c5a55;       /* secondary text — readings, meta, blurbs */
   --color-rule: #ded5c2;        /* hairlines */
         --color-accent: #1d2b4c;      /* ai, indigo — the one thing you tap */
+  --color-accent-2: #2c3f6b;    /* indigo under the pointer: a filled button hovered (#203) */
   --color-on-accent: #f4efe3;   /* text on indigo */
   --color-support: #b8474b;     /* beni, safflower — language badges, alerts */
   --color-support-2: #7d8b5c;   /* matcha — a reading that points at a component */
@@ -110,14 +111,28 @@
      utility (`font-semibold`) cannot collide with the `font-display` family. */
   --font-weight-semibold: 600; /* steps, titles, covers, panel figures */
 
+  /* ── The reader's own text size (#228, ADR 0046) ──────────────────────────
+     One step of type. Every size below is a count of it, so "26" is the 26px
+     it always was while the unit is 1px, which it is until someone moves their
+     phone's text-size setting. The unit follows the root's font size, and the
+     system sets that: Chrome on Android through the `text-scale` meta in
+     `app.html`, iOS through the rule under "The root's font size" below.
+
+     It never goes under 1px, since a field's text under 16px makes iOS zoom
+     the page when the field is tapped. It stops at 1.35px, the top of the
+     iPhone's ordinary Text Size slider. The prototypes on #228 held there and
+     broke at 200% and at the 310% that Larger Accessibility Sizes reaches.
+     Only type follows: spacing, pictures and the height of a control are px. */
+  --type-unit: clamp(1px, calc(1rem / 16), 1.35px);
+
   /* ── Type scale — fitted to real content, not modular ────────────────────
      Ranking is spec (ADR 0011): the Step is the largest type in the app, the
      Ingredient Line sits at full size above body, its Reading subordinate. */
   /* The Step, and the recipe title under it. Both moved by #88, together and
      for one reason: the cooking screen ran out of vertical budget once Safari's
      URL bar was counted, and the identity record of 26 August fitted 33px
-     against a 844px phone that does not exist. The real room on Aurélien's
-     phone is ~700px.
+     against a 844px phone that does not exist. The real room on the
+     phone it was measured on is ~700px.
 
      33 → 26 takes the share of the corpus's 579 Steps that fit without
      scrolling from 53% to 92% on a step naming two amounts. The title follows
@@ -125,32 +140,35 @@
      the app, which that ADR records as spec — stays true rather than being
      reopened. The record of 26 August says these sizes were fitted to content
      rather than derived, and asked for them to be ratified; this is that. */
-  --text-step: 26px;            /* the Step — largest type in the app (#88) */
+  --text-step: calc(26 * var(--type-unit));            /* the Step — largest type in the app (#88) */
   --text-step--line-height: 1.24; /* 1.34 before #88, tightened with the size */
   --text-step--letter-spacing: -0.015em;
-  --text-title: 25px;           /* recipe title — under the Step, by #88 */
+  --text-title: calc(25 * var(--type-unit));           /* recipe title — under the Step, by #88 */
   --text-title--line-height: 1.16;
   --text-title--letter-spacing: -0.012em;
-  --text-line: 17px;            /* ingredient line — larger than body, deliberately */
+  --text-line: calc(17 * var(--type-unit));            /* ingredient line — larger than body, deliberately */
   --text-line--line-height: 1.4;
-  --text-list-title: 17px;      /* recipes list card title */
+  --text-list-title: calc(17 * var(--type-unit));      /* recipes list card title */
   --text-list-title--line-height: 1.2;
   /* These three finish tokenising sizes that the #36 record found still
-     hard-coded in the chosen direction's shape.css (branch
+     hard-coded in the chosen direction's shape.css (tag
      prototype/36-visual-identity): shelf headings (.k-shelf-h h2), tile titles
      (.k-tile h3) and the amounts-panel figure (.k-need b). The record names
      them as #80's to tokenise; the numbers are theirs, not invented here. */
-  --text-shelf-heading: 18px;   /* shelf headings on Home */
+  --text-shelf-heading: calc(18 * var(--type-unit));   /* shelf headings on Home */
   --text-shelf-heading--line-height: 1.2;
-  --text-tile-title: 15px;      /* tile titles beneath covers */
+  --text-tile-title: calc(15 * var(--type-unit));      /* tile titles beneath covers */
   --text-tile-title--line-height: 1.22;
-  --text-panel-figure: 21px;    /* numerals in the cooking amounts panel */
-  --text-body: 16px;            /* interface body text */
+  --text-panel-figure: calc(21 * var(--type-unit));    /* numerals in the cooking amounts panel */
+  --text-body: calc(16 * var(--type-unit));            /* interface body text */
   --text-body--line-height: 1.55;
-  --text-read: 12.5px;          /* a reading, subordinate under its line */
-  --text-step-reading: 15px;    /* a reading inside the 26px Step at the stove (#150, option A) */
+  --text-read: calc(12.5 * var(--type-unit));          /* a reading, subordinate under its line */
+  --text-step-reading: calc(15 * var(--type-unit));    /* a reading inside the 26px Step at the stove (#150, option A) */
   --text-step-reading--letter-spacing: 0em; /* undoes the Step's tightening around it */
-  --text-label: 10.5px;         /* uppercase labels */
+  /* 10.5 until #225: the audit of 9 October 2026 found it at the edge of
+     legibility on a phone (TAGS, INGREDIENTS, the bar's words), and the record
+     of 26 August asked for the fitted sizes to be ratified, not inherited. */
+  --text-label: calc(12 * var(--type-unit));           /* uppercase labels */
   --text-label--letter-spacing: 0.15em;
 
   /* ── Spacing — seven steps and a gutter, nothing else exists ──────────────
@@ -166,6 +184,14 @@
   --spacing-8: 32px;
   --spacing-12: 48px;
   --spacing-gutter: 20px;       /* the screen gutter */
+  /* The sidebar's width on the wide layout: the indigo rail chosen
+     on 5 October 2026 (#194, ADR 0044), narrow so that an upright tablet
+     keeps almost all of its width for the page. */
+  --spacing-rail: 88px;
+  /* The page's column, 672. Tailwind writes it as 42rem, and the root's font
+     size is the reader's text size since #228, so in rem the column would
+     widen with their type. */
+  --container-2xl: 672px;
   /* ── Shape ──────────────────────────────────────────────────────────────── */
   --radius-sm: 2px;             /* near-square is the direction: everywhere, */
   --radius-md: 2px;             /* including buttons and fields */
@@ -175,8 +201,8 @@
   /* Layout constants from the identity record (no utility namespace). */
   --tile-w: 168px;              /* shelf tile width */
   /* The recipe hero. The identity record of 26 August fitted 282px against a
-     hero nothing sat on; #81 put the title ON it and Aurélien chose the taller,
-     nearer-square crop over the landscape band, which is what 320px is. The
+     hero nothing sat on; #81 put the title ON it and the taller,
+     nearer-square crop was chosen over the landscape band, which is 320px. The
      record is dated and stays as written — this file is what is current. */
   --hero-h: 320px;
   --rule-w: 1px;                /* rule weight */
@@ -185,15 +211,131 @@
      tokenised here rather than written as an arbitrary utility, because the
      spacing scale above is deliberately the whole of what exists (#61). */
   --noren-h: 3px;
-  /* A cooking's photograph in the diary, square. 72px is Aurélien's choice on
+  /* A cooking's photograph in the diary, square. 72px is the choice on
      #77 (option A, the diary's Photographs row): big enough to tell one plate
      from another, small enough that a row of them is a glance. */
   --photo-thumb: 72px;
   /* A Step's photograph at the stove, square, at the top right of the Step's
-     words, which wrap around it. 96px is the size Aurélien saw and chose on
+     words, which wrap around it. 96px is the size seen and chosen on
      #110 (K3): larger than --photo-thumb because it sits in the largest type
      in the app. The recipe page's Step photograph is --photo-thumb (R2). */
   --step-photo: 96px;
+
+  /* ── The cooking screen on the wide layout (#197, ADR 0044) ───────────────
+     A tablet propped on the counter is read from further away than a phone in
+     the hand, so on the wide layout the cooking screen sets everything larger.
+     A `-far` token is a size at that distance. The `--text-*-far` ones that
+     share a phone token's name take its place through `cook-far` below. The
+     rest have no phone token to replace, because the phone writes those sizes
+     with the spacing scale (`h-8`, `min-h-12`), and the screen names them
+     where it uses them, behind `wide:`.
+
+     These were chosen on prototypes on 5 October 2026, with the next Step
+     shown small beside the one the cook is on, over the same screen without it.
+     They were fitted as #88
+     fitted the phone's: every Step in the library, each with its own amounts,
+     at the iPad Pro 11"'s height in the installed app. The figures are on #197.
+     38px keeps the Step the largest type in the app (ADR 0011). */
+  --text-step-far: calc(38 * var(--type-unit));
+  --text-step-far--line-height: 1.22;
+  --text-step-reading-far: calc(22 * var(--type-unit));
+  --text-panel-figure-far: calc(27 * var(--type-unit));
+  /* An amount that wraps keeps its two lines together. The phone's inherits
+     the body's, which at 27px left a gap as tall as the one between amounts. */
+  --leading-figure-far: 1.25;
+  --text-body-far: calc(20 * var(--type-unit));
+  --text-line-far: calc(22 * var(--type-unit));        /* still larger than body, as on the phone */
+  --text-read-far: calc(16 * var(--type-unit));
+  --text-label-far: calc(12 * var(--type-unit));
+  --text-foot-far: calc(22 * var(--type-unit));        /* Back and Next */
+  --text-next-step: calc(21 * var(--type-unit));       /* the next Step, small beside this one */
+  --text-next-step--line-height: 1.3;
+  --noren-h-far: 6px;
+  --cook-tick-far: 22px;        /* an amount's tick box; 16 on the phone */
+  --cook-control-far: 44px;     /* the controls on the row above the hairline; 32 on the phone */
+  --cook-foot-far: 72px;        /* Back and Next; 48 on the phone */
+  --cook-gutter-far: 40px;
+  /* The screen stops widening here and sits in the middle of a large monitor,
+     so a line of the Step never runs longer than it can be read at. */
+  --cook-column: 1120px;
+
+  /* A recipe and its editor where the window is roomy (#198, ADR 0044): the
+     width the page's column grows to, from the 672 every other page keeps.
+     Two fifths of it hold the Ingredients and three fifths the Method, which
+     leaves a Step about 590 wide, a line that can still be read. The layout
+     was chosen on prototypes on 5 October 2026. On a tablet on its side
+     it leaves a margin too narrow for the back arrow, so the page starts
+     below the arrow there. */
+  --recipe-column: 1040px;
+
+  /* A list that stays beside what is open, on the wide layout (#199, ADR
+     0044). Foods is the first and #200's Imports follows it. The widths
+     were chosen on prototypes on 6 October 2026. At 300 the list shows a Food's
+     name and the number of lines on one row, and leaves an upright iPad Pro
+     11" 446 for the Food, which is more than a phone gives it. What is open
+     is a card whose column is no wider than 600, so its buttons do not stretch across a
+     monitor. */
+  --list-column: 300px;
+  --card-column: 600px;
+
+  /* The browsing screens on the wide layout (#201, ADR 0044). Home, Recipes
+     and Cooked run to the window's right edge, and these
+     are the narrowest a card gets before a row takes one fewer. They were
+     chosen on prototypes on 6 October 2026, over cards at least 224 and 320.
+     160 keeps a recipe's card the size it has on the phone, so an upright
+     iPad Pro 11" shows 4 across, one on its side 6 and a MacBook 14" 8. A
+     cooking's card holds words and no photograph, so it is wider: 3, 4 and 5
+     across. Neither stops adding columns on a large monitor, which he was
+     shown. */
+  --tile-min: 160px;
+  --diary-min: 224px;
+}
+
+/* ── Room: how much of the window Kamosu has (ADR 0044, #193) ──────────────
+   The one place the wide layout's thresholds are written. A window at least
+   700 wide AND 560 tall is `wide`; the height half is what keeps a phone
+   turned sideways (about 850 by 390) on the phone layout. A wide window at
+   least 1000 wide is also `roomy`, which is room for two columns.
+
+   Both the stylesheet (`wide:` and `roomy:` in a class, `@variant wide` in
+   CSS) and the Room the app reads (`$lib/room.svelte`, through `--room`
+   below) come from these two lines, so a style rule and the Room cannot
+   disagree about which layout is showing. Tailwind's own `sm`/`md`/`lg`
+   stay unused.
+
+   The figures are starting values, set by ADR 0044 before any wide screen
+   existed. They are to be fitted against the real devices, the way #88
+   fitted the cooking screen; whatever moves them, say so here. */
+@custom-variant wide (@media (min-width: 700px) and (min-height: 560px));
+/* A phone turned sideways (#222): landscape, and shorter than the floor
+   `wide` asks for, so still the phone layout (ADR 0044). The cooking screen
+   lays its amounts beside the Step there, since at 390 tall there is no room
+   for one under the other. The 560 is the same floor as the line above, in
+   the range form so that this is the window `wide` refuses and no other;
+   `room.svelte.spec.ts` fails if the two numbers part. */
+@custom-variant sideways (@media (orientation: landscape) and (height < 560px));
+@custom-variant roomy {
+  @variant wide {
+    @media (min-width: 1000px) {
+      @slot;
+    }
+  }
+}
+
+/* The Room, as the stylesheet decided it. `$lib/room.svelte` reads this back
+   rather than holding a copy of the thresholds above. */
+@layer base {
+  :root {
+    --room: phone;
+
+    @variant wide {
+      --room: wide;
+    }
+
+    @variant roomy {
+      --room: roomy;
+    }
+  }
 }
 
 /* ── Fonts, served by the binary at /assets/fonts/ ─────────────────────────── */
@@ -290,11 +432,48 @@
 }
 
 @layer base {
+  /* The root's font size (#228, ADR 0046) is the system's text size, read
+     through `--type-unit` and by nothing else. iOS offers no switch for a web
+     page to follow Dynamic Type. What it has is a font named for the system's
+     body style, whose size is the setting's: 17px at rest, 14 to 23 along the
+     Text Size slider, up to 53 with Larger Accessibility Sizes. Naming it on
+     the root makes 1rem that size, and the unit divides by 17 here where
+     everywhere else divides by 16. The shorthand also sets a family and a
+     line height, so the two Tailwind's reset gave the root are said after it.
+
+     The second half of the test is what keeps a Mac out: Safari there knows
+     the font too, at 13px, and would set everything at three quarters. */
+  @supports (font: -apple-system-body) and (-webkit-touch-callout: none) {
+    :root {
+      --type-unit: clamp(1px, calc(1rem / 17), 1.35px);
+    }
+
+    html {
+      font: -apple-system-body;
+      font-family: var(--font-sans);
+      line-height: 1.5;
+    }
+  }
+
   body {
     background-color: var(--color-ground);
     color: var(--color-ink);
     font-family: var(--font-sans);
+    /* Said here so that words with no size of their own are body text, and
+       not whatever the root's size happens to be (#228). */
+    font-size: var(--text-body);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* A caret you can see (#225): the browser's own blue ring clashed with
+     indigo on paper and was lost on a chip. In the app's colour, and in
+     kinari on the cooking screen's ground. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  [class*="bg-cook-ground"] :focus-visible {
+    outline-color: var(--color-cook-accent);
   }
 }
 
@@ -402,11 +581,40 @@
   background: linear-gradient(to bottom, transparent, var(--color-cook-ground));
 }
 
-/* The room every screen leaves for the tab bar, which is fixed over it: the
-   bar's own height, its safe-area padding, and a step of air. Named once so a
+/* The cooking screen read from the counter (#197). On the wide layout each
+   type size the screen is set in becomes its `-far` token, in this one place:
+   the screen's own classes stay the phone's, so the phone's screen cannot be
+   moved by a change made here. It reaches the windows the screen opens too,
+   which are read from the same distance.
+
+   `--cook-inset` is the gutter, or whatever centres the column once the
+   window is wider than it. The percentage is of the screen's own width, and
+   is worked out where the padding is set. */
+@utility cook-far {
+  @variant wide {
+    --text-step: var(--text-step-far);
+    --text-step--line-height: var(--text-step-far--line-height);
+    --text-step-reading: var(--text-step-reading-far);
+    --text-panel-figure: var(--text-panel-figure-far);
+    --text-body: var(--text-body-far);
+    --text-line: var(--text-line-far);
+    --text-read: var(--text-read-far);
+    --text-label: var(--text-label-far);
+    --noren-h: var(--noren-h-far);
+    --cook-inset: max(var(--cook-gutter-far), calc((100% - var(--cook-column)) / 2));
+  }
+}
+
+/* The room every screen leaves for the phone layout's tab bar, which is fixed
+   over it: the bar's own height, its safe-area padding, and a step of air. Named once so a
    screen never guesses a number, and so changing the bar changes every screen. */
 @utility pb-tabbar {
   padding-bottom: calc(var(--spacing-12) + var(--spacing-8) + env(safe-area-inset-bottom));
+
+  /* No page draws a tab bar on the wide layout (#194), so only the air stays. */
+  @variant wide {
+    padding-bottom: calc(var(--spacing-8) + env(safe-area-inset-bottom));
+  }
 }
 
 /* Where anything fixed to the bottom of a screen has to sit to clear the tab
@@ -416,6 +624,423 @@
    `bottom-0` the tab bar swallowed its Save button entirely. */
 @utility bottom-tabbar {
   bottom: calc(var(--spacing-12) + env(safe-area-inset-bottom));
+
+  /* With no tab bar to clear on the wide layout (#194), that is the bottom. */
+  @variant wide {
+    bottom: 0;
+  }
+}
+
+/* The page beside the sidebar on the wide layout (#194). The sidebar is fixed
+   over the left edge, so the page starts where it ends.
+
+   Anything a screen fixes across the window's width, a bottom sheet or the
+   unsaved tray, is held to the same room. Otherwise it would centre on the
+   window while the column it belongs to centres beside the sidebar, half a
+   rail apart. The dimmed backdrops are `inset-0`, not `inset-x-0`, and still
+   cover the sidebar. Since #196 every sheet is drawn by one frame,
+   `$lib/SheetFrame.svelte`, and it is held here like the tray rather than by a
+   rule of its own: the frame is drawn on the cooking screen too, which has
+   no rail, and only this element knows a rail is there. */
+@utility beside-rail {
+  padding-left: var(--spacing-rail);
+
+  & .fixed.inset-x-0 {
+    left: var(--spacing-rail);
+  }
+}
+
+/* A sheet on the wide layout: a window in the middle of the room (#196, ADR
+   0044). It was chosen on the prototype on 5 October 2026 over a window
+   as wide as the page's column: 480 wide, since a confirmation is two
+   sentences and two buttons, as tall as what it holds, and centred both ways.
+   A long one stops at four fifths of the window's height, or at 704 on a
+   screen taller than a MacBook's, where four fifths would be a list a metre
+   long, and scrolls inside. Both limits were on the prototype he chose from.
+
+   The figures are written here and are no tokens, as the back arrow's radius
+   is: nothing else in Kamosu is a window, and this is the one place that says
+   what one is. The shadow is the second Kamosu draws, after the + menu's,
+   and is here for the same reason: a window floats over a page that stays
+   readable behind it, and its hairline alone would be lost against the
+   recipe's own rules.
+
+   `$lib/SheetFrame.svelte` puts this on the frame when the Room is wide, in place
+   of the bottom sheet's classes, so no `wide` variant is needed here. */
+@utility sheet-window {
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: 480px;
+  max-height: min(80vh, 704px);
+  /* For the sheets that never needed to scroll at the foot of a phone and so
+     never said how. One that scrolls a part of itself still does. */
+  overflow-y: auto;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--color-accent) 28%, transparent);
+
+  /* On the cooking screen the window is the dark panel, ruled as that screen
+     rules everything. */
+  &[data-dim='cook'] {
+    border-color: var(--color-cook-rule);
+    box-shadow: none;
+  }
+}
+
+/* The back arrow on the wide layout (#195, ADR 0044): at the top left of the
+   page, a step in from the rail. Every other shape in Kamosu is near-square
+   and this one is round, as chosen on the prototype, which is why its radius
+   is written here and is no token. */
+@utility back-arrow {
+  top: calc(var(--spacing-4) + env(safe-area-inset-top));
+  left: calc(var(--spacing-rail) + var(--spacing-4));
+  border-radius: 50%;
+}
+
+/* The same arrow on the phone (#219): in the page's flow at the top left, a
+   step below the header, and sticking to the top of the window once the page
+   has scrolled past it. In flow rather than fixed so the page's first card
+   starts below it and nothing is ever covered. */
+@utility back-arrow-phone {
+  position: sticky;
+  top: calc(var(--spacing-3) + env(safe-area-inset-top));
+  margin: var(--spacing-3) 0 0 var(--spacing-3);
+  border-radius: 50%;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+/* A page that carries the back arrow (#195). The arrow is fixed over the
+   page's top left corner, so the page keeps clear of it.
+
+   Where the window leaves a margin beside the page's column wide enough to
+   hold the arrow, the arrow stands in the margin, and only the cards the
+   layout draws across the full width (`page-notices`) start to its right.
+   Where the margin is narrower, as on an upright tablet, the whole page
+   starts below the arrow.
+
+   No width is written here. The margin is worked out from the rail and the
+   column every page with an arrow is drawn in, so moving either moves this.
+   Each `clamp` is a switch: a difference times a large number is far below
+   zero or far above the most it may be. A page that outgrows that column
+   says how wide it is in `--page-column`, as a recipe does where the window
+   is roomy (#198), and the same sums then keep it clear. */
+@utility clears-back-arrow {
+  @variant wide {
+    /* The arrow, a step before it and half a step after. */
+    --arrow-room: calc(var(--spacing-4) + var(--spacing-12) + var(--spacing-2));
+    --margin: calc(
+      (100vw - var(--spacing-rail) - var(--page-column, var(--container-2xl))) / 2
+    );
+
+    /* How far down a page starts to keep clear of the arrow: nothing where
+       the arrow stands in the margin. Named so that anything which stays at
+       the top of such a page (#198) stops in the same place. */
+    --below-arrow: clamp(0px, calc((var(--arrow-room) - var(--margin)) * 9999), var(--arrow-room));
+
+    padding-top: var(--below-arrow);
+
+    & .page-notices {
+      padding-left: clamp(
+        0px,
+        calc((var(--margin) - var(--arrow-room) + 1px) * 9999),
+        calc(var(--spacing-4) + var(--spacing-12))
+      );
+    }
+  }
+
+  &:has(.recipe-page) {
+    @variant roomy {
+      --page-column: var(--recipe-column);
+    }
+  }
+
+  /* A list beside what is open (#199) fills the page from the rail, so the
+     arrow stands over the list's own top corner and the list's title starts
+     to its right (`beside-back-arrow`). Nothing starts below it, and the
+     cards across the top start to its right as they do beside a margin. */
+  &:has(.list-beside) {
+    @variant wide {
+      padding-top: 0;
+
+      & .page-notices {
+        padding-left: calc(var(--spacing-4) + var(--spacing-12));
+      }
+    }
+  }
+}
+
+/* A list kept beside what is open, on the wide layout (#199, ADR 0044). The
+   screen draws these only where the Room is wide, so none of them asks. */
+@utility list-beside {
+  display: grid;
+  grid-template-columns: var(--list-column) minmax(0, 1fr);
+}
+
+/* The list's own column: as tall as the window and staying there, its head
+   at the top and its rows scrolling under it, while the page scrolls what is
+   open. It starts level with the back arrow. `dvh` is the window less
+   Safari's bars. */
+@utility list-column {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  padding-top: calc(var(--spacing-4) + env(safe-area-inset-top));
+  border-right: 1px solid var(--color-rule);
+}
+
+/* The list's title, standing right of the back arrow that is fixed over the
+   list's corner. `--arrow-room` is `clears-back-arrow`'s. */
+@utility beside-back-arrow {
+  margin-left: calc(var(--arrow-room) - var(--spacing-gutter));
+}
+
+/* What is open beside a list: a card in the middle of what the list leaves,
+   keeping a step clear of the list where the window leaves it no more. */
+@utility open-card {
+  width: calc(100% - 2 * var(--spacing-4));
+  max-width: var(--card-column);
+  margin: var(--spacing-6) auto;
+  padding: var(--spacing-6) var(--spacing-gutter);
+  border: 1px solid var(--color-rule);
+  background: var(--color-card);
+}
+
+/* The grid of recipes on Recipes (#201, ADR 0044). Two columns on the phone,
+   as it always was. On the wide layout it takes as many columns as fit, none
+   narrower than `--tile-min`, and they share out what is left over. */
+@utility tile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-3);
+
+  @variant wide {
+    grid-template-columns: repeat(auto-fill, minmax(var(--tile-min), 1fr));
+  }
+}
+
+/* A month of the diary on Cooked (#201, ADR 0044). The phone's is a list and
+   this does nothing there. On the wide layout it is a grid of cards, which
+   the rows become with classes of their own. Cards in a row share a height,
+   until a cooking in that month is open: then every card of the month is as
+   tall as what it holds, so the open one's neighbours do not stretch into
+   empty boxes beside it. */
+@utility diary-grid {
+  @variant wide {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(var(--diary-min), 1fr));
+    gap: var(--spacing-3);
+
+    &:has([aria-expanded="true"]) {
+      align-items: start;
+    }
+  }
+}
+
+/* A recipe, and its editor, where the window is roomy (#198, ADR 0044). The
+   page's column widens, and the Ingredients and the Method stand side by
+   side. On every other window none of these three does anything, so the
+   phone's page and an upright tablet's are the one column they were. */
+@utility recipe-page {
+  /* Both widths are said here, so which one wins never rests on the order
+     two classes happen to be written out in. */
+  max-width: var(--container-2xl);
+
+  @variant roomy {
+    max-width: var(--recipe-column);
+  }
+}
+
+@utility recipe-columns {
+  @variant roomy {
+    display: grid;
+    /* `minmax(0, …)` so that a long word in a line wraps in its column
+       rather than widening it. */
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    column-gap: var(--spacing-8);
+  }
+}
+
+/* The Ingredients, staying in view while the Method scrolls. Taller than the
+   window, they scroll alone. They stop below the back arrow where the page
+   starts below it, which `clears-back-arrow` works out. On a page that
+   carries no arrow there is nothing to stop below.
+
+   This goes on a box inside the left column and never on the column, which
+   is the grid's own item: there it stayed for the whole page and rode over
+   everything under the Method. `dvh` is the window less Safari's bars. */
+@utility stays-in-view {
+  @variant roomy {
+    --stays-below: var(--below-arrow, 0px);
+
+    position: sticky;
+    top: var(--stays-below);
+    max-height: calc(100dvh - var(--stays-below));
+    overflow-y: auto;
+    padding-bottom: var(--spacing-4);
+  }
+}
+
+/* Shopping on the wide layout (#202, ADR 0044): the recipes chosen beside what
+   to buy. The layout was chosen on prototypes on 6 October 2026. The page
+   is as wide as a recipe's where it is roomy, and the recipes take the two
+   fifths a recipe's Ingredients take. Unlike a recipe it is two columns on an
+   upright tablet too, where the recipes get about 270, which holds a title and
+   the − and + under it. On the phone the page keeps the width every page has
+   and the other two do nothing. */
+@utility two-column-page {
+  max-width: var(--container-2xl);
+
+  @variant wide {
+    max-width: var(--recipe-column);
+  }
+}
+
+@utility shopping-columns {
+  @variant wide {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    column-gap: var(--spacing-8);
+  }
+
+  @variant roomy {
+    column-gap: var(--spacing-12);
+  }
+}
+
+/* The recipes, staying in view while the list scrolls. This goes on a box
+   inside the left column, as `stays-in-view` does and for its reason. No back
+   arrow stands on Shopping, so there is nothing to stop below. */
+@utility shopping-chosen {
+  @variant wide {
+    position: sticky;
+    top: 0;
+    max-height: 100dvh;
+    overflow-y: auto;
+    padding-bottom: var(--spacing-4);
+  }
+}
+
+/* − and + beside how much of a chosen recipe is being shopped for (#202).
+   Round and 40 across, a quiet outline on the card's white, which is what
+   was chosen on the prototype and asked for again when they were first
+   built square and 48 like the recipe page's. Five recipes carry ten of them
+   in a narrow column, where the recipe page has one pair. The radius is
+   written here because every radius token is near-square on purpose. */
+@utility step-button {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 1px solid var(--color-rule);
+  border-radius: 50%;
+  background: var(--color-card);
+  color: var(--color-accent);
+  font-size: calc(20 * var(--type-unit));
+  line-height: 1;
+
+  &:disabled {
+    opacity: 0.4;
+  }
+}
+
+/* A word that does something, drawn as a small button (#225): a hairline on
+   the card's ground, 40px tall, in the colour the caller gives its words.
+   The rule it enforces: an underlined word goes somewhere, a link into
+   another page; a thing that does something is a button. Sign out, Rename,
+   Save, Keep it, Change your name and their kind were 12.5px underlined words
+   until the audit of 9 October 2026 found them hard to hit and hard to tell
+   from a link. No colour here, so a beni one and an indigo one share it.
+
+   Drawn at 40 and tapped at 48 (ADR 0044, 10 October 2026): a secondary
+   control may be drawn smaller than 48, never tapped smaller. The 4px round
+   it is invisible and wins the hit test, as `tap-out` does at the stove, so
+   two side by side keep a gap of 12 or more. */
+@utility quiet-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--spacing-3);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  background: var(--color-card);
+  font-size: var(--text-read);
+  font-weight: 500;
+  white-space: nowrap;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+  }
+}
+
+/* The earlier and later buttons on a shelf (#223): round and 32 across, as the
+   prototype page chosen on 9 October 2026 drew them, a quiet outline on the
+   card's white. Round is a clash with the near-square house rule, raised on
+   the ticket; the shopping list's − and + (#202) are the precedent. Drawn at
+   32 and tapped at 48, like `quiet-button`: the 8px round each one is
+   invisible, so the two stand 16 apart. */
+@utility shelf-arrow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-rule);
+  border-radius: 50%;
+  background: var(--color-card);
+  color: var(--color-accent);
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+}
+
+/* Drawn only where there is a pointer (#223): the earlier and later buttons
+   on a shelf. A finger flicks a rail; a mouse has no way to scroll one
+   sideways. The gate is the hover block's (#203), so an iPad gets them the
+   moment a trackpad is attached and not before. */
+@utility pointer-only {
+  display: none;
+  @media (hover: hover) {
+    display: inline-flex;
+  }
+}
+
+/* One of the acts at the foot of a recipe (#220; option 1 of the audit of
+   9 October 2026, chosen on 10 October over the list of rows first built):
+   a small outlined button in a grid of two, its words in the sans face, where
+   seven stacked full-width buttons stood. Cook this and Edit are buttons of
+   their own under the servings; these are the rest. Four components draw one
+   each, so the tile is named once here and none of them can drift. A tile
+   whose act has happened (the recipe is on the list, the Sheet is ready to
+   share) wears `act-tile-done`, and `bg-accent` with it so the under-pointer
+   block (#203) knows the fill. */
+@utility act-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--spacing-12);
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  background: var(--color-card);
+  font-size: var(--text-read);
+  font-weight: 500;
+  text-align: center;
+}
+
+@utility act-tile-done {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
 }
 
 /* The wash under a recipe's title, over its photograph. Indigo rather than a
@@ -446,4 +1071,147 @@
     color-mix(in srgb, var(--color-accent) 55%, transparent) 40%,
     color-mix(in srgb, var(--color-accent) 95%, transparent) 100%
   );
+}
+
+/* ── Under the pointer (ADR 0044, #203) ────────────────────────────────────
+   What a control looks like with the pointer over it. "The
+   paper darkens" was chosen on 6 October 2026 over drawing an indigo line: whatever is
+   under the pointer changes shade and nothing else, because an indigo border
+   already means "this one is chosen" and a line drawn in passing read as
+   that.
+
+   Written once, here, for every control there is and every one to come, so
+   no screen spells out a hover state of its own. Three things make that work:
+
+   1. ALL OF IT IS INSIDE `(hover: hover)`. A touch screen has no pointer to
+      take away again, so a hover state there stays on after the tap. An iPad
+      gets these rules the moment a trackpad is attached and not before.
+   2. THESE RULES ARE IN NO LAYER, and that is on purpose. Tailwind's
+      utilities are in one, and a rule outside every layer beats a rule inside
+      any, so the shade wins over the `bg-card` a button was written with.
+   3. A SURFACE SAYS WHAT DARKENS ON IT. `--under-pointer` is set by the
+      classes that paint a ground or an ink, and a control with no fill of its
+      own takes whatever the nearest one says. On paper that is the darker
+      paper. On indigo it is a little of the paper let through, since the
+      darker paper under kinari text could not be read.
+
+   A control WITH a fill of its own is named below, fill by fill. One whose
+   fill is not named here is left alone rather than guessed at: a new fill
+   needs its own line, and until it has one it does nothing under the pointer,
+   which is safer than turning it a colour its text cannot be read on.
+   "A fill of its own" is read off the class attribute as any class holding
+   `bg-`, a `wide:bg-…` included, which errs the same safe way. A screen test
+   (`under-pointer.spec.ts`) fails on a fill with no line here, and on a
+   `hover:` class written on a screen.
+
+   The hand and the fade are the two rules here that ARE in a layer, the base
+   one, so that a utility still wins over them: the editor's drag handle keeps
+   its `cursor-grab`. */
+@media (hover: hover) {
+  .bg-ground-2 {
+    --under-pointer: var(--color-rule);
+  }
+  .bg-card,
+  .bg-ground {
+    --under-pointer: var(--color-ground-2);
+  }
+  /* On indigo, a faint patch of paper: the sidebar's places. Every indigo
+     button says this too, to no effect, since nothing clickable is inside one
+     and its own shade is set further down. */
+  .bg-accent {
+    --under-pointer: color-mix(in srgb, var(--color-on-accent) 8%, transparent);
+  }
+  /* Kinari words mean a photograph or a dye behind them, and whatever colour
+     that is, a fifth of the paper over it shows. */
+  .text-on-accent {
+    --under-pointer: color-mix(in srgb, var(--color-on-accent) 20%, transparent);
+  }
+  /* The cooking screen's room, and the panels that stand in it. Any class
+     holding the name, because the photograph's cover and the dimming behind a
+     cooking sheet are the same ground let through (`bg-cook-ground/95`). */
+  [class*="bg-cook-ground"] {
+    --under-pointer: var(--color-cook-panel);
+  }
+  .bg-cook-panel {
+    --under-pointer: var(--color-cook-rule);
+  }
+
+  @layer base {
+    /* A hand over anything that can be clicked. A label is one where it
+       stands for a tick box or a file chooser, and not where it names a
+       field. */
+    :where(a[href], button:enabled, select:enabled, summary),
+    :where(label):has(input:is([type="checkbox"], [type="radio"], [type="file"]):enabled),
+    :where(input:is([type="checkbox"], [type="radio"]):enabled) {
+      cursor: pointer;
+    }
+
+    :where(a[href], button, select, summary, label) {
+      transition:
+        background-color 120ms,
+        box-shadow 120ms,
+        color 120ms,
+        filter 120ms;
+    }
+
+    /* Somebody who has asked for less movement gets the change at once. */
+    @media (prefers-reduced-motion: reduce) {
+      :where(a[href], button, select, summary, label) {
+        transition: none;
+      }
+    }
+  }
+
+  /* Everything with no fill of its own, or with the paper's. A control that
+     covers what must stay seen, as the one over an opened photograph does,
+     says `bg-transparent` and is passed over like any fill not named here. */
+  :where(a[href], button:enabled, select:enabled, summary, label:has(input[type="file"]:enabled)):where(
+      :not([class*="bg-"]),
+      .bg-card,
+      .bg-ground,
+      .bg-ground-2
+    ):hover {
+    background-color: var(--under-pointer, var(--color-ground-2));
+  }
+
+  /* A text link: the same shade, as a patch a little wider than its words. */
+  :where(a[href], button:enabled).underline:where(:not([class*="bg-"])):hover {
+    border-radius: 1px;
+    box-shadow: 0 0 0 4px var(--under-pointer, var(--color-ground-2));
+  }
+
+  /* The fills, each turned one shade towards the paper. */
+  :where(a[href], button:enabled, label:has(input[type="file"]:enabled)).bg-accent:hover {
+    border-color: var(--color-accent-2);
+    background-color: var(--color-accent-2);
+  }
+  :where(a[href], button:enabled).bg-support:hover {
+    --lit: color-mix(in srgb, var(--color-support) 86%, var(--color-on-accent));
+    border-color: var(--lit);
+    background-color: var(--lit);
+  }
+  /* The two paper fills that stand on indigo: the cooking screen's, and the
+     one on a Version strip. */
+  :where(a[href], button:enabled):where(.bg-cook-accent, .bg-on-accent):hover {
+    border-color: var(--color-ground-2);
+    background-color: var(--color-ground-2);
+  }
+  :where(a[href], button:enabled).bg-cook-panel:hover {
+    background-color: var(--color-cook-rule);
+  }
+
+  /* A recipe's card, and any other picture that is itself the thing to click:
+     it brightens, and nothing is painted behind it. */
+  :where(a[href], button:enabled).brightens:hover {
+    background-color: transparent;
+    filter: brightness(1.14);
+  }
+
+  /* A place on the sidebar that is not the current one: its quiet words turn
+     to the paper's colour over the faint patch. The current place has the
+     room's darker ground for its fill, which no line above names, so it stays
+     as it is. */
+  .bg-accent :where(a[href]).text-cook-ink-2:hover {
+    color: var(--color-on-accent);
+  }
 }

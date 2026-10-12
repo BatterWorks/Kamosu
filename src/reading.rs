@@ -140,6 +140,10 @@ const OPEN_UNITS: &[&str] = &[
     // A pour of oil or wine, as #181 made `filet` one in French (#186).
     "glug",
     "glugs",
+    // A length of ginger or lemongrass, the same in all three Languages
+    // (#207): `Gingembre : 1 à 3 cm`. It measures the Food and converts to
+    // nothing, as a *gousse* does.
+    "cm",
     // French. `cube` and `cubes` are spelt the same, so the English pair above
     // covers both (#161).
     "gousse",
@@ -148,6 +152,9 @@ const OPEN_UNITS: &[&str] = &[
     "boites",
     "pincee",
     "pincees",
+    // The accepted cost is `2 pinces de crabe`, two pinches of crab (#208).
+    "pince",
+    "pinces",
     "bouquet",
     "bouquets",
     "tranche",
@@ -263,7 +270,7 @@ const SIZES_AFTER: &[&str] = &[
 /// basilic`. Like a size, such a word says nothing about which Food to buy,
 /// but it is dropped only where a measure makes it one (#186): straight
 /// before a Unit, and at the start of a Food that follows an amount or a
-/// Unit. Anywhere else it stays in the name, which is Aurélien's choice on
+/// Unit. Anywhere else it stays in the name, which is the choice on
 /// #186: *poulet à la bonne femme* is a dish, not a good woman's chicken.
 ///
 /// Kept apart from [`SIZES`] for that reason, since a size is dropped from
@@ -313,7 +320,7 @@ const PRAISE: &[&str] = &[
 /// **`hot` and `glacé` are left out on purpose.** Hot sauce and a hot dog are
 /// things to buy, and the fold in [`folded`] makes `glacé` one word with the
 /// `glace` of *sucre glace*, which is icing sugar. `chaud` is in, although
-/// *chocolat chaud* is a drink: the question Aurélien answered on #185 named
+/// *chocolat chaud* is a drink: the question answered on #185 named
 /// `chaud` among the words to drop, and an Ingredient Line far more often
 /// means warm milk than hot chocolate.
 ///
@@ -375,9 +382,21 @@ const WARMTH: &[&[&str]] = &[
 /// `l'`, which [`split_elisions`] leaves carrying their apostrophe and
 /// [`is_glue`] recognises by that apostrophe — because a bare `l` is a litre,
 /// and `1 l milk` is a real line in the corpus.
+///
+/// Ask [`listed_as_glue`] whether a word is one of these, never [`listed`]:
+/// [`ACCENTED_NAMES`] fold onto three of them and are not glue (#213).
 const GLUE: &[&str] = &[
     "of", "de", "du", "des", "la", "le", "les", "un", "une", "el", "los", "las", "al", "the", "a",
 ];
+
+/// Words that fold onto a [`GLUE`] word and are no such thing: French for
+/// tea, for diced pieces and for one of them. Each is glue once [`folded`]
+/// throws its accent away, which named a tea after its colour, `1 thé vert`
+/// as *vert*, and left `200 ml de thé` naming nothing (#213).
+///
+/// Only the accented spelling is kept. `1 the vert` is what an English
+/// article looks like, and goes on reading as *vert*.
+const ACCENTED_NAMES: &[&str] = &["thé", "dés", "dé"];
 
 /// Words that open a line to say *a few* or *about*. Kamosu can do no
 /// arithmetic on *a few*, so one is never the amount; left standing it hid the
@@ -388,6 +407,20 @@ const GLUE: &[&str] = &[
 /// never as [`GLUE`]: `unos 200 g de harina` is Spanish for *about* 200 g, and
 /// the 200 has to reach the amount rather than the Food.
 const A_FEW: &[&str] = &["quelques", "unos", "unas"];
+
+/// The ways a line opens to say *a little*, each written as its words. Like
+/// [`A_FEW`] it is no amount, and left standing its second word opened the
+/// Food: `un peu de sirop d'érable` named *peu de sirop d'érable* (#208).
+///
+/// Only the whole phrase, and only at the start of the line. `peu de sel` and
+/// `1 little gem lettuce` read as they always have.
+const A_LITTLE: &[&[&str]] = &[
+    &["un", "peu", "de"],
+    &["un", "peu", "d'"],
+    &["a", "little"],
+    &["a", "bit", "of"],
+    &["un", "poco", "de"],
+];
 
 /// The ways a recipe says *as much as you like*, each written as its words.
 /// Such a phrase measures nothing and names nothing, so it is dropped from the
@@ -405,6 +438,7 @@ const TO_TASTE: &[&[&str]] = &[
     &["selon", "votre", "goût"],
     &["selon", "goût"],
     &["à", "volonté"],
+    &["à", "convenance"],
     &["al", "gusto"],
     &["a", "gusto"],
 ];
@@ -574,7 +608,20 @@ const ELISIONS: &[&str] = &["d'", "l'", "qu'", "n'"];
 /// thrown away — combining marks included — so neither punctuation nor an
 /// accent can make one spelling two. `pincée`, `pincee` and `Pincée` are one
 /// word here, which is what lets each list be written once.
+///
+/// [`ACCENTED_NAMES`] is the one list an accent does tell apart, and it is
+/// compared through [`folded_keeping_accents`].
 fn folded(word: &str) -> String {
+    fold(word, false)
+}
+
+/// [`folded`], with the accents left on: `Thé,` and `thé` are one word here,
+/// and `the` is another.
+fn folded_keeping_accents(word: &str) -> String {
+    fold(word, true)
+}
+
+fn fold(word: &str, keep_accents: bool) -> String {
     use caseless::Caseless;
     use unicode_normalization::UnicodeNormalization;
     use unicode_normalization::char::is_combining_mark;
@@ -582,7 +629,7 @@ fn folded(word: &str) -> String {
         .nfd()
         .default_case_fold()
         .nfd()
-        .filter(|c| c.is_alphanumeric() && !is_combining_mark(*c))
+        .filter(|c| c.is_alphanumeric() || (keep_accents && is_combining_mark(*c)))
         .collect()
 }
 
@@ -593,7 +640,28 @@ fn folded(word: &str) -> String {
 /// punctuation away and `l'` and `l` would otherwise be one word — one of
 /// which is a litre.
 fn is_glue(word: &str) -> bool {
-    word.ends_with('\'') || word.ends_with('\u{2019}') || listed(GLUE, word) || listed(SIZES, word)
+    word.ends_with('\'')
+        || word.ends_with('\u{2019}')
+        || listed_as_glue(word)
+        || listed(SIZES, word)
+}
+
+/// Whether a word is one of [`GLUE`], which a word of [`ACCENTED_NAMES`] is
+/// not, whatever [`folded`] makes of it.
+fn listed_as_glue(word: &str) -> bool {
+    listed(GLUE, word) && accented_name(word).is_none()
+}
+
+/// **The word of [`ACCENTED_NAMES`] this is, accent and all**, as the list
+/// spells it, and nothing for any other word. The Step linker compares words
+/// with their accents gone, and asks this first so that `thé` does not reach
+/// [`only_joins`] as `the` (#230).
+pub fn accented_name(word: &str) -> Option<&'static str> {
+    let word = folded_keeping_accents(word);
+    ACCENTED_NAMES
+        .iter()
+        .copied()
+        .find(|name| folded_keeping_accents(name) == word)
 }
 
 fn listed(list: &[&str], word: &str) -> bool {
@@ -610,7 +678,11 @@ fn listed(list: &[&str], word: &str) -> bool {
 /// taste` is not such a line: the phrase is dropped and it reads as `salt and
 /// pepper` does (#163).
 pub fn read_line(line: &str) -> Option<Reading> {
-    let line = without_brackets(line);
+    use unicode_normalization::UnicodeNormalization;
+    // An accent typed as its own character is put back on its letter, so one
+    // name read from two keyboards is one spelling (#230). Only the Reading
+    // is respelt: the line itself is the recipe's, and stays as written.
+    let line: String = without_brackets(line).nfc().collect();
     // The slashes are stood apart only to find a restated measure. Where
     // there is none, the line is read as written, so `salt/2 tsp pepper`
     // names the Food the cook spelt and not a respaced copy of it (#182).
@@ -623,11 +695,170 @@ pub fn read_line(line: &str) -> Option<Reading> {
 /// [`read_line`]'s work on a line with its brackets gone, and whether a
 /// measure restated after a slash was left out of the Food.
 fn read_split(line: &str) -> (Option<Reading>, bool) {
+    let Some((before, rest)) = at_the_colon(line) else {
+        return read_clauses(line);
+    };
+    match past_the_colon(rest) {
+        // `Eau : 800 ml` is read as `800 ml Eau`, so it cannot read otherwise
+        // than its amount-first twin does.
+        PastTheColon::Measure(measure) => {
+            // The Food before the colon may open with `un peu de`, which is
+            // dropped only at the start of what is read (#208).
+            let opening = split_elisions(before);
+            let opening: Vec<&str> = opening.split_whitespace().collect();
+            let food = match a_few_or_a_little_at(&opening) {
+                0 => before.to_string(),
+                dropped => opening[dropped..].join(" "),
+            };
+            read_clauses(&format!("{measure} {food}"))
+        }
+        PastTheColon::Aside => read_clauses(before),
+        PastTheColon::Unplaced => read_clauses(line),
+        // What ends as a sentence does is a step under its heading and not a
+        // Food under a label, so the colon cuts nothing there: `Add Garlic:
+        // Once the onions are translucent, add the garlic.` The paste reader
+        // puts every line it is given through here (#94), and the heading is
+        // what kept such a line from reading as a measure.
+        PastTheColon::Named if rest.trim_end().ends_with(['.', '!', '?']) => read_clauses(line),
+        PastTheColon::Named => {
+            let read = read_split(rest);
+            // The label is dropped only where what follows reads as a line
+            // should. Where it names no Food, or an amount in it has no Unit
+            // Kamosu knows, or its Food opens with a number, the amount may
+            // be measuring what stands before the colon after all, in a Unit
+            // of the open set this reader has never met: `Mozzarella : 1
+            // boule`, `Tomates : 2 boîtes de 400 g`, or the `High: 3-4 hours`
+            // of a slow cooker. Dropping the label there could drop the Food,
+            // so the colon cuts nothing.
+            let placed = read.0.as_ref().is_some_and(|reading| {
+                let has_a_name = |food: &String| !food.starts_with(char::is_numeric);
+                reading.target.as_ref().is_some_and(has_a_name)
+                    && (reading.amount.is_none() || reading.unit.is_some())
+            });
+            if placed { read } else { read_clauses(line) }
+        }
+    }
+}
+
+/// What stands after a colon, which says what stood before it (#207).
+enum PastTheColon {
+    /// A measure and nothing else, `800 ml`: what stands before the colon is
+    /// the Food it measures. Held as its words, ready to be read.
+    Measure(String),
+    /// Words that measure nothing and name nothing, `à convenance` or
+    /// `pelées`: what stands before the colon is the Food, with no measure.
+    Aside,
+    /// Words that name something, `sel`: what stands before the colon was a
+    /// label such as `Ingrédients du placard`, and is no part of the Reading.
+    Named,
+    /// A measure and then words that could be either: in `Beurre : 50 g
+    /// fondu` they describe the butter, and in `Sauce: 2 tbsp honey` they are
+    /// the Food. The colon cuts nothing, and the line reads as it always has.
+    Unplaced,
+}
+
+/// **The line cut in two at a colon**, where a colon cuts it (#207):
+/// `Eau : 800 ml` and `Ingrédients du placard : sel`. The cut is at the first
+/// colon that is neither of the first two below.
+///
+/// Four colons cut nothing, and the line reads as it always has:
+///
+/// - one with a digit against it on both sides, the ratio in `sirop 1:1`. A
+///   space either side makes it a cut, since `Farine T45 : 200 g` is the
+///   commoner line;
+/// - one that opens a web address, `https://`;
+/// - one with nothing after it, the heading `For the sauce:`;
+/// - one in a line that opens with an amount. Such a line already has its
+///   measure, and `1 tsp EACH: Dijon Mustard and Honey` would lose it.
+fn at_the_colon(line: &str) -> Option<(&str, &str)> {
+    let digit = |c: Option<char>| c.is_some_and(|c| c.is_ascii_digit());
+    let (before, rest) = line.match_indices(':').find_map(|(at, _)| {
+        let (before, rest) = (&line[..at], &line[at + 1..]);
+        let ratio = digit(before.chars().next_back()) && digit(rest.chars().next());
+        (!ratio && !rest.starts_with("//")).then_some((before, rest))
+    })?;
+    let opening = split_elisions(split_clauses(before)[0]);
+    let mut opening: Vec<&str> = opening.split_whitespace().collect();
+    opening.drain(..a_few_or_a_little_at(&opening));
+    stand_the_unit_apart(&mut opening, 0);
+    let cuts = rest.chars().any(char::is_alphanumeric) && amount_words(&opening).is_none();
+    cuts.then_some((before, rest))
+}
+
+/// Which of the three things what stands after a colon is.
+///
+/// It is a measure when it is an amount, an amount and its Unit, or a Unit
+/// with a word before it that says a Unit is coming: one of [`A_FEW`], an
+/// article or a word of praise, `quelques brins`, `une pincée`, `bonne
+/// pincée`. A Unit with nothing before it is a name, since `Spices: cloves`
+/// lists a spice. A measure restated after a slash is still the one measure
+/// (#182), and words after it that only describe are the cook's aside, as in
+/// `Ail : 2 gousses hachées`. So is what follows a comma, here as everywhere:
+/// `Eau : 800 ml, tiède`.
+///
+/// Anything else names something, and [`read_split`] decides whether that is
+/// enough to drop what stood before the colon.
+fn past_the_colon(rest: &str) -> PastTheColon {
+    let head = split_elisions(split_clauses(rest)[0]);
+    let mut tokens: Vec<&str> = head.split_whitespace().collect();
+    let a_few = a_few_or_a_little_at(&tokens);
+    stand_the_unit_apart(&mut tokens, a_few);
+    let words = without_to_taste(&tokens[a_few..]);
+    if only_describing(words) || without_warmth_or_size(words).is_empty() {
+        return PastTheColon::Aside;
+    }
+    let amount = amount_words(words);
+    let measured = &words[amount.unwrap_or(0)..];
+    // How many of the words are the measure: up to the end of the Unit and
+    // of anything restated, where all that is left only describes.
+    let measure = [strip_glue(measured), without_praise(measured)]
+        .into_iter()
+        .find_map(|after| {
+            let unit = unit_at(after, after.len(), amount.is_some());
+            let mut left = &after[unit..];
+            while amount.is_some() && unit > 0 {
+                match restated(left) {
+                    Some(taken) => left = &left[taken..],
+                    None => break,
+                }
+            }
+            let announced = a_few > 0 || after.len() < measured.len();
+            let is_a_measure = if amount.is_some() {
+                unit > 0 || after.is_empty() || !left.is_empty()
+            } else {
+                unit > 0 && announced
+            };
+            (is_a_measure && (left.is_empty() || only_describing(left)))
+                .then_some(words.len() - left.len())
+        });
+    // A measure with a name joined to it is a line under a label, `Pour la
+    // sauce : 2 c. à soupe de miel`. With no word joining them, nothing says
+    // which side of the colon the measure belongs to.
+    let after = strip_glue(measured);
+    let unit = unit_at(after, after.len().saturating_sub(1), amount.is_some());
+    let joined = after.get(unit).is_some_and(|word| is_glue(word));
+    match measure {
+        None if amount.is_some() && unit > 0 && !joined => PastTheColon::Unplaced,
+        // The `quelques` goes along, for the reader to drop as it does at the
+        // start of any line.
+        Some(taken) => {
+            let measure: Vec<&str> = tokens[..a_few]
+                .iter()
+                .chain(&words[..taken])
+                .copied()
+                .collect();
+            PastTheColon::Measure(measure.join(" "))
+        }
+        None => PastTheColon::Named,
+    }
+}
+
+/// [`read_split`]'s work on a line no colon cuts.
+fn read_clauses(line: &str) -> (Option<Reading>, bool) {
     let mut clauses = split_clauses(line).into_iter();
     let head = split_elisions(clauses.next().unwrap_or_default());
     let mut tokens: Vec<&str> = head.split_whitespace().collect();
-    let a_few = tokens.iter().take_while(|word| listed(A_FEW, word)).count();
-    tokens.drain(..a_few);
+    tokens.drain(..a_few_or_a_little_at(&tokens));
     // `to taste` goes before anything else is read, so a line reads exactly
     // as it would without the phrase: `cloves to taste` as `cloves` (#163).
     let to_taste = to_taste_at(&tokens, End::Start);
@@ -636,6 +867,19 @@ fn read_split(line: &str) -> (Option<Reading>, bool) {
     tokens.truncate(tokens.len() - to_taste);
     if tokens.is_empty() {
         return (None, false);
+    }
+    stand_the_unit_apart(&mut tokens, 0);
+    // A measure written after the Food is read where a measure is always
+    // read, at the start: `Pâtes orzo 200 g` as `200 g Pâtes orzo` (#207).
+    // Its amount may stand against its Unit, `Pâtes orzo 200g`, and the two
+    // are parted only where they are that measure (#208).
+    let mut turned = tokens.clone();
+    if let Some((amount, unit)) = tokens.last().and_then(|word| against_its_unit(word)) {
+        turned.splice(tokens.len() - 1.., [amount, unit]);
+    }
+    if let Some(at) = measure_at_the_end(&turned) {
+        turned.rotate_left(at);
+        tokens = turned;
     }
     // What follows the first comma is ordinarily the cook's aside, never part
     // of the Reading: in `garlic, minced` the cook is talking *about* the
@@ -671,14 +915,16 @@ fn read_split(line: &str) -> (Option<Reading>, bool) {
     } else {
         rest.len().saturating_sub(1)
     };
-    let mut unit_taken = unit_at(rest, longest);
+    let after_an_amount = reading.amount.is_some();
+    let mut unit_taken = unit_at(rest, longest, after_an_amount);
     // Failing that, a Unit behind a word that only praises it: `good pinch`
     // is a pinch (#186). The praise is skipped only when a Unit follows, with
     // or without an amount before it, so `bonne pincée de sel` is a pinch
     // too, while a name that opens with such a word keeps it.
     let praised = without_praise(rest);
     if unit_taken == 0 && praised.len() < rest.len() {
-        unit_taken = unit_at(praised, longest.saturating_sub(rest.len() - praised.len()));
+        let longest = longest.saturating_sub(rest.len() - praised.len());
+        unit_taken = unit_at(praised, longest, after_an_amount);
         if unit_taken > 0 {
             rest = praised;
         }
@@ -720,6 +966,34 @@ fn read_split(line: &str) -> (Option<Reading>, bool) {
         None
     };
     (reading.is_something().then_some(reading), restating)
+}
+
+/// **Where a measure written after the Food begins**, in `Pâtes orzo 200 g`
+/// and `Ail 1 gousse`, the other layout French sites write (#207).
+///
+/// It is an amount and then a Unit, and the two end the words. **A number
+/// with no Unit behind it is left in the name**, because there it usually is
+/// the name: `Pastis 51`, `flour type 55`, `pasta no. 5`.
+///
+/// Four lines are left as they were. One that opens with an amount already
+/// has its measure. One holding a colon that cut nothing was left whole on
+/// purpose, `Sucre : 100 g + 20 g`. Where the word before the measure only joins, as in
+/// `Oeufs de 60 g`, the measure says which Food and not how much of it. And
+/// more than [`LONGEST_FOOD_NAME`] words before the measure are a sentence
+/// that happens to end in one, `Pour over enough stock to cover by 2 cm`.
+fn measure_at_the_end(words: &[&str]) -> Option<usize> {
+    if amount_words(words).is_some() || words.iter().any(|word| word.ends_with(':')) {
+        return None;
+    }
+    (1..words.len().min(LONGEST_FOOD_NAME + 1))
+        .find(|&at| {
+            let measure = &words[at..];
+            amount_words(measure).is_some_and(|amount| {
+                let unit = &measure[amount..];
+                !unit.is_empty() && unit_at(unit, unit.len(), true) == unit.len()
+            })
+        })
+        .filter(|&at| !is_glue(words[at - 1]))
 }
 
 /// The Food's name carried on past a comma: the describing words before it
@@ -1108,6 +1382,7 @@ const NAMES_NOTHING_ALONE: &[&str] = &[
     "bon",
     "bonne",
     "demi",
+    "peu",
     "écrémé",
     "écrémée",
     "extrait",
@@ -1193,12 +1468,229 @@ pub fn names_nothing_alone(word: &str) -> bool {
             .any(|phrase| phrase.iter().any(|part| folded(part) == folded(bare)))
 }
 
+/// Words for a cut, a part or a form of a food, which a recipe writes beside
+/// the food and a Step leaves off: *chicken thighs* is *the chicken* by the
+/// second Step, and *hauts de cuisse de poulet* is *le poulet* (#212). Where a
+/// name's main word would be one of these, the word beside it is a main word
+/// too.
+///
+/// A word belongs here only when what is left without it is still the same
+/// food. *Meal*, *stock*, *juice* and *zest* do not: almond meal is not
+/// almonds and lemon juice is not a lemon. A word listed here by mistake links
+/// a Step to one line too many, and a word missing from here leaves a Step
+/// linking only by the cut. The forms [`NAMES_NOTHING_ALONE`] already holds
+/// (*extract*, *powder*, *paste*, *fillet*) and the measures (*cloves*,
+/// *leaves*, *gousses*) give way the same way and are not repeated.
+///
+/// French *pâte* and Spanish *pasta* are left out on purpose. *Pâte de miso*
+/// is a form of miso, but *pâte à pizza* is no form of a pizza, and one list
+/// cannot tell them apart.
+const CUTS_AND_PARTS: &[&str] = &[
+    // English
+    "thigh",
+    "thighs",
+    "breast",
+    "breasts",
+    "drumstick",
+    "drumsticks",
+    "wing",
+    "wings",
+    "leg",
+    "legs",
+    "tender",
+    "tenders",
+    "tenderloin",
+    "tenderloins",
+    "loin",
+    "shoulder",
+    "belly",
+    "rib",
+    "ribs",
+    "chop",
+    "chops",
+    "steak",
+    "steaks",
+    "cutlet",
+    "cutlets",
+    "rasher",
+    "rashers",
+    "mince",
+    "meat",
+    "floret",
+    "florets",
+    "bulb",
+    "bulbs",
+    "root",
+    "pod",
+    "pods",
+    "kernel",
+    "kernels",
+    "nut",
+    "nuts",
+    "half",
+    "halves",
+    "heart",
+    "hearts",
+    "tip",
+    "tips",
+    "spear",
+    "spears",
+    "nib",
+    "nibs",
+    "thread",
+    "threads",
+    "granule",
+    "granules",
+    // French
+    "haut",
+    "hauts",
+    "cuisse",
+    "cuisses",
+    "filet",
+    "filets",
+    "aile",
+    "ailes",
+    "pilon",
+    "pilons",
+    "escalope",
+    "escalopes",
+    "aiguillette",
+    "aiguillettes",
+    "côte",
+    "côtes",
+    "côtelette",
+    "côtelettes",
+    "épaule",
+    "branche",
+    "branches",
+    "brin",
+    "brins",
+    "tige",
+    "tiges",
+    "fleurette",
+    "fleurettes",
+    "tête",
+    "têtes",
+    "grain",
+    "grains",
+    "graine",
+    "graines",
+    "bâton",
+    "bâtons",
+    "cerneau",
+    "cerneaux",
+    "copeau",
+    "copeaux",
+    "pousse",
+    "pousses",
+    "cœur",
+    "cœurs",
+    "pointe",
+    "pointes",
+    // Spanish
+    "muslo",
+    "muslos",
+    "contramuslo",
+    "contramuslos",
+    "pechuga",
+    "pechugas",
+    "filete",
+    "filetes",
+    "ala",
+    "alas",
+    "alita",
+    "alitas",
+    "costilla",
+    "costillas",
+    "chuleta",
+    "chuletas",
+    "carne",
+    "diente",
+    "dientes",
+    "rama",
+    "ramas",
+    "ramita",
+    "ramitas",
+    "tallo",
+    "tallos",
+    "cabeza",
+    "cabezas",
+    "grano",
+    "granos",
+    "semilla",
+    "semillas",
+];
+
+/// Foods whose own name is all a Step needs, though the list writes the kind
+/// of thing after it: *Parmesan cheese* is *the parmesan* (#212). Such a word
+/// is a main word of its name wherever it sits.
+const NAMED_KINDS: &[&str] = &[
+    "parmesan",
+    "cheddar",
+    "mozzarella",
+    "feta",
+    "ricotta",
+    "mascarpone",
+    "halloumi",
+    "gruyère",
+    "pecorino",
+    "gouda",
+    "emmental",
+    "manchego",
+    "basmati",
+    "shiitake",
+    "chorizo",
+    "panko",
+    "miso",
+];
+
+/// **Whether a word gives way to the word beside it as a name's main word**:
+/// a cut, a part or a form of a food, or a word that names nothing alone.
+/// *Thighs* gives way to *chicken*, *extrait* to *vanille*, and *fresh* to
+/// whatever it describes (#212).
+///
+/// An amount left in a name gives way too: *3 paquets d'Enoki* is *les
+/// enoki*.
+pub fn gives_way(word: &str) -> bool {
+    listed(CUTS_AND_PARTS, word)
+        || names_nothing_alone(word)
+        || word.starts_with(|c: char| c.is_ascii_digit())
+}
+
+/// **Whether a word sets two foods apart inside one name**: *and* in *fresh
+/// thyme and basil*. Each side has a main word of its own (#212).
+///
+/// *Or* does not: a choice the reader kept whole is as often between two
+/// kinds of one food, and *chicken or vegetable stock* is no chicken.
+pub fn joins_two_foods(word: &str) -> bool {
+    listed(DESCRIBING_JOINS, word)
+}
+
+/// The words after which an English name says what the food is for, or gives
+/// an example of it, and no longer names it: *oil for frying*, *dry sherry
+/// such as Amontillado*, *a neutral oil like canola*. Kept to these three:
+/// *to* sits inside *ready to wok udon noodles*, and *in* and *on* inside
+/// *bone-in* and *skin-on*, all before the food they describe.
+const NAME_TAILS: &[&str] = &["for", "such", "like"];
+
+/// **Whether a word opens the tail of an English name**, which holds no main
+/// word (#212).
+pub fn opens_a_tail(word: &str) -> bool {
+    listed(NAME_TAILS, word)
+}
+
+/// **Whether a word names its food whatever kind-word follows it**, as
+/// *parmesan* does in *Parmesan cheese* (#212).
+pub fn names_its_kind(word: &str) -> bool {
+    listed(NAMED_KINDS, word)
+}
+
 /// **Whether a word only joins two others**: an article, a preposition, a
 /// conjunction, or an elided article. A part of a name a Step may use never
 /// begins or ends on one (#184).
 pub fn only_joins(word: &str) -> bool {
     let bare = word.trim_end_matches(['\'', '\u{2019}']);
-    listed(GLUE, bare)
+    listed_as_glue(bare)
         || listed(DESCRIBING_JOINS, bare)
         || listed(CHOICE_WORDS, bare)
         || listed(FOOD_ENDS, bare)
@@ -1232,14 +1724,9 @@ fn restated(words: &[&str]) -> Option<usize> {
         return None;
     }
     let words = &words[1..];
-    if let Some(first) = words.first() {
-        let digits = first.find(|c: char| c.is_alphabetic()).filter(|&at| at > 0);
-        if let Some(at) = digits {
-            let (amount, unit) = first.split_at(at);
-            if units::parse_amount(amount).is_some() && units::recognise(unit).is_some() {
-                return Some(2);
-            }
-        }
+    let glued = words.first().and_then(|first| against_its_unit(first));
+    if glued.is_some_and(|(amount, _)| units::parse_amount(amount).is_some()) {
+        return Some(2);
     }
     let amount = amount_words(words)?;
     let after = &words[amount..];
@@ -1250,6 +1737,45 @@ fn restated(words: &[&str]) -> Option<usize> {
             units::recognise(&candidate).is_some() || (take == 1 && listed(OPEN_UNITS, after[0]))
         })
         .map(|take| 1 + amount + take)
+}
+
+/// **A word cut where its number ends and a Unit of the closed set begins**,
+/// `100g` into `100` and `g` (#208). Only the closed set counts, so a number
+/// against anything else is part of a name and is not cut: `7up`, `3D`,
+/// `3oeufs`, `2cm`, `2sachets`. Whether the number is an amount is the
+/// caller's to ask.
+fn against_its_unit(word: &str) -> Option<(&str, &str)> {
+    let at = word.find(char::is_alphabetic).filter(|&at| at > 0)?;
+    let (number, unit) = word.split_at(at);
+    units::recognise(unit).map(|_| (number, unit))
+}
+
+/// **An amount written against its Unit stood apart as two words**, so
+/// `100g Crème` reads exactly as `100 g Crème` does (#208). `words` are read
+/// from `from` on.
+///
+/// The cut is made only where an amount is read. The number has to end the
+/// amount the words open with, alone or after others: `1 1/2tsp`, `2 to
+/// 3tbsp`. `1 400g tin tomatoes` is therefore one tin, as it always was,
+/// because `1 400` is no amount.
+fn stand_the_unit_apart(words: &mut Vec<&str>, from: usize) {
+    let end = words.len().min(from + LONGEST_RANGE);
+    let found = (from..end).find_map(|at| {
+        let (number, unit) = against_its_unit(words[at])?;
+        let mut amount = words[from..at].to_vec();
+        amount.push(number);
+        (amount_words(&amount) == Some(amount.len())).then_some((at, number, unit))
+    });
+    if let Some((at, number, unit)) = found {
+        words.splice(at..=at, [number, unit]);
+    }
+}
+
+/// How many words open a line only to say *a few* or *a little*: any of
+/// [`A_FEW`], then one [`A_LITTLE`] phrase.
+fn a_few_or_a_little_at(words: &[&str]) -> usize {
+    let a_few = words.iter().take_while(|word| listed(A_FEW, word)).count();
+    a_few + phrase_at(A_LITTLE, &words[a_few..], End::Start)
 }
 
 /// How many leading words read as one amount: a range if one opens the line,
@@ -1351,12 +1877,17 @@ fn offers_a_choice(words: &[&str]) -> bool {
 /// How many words at the start of `words` are a Unit, looking at no more than
 /// `longest` of them: the longest window the closed set recognises, and
 /// failing that one word from the [`OPEN_UNITS`]. Nothing is a Unit at 0.
-fn unit_at(words: &[&str], longest: usize) -> usize {
+///
+/// A lone `t` or `T` is a spoon only after an amount (#208). With none
+/// before it a single letter opens a name, `T bone steak`.
+fn unit_at(words: &[&str], longest: usize, after_an_amount: bool) -> usize {
     (1..=longest.min(3))
         .rev()
         .find(|&take| {
-            units::recognise(&words[..take].join(" ")).is_some()
-                || (take == 1 && listed(OPEN_UNITS, words[0]))
+            let written = words[..take].join(" ");
+            let known = units::recognise(&written).is_some()
+                && (after_an_amount || units::lone_spoon(&written).is_none());
+            known || (take == 1 && listed(OPEN_UNITS, words[0]))
         })
         .unwrap_or(0)
 }
@@ -1481,6 +2012,7 @@ const LONGEST_FOOD_NAME: usize = 6;
 /// remains is prose. Refusing to name a Food is ADR 0002's "shown whole rather
 /// than guessed at" — the line still reads exactly as written.
 fn rejoin(words: &[&str]) -> Option<String> {
+    use unicode_normalization::char::is_combining_mark;
     if words.len() > LONGEST_FOOD_NAME {
         return None;
     }
@@ -1489,7 +2021,10 @@ fn rejoin(words: &[&str]) -> Option<String> {
         .replace("' ", "'")
         .replace("\u{2019} ", "\u{2019}")
         .trim()
-        .trim_matches(|c: char| !c.is_alphanumeric())
+        .trim_start_matches(|c: char| !c.is_alphanumeric())
+        // An accent no single character holds is still standing apart here,
+        // and belongs to the letter before it, not to the punctuation (#230).
+        .trim_end_matches(|c: char| !c.is_alphanumeric() && !is_combining_mark(c))
         .to_string();
     (!name.is_empty() && name.chars().any(char::is_alphanumeric)).then_some(name)
 }
@@ -1784,7 +2319,7 @@ mod tests {
 
     #[test]
     fn how_warm_a_food_is_is_no_part_of_its_name() {
-        // The line #185 was filed from, and Aurélien's choice on it: cold
+        // The line #185 was filed from, and the choice on it: cold
         // butter is bought as butter.
         assert_eq!(
             read("100 g de beurre froid (7 c. à soupe)"),
@@ -2283,7 +2818,7 @@ mod tests {
 
     #[test]
     fn a_word_of_praise_stays_where_nothing_was_measured() {
-        // Aurélien's choice on #186: the word goes only after a measure, so
+        // The choice on #186: the word goes only after a measure, so
         // a name that opens with one keeps it.
         assert_eq!(
             read("poulet à la bonne femme"),
@@ -2652,6 +3187,612 @@ mod tests {
                 ("200 g", Some("farine".into())),
                 ("1 1/2 cup", Some("lait".into())),
             ]
+        );
+    }
+
+    #[test]
+    fn an_accented_word_spelt_like_a_joining_word_is_part_of_the_name() {
+        // Tea, and diced pieces, in French (#213).
+        assert_eq!(read("1 thé vert"), parts(Some("1"), None, Some("thé vert")));
+        assert_eq!(read("thé matcha"), parts(None, None, Some("thé matcha")));
+        assert_eq!(
+            read("1 Thé Earl Grey"),
+            parts(Some("1"), None, Some("Thé Earl Grey"))
+        );
+        assert_eq!(
+            read("2 sachets de thé noir"),
+            parts(Some("2"), Some("sachets"), Some("thé noir"))
+        );
+        assert_eq!(
+            read("200 ml de thé"),
+            parts(Some("200"), Some("ml"), Some("thé"))
+        );
+        assert_eq!(
+            read("1 sachet de thé"),
+            parts(Some("1"), Some("sachet"), Some("thé"))
+        );
+        assert_eq!(read("thé"), parts(None, None, Some("thé")));
+        assert_eq!(
+            read("1 c. à c. thé de kombu"),
+            parts(Some("1"), Some("c. à c."), Some("thé de kombu"))
+        );
+        assert_eq!(
+            read("100 g de dés de jambon"),
+            parts(Some("100"), Some("g"), Some("dés de jambon"))
+        );
+        assert_eq!(
+            read("1 boîte de dés de tomates"),
+            parts(Some("1"), Some("boîte"), Some("dés de tomates"))
+        );
+        assert_eq!(
+            read("1 dé de beurre"),
+            parts(Some("1"), None, Some("dé de beurre"))
+        );
+        // Capitals and punctuation change nothing.
+        assert_eq!(
+            read("2 sachets de THÉ, bio"),
+            parts(Some("2"), Some("sachets"), Some("THÉ"))
+        );
+    }
+
+    #[test]
+    fn an_accent_typed_as_its_own_character_reads_as_the_one_character_spelling() {
+        // Some keyboards write an accented letter as the letter and then the
+        // accent. The name is the same name either way, byte for byte (#230).
+        assert_eq!(
+            read("1 sel rose\u{301}"),
+            parts(Some("1"), None, Some("sel rosé"))
+        );
+        assert_eq!(
+            read("200 ml de the\u{301}"),
+            parts(Some("200"), Some("ml"), Some("thé"))
+        );
+        assert_eq!(
+            read("1 sachet de the\u{301}"),
+            parts(Some("1"), Some("sachet"), Some("thé"))
+        );
+        assert_eq!(read("the\u{301}"), parts(None, None, Some("thé")));
+        assert_eq!(
+            read("1 the\u{301} vert"),
+            parts(Some("1"), None, Some("thé vert"))
+        );
+        assert_eq!(
+            read("2 cre\u{300}me bru\u{302}le\u{301}e"),
+            parts(Some("2"), None, Some("crème brûlée"))
+        );
+        // Punctuation after the accent still goes, and the accent stays.
+        assert_eq!(
+            read("1 pa\u{302}te\u{301},"),
+            parts(Some("1"), None, Some("pâté"))
+        );
+        assert_eq!(
+            read("1 sel rose\u{301}."),
+            parts(Some("1"), None, Some("sel rosé"))
+        );
+        assert_eq!(
+            read("1 sel rosé."),
+            parts(Some("1"), None, Some("sel rosé"))
+        );
+        assert_eq!(
+            read("1 sel rosé,"),
+            parts(Some("1"), None, Some("sel rosé"))
+        );
+        // An accent no single character holds is kept as it was typed.
+        assert_eq!(
+            read("1 sel x\u{303}"),
+            parts(Some("1"), None, Some("sel x\u{303}"))
+        );
+    }
+
+    #[test]
+    fn a_spoon_for_tea_is_a_teaspoon() {
+        // What Quebec calls the teaspoon. Its `thé` is part of the Unit, and
+        // was dropped as an article until #213 kept it.
+        for (line, unit) in [
+            ("1 cuillère à thé de sel", "cuillère à thé"),
+            ("1 cuillere a the de sel", "cuillere a the"),
+            ("1 c. à thé de sel", "c. à thé"),
+        ] {
+            assert_eq!(read(line), parts(Some("1"), Some(unit), Some("sel")));
+            assert_eq!(units::recognise(unit).map(|u| u.id), Some("teaspoon"));
+        }
+        assert_eq!(
+            read("2 cuillères à thé de vanille"),
+            parts(Some("2"), Some("cuillères à thé"), Some("vanille"))
+        );
+    }
+
+    #[test]
+    fn a_joining_word_without_the_accent_is_still_dropped() {
+        // An unaccented `the` is what an English article looks like, so a
+        // cook who leaves the accent off tea corrects the line (#213).
+        assert_eq!(read("the salt"), parts(None, None, Some("salt")));
+        assert_eq!(read("1 the vert"), parts(Some("1"), None, Some("vert")));
+        assert_eq!(
+            read("100 g des tomates"),
+            parts(Some("100"), Some("g"), Some("tomates"))
+        );
+        assert_eq!(
+            read("2 cups of the flour"),
+            parts(Some("2"), Some("cups"), Some("flour"))
+        );
+        // `à` joins only because its accent is folded away, and still does.
+        assert_eq!(
+            read("2 à 3 tomates"),
+            parts(Some("2 à 3"), None, Some("tomates"))
+        );
+        assert_eq!(
+            read("1 pâte à tarte"),
+            parts(Some("1"), None, Some("pâte à tarte"))
+        );
+    }
+
+    #[test]
+    fn a_unit_and_a_size_match_with_their_accents_or_without() {
+        assert_eq!(
+            read("1 pincée de sel"),
+            parts(Some("1"), Some("pincée"), Some("sel"))
+        );
+        assert_eq!(
+            read("1 pincee de sel"),
+            parts(Some("1"), Some("pincee"), Some("sel"))
+        );
+        assert_eq!(
+            read("1 gros dé de beurre"),
+            parts(Some("1"), None, Some("dé de beurre"))
+        );
+    }
+
+    #[test]
+    fn a_measure_after_a_colon_measures_the_food_before_it() {
+        // The layout French recipe sites and meal kits write (#207). Each
+        // line reads as its amount-first twin does.
+        assert_eq!(
+            read("Oignon jaune : 2"),
+            parts(Some("2"), None, Some("Oignon jaune"))
+        );
+        assert_eq!(
+            read("Eau : 800 ml"),
+            parts(Some("800"), Some("ml"), Some("Eau"))
+        );
+        assert_eq!(
+            read("Oignon frit : 1 sachet"),
+            parts(Some("1"), Some("sachet"), Some("Oignon frit"))
+        );
+        assert_eq!(
+            read("Paupiette de dinde : 4"),
+            parts(Some("4"), None, Some("Paupiette de dinde"))
+        );
+        assert_eq!(
+            read("Crème : 200 g"),
+            parts(Some("200"), Some("g"), Some("Crème"))
+        );
+        // A Unit standing before the colon is still the Unit.
+        assert_eq!(
+            read("Gousse d'ail : 2"),
+            parts(Some("2"), Some("Gousse"), Some("ail"))
+        );
+        // No space before the colon, as English writes it.
+        assert_eq!(
+            read("Water: 800 ml"),
+            parts(Some("800"), Some("ml"), Some("Water"))
+        );
+    }
+
+    #[test]
+    fn a_measure_after_a_colon_reads_as_it_does_at_the_start_of_a_line() {
+        // A decimal comma (#180), a range (#167) and Units of several words.
+        assert_eq!(
+            read("Oignon rouge : 0,5"),
+            parts(Some("0,5"), None, Some("Oignon rouge"))
+        );
+        assert_eq!(
+            read("Gingembre : 1 à 3 cm"),
+            parts(Some("1 à 3"), Some("cm"), Some("Gingembre"))
+        );
+        assert_eq!(
+            read("Farine : 2 c. à soupe"),
+            parts(Some("2"), Some("c. à soupe"), Some("Farine"))
+        );
+        assert_eq!(
+            read("Vinaigre : 4 cuillères à soupe"),
+            parts(Some("4"), Some("cuillères à soupe"), Some("Vinaigre"))
+        );
+        for (food_first, amount_first) in [
+            ("Oignon rouge : 0,5", "0,5 Oignon rouge"),
+            ("Gingembre : 1 à 3 cm", "1 à 3 cm de Gingembre"),
+            ("Farine : 2 c. à soupe", "2 c. à soupe de Farine"),
+            (
+                "Vinaigre : 4 cuillères à soupe",
+                "4 cuillères à soupe de Vinaigre",
+            ),
+            ("Eau : 800 ml", "800 ml d'Eau"),
+            ("Aneth : Quelques brins", "Quelques brins d'Aneth"),
+        ] {
+            assert_eq!(read(food_first), read(amount_first), "{food_first}");
+        }
+        // *A few* is no amount, and the Unit behind it is still a Unit (#181).
+        assert_eq!(
+            read("Aneth : Quelques brins"),
+            parts(None, Some("brins"), Some("Aneth"))
+        );
+        // An article is no amount either, and what follows it is the Unit.
+        assert_eq!(
+            read("Huile d'olive : un filet"),
+            read("un filet d'Huile d'olive")
+        );
+        assert_eq!(
+            read("Sel : 1 bonne pincée"),
+            parts(Some("1"), Some("pincée"), Some("Sel"))
+        );
+        // A measure restated after a slash is one measure (#182).
+        assert_eq!(
+            read("Beurre : 100 g / 3.5 oz"),
+            parts(Some("100"), Some("g"), Some("Beurre"))
+        );
+        assert_eq!(
+            read("Sel : bonne pincée"),
+            parts(None, Some("pincée"), Some("Sel"))
+        );
+        // Words after the measure that only describe are the cook's aside.
+        assert_eq!(
+            read("Ail : 2 gousses hachées"),
+            parts(Some("2"), Some("gousses"), Some("Ail"))
+        );
+        assert_eq!(
+            read("Oeufs : 2 gros"),
+            parts(Some("2"), None, Some("Oeufs"))
+        );
+        // A name that ends in a number is no half of a ratio.
+        assert_eq!(
+            read("Farine T45 : 200 g"),
+            parts(Some("200"), Some("g"), Some("Farine T45"))
+        );
+        // The cook's aside after a comma stays an aside.
+        assert_eq!(
+            read("Eau : 800 ml, tiède"),
+            parts(Some("800"), Some("ml"), Some("Eau"))
+        );
+    }
+
+    #[test]
+    fn words_after_a_colon_that_measure_nothing_leave_the_food_before_it() {
+        assert_eq!(
+            read("Sel & Poivre : À convenance"),
+            parts(None, None, Some("Sel & Poivre"))
+        );
+        assert_eq!(read("Sel : au goût"), parts(None, None, Some("Sel")));
+        assert_eq!(
+            read("Tomates : pelées et hachées"),
+            parts(None, None, Some("Tomates"))
+        );
+        // A size or how warm it is names nothing either (#185).
+        assert_eq!(read("Eau : tiède"), parts(None, None, Some("Eau")));
+        assert_eq!(read("Oeufs : gros"), parts(None, None, Some("Oeufs")));
+        // `à convenance` is dropped without a colon too, as `to taste` is.
+        assert_eq!(read("Sel à convenance"), parts(None, None, Some("Sel")));
+    }
+
+    #[test]
+    fn a_label_before_a_colon_is_no_part_of_the_reading() {
+        // What follows the colon names a Food, so what stands before it is a
+        // heading the site printed on the line (#207).
+        assert_eq!(
+            read("Ingrédients du placard : sel"),
+            parts(None, None, Some("sel"))
+        );
+        assert_eq!(
+            read("Assaisonnement & matières grasses : sel"),
+            parts(None, None, Some("sel"))
+        );
+        assert_eq!(read("votre placard : Sel"), parts(None, None, Some("Sel")));
+        assert_eq!(read("Optional: A splash of beer"), read("A splash of beer"));
+        assert_eq!(
+            read("Pour la sauce : 2 c. à soupe de miel"),
+            parts(Some("2"), Some("c. à soupe"), Some("miel"))
+        );
+        // A Unit with no amount and no *quelques* is a name: cloves, the spice.
+        assert_eq!(read("Spices: cloves"), parts(None, None, Some("cloves")));
+    }
+
+    #[test]
+    fn a_colon_that_cuts_nothing_leaves_the_line_as_it_was() {
+        // A heading with nothing after it.
+        assert_eq!(
+            read("For the sauce:"),
+            parts(None, None, Some("For the sauce"))
+        );
+        // A ratio.
+        assert_eq!(
+            read("200 ml de sirop 1:1"),
+            parts(Some("200"), Some("ml"), Some("sirop 1:1"))
+        );
+        assert_eq!(read("sirop 1:1"), parts(None, None, Some("sirop 1:1")));
+        // A line that opens with its amount keeps it.
+        assert_eq!(
+            read("1 tsp EACH: Dijon Mustard and Honey"),
+            parts(
+                Some("1"),
+                Some("tsp"),
+                Some("EACH: Dijon Mustard and Honey")
+            )
+        );
+        // A measure the reader cannot place is no reason to drop the Food.
+        // A number against a Unit of the open set is one: only the closed
+        // set is read glued (#208).
+        assert_eq!(
+            read("Levure : 2sachets"),
+            parts(None, None, Some("Levure : 2sachets"))
+        );
+        assert_eq!(
+            read("https://example.com/recipe"),
+            parts(None, None, Some("https://example.com/recipe"))
+        );
+        // An amount in a Unit the reader does not know may measure either
+        // side of the colon, so neither is dropped.
+        assert_eq!(
+            read("High: 3-4 hours"),
+            parts(None, None, Some("High: 3-4 hours"))
+        );
+        assert_eq!(
+            read("Mozzarella : 1 boule"),
+            parts(None, None, Some("Mozzarella : 1 boule"))
+        );
+        // Nor is anything dropped where words follow the measure with
+        // nothing joining them: they may describe the butter or be the Food.
+        assert_eq!(
+            read("Beurre : 50 g fondu"),
+            parts(None, None, Some("Beurre : 50 g fondu"))
+        );
+        // Nor is the label dropped where what follows names no Food.
+        assert_eq!(read("Matière grasse : beurre ou huile"), None);
+        // A measure at the end of a line the colon left whole is left too.
+        assert_eq!(
+            read("Sucre : 100 + 20 g"),
+            parts(None, None, Some("Sucre : 100 + 20 g"))
+        );
+        // A sentence under a heading is a step, read as it was.
+        assert_eq!(
+            read("Add Garlic: Once the onions are translucent, add the garlic."),
+            None
+        );
+        // Inside brackets a colon is the cook's aside, as all of it is.
+        assert_eq!(
+            read("¾ cup desiccated coconut (US: finely shredded unsweetened coconut)"),
+            parts(Some("¾"), Some("cup"), Some("desiccated coconut"))
+        );
+    }
+
+    #[test]
+    fn an_amount_and_its_unit_at_the_end_of_a_line_are_its_measure() {
+        assert_eq!(
+            read("Pâtes orzo 200 g"),
+            parts(Some("200"), Some("g"), Some("Pâtes orzo"))
+        );
+        assert_eq!(
+            read("Ail 1 gousse"),
+            parts(Some("1"), Some("gousse"), Some("Ail"))
+        );
+        assert_eq!(
+            read("Crème fraîche épaisse 80 g"),
+            parts(Some("80"), Some("g"), Some("Crème fraîche épaisse"))
+        );
+        assert_eq!(
+            read("Salade verte 50 g"),
+            parts(Some("50"), Some("g"), Some("Salade verte"))
+        );
+        for (food_first, amount_first) in [
+            ("Pâtes orzo 200 g", "200 g de Pâtes orzo"),
+            ("Ail 1 gousse", "1 gousse d'Ail"),
+            ("Farine 2 c. à soupe", "2 c. à soupe de Farine"),
+            ("Gingembre 1 à 3 cm", "1 à 3 cm de Gingembre"),
+            ("Lait 1 1/2 l", "1 1/2 l de Lait"),
+            ("Oignon rouge 0,5 kg", "0,5 kg d'Oignon rouge"),
+        ] {
+            assert_eq!(read(food_first), read(amount_first), "{food_first}");
+        }
+        // A label and a trailing measure on one line.
+        assert_eq!(
+            read("Placard : Sel 2 g"),
+            parts(Some("2"), Some("g"), Some("Sel"))
+        );
+    }
+
+    #[test]
+    fn a_bare_number_at_the_end_of_a_line_stays_in_the_name() {
+        // Without a Unit behind it the number is as likely part of the name,
+        // and these all are (#207).
+        for name in [
+            "Oignon 1",
+            "Pastis 51",
+            "flour type 55",
+            "farine T45",
+            "pasta no. 5",
+            "Vitamin B12",
+        ] {
+            assert_eq!(read(name), parts(None, None, Some(name)), "{name}");
+        }
+        // A line that opens with its amount is not turned round.
+        assert_eq!(
+            read("2 bouteilles de bière 33 cl"),
+            parts(Some("2"), Some("bouteilles"), Some("bière 33 cl"))
+        );
+        // Nor is a sentence that happens to end in a measure.
+        assert_eq!(read("Pour over enough stock to cover by 2 cm"), None);
+        // Nor is one whose last word before the measure only joins: the
+        // measure there describes the Food and is not how much to buy.
+        assert_eq!(
+            read("Oeufs de 60 g"),
+            parts(None, None, Some("Oeufs de 60 g"))
+        );
+    }
+
+    #[test]
+    fn an_amount_written_against_its_unit_reads_as_it_does_with_a_space() {
+        // The three lines a cook retyped amount-first and still lost (#208).
+        assert_eq!(
+            read("100g Crème"),
+            parts(Some("100"), Some("g"), Some("Crème"))
+        );
+        assert_eq!(
+            read("180g de Poitrine fumée"),
+            parts(Some("180"), Some("g"), Some("Poitrine fumée"))
+        );
+        assert_eq!(
+            read("800ml d'Eau"),
+            parts(Some("800"), Some("ml"), Some("Eau"))
+        );
+        for (glued, spaced) in [
+            ("100g flour", "100 g flour"),
+            ("2L water", "2 L water"),
+            ("250mL milk", "250 mL milk"),
+            ("1.5kg potatoes", "1.5 kg potatoes"),
+            ("1,5kg de pommes de terre", "1,5 kg de pommes de terre"),
+            ("1/2tsp salt", "1/2 tsp salt"),
+            ("½tsp salt", "½ tsp salt"),
+            ("100gr de farine", "100 gr de farine"),
+            ("2càs d'huile", "2 càs d'huile"),
+            ("1cup sugar", "1 cup sugar"),
+            ("2tbsp honey", "2 tbsp honey"),
+            // The twin is followed even where it reads imperfectly.
+            ("400g can tomatoes", "400 g can tomatoes"),
+            // An amount of several words, its last one against the Unit.
+            ("1 1/2tsp salt", "1 1/2 tsp salt"),
+            ("200-250g de farine", "200-250 g de farine"),
+            ("2 to 3tbsp oil", "2 to 3 tbsp oil"),
+            ("quelques 200g de farine", "quelques 200 g de farine"),
+            // With a measure restated after a slash (#182).
+            ("400g/0.9lb onion", "400 g/0.9lb onion"),
+            // After a colon and at the end of a line (#207).
+            ("Poitrine fumée : 180g", "Poitrine fumée : 180 g"),
+            ("Crème : 100g", "Crème : 100 g"),
+            ("Eau : 800ml, tiède", "Eau : 800 ml, tiède"),
+            ("Pâtes orzo 200g", "Pâtes orzo 200 g"),
+            ("Placard : Sel 2g", "Placard : Sel 2 g"),
+        ] {
+            let twin = read(spaced);
+            assert!(
+                twin.as_ref().is_some_and(|(_, unit, _)| unit.is_some()),
+                "{spaced}"
+            );
+            assert_eq!(read(glued), twin, "{glued}");
+        }
+        assert_eq!(
+            read("Poitrine fumée : 180g"),
+            parts(Some("180"), Some("g"), Some("Poitrine fumée"))
+        );
+    }
+
+    #[test]
+    fn a_number_against_anything_but_a_convertible_unit_stays_in_the_name() {
+        // Only the closed set counts, so a name that opens with a number is
+        // left whole (#208).
+        for name in [
+            "7up",
+            "3D pasta",
+            "100% rye flour",
+            "3oeufs",
+            "2x eggs",
+            "2cm piece ginger",
+            "2sachets de levure",
+            "T45 flour",
+        ] {
+            assert_eq!(read(name), parts(None, None, Some(name)), "{name}");
+        }
+        // A size that is not where an amount is read is left alone.
+        assert_eq!(
+            read("1 400g tin tomatoes"),
+            parts(Some("1"), None, Some("400g tin tomatoes"))
+        );
+        assert_eq!(
+            read("1 tin tomatoes 400g"),
+            parts(Some("1"), Some("tin"), Some("tomatoes 400g"))
+        );
+        assert_eq!(
+            read("Oeufs de 60g"),
+            parts(None, None, Some("Oeufs de 60g"))
+        );
+    }
+
+    #[test]
+    fn the_short_french_spoons_and_a_pinch_are_units() {
+        for (line, amount, unit, food, twin) in [
+            ("2 cs de crme fraiche", "2", "cs", "crme fraiche", "c. à s."),
+            ("1 c.s. d'huile", "1", "c.s.", "huile", "c. à s."),
+            ("2 cc de sucre", "2", "cc", "sucre", "c. à c."),
+            // `the` is dropped as a joining word, which is #213's fault.
+            ("1 c.c. the de kombu", "1", "c.c.", "kombu", "c. à c."),
+        ] {
+            assert_eq!(read(line), parts(Some(amount), Some(unit), Some(food)));
+            let (short, long) = (units::recognise(unit), units::recognise(twin));
+            assert_eq!(short.map(|u| u.id), long.map(|u| u.id), "{line}");
+            assert!(short.is_some(), "{line}");
+        }
+        assert_eq!(
+            read("1 pince de piment doux"),
+            parts(Some("1"), Some("pince"), Some("piment doux"))
+        );
+        // The accepted cost: a crab's claws are pinches of crab.
+        assert_eq!(
+            read("2 pinces de crabe"),
+            parts(Some("2"), Some("pinces"), Some("crabe"))
+        );
+    }
+
+    #[test]
+    fn a_lone_t_after_an_amount_is_a_spoon_and_its_case_says_which() {
+        for (line, unit, food, spoon) in [
+            ("1 t Instant Yeast", "t", "Instant Yeast", "teaspoon"),
+            ("1 t. salt", "t.", "salt", "teaspoon"),
+            ("1 T sugar", "T", "sugar", "tablespoon"),
+            ("1 T. sugar", "T.", "sugar", "tablespoon"),
+            ("1T sugar", "T", "sugar", "tablespoon"),
+        ] {
+            assert_eq!(read(line), parts(Some("1"), Some(unit), Some(food)));
+            assert_eq!(units::recognise(unit).map(|u| u.id), Some(spoon), "{line}");
+        }
+        // Every other spelling stays blind to case.
+        for (line, unit, food) in [
+            ("1 Tbsp sugar", "Tbsp", "sugar"),
+            ("1 TBSP sugar", "TBSP", "sugar"),
+            ("1 tasse de lait", "tasse", "lait"),
+        ] {
+            assert_eq!(read(line), parts(Some("1"), Some(unit), Some(food)));
+        }
+        // With no amount before it the letter is part of a name.
+        assert_eq!(
+            read("T bone steak"),
+            parts(None, None, Some("T bone steak"))
+        );
+        assert_eq!(
+            read("Viande : un T bone"),
+            parts(None, None, Some("T bone"))
+        );
+    }
+
+    #[test]
+    fn a_little_opening_a_line_is_dropped() {
+        for (line, food) in [
+            ("un peu de sirop d'érable", "sirop d'érable"),
+            ("un peu d'huile", "huile"),
+            ("Un peu d\u{2019}huile", "huile"),
+            ("a little maple syrup", "maple syrup"),
+            ("a bit of salt", "salt"),
+            ("un poco de sal", "sal"),
+        ] {
+            assert_eq!(read(line), read(food), "{line}");
+            assert_eq!(read(line), parts(None, None, Some(food)), "{line}");
+        }
+        // Only the whole phrase, at the start, with no amount before it.
+        assert_eq!(
+            read("1 little gem lettuce"),
+            parts(Some("1"), None, Some("little gem lettuce"))
+        );
+        assert_eq!(read("peu de sel"), parts(None, None, Some("peu de sel")));
+        // Before a colon it opens the line too.
+        assert_eq!(
+            read("un peu de sel : 2 g"),
+            parts(Some("2"), Some("g"), Some("sel"))
         );
     }
 }

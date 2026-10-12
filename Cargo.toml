@@ -1,9 +1,9 @@
 [package]
 name = "kamosu"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "AGPL-3.0-only"
-repository = "https://github.com/BattermanZ/Kamosu"
+repository = "https://github.com/BatterWorks/Kamosu"
 
 [dependencies]
 argon2 = { version = "0.5.3", features = ["password-hash", "rand"] }
@@ -178,6 +178,13 @@ test = false
 
 [[test]]
 name = "shopping_corpus"
+test = false
+
+# The release checklist's library check, run by `just release-library` against
+# a copy of a real library (docs/releasing.md). Kept out of the default set for
+# the same reason as the corpus checks.
+[[test]]
+name = "release_library"
 test = false
 
 [[test]]

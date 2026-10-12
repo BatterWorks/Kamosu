@@ -2,7 +2,7 @@
 	What a Share Link page's *Import this recipe* opens (#170), on the instance
 	that shared it or, sent on from there, on the reader's own.
 
-	Aurélien's three choices of 26 September 2026, recorded on #170:
+	The three choices of 26 September 2026, recorded on #170:
 
 	1. **Signed in, a short confirm screen before anything happens.** It shows
 	   the recipe, says it goes into your Cookbook with every Version and where
@@ -23,14 +23,15 @@
 	upload: the recipe is fetched once, and what lands is what was shown.
 -->
 <script lang="ts">
+	import { aDate } from '$lib/dates';
 	import { goto } from '$app/navigation';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { StillRunning, waitForJob } from '$lib/api/job';
 	import { receiveStaged } from '$lib/receive';
-	import { getLocale } from '$lib/paraglide/runtime';
 	import Screen from '$lib/shell/Screen.svelte';
+	import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
 	import type { PreviewSharedRecipeOutput } from '$lib/api/catalogue';
 	import Account from '../Account.svelte';
 
@@ -98,6 +99,8 @@
 		(async () => {
 			try {
 				const job = await kamosu.previewSharedRecipe({ url: here.url });
+				// The shell draws its sidebar on this answer (#194).
+				heardWhetherSignedIn(true);
 				const finished = await waitForJob(kamosu, job.job_id);
 				if (current) {
 					step = { is: 'ready', preview: finished.result as PreviewSharedRecipeOutput };
@@ -106,6 +109,7 @@
 				if (!(error instanceof Error)) throw error;
 				if (!current) return;
 				if (error instanceof OperationError && error.kind === 'unauthorized') {
+					heardWhetherSignedIn(false);
 					step = { is: 'where' };
 					// Named where it can be, which is a link this instance shared:
 					// its page is Public, so a stranger may read its title. A far
@@ -185,7 +189,7 @@
 	}
 
 	/**
-	 * Which confirm screen a preview makes (Aurélien's choices 1 and 3): not
+	 * Which confirm screen a preview makes (choices 1 and 3): not
 	 * held; held and written here, so nothing can be imported; held but gone a
 	 * different way from the file, so importing would change nothing; held
 	 * with nothing new; held with newer Versions to bring in.
@@ -200,12 +204,7 @@
 	}
 
 	/** A date as the rest of Kamosu writes one, in the app's own Language. */
-	const since = (when: string) =>
-		new Date(when).toLocaleDateString(getLocale(), {
-			day: 'numeric',
-			month: 'long',
-			year: 'numeric',
-		});
+	const since = (when: string) => aDate(when);
 </script>
 
 {#snippet card(preview: PreviewSharedRecipeOutput)}
