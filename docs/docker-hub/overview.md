@@ -8,13 +8,13 @@ Kamosu keeps your recipes, every change ever made to them, each time someone coo
 
 Everything you can do in the web app, an agent can do over MCP (the Model Context Protocol), because both are built from the same list of operations. Kamosu runs on a machine you own, in one container with one folder and one port, and it sends your data nowhere.
 
-![A recipe on a tablet: a sidebar on the left, the ingredients and the method in two columns](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/wide-recipe.png)
+![A recipe on a computer: a sidebar on the left, the photograph across the top, the ingredients and the method in two columns](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/wide-recipe.png)
 
-**A recipe** on a tablet or a computer, the ingredients in view while the method scrolls
+**A recipe** on a tablet or a computer
 
 | | |
 | --- | --- |
-| ![Home: recipe shelves for recently added and most cooked](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/home-shelves.png) | ![A recipe page with its photo, time and servings](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/recipe.png) |
+| ![Home: recipe shelves for recently added and most cooked](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/home-shelves.png) | ![A recipe page with its photo and servings](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/recipe.png) |
 | **Home**: shelves worked out from what you cook | **A recipe**, with its whole history behind it |
 | ![Cooking mode on one step, with its ingredients to tick off](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/cooking.png) | ![A shopping list worked out from three chosen recipes](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/shopping.png) |
 | **Cooking mode**: one step and what it uses | **Shopping**, added up from the recipes you chose |
