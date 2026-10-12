@@ -79,6 +79,10 @@ port, and it sends your data nowhere.
   time in the step text into a timer. Recipes stay readable with no signal, and
   what you record while offline is sent when the phone reconnects. Install it
   to your home screen like an app.
+- **On a tablet or a computer too.** A wider window gets a sidebar where the
+  phone has its tab bar, a recipe in two columns with the ingredients in view
+  while the method scrolls, and lists that stay beside what you opened from
+  them. Type follows the text size set on the device.
 - **Kitchens.** Cook from the recipes of everyone you share a Kitchen with, and
   see how it went when they cooked yours. See
   [Kitchens and Cookbooks](#kitchens-and-cookbooks).
@@ -99,8 +103,8 @@ port, and it sends your data nowhere.
   never says aubergine. See [Meaning Search](#meaning-search).
 - **Bring your recipes in.** A web page (from its schema.org recipe data), a
   pasted recipe or a recipe PDF, a Crouton export, or a recipe from another
-  Kamosu. Importing the same thing twice matches what is already there instead
-  of doubling it.
+  Kamosu. On a computer, drop the file or the link onto Recipes. Importing the
+  same thing twice matches what is already there instead of doubling it.
 - **Share with anyone.** A Share Link shows one recipe to whoever holds it, no
   account needed, with a printable PDF and a file another Kamosu can import
   with the recipe's full history.
@@ -159,7 +163,7 @@ It is not:
   figure you typed. Kamosu never calculates nutrition from ingredients.
 - **A public recipe site.** There is no signup. Every account starts from an
   invite, and nothing is visible to strangers unless you share a link.
-- **Finished.** This is 0.1.0. It is used in one kitchen, and nobody else has
+- **Finished.** This is 0.2.0. It is used in one kitchen, and nobody else has
   run it yet.
 
 ## Quick start
@@ -218,7 +222,7 @@ headers and trusts nothing a proxy adds.
 
 ## Connecting an agent
 
-In Kamosu, open **Settings**, then **Access Keys**, and create one. Tick
+In Kamosu, open **Settings**, then **Account**, and create an Access Key. Tick
 **Read-only** if the agent only needs to look things up. The key is shown once.
 Put it in an environment variable, `KAMOSU_ACCESS_KEY` below, in the
 environment that starts your agent. Kamosu's MCP endpoint is
@@ -296,7 +300,8 @@ by what they are about, so "that thing with aubergines" finds a recipe that
 never says aubergine. Each result says whether it matched on words or on
 meaning.
 
-It is off until an Operator turns it on in **Settings**. It needs Google's
+It is off until an Operator turns it on in **Settings**, under **This
+instance**. It needs Google's
 EmbeddingGemma model, which Kamosu does not ship and does not download until
 the Operator accepts Google's terms. The model then runs on your own machine,
 and no recipe leaves it.
@@ -376,8 +381,9 @@ way, which Kamosu refuses. Start it with the profile from [Codex](#codex),
 which turns on the 2026-07-28 revision.
 
 **A phone still shows an old version of a recipe.** Each phone keeps a copy of
-the library for offline cooking. **Settings** says how many recipes it holds
-and when they were last updated, and **Bring it up to date** refreshes them.
+the library for offline cooking. **Settings**, under **This device**, says how
+many recipes it holds and when they were last updated, and **Bring it up to
+date** refreshes them.
 
 ## Security
 

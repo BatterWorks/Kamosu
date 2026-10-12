@@ -4,6 +4,8 @@ A Version's fingerprint does **not** cover **Tags**. Tagging a recipe, untagging
 
 _(Reopened by [ADR 0041](./0041-a-recipe-is-written-in-a-cookbook-and-seen-in-a-kitchen.md): recipes now belong to a **Cookbook**, and whether a Tag follows them there or stays a Kitchen's own filing is an open question on the build ticket. The argument below holds either way.)_
 
+_(Answered by [#131](https://github.com/BatterWorks/Kamosu/issues/131): a Tag follows the recipes. It is kept in a **Cookbook**'s list, and where this ADR says a Kitchen's list, read the Cookbook's. A Tag that travels in a Bundle lands in the receiving Cookbook's list. Since [#231](https://github.com/BatterWorks/Kamosu/issues/231) `list_tags` and `search_recipes` take a `cookbook_id` on that footing.)_
+
 Tags continue to travel in a **Bundle** as names ([ADR 0020](./0020-a-bundle-is-one-recipes-worth-of-vault.md)), to land in the receiving **Kitchen**'s own list ([ADR 0007](./0007-a-recipe-is-held-by-a-kitchen-not-a-person.md)), and to be left out of a **Divergence** ([ADR 0019](./0019-an-ingredient-line-has-no-name-of-its-own.md)). What travels is unchanged; what is *named by the fingerprint* is what this settles.
 
 This **sharpens** [ADR 0004](./0004-one-lineage-many-branches.md) rather than reversing it, exactly as [ADR 0021](./0021-a-reading-is-kamosus-reading-not-the-recipe.md) did for the **Reading**. `GLOSSARY.md` says a Version is named by a fingerprint of "the words and the Photographs" and never says whether a Tag is one of the words. It is not. [#51](https://github.com/BatterWorks/Kamosu/issues/51) was written the other way and is corrected here.

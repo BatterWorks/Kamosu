@@ -31,11 +31,12 @@
 #
 # Reach for the real fix first. This list is for what survives it, and one has.
 #
-# RUSTSEC-2026-0192, unmaintained `ttf-parser`, is not here for exactly that
-# reason: it arrived under `ab_glyph`, which drew the Share Card's title, and
-# the advisory named `skrifa` as the successor. Kamosu draws with `skrifa` now
-# (see the note in Cargo.toml), the card is the same card, and the crate is out
-# of the tree rather than excused in this file.
+# RUSTSEC-2026-0192, unmaintained `ttf-parser`, was once out of this file for
+# exactly that reason: it arrived under `ab_glyph`, which drew the Share Card's
+# title, and the advisory named `skrifa` as the successor. Kamosu draws the
+# card with `skrifa` now (see the note in Cargo.toml). The crate came back with
+# Typst, which sets a Sheet, and that time there was no such move to make: it
+# is recorded below with the rest of what Typst brings.
 ignore = [
   # Unmaintained `paste`, and this time there is nowhere to go. It arrives as
   # `fastembed` -> `tokenizers` -> `paste`: Meaning Search needs the embedding
@@ -55,4 +56,71 @@ ignore = [
   #
   # Re-read when `tokenizers` moves.
   { id = "RUSTSEC-2024-0436", reason = "unmaintained `paste`, via fastembed -> tokenizers; no fix upstream, compile-time only, no reported bug" },
+
+  # Everything from here down arrives with Typst, which sets a Sheet (ADR
+  # 0023), and was read for the 0.2.0 release. Typst is one crate that can do
+  # far more than Kamosu asks of it: bibliographies, highlighted source code,
+  # YAML data. Each of those brings a crate with an advisory, and none of them
+  # can be switched off, because `typst-library` lists them as plain
+  # dependencies with no feature in front. Typst 0.15.1 is the newest release,
+  # so there is no upgrade to take either.
+  #
+  # What makes them safe to live with is `SheetWorld` in src/sheet.rs. The
+  # template is compiled into the binary, a recipe reaches it as `data.json`
+  # and as nothing else, and the world holds no other file and no package. The
+  # template reads that JSON and never evaluates it as markup, so no recipe's
+  # text can ask Typst for a bibliography, a code block or a YAML file.
+  #
+  # Re-read every one of these when Typst moves.
+
+  # A real vulnerability, in code a Sheet never runs. `quick-xml` reads a
+  # start tag with very many attributes in quadratic time, and its namespace
+  # reader allocates without limit. It is here as `citationberg`, which reads
+  # citation style files for a bibliography. A Sheet has no bibliography and
+  # no way to ask for one, so Kamosu hands this parser no XML at all, a
+  # stranger's least of all. The fix is quick-xml 0.41, which citationberg
+  # 0.7.0, its newest release, does not accept.
+  { id = "RUSTSEC-2026-0194", reason = "quick-xml quadratic attribute check, via typst -> hayagriva -> citationberg; a Sheet has no bibliography, so no XML is ever parsed; no release of citationberg takes the fix" },
+  { id = "RUSTSEC-2026-0195", reason = "quick-xml unbounded namespace allocation, same path and same reasoning as RUSTSEC-2026-0194" },
+
+  # Unmaintained, and unreached for the same reason. `bincode` and `yaml-rust`
+  # come with `syntect`, which colours source code in a code block.
+  # `unsafe-libyaml` comes with `serde_yaml`, which reads a bibliography or a
+  # YAML data file. A Sheet has none of the three. No bug is reported in any
+  # of them: each advisory says the crate has stopped moving.
+  { id = "RUSTSEC-2025-0141", reason = "unmaintained `bincode`, via typst -> syntect; a Sheet has no code block; no reported bug" },
+  { id = "RUSTSEC-2024-0320", reason = "unmaintained `yaml-rust`, via typst -> syntect; a Sheet has no code block; no reported bug" },
+  { id = "RUSTSEC-2024-0449", reason = "unmaintained `unsafe-libyaml`, via typst -> serde_yaml; a Sheet reads no YAML; no reported bug" },
+
+  # Unmaintained, and these two do run. `rustybuzz` shapes every line of a
+  # Sheet and `ttf-parser` reads the typeface for it. Both work on the two
+  # font families compiled into the binary, which are the same bytes on every
+  # instance, so nothing a stranger sends reaches them there.
+  #
+  # `ttf-parser` has a second way in, `pdf-extract` -> `lopdf`, and Kamosu
+  # never walks it: lopdf calls the parser in one place, `FontData::new`, to
+  # put a font into a PDF it is writing. Kamosu only reads a PDF with it
+  # (#176). No bug is reported in either crate. The advisories name `harfrust`
+  # and `skrifa` as the successors, and moving to them is Typst's and lopdf's
+  # to do: neither has released a version that has.
+  { id = "RUSTSEC-2026-0206", reason = "unmaintained `rustybuzz`, via typst; shapes text in Kamosu's own bundled fonts only; no reported bug, no Typst release without it" },
+  { id = "RUSTSEC-2026-0192", reason = "unmaintained `ttf-parser`, via typst and pdf-extract -> lopdf; reads Kamosu's own bundled fonts for a Sheet, and lopdf calls it only when writing a PDF; no reported bug, no release of either without it" },
 ]
+
+# The interface's tree has no file of its own for this, so what `npm audit`
+# reports and Kamosu lives with is written here too.
+#
+# GHSA-vfj7-8cjw-p6xm, `braces` (high): a deeply nested brace pattern overflows
+# the stack. It arrives as @tailwindcss/cli -> @parcel/watcher -> micromatch ->
+# braces. That is the file watcher of the Tailwind command-line tool, which
+# `just css` and the build run on a developer's machine. None of it is in the
+# built interface, so none of it is in the binary or the image. The patterns it
+# is given are the paths Kamosu's own stylesheet names. braces 3.0.3 is its
+# newest release and carries no fix. @parcel/watcher 2.6.0 no longer uses
+# micromatch, but @tailwindcss/cli pins 2.5.1 exactly, in 4.3.3, its newest.
+# npm's remedy is a downgrade of the Tailwind tool to 4.3.0, which is not a
+# fix. `just audit` goes on failing on this one line until Tailwind moves its
+# pin: read when it does.
+#
+# GHSA-pxg6-pf52-xh8x, `cookie` (low): SvelteKit's server-side cookie parser,
+# which Kamosu never runs. The justfile says why beside `npm audit`.

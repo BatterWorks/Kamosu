@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.2.0 - 2026-10-12
+
 ### After upgrading
 
 - An Operator presses "Read every line again" on the Operator page once. The reader of Ingredient Lines was fixed in four places, listed under Fixed, and a line already saved keeps its old Reading until it is read again. A Reading somebody set by hand is left alone. [#207] [#208] [#213] [#230]
@@ -48,6 +50,7 @@
 - A Step links an ingredient only by the main word of its name. "Add the chicken" no longer shows the chicken broth, and "steamed rice" no longer shows the rice vinegar. A Step saying "le thé" now links the tea. [#212] [#230]
 - A cooking kept as a Version shows, with its rating, under that Version in the History. It used to sit under the Version the cooking started from, and the Version that was eaten looked untried. `get_thread` answers `eaten_version_id` on every Attempt. [#209]
 - A recipe on the phone's shopping list shows its whole title on one row. The title was squeezed beside "shopping for 4 servings" and wrapped to four lines. [#226]
+- The library Kamosu makes its outgoing HTTPS connections with, to fetch a web page to import or the Meaning Search model, is past a published flaw in how it checked the TLS handshake (RUSTSEC-2026-0285). [#244]
 
 [#193]: https://github.com/BatterWorks/Kamosu/issues/193
 [#194]: https://github.com/BatterWorks/Kamosu/issues/194
@@ -85,6 +88,7 @@
 [#231]: https://github.com/BatterWorks/Kamosu/issues/231
 [#233]: https://github.com/BatterWorks/Kamosu/issues/233
 [#237]: https://github.com/BatterWorks/Kamosu/pull/237
+[#244]: https://github.com/BatterWorks/Kamosu/pull/244
 
 ## v0.1.0 - 2026-09-28
 
