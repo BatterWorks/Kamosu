@@ -112,6 +112,97 @@ impl Core {
         })
     }
 
+    /// What a Job Key's write is held to before its Operation runs (ADR 0048,
+    /// #264). `mark` is how the Catalogue marks the Operation and `input` is
+    /// what the call sent. These are things no Operation asks, since none
+    /// knows of Jobs:
+    ///
+    /// - **It reaches the Job's recipe and no other.** An Operation marked to
+    ///   write the recipe names it in `branch_id`. Any other is answered as a
+    ///   recipe that is not there, the recipe of another waiting Job included.
+    /// - **It never makes a Copy.** Where the asker's own change to the Job's
+    ///   recipe would start one, the write is refused and the Job fails with
+    ///   the reason. That spends the Job Key, so the Job writes nothing more,
+    ///   which is why this is asked of storing a Photograph too. What the Job
+    ///   saved before stays. The question is the one `save_onto_branch` asks
+    ///   before it copies.
+    /// - **It makes no Translation.** A save that names the Version it
+    ///   translates is refused.
+    /// - **It corrects no Reading another recipe holds too**, which is
+    ///   `JobKey::CorrectsItsReadings`.
+    ///
+    /// This can end the Job, so it writes as well as checks.
+    pub(super) fn hold_job_key_write(
+        &self,
+        caller: &Caller,
+        job_id: &str,
+        mark: JobKey,
+        input: &Value,
+    ) -> Result<(), OpError> {
+        let names_its_recipe = match mark {
+            JobKey::Never | JobKey::Reads => return Ok(()),
+            JobKey::WritesItsRecipe | JobKey::CorrectsItsReadings => true,
+            JobKey::StoresPhotographs => false,
+        };
+        self.db().with_conn(|conn| {
+            let its_recipe: Option<String> = conn
+                .query_row(
+                    "SELECT agent_jobs.branch_id
+                       FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
+                      WHERE jobs.id = ?1 AND jobs.status = 'running'",
+                    params![job_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read the Job's recipe: {e}")))?;
+            // The Job ended between the Job Key being presented and here.
+            let Some(its_recipe) = its_recipe else {
+                return Err(OpError::credential_names_nobody());
+            };
+            if names_its_recipe && input["branch_id"].as_str() != Some(its_recipe.as_str()) {
+                return Err(no_such_branch());
+            }
+            let own_cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            if !cookbook_writes_branch(conn, &own_cookbook_id, &its_recipe)? {
+                jobs::end_where_a_copy_would_start(conn, job_id)?;
+                return Err(OpError::unauthorized(jobs::WOULD_START_A_COPY));
+            }
+            if mark == JobKey::WritesItsRecipe
+                && input
+                    .get("translates_version_id")
+                    .is_some_and(|named| !named.is_null())
+            {
+                return Err(OpError::bad_request(
+                    "an agent's Job makes no Translation, so its save names no \
+                     translates_version_id. Leave the field out",
+                ));
+            }
+            if mark == JobKey::CorrectsItsReadings {
+                let shared: bool = conn
+                    .query_row(
+                        "SELECT EXISTS (
+                            SELECT 1 FROM branch_versions
+                              JOIN branches ON branches.head_version_id = branch_versions.version_id
+                             WHERE branches.id = ?1 AND branch_versions.branch_id <> ?1)",
+                        params![its_recipe],
+                        |row| row.get(0),
+                    )
+                    .map_err(|e| {
+                        OpError::internal(format!("cannot look for the Version elsewhere: {e}"))
+                    })?;
+                if shared {
+                    return Err(OpError::bad_request(
+                        "another recipe reads word for word as this one does, so the two \
+                         hold this Version and its Readings between them, and correcting \
+                         one here would correct the other's. Save a change to this recipe \
+                         first, or leave the Reading and say so in your report",
+                    ));
+                }
+            }
+            Ok(())
+        })
+    }
+
     /// A Runner asking for a Job to do: the oldest that waits, with what to
     /// read and which recipe it is for, or none (#262). The Job is running
     /// from here until the Runner reports on it.

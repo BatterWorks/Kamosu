@@ -496,6 +496,26 @@ pub fn end_for_deleted_recipe(conn: &Connection, branch_id: &str) -> Result<(), 
     Ok(())
 }
 
+/// The reason an agent's Job ends with when a write of its would have started
+/// a Copy (ADR 0048). The cook reads it in the Import Report.
+pub const WOULD_START_A_COPY: &str = "the person who asked cannot change this recipe: a change of \
+     theirs would start a copy in their own Cookbook, and an agent's Job never starts one";
+
+/// End a Job that is being worked because a write of its would have started
+/// a Copy (#264). Failed, with the reason, which spends its Job Key. What it
+/// saved before stays. Marked as the thing itself at fault, as a recipe gone
+/// from under a Job is: trying again would meet the same refusal.
+pub fn end_where_a_copy_would_start(conn: &Connection, job_id: &str) -> Result<(), OpError> {
+    conn.execute(
+        "UPDATE jobs SET status = 'failed', error = ?2, error_code = -32602,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE id = ?1 AND status = 'running'",
+        params![job_id, WOULD_START_A_COPY],
+    )
+    .map_err(|e| OpError::internal(format!("cannot end the Job: {e}")))?;
+    Ok(())
+}
+
 /// An agent's Job as it stands now: its state, the reason it failed where it
 /// did, and the agent's own report once a Runner has passed one on.
 pub struct AgentJobState {

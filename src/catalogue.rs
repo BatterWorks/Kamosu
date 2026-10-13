@@ -84,6 +84,32 @@ pub enum JobKey {
     /// names of the people who wrote and cooked. The Operations that read
     /// Attempts, Kitchens and accounts on their own stay `Never`.
     Reads,
+    /// Writes the one recipe the Job is for (#264). The Operation names the
+    /// recipe in `branch_id`, and the Core compares that with the Job's own
+    /// before the Operation runs: any other recipe is answered as one that
+    /// is not there. Where the asker's own change would start a Copy, the
+    /// write is refused and the Job fails. Never an Operation that is a Job,
+    /// for the reason `Reads` gives.
+    ///
+    /// Past that the Operation does what it does for the asker, since none
+    /// learns about Jobs. So `set_recipe_tag` takes a Tag off the Job's
+    /// recipe as readily as it puts one on, and a save writes whatever the
+    /// asker could write there. One input is not the Job's to send:
+    /// `translates_version_id`, which makes a save a Translation's.
+    WritesItsRecipe,
+    /// Corrects a Reading of the Job's recipe (#264): held as
+    /// `WritesItsRecipe` is, and to one thing more. A Reading belongs to a
+    /// Version, and a Version is its content's fingerprint, so two recipes
+    /// that read word for word alike hold one Version and its Readings
+    /// between them. While another recipe holds the newest Version of the
+    /// Job's, correcting its Reading would correct that recipe's too, and is
+    /// refused.
+    CorrectsItsReadings,
+    /// Stores a Photograph, which belongs to no recipe until a save names
+    /// it (#264). Refused, and the Job failed, where the asker's own change
+    /// to the Job's recipe would start a Copy: such a Job writes nothing
+    /// more.
+    StoresPhotographs,
 }
 
 /// One thing Kamosu can be asked to do, defined exactly once.
@@ -595,7 +621,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       Job at a time, so asking again while holding one \
                       answers that same Job. `job_key` is the Job Key, for \
                       the agent: a Secret that reads the library as the \
-                      Person who asked for the Job, until the Job ends. It \
+                      Person who asked for the Job and writes the Job's one \
+                      recipe under their Hand, until the Job ends. It \
                       is shown here and never again, so asking again mints \
                       a new one and the one before stops working. `job` is \
                       null when nothing is waiting. `runner_version` is the \
@@ -1196,7 +1223,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
-            job_key: JobKey::Never,
+            job_key: JobKey::WritesItsRecipe,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "tag_id": { "type": "string" }, "carried": { "type": "boolean" } }, "required": ["branch_id", "tag_id", "carried"], "additionalProperties": false }),
             output_schema: json!({
@@ -1301,7 +1328,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
-            job_key: JobKey::Never,
+            job_key: JobKey::WritesItsRecipe,
             job_lane: JobLane::ByCaller,
             input_schema: save_recipe_version_input_schema(),
             output_schema: saved_version_schema(),
@@ -1338,7 +1365,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
-            job_key: JobKey::Never,
+            job_key: JobKey::WritesItsRecipe,
             job_lane: JobLane::ByCaller,
             input_schema: edit_recipe_input_schema(),
             output_schema: saved_version_schema(),
@@ -1939,7 +1966,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
-            job_key: JobKey::Never,
+            job_key: JobKey::StoresPhotographs,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2758,7 +2785,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
-            job_key: JobKey::Never,
+            job_key: JobKey::CorrectsItsReadings,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",

@@ -358,8 +358,9 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   tags.rs           Tags, and putting one on a recipe
   related.rs        Related Recipes (#105)
   runners.rs        Runner Keys, a Runner taking a Job and reporting how it
-                    ended, the Job Key that comes with one, and whether the
-                    instance has a Runner (ADR 0048, #260, #262, #263)
+                    ended, the Job Key that comes with one and the one
+                    recipe its writes are held to, and whether the instance
+                    has a Runner (ADR 0048, #260, #262, #263, #264)
   shelves.rs        the home shelves, and the shelf entry every list shows
   translation.rs    translation and a Branch's Language
   readings.rs       Ingredient Lines, Readings, Foods and Food merges
@@ -456,6 +457,13 @@ Catalogue and both Doors grow it in the same commit.
   Marking one for a Job Key takes a decision of the ADR's weight, and
   `the_job_keys_list_is_these_operations` in `tests/behaviour.rs` fails until
   the name is added there on purpose.
+- **A Job Key's write is held to its Job's recipe in `Core::execute`, never in
+  the Operation** (#264). The mark says which: `WritesItsRecipe` names the
+  recipe in `branch_id`, and any other recipe answers as one that is not
+  there. Where the asker's own change would start a Copy, the write is refused
+  and the Job fails. No Operation learns about Jobs. `POST /api/photographs`
+  is the one route outside the Catalogue a Job Key may use, by the mark on
+  `upload_photograph`.
 - The MCP door speaks revision `2026-07-28`, stateless, no handshake.
 
 ## Changing what a recipe holds
