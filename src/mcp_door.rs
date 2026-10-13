@@ -447,17 +447,15 @@ fn left_out_line(count: usize) -> String {
 }
 
 /// The listing itself is not an Operation and carries no permission check, but
-/// a read-only Access Key's writes are still absent from it (ADR 0031): the
-/// filter walks the Catalogue exactly as `Core::execute` refuses them, so the
-/// two can never disagree about which Operations that count as.
+/// a read-only Access Key's writes are still absent from it (ADR 0031), and a
+/// Runner Key is shown the Runner's own Operations and no other (ADR 0048).
+/// The Core says which, from the same declarations `Core::execute` refuses
+/// by, so the two can never disagree about which Operations those are.
 fn tools_list(core: &Core, headers: &HeaderMap) -> Value {
     let secret = web_door::bearer_from_headers(headers);
-    let read_only = secret
-        .as_deref()
-        .is_some_and(|secret| core.is_read_only_credential(secret));
-    let tools: Vec<Value> = catalogue::OPERATIONS
-        .iter()
-        .filter(|op| !(read_only && op.write))
+    let tools: Vec<Value> = core
+        .operations_listed_to(secret.as_deref())
+        .into_iter()
         .map(|op| {
             // A Job's description says what to call after asking. The answer's
             // own text cannot: Claude Code shows a model only the structured
@@ -474,7 +472,8 @@ fn tools_list(core: &Core, headers: &HeaderMap) -> Value {
         "resultType": "complete",
         "tools": tools,
         "ttlMs": LISTING_TTL_MS,
-        // What a read-only Access Key is shown differs from the rest.
+        // What a read-only Access Key or a Runner Key is shown differs from
+        // the rest.
         "cacheScope": "private",
     })
 }

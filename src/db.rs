@@ -1655,6 +1655,29 @@ pub const MIGRATIONS: &[Migration] = &[
         then: Some(carry_hand_readings_forward),
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 42,
+        description: "Runner Keys: a Secret that acts as no Person (#260)",
+        sql: r#"
+        -- A Runner Key: the Secret an Operator mints for a Runner (ADR 0048).
+        -- It belongs to the instance and names no Person, which is why it has
+        -- a table of its own and no person_id. Stored hashed, shown once at
+        -- minting, revoked and never on a clock (ADR 0031).
+        -- `last_used_at` is any call the Key was presented on, as for every
+        -- Secret. `last_asked_at` is the last time it asked for work, which is
+        -- what tells a quiet day from a Runner that has stopped.
+        CREATE TABLE runner_keys (
+            id            TEXT PRIMARY KEY,
+            secret_hash   TEXT NOT NULL UNIQUE,
+            name          TEXT NOT NULL,
+            revoked       INTEGER NOT NULL DEFAULT 0,
+            created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            last_used_at  TEXT,
+            last_asked_at TEXT
+        );
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

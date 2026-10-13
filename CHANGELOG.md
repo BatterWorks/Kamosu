@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- An Operator signed in directly can mint a Runner Key, for a Runner: a program beside Kamosu that will have an agent read what Kamosu cannot. Kamosu shows its Secret once. It acts as nobody, and can ask for work and nothing else. There is no screen yet. Both doors gain `mint_runner_key`, `list_runner_keys` and `revoke_runner_key` for an Operator, `runner_status`, which tells anyone signed in whether the instance has a Runner and when one last asked for work, and `ask_for_work`, which answers a Runner Key alone and for now always says nothing is waiting. [#260]
+
 ### Changed
 
 - In the History, a line comes out of the dot of the Version it started from, and the band saying "Splits into 2 Branches here" is gone. A Translation sits directly under the Version it translates, whenever it was written, where it used to leave the top of the page as if the recipe had split before its first Version. [#250]
@@ -16,6 +20,7 @@
 [#249]: https://github.com/BatterWorks/Kamosu/issues/249
 [#250]: https://github.com/BatterWorks/Kamosu/issues/250
 [#251]: https://github.com/BatterWorks/Kamosu/issues/251
+[#260]: https://github.com/BatterWorks/Kamosu/issues/260
 
 ## v0.2.0 - 2026-10-12
 

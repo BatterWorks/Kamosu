@@ -96,6 +96,12 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// ended, here or on another device, would hand out one that no longer opens.
 	get_share_link: 'server-first',
 	list_backups: 'server-first',
+	// Whether there is a Runner and when one last asked for work, and the
+	// Runner Keys an Operator manages (#260). What a screen shows about a
+	// Runner is read from the server each time (#258): a kept answer would
+	// say a Runner is there after its Key was revoked, or silent while it works.
+	runner_status: 'never',
+	list_runner_keys: 'never',
 };
 
 const READ_SET = new Set<string>(READS);

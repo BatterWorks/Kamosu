@@ -149,6 +149,56 @@ export type ListBackupsOutput = {
 	}[];
 };
 
+/** Mint a Runner Key, the Secret a Runner asks for work with. A Runner is the program beside Kamosu that has an agent do the Jobs Kamosu cannot. The Secret is shown once. It can ask for work and nothing else, and it acts as no Person. */
+export type MintRunnerKeyInput = {
+	name: string;
+};
+/** What mint_runner_key answers. */
+export type MintRunnerKeyOutput = {
+	id: string;
+	name: string;
+	secret: string;
+};
+
+/** List this instance's Runner Keys by name and last use. */
+export type ListRunnerKeysInput = Record<string, never>;
+/** What list_runner_keys answers. */
+export type ListRunnerKeysOutput = {
+	runner_keys: {
+		created_at: string;
+		id: string;
+		last_used_at: string | null;
+		name: string;
+		revoked: boolean;
+	}[];
+};
+
+/** End one Runner Key. The Runner holding it is refused at its next call. */
+export type RevokeRunnerKeyInput = {
+	runner_key_id: string;
+};
+/** What revoke_runner_key answers. */
+export type RevokeRunnerKeyOutput = {
+	revoked: boolean;
+};
+
+/** Read whether this instance has a Runner. Also when one last asked for work. */
+export type RunnerStatusInput = Record<string, never>;
+/** What runner_status answers. */
+export type RunnerStatusOutput = {
+	has_runner: boolean;
+	last_asked_at: string | null;
+};
+
+/** Ask for a Job to do. For a Runner alone, with its Runner Key. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
+export type AskForWorkInput = {
+	runner_version: string;
+};
+/** What ask_for_work answers. */
+export type AskForWorkOutput = {
+	job: null;
+};
+
 /** List this Person's browser Sessions by device and last use. `current` marks the Session asking, so it is never set when an Access Key asks. */
 export type ListSessionsInput = Record<string, never>;
 /** What list_sessions answers. */
@@ -4922,6 +4972,36 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'operator';
 	};
+	mint_runner_key: {
+		input: MintRunnerKeyInput;
+		output: MintRunnerKeyOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	list_runner_keys: {
+		input: ListRunnerKeysInput;
+		output: ListRunnerKeysOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	revoke_runner_key: {
+		input: RevokeRunnerKeyInput;
+		output: RevokeRunnerKeyOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	runner_status: {
+		input: RunnerStatusInput;
+		output: RunnerStatusOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	ask_for_work: {
+		input: AskForWorkInput;
+		output: AskForWorkOutput;
+		kind: 'immediate';
+		permission: 'runner';
+	};
 	list_sessions: {
 		input: ListSessionsInput;
 		output: ListSessionsOutput;
@@ -6109,6 +6189,190 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"backups"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "mint_runner_key",
+		"summary": "Mint a Runner Key, the Secret a Runner asks for work with. A Runner is the program beside Kamosu that has an agent do the Jobs Kamosu cannot. The Secret is shown once. It can ask for work and nothing else, and it acts as no Person.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"id": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				},
+				"secret": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"secret"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_runner_keys",
+		"summary": "List this instance's Runner Keys by name and last use.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"runner_keys": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"last_used_at": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"name": {
+								"type": "string"
+							},
+							"revoked": {
+								"type": "boolean"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"created_at",
+							"last_used_at",
+							"revoked"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"runner_keys"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "revoke_runner_key",
+		"summary": "End one Runner Key. The Runner holding it is refused at its next call.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"runner_key_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"runner_key_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"revoked": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"revoked"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "runner_status",
+		"summary": "Read whether this instance has a Runner. Also when one last asked for work.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"has_runner": {
+					"description": "True while a Runner Key exists that is not revoked.",
+					"type": "boolean"
+				},
+				"last_asked_at": {
+					"description": "When a Runner last asked for work, or null when none ever has.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"has_runner",
+				"last_asked_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "ask_for_work",
+		"summary": "Ask for a Job to do. For a Runner alone, with its Runner Key. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it.",
+		"permission": "runner",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"runner_version": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"runner_version"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"job": {
+					"type": "null"
+				}
+			},
+			"required": [
+				"job"
 			],
 			"type": "object"
 		}
@@ -30076,6 +30340,8 @@ export const READS: readonly OperationName[] = [
 	'get_person',
 	'list_accounts',
 	'list_backups',
+	'list_runner_keys',
+	'runner_status',
 	'list_sessions',
 	'list_access_keys',
 	'list_kitchens',
@@ -30127,6 +30393,11 @@ export const METHOD_NAMES = {
 	sweep_photographs: 'sweepPhotographs',
 	take_backup: 'takeBackup',
 	list_backups: 'listBackups',
+	mint_runner_key: 'mintRunnerKey',
+	list_runner_keys: 'listRunnerKeys',
+	revoke_runner_key: 'revokeRunnerKey',
+	runner_status: 'runnerStatus',
+	ask_for_work: 'askForWork',
 	list_sessions: 'listSessions',
 	rename_session: 'renameSession',
 	revoke_session: 'revokeSession',
@@ -30266,6 +30537,16 @@ export interface KamosuClient {
 	takeBackup(input?: TakeBackupInput): Promise<Answer<'take_backup'>>;
 	/** The Backups this instance holds, newest first. Each can be fetched at GET /api/backups/<name>, under the same Credential as any Operation. */
 	listBackups(input?: ListBackupsInput): Promise<Answer<'list_backups'>>;
+	/** Mint a Runner Key, the Secret a Runner asks for work with. A Runner is the program beside Kamosu that has an agent do the Jobs Kamosu cannot. The Secret is shown once. It can ask for work and nothing else, and it acts as no Person. */
+	mintRunnerKey(input: MintRunnerKeyInput): Promise<Answer<'mint_runner_key'>>;
+	/** List this instance's Runner Keys by name and last use. */
+	listRunnerKeys(input?: ListRunnerKeysInput): Promise<Answer<'list_runner_keys'>>;
+	/** End one Runner Key. The Runner holding it is refused at its next call. */
+	revokeRunnerKey(input: RevokeRunnerKeyInput): Promise<Answer<'revoke_runner_key'>>;
+	/** Read whether this instance has a Runner. Also when one last asked for work. */
+	runnerStatus(input?: RunnerStatusInput): Promise<Answer<'runner_status'>>;
+	/** Ask for a Job to do. For a Runner alone, with its Runner Key. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
+	askForWork(input: AskForWorkInput): Promise<Answer<'ask_for_work'>>;
 	/** List this Person's browser Sessions by device and last use. `current` marks the Session asking, so it is never set when an Access Key asks. */
 	listSessions(input?: ListSessionsInput): Promise<Answer<'list_sessions'>>;
 	/** Rename one of your browser Sessions. A Session is named for its device when it signs in; this corrects the guess or names an older one. An ended Session is not renamed. */

@@ -61,6 +61,7 @@ mod kitchens;
 mod readings;
 mod recipes;
 mod related;
+mod runners;
 mod search;
 mod share_links;
 mod shared;
@@ -82,6 +83,7 @@ use recipes::*;
 // What the MCP door's instructions and the save summaries say the window is.
 pub use recipes::COLLAPSE_WINDOW_SECONDS;
 pub use related::*;
+pub use runners::*;
 pub use search::*;
 pub(crate) use shared::*;
 pub use sheets::*;
@@ -233,8 +235,32 @@ pub struct Caller {
     pub session_id: Option<String>,
 }
 
-/// One asking of an Operation: who is acting, and (when the Operation runs as a
-/// Job) the handle through which the running work reports its progress.
+/// A Runner, known by the Runner Key it presented. It is no Person and acts as
+/// none (ADR 0048), which is why it is no `Caller`: an Operation written for a
+/// Person takes a `Caller`, and no Runner Key ever becomes one.
+#[derive(Debug, Clone)]
+pub struct RunnerCaller {
+    pub runner_key_id: String,
+}
+
+/// Who is asking for an Operation: nobody Kamosu knows, a Person, or a Runner.
+/// Exactly one of the three, which is what keeps a Runner from ever standing
+/// where a Person or a stranger is expected.
+#[derive(Debug, Clone)]
+pub enum Asker {
+    /// No Credential was presented.
+    Nobody,
+    Person(Caller),
+    Runner(RunnerCaller),
+}
+
+/// A Runner Key was presented where only a Person may act.
+fn runner_key_out_of_place(what: &str) -> OpError {
+    OpError::unauthorized(format!(
+        "{what} is not for a Runner Key, which calls the Runner's own Operations and nothing else"
+    ))
+}
+
 #[derive(Clone)]
 struct Session {
     id: String,
@@ -245,10 +271,31 @@ struct Session {
 /// is_operator, access_key_id, session_id)`.
 type CredentialLookup = (String, bool, bool, bool, Option<String>, Option<String>);
 
+/// One asking of an Operation: who is acting, and (when the Operation runs as a
+/// Job) the handle through which the running work reports its progress.
 pub struct Invocation {
-    pub caller: Option<Caller>,
+    pub asker: Asker,
     /// Set only while an Operation declared `Kind::Job` is being carried out.
     pub job: Option<JobProgress>,
+}
+
+impl Invocation {
+    /// The Person acting, if one is. A Runner is none, and so is nobody.
+    pub fn caller(&self) -> Option<&Caller> {
+        match &self.asker {
+            Asker::Person(caller) => Some(caller),
+            Asker::Nobody | Asker::Runner(_) => None,
+        }
+    }
+
+    /// The Runner asking, if one is: on an Operation declared
+    /// `Permission::Runner` and on no other.
+    pub fn runner(&self) -> Option<&RunnerCaller> {
+        match &self.asker {
+            Asker::Runner(runner) => Some(runner),
+            Asker::Nobody | Asker::Person(_) => None,
+        }
+    }
 }
 
 /// The Core. Holds the database — the truth (ADR 0003) — and the Job lanes that
@@ -347,35 +394,42 @@ impl Core {
         // Resolving a Credential is not an Operation (it precedes every one), but
         // presenting an unrecognised Secret must fail loudly rather than silently
         // become a stranger.
-        let caller = match credential_secret.filter(|secret| !secret.is_empty()) {
-            None => None,
-            Some(secret) => Some(self.resolve_credential(secret)?),
+        let asker = match credential_secret.filter(|secret| !secret.is_empty()) {
+            None => Asker::Nobody,
+            Some(secret) => self.present(secret)?,
         };
 
-        match op.permission {
-            Permission::Public => {}
-            Permission::Person => {
-                if caller.is_none() {
-                    return Err(OpError::unauthorized(format!(
-                        "Operation '{}' requires a Credential naming a Person",
-                        op.name
-                    )));
-                }
+        // Who is asking, against the level the Operation is declared with. A
+        // Runner Key reaches the Runner's own Operations and no other, the
+        // ones open to anyone included (ADR 0048), so it is met first.
+        let refused = match (&asker, op.permission) {
+            (Asker::Runner(_), Permission::Runner) => None,
+            (Asker::Runner(_), _) => {
+                Some(runner_key_out_of_place(&format!("Operation '{}'", op.name)))
             }
-            Permission::Operator => {
-                if !caller.as_ref().is_some_and(|caller| caller.is_operator) {
-                    return Err(OpError::unauthorized(format!(
-                        "Operation '{}' requires a Credential naming an Operator",
-                        op.name
-                    )));
-                }
-            }
+            (_, Permission::Runner) => Some(OpError::unauthorized(format!(
+                "Operation '{}' is a Runner's own, and requires a Runner Key",
+                op.name
+            ))),
+            (_, Permission::Public) | (Asker::Person(_), Permission::Person) => None,
+            (Asker::Nobody, Permission::Person) => Some(OpError::unauthorized(format!(
+                "Operation '{}' requires a Credential naming a Person",
+                op.name
+            ))),
+            (Asker::Person(caller), Permission::Operator) if caller.is_operator => None,
+            (_, Permission::Operator) => Some(OpError::unauthorized(format!(
+                "Operation '{}' requires a Credential naming an Operator",
+                op.name
+            ))),
+        };
+        if let Some(refused) = refused {
+            return Err(refused);
         }
 
         // The read-only filter and the session-only rule both live here, beneath
         // both Doors, alongside the permission check above — a Door adding either
         // check itself would be the same bug as a Door checking permission.
-        if let Some(caller) = &caller {
+        if let Asker::Person(caller) = &asker {
             if op.write && caller.read_only {
                 return Err(OpError::unauthorized(format!(
                     "Operation '{}' writes, and this Credential is a read-only Access Key",
@@ -401,7 +455,7 @@ impl Core {
         // exists, whether an amount parses — which stays in the handlers.
         crate::schema::validate_input(op.name, &input)?;
 
-        let invocation = Invocation { caller, job: None };
+        let invocation = Invocation { asker, job: None };
 
         match op.kind {
             Kind::Immediate => (op.handler)(self, &invocation, input),
@@ -429,7 +483,7 @@ impl Core {
             // "no more than one at a time"; an `AlwaysSingle` Job lands here
             // even with a signed-in Person asking (ADR 0032's #70 exception).
             JobLane::AlwaysSingle => &self.lanes.stranger,
-            JobLane::ByCaller if invocation.caller.is_some() => &self.lanes.member,
+            JobLane::ByCaller if invocation.caller().is_some() => &self.lanes.member,
             JobLane::ByCaller => &self.lanes.stranger,
         };
         if lane.try_send(job_id.clone()).is_err() {
@@ -458,8 +512,8 @@ impl Core {
 
     /// Look up what a Secret's hash names, without marking it used: `(person_id,
     /// read_only, is_session)`, or nothing for an unknown or revoked Secret.
-    /// `resolve_credential` builds on this and additionally records the use;
-    /// `is_read_only_credential` reads only, so a Door merely listing what a
+    /// `present` builds on this and additionally records the use;
+    /// `operations_listed_to` reads only, so a Door merely listing what a
     /// Key may do never counts as the Key being used.
     fn lookup_credential(&self, hash: &str) -> Result<Option<CredentialLookup>, OpError> {
         self.db().with_conn(|conn| {
@@ -489,49 +543,101 @@ impl Core {
         })
     }
 
-    /// Resolve a raw Secret to the Person it acts as: an Access Key today; a login
-    /// Session joins when accounts do. Stored hashed, never in the clear.
+    /// Resolve a raw Secret to the Person it acts as, for everything that is
+    /// not `execute`: the routes outside the Catalogue. A Runner Key acts as no
+    /// Person, so it is refused here whatever the route.
     fn resolve_credential(&self, secret: &str) -> Result<Caller, OpError> {
+        match self.present(secret)? {
+            Asker::Person(caller) => Ok(caller),
+            Asker::Runner(_) => Err(runner_key_out_of_place("this route")),
+            Asker::Nobody => Err(OpError::credential_names_nobody()),
+        }
+    }
+
+    /// Resolve a raw Secret to whoever it names, and record that it was used:
+    /// a Person, through a Session or an Access Key, or a Runner, through its
+    /// Runner Key. Stored hashed, never in the clear.
+    fn present(&self, secret: &str) -> Result<Asker, OpError> {
         let hash = hash_secret(secret);
         match self.lookup_credential(&hash)? {
             Some((person_id, read_only, is_session, is_operator, access_key_id, session_id)) => {
-                let _ = self.db().with_conn(|conn| {
-                    let table = if is_session { "sessions" } else { "access_keys" };
-                    conn.execute(
-                        &format!("UPDATE {table} SET last_used_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE secret_hash = ?1"),
-                        params![hash],
-                    )
-                    .map_err(|e| OpError::internal(format!("cannot record Credential use: {e}")))?;
-                    Ok(())
-                });
-                Ok(Caller {
+                self.record_use(
+                    if is_session {
+                        "sessions"
+                    } else {
+                        "access_keys"
+                    },
+                    &hash,
+                );
+                Ok(Asker::Person(Caller {
                     person_id,
                     read_only,
                     via_access_key: !is_session,
                     is_operator,
                     access_key_id,
                     session_id,
-                })
+                }))
             }
-            // Unknown or already-revoked: the same answer either way, saying nothing
-            // about which. Marked, so the web door can take back a Session
-            // cookie it set that now names nobody (#91).
-            None => Err(OpError::credential_names_nobody()),
+            None => match self.lookup_runner_key(&hash)? {
+                Some(runner_key_id) => {
+                    self.record_use("runner_keys", &hash);
+                    Ok(Asker::Runner(RunnerCaller { runner_key_id }))
+                }
+                // Unknown or already-revoked: the same answer either way, saying
+                // nothing about which. Marked, so the web door can take back a
+                // Session cookie it set that now names nobody (#91).
+                None => Err(OpError::credential_names_nobody()),
+            },
         }
     }
 
-    /// Whether a Secret resolves to a read-only Access Key — for the MCP door's
-    /// tool listing alone, which is not itself an Operation and so does not go
-    /// through `execute` and must not mark the Key used just for being listed
-    /// against. An unresolvable or absent Secret is simply not read-only: the
-    /// listing itself requires no Credential.
-    pub fn is_read_only_credential(&self, secret: &str) -> bool {
-        let hash = hash_secret(secret);
-        self.lookup_credential(&hash)
-            .ok()
-            .flatten()
-            .map(|(_, read_only, _, _, _, _)| read_only)
-            .unwrap_or(false)
+    /// Write down that the Secret with this hash was used just now, in the
+    /// table that holds it. A failure here is let go: the call the Secret was
+    /// presented for matters more than the note of it.
+    fn record_use(&self, table: &str, hash: &str) {
+        let _ = self.db().with_conn(|conn| {
+            conn.execute(
+                &format!("UPDATE {table} SET last_used_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE secret_hash = ?1"),
+                params![hash],
+            )
+            .map_err(|e| OpError::internal(format!("cannot record Credential use: {e}")))
+        });
+    }
+
+    /// The Operations a Door lists to whoever holds this Secret, for the MCP
+    /// door's tool listing alone. The listing is not itself an Operation, so it
+    /// does not go through `execute` and must not mark a Key used just for
+    /// being listed against. What it leaves out is what `execute` would refuse
+    /// for the kind of Credential alone:
+    ///
+    /// - a Runner Key is listed the Runner's own Operations and no other;
+    /// - everyone else is listed every Operation but the Runner's, and a
+    ///   read-only Access Key none that writes (ADR 0031).
+    ///
+    /// An unresolvable or absent Secret is listed as a full Credential is: the
+    /// listing itself requires none.
+    pub fn operations_listed_to(&self, secret: Option<&str>) -> Vec<&'static catalogue::Operation> {
+        let hash = secret.filter(|s| !s.is_empty()).map(hash_secret);
+        let read_only = hash.as_deref().is_some_and(|hash| {
+            self.lookup_credential(hash)
+                .ok()
+                .flatten()
+                .is_some_and(|(_, read_only, _, _, _, _)| read_only)
+        });
+        let is_runner = hash
+            .as_deref()
+            .is_some_and(|hash| matches!(self.lookup_runner_key(hash), Ok(Some(_))));
+        catalogue::OPERATIONS
+            .iter()
+            .filter(|op| {
+                let left_out = if is_runner {
+                    op.permission != Permission::Runner
+                } else {
+                    op.permission == Permission::Runner || (read_only && op.write)
+                };
+                !left_out
+            })
+            .collect()
     }
 
     /// The one data directory everything durable lives under (ADR 0028) — the

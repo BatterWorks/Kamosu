@@ -27,7 +27,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use crate::catalogue;
-use crate::core::{Caller, ErrorKind, Invocation, OpError};
+use crate::core::{Asker, Caller, ErrorKind, Invocation, OpError};
 use crate::db::Db;
 
 /// How often a client should look back at a running Job.
@@ -310,7 +310,9 @@ impl crate::core::Core {
                         session_id: None,
                     });
                     let invocation = Invocation {
-                        caller,
+                        // A Job Kamosu does itself was asked for by a Person
+                        // or by nobody, never by a Runner.
+                        asker: caller.map_or(Asker::Nobody, Asker::Person),
                         job: Some(JobProgress::new(job_id, self.db().clone())),
                     };
                     (op.handler)(self, &invocation, record.input.clone())
@@ -372,7 +374,7 @@ pub fn record(
     input: Value,
 ) -> Result<String, OpError> {
     let job_id = new_id();
-    let (person_id, read_only, via_access_key) = match &invocation.caller {
+    let (person_id, read_only, via_access_key) = match invocation.caller() {
         Some(caller) => (
             Some(caller.person_id.clone()),
             caller.read_only,

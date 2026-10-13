@@ -357,6 +357,8 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     unfolding components; `parse_recipe_content`
   tags.rs           Tags, and putting one on a recipe
   related.rs        Related Recipes (#105)
+  runners.rs        Runner Keys, a Runner asking for work, and whether the
+                    instance has a Runner (ADR 0048, #260)
   shelves.rs        the home shelves, and the shelf entry every list shows
   translation.rs    translation and a Branch's Language
   readings.rs       Ingredient Lines, Readings, Foods and Food merges
