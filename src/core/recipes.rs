@@ -973,7 +973,9 @@ impl Core {
     /// "Branch Point") — never declared, always computed. Every valid
     /// Branch's chain is contiguous back to a first Version with no parent;
     /// a chain that is not, or two chains that never converge, is reported
-    /// as a damaged Bundle rather than answered with a guess.
+    /// as a damaged Bundle rather than answered with a guess. A Translation
+    /// is the one healthy pair with no Branch Point, and is refused as such
+    /// (`last_shared_version`).
     pub fn branch_point(
         &self,
         person_id: &str,
@@ -983,16 +985,9 @@ impl Core {
         self.db().with_conn(|conn| {
             let chain_a = ordered_chain(conn, branch_a_id, person_id)?;
             let chain_b = ordered_chain(conn, branch_b_id, person_id)?;
-            let ancestors_a: HashSet<&str> = chain_a.iter().map(String::as_str).collect();
-            for version_id in chain_b.iter().rev() {
-                if ancestors_a.contains(version_id.as_str()) {
-                    return Ok(json!({ "version_id": version_id }));
-                }
-            }
-            Err(OpError::internal(format!(
-                "damaged Bundle: {branch_a_id} and {branch_b_id} share no Version — \
-                 their chains never converge on the same first Version"
-            )))
+            let version_id =
+                last_shared_version(conn, (branch_a_id, &chain_a), (branch_b_id, &chain_b))?;
+            Ok(json!({ "version_id": version_id }))
         })
     }
 
@@ -1008,6 +1003,9 @@ impl Core {
     /// Branch Point (ADR 0019). No id is stapled to any line, so retyping a line
     /// identically manufactures no divergence, and where the reading is
     /// uncertain Kamosu declines to pair and both lines simply stand.
+    ///
+    /// A Translation has no Branch Point with its source, so that pair is
+    /// refused (`last_shared_version`).
     ///
     /// `mine` throughout names the Branch given as `branch_id` — the one the
     /// caller is standing in. The rows themselves are symmetric: crossing over
@@ -1038,17 +1036,11 @@ impl Core {
                 ));
             }
 
-            let ancestors: HashSet<&str> = chain_mine.iter().map(String::as_str).collect();
-            let branch_point_id = chain_theirs
-                .iter()
-                .rev()
-                .find(|version_id| ancestors.contains(version_id.as_str()))
-                .ok_or_else(|| {
-                    OpError::internal(format!(
-                        "damaged Bundle: {branch_id} and {other_branch_id} share no Version — \
-                         their chains never converge on the same first Version"
-                    ))
-                })?;
+            let branch_point_id = last_shared_version(
+                conn,
+                (branch_id, &chain_mine),
+                (other_branch_id, &chain_theirs),
+            )?;
 
             two_whole_recipes(conn, person_id, branch_point_id, &mine, &theirs)
         })
@@ -2331,6 +2323,54 @@ fn ordered_chain(
     }
 
     Ok(rows.into_iter().map(|(version_id, _)| version_id).collect())
+}
+
+/// The last Version two Branches share, each given as its id and its chain
+/// oldest first: the Branch Point, as `branch_point` and `divergence` both
+/// need it.
+///
+/// Two Copies of one recipe always share a first Version, so finding none is
+/// damage. A Translation is the exception, by design: its chain starts fresh
+/// (ADR 0006), so it shares no Version with the recipe it translates, nor
+/// with another Translation of it (#251). That pair is a question with no
+/// answer, and is refused as one instead of being called damaged.
+fn last_shared_version<'a>(
+    conn: &Connection,
+    (branch_a_id, chain_a): (&str, &[String]),
+    (branch_b_id, chain_b): (&str, &'a [String]),
+) -> Result<&'a str, OpError> {
+    let ancestors_a: HashSet<&str> = chain_a.iter().map(String::as_str).collect();
+    if let Some(version_id) = chain_b
+        .iter()
+        .rev()
+        .find(|version_id| ancestors_a.contains(version_id.as_str()))
+    {
+        return Ok(version_id);
+    }
+
+    let mut translations = Vec::new();
+    for branch_id in [branch_a_id, branch_b_id] {
+        if translation_source(conn, branch_id)?.is_some() {
+            translations.push(branch_id);
+        }
+    }
+    if translations.is_empty() {
+        return Err(OpError::internal(format!(
+            "damaged Bundle: {branch_a_id} and {branch_b_id} share no Version — \
+             their chains never converge on the same first Version"
+        )));
+    }
+    let who_translates = match translations[..] {
+        [one] => format!("{one} is a Translation"),
+        _ => format!("{branch_a_id} and {branch_b_id} are both Translations"),
+    };
+    Err(OpError::bad_request(format!(
+        "{who_translates}. A Translation's chain starts fresh, so it shares no Version with \
+         the recipe it translates, nor with another Translation: {branch_a_id} and \
+         {branch_b_id} have no Branch Point and nothing to lay over each other. What a \
+         Translation translates is held as translates_version_id on each of its Versions, \
+         and as translation on its Branch in the answers of get_thread and get_recipe"
+    )))
 }
 
 /// One Branch as a Divergence needs it: which Cookbook holds it and where its

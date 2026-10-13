@@ -11,9 +11,11 @@
 
 - The History shows a variation nothing has been saved on yet, and a recipe that arrived and was never edited, under the Version it starts from. A recipe left as it was while a variation of it went on changing is shown under its last Version. It left all three out. [#250]
 - The History draws five Branches in five colours. The fourth used to take the first one's colour. [#250]
+- `branch_point` and `divergence` asked about a recipe and its Translation, or two Translations of one recipe, refuse the call as a bad request and say where the link is held: `translation` on the Branch, and `translates_version_id` on its Versions. They used to answer an internal error calling the recipe a damaged Bundle. [#251]
 
 [#249]: https://github.com/BatterWorks/Kamosu/issues/249
 [#250]: https://github.com/BatterWorks/Kamosu/issues/250
+[#251]: https://github.com/BatterWorks/Kamosu/issues/251
 
 ## v0.2.0 - 2026-10-12
 

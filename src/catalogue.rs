@@ -2292,7 +2292,13 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       walking both chains back until they meet: never \
                       declared, always computed. A chain that does not \
                       converge on a shared first Version answers a \
-                      damaged-Bundle error rather than a guess.",
+                      damaged-Bundle error rather than a guess. A Translation \
+                      has no Branch Point with its source, nor with another \
+                      Translation of it: its chain starts fresh, so the two \
+                      share no Version and the call is refused. Read the \
+                      link from `translation` on the Branch in `get_thread` \
+                      or `get_recipe`, or from `translates_version_id` on \
+                      each of the Translation's Versions.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -2324,7 +2330,13 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       has is a Ghost. Which line is which is read against the \
                       Branch Point, never by an id stapled to a line (ADR \
                       0019), and an uncertain reading declines to pair rather \
-                      than claiming a connection.",
+                      than claiming a connection. A Translation has no Branch \
+                      Point with its source, nor with another Translation of \
+                      it, and the two are in different Languages, so nothing \
+                      pairs their lines and the call is refused. Read the \
+                      link from `translation` on the Branch in `get_thread` \
+                      or `get_recipe`, or from `translates_version_id` on \
+                      each of the Translation's Versions.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,

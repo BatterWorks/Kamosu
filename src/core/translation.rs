@@ -349,7 +349,10 @@ pub(super) fn translated_source_version(
 /// What this Branch's newest Version translates, if anything — the whole of
 /// how "is this a Translation" is answered (ADR 0006). The original is the
 /// Branch that translates nothing; nobody declares which one that is.
-fn translation_source(conn: &Connection, branch_id: &str) -> Result<Option<String>, OpError> {
+pub(super) fn translation_source(
+    conn: &Connection,
+    branch_id: &str,
+) -> Result<Option<String>, OpError> {
     conn.query_row(
         "SELECT translates_version_id FROM branch_versions \
           WHERE branch_id = ?1 ORDER BY sequence DESC LIMIT 1",
