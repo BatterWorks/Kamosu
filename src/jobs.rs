@@ -16,8 +16,9 @@
 //! takes the single depth-one lane, member or not.
 //!
 //! An **agent's Job** is the one kind that takes no lane at all (ADR 0048). A
-//! Runner beside Kamosu takes it and an agent does the work, so the row waits
-//! queued until then, and a restart leaves it as it was.
+//! Runner beside Kamosu takes it and an agent does the work. The row waits
+//! queued until a Runner takes it, is running while that Runner holds it, and
+//! ends as the Runner reports. A restart leaves it as it was.
 //!
 //! A streaming progress mechanism, if one ever exists, may decorate this but is
 //! never instead of it: the row in this table is where watching slow work reads.
@@ -493,29 +494,199 @@ pub fn end_for_deleted_recipe(conn: &Connection, branch_id: &str) -> Result<(), 
     Ok(())
 }
 
+/// An agent's Job as it stands now: its state, the reason it failed where it
+/// did, and the agent's own report once a Runner has passed one on.
+pub struct AgentJobState {
+    pub job_id: String,
+    pub status: JobStatus,
+    pub error: Option<String>,
+    pub report: Option<Value>,
+}
+
 /// How each of these Jobs stands now, for the ones that are an agent's. An id
 /// that names no agent's Job is left out.
-pub fn agent_job_statuses(
+pub fn agent_jobs_as_they_stand(
     conn: &Connection,
     job_ids: &[String],
-) -> Result<Vec<(String, JobStatus)>, OpError> {
+) -> Result<Vec<AgentJobState>, OpError> {
     let mut statement = conn
         .prepare(
-            "SELECT jobs.status FROM jobs JOIN agent_jobs ON agent_jobs.job_id = jobs.id
+            "SELECT jobs.status, jobs.error, agent_jobs.report
+               FROM jobs JOIN agent_jobs ON agent_jobs.job_id = jobs.id
               WHERE jobs.id = ?1",
         )
         .map_err(|e| OpError::internal(format!("cannot read an agent's Job: {e}")))?;
-    let mut statuses = Vec::new();
+    let mut states = Vec::new();
     for job_id in job_ids {
-        let status: Option<String> = statement
-            .query_row(params![job_id], |row| row.get(0))
+        let state = statement
+            .query_row(params![job_id], |row| {
+                Ok(AgentJobState {
+                    job_id: job_id.clone(),
+                    status: JobStatus::from_column(row.get(0)?),
+                    error: row.get(1)?,
+                    report: row
+                        .get::<_, Option<String>>(2)?
+                        .and_then(|text| serde_json::from_str(&text).ok()),
+                })
+            })
             .optional()
             .map_err(|e| OpError::internal(format!("cannot read an agent's Job: {e}")))?;
-        if let Some(status) = status {
-            statuses.push((job_id.clone(), JobStatus::from_column(status)));
+        states.extend(state);
+    }
+    Ok(states)
+}
+
+/// What a Runner is handed with a Job: what to read, and which recipe it is
+/// for (#262).
+pub struct AgentWork {
+    pub job_id: String,
+    pub branch_id: String,
+    pub link: String,
+}
+
+/// Hand the Runner holding `runner_key_id` a Job to do (ADR 0048, #262).
+///
+/// A Runner holds one Job at a time, so one that already holds a Job is
+/// answered that Job again: a reply lost on the way loses nothing. Otherwise
+/// it takes the oldest that waits, which is running from here on. Taking the
+/// connection is what keeps two Runners off one Job: the looking and the
+/// taking are one turn at the database.
+pub fn take_for_runner(
+    conn: &Connection,
+    runner_key_id: &str,
+) -> Result<Option<AgentWork>, OpError> {
+    let failed = |e| OpError::internal(format!("cannot hand over a Job: {e}"));
+    // The Job this Runner holds comes first, and after it the waiting ones,
+    // oldest first.
+    let found = conn
+        .query_row(
+            "SELECT jobs.id, agent_jobs.branch_id, agent_jobs.link, jobs.status = 'running'
+               FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
+              WHERE jobs.status = 'queued'
+                 OR (jobs.status = 'running' AND agent_jobs.held_by = ?1)
+              ORDER BY jobs.status = 'running' DESC, jobs.created_at, jobs.rowid
+              LIMIT 1",
+            params![runner_key_id],
+            |row| {
+                let work = AgentWork {
+                    job_id: row.get(0)?,
+                    branch_id: row.get(1)?,
+                    link: row.get(2)?,
+                };
+                Ok((work, row.get::<_, bool>(3)?))
+            },
+        )
+        .optional()
+        .map_err(failed)?;
+    let Some((work, already_held)) = found else {
+        return Ok(None);
+    };
+    if already_held {
+        return Ok(Some(work));
+    }
+    // Both rows move or neither does: a Job is held only while it is running
+    // and names its Runner.
+    let tx = conn.unchecked_transaction().map_err(failed)?;
+    tx.execute(
+        "UPDATE agent_jobs SET held_by = ?2 WHERE job_id = ?1",
+        params![work.job_id, runner_key_id],
+    )
+    .map_err(failed)?;
+    tx.execute(
+        "UPDATE jobs SET status = 'running',
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE id = ?1",
+        params![work.job_id],
+    )
+    .map_err(failed)?;
+    tx.commit().map_err(failed)?;
+    Ok(Some(work))
+}
+
+/// How a Runner says a Job ended (#262). The last two both end the Job as
+/// failed. They are kept apart because one is worth trying again and the
+/// other is not (#266).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentOutcome {
+    Completed,
+    /// Something went wrong on the way.
+    Failed,
+    /// The agent says the thing holds no recipe it can read.
+    CouldNotBeRead,
+}
+
+impl AgentOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AgentOutcome::Completed => "completed",
+            AgentOutcome::Failed => "failed",
+            AgentOutcome::CouldNotBeRead => "could_not_be_read",
         }
     }
-    Ok(statuses)
+
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "completed" => Some(AgentOutcome::Completed),
+            "failed" => Some(AgentOutcome::Failed),
+            "could_not_be_read" => Some(AgentOutcome::CouldNotBeRead),
+            _ => None,
+        }
+    }
+}
+
+/// End the Job `runner_key_id` holds, as that Runner reports it (#262).
+/// `reason` is the sentence a failed Job carries, and `report` is the agent's
+/// own, already checked.
+///
+/// Only the Runner Key holding a Job reports on it. A Job it does not hold,
+/// one that has ended already and one that never was are all answered alike,
+/// as a Job that is not there (ADR 0040).
+pub fn end_as_reported(
+    conn: &Connection,
+    runner_key_id: &str,
+    job_id: &str,
+    outcome: AgentOutcome,
+    reason: Option<&str>,
+    report: &Value,
+) -> Result<(), OpError> {
+    let failed = |e| OpError::internal(format!("cannot end the Job: {e}"));
+    let branch_id: Option<String> = conn
+        .query_row(
+            "SELECT agent_jobs.branch_id
+               FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
+              WHERE jobs.id = ?1 AND jobs.status = 'running' AND agent_jobs.held_by = ?2",
+            params![job_id, runner_key_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(failed)?;
+    let Some(branch_id) = branch_id else {
+        return Err(no_such_job(job_id));
+    };
+    let tx = conn.unchecked_transaction().map_err(failed)?;
+    tx.execute(
+        "UPDATE agent_jobs SET outcome = ?2, report = ?3 WHERE job_id = ?1",
+        params![job_id, outcome.as_str(), report.to_string()],
+    )
+    .map_err(failed)?;
+    let (status, result, error_code) = match outcome {
+        AgentOutcome::Completed => (
+            JobStatus::Completed,
+            Some(json!({ "branch_id": branch_id, "agent_report": report }).to_string()),
+            None,
+        ),
+        AgentOutcome::Failed => (JobStatus::Failed, None, Some(-32603)),
+        // The thing itself is at fault, as a bad request's input is.
+        AgentOutcome::CouldNotBeRead => (JobStatus::Failed, None, Some(-32602)),
+    };
+    tx.execute(
+        "UPDATE jobs SET status = ?2, result = ?3, error = ?4, error_code = ?5,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE id = ?1",
+        params![job_id, status.as_str(), result, reason, error_code],
+    )
+    .map_err(failed)?;
+    tx.commit().map_err(failed)
 }
 
 /// Remove the row of work that was refused before anyone saw its id.

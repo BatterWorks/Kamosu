@@ -357,8 +357,9 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     unfolding components; `parse_recipe_content`
   tags.rs           Tags, and putting one on a recipe
   related.rs        Related Recipes (#105)
-  runners.rs        Runner Keys, a Runner asking for work, and whether the
-                    instance has a Runner (ADR 0048, #260)
+  runners.rs        Runner Keys, a Runner taking a Job and reporting how it
+                    ended, and whether the instance has a Runner (ADR 0048,
+                    #260, #262)
   shelves.rs        the home shelves, and the shelf entry every list shows
   translation.rs    translation and a Branch's Language
   readings.rs       Ingredient Lines, Readings, Foods and Food merges
@@ -386,7 +387,7 @@ src/db.rs           the SQLite file under /data — WAL on, migrations forward-o
 src/entities.rs     the HTML entities importers undo in text that was never HTML
 src/jobs.rs         slow work: two lanes (one for strangers, ADR 0032), progress, results
                     and an agent's Job, which waits for a Runner in neither lane
-                    (ADR 0048, #261)
+                    and is running while one holds it (ADR 0048, #261, #262)
 src/language.rs     a Branch's Language, read off the recipe's own text (ADR 0006)
 src/meaning.rs      Meaning Search: the model Kamosu does not ship, and the
                     index it builds from the recipes (ADR 0029)

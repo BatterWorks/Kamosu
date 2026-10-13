@@ -2137,6 +2137,29 @@ pub fn ask_for_work(core: &Core, invocation: &Invocation, input: Value) -> Resul
     core.ask_for_work(runner_of(invocation)?, runner_version)
 }
 
+pub fn report_on_job(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let usage =
+        || OpError::bad_request("report_on_job takes { job_id, outcome, reason?, report? }");
+    let job_id = input
+        .get("job_id")
+        .and_then(Value::as_str)
+        .ok_or_else(usage)?;
+    let outcome = input
+        .get("outcome")
+        .and_then(Value::as_str)
+        .and_then(jobs::AgentOutcome::named)
+        .ok_or_else(usage)?;
+    let reason = input.get("reason").and_then(Value::as_str);
+    core.report_on_job(
+        runner_of(invocation)?,
+        job_id,
+        outcome,
+        reason,
+        input.get("report"),
+    )?;
+    Ok(json!({ "reported": true }))
+}
+
 fn runner_of(invocation: &Invocation) -> Result<&RunnerCaller, OpError> {
     invocation
         .runner()

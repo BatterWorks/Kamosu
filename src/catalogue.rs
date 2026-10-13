@@ -541,9 +541,15 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "ask_for_work",
             summary: "Ask for a Job to do. For a Runner alone, with its \
-                      Runner Key. `job` is null when nothing is waiting. \
-                      `runner_version` is the Runner's own version, and a \
-                      Kamosu of another version refuses it.",
+                      Runner Key. Answers the oldest Job that waits for an \
+                      agent: `link` is what to read and `branch_id` is the \
+                      recipe it is for. The Job is running from then on, \
+                      held by this Runner Key and no other, until \
+                      `report_on_job` says how it ended. A Runner holds one \
+                      Job at a time, so asking again while holding one \
+                      answers that same Job. `job` is null when nothing is \
+                      waiting. `runner_version` is the Runner's own version, \
+                      and a Kamosu of another version refuses it.",
             permission: Permission::Runner,
             kind: Kind::Immediate,
             write: true,
@@ -557,11 +563,64 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             }),
             output_schema: json!({
                 "type": "object",
-                "properties": { "job": { "type": "null" } },
+                "properties": {
+                    "job": {
+                        "type": ["object", "null"],
+                        "properties": {
+                            "job_id": { "type": "string" },
+                            "branch_id": {
+                                "type": "string",
+                                "description": "The recipe the Job is for, which landed bare.",
+                            },
+                            "link": {
+                                "type": "string",
+                                "description": "What the agent is to read.",
+                            },
+                        },
+                        "required": ["job_id", "branch_id", "link"],
+                        "additionalProperties": false,
+                    },
+                },
                 "required": ["job"],
                 "additionalProperties": false,
             }),
             handler: crate::operations::ask_for_work,
+        },
+        Operation {
+            name: "report_on_job",
+            summary: "Say how the Job this Runner holds ended. For a Runner \
+                      alone, with the Runner Key that took the Job. `outcome` \
+                      is `completed`, or `failed` when something went wrong \
+                      on the way, or `could_not_be_read` when the agent says \
+                      the thing holds no recipe it can read. The last two \
+                      end the Job as failed and need `reason`, one sentence \
+                      the cook reads in the Import Report. `report` is the \
+                      agent's own report, passed on as it wrote it. A Job \
+                      this Runner Key does not hold, or one that has ended, \
+                      is answered as a Job that is not there.",
+            permission: Permission::Runner,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "job_id": { "type": "string" },
+                    "outcome": { "enum": ["completed", "failed", "could_not_be_read"] },
+                    "reason": { "type": "string" },
+                    "report": agent_report_schema(),
+                },
+                "required": ["job_id", "outcome"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "reported": { "type": "boolean" } },
+                "required": ["reported"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::report_on_job,
         },
         Operation {
             name: "list_sessions",
@@ -4947,6 +5006,13 @@ fn import_report_schema() -> Value {
                             "required": ["lineage_id", "branch_id", "title"],
                             "additionalProperties": false,
                         },
+                        "branch_id": {
+                            "type": "string",
+                            "description": "Where an agent's Job failed on a recipe \
+                                             that had landed bare: that recipe. It stays, \
+                                             still listed under `arrived`, unless the Job \
+                                             failed because the recipe was deleted.",
+                        },
                     },
                     "required": ["foreign_id", "reason"],
                     "additionalProperties": false,
@@ -4983,12 +5049,15 @@ fn import_report_schema() -> Value {
             "agent_jobs": {
                 "type": "array",
                 "description": "Present when a Runner's agent is to read what Kamosu could \
-                                 not: the Job that waits on each such recipe, which is a \
-                                 second Job after this Import, done by that agent and not \
-                                 by Kamosu. Read it with `get_job`, where its operation is \
-                                 `read_by_agent` and it is `queued` until a Runner takes it, \
-                                 and cancel it with `cancel_job`. A recipe has one such Job at a time, so the \
-                                 same link imported again while it waits names the same Job.",
+                                 not: the Job on each such recipe, which is a second Job \
+                                 after this Import, done by that agent and not by Kamosu. \
+                                 It is read here as it stands now, so this part of the \
+                                 Report changes after the Import has ended. The bare \
+                                 recipe and the agent's work on it are one arrival. Read \
+                                 the Job itself with `get_job`, where its operation is \
+                                 `read_by_agent`, and cancel it while it waits with \
+                                 `cancel_job`. A recipe has one such Job at a time, so the \
+                                 same link imported again while it stands names the same Job.",
                 "items": {
                     "type": "object",
                     "properties": {
@@ -4998,6 +5067,20 @@ fn import_report_schema() -> Value {
                             "description": "The recipe the agent is to write, which is \
                                              listed under `arrived` or `offered`.",
                         },
+                        "status": {
+                            "enum": ["queued", "running", "completed", "failed", "cancelled"],
+                            "description": "`queued` is waiting for a Runner and `running` \
+                                             is held by one, its agent at work. A `failed` \
+                                             Job is also listed under `unreadable`, with \
+                                             the reason.",
+                        },
+                        "made_by_agent": {
+                            "type": "boolean",
+                            "description": "Present and true once the Job has completed: \
+                                             an agent made this recipe. Nothing on the \
+                                             recipe itself says so.",
+                        },
+                        "agent_report": agent_report_schema(),
                     },
                     "required": ["job_id", "branch_id"],
                     "additionalProperties": false,
@@ -5041,6 +5124,50 @@ fn import_report_schema() -> Value {
             "import_id", "cookbook_id", "source_kind", "arrived", "offered", "unreadable",
             "left_out", "related_candidates"
         ],
+        "additionalProperties": false,
+    })
+}
+
+/// An agent's own report on a Job (ADR 0048, #262): what a Runner passes on
+/// with `report_on_job`, and what the Import Report shows of it. Kamosu keeps
+/// it as written and acts on none of it. A list the agent leaves out is kept
+/// empty, and Kamosu refuses a list of more than 100 entries and an entry of
+/// more than 2,000 characters.
+fn agent_report_schema() -> Value {
+    json!({
+        "type": "object",
+        "description": "The agent's own report on its work, present once a Runner has \
+                         passed one on.",
+        "properties": {
+            "left_undone": {
+                "type": "array",
+                "description": "What the agent did not do, a sentence each: an \
+                                 Ingredient Line it could not read, a Step it left \
+                                 out, a photo it could not fetch.",
+                "items": { "type": "string" },
+            },
+            "unsure": {
+                "type": "array",
+                "description": "What the agent wrote and was unsure of, a sentence \
+                                 each, so the cook knows where to look.",
+                "items": { "type": "string" },
+            },
+            "likely_duplicates": {
+                "type": "array",
+                "description": "The Branch id of each recipe already in the library \
+                                 that this one is likely a duplicate of. The recipe \
+                                 is saved all the same. Kamosu does not check the \
+                                 ids, so read each with `get_recipe`.",
+                "items": { "type": "string" },
+            },
+            "unused_foods": {
+                "type": "array",
+                "description": "The name of each Food the agent's corrections left \
+                                 with nothing pointing at it, for an Operator to \
+                                 tidy.",
+                "items": { "type": "string" },
+            },
+        },
         "additionalProperties": false,
     })
 }

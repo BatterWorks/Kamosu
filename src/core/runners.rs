@@ -88,8 +88,9 @@ impl Core {
         })
     }
 
-    /// A Runner asking for a Job to do. Nothing waits for a Runner yet, so the
-    /// answer is always that there is none (#262 hands one over).
+    /// A Runner asking for a Job to do: the oldest that waits, with what to
+    /// read and which recipe it is for, or none (#262). The Job is running
+    /// from here until the Runner reports on it.
     ///
     /// The Runner is Kamosu's own program started in another mode, so one of
     /// another version is an install half upgraded. It is refused before the
@@ -106,15 +107,55 @@ impl Core {
                  {kamosu_version}. Run the Runner of the same version as the Kamosu it asks"
             )));
         }
-        self.db().with_conn(|conn| {
+        let work = self.db().with_conn(|conn| {
             conn.execute(
                 "UPDATE runner_keys SET last_asked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                   WHERE id = ?1",
                 params![runner.runner_key_id],
             )
-            .map_err(|e| OpError::internal(format!("cannot record the asking: {e}")))
+            .map_err(|e| OpError::internal(format!("cannot record the asking: {e}")))?;
+            jobs::take_for_runner(conn, &runner.runner_key_id)
         })?;
-        Ok(json!({ "job": null }))
+        Ok(json!({
+            "job": work.map(|work| json!({
+                "job_id": work.job_id,
+                "branch_id": work.branch_id,
+                "link": work.link,
+            })),
+        }))
+    }
+
+    /// A Runner saying how the Job it holds ended, and passing on the agent's
+    /// own report (#262). `reason` is required of a Job that did not
+    /// complete, and is the sentence the cook reads.
+    pub fn report_on_job(
+        &self,
+        runner: &RunnerCaller,
+        job_id: &str,
+        outcome: jobs::AgentOutcome,
+        reason: Option<&str>,
+        report: Option<&Value>,
+    ) -> Result<(), OpError> {
+        let reason = match (outcome, reason) {
+            (jobs::AgentOutcome::Completed, None) => None,
+            (jobs::AgentOutcome::Completed, Some(_)) => {
+                return Err(OpError::bad_request(
+                    "a completed Job takes no reason. What the agent left undone goes in report",
+                ));
+            }
+            (_, reason) => Some(agent_entry(reason.unwrap_or_default(), "reason")?),
+        };
+        let report = agent_report(report)?;
+        self.db().with_conn(|conn| {
+            jobs::end_as_reported(
+                conn,
+                &runner.runner_key_id,
+                job_id,
+                outcome,
+                reason.as_deref(),
+                &report,
+            )
+        })
     }
 
     /// Whether a Runner Key stands, which is what sends a link Kamosu cannot
@@ -142,4 +183,58 @@ impl Core {
             .map_err(|e| OpError::internal(format!("cannot read the Runner's state: {e}")))
         })
     }
+}
+
+/// The four lists of an agent's own report, in the order a Report shows them.
+/// Each is a list of sentences, but for `likely_duplicates`, which is a list
+/// of Branch ids, and `unused_foods`, which is a list of Food names.
+const AGENT_REPORT_LISTS: [&str; 4] =
+    ["left_undone", "unsure", "likely_duplicates", "unused_foods"];
+
+/// The most entries one list of an agent's report holds, and the most
+/// characters one entry holds. A Report is read on a phone, and an agent
+/// that a page has tricked must not be able to fill a database through it.
+const AGENT_REPORT_ENTRIES: usize = 100;
+const AGENT_REPORT_ENTRY_CHARS: usize = 2000;
+
+/// One entry of an agent's own words, trimmed: a sentence, a Branch id or a
+/// Food's name. Not blank, and no longer than a Report shows.
+fn agent_entry(text: &str, field: &str) -> Result<String, OpError> {
+    let text = required_text(text, field)?;
+    if text.chars().count() > AGENT_REPORT_ENTRY_CHARS {
+        return Err(OpError::bad_request(format!(
+            "{field} holds an entry longer than {AGENT_REPORT_ENTRY_CHARS} characters"
+        )));
+    }
+    Ok(text.to_string())
+}
+
+/// An agent's own report as Kamosu keeps it: all four lists, each empty
+/// where the agent had nothing to say. The Catalogue's declaration has
+/// already checked its shape, so what is checked here is its size.
+fn agent_report(report: Option<&Value>) -> Result<Value, OpError> {
+    let mut kept = serde_json::Map::new();
+    for list in AGENT_REPORT_LISTS {
+        let entries = report
+            .and_then(|report| report.get(list))
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        if entries.len() > AGENT_REPORT_ENTRIES {
+            return Err(OpError::bad_request(format!(
+                "report.{list} holds more than {AGENT_REPORT_ENTRIES} entries"
+            )));
+        }
+        let entries = entries
+            .iter()
+            .map(|entry| {
+                agent_entry(
+                    entry.as_str().unwrap_or_default(),
+                    &format!("report.{list}"),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        kept.insert(list.to_string(), json!(entries));
+    }
+    Ok(Value::Object(kept))
 }
