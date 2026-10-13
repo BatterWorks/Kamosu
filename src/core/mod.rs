@@ -25,6 +25,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use argon2::{
     Algorithm, Argon2, Params, Version,
@@ -323,6 +324,9 @@ pub struct Core {
     /// Whose login is waiting, and the few threads that may hash or check a
     /// password at once (#138).
     passwords: accounts::Passwords,
+    /// How long a Runner's hold on a Job lasts unless renewed, in
+    /// milliseconds: `jobs::HOLD`, until a test shortens it (#266).
+    hold_millis: AtomicU64,
     /// The seed Home shuffles *never cooked* by, once a test has pinned one
     /// (#151). Compiled only under `test-jobs`: a real instance draws a fresh
     /// seed each time Home is asked for, and carries nothing to pin it with.
@@ -343,6 +347,7 @@ impl Core {
             lanes,
             meaning,
             passwords: accounts::Passwords::default(),
+            hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             #[cfg(feature = "test-jobs")]
             shelf_seed: Default::default(),
         }
@@ -362,6 +367,7 @@ impl Core {
             lanes,
             meaning,
             passwords: accounts::Passwords::default(),
+            hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             #[cfg(feature = "test-jobs")]
             shelf_seed: Default::default(),
         };
@@ -371,6 +377,7 @@ impl Core {
         spawn_orphan_sweep(core.clone());
         spawn_meaning_search(core.clone());
         spawn_backups(core.clone());
+        spawn_hold_watch(core.clone());
         core
     }
 

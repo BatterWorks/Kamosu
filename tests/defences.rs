@@ -340,6 +340,49 @@ fn every_secret(app: &support::TestApp, key: &str) -> Vec<Secret> {
         table: "runner_keys",
     });
 
+    // A Job Key, which comes with the Job a Runner takes: a link Kamosu
+    // cannot read, kept for an agent.
+    #[cfg(feature = "test-jobs")]
+    kamosu::web_import::allow_loopback_fetches_for_tests();
+    let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+    std_listener.set_nonblocking(true).unwrap();
+    let listener = tokio::net::TcpListener::from_std(std_listener).expect("async listener");
+    let page = format!("http://{}/post", listener.local_addr().expect("local addr"));
+    tokio::spawn(async move {
+        let router = axum::Router::new().route(
+            "/post",
+            axum::routing::get(|| async {
+                axum::response::Html(
+                    "<html><head><title>A post</title></head><body>No recipe.</body></html>",
+                )
+            }),
+        );
+        axum::serve(listener, router).await.expect("page server");
+    });
+    let (status, asked) = app.post_op(
+        "import_web_link",
+        Some(key),
+        &json!({ "url": page }).to_string(),
+    );
+    assert_eq!(status, 200, "{asked}");
+    support::wait_terminal(app, Some(key), asked["result"]["job_id"].as_str().unwrap());
+    let runner = secrets.last().expect("the Runner Key").raw.clone();
+    let (status, handed) = app.post_op(
+        "ask_for_work",
+        Some(&runner),
+        &json!({ "runner_version": env!("CARGO_PKG_VERSION"), "ask": "the ask that took it" })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{handed}");
+    secrets.push(Secret {
+        what: "a Job Key",
+        raw: handed["result"]["job"]["job_key"]
+            .as_str()
+            .expect("a Job Key")
+            .into(),
+        table: "job_keys",
+    });
+
     // An Invite for a new Person, and a recovery link for an existing one.
     // Both are account links, and both are spent on first use.
     for (what, operation, input) in [
@@ -590,14 +633,37 @@ async fn a_secret_still_works_a_year_after_it_was_made() {
         "a year-old Cookbook Invite stopped working: {read}"
     );
 
-    // The three that are Credentials in their own right still open the door.
+    // The hold on the Job is a year past its deadline too. That is a clock,
+    // so it sends the Job back to waiting and spends no Job Key.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE agent_jobs SET held_until = \
+                 strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 year') WHERE held_until IS NOT NULL",
+                [],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("the hold moved");
+    app.core
+        .release_lapsed_holds()
+        .expect("lapsed holds released");
+
+    // The four that are Credentials in their own right still open the door.
     for secret in &secrets {
         match secret.what {
+            "a Job Key" => assert_eq!(
+                app.post_op("search_recipes", Some(&secret.raw), "{}").0,
+                200,
+                "a Job Key stopped working because a year passed"
+            ),
             "a Runner Key" => assert_eq!(
                 app.post_op(
                     "ask_for_work",
                     Some(&secret.raw),
-                    &json!({ "runner_version": env!("CARGO_PKG_VERSION") }).to_string(),
+                    &json!({ "runner_version": env!("CARGO_PKG_VERSION"), "ask": "the one ask" })
+                        .to_string(),
                 )
                 .0,
                 200,

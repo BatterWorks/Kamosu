@@ -1751,6 +1751,46 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 47,
+        description: "an agent's Job: the hold's deadline, its tries, and a Job Key for each ask (#266)",
+        sql: r#"
+        -- `held_until` is the deadline of the hold on a Job that is being
+        -- worked. The Runner renews it, and a Job whose deadline has passed
+        -- goes back to waiting. It is null on a Job nobody holds. A Job held
+        -- when this migration runs was taken by a Runner that renews nothing,
+        -- so its deadline is now.
+        -- `tries` counts the times the Job was taken and did not finish: the
+        -- hold lapsed, or the Runner reported it failed. A Job that reaches
+        -- the limit ends as failed.
+        ALTER TABLE agent_jobs ADD COLUMN held_until TEXT;
+        ALTER TABLE agent_jobs ADD COLUMN tries INTEGER NOT NULL DEFAULT 0;
+        UPDATE agent_jobs SET held_until = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE job_id IN (SELECT id FROM jobs WHERE status = 'running');
+
+        -- A Job Key, hashed: one for each ask that was handed the Job. A Job
+        -- can have several, because the Job Key of a hold that lapsed is not
+        -- spent by the clock (ADR 0031) and the next Runner is handed its
+        -- own. Each names the Person who asked for the Job until the Job
+        -- ends, so all of them are spent then with nothing to clear.
+        -- `runner_key_id` is the Runner Key it was handed to, and `ask` is
+        -- that ask's mark: the same ask sent again replaces its Job Key, and
+        -- revoking a Runner Key takes its Job Keys with it.
+        CREATE TABLE job_keys (
+            secret_hash   TEXT PRIMARY KEY,
+            job_id        TEXT NOT NULL REFERENCES jobs(id),
+            runner_key_id TEXT NOT NULL,
+            ask           TEXT NOT NULL
+        );
+        CREATE INDEX job_keys_by_job ON job_keys(job_id);
+        INSERT INTO job_keys (secret_hash, job_id, runner_key_id, ask)
+            SELECT job_key_hash, job_id, held_by, '' FROM agent_jobs
+             WHERE job_key_hash IS NOT NULL AND held_by IS NOT NULL;
+        DROP INDEX agent_jobs_by_job_key;
+        ALTER TABLE agent_jobs DROP COLUMN job_key_hash;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

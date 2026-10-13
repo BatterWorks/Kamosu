@@ -18,7 +18,9 @@
 //! An **agent's Job** is the one kind that takes no lane at all (ADR 0048). A
 //! Runner beside Kamosu takes it and an agent does the work. The row waits
 //! queued until a Runner takes it, is running while that Runner holds it, and
-//! ends as the Runner reports. A restart leaves it as it was.
+//! ends as the Runner reports. The hold has a deadline the Runner renews, and
+//! a Job whose deadline passed waits again (#266). The deadline is stored, so
+//! a restart leaves the Job as it was.
 //!
 //! A streaming progress mechanism, if one ever exists, may decorate this but is
 //! never instead of it: the row in this table is where watching slow work reads.
@@ -214,9 +216,14 @@ async fn carry(core: Arc<crate::core::Core>, job_id: String) {
 /// handler died with the process — so it reports why it ended; queued work
 /// re-enters its lane and is carried as if just asked for.
 ///
-/// An agent's Job is left exactly as it was. Kamosu was never doing the work,
-/// so nothing of it died with the process, and no lane carries it.
+/// An agent's Job is left as it was. Kamosu was never doing the work, so
+/// nothing of it died with the process, and no lane carries it. Its hold is
+/// the one thing looked at: a deadline that passed while Kamosu was down has
+/// lapsed like any other.
 pub fn recover_at_startup(db: &Arc<Db>, lanes: &Lanes) {
+    if let Err(err) = db.with_conn(release_lapsed_holds) {
+        tracing::warn!("cannot release the holds that lapsed: {err}");
+    }
     let _ = db.with_conn(|conn| {
         let interrupted = conn
             .execute(
@@ -496,6 +503,25 @@ pub fn end_for_deleted_recipe(conn: &Connection, branch_id: &str) -> Result<(), 
     Ok(())
 }
 
+/// The reason an agent's Job ends with when the Person who asked is deleted.
+const ASKER_GONE: &str = "the person who asked for this Job is gone";
+
+/// End the agent's Jobs a Person asked for, waiting or being worked, because
+/// that Person was deleted (#266). No Runner is handed a Job whose asker is
+/// gone, and a deleted Person does not come back, so the Job would stand on
+/// its recipe for ever and keep any other from being asked for.
+pub fn end_for_deleted_asker(conn: &Connection, person_id: &str) -> Result<(), OpError> {
+    conn.execute(
+        "UPDATE jobs SET status = 'failed', error = ?2, error_code = -32602,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE status IN ('queued', 'running') AND person_id = ?1
+           AND id IN (SELECT job_id FROM agent_jobs)",
+        params![person_id, ASKER_GONE],
+    )
+    .map_err(|e| OpError::internal(format!("cannot end the Person's Jobs: {e}")))?;
+    Ok(())
+}
+
 /// The reason an agent's Job ends with when a write of its would have started
 /// a Copy (ADR 0048). The cook reads it in the Import Report.
 pub const WOULD_START_A_COPY: &str = "the person who asked cannot change this recipe: a change of \
@@ -513,8 +539,10 @@ pub const HELD_ELSEWHERE: &str = "a copy, a variation or a translation of the re
      the agent had saved, so the agent stopped rather than change it under that one. What it \
      had saved before is kept";
 
-/// End a Job that is being worked because a write of its was refused, with
-/// one of the reasons above (#264, #265). Failed, which spends its Job Key.
+/// End a Job because a write of its was refused, with one of the reasons
+/// above (#264, #265). Failed, which spends its Job Keys. The Job is being
+/// worked, or waits again while the Job Key of a hold that lapsed still
+/// writes (#266).
 /// What it saved before stays. Marked as the thing itself at fault, as a
 /// recipe gone from under a Job is: trying again would meet the same refusal.
 pub fn end_where_a_write_was_refused(
@@ -525,7 +553,7 @@ pub fn end_where_a_write_was_refused(
     conn.execute(
         "UPDATE jobs SET status = 'failed', error = ?2, error_code = -32602,
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-         WHERE id = ?1 AND status = 'running'",
+         WHERE id = ?1 AND status IN ('queued', 'running')",
         params![job_id, reason],
     )
     .map_err(|e| OpError::internal(format!("cannot end the Job: {e}")))?;
@@ -574,8 +602,39 @@ pub fn agent_jobs_as_they_stand(
     Ok(states)
 }
 
+/// How long a Runner's hold on a Job lasts unless it is renewed (#266). A
+/// Job whose Runner crashed waits again within this long. Two minutes is short
+/// beside the minutes an agent takes, and long enough that a Runner renewing
+/// every third of it can miss twice and keep its Job.
+pub const HOLD: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// How many times a Job is tried (#266). A try that does not finish is a hold
+/// that lapsed or a Runner's report that it failed, and the Job waits again
+/// after each but the last. Three, as a retry is where a page that timed out
+/// once is read, and a Job that failed three times is not a fourth away from
+/// working. This is the one place the number is written.
+pub const TRIES: i64 = 3;
+
+/// What a try that ended by its hold lapsing is said to have ended with.
+const RUNNER_WENT_QUIET: &str = "the Runner working on it went quiet.";
+
+/// The reason a Job ends with when its last try did not finish. `trouble` is
+/// what that try ended with: the Runner's own reason, or that it went quiet.
+fn tried_too_often(trouble: &str) -> String {
+    format!(
+        "Kamosu tried this Job {TRIES} times, which is as often as it tries one, and it \
+         never finished. The last time: {trouble}"
+    )
+}
+
+/// A deadline `hold` from now, as SQLite's `strftime` takes it.
+fn from_now(hold: std::time::Duration) -> String {
+    format!("+{:.3} seconds", hold.as_secs_f64())
+}
+
 /// What a Runner is handed with a Job: what to read, which recipe it is for
-/// (#262), and the Job Key its agent presents (#263).
+/// (#262), the Job Key its agent presents (#263), and the deadline of its
+/// hold (#266).
 pub struct AgentWork {
     pub job_id: String,
     pub branch_id: String,
@@ -583,92 +642,248 @@ pub struct AgentWork {
     /// The Job Key's raw Secret. Only its hash is kept, so this is the one
     /// time it is known.
     pub job_key: String,
+    pub held_until: String,
 }
 
 /// Hand the Runner holding `runner_key_id` a Job to do (ADR 0048, #262).
 ///
 /// A Runner holds one Job at a time, so one that already holds a Job is
-/// answered that Job again: a reply lost on the way loses nothing. Otherwise
-/// it takes the oldest that waits, which is running from here on. Taking the
-/// connection is what keeps two Runners off one Job: the looking and the
-/// taking are one turn at the database.
+/// answered that Job again. Otherwise it takes the oldest that waits, which
+/// is running from here on, with a deadline `hold` away. A Job whose asker is
+/// disabled waits and is handed to nobody. Taking the connection is
+/// what keeps two Runners off one Job: the looking and the taking are one turn
+/// at the database.
 ///
-/// Every answer carries a Job Key minted for it, and only the newest one
-/// stands. The Secret is not kept, so a Runner asking again cannot be told
-/// the one it lost.
+/// Every answer carries a Job Key minted for it. `ask` is the mark of this
+/// ask, which the Runner makes up and sends again when it repeats the ask
+/// because the reply was lost (#266). The Job Key of that reply is the one
+/// nobody received, so the repeat replaces it. An ask under a new mark spends
+/// nothing: a Job Key is spent when its Job ends and by no clock, so the one
+/// from a hold that lapsed works beside the next Runner's until then.
 pub fn take_for_runner(
     conn: &Connection,
     runner_key_id: &str,
+    ask: &str,
+    hold: std::time::Duration,
 ) -> Result<Option<AgentWork>, OpError> {
     let failed = |e| OpError::internal(format!("cannot hand over a Job: {e}"));
+    release_lapsed_holds(conn)?;
     // The Job this Runner holds comes first, and after it the waiting ones,
     // oldest first.
-    let found = conn
+    let found: Option<(String, String, String)> = conn
         .query_row(
-            "SELECT jobs.id, agent_jobs.branch_id, agent_jobs.link, jobs.status = 'running'
-               FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
-              WHERE jobs.status = 'queued'
+            "SELECT jobs.id, agent_jobs.branch_id, agent_jobs.link
+               FROM agent_jobs
+               JOIN jobs ON jobs.id = agent_jobs.job_id
+               JOIN people ON people.id = jobs.person_id
+              WHERE (jobs.status = 'queued' AND people.disabled = 0 AND people.deleted = 0)
                  OR (jobs.status = 'running' AND agent_jobs.held_by = ?1)
               ORDER BY jobs.status = 'running' DESC, jobs.created_at, jobs.rowid
               LIMIT 1",
             params![runner_key_id],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get::<_, bool>(3)?,
-                ))
-            },
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()
         .map_err(failed)?;
-    let Some((job_id, branch_id, link, already_held)) = found else {
+    let Some((job_id, branch_id, link)) = found else {
         return Ok(None);
     };
-    let work = AgentWork {
-        job_id,
-        branch_id,
-        link,
-        job_key: generate_secret(),
-    };
-    let job_key_hash = hash_secret(&work.job_key);
-    if already_held {
-        conn.execute(
-            "UPDATE agent_jobs SET job_key_hash = ?2 WHERE job_id = ?1",
-            params![work.job_id, job_key_hash],
-        )
-        .map_err(failed)?;
-        return Ok(Some(work));
-    }
-    // Both rows move or neither does: a Job is held only while it is running
-    // and names its Runner.
+    let job_key = generate_secret();
+    // Every row moves or none does: a Job is held only while it is running,
+    // names its Runner and has a deadline.
     let tx = conn.unchecked_transaction().map_err(failed)?;
     tx.execute(
-        "UPDATE agent_jobs SET held_by = ?2, job_key_hash = ?3 WHERE job_id = ?1",
-        params![work.job_id, runner_key_id, job_key_hash],
+        "DELETE FROM job_keys WHERE job_id = ?1 AND runner_key_id = ?2 AND ask = ?3",
+        params![job_id, runner_key_id, ask],
     )
     .map_err(failed)?;
+    tx.execute(
+        "INSERT INTO job_keys (secret_hash, job_id, runner_key_id, ask) VALUES (?1, ?2, ?3, ?4)",
+        params![hash_secret(&job_key), job_id, runner_key_id, ask],
+    )
+    .map_err(failed)?;
+    let held_until = tx
+        .query_row(
+            "UPDATE agent_jobs SET held_by = ?2,
+             held_until = strftime('%Y-%m-%dT%H:%M:%fZ','now', ?3)
+             WHERE job_id = ?1 RETURNING held_until",
+            params![job_id, runner_key_id, from_now(hold)],
+            |row| row.get(0),
+        )
+        .map_err(failed)?;
     tx.execute(
         "UPDATE jobs SET status = 'running',
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-         WHERE id = ?1",
-        params![work.job_id],
+         WHERE id = ?1 AND status = 'queued'",
+        params![job_id],
     )
     .map_err(failed)?;
     tx.commit().map_err(failed)?;
-    Ok(Some(work))
+    Ok(Some(AgentWork {
+        job_id,
+        branch_id,
+        link,
+        job_key,
+        held_until,
+    }))
 }
 
-/// How a Runner says a Job ended (#262). The last two both end the Job as
-/// failed. They are kept apart because one is worth trying again and the
-/// other is not (#266).
+/// Move the deadline of the hold `runner_key_id` has on a Job to `hold` from
+/// now, and answer the new deadline (#266).
+pub fn renew_hold(
+    conn: &Connection,
+    runner_key_id: &str,
+    job_id: &str,
+    hold: std::time::Duration,
+) -> Result<String, OpError> {
+    release_lapsed_holds(conn)?;
+    let held_until = conn
+        .query_row(
+            "UPDATE agent_jobs SET held_until = strftime('%Y-%m-%dT%H:%M:%fZ','now', ?3)
+              WHERE job_id = ?1 AND held_by = ?2
+                AND job_id IN (SELECT id FROM jobs WHERE status = 'running')
+             RETURNING held_until",
+            params![job_id, runner_key_id, from_now(hold)],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot renew the hold: {e}")))?;
+    match held_until {
+        Some(held_until) => Ok(held_until),
+        None => Err(not_held(conn, runner_key_id, job_id)?),
+    }
+}
+
+/// What a Runner is answered about a Job it does not hold. One it was handed
+/// before is told its hold is gone, which tells it nothing it did not know.
+/// Any other Job is answered as one that is not there, whether another Runner
+/// holds it or it never was (ADR 0040).
+fn not_held(conn: &Connection, runner_key_id: &str, job_id: &str) -> Result<OpError, OpError> {
+    let was_handed_it: bool = conn
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM job_keys WHERE job_id = ?1 AND runner_key_id = ?2)",
+            params![job_id, runner_key_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read the Job's holds: {e}")))?;
+    Ok(if was_handed_it {
+        OpError::not_found(format!(
+            "this Runner no longer holds Job '{job_id}'. The hold is gone: its deadline passed \
+             before it was renewed, or the Job has ended. Stop the agent working on it, then \
+             ask for work again"
+        ))
+    } else {
+        no_such_job(job_id)
+    })
+}
+
+/// Send every Job whose hold has lapsed back to waiting, or end it where that
+/// was its last try (#266). Run before a Runner is answered anything, on a
+/// short tick and at startup, so a Job nobody is working never reads as one
+/// that is.
+pub fn release_lapsed_holds(conn: &Connection) -> Result<(), OpError> {
+    let failed = |e| OpError::internal(format!("cannot release a lapsed hold: {e}"));
+    let lapsed: Vec<String> = {
+        let mut statement = conn
+            .prepare(
+                "SELECT agent_jobs.job_id
+                   FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
+                  WHERE jobs.status = 'running'
+                    AND agent_jobs.held_until <= strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+            )
+            .map_err(failed)?;
+        statement
+            .query_map([], |row| row.get(0))
+            .map_err(failed)?
+            .collect::<Result<_, _>>()
+            .map_err(failed)?
+    };
+    for job_id in lapsed {
+        let tx = conn.unchecked_transaction().map_err(failed)?;
+        end_a_try(&tx, &job_id, RUNNER_WENT_QUIET)?;
+        tx.commit().map_err(failed)?;
+    }
+    Ok(())
+}
+
+/// A Runner Key was revoked: the Job it held waits again, and the Job Keys it
+/// was handed are revoked with it (#266). Revoking is an Operator's act and no
+/// fault of the Job's, so it counts as no try.
+pub fn release_for_revoked_runner(conn: &Connection, runner_key_id: &str) -> Result<(), OpError> {
+    let failed = |e| OpError::internal(format!("cannot release the Runner's Job: {e}"));
+    conn.execute(
+        "UPDATE jobs SET status = 'queued',
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE status = 'running'
+           AND id IN (SELECT job_id FROM agent_jobs WHERE held_by = ?1)",
+        params![runner_key_id],
+    )
+    .map_err(failed)?;
+    conn.execute(
+        "UPDATE agent_jobs SET held_by = NULL, held_until = NULL
+          WHERE held_by = ?1 AND job_id IN (SELECT id FROM jobs WHERE status = 'queued')",
+        params![runner_key_id],
+    )
+    .map_err(failed)?;
+    conn.execute(
+        "DELETE FROM job_keys WHERE runner_key_id = ?1",
+        params![runner_key_id],
+    )
+    .map_err(failed)?;
+    Ok(())
+}
+
+/// One try at a Job that is being worked ended without finishing it (#266).
+/// The Job waits again with the recipe as the try left it, or ends as failed
+/// where this was the last of its tries. `trouble` is what the try ended
+/// with, which the cook reads if it was the last. Answers whether the Job
+/// ended.
+fn end_a_try(conn: &Connection, job_id: &str, trouble: &str) -> Result<bool, OpError> {
+    let failed = |e| OpError::internal(format!("cannot end the try: {e}"));
+    let tries: i64 = conn
+        .query_row(
+            "UPDATE agent_jobs SET tries = tries + 1, held_until = NULL
+              WHERE job_id = ?1 RETURNING tries",
+            params![job_id],
+            |row| row.get(0),
+        )
+        .map_err(failed)?;
+    if tries >= TRIES {
+        conn.execute(
+            "UPDATE jobs SET status = 'failed', error = ?2, error_code = -32603,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+             WHERE id = ?1",
+            params![job_id, tried_too_often(trouble)],
+        )
+        .map_err(failed)?;
+        return Ok(true);
+    }
+    // Nothing of the try stays on a Job that waits again but its count and
+    // what the agent saved.
+    conn.execute(
+        "UPDATE agent_jobs SET held_by = NULL WHERE job_id = ?1",
+        params![job_id],
+    )
+    .map_err(failed)?;
+    conn.execute(
+        "UPDATE jobs SET status = 'queued',
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE id = ?1",
+        params![job_id],
+    )
+    .map_err(failed)?;
+    Ok(false)
+}
+
+/// How a Runner says a Job ended (#262). The last two are kept apart because
+/// one is worth trying again and the other is not (#266).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentOutcome {
     Completed,
-    /// Something went wrong on the way.
+    /// Something went wrong on the way. The Job is tried again, up to `TRIES`.
     Failed,
-    /// The agent says the thing holds no recipe it can read.
+    /// The agent says the thing holds no recipe it can read. That ends the
+    /// Job at once: another try would read the same thing.
     CouldNotBeRead,
 }
 
@@ -691,12 +906,13 @@ impl AgentOutcome {
     }
 }
 
-/// End the Job `runner_key_id` holds, as that Runner reports it (#262).
+/// End the try `runner_key_id` holds, as that Runner reports it (#262).
 /// `reason` is the sentence a failed Job carries, and `report` is the agent's
-/// own, already checked.
+/// own, already checked. A Job reported failed waits to be tried again unless
+/// that was its last try (#266). Any other report ends it.
 ///
-/// Only the Runner Key holding a Job reports on it. A Job it does not hold,
-/// one that has ended already and one that never was are all answered alike,
+/// Only the Runner Key holding a Job reports on it. One whose hold is gone is
+/// told so. A Job it never held, and one that never was, are answered alike,
 /// as a Job that is not there (ADR 0040).
 pub fn end_as_reported(
     conn: &Connection,
@@ -707,6 +923,7 @@ pub fn end_as_reported(
     report: &Value,
 ) -> Result<(), OpError> {
     let failed = |e| OpError::internal(format!("cannot end the Job: {e}"));
+    release_lapsed_holds(conn)?;
     let branch_id: Option<String> = conn
         .query_row(
             "SELECT agent_jobs.branch_id
@@ -718,31 +935,39 @@ pub fn end_as_reported(
         .optional()
         .map_err(failed)?;
     let Some(branch_id) = branch_id else {
-        return Err(no_such_job(job_id));
+        return Err(not_held(conn, runner_key_id, job_id)?);
     };
     let tx = conn.unchecked_transaction().map_err(failed)?;
-    tx.execute(
-        "UPDATE agent_jobs SET outcome = ?2, report = ?3 WHERE job_id = ?1",
-        params![job_id, outcome.as_str(), report.to_string()],
-    )
-    .map_err(failed)?;
-    let (status, result, error_code) = match outcome {
-        AgentOutcome::Completed => (
-            JobStatus::Completed,
-            Some(json!({ "branch_id": branch_id, "agent_report": report }).to_string()),
-            None,
-        ),
-        AgentOutcome::Failed => (JobStatus::Failed, None, Some(-32603)),
-        // The thing itself is at fault, as a bad request's input is.
-        AgentOutcome::CouldNotBeRead => (JobStatus::Failed, None, Some(-32602)),
+    let ended = match outcome {
+        AgentOutcome::Failed => end_a_try(&tx, job_id, reason.unwrap_or_default())?,
+        AgentOutcome::Completed | AgentOutcome::CouldNotBeRead => {
+            let (status, result, error_code) = if outcome == AgentOutcome::Completed {
+                let result = json!({ "branch_id": branch_id, "agent_report": report });
+                (JobStatus::Completed, Some(result.to_string()), None)
+            } else {
+                // The thing itself is at fault, as a bad request's input is.
+                (JobStatus::Failed, None, Some(-32602))
+            };
+            tx.execute(
+                "UPDATE jobs SET status = ?2, result = ?3, error = ?4, error_code = ?5,
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                 WHERE id = ?1",
+                params![job_id, status.as_str(), result, reason, error_code],
+            )
+            .map_err(failed)?;
+            true
+        }
     };
-    tx.execute(
-        "UPDATE jobs SET status = ?2, result = ?3, error = ?4, error_code = ?5,
-         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-         WHERE id = ?1",
-        params![job_id, status.as_str(), result, reason, error_code],
-    )
-    .map_err(failed)?;
+    // What the agent said is kept with the Job it ended. A try that is
+    // followed by another leaves its report to that one.
+    if ended {
+        tx.execute(
+            "UPDATE agent_jobs SET outcome = ?2, report = ?3, held_until = NULL
+              WHERE job_id = ?1",
+            params![job_id, outcome.as_str(), report.to_string()],
+        )
+        .map_err(failed)?;
+    }
     tx.commit().map_err(failed)
 }
 

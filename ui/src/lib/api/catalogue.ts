@@ -190,21 +190,34 @@ export type RunnerStatusOutput = {
 	last_asked_at: string | null;
 };
 
-/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again, so asking again mints a new one and the one before stops working. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
+/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
 export type AskForWorkInput = {
+	ask: string;
 	runner_version: string;
 };
 /** What ask_for_work answers. */
 export type AskForWorkOutput = {
 	job: {
 		branch_id: string;
+		held_until: string;
 		job_id: string;
 		job_key: string;
 		link: string;
+		renew_within_seconds: number;
 	} | null;
 };
 
-/** Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two end the Job as failed and need `reason`, one sentence the cook reads in the Import Report. `report` is the agent's own report, passed on as it wrote it. A Job this Runner Key does not hold, or one that has ended, is answered as a Job that is not there. */
+/** Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again. */
+export type RenewHoldInput = {
+	job_id: string;
+};
+/** What renew_hold answers. */
+export type RenewHoldOutput = {
+	held_until: string;
+	renew_within_seconds: number;
+};
+
+/** Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two need `reason`, one sentence the cook reads in the Import Report. A Job reported `failed` waits to be tried again, and ends as failed once it has been tried as often as Kamosu tries one. `could_not_be_read` ends it as failed at once. `report` is the agent's own report, passed on as it wrote it. A Runner whose hold is gone is refused and told so, and a Job it never held is answered as a Job that is not there. */
 export type ReportOnJobInput = {
 	job_id: string;
 	outcome: "completed" | "failed" | "could_not_be_read";
@@ -5081,6 +5094,12 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'runner';
 	};
+	renew_hold: {
+		input: RenewHoldInput;
+		output: RenewHoldOutput;
+		kind: 'immediate';
+		permission: 'runner';
+	};
 	report_on_job: {
 		input: ReportOnJobInput;
 		output: ReportOnJobOutput;
@@ -6434,18 +6453,22 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "ask_for_work",
-		"summary": "Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again, so asking again mints a new one and the one before stops working. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it.",
+		"summary": "Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it.",
 		"permission": "runner",
 		"kind": "immediate",
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"ask": {
+					"type": "string"
+				},
 				"runner_version": {
 					"type": "string"
 				}
 			},
 			"required": [
-				"runner_version"
+				"runner_version",
+				"ask"
 			],
 			"type": "object"
 		},
@@ -6459,6 +6482,10 @@ export const CATALOGUE = [
 							"description": "The recipe the Job is for, which landed bare.",
 							"type": "string"
 						},
+						"held_until": {
+							"description": "When the hold lapses unless `renew_hold` moves it on.",
+							"type": "string"
+						},
 						"job_id": {
 							"type": "string"
 						},
@@ -6469,13 +6496,19 @@ export const CATALOGUE = [
 						"link": {
 							"description": "What the agent is to read.",
 							"type": "string"
+						},
+						"renew_within_seconds": {
+							"description": "How long to leave before the first `renew_hold`, and between each after.",
+							"type": "number"
 						}
 					},
 					"required": [
 						"job_id",
 						"branch_id",
 						"link",
-						"job_key"
+						"job_key",
+						"held_until",
+						"renew_within_seconds"
 					],
 					"type": [
 						"object",
@@ -6490,8 +6523,42 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "renew_hold",
+		"summary": "Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again.",
+		"permission": "runner",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"job_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"job_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"held_until": {
+					"type": "string"
+				},
+				"renew_within_seconds": {
+					"type": "number"
+				}
+			},
+			"required": [
+				"held_until",
+				"renew_within_seconds"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "report_on_job",
-		"summary": "Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two end the Job as failed and need `reason`, one sentence the cook reads in the Import Report. `report` is the agent's own report, passed on as it wrote it. A Job this Runner Key does not hold, or one that has ended, is answered as a Job that is not there.",
+		"summary": "Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two need `reason`, one sentence the cook reads in the Import Report. A Job reported `failed` waits to be tried again, and ends as failed once it has been tried as often as Kamosu tries one. `could_not_be_read` ends it as failed at once. `report` is the agent's own report, passed on as it wrote it. A Runner whose hold is gone is refused and told so, and a Job it never held is answered as a Job that is not there.",
 		"permission": "runner",
 		"kind": "immediate",
 		"input_schema": {
@@ -30912,6 +30979,7 @@ export const METHOD_NAMES = {
 	revoke_runner_key: 'revokeRunnerKey',
 	runner_status: 'runnerStatus',
 	ask_for_work: 'askForWork',
+	renew_hold: 'renewHold',
 	report_on_job: 'reportOnJob',
 	list_sessions: 'listSessions',
 	rename_session: 'renameSession',
@@ -31060,9 +31128,11 @@ export interface KamosuClient {
 	revokeRunnerKey(input: RevokeRunnerKeyInput): Promise<Answer<'revoke_runner_key'>>;
 	/** Read whether this instance has a Runner. Also when one last asked for work. */
 	runnerStatus(input?: RunnerStatusInput): Promise<Answer<'runner_status'>>;
-	/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again, so asking again mints a new one and the one before stops working. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
+	/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
 	askForWork(input: AskForWorkInput): Promise<Answer<'ask_for_work'>>;
-	/** Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two end the Job as failed and need `reason`, one sentence the cook reads in the Import Report. `report` is the agent's own report, passed on as it wrote it. A Job this Runner Key does not hold, or one that has ended, is answered as a Job that is not there. */
+	/** Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again. */
+	renewHold(input: RenewHoldInput): Promise<Answer<'renew_hold'>>;
+	/** Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two need `reason`, one sentence the cook reads in the Import Report. A Job reported `failed` waits to be tried again, and ends as failed once it has been tried as often as Kamosu tries one. `could_not_be_read` ends it as failed at once. `report` is the agent's own report, passed on as it wrote it. A Runner whose hold is gone is refused and told so, and a Job it never held is answered as a Job that is not there. */
 	reportOnJob(input: ReportOnJobInput): Promise<Answer<'report_on_job'>>;
 	/** List this Person's browser Sessions by device and last use. `current` marks the Session asking, so it is never set when an Access Key asks. */
 	listSessions(input?: ListSessionsInput): Promise<Answer<'list_sessions'>>;

@@ -2130,11 +2130,21 @@ pub fn runner_status(
 }
 
 pub fn ask_for_work(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let usage = || OpError::bad_request("ask_for_work takes { runner_version, ask }");
     let runner_version = input
         .get("runner_version")
         .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("ask_for_work takes { runner_version }"))?;
-    core.ask_for_work(runner_of(invocation)?, runner_version)
+        .ok_or_else(usage)?;
+    let ask = input.get("ask").and_then(Value::as_str).ok_or_else(usage)?;
+    core.ask_for_work(runner_of(invocation)?, runner_version, ask)
+}
+
+pub fn renew_hold(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let job_id = input
+        .get("job_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("renew_hold takes { job_id }"))?;
+    core.renew_hold(runner_of(invocation)?, job_id)
 }
 
 pub fn report_on_job(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {

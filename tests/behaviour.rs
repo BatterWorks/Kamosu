@@ -5940,7 +5940,13 @@ fn runner_key(app: &support::TestApp, session: &str, name: &str) -> (String, Str
 
 /// What a Runner of this Kamosu's own version sends when it asks for work.
 fn asking() -> String {
-    json!({ "runner_version": env!("CARGO_PKG_VERSION") }).to_string()
+    asking_marked("the one ask")
+}
+
+/// The same, as the ask a Runner marks `ask`: a new ask has a new mark, and
+/// one repeated has the mark it had.
+fn asking_marked(ask: &str) -> String {
+    json!({ "runner_version": env!("CARGO_PKG_VERSION"), "ask": ask }).to_string()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -5960,7 +5966,7 @@ async fn a_runner_key_asks_for_work_and_is_told_there_is_none() {
         "method": "tools/call",
         "params": {
             "name": "ask_for_work",
-            "arguments": { "runner_version": env!("CARGO_PKG_VERSION") },
+            "arguments": { "runner_version": env!("CARGO_PKG_VERSION"), "ask": "the one ask" },
         },
     });
     let (_, at_mcp) = app.post_mcp(&call.to_string(), Some(&secret));
@@ -6211,7 +6217,7 @@ async fn an_operator_mints_lists_and_revokes_a_runner_key_at_the_mcp_door() {
 
     let asked = call(
         "ask_for_work",
-        json!({ "runner_version": env!("CARGO_PKG_VERSION") }),
+        json!({ "runner_version": env!("CARGO_PKG_VERSION"), "ask": "the one ask" }),
         &secret,
     );
     assert_eq!(
@@ -6240,7 +6246,7 @@ async fn an_operator_mints_lists_and_revokes_a_runner_key_at_the_mcp_door() {
 
     let refused = call(
         "ask_for_work",
-        json!({ "runner_version": env!("CARGO_PKG_VERSION") }),
+        json!({ "runner_version": env!("CARGO_PKG_VERSION"), "ask": "the one ask" }),
         &secret,
     );
     assert_eq!(refused["isError"], json!(true), "{refused}");
@@ -6327,7 +6333,7 @@ async fn nobody_but_a_runner_asks_for_work() {
             "jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": {
                 "name": "ask_for_work",
-                "arguments": { "runner_version": env!("CARGO_PKG_VERSION") },
+                "arguments": { "runner_version": env!("CARGO_PKG_VERSION"), "ask": "the one ask" },
             },
         });
         let (_, at_mcp) = app.post_mcp(&call.to_string(), credential);
@@ -6344,7 +6350,7 @@ async fn a_runner_of_another_version_is_refused_in_a_sentence_naming_both() {
     let (status, refused) = app.post_op(
         "ask_for_work",
         Some(&secret),
-        r#"{"runner_version":"0.0.1-other"}"#,
+        r#"{"runner_version":"0.0.1-other","ask":"the one ask"}"#,
     );
     assert_eq!(status, 400, "{refused}");
     let sentence = refused["error"]["message"].as_str().unwrap();
@@ -6356,7 +6362,7 @@ async fn a_runner_of_another_version_is_refused_in_a_sentence_naming_both() {
     // The MCP door says the same sentence.
     let call = json!({
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": { "name": "ask_for_work", "arguments": { "runner_version": "0.0.1-other" } },
+        "params": { "name": "ask_for_work", "arguments": { "runner_version": "0.0.1-other", "ask": "the one ask" } },
     });
     let (_, at_mcp) = app.post_mcp(&call.to_string(), Some(&secret));
     assert_eq!(at_mcp["result"]["isError"], json!(true), "{at_mcp}");
@@ -12380,7 +12386,7 @@ mod web_link_importer {
 
         let handed = call(
             "ask_for_work",
-            json!({ "runner_version": env!("CARGO_PKG_VERSION") }),
+            json!({ "runner_version": env!("CARGO_PKG_VERSION"), "ask": "the one ask" }),
         );
         assert_eq!(handed["isError"], json!(false), "{handed}");
         let handed = &handed["structuredContent"]["job"];
@@ -12517,29 +12523,22 @@ mod web_link_importer {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_report_of_failure_ends_the_job_as_failed_and_the_bare_recipe_stays_arrived() {
+    async fn a_job_that_failed_every_try_ends_as_failed_and_the_bare_recipe_stays_arrived() {
         let app = support::spawn_app();
         let (key, runner) = cook_and_runner(&app);
         let (import_job, job_id, branch_id) = a_job_waiting(&app, &key);
         ask_for_work(&app, &runner);
-
-        let (status, reported) = report_on_job(
+        fail_every_try(
             &app,
-            Some(&runner),
-            json!({
-                "job_id": job_id,
-                "outcome": "failed",
-                "reason": "the agent command ended with status 1",
-            }),
+            &runner,
+            &job_id,
+            "the agent command ended with status 1",
         );
-        assert_eq!(status, 200, "{reported}");
+        let reason = tried_too_often("the agent command ended with status 1");
 
         let ended = job(&app, &key, &job_id);
         assert_eq!(ended["status"], json!("failed"), "{ended}");
-        assert_eq!(
-            ended["error"],
-            json!("the agent command ended with status 1")
-        );
+        assert_eq!(ended["error"], json!(reason));
         assert_eq!(ended["result"], Value::Null);
 
         // The reason is under what could not be read, and the bare recipe is
@@ -12556,7 +12555,7 @@ mod web_link_importer {
             json!([{
                 "foreign_id": report["arrived"][0]["foreign_id"],
                 "name": "Just a blog post",
-                "reason": "the agent command ended with status 1",
+                "reason": reason,
                 "branch_id": branch_id,
             }])
         );
@@ -12967,7 +12966,7 @@ mod web_link_importer {
         let kept = |job_id: &str| -> String {
             let conn = rusqlite::Connection::open(app.core.database_path()).unwrap();
             conn.query_row(
-                "SELECT job_key_hash FROM agent_jobs WHERE job_id = ?1",
+                "SELECT secret_hash FROM job_keys WHERE job_id = ?1",
                 [job_id],
                 |row| row.get(0),
             )
@@ -12986,8 +12985,8 @@ mod web_link_importer {
         };
         assert_eq!(read(&held.job_key).0, 200);
 
-        // The Secret is kept nowhere, so a Runner asking again is handed a
-        // new one, and the one before stops working.
+        // The Secret is kept nowhere, so a Runner repeating its ask is
+        // handed a new one, and the one before stops working.
         let again = ask_for_work(&app, &held.runner);
         assert_eq!(again["job_id"], json!(held.job_id));
         let second = again["job_key"].as_str().unwrap();
@@ -13188,6 +13187,7 @@ mod web_link_importer {
             "set_recipe_language",
             "cancel_job",
             "ask_for_work",
+            "renew_hold",
             "report_on_job",
             "import_web_link",
             "import",
@@ -13325,9 +13325,13 @@ mod web_link_importer {
         let unknown = an_unknown_secret_is_answered(&app, "search_recipes");
         assert_eq!(unknown.0, 401, "{}", unknown.1);
 
-        // However the Job ends: completed, failed, or its recipe deleted
-        // from under it.
-        for outcome in ["completed", "failed", "could_not_be_read"] {
+        // However the Job ends: completed, failed on its last try, or its
+        // recipe deleted from under it.
+        let held = a_job_held_for(&app, &cook, &runner);
+        assert_eq!(read(&held).0, 200);
+        fail_every_try(&app, &runner, &held.job_id, "The page would not load.");
+        assert_eq!(read(&held), unknown, "after a Job that failed every try");
+        for outcome in ["completed", "could_not_be_read"] {
             let held = a_job_held_for(&app, &cook, &runner);
             assert_eq!(read(&held).0, 200);
             let mut report = json!({ "job_id": held.job_id, "outcome": outcome });
@@ -13962,6 +13966,18 @@ mod web_link_importer {
             }),
         );
         assert_eq!(status, 200, "{reported}");
+        for _ in 1..TRIES {
+            ask_for_work(&app, &held.runner);
+            let (status, reported) = report_on_job(
+                &app,
+                Some(&held.runner),
+                json!({
+                    "job_id": held.job_id, "outcome": "failed",
+                    "reason": "The video stopped loading halfway.",
+                }),
+            );
+            assert_eq!(status, 200, "{reported}");
+        }
         assert_eq!(
             job(&app, &held.cook, &held.job_id)["status"],
             json!("failed")
@@ -13971,6 +13987,508 @@ mod web_link_importer {
         assert_eq!(kept, as_saved);
         assert_eq!(head_of(&kept)["content"]["title"], json!("Soupe au pistou"));
         assert_eq!(head_of(&kept)["version_id"], saved["result"]["version_id"]);
+    }
+
+    // --- A Runner keeps its hold by renewing it (#266) ---------------------
+
+    /// How often Kamosu tries an agent's Job. Written out again here, so
+    /// that moving the number is a change somebody saw.
+    const TRIES: usize = 3;
+
+    /// What a Job that failed its last try says, after what that try ended
+    /// with.
+    fn tried_too_often(last: &str) -> String {
+        format!(
+            "Kamosu tried this Job 3 times, which is as often as it tries one, and it \
+             never finished. The last time: {last}"
+        )
+    }
+
+    /// What a try whose Runner went quiet is said to have ended with.
+    const WENT_QUIET: &str = "the Runner working on it went quiet.";
+
+    /// The Runner holding `job_id` reports it failed, takes it again and
+    /// reports the same, for every try the Job has.
+    fn fail_every_try(app: &support::TestApp, runner: &str, job_id: &str, reason: &str) {
+        for attempt in 1..=TRIES {
+            let (status, reported) = report_on_job(
+                app,
+                Some(runner),
+                json!({ "job_id": job_id, "outcome": "failed", "reason": reason }),
+            );
+            assert_eq!(status, 200, "{reported}");
+            if attempt < TRIES {
+                assert_eq!(ask_for_work(app, runner)["job_id"], json!(job_id));
+            }
+        }
+    }
+
+    /// The Runner holding a Job has been quiet for longer than its hold
+    /// lasts: the stored deadline is moved into the past, as the tests for a
+    /// Backup's age move a file's.
+    fn the_hold_lapses(app: &support::TestApp, job_id: &str) {
+        let conn = rusqlite::Connection::open(app.core.database_path()).unwrap();
+        let moved = conn
+            .execute(
+                "UPDATE agent_jobs SET held_until = strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 seconds')
+                  WHERE job_id = ?1 AND held_until IS NOT NULL",
+                [job_id],
+            )
+            .unwrap();
+        assert_eq!(moved, 1, "the Job is held");
+    }
+
+    fn renew_hold(app: &support::TestApp, credential: Option<&str>, job_id: &str) -> (u16, Value) {
+        app.post_op(
+            "renew_hold",
+            credential,
+            &json!({ "job_id": job_id }).to_string(),
+        )
+    }
+
+    /// A Runner asking under a mark of its own choosing.
+    fn ask_marked(app: &support::TestApp, runner: &str, ask: &str) -> Value {
+        let (status, answered) =
+            app.post_op("ask_for_work", Some(runner), &super::asking_marked(ask));
+        assert_eq!(status, 200, "{answered}");
+        answered["result"]["job"].clone()
+    }
+
+    fn reads_with(app: &support::TestApp, job_key: &str) -> (u16, Value) {
+        app.post_op("search_recipes", Some(job_key), "{}")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_renewal_moves_a_held_jobs_deadline_on() {
+        let app = support::spawn_app();
+        let (cook, runner) = cook_and_runner(&app);
+        let (_, job_id, _) = a_job_waiting(&app, &cook);
+        let handed = ask_for_work(&app, &runner);
+        let first = handed["held_until"]
+            .as_str()
+            .expect("a deadline")
+            .to_string();
+        // Two minutes, renewed every third of it.
+        assert_eq!(handed["renew_within_seconds"], json!(40.0), "{handed}");
+        let in_seconds = |deadline: &str| -> f64 {
+            let conn = rusqlite::Connection::open(app.core.database_path()).unwrap();
+            conn.query_row(
+                "SELECT (julianday(?1) - julianday('now')) * 86400.0",
+                [deadline],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert!((100.0..=120.0).contains(&in_seconds(&first)), "{first}");
+
+        // Most of the hold goes by, and the renewal gives it all back.
+        let conn = rusqlite::Connection::open(app.core.database_path()).unwrap();
+        conn.execute(
+            "UPDATE agent_jobs SET held_until = strftime('%Y-%m-%dT%H:%M:%fZ','now','+10 seconds')",
+            [],
+        )
+        .unwrap();
+        let (status, renewed) = renew_hold(&app, Some(&runner), &job_id);
+        assert_eq!(status, 200, "{renewed}");
+        let second = renewed["result"]["held_until"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!((100.0..=120.0).contains(&in_seconds(&second)), "{second}");
+        assert_eq!(renewed["result"]["renew_within_seconds"], json!(40.0));
+
+        // The same at the MCP door.
+        let at_the_other_door = at_mcp(&app, &runner, "renew_hold", json!({ "job_id": job_id }));
+        let renewed = &at_the_other_door["result"]["structuredContent"];
+        assert!(
+            renewed["held_until"].as_str().expect("a deadline") >= second.as_str(),
+            "{at_the_other_door}"
+        );
+        assert_eq!(job(&app, &cook, &job_id)["status"], json!("running"));
+
+        // Only a Runner renews, and only the one holding the Job.
+        let (session, _) = super::operator_signed_in(&app);
+        for credential in [Some(session.as_str()), Some(cook.as_str()), None] {
+            assert_eq!(renew_hold(&app, credential, &job_id).0, 401);
+        }
+        let other = another_runner(&app, "a second Runner");
+        let (status, refused) = renew_hold(&app, Some(&other), &job_id);
+        assert_eq!(status, 404, "{refused}");
+        assert_eq!(
+            refused["error"]["message"],
+            json!(format!("no Job with id '{job_id}'"))
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_hold_shortened_for_a_test_lapses_by_the_clock_unless_it_is_renewed() {
+        let app = support::spawn_app();
+        app.core
+            .hold_jobs_for(std::time::Duration::from_millis(900));
+        let (cook, runner) = cook_and_runner(&app);
+        let (_, job_id, _) = a_job_waiting(&app, &cook);
+        let handed = ask_for_work(&app, &runner);
+        assert_eq!(handed["renew_within_seconds"], json!(0.3), "{handed}");
+
+        // Renewed in time, it outlives the hold it was first given.
+        for _ in 0..5 {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            assert_eq!(renew_hold(&app, Some(&runner), &job_id).0, 200);
+        }
+        // Left alone for longer than the hold, it is lost.
+        std::thread::sleep(std::time::Duration::from_millis(1200));
+        assert_eq!(renew_hold(&app, Some(&runner), &job_id).0, 404);
+        assert_eq!(job(&app, &cook, &job_id)["status"], json!("queued"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_job_whose_hold_lapsed_waits_again_and_the_runner_that_lost_it_is_told_so() {
+        let app = support::spawn_app();
+        let (cook, runner) = cook_and_runner(&app);
+        let (_, job_id, _) = a_job_waiting(&app, &cook);
+        ask_for_work(&app, &runner);
+
+        // Nobody asks and nobody renews: Kamosu notices by itself.
+        the_hold_lapses(&app, &job_id);
+        let mut waiting = job(&app, &cook, &job_id);
+        for _ in 0..80 {
+            if waiting["status"] == json!("queued") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            waiting = job(&app, &cook, &job_id);
+        }
+        assert_eq!(waiting["status"], json!("queued"), "{waiting}");
+        assert_eq!(waiting["error"], Value::Null, "{waiting}");
+
+        // The next Runner that asks is handed it.
+        let second = another_runner(&app, "a second Runner");
+        assert_eq!(ask_for_work(&app, &second)["job_id"], json!(job_id));
+        assert_eq!(job(&app, &cook, &job_id)["status"], json!("running"));
+
+        // The first is refused both its calls, in words that say why.
+        let gone = format!(
+            "this Runner no longer holds Job '{job_id}'. The hold is gone: its deadline passed \
+             before it was renewed, or the Job has ended. Stop the agent working on it, then \
+             ask for work again"
+        );
+        let (status, refused) = renew_hold(&app, Some(&runner), &job_id);
+        assert_eq!(status, 404, "{refused}");
+        assert_eq!(refused["error"]["message"], json!(gone));
+        let (status, refused) = report_on_job(
+            &app,
+            Some(&runner),
+            json!({ "job_id": job_id, "outcome": "completed" }),
+        );
+        assert_eq!(status, 404, "{refused}");
+        assert_eq!(refused["error"]["message"], json!(gone));
+        let said = at_mcp(&app, &runner, "renew_hold", json!({ "job_id": job_id }));
+        assert_eq!(said["result"]["isError"], json!(true), "{said}");
+        assert!(said.to_string().contains("The hold is gone"), "{said}");
+
+        // It holds nothing now, and the second holds the Job still.
+        assert_eq!(ask_for_work(&app, &runner), Value::Null);
+        assert_eq!(renew_hold(&app, Some(&second), &job_id).0, 200);
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&second),
+            json!({ "job_id": job_id, "outcome": "completed" }),
+        );
+        assert_eq!(status, 200, "{reported}");
+        assert_eq!(job(&app, &cook, &job_id)["status"], json!("completed"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_job_key_of_a_hold_that_lapsed_works_beside_the_next_until_the_job_ends() {
+        let app = support::spawn_app();
+        let held = a_job_held(&app);
+        the_hold_lapses(&app, &held.job_id);
+        let second = another_runner(&app, "a second Runner");
+        // A lapse is a clock, and no Secret dies on one.
+        app.core.release_lapsed_holds().unwrap();
+        assert_eq!(
+            job(&app, &held.cook, &held.job_id)["status"],
+            json!("queued")
+        );
+        assert_eq!(reads_with(&app, &held.job_key).0, 200);
+
+        let handed = ask_for_work(&app, &second);
+        assert_eq!(handed["job_id"], json!(held.job_id));
+        let its_own = handed["job_key"].as_str().expect("a Job Key");
+        assert_ne!(its_own, held.job_key);
+        assert_eq!(reads_with(&app, its_own).0, 200);
+        assert_eq!(reads_with(&app, &held.job_key).0, 200);
+
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&second),
+            json!({ "job_id": held.job_id, "outcome": "completed" }),
+        );
+        assert_eq!(status, 200, "{reported}");
+        let unknown = an_unknown_secret_is_answered(&app, "search_recipes");
+        assert_eq!(reads_with(&app, its_own), unknown);
+        assert_eq!(reads_with(&app, &held.job_key), unknown);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_ask_repeated_answers_the_same_job_and_a_runner_holding_one_is_handed_no_other() {
+        let app = support::spawn_app();
+        let (cook, runner) = cook_and_runner(&app);
+        let (_, job_id, _) = a_job_waiting(&app, &cook);
+        let (_, next_job, _) = a_job_waiting(&app, &cook);
+
+        // The reply to this ask never arrived, so the Runner sends it again.
+        let lost = ask_marked(&app, &runner, "ask 1");
+        let again = ask_marked(&app, &runner, "ask 1");
+        assert_eq!(lost["job_id"], json!(job_id));
+        assert_eq!(again["job_id"], json!(job_id));
+        let job_key = again["job_key"].as_str().unwrap();
+        assert_eq!(reads_with(&app, job_key).0, 200);
+        // The Job Key of the lost reply is one nobody received.
+        assert_eq!(
+            reads_with(&app, lost["job_key"].as_str().unwrap()),
+            an_unknown_secret_is_answered(&app, "search_recipes")
+        );
+
+        // A new ask while it holds the Job answers that Job and no second,
+        // and spends nothing: the agent may be working with the Job Key.
+        let anew = ask_marked(&app, &runner, "ask 2");
+        assert_eq!(anew["job_id"], json!(job_id));
+        assert_eq!(reads_with(&app, anew["job_key"].as_str().unwrap()).0, 200);
+        assert_eq!(reads_with(&app, job_key).0, 200);
+        assert_eq!(job(&app, &cook, &next_job)["status"], json!("queued"));
+
+        // An ask needs its mark.
+        let (status, refused) = app.post_op(
+            "ask_for_work",
+            Some(&runner),
+            &json!({ "runner_version": env!("CARGO_PKG_VERSION"), "ask": " " }).to_string(),
+        );
+        assert_eq!(status, 400, "{refused}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_job_reported_failed_waits_again_and_ends_at_the_limit_naming_it() {
+        let app = support::spawn_app();
+        let (cook, runner) = cook_and_runner(&app);
+        let (_, job_id, _) = a_job_waiting(&app, &cook);
+        let failed = |reason: &str| {
+            let (status, reported) = report_on_job(
+                &app,
+                Some(&runner),
+                json!({
+                    "job_id": job_id, "outcome": "failed", "reason": reason,
+                    "report": { "unsure": ["Whether the page loaded at all."] },
+                }),
+            );
+            assert_eq!(status, 200, "{reported}");
+        };
+
+        // The first try fails, and the Job waits as if it had never been taken.
+        ask_for_work(&app, &runner);
+        failed("The page timed out.");
+        let waiting = job(&app, &cook, &job_id);
+        assert_eq!(waiting["status"], json!("queued"), "{waiting}");
+        assert_eq!(waiting["error"], Value::Null, "{waiting}");
+
+        // The second try is a Runner that went quiet, which counts the same.
+        assert_eq!(ask_for_work(&app, &runner)["job_id"], json!(job_id));
+        the_hold_lapses(&app, &job_id);
+        assert_eq!(ask_for_work(&app, &runner)["job_id"], json!(job_id));
+
+        // The third is the last.
+        failed("The page timed out again.");
+        let ended = job(&app, &cook, &job_id);
+        assert_eq!(ended["status"], json!("failed"), "{ended}");
+        assert_eq!(
+            ended["error"],
+            json!(tried_too_often("The page timed out again."))
+        );
+        assert_eq!(ask_for_work(&app, &runner), Value::Null);
+        let (status, refused) = renew_hold(&app, Some(&runner), &job_id);
+        assert_eq!(status, 404, "{refused}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_job_whose_runner_went_quiet_every_try_ends_saying_so() {
+        let app = support::spawn_app();
+        let (cook, runner) = cook_and_runner(&app);
+        let (_, job_id, _) = a_job_waiting(&app, &cook);
+        for _ in 0..TRIES {
+            assert_eq!(ask_for_work(&app, &runner)["job_id"], json!(job_id));
+            the_hold_lapses(&app, &job_id);
+        }
+        assert_eq!(ask_for_work(&app, &runner), Value::Null);
+        let ended = job(&app, &cook, &job_id);
+        assert_eq!(ended["status"], json!("failed"), "{ended}");
+        assert_eq!(ended["error"], json!(tried_too_often(WENT_QUIET)));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_job_tried_again_after_a_save_still_leaves_one_new_version() {
+        let app = support::spawn_app();
+        let held = a_job_held(&app);
+        let bare = versions_in_the_thread(&app, &held.cook, &held.branch_id);
+        let first = saved_by_the_job(
+            &app,
+            &held,
+            "save_recipe_version",
+            the_recipe_an_agent_read(&held.branch_id),
+        );
+
+        // The Runner goes quiet and another takes the Job, hours later.
+        the_hold_lapses(&app, &held.job_id);
+        super::backdate_branch_head(&app, &held.branch_id);
+        let second = another_runner(&app, "a second Runner");
+        let handed = ask_for_work(&app, &second);
+        assert_eq!(handed["job_id"], json!(held.job_id));
+        let retry = HeldJob {
+            cook: held.cook.clone(),
+            runner: second.clone(),
+            job_id: held.job_id.clone(),
+            branch_id: held.branch_id.clone(),
+            job_key: handed["job_key"].as_str().unwrap().to_string(),
+        };
+
+        // The retry finds the recipe as the first try left it, and goes on
+        // shaping the same Version.
+        assert_eq!(
+            head_of(&read_recipe(&app, &retry.job_key, &held.branch_id))["version_id"],
+            first["version_id"]
+        );
+        let corrected = saved_by_the_job(
+            &app,
+            &retry,
+            "edit_recipe",
+            json!({ "branch_id": held.branch_id, "title": "Soupe au pistou de Nice" }),
+        );
+        assert_eq!(corrected["collapsed"], json!(true), "{corrected}");
+        // So does the agent of the lost hold, if it is still going.
+        let late = saved_by_the_job(
+            &app,
+            &held,
+            "edit_recipe",
+            json!({ "branch_id": held.branch_id, "note": "Served warm." }),
+        );
+        assert_eq!(late["collapsed"], json!(true), "{late}");
+
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&second),
+            json!({ "job_id": held.job_id, "outcome": "completed" }),
+        );
+        assert_eq!(status, 200, "{reported}");
+        let versions = versions_in_the_thread(&app, &held.cook, &held.branch_id);
+        assert_eq!(versions.len(), bare.len() + 1, "{versions:?}");
+        assert_eq!(versions[0], bare[0]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_waiting_job_whose_asker_was_disabled_is_handed_to_nobody() {
+        let app = support::spawn_app();
+        let (operator, _) = super::operator_signed_in(&app);
+        let person = app.core.create_person("Camille").expect("person");
+        let camille = app
+            .core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret;
+        let (stephane, runner) = cook_and_runner(&app);
+        let (_, camilles_job, _) = a_job_waiting(&app, &camille);
+        let (_, stephanes_job, _) = a_job_waiting(&app, &stephane);
+
+        let (status, disabled) =
+            app.post_op("disable_account", Some(&operator), r#"{"name":"Camille"}"#);
+        assert_eq!(status, 200, "{disabled}");
+
+        // Hers is the older and it is passed over.
+        assert_eq!(ask_for_work(&app, &runner)["job_id"], json!(stephanes_job));
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&runner),
+            json!({ "job_id": stephanes_job, "outcome": "completed" }),
+        );
+        assert_eq!(status, 200, "{reported}");
+        assert_eq!(ask_for_work(&app, &runner), Value::Null);
+        let conn = rusqlite::Connection::open(app.core.database_path()).unwrap();
+        let status: String = conn
+            .query_row(
+                "SELECT status FROM jobs WHERE id = ?1",
+                [&camilles_job],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "queued");
+
+        // Deleted, she does not come back, so her Job ends and says why.
+        let (status, deleted) =
+            app.post_op("delete_account", Some(&operator), r#"{"name":"Camille"}"#);
+        assert_eq!(status, 200, "{deleted}");
+        let (status, reason): (String, String) = conn
+            .query_row(
+                "SELECT status, error FROM jobs WHERE id = ?1",
+                [&camilles_job],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(status, "failed");
+        assert_eq!(reason, "the person who asked for this Job is gone");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn kamosu_restarted_keeps_a_hold_whose_deadline_is_ahead_and_queues_one_that_passed() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app = support::spawn_app_in(dir.path());
+        let (cook, runner) = cook_and_runner(&app);
+        let (_, job_id, _) = a_job_waiting(&app, &cook);
+        ask_for_work(&app, &runner);
+
+        let restarted = support::spawn_app_in(dir.path());
+        assert_eq!(job(&restarted, &cook, &job_id)["status"], json!("running"));
+        assert_eq!(renew_hold(&restarted, Some(&runner), &job_id).0, 200);
+
+        // The deadline passes while Kamosu is down.
+        the_hold_lapses(&restarted, &job_id);
+        let restarted = support::spawn_app_in(dir.path());
+        assert_eq!(job(&restarted, &cook, &job_id)["status"], json!("queued"));
+        assert_eq!(renew_hold(&restarted, Some(&runner), &job_id).0, 404);
+        let other = another_runner(&restarted, "a second Runner");
+        assert_eq!(ask_for_work(&restarted, &other)["job_id"], json!(job_id));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn revoking_a_runner_key_sends_its_job_back_to_waiting_and_ends_its_job_keys() {
+        let app = support::spawn_app();
+        let (session, _) = super::operator_signed_in(&app);
+        let (runner, runner_key_id) = super::runner_key(&app, &session, "the kitchen's Runner");
+        let person = app.core.create_person("Camille").expect("person");
+        let cook = app
+            .core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret;
+        let held = a_job_held_for(&app, &cook, &runner);
+        // A hold of this Runner's that lapsed left a Job Key as well.
+        let bystander = another_runner(&app, "a second Runner");
+
+        let (status, revoked) = app.post_op(
+            "revoke_runner_key",
+            Some(&session),
+            &json!({ "runner_key_id": runner_key_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{revoked}");
+
+        let waiting = job(&app, &cook, &held.job_id);
+        assert_eq!(waiting["status"], json!("queued"), "{waiting}");
+        assert_eq!(
+            reads_with(&app, &held.job_key),
+            an_unknown_secret_is_answered(&app, "search_recipes")
+        );
+        // Revoking is no fault of the Job's, so it has all its tries left.
+        let handed = ask_for_work(&app, &bystander);
+        assert_eq!(handed["job_id"], json!(held.job_id));
+        fail_every_try(&app, &bystander, &held.job_id, "The page timed out.");
+        assert_eq!(job(&app, &cook, &held.job_id)["status"], json!("failed"));
     }
 
     /// The ids of a recipe's Versions, oldest first, as `get_recipe` and
