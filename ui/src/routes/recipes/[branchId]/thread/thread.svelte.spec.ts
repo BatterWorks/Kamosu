@@ -84,6 +84,8 @@ describe('the Thread screen', () => {
 						id: 'at_1',
 						lineage_id: 'l_1',
 						person_id: 'p_1',
+						person_name: 'Stéphane',
+						mine: true,
 						version_id: 'v_1',
 						current_step_index: 0,
 						ticked_ingredients: [],
@@ -500,6 +502,8 @@ describe('a cooking that changed the recipe, in the Thread (#209)', () => {
 		id: 'at_1',
 		lineage_id: 'l_1',
 		person_id: 'p_1',
+		person_name: 'Stéphane',
+		mine: true,
 		version_id: 'v_1',
 		eaten_version_id,
 		current_step_index: 0,
@@ -564,6 +568,156 @@ describe('a cooking that changed the recipe, in the Thread (#209)', () => {
 
 		const startedFrom = await rowOf('As it came');
 		expect(within(startedFrom).getByRole('button', { name: /🍲 Again/ })).toBeInTheDocument();
+	});
+
+	describe('a Version cooked several times (#249)', () => {
+		type Rating = 'again' | 'tweak' | 'no' | null;
+		const NAMES: Record<string, string> = { p_me: 'Stéphane', p_camille: 'Camille', p_sam: 'Sam' };
+
+		/** A cooking of the first Version, on a day in March, by the reader unless said. */
+		const cooking = (day: number, rating: Rating, note: string | null = null, by = 'p_me') => ({
+			...tweaked('v_1'),
+			id: `at_${day}`,
+			person_id: by,
+			person_name: NAMES[by],
+			mine: by === 'p_me',
+			rating,
+			note,
+			created_at: `2026-03-${String(day).padStart(2, '0')}T12:00:00Z`,
+		});
+
+		/** The badges under the first Version, as their words. */
+		async function badges(attempts: ReturnType<typeof cooking>[]) {
+			renderThread('b_mine', { get_thread: threadWith(attempts) });
+			const row = await rowOf('As it came');
+			// The first button is the Version itself. Nobody here may name it,
+			// so the rest are its badges.
+			const [, ...cooked] = within(row).getAllByRole('button');
+			return { row, words: cooked.map((button) => button.textContent.trim()) };
+		}
+
+		/** What the open sheet says, line by line. */
+		const sheetLines = () =>
+			[...screen.getByRole('dialog').querySelectorAll('li')].map((line) =>
+				(line.textContent ?? '').replace(/\s+/g, ' ').trim(),
+			);
+
+		it('shows one cooking as its rating, and opens it', async () => {
+			const { row, words } = await badges([cooking(2, 'again', 'Crisp.')]);
+			expect(words).toEqual(['🍲 Again']);
+
+			await fireEvent.click(within(row).getByRole('button', { name: '🍲 Again' }));
+			const sheet = screen.getByRole('dialog', { name: 'Cooked 2 Mar 2026' });
+			expect(within(sheet).getByText('Again')).toBeInTheDocument();
+			expect(within(sheet).getByText('Crisp.')).toBeInTheDocument();
+		});
+
+		it('shows a cooking with no rating as the pot alone', async () => {
+			const { words } = await badges([cooking(2, null)]);
+			expect(words).toEqual(['🍲']);
+		});
+
+		it('shows the same rating once however often it was given, with no count', async () => {
+			const { row, words } = await badges([
+				cooking(2, 'again', 'First go.'),
+				cooking(5, 'again'),
+				cooking(9, 'again', 'Third go.'),
+			]);
+			expect(words).toEqual(['🍲 Again']);
+
+			// Every cooking is still one press away, newest first.
+			await fireEvent.click(within(row).getByRole('button', { name: '🍲 Again' }));
+			expect(
+				screen.getByRole('dialog', { name: 'You cooked this Version 3 times' }),
+			).toBeInTheDocument();
+			expect(sheetLines()).toEqual([
+				'9 Mar 2026 · Again Third go.',
+				'5 Mar 2026 · Again No notes written down.',
+				'2 Mar 2026 · Again First go.',
+			]);
+		});
+
+		it('shows the last rating where they differ, and the older ones on opening', async () => {
+			const { row, words } = await badges([cooking(2, 'again'), cooking(5, 'no', 'Too salty.')]);
+			expect(words).toEqual(['🍲 No']);
+
+			await fireEvent.click(within(row).getByRole('button', { name: '🍲 No' }));
+			expect(sheetLines()).toEqual([
+				'5 Mar 2026 · No Too salty.',
+				'2 Mar 2026 · Again No notes written down.',
+			]);
+		});
+
+		it('keeps the last rating given when a later cooking has none', async () => {
+			const { row, words } = await badges([cooking(2, 'again'), cooking(5, null)]);
+			expect(words).toEqual(['🍲 Again']);
+
+			await fireEvent.click(within(row).getByRole('button', { name: '🍲 Again' }));
+			expect(sheetLines()).toEqual([
+				'5 Mar 2026 No notes written down.',
+				'2 Mar 2026 · Again No notes written down.',
+			]);
+		});
+
+		it('puts everyone else together in a second badge, by name', async () => {
+			const { row, words } = await badges([
+				cooking(2, 'again'),
+				cooking(3, 'tweak', 'Less vanilla.', 'p_sam'),
+				cooking(4, 'again', null, 'p_camille'),
+				cooking(5, 'again', null, 'p_sam'),
+			]);
+			expect(words).toEqual(['🍲 Again', 'Sam ×2 · Camille']);
+
+			await fireEvent.click(
+				within(row).getByRole('button', { name: 'Cooked by Sam ×2 · Camille' }),
+			);
+			expect(
+				screen.getByRole('dialog', { name: 'Others cooked this Version 3 times' }),
+			).toBeInTheDocument();
+			expect(sheetLines()).toEqual([
+				'Sam · 5 Mar 2026 · Again No notes written down.',
+				'Camille · 4 Mar 2026 · Again No notes written down.',
+				'Sam · 3 Mar 2026 · Tweak it Less vanilla.',
+			]);
+		});
+
+		it('opens the one cooking of someone else with their name on it', async () => {
+			const { row, words } = await badges([cooking(4, 'no', 'Sour.', 'p_camille')]);
+			expect(words).toEqual(['Camille']);
+
+			await fireEvent.click(within(row).getByRole('button', { name: 'Cooked by Camille' }));
+			const sheet = screen.getByRole('dialog', { name: 'Camille cooked 4 Mar 2026' });
+			expect(within(sheet).getByText('No')).toBeInTheDocument();
+			expect(within(sheet).getByText('Sour.')).toBeInTheDocument();
+		});
+
+		it('tells whose a cooking is by its id where a Thread kept on the phone does not say', async () => {
+			// Built by hand, as the test above: the shape an answer kept before #249 has.
+			const kept = [cooking(2, 'again', null, 'p_nobody'), cooking(3, 'no', null, 'p_camille')].map(
+				(each) => {
+					const before: Partial<typeof each> = { ...each };
+					delete before.mine;
+					delete before.person_name;
+					return before;
+				},
+			);
+			const { client } = standIn({ get_person: NOBODY });
+			render(ThreadTestHarness, {
+				props: {
+					client: {
+						...client,
+						getThread: () => Promise.resolve(threadWith(kept) as GetThreadOutput),
+					},
+					branchId: 'b_mine',
+				},
+			});
+
+			const row = await rowOf('As it came');
+			expect(await within(row).findByRole('button', { name: '🍲 Again' })).toBeInTheDocument();
+			expect(
+				within(row).getByRole('button', { name: 'Cooked by Someone Kamosu has no name for' }),
+			).toBeInTheDocument();
+		});
 	});
 });
 

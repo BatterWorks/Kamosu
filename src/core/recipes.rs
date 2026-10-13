@@ -2045,6 +2045,9 @@ fn parse_step_list(value: Option<&Value>) -> Result<Value, OpError> {
 /// wrote at their own stove does not. Stripped in the Core rather than left to
 /// a screen to omit, because a second Door would omit it differently.
 ///
+/// **`mine` and `person_name` say whose cooking it is** (#249), so a screen
+/// can keep the reader's own apart and name the rest without a second read.
+///
 /// **`eaten_version_id` says which Version a cooking counts for** (#209), as
 /// `thread_attempt_schema` declares it. Worked out here, before the strip,
 /// because a Kitchen-mate's screen is never handed the As Cooked to work it
@@ -2071,6 +2074,16 @@ fn attempts_for_lineage(
         .map_err(|e| OpError::internal(format!("cannot read Attempts: {e}")))?
         .collect::<Result<Vec<Value>, _>>()
         .map_err(|e| OpError::internal(format!("cannot read Attempts: {e}")))?;
+    // Whose cooking each one is (#249), each cook asked for once.
+    let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for attempt in &rows {
+        let Some(person_id) = attempt["person_id"].as_str() else {
+            continue;
+        };
+        if !names.contains_key(person_id) {
+            names.insert(person_id.to_string(), person_name(conn, person_id)?);
+        }
+    }
     Ok(rows
         .into_iter()
         .filter_map(|mut attempt| {
@@ -2086,7 +2099,10 @@ fn attempts_for_lineage(
             let eaten = on_the_thread(&attempt["as_cooked"]["version_id"])
                 .or_else(|| on_the_thread(&attempt["version_id"]))?;
             attempt["eaten_version_id"] = eaten;
-            if attempt["person_id"] != json!(viewer_person_id) {
+            attempt["person_name"] = json!(names[attempt["person_id"].as_str()?]);
+            let mine = attempt["person_id"] == json!(viewer_person_id);
+            attempt["mine"] = json!(mine);
+            if !mine {
                 attempt["as_cooked"] = Value::Null;
             }
             Some(attempt)

@@ -43,7 +43,8 @@
 		/** Which rows said what Language this recipe is in (#106). */
 		languageSaid: Map<string, string>;
 		onOpenVersion: (version: ThreadVersion) => void;
-		onOpenAttempt: (attempt: Attempt) => void;
+		/** One badge was pressed: the cookings it stands for, oldest first. */
+		onOpenCookings: (cookings: Attempt[]) => void;
 		/** A rename landed: read the Thread again. */
 		onRenamed: () => Promise<void>;
 	}
@@ -54,7 +55,7 @@
 		attemptsByVersion,
 		languageSaid,
 		onOpenVersion,
-		onOpenAttempt,
+		onOpenCookings,
 		onRenamed,
 	}: Props = $props();
 
@@ -176,6 +177,29 @@
 	let draft = $state('');
 	let saving = $state(false);
 	let renameError = $state<string | undefined>(undefined);
+	/**
+	 * The last rating a cook gave a Version (#249). A later cooking with no
+	 * rating leaves it standing: it is the newest thing said about next time.
+	 */
+	const lastRating = (cookings: Attempt[]) =>
+		cookings.filter((cooking) => cooking.rating).at(-1)?.rating;
+
+	/**
+	 * Who else cooked a Version, in the order they first did, with a count
+	 * beside whoever cooked it more than once: `Sam ×2 · Camille`.
+	 */
+	function cooksOf(cookings: Attempt[]): string {
+		const cooks = new Map<string, { name: string; count: number }>();
+		for (const cooking of cookings) {
+			const cook = cooks.get(cooking.person_id) ?? { name: cooking.person_name, count: 0 };
+			cook.count += 1;
+			cooks.set(cooking.person_id, cook);
+		}
+		return [...cooks.values()]
+			.map((cook) => (cook.count > 1 ? `${cook.name} ×${cook.count}` : cook.name))
+			.join(' · ');
+	}
+
 	/** What the last rename did, said under the row it did it to. */
 	let lastRename = $state<{ key: string; cleared: boolean } | undefined>(undefined);
 
@@ -346,17 +370,37 @@
 						<span class="block text-read text-ink">{m.thread_translates_absent()}</span>
 					{/if}
 				</button>
-				{#if attemptsByVersion.get(version.version_id)?.length || yours(row)}
+				<!--
+					Two badges at most, however often the Version was cooked (#249):
+					the reader's own cookings as the last rating they gave, and
+					everyone else's together, by name. Each opens what it stands for.
+				-->
+				{@const cooked = attemptsByVersion.get(version.version_id) ?? []}
+				{@const mine = cooked.filter((cooking) => cooking.mine)}
+				{@const theirs = cooked.filter((cooking) => !cooking.mine)}
+				{#if cooked.length || yours(row)}
 					<div class="mt-1 flex flex-wrap items-center gap-2">
-						{#each attemptsByVersion.get(version.version_id) ?? [] as attempt (attempt.id)}
+						{#if mine.length}
+							{@const rating = lastRating(mine)}
 							<button
 								type="button"
-								class="rounded-sm border border-rule px-1 text-label text-ink-2"
-								onclick={() => onOpenAttempt(attempt)}
+								class="rounded-sm border border-accent px-1 text-label text-ink"
+								onclick={() => onOpenCookings(mine)}
 							>
-								{attempt.rating ? `🍲 ${ratingLabel(attempt.rating)}` : '🍲'}
+								{rating ? `🍲 ${ratingLabel(rating)}` : '🍲'}
 							</button>
-						{/each}
+						{/if}
+						{#if theirs.length}
+							{@const names = cooksOf(theirs)}
+							<button
+								type="button"
+								class="rounded-sm border border-dashed border-ink-2 px-1 text-label text-ink-2"
+								aria-label={m.thread_cooked_by({ names })}
+								onclick={() => onOpenCookings(theirs)}
+							>
+								{names}
+							</button>
+						{/if}
 						{#if yours(row)}
 							<button
 								type="button"

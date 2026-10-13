@@ -5,12 +5,14 @@
 ### Changed
 
 - In the History, a line comes out of the dot of the Version it started from, and the band saying "Splits into 2 Branches here" is gone. A Translation sits directly under the Version it translates, whenever it was written, where it used to leave the top of the page as if the recipe had split before its first Version. [#250]
+- In the History, a Version shows two badges at most, however often it was cooked: yours, as the pot and the last rating you gave it, and everyone else's together, by name. Each opens the cookings it stands for, your older ratings among them. It used to show one badge per cooking, so a Version rated "Again" three times read "Again" three times. `get_thread` says who cooked each Attempt in two new fields, `person_name` and `mine`. [#249]
 
 ### Fixed
 
 - The History shows a variation nothing has been saved on yet, and a recipe that arrived and was never edited, under the Version it starts from. A recipe left as it was while a variation of it went on changing is shown under its last Version. It left all three out. [#250]
 - The History draws five Branches in five colours. The fourth used to take the first one's colour. [#250]
 
+[#249]: https://github.com/BatterWorks/Kamosu/issues/249
 [#250]: https://github.com/BatterWorks/Kamosu/issues/250
 
 ## v0.2.0 - 2026-10-12

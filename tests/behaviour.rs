@@ -21845,6 +21845,63 @@ async fn a_cooking_kept_by_a_collapsing_save_stays_on_the_thread() {
     assert_eq!(seen["version_id"], started_from);
 }
 
+/// The History says whose cooking each one is (#249): everyone else's sit
+/// together under a Version as names, apart from the reader's own, and a
+/// screen has only a Person's id to go on unless the Thread names them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cooking_on_the_thread_names_its_cook() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, kitchen_id) = recipe_ready_to_cook(&app, "Stéphane");
+    let (_camille, camille_key, _her_kitchen) = person_with_kitchen(&app, "Camille");
+    let (_, minted) = app.post_op(
+        "invite_to_kitchen",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    let secret = minted["result"]["secret"].as_str().unwrap().to_string();
+    let (status, joined) = app.post_op(
+        "accept_kitchen_invite",
+        Some(&camille_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+
+    for cook in [&key, &camille_key] {
+        let attempt_id = cooking_katsu(&app, cook, &branch_id);
+        let (status, finished) = app.post_op(
+            "finish_attempt",
+            Some(cook),
+            &json!({ "attempt_id": attempt_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{finished}");
+    }
+
+    // Both of them read the same two names, and each is told which is theirs.
+    for (reader, own_name) in [(&key, "Stéphane"), (&camille_key, "Camille")] {
+        let (status, thread) = app.post_op(
+            "get_thread",
+            Some(reader),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{thread}");
+        let mut cooks: Vec<&str> = thread["result"]["attempts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|attempt| attempt["person_name"].as_str().expect("a cook has a name"))
+            .collect();
+        cooks.sort_unstable();
+        assert_eq!(cooks, ["Camille", "Stéphane"]);
+        for attempt in thread["result"]["attempts"].as_array().unwrap() {
+            assert_eq!(
+                attempt["mine"],
+                json!(attempt["person_name"] == json!(own_name)),
+                "{attempt}"
+            );
+        }
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_promotion_declined_stays_declined_and_keeps_what_was_cooked() {
     let app = support::spawn_app();
