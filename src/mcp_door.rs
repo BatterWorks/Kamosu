@@ -448,7 +448,8 @@ fn left_out_line(count: usize) -> String {
 
 /// The listing itself is not an Operation and carries no permission check, but
 /// a read-only Access Key's writes are still absent from it (ADR 0031), and a
-/// Runner Key is shown the Runner's own Operations and no other (ADR 0048).
+/// Runner Key is shown the Runner's own Operations and no other (ADR 0048),
+/// as a Job Key is shown the ones marked for it.
 /// The Core says which, from the same declarations `Core::execute` refuses
 /// by, so the two can never disagree about which Operations those are.
 fn tools_list(core: &Core, headers: &HeaderMap) -> Value {
@@ -472,8 +473,8 @@ fn tools_list(core: &Core, headers: &HeaderMap) -> Value {
         "resultType": "complete",
         "tools": tools,
         "ttlMs": LISTING_TTL_MS,
-        // What a read-only Access Key or a Runner Key is shown differs from
-        // the rest.
+        // What a read-only Access Key, a Runner Key or a Job Key is shown
+        // differs from the rest.
         "cacheScope": "private",
     })
 }
@@ -517,6 +518,12 @@ fn tools_call(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Resul
             }
             catalogue::Kind::Job | catalogue::Kind::Immediate => Ok(call_tool_result(result)),
         },
+        // The Catalogue holds this name, and the Core answers as if it did
+        // not: a Job Key calling outside its list (ADR 0048). Said here the
+        // way a name the Catalogue never held is said above.
+        Err(err) if err.kind == ErrorKind::UnknownOperation => {
+            Err(json_rpc_error(-32602, format!("no tool named '{name}'")))
+        }
         Err(err) => Ok(json!({
             "resultType": "complete",
             "content": [{ "type": "text", "text": err.to_sentence() }],
@@ -620,11 +627,15 @@ fn tasks_cancel(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Res
             // A Job that is not the caller's arrives as a not-found from the
             // Core (ADR 0040), so this Door does not collapse it. An
             // `Unauthorized` reaching here is about the Credential itself and
-            // says so, rather than being dressed up as a missing task.
-            ErrorKind::BadRequest | ErrorKind::NotFound => Err(json_rpc_error(
-                -32602,
-                format!("Failed to cancel task: no such Job '{task_id}'"),
-            )),
+            // says so, rather than being dressed up as a missing task. A Job
+            // Key is answered as if the Operation were not there, which for
+            // a task is a Job that is not there.
+            ErrorKind::BadRequest | ErrorKind::NotFound | ErrorKind::UnknownOperation => {
+                Err(json_rpc_error(
+                    -32602,
+                    format!("Failed to cancel task: no such Job '{task_id}'"),
+                ))
+            }
             _ => Err(json_rpc_error(-32603, err.to_sentence())),
         },
     }
@@ -643,10 +654,12 @@ fn read_job_for_task(core: &Core, headers: &HeaderMap, task_id: &str) -> Result<
     match core.execute(secret.as_deref(), "get_job", json!({ "job_id": task_id })) {
         Ok(job) => Ok(job),
         Err(err) => match err.kind {
-            ErrorKind::BadRequest | ErrorKind::NotFound => Err(json_rpc_error(
-                -32602,
-                format!("Failed to retrieve task: no such Job '{task_id}'"),
-            )),
+            ErrorKind::BadRequest | ErrorKind::NotFound | ErrorKind::UnknownOperation => {
+                Err(json_rpc_error(
+                    -32602,
+                    format!("Failed to retrieve task: no such Job '{task_id}'"),
+                ))
+            }
             _ => Err(json_rpc_error(-32603, err.to_sentence())),
         },
     }

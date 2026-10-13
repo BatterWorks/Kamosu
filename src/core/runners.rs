@@ -88,6 +88,30 @@ impl Core {
         })
     }
 
+    /// The Person a Job Key's hash names and the Job it is the key of, while
+    /// that Job is being worked: `(person_id, is_operator, job_id)`. A Job
+    /// that has ended, however it ended, and an asker who was disabled or
+    /// deleted both leave the Job Key naming nobody (ADR 0048).
+    pub(super) fn lookup_job_key(
+        &self,
+        hash: &str,
+    ) -> Result<Option<(String, bool, String)>, OpError> {
+        self.db().with_conn(|conn| {
+            conn.query_row(
+                "SELECT jobs.person_id, people.is_operator, jobs.id
+                   FROM agent_jobs
+                   JOIN jobs ON jobs.id = agent_jobs.job_id
+                   JOIN people ON people.id = jobs.person_id
+                  WHERE agent_jobs.job_key_hash = ?1 AND jobs.status = 'running'
+                    AND people.disabled = 0 AND people.deleted = 0",
+                params![hash],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(|e| OpError::internal(format!("cannot resolve Credential: {e}")))
+        })
+    }
+
     /// A Runner asking for a Job to do: the oldest that waits, with what to
     /// read and which recipe it is for, or none (#262). The Job is running
     /// from here until the Runner reports on it.
@@ -121,6 +145,7 @@ impl Core {
                 "job_id": work.job_id,
                 "branch_id": work.branch_id,
                 "link": work.link,
+                "job_key": work.job_key,
             })),
         }))
     }

@@ -1721,6 +1721,22 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 45,
+        description: "an agent's Job: its Job Key (#263)",
+        sql: r#"
+        -- `job_key_hash` is the hash of the Job Key handed to the Runner with
+        -- the Job (ADR 0048). The Secret itself is shown once and stored
+        -- nowhere (ADR 0031). It names the Person who asked for the Job only
+        -- while the Job is running, so it is spent when the Job ends, however
+        -- it ends, with nothing to clear. It is null until a Runner takes the
+        -- Job, and a Runner taking the Job again replaces it.
+        ALTER TABLE agent_jobs ADD COLUMN job_key_hash TEXT;
+        CREATE UNIQUE INDEX agent_jobs_by_job_key ON agent_jobs(job_key_hash)
+            WHERE job_key_hash IS NOT NULL;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

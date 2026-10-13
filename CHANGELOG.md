@@ -6,6 +6,7 @@
 
 - An Operator signed in directly can mint a Runner Key, for a Runner: a program beside Kamosu that will have an agent read what Kamosu cannot. Kamosu shows its Secret once. It acts as nobody, and can ask for work, report on the Job it holds and nothing else. There is no screen yet. Both doors gain `mint_runner_key`, `list_runner_keys` and `revoke_runner_key` for an Operator, `runner_status`, which tells anyone signed in whether the instance has a Runner and when one last asked for work, and `ask_for_work`, which answers a Runner Key alone. [#260]
 - While a Runner Key stands, a link Kamosu cannot read is kept for an agent: a page with no recipe data, or one that refused Kamosu's fetch, lands as a bare recipe and a Job waits on it. Before, the first landed bare with no Job and the second landed nothing. A Runner takes the oldest waiting Job with `ask_for_work`, which names the link and the recipe, and the Job reads as running while that Runner holds it. The Runner says how it ended with `report_on_job`: completed, failed, or could not be read, with the agent's own report. No agent can write to the recipe yet, so it stays bare. The Import Report and `list_imports` name the Job in a new field, `agent_jobs`, with its state now. Once the Job has completed, the Report says an agent made the recipe, what the agent left undone, what it was unsure of, likely duplicates and the Foods left unused. A Job that failed is listed under what could not be read, with the reason, and its bare recipe is still listed as arrived. [#261] [#262]
+- `ask_for_work` hands the Runner a Job Key with the Job, in a new field, `job_key`. It is a new kind of Credential, for the agent that does the Job. It acts as the Person who asked for the Job and only reads: recipes with the Reading of each Ingredient Line, their Threads, search, Tags and Foods, as that Person sees them. That is nine Operations: `get_recipe`, `get_thread`, `branch_point`, `divergence`, `changed_since`, `search_recipes`, `list_tags`, `list_foods` and `get_food`. Every other Operation, and every address outside the Operations, answers a Job Key as if it were not there, and the MCP door lists it those nine tools alone. Kamosu shows a Job Key once and keeps only its hash. It stops working when the Job ends, and when the Person who asked is disabled or deleted. A Runner that asks for work again while it holds the Job gets a new Job Key, and the one before stops working. [#263]
 
 ### Changed
 
@@ -24,6 +25,7 @@
 [#260]: https://github.com/BatterWorks/Kamosu/issues/260
 [#261]: https://github.com/BatterWorks/Kamosu/issues/261
 [#262]: https://github.com/BatterWorks/Kamosu/issues/262
+[#263]: https://github.com/BatterWorks/Kamosu/issues/263
 
 ## v0.2.0 - 2026-10-12
 

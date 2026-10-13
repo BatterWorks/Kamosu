@@ -190,7 +190,7 @@ export type RunnerStatusOutput = {
 	last_asked_at: string | null;
 };
 
-/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
+/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job, until the Job ends. It is shown here and never again, so asking again mints a new one and the one before stops working. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
 export type AskForWorkInput = {
 	runner_version: string;
 };
@@ -199,6 +199,7 @@ export type AskForWorkOutput = {
 	job: {
 		branch_id: string;
 		job_id: string;
+		job_key: string;
 		link: string;
 	} | null;
 };
@@ -6433,7 +6434,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "ask_for_work",
-		"summary": "Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it.",
+		"summary": "Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job, until the Job ends. It is shown here and never again, so asking again mints a new one and the one before stops working. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it.",
 		"permission": "runner",
 		"kind": "immediate",
 		"input_schema": {
@@ -6461,6 +6462,10 @@ export const CATALOGUE = [
 						"job_id": {
 							"type": "string"
 						},
+						"job_key": {
+							"description": "The Job Key, shown once. The agent presents it as its Credential.",
+							"type": "string"
+						},
 						"link": {
 							"description": "What the agent is to read.",
 							"type": "string"
@@ -6469,7 +6474,8 @@ export const CATALOGUE = [
 					"required": [
 						"job_id",
 						"branch_id",
-						"link"
+						"link",
+						"job_key"
 					],
 					"type": [
 						"object",
@@ -31054,7 +31060,7 @@ export interface KamosuClient {
 	revokeRunnerKey(input: RevokeRunnerKeyInput): Promise<Answer<'revoke_runner_key'>>;
 	/** Read whether this instance has a Runner. Also when one last asked for work. */
 	runnerStatus(input?: RunnerStatusInput): Promise<Answer<'runner_status'>>;
-	/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
+	/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job, until the Job ends. It is shown here and never again, so asking again mints a new one and the one before stops working. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
 	askForWork(input: AskForWorkInput): Promise<Answer<'ask_for_work'>>;
 	/** Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two end the Job as failed and need `reason`, one sentence the cook reads in the Import Report. `report` is the agent's own report, passed on as it wrote it. A Job this Runner Key does not hold, or one that has ended, is answered as a Job that is not there. */
 	reportOnJob(input: ReportOnJobInput): Promise<Answer<'report_on_job'>>;
