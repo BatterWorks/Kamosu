@@ -1284,6 +1284,8 @@ fn refile_tags(conn: &Connection, from: &str, to: &str, cookbook_id: &str) -> Re
 /// nothing else (#120): what `delete_recipe` does once it has decided who
 /// keeps a copy.
 pub(super) fn delete_branch_rows(conn: &Connection, branch_id: &str) -> Result<(), OpError> {
+    // An agent's Job on the recipe has nothing left to write (#261).
+    jobs::end_for_deleted_recipe(conn, branch_id)?;
     for statement in [
         "DELETE FROM branch_versions WHERE branch_id = ?1",
         "DELETE FROM branch_tags WHERE branch_id = ?1",
@@ -1857,6 +1859,7 @@ fn fold_branch(conn: &Connection, drop: &str, keep: &str, into: &str) -> Result<
         params![drop, keep],
     )
     .map_err(|e| OpError::internal(format!("cannot move the import ledger: {e}")))?;
+    jobs::move_to_kept_recipe(conn, drop, keep)?;
     delete_branch_rows(conn, drop)
 }
 

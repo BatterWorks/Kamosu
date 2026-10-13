@@ -1771,6 +1771,10 @@ export type ImportInput = {
 };
 /** What import eventually produces, read back through `get_job`. */
 export type ImportOutput = {
+	agent_jobs?: {
+		branch_id: string;
+		job_id: string;
+	}[];
 	arrived: {
 		bare?: boolean;
 		branch_id: string;
@@ -1828,6 +1832,10 @@ export type ImportCroutonInput = {
 };
 /** What import_crouton eventually produces, read back through `get_job`. */
 export type ImportCroutonOutput = {
+	agent_jobs?: {
+		branch_id: string;
+		job_id: string;
+	}[];
 	arrived: {
 		bare?: boolean;
 		branch_id: string;
@@ -1884,6 +1892,11 @@ export type ListImportsInput = Record<string, never>;
 export type ListImportsOutput = {
 	imports: {
 		arrivals: {
+			agent_jobs?: {
+				branch_id: string;
+				job_id: string;
+				status: "queued" | "running" | "completed" | "failed" | "cancelled";
+			}[];
 			arrived: number;
 			created: number;
 			created_at: string;
@@ -1909,12 +1922,16 @@ export type ForgetImportOutput = {
 	import_id: string;
 };
 
-/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
+/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 export type ImportWebLinkInput = {
 	url: string;
 };
 /** What import_web_link eventually produces, read back through `get_job`. */
 export type ImportWebLinkOutput = {
+	agent_jobs?: {
+		branch_id: string;
+		job_id: string;
+	}[];
 	arrived: {
 		bare?: boolean;
 		branch_id: string;
@@ -2588,6 +2605,10 @@ export type ImportBundleInput = {
 };
 /** What import_bundle eventually produces, read back through `get_job`. */
 export type ImportBundleOutput = {
+	agent_jobs?: {
+		branch_id: string;
+		job_id: string;
+	}[];
 	arrived: {
 		bare?: boolean;
 		branch_id: string;
@@ -14259,6 +14280,27 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"agent_jobs": {
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job that waits on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. Read it with `get_job`, where its operation is `read_by_agent` and it is `queued` until a Runner takes it, and cancel it with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it waits names the same Job.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`.",
+								"type": "string"
+							},
+							"job_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"job_id",
+							"branch_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"arrived": {
 					"items": {
 						"additionalProperties": false,
@@ -14532,6 +14574,27 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"agent_jobs": {
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job that waits on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. Read it with `get_job`, where its operation is `read_by_agent` and it is `queued` until a Runner takes it, and cancel it with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it waits names the same Job.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`.",
+								"type": "string"
+							},
+							"job_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"job_id",
+							"branch_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"arrived": {
 					"items": {
 						"additionalProperties": false,
@@ -14805,6 +14868,36 @@ export const CATALOGUE = [
 								"items": {
 									"additionalProperties": false,
 									"properties": {
+										"agent_jobs": {
+											"description": "Present when this arrival left a recipe for a Runner's agent to read: that Job and its state now. It is part of this arrival and is listed nowhere else here. `queued` is waiting for a Runner.",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"branch_id": {
+														"type": "string"
+													},
+													"job_id": {
+														"type": "string"
+													},
+													"status": {
+														"enum": [
+															"queued",
+															"running",
+															"completed",
+															"failed",
+															"cancelled"
+														]
+													}
+												},
+												"required": [
+													"job_id",
+													"branch_id",
+													"status"
+												],
+												"type": "object"
+											},
+											"type": "array"
+										},
 										"arrived": {
 											"type": "integer"
 										},
@@ -14922,7 +15015,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "import_web_link",
-		"summary": "Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in.",
+		"summary": "Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
@@ -14941,6 +15034,27 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"agent_jobs": {
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job that waits on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. Read it with `get_job`, where its operation is `read_by_agent` and it is `queued` until a Runner takes it, and cancel it with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it waits names the same Job.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`.",
+								"type": "string"
+							},
+							"job_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"job_id",
+							"branch_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"arrived": {
 					"items": {
 						"additionalProperties": false,
@@ -18321,6 +18435,27 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"agent_jobs": {
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job that waits on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. Read it with `get_job`, where its operation is `read_by_agent` and it is `queued` until a Runner takes it, and cancel it with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it waits names the same Job.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`.",
+								"type": "string"
+							},
+							"job_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"job_id",
+							"branch_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"arrived": {
 					"items": {
 						"additionalProperties": false,
@@ -30637,7 +30772,7 @@ export interface KamosuClient {
 	listImports(input?: ListImportsInput): Promise<Answer<'list_imports'>>;
 	/** Throw an Import's ledger away whole. The ledger is the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
 	forgetImport(input: ForgetImportInput): Promise<Answer<'forget_import'>>;
-	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
+	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 	importWebLink(input: ImportWebLinkInput): Promise<Answer<'import_web_link'>>;
 	/** Preview what importing a Kamosu Share Link would do. It answers before anything is written, as a Job (#170). Reaches the recipe file exactly as `import_web_link` does — this instance's own link locally, another Kamosu's at a public address through the guarded client — and answers the shared recipe's title, Source, writer, how many Versions it carries and a small picture, and whether your own Cookbook holds it already, with how many newer Versions the file carries past yours. The file is staged: pass `upload_id` to `import_bundle` to import exactly what was previewed without fetching it again. An ended link, or an address that is no Share Link, is refused. */
 	previewSharedRecipe(input: PreviewSharedRecipeInput): Promise<Answer<'preview_shared_recipe'>>;

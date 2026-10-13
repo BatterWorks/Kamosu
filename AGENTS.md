@@ -385,6 +385,8 @@ src/crouton.rs      reading a Crouton export into import candidates: lines rebui
 src/db.rs           the SQLite file under /data — WAL on, migrations forward-only
 src/entities.rs     the HTML entities importers undo in text that was never HTML
 src/jobs.rs         slow work: two lanes (one for strangers, ADR 0032), progress, results
+                    and an agent's Job, which waits for a Runner in neither lane
+                    (ADR 0048, #261)
 src/language.rs     a Branch's Language, read off the recipe's own text (ADR 0006)
 src/meaning.rs      Meaning Search: the model Kamosu does not ship, and the
                     index it builds from the recipes (ADR 0029)

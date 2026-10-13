@@ -5,6 +5,7 @@
 ### Added
 
 - An Operator signed in directly can mint a Runner Key, for a Runner: a program beside Kamosu that will have an agent read what Kamosu cannot. Kamosu shows its Secret once. It acts as nobody, and can ask for work and nothing else. There is no screen yet. Both doors gain `mint_runner_key`, `list_runner_keys` and `revoke_runner_key` for an Operator, `runner_status`, which tells anyone signed in whether the instance has a Runner and when one last asked for work, and `ask_for_work`, which answers a Runner Key alone and for now always says nothing is waiting. [#260]
+- While a Runner Key stands, a link Kamosu cannot read is kept for an agent: a page with no recipe data, or one that refused Kamosu's fetch, lands as a bare recipe and a Job waits on it, which no Runner takes yet. Before, the first landed bare with no Job and the second landed nothing. The Import Report and `list_imports` name the Job in a new field, `agent_jobs`. [#261]
 
 ### Changed
 
@@ -21,6 +22,7 @@
 [#250]: https://github.com/BatterWorks/Kamosu/issues/250
 [#251]: https://github.com/BatterWorks/Kamosu/issues/251
 [#260]: https://github.com/BatterWorks/Kamosu/issues/260
+[#261]: https://github.com/BatterWorks/Kamosu/issues/261
 
 ## v0.2.0 - 2026-10-12
 

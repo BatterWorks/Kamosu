@@ -1678,6 +1678,26 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 43,
+        description: "an agent's Job: one that waits for a Runner (#261)",
+        sql: r#"
+        -- What makes a Job an agent's (ADR 0048): Kamosu does not do the work,
+        -- so the Job sits in neither lane and a restart leaves it as it was.
+        -- A row here is the whole of that mark, and every other fact about
+        -- the Job is in `jobs` as for any Job.
+        -- `branch_id` is the recipe the Job is for. It is kept after the
+        -- recipe is deleted, so it is no foreign key.
+        -- `link` is the page the agent reads.
+        CREATE TABLE agent_jobs (
+            job_id    TEXT PRIMARY KEY REFERENCES jobs(id),
+            branch_id TEXT NOT NULL,
+            link      TEXT NOT NULL
+        );
+        CREATE INDEX agent_jobs_by_branch ON agent_jobs(branch_id);
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

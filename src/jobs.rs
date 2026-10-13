@@ -15,14 +15,17 @@
 //! text can tell an agent to fetch another URL, ADR 0033). Such a Job always
 //! takes the single depth-one lane, member or not.
 //!
+//! An **agent's Job** is the one kind that takes no lane at all (ADR 0048). A
+//! Runner beside Kamosu takes it and an agent does the work, so the row waits
+//! queued until then, and a restart leaves it as it was.
+//!
 //! A streaming progress mechanism, if one ever exists, may decorate this but is
 //! never instead of it: the row in this table is where watching slow work reads.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use rusqlite::OptionalExtension;
-use rusqlite::params;
+use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
@@ -209,6 +212,9 @@ async fn carry(core: Arc<crate::core::Core>, job_id: String) {
 /// accepted must not strand. Running work can't be resumed honestly — the
 /// handler died with the process — so it reports why it ended; queued work
 /// re-enters its lane and is carried as if just asked for.
+///
+/// An agent's Job is left exactly as it was. Kamosu was never doing the work,
+/// so nothing of it died with the process, and no lane carries it.
 pub fn recover_at_startup(db: &Arc<Db>, lanes: &Lanes) {
     let _ = db.with_conn(|conn| {
         let interrupted = conn
@@ -217,7 +223,8 @@ pub fn recover_at_startup(db: &Arc<Db>, lanes: &Lanes) {
              error = 'this Job was interrupted when Kamosu restarted',
              error_code = -32603,
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-             WHERE status = 'running'",
+             WHERE status = 'running'
+               AND id NOT IN (SELECT job_id FROM agent_jobs)",
                 [],
             )
             .map_err(|e| OpError::internal(format!("cannot recover interrupted Jobs: {e}")))?;
@@ -233,7 +240,9 @@ pub fn recover_at_startup(db: &Arc<Db>, lanes: &Lanes) {
         let mut stmt = conn
             .prepare(
                 "SELECT id, person_id IS NULL FROM jobs
-                 WHERE status = 'queued' ORDER BY created_at",
+                 WHERE status = 'queued'
+                   AND id NOT IN (SELECT job_id FROM agent_jobs)
+                 ORDER BY created_at",
             )
             .map_err(|e| OpError::internal(format!("cannot list waiting Jobs: {e}")))?;
         let rows = stmt
@@ -373,8 +382,19 @@ pub fn record(
     invocation: &Invocation,
     input: Value,
 ) -> Result<String, OpError> {
+    core.db()
+        .with_conn(|conn| insert(conn, operation, invocation.caller(), &input))
+}
+
+/// Write a Job's row, queued, and answer its id.
+fn insert(
+    conn: &Connection,
+    operation: &str,
+    caller: Option<&Caller>,
+    input: &Value,
+) -> Result<String, OpError> {
     let job_id = new_id();
-    let (person_id, read_only, via_access_key) = match invocation.caller() {
+    let (person_id, read_only, via_access_key) = match caller {
         Some(caller) => (
             Some(caller.person_id.clone()),
             caller.read_only,
@@ -382,23 +402,120 @@ pub fn record(
         ),
         None => (None, false, false),
     };
-    core.db().with_conn(|conn| {
-        conn.execute(
-            "INSERT INTO jobs (id, person_id, read_only, via_access_key, operation, input)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                job_id,
-                person_id,
-                read_only as i64,
-                via_access_key as i64,
-                operation,
-                input.to_string()
-            ],
-        )
-        .map_err(|e| OpError::internal(format!("cannot record Job: {e}")))?;
-        Ok(())
-    })?;
+    conn.execute(
+        "INSERT INTO jobs (id, person_id, read_only, via_access_key, operation, input)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            job_id,
+            person_id,
+            read_only as i64,
+            via_access_key as i64,
+            operation,
+            input.to_string()
+        ],
+    )
+    .map_err(|e| OpError::internal(format!("cannot record Job: {e}")))?;
     Ok(job_id)
+}
+
+/// What an agent's Job is recorded as having been asked for. It names no
+/// Operation of the Catalogue, because no handler of Kamosu's does the work:
+/// a Runner takes the Job and an agent does it (ADR 0048).
+pub const AGENT_OPERATION: &str = "read_by_agent";
+
+/// The reason an agent's Job ends with when its recipe goes from under it.
+const RECIPE_GONE: &str = "the recipe this Job was for is gone";
+
+/// The agent's Job that waits or is being worked on a recipe, if there is one.
+/// A recipe has one at a time.
+pub fn standing_agent_job(conn: &Connection, branch_id: &str) -> Result<Option<String>, OpError> {
+    conn.query_row(
+        "SELECT jobs.id FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
+          WHERE agent_jobs.branch_id = ?1 AND jobs.status IN ('queued', 'running')",
+        params![branch_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read the recipe's Job: {e}")))
+}
+
+/// Have an agent read `link` into the recipe `branch_id`: a Job that waits
+/// for a Runner, in neither lane (ADR 0048, #261). Asked for by `caller`,
+/// whose Job it is to read and to cancel.
+///
+/// Where a Job already stands on the recipe, that Job is the answer and no
+/// second is made. Taking the connection is what makes that hold: the looking
+/// and the writing are one turn at the database.
+pub fn wait_for_agent(
+    conn: &Connection,
+    caller: &Caller,
+    branch_id: &str,
+    link: &str,
+) -> Result<String, OpError> {
+    if let Some(job_id) = standing_agent_job(conn, branch_id)? {
+        return Ok(job_id);
+    }
+    let job_id = insert(conn, AGENT_OPERATION, Some(caller), &json!({}))?;
+    conn.execute(
+        "INSERT INTO agent_jobs (job_id, branch_id, link) VALUES (?1, ?2, ?3)",
+        params![job_id, branch_id, link],
+    )
+    .map_err(|e| OpError::internal(format!("cannot record the agent's Job: {e}")))?;
+    Ok(job_id)
+}
+
+/// A recipe held twice was folded into one (`fold_branch`): the Job on the
+/// holding that goes carries on, on the one kept. Where the kept one has a
+/// Job standing already, this one stays behind and ends with its Branch.
+pub fn move_to_kept_recipe(conn: &Connection, drop: &str, keep: &str) -> Result<(), OpError> {
+    if standing_agent_job(conn, keep)?.is_some() {
+        return Ok(());
+    }
+    conn.execute(
+        "UPDATE agent_jobs SET branch_id = ?2 WHERE branch_id = ?1",
+        params![drop, keep],
+    )
+    .map_err(|e| OpError::internal(format!("cannot move the recipe's Job: {e}")))?;
+    Ok(())
+}
+
+/// End the agent's Job on a recipe that is being deleted, waiting or being
+/// worked, and say why. A Job with no recipe to write could only fail later.
+pub fn end_for_deleted_recipe(conn: &Connection, branch_id: &str) -> Result<(), OpError> {
+    conn.execute(
+        "UPDATE jobs SET status = 'failed', error = ?2, error_code = -32602,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE status IN ('queued', 'running')
+           AND id IN (SELECT job_id FROM agent_jobs WHERE branch_id = ?1)",
+        params![branch_id, RECIPE_GONE],
+    )
+    .map_err(|e| OpError::internal(format!("cannot end the recipe's Job: {e}")))?;
+    Ok(())
+}
+
+/// How each of these Jobs stands now, for the ones that are an agent's. An id
+/// that names no agent's Job is left out.
+pub fn agent_job_statuses(
+    conn: &Connection,
+    job_ids: &[String],
+) -> Result<Vec<(String, JobStatus)>, OpError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT jobs.status FROM jobs JOIN agent_jobs ON agent_jobs.job_id = jobs.id
+              WHERE jobs.id = ?1",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read an agent's Job: {e}")))?;
+    let mut statuses = Vec::new();
+    for job_id in job_ids {
+        let status: Option<String> = statement
+            .query_row(params![job_id], |row| row.get(0))
+            .optional()
+            .map_err(|e| OpError::internal(format!("cannot read an agent's Job: {e}")))?;
+        if let Some(status) = status {
+            statuses.push((job_id.clone(), JobStatus::from_column(status)));
+        }
+    }
+    Ok(statuses)
 }
 
 /// Remove the row of work that was refused before anyone saw its id.

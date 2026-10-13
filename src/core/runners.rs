@@ -117,6 +117,12 @@ impl Core {
         Ok(json!({ "job": null }))
     }
 
+    /// Whether a Runner Key stands, which is what sends a link Kamosu cannot
+    /// read to an agent (ADR 0048).
+    pub fn has_runner(&self) -> Result<bool, OpError> {
+        Ok(self.runner_status()?["has_runner"] == json!(true))
+    }
+
     /// Whether this instance has a Runner, which is to say a Runner Key that
     /// is not revoked, and when one last asked for work. The time is read
     /// across every Key, revoked ones included, so replacing a Key does not
