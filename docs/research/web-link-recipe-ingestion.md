@@ -182,6 +182,8 @@ Directly answerable from §2's counts: **45% of `recipe-scrapers`' site coverage
 
 ## 5. LLM fallback for non-structured sites
 
+> **Corrected on 2026-10-13.** The claim below that no studied recipe app reads pages without structured data is no longer true: Mealie has sent such pages to a model since v1.9.0. See [`ai-recipe-import-in-other-apps.md`](./ai-recipe-import-in-other-apps.md) for the survey and [ADR 0048](../adr/0048-an-agent-beside-kamosu-reads-what-kamosu-cannot.md) for what Kamosu decided.
+
 **Verdict: not worth it for v1; potentially worth it much later, and only with a local model, never a required paid API key.**
 
 Reasoning:
