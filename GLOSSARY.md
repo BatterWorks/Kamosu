@@ -65,8 +65,12 @@ A one-use link that turns a stranger into a Person, adds a Person to a Kitchen, 
 _Avoid_: Signup, registration, join code, magic link
 
 **Access Key**:
-A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the two sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account.
+A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the three sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account.
 _Avoid_: API key, token, secret, password, Credential
+
+**Runner Key**:
+A **Secret** an Operator mints for a **Runner**, and the third source of a Credential. For one **Job** it acts as the Person who asked for it, under their Hand and only on the recipe that Job is for. Between Jobs it acts as nobody and can only ask for work. It can delete no recipe, touch no other recipe and reach no account (ADR 0048).
+_Avoid_: Agent key, API key, token, service account, Access Key
 
 **Operator**:
 A Person who also administers the instance: seeing who holds an account, minting Invites, raising a Person to Operator and standing one down, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, changing the instance's public address, merging Foods and deleting one nothing points at, sweeping Photographs nothing points at, deleting a Kitchen nobody is left in, and taking and fetching a **Backup**. Nothing beyond that list — no Operator can read another Person's recipes or Attempts, and seeing who holds an account is a list of names and nothing about what they cook. More than one is allowed and the last cannot be demoted, disabled or deleted, because an instance with nobody to administer it can never appoint anybody. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
@@ -75,11 +79,11 @@ _Avoid_: Admin, root, superuser, owner, host
 ### Doing and permission
 
 **Credential**:
-What a request presents to prove who is acting — always as a Person. It comes from one of two places: a Person logging in, or an Access Key they minted. Every Door resolves one before the Core runs anything, so the same permissions apply whether a person or an agent is asking. Obtaining a Credential is not an Operation.
+What a request presents to prove who is acting. It comes from one of three places: a Person logging in, an Access Key they minted, or a **Runner Key**. The first two always act as that Person. A Runner Key acts as the Person who asked for the Job it is working, and as nobody while it only asks for work. Every Door resolves one before the Core runs anything, so the same permissions apply whether a person or an agent is asking. Obtaining a Credential is not an Operation.
 _Avoid_: Token, session, auth, API key, login
 
 **Secret**:
-A long random string where holding it *is* the permission — a **Share Link** token, an **Access Key**, an **Invite**, a recovery link, a **Session**. All are 256 bits of randomness, revocable one at a time, and **never on a clock**. All but the Share Link are stored hashed, shown once at minting, and known afterwards only by a name and when they were last used. A Share Link keeps its Secret readable, so its address can be shown again for as long as it lives: it grants reading one recipe, which whoever holds the database already has (ADR 0031, as amended by #171). A Secret ends in one of exactly two ways — it is *spent*, as an Invite and a recovery link are on first use, or it is *revoked*. A password is not a Secret: it is short, chosen by a person, never stored, and the only thing in Kamosu that is throttled.
+A long random string where holding it *is* the permission — a **Share Link** token, an **Access Key**, a **Runner Key**, an **Invite**, a recovery link, a **Session**. All are 256 bits of randomness, revocable one at a time, and **never on a clock**. All but the Share Link are stored hashed, shown once at minting, and known afterwards only by a name and when they were last used. A Share Link keeps its Secret readable, so its address can be shown again for as long as it lives: it grants reading one recipe, which whoever holds the database already has (ADR 0031, as amended by #171). A Secret ends in one of exactly two ways — it is *spent*, as an Invite and a recovery link are on first use, or it is *revoked*. A password is not a Secret: it is short, chosen by a person, never stored, and the only thing in Kamosu that is throttled.
 _Avoid_: Token, key, credential, nonce, bearer token
 
 **Session**:
@@ -91,18 +95,26 @@ An Operation that answers within a single request.
 _Avoid_: Sync operation
 
 **Job**:
-An Operation too slow to answer within a single request — importing a library, fetching a recipe from a website, producing a **Sheet**. Asking for one returns a job id at once; its progress is then read through ordinary Operations.
+An Operation too slow to answer within a single request — importing a library, fetching a recipe from a website, producing a **Sheet**. Asking for one returns a job id at once; its progress is then read through ordinary Operations. Kamosu does most Jobs itself, and one that needs an agent waits for a **Runner**.
 _Avoid_: Task, background job, async operation, queue item
+
+**Runner**:
+A program beside Kamosu that takes the **Jobs** meant for an agent and has an agent do each one. Kamosu ships it, and whoever runs it supplies the agent. It asks Kamosu for work and Kamosu never calls it, so an instance with no Runner is complete and simply reads less (ADR 0048).
+_Avoid_: Worker, companion, sidecar, bot, AI import, scraper
 
 ### Getting recipes in and out
 
 **Import**:
-Bringing recipes into Kamosu from elsewhere — another app's export, a web page, or a **Bundle**. An Operation like any other, available at both Doors, and held in the **Cookbook** of the Person who asked for it. What it produces is an ordinary Recipe: nothing about where it came from is kept on it, no line is marked as one Kamosu had to write rather than read, and the **Hand** on its first **Version** is that Person's, where it came from being a matter for its **Source**. The Import itself remembers what it made — the id a recipe had in the place it came from, against the **Lineage** it became — so importing the same file again matches what is already there instead of shelving it twice. That memory belongs to the Import and never to the recipe, so it is in no fingerprint and no Bundle, and it can be thrown away whole once the place it names is gone.
+Bringing recipes into Kamosu from elsewhere — another app's export, a web page, or a **Bundle**. Where that takes reading Kamosu cannot do itself, such as a picture, a video or a page with no recipe data, it is a **Job** for a **Runner**. An Operation like any other, available at both Doors, and held in the **Cookbook** of the Person who asked for it. What it produces is an ordinary Recipe: nothing about where it came from is kept on it, no line is marked as one Kamosu had to write rather than read, and the **Hand** on its first **Version** is that Person's, where it came from being a matter for its **Source**. The Import itself remembers what it made — the id a recipe had in the place it came from, against the **Lineage** it became — so importing the same file again matches what is already there instead of shelving it twice. That memory belongs to the Import and never to the recipe, so it is in no fingerprint and no Bundle, and it can be thrown away whole once the place it names is gone.
 _Avoid_: Migration, sync, ingest
 
 **Import Report**:
-What an **Import** made, as a person reads it — and it does not go away when the screen does. It says what arrived, including which recipes came as a bare name and a link; what is waiting for a tap, which is where a recipe the Import has seen before and found changed is offered rather than written over, and where **Related Recipe** candidates sharing a **Source** are ticked; and what could not be read at all, named with the reason, a damaged **Bundle** among them. It is read through ordinary Operations, so an agent asking how an import went is answered from the same place.
+What an **Import** made, as a person reads it — and it does not go away when the screen does. It says what arrived, including which recipes came as a bare name and a link; what is waiting for a tap, which is where a recipe the Import has seen before and found changed is offered rather than written over, and where **Related Recipe** candidates sharing a **Source** are ticked; and what could not be read at all, named with the reason, a damaged **Bundle** among them. It is read through ordinary Operations, so an agent asking how an import went is answered from the same place. Where an agent made a recipe, the Report says so, with what the agent left undone or was unsure of.
 _Avoid_: Log, error list, summary, receipt, job output
+
+**Original**:
+What an **Import** was read from when that was not a link: a PDF, a picture or pasted text. It is kept for 30 days so the recipe can be read again, and it belongs to the Import, never to the recipe.
+_Avoid_: Attachment, upload, source file, scan
 
 **Export**:
 Producing recipes in a form usable outside Kamosu — a **Bundle**, or a **Sheet**. An Operation like any other.
