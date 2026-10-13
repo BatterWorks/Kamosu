@@ -461,9 +461,14 @@ Catalogue and both Doors grow it in the same commit.
   the Operation** (#264). The mark says which: `WritesItsRecipe` names the
   recipe in `branch_id`, and any other recipe answers as one that is not
   there. Where the asker's own change would start a Copy, the write is refused
-  and the Job fails. No Operation learns about Jobs. `POST /api/photographs`
+  and the Job fails. No Operation decides what a Job may reach. `POST /api/photographs`
   is the one route outside the Catalogue a Job Key may use, by the mark on
   `upload_photograph`.
+- **A save knows which Job is writing, and that is all any Operation knows of
+  Jobs** (#265). `save_onto_branch` writes it on the Version's row beside the
+  Access Key, folds a Job's saves into the one Version that Job wrote, and
+  refuses a save that would leave a second, failing the Job. This is about
+  how many Versions a Job leaves, never about what it may reach.
 - The MCP door speaks revision `2026-07-28`, stateless, no handshake.
 
 ## Changing what a recipe holds

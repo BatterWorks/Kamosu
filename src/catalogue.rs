@@ -1309,7 +1309,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       60 minutes of the last one collapses into the Version \
                       already being shaped rather than starting a new one, \
                       unless another Branch or a Translation already holds \
-                      that Version. A collapsed save keeps the name and \
+                      that Version, or an agent's Job saved it. Every save \
+                      with a Job Key collapses into the one Version its Job \
+                      started, never an earlier one. Once that Job has saved, \
+                      its next save is refused, failing the Job, if anyone \
+                      else saved the recipe or holds that Version. A collapsed save keeps the name and \
                       change_note the Version already has unless it sends new \
                       ones. A save that changes nothing but sends a new name \
                       or change_note writes them onto the Version being \
@@ -1348,7 +1352,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       exactly save_recipe_version: the result is saved as the \
                       recipe's new state, a re-edit by the same Hand within 60 \
                       minutes collapses into the Version being shaped (unless \
-                      another Branch or a Translation already holds it), and \
+                      another Branch or a Translation already holds it, or an \
+                      agent's Job saved it), an edit with a Job Key collapses \
+                      and is refused as its save is, and \
                       changing a recipe your Cookbook did not write is a Copy. \
                       A collapsed edit keeps the name and change_note the \
                       Version already has unless it sends new ones, and an \
@@ -6478,6 +6484,9 @@ mod tests {
         for name in ["save_recipe_version", "edit_recipe"] {
             let summary = find(name).expect("declared").summary;
             assert!(summary.contains(&window), "{name} says {window}: {summary}");
+            // What the window is not for: an agent's Job, whose Job Key reads
+            // these words too (#265).
+            assert!(summary.contains("Job Key"), "{name}: {summary}");
         }
     }
 

@@ -1111,13 +1111,15 @@ pub(super) fn cookbook_display_name(
 
 /// Put the whole chain behind `from` onto the new Branch `onto`, row for row:
 /// every Version with its Hand, name, note and date, which is what makes a
-/// Copy carry its history rather than start one. Shared by every way a Branch
-/// is copied, so the chain cannot be carried two ways.
+/// Copy carry its history rather than start one. Which agent's Job wrote a
+/// Version comes too, so nobody's save folds into that Version on the Copy
+/// either (#265). Shared by every way a Branch is copied, so the chain cannot
+/// be carried two ways.
 pub(super) fn carry_chain(conn: &Connection, from: &str, onto: &str) -> Result<(), OpError> {
     conn.execute(
         "INSERT INTO branch_versions \
-         (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at, translates_version_id, language) \
-         SELECT ?1, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at, translates_version_id, language \
+         (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at, translates_version_id, language, job_id) \
+         SELECT ?1, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at, translates_version_id, language, job_id \
            FROM branch_versions WHERE branch_id = ?2",
         params![onto, from],
     )

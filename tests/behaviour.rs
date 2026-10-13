@@ -6603,6 +6603,21 @@ async fn the_mcp_door_tells_an_agent_how_saving_works_before_its_first_write() {
     // Core's own window so the two cannot drift.
     let window = format!("{} minutes", kamosu::core::COLLAPSE_WINDOW_SECONDS / 60);
     assert!(instructions.contains(&window), "{window}: {instructions}");
+    // An agent's Job folds by another rule, and its Job Key reads these
+    // words too (#265). The behaviour is held by the tests of a Job's saves.
+    assert!(
+        instructions.contains("With a Job Key") && instructions.contains("the Job fails"),
+        "{instructions}"
+    );
+    // A collapsed save keeps what it does not send (#165).
+    assert!(
+        !instructions.contains("erased.\n- A new Version"),
+        "{instructions}"
+    );
+    assert!(
+        instructions.contains("keeps the name and change_note the Version already has"),
+        "{instructions}"
+    );
 
     // The same words with a Credential as without one.
     let person = app.core.create_person("Stéphane").expect("person");
@@ -13956,6 +13971,310 @@ mod web_link_importer {
         assert_eq!(kept, as_saved);
         assert_eq!(head_of(&kept)["content"]["title"], json!("Soupe au pistou"));
         assert_eq!(head_of(&kept)["version_id"], saved["result"]["version_id"]);
+    }
+
+    /// The ids of a recipe's Versions, oldest first, as `get_recipe` and
+    /// `get_thread` answer them to `key` at the web door and `get_thread` at
+    /// the MCP door. All three have to agree.
+    fn versions_in_the_thread(app: &support::TestApp, key: &str, branch_id: &str) -> Vec<String> {
+        let ids = |versions: &Value| -> Vec<String> {
+            let mut versions = versions.as_array().expect("versions").clone();
+            versions.sort_by_key(|version| version["sequence"].as_i64());
+            versions
+                .iter()
+                .filter(|version| version["branch_id"].as_str().is_none_or(|b| b == branch_id))
+                .map(|version| version["version_id"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let read = ids(&read_recipe(app, key, branch_id)["versions"]);
+        let asking = json!({ "branch_id": branch_id });
+        let (status, thread) = app.post_op("get_thread", Some(key), &asking.to_string());
+        assert_eq!(status, 200, "{thread}");
+        assert_eq!(ids(&thread["result"]["versions"]), read, "{thread}");
+        let at_the_other_door = at_mcp(app, key, "get_thread", asking);
+        assert_eq!(
+            ids(&at_the_other_door["result"]["structuredContent"]["versions"]),
+            read,
+            "{at_the_other_door}"
+        );
+        read
+    }
+
+    /// One save with a Job Key that is expected to land.
+    fn saved_by_the_job(
+        app: &support::TestApp,
+        held: &HeldJob,
+        operation: &str,
+        input: Value,
+    ) -> Value {
+        let (status, saved) = app.post_op(operation, Some(&held.job_key), &input.to_string());
+        assert_eq!(status, 200, "{operation}: {saved}");
+        saved["result"].clone()
+    }
+
+    /// A Job that was refused a save has failed with `reason`, its Job Key is
+    /// spent, and the Runner that held it holds nothing.
+    fn the_job_failed_saying(app: &support::TestApp, held: &HeldJob, reason: &str) {
+        let failed = job(app, &held.cook, &held.job_id);
+        assert_eq!(failed["status"], json!("failed"), "{failed}");
+        assert_eq!(failed["error"], json!(reason), "{failed}");
+        assert_eq!(
+            app.post_op("search_recipes", Some(&held.job_key), "{}"),
+            an_unknown_secret_is_answered(app, "search_recipes")
+        );
+        let (status, late) = report_on_job(
+            app,
+            Some(&held.runner),
+            json!({ "job_id": held.job_id, "outcome": "completed" }),
+        );
+        assert_eq!(status, 404, "{late}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_jobs_saves_shape_one_version_that_folds_into_none_and_none_folds_into() {
+        let app = support::spawn_app();
+        let held = a_job_held(&app);
+        let bare = versions_in_the_thread(&app, &held.cook, &held.branch_id);
+        assert_eq!(bare.len(), 1, "the Import landed one bare Version");
+
+        // The first save comes within the hour of the Import, under the same
+        // Hand, and still starts a Version of its own.
+        let first = saved_by_the_job(
+            &app,
+            &held,
+            "save_recipe_version",
+            the_recipe_an_agent_read(&held.branch_id),
+        );
+        assert_eq!(first["collapsed"], json!(false), "{first}");
+        assert_eq!(first["parent_version_id"], json!(bare[0]), "{first}");
+
+        // It reads its save back and corrects it twice, hours apart, once at
+        // each door. Each folds into the Version the Job is shaping.
+        super::backdate_branch_head(&app, &held.branch_id);
+        let second = at_mcp(
+            &app,
+            &held.job_key,
+            "edit_recipe",
+            json!({ "branch_id": held.branch_id, "note": "Better the next day." }),
+        );
+        assert_eq!(second["result"]["isError"], json!(false), "{second}");
+        let second = &second["result"]["structuredContent"];
+        assert_eq!(second["collapsed"], json!(true), "{second}");
+        super::backdate_branch_head(&app, &held.branch_id);
+        let third = saved_by_the_job(
+            &app,
+            &held,
+            "edit_recipe",
+            json!({
+                "branch_id": held.branch_id, "title": "Soupe au pistou de Nice",
+                "name": "As the video has it",
+            }),
+        );
+        assert_eq!(third["collapsed"], json!(true), "{third}");
+        assert_eq!(third["parent_version_id"], json!(bare[0]), "{third}");
+
+        // The bare Version, then the agent's, and nothing else.
+        let agents = third["version_id"].as_str().unwrap().to_string();
+        assert_eq!(
+            versions_in_the_thread(&app, &held.cook, &held.branch_id),
+            vec![bare[0].clone(), agents.clone()]
+        );
+        assert_eq!(
+            versions_in_the_thread(&app, &held.job_key, &held.branch_id),
+            vec![bare[0].clone(), agents.clone()]
+        );
+
+        // A Bundle of the recipe says nothing about a Job.
+        for (name, bytes) in super::unzip(&super::bundle_of(&app, &held.cook, &held.branch_id)) {
+            let text = String::from_utf8_lossy(&bytes).to_lowercase();
+            assert!(!text.contains(&held.job_id), "{name} names the Job");
+            assert!(!text.contains("job"), "{name} speaks of a Job");
+        }
+
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&held.runner),
+            json!({ "job_id": held.job_id, "outcome": "completed" }),
+        );
+        assert_eq!(status, 200, "{reported}");
+        let as_the_agent_left_it = read_recipe(&app, &held.cook, &held.branch_id);
+
+        // The asker, a minute later and under the same Hand. A name alone
+        // has no change of theirs to describe, and a change is a Version of
+        // its own.
+        let mut renamed = the_recipe_an_agent_read(&held.branch_id);
+        renamed["title"] = json!("Soupe au pistou de Nice");
+        renamed["note"] = json!("Better the next day.");
+        renamed["name"] = json!("Mine");
+        let (status, refused) = app.post_op(
+            "save_recipe_version",
+            Some(&held.cook),
+            &renamed.to_string(),
+        );
+        assert_eq!(status, 400, "{refused}");
+        assert_eq!(
+            read_recipe(&app, &held.cook, &held.branch_id),
+            as_the_agent_left_it
+        );
+        let asking = json!({ "branch_id": held.branch_id, "note": "Better with pasta." });
+        let (status, own) = app.post_op("edit_recipe", Some(&held.cook), &asking.to_string());
+        assert_eq!(status, 200, "{own}");
+        assert_eq!(own["result"]["collapsed"], json!(false), "{own}");
+        assert_eq!(own["result"]["parent_version_id"], json!(agents), "{own}");
+        let after = read_recipe(&app, &held.cook, &held.branch_id);
+        assert_eq!(
+            after["versions"][1], as_the_agent_left_it["versions"][1],
+            "the agent's Version is as it was"
+        );
+
+        // From there the asker's saves fold as anybody's do.
+        let asking = json!({ "branch_id": held.branch_id, "note": "Better with small pasta." });
+        let (status, again) = app.post_op("edit_recipe", Some(&held.cook), &asking.to_string());
+        assert_eq!(status, 200, "{again}");
+        assert_eq!(again["result"]["collapsed"], json!(true), "{again}");
+        assert_eq!(
+            versions_in_the_thread(&app, &held.cook, &held.branch_id),
+            vec![
+                bare[0].clone(),
+                agents,
+                again["result"]["version_id"].as_str().unwrap().to_string()
+            ]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn nobodys_save_folds_into_a_jobs_version_on_a_variation_of_the_recipe_either() {
+        let app = support::spawn_app();
+        let held = a_job_held(&app);
+        let agents = saved_by_the_job(
+            &app,
+            &held,
+            "save_recipe_version",
+            the_recipe_an_agent_read(&held.branch_id),
+        );
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&held.runner),
+            json!({ "job_id": held.job_id, "outcome": "completed" }),
+        );
+        assert_eq!(status, 200, "{reported}");
+
+        // A variation carries the agent's Version behind it. With the recipe
+        // it came from gone, no other Branch holds that Version, and the
+        // asker's save within the hour is a Version of its own all the same.
+        let asking = json!({ "branch_id": held.branch_id, "name": "Sans haricots" });
+        let (status, varied) =
+            app.post_op("start_variation", Some(&held.cook), &asking.to_string());
+        assert_eq!(status, 200, "{varied}");
+        let variation = varied["result"]["branch_id"].as_str().unwrap().to_string();
+        let asking = json!({ "branch_id": held.branch_id });
+        let (status, deleted) = app.post_op("delete_recipe", Some(&held.cook), &asking.to_string());
+        assert_eq!(status, 200, "{deleted}");
+
+        let asking = json!({ "branch_id": variation, "note": "Without the beans." });
+        let (status, own) = app.post_op("edit_recipe", Some(&held.cook), &asking.to_string());
+        assert_eq!(status, 200, "{own}");
+        assert_eq!(own["result"]["collapsed"], json!(false), "{own}");
+        assert_eq!(
+            own["result"]["parent_version_id"], agents["version_id"],
+            "{own}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_person_saving_between_two_of_a_jobs_saves_has_the_next_refused_and_the_job_fails() {
+        let reason = kamosu::jobs::CHANGED_WHILE_IT_WORKED;
+        for operation in ["save_recipe_version", "edit_recipe"] {
+            let app = support::spawn_app();
+            let held = a_job_held(&app);
+            saved_by_the_job(
+                &app,
+                &held,
+                "save_recipe_version",
+                the_recipe_an_agent_read(&held.branch_id),
+            );
+
+            // The asker changes the recipe while the Job is still on it.
+            let asking = json!({ "branch_id": held.branch_id, "note": "No cheese for Léa." });
+            let (status, own) = app.post_op("edit_recipe", Some(&held.cook), &asking.to_string());
+            assert_eq!(status, 200, "{own}");
+            assert_eq!(own["result"]["collapsed"], json!(false), "{own}");
+            let as_the_person_left_it = read_recipe(&app, &held.cook, &held.branch_id);
+
+            // The agent's next save would write over that, or start a second
+            // Version of its own. It does neither, and an edit that happens
+            // to change nothing is told the same.
+            let mut input = the_recipe_an_agent_read(&held.branch_id);
+            if operation == "edit_recipe" {
+                input = json!({ "branch_id": held.branch_id, "note": "No cheese for Léa." });
+            } else {
+                input["prep_time_minutes"] = json!(20);
+            }
+            let (status, refused) = app.post_op(operation, Some(&held.job_key), &input.to_string());
+            assert_eq!(status, 400, "{operation}: {refused}");
+            assert_eq!(refused["error"]["message"], json!(reason), "{operation}");
+            the_job_failed_saying(&app, &held, reason);
+
+            // What it saved before stays, and so does the person's change.
+            assert_eq!(
+                read_recipe(&app, &held.cook, &held.branch_id),
+                as_the_person_left_it,
+                "{operation}"
+            );
+            assert_eq!(
+                as_the_person_left_it["versions"].as_array().unwrap().len(),
+                3
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_copy_or_a_translation_holding_a_jobs_version_has_the_next_save_refused() {
+        let reason = kamosu::jobs::HELD_ELSEWHERE;
+        for taken_by in ["a variation", "a Translation"] {
+            let app = support::spawn_app();
+            let held = a_job_held(&app);
+            saved_by_the_job(
+                &app,
+                &held,
+                "save_recipe_version",
+                the_recipe_an_agent_read(&held.branch_id),
+            );
+            if taken_by == "a variation" {
+                let asking = json!({ "branch_id": held.branch_id, "name": "Sans haricots" });
+                let (status, varied) =
+                    app.post_op("start_variation", Some(&held.cook), &asking.to_string());
+                assert_eq!(status, 200, "{varied}");
+            } else {
+                super::translate(
+                    &app,
+                    &held.cook,
+                    &held.branch_id,
+                    "fr",
+                    json!({
+                        "title": "Soupe au pistou",
+                        "ingredients": [
+                            { "kind": "ingredient", "text": "200 g de haricots" },
+                            { "kind": "ingredient", "text": "une poignée de basilic" },
+                        ],
+                        "steps": [{ "kind": "step", "text": "Faire mijoter les haricots." }],
+                    }),
+                );
+            }
+            let before = read_recipe(&app, &held.cook, &held.branch_id);
+
+            let asking = json!({ "branch_id": held.branch_id, "note": "Better the next day." });
+            let (status, refused) =
+                app.post_op("edit_recipe", Some(&held.job_key), &asking.to_string());
+            assert_eq!(status, 400, "{taken_by}: {refused}");
+            assert_eq!(refused["error"]["message"], json!(reason), "{taken_by}");
+            the_job_failed_saying(&app, &held, reason);
+            assert_eq!(
+                read_recipe(&app, &held.cook, &held.branch_id),
+                before,
+                "{taken_by}"
+            );
+        }
     }
 }
 

@@ -151,7 +151,7 @@ impl Core {
             let own_cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
 
             #[allow(clippy::type_complexity)]
-            let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content_text, head_translates, head_name, head_change_note): (
+            let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content_text, head_translates, head_name, head_change_note, head_job_id): (
                 i64,
                 String,
                 String,
@@ -161,13 +161,15 @@ impl Core {
                 Option<String>,
                 Option<String>,
                 Option<String>,
+                Option<String>,
             ) = conn
                 .query_row(
                     "SELECT branch_versions.sequence, branch_versions.version_id, \
                             branch_versions.hand_id, branch_versions.parent_version_id, \
                             (julianday('now') - julianday(branch_versions.created_at)) * 86400.0 <= ?2, \
                             versions.content, branch_versions.translates_version_id, \
-                            branch_versions.name, branch_versions.change_note \
+                            branch_versions.name, branch_versions.change_note, \
+                            branch_versions.job_id \
                        FROM branch_versions JOIN versions ON versions.id = branch_versions.version_id \
                       WHERE branch_versions.branch_id = ?1 ORDER BY branch_versions.sequence DESC LIMIT 1",
                     params![branch_id, COLLAPSE_WINDOW_SECONDS as f64],
@@ -182,6 +184,7 @@ impl Core {
                             row.get(6)?,
                             row.get(7)?,
                             row.get(8)?,
+                            row.get(9)?,
                         ))
                     },
                 )
@@ -218,7 +221,46 @@ impl Core {
             let offer = language_offer(&language, &content);
 
             // The half of "still being shaped" the head row answers by itself.
-            let callers_and_recent = within_window && head_hand_id == caller.person_id;
+            // A person shapes the Version they saved within the collapse
+            // window. An agent's Job shapes the one Version it wrote, however
+            // long ago, and never one that was there before it. Nobody else's
+            // save folds into a Job's Version, the asker's own included,
+            // though the Job saved it under their Hand (ADR 0048, #265).
+            let head_is_callers_to_shape = match &caller.job_id {
+                Some(job_id) => head_job_id.as_deref() == Some(job_id.as_str()),
+                None => {
+                    head_job_id.is_none() && within_window && head_hand_id == caller.person_id
+                }
+            };
+
+            // A Job leaves at most one new Version (ADR 0048, #265), so once
+            // it has saved, its next save has that Version to fold into or
+            // is refused. Somebody else's save since would be written over by
+            // a whole-recipe save. A Copy or a Translation holding the Job's
+            // Version closes it as it does anybody's, and appending instead
+            // would be a second Version. Either way the Job fails with the
+            // reason and keeps what it saved. Asked before anything is
+            // written, and of a save that changes nothing too, so that a Job
+            // is told the same thing whatever it sent.
+            if let Some(job_id) = &caller.job_id {
+                let refused = if head_is_callers_to_shape {
+                    (version_is_translated(conn, &lineage_id, branch_id, &head_version_id)?
+                        || version_is_held_by_another_branch(
+                            conn,
+                            &lineage_id,
+                            branch_id,
+                            &head_version_id,
+                        )?)
+                    .then_some(crate::jobs::HELD_ELSEWHERE)
+                } else {
+                    job_has_saved_onto(conn, job_id, branch_id)?
+                        .then_some(crate::jobs::CHANGED_WHILE_IT_WORKED)
+                };
+                if let Some(reason) = refused {
+                    crate::jobs::end_where_a_write_was_refused(conn, job_id, reason)?;
+                    return Err(OpError::bad_request(reason));
+                }
+            }
 
             if version_id == head_version_id {
                 // Identical content: the fingerprint already names this state,
@@ -261,7 +303,7 @@ impl Core {
                         &lineage_id,
                         branch_id,
                         &head_version_id,
-                        callers_and_recent,
+                        head_is_callers_to_shape,
                     )?
                 {
                     return Err(OpError::bad_request(
@@ -400,7 +442,7 @@ impl Core {
                 &lineage_id,
                 branch_id,
                 &head_version_id,
-                callers_and_recent,
+                head_is_callers_to_shape,
             )?;
             if collapse {
                 // A name or change note the call leaves out is the one the
@@ -426,10 +468,12 @@ impl Core {
                 )
                 .map_err(|e| OpError::internal(format!("cannot collapse Version: {e}")))?;
             } else {
+                // Which Job wrote it is kept beside which Access Key did, and
+                // is as local (#265).
                 conn.execute(
                     "INSERT INTO branch_versions \
-                     (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, translates_version_id, language) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                     (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, translates_version_id, language, job_id) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                     params![
                         branch_id,
                         head_sequence + 1,
@@ -440,7 +484,8 @@ impl Core {
                         change_note,
                         caller.access_key_id,
                         translates_version_id,
-                        language
+                        language,
+                        caller.job_id
                     ],
                 )
                 .map_err(|e| OpError::internal(format!("cannot append Version: {e}")))?;
@@ -2577,19 +2622,33 @@ fn version_is_translated(
     .map_err(|e| OpError::internal(format!("cannot look for Translations of this Version: {e}")))
 }
 
+/// Whether an agent's Job has saved a Version onto this Branch already
+/// (#265): what tells its first save, which starts its Version, from a later
+/// one that finds somebody else's Version at the head.
+fn job_has_saved_onto(conn: &Connection, job_id: &str, branch_id: &str) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS ( \
+            SELECT 1 FROM branch_versions WHERE branch_id = ?1 AND job_id = ?2 )",
+        params![branch_id, job_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot look for the Job's Version: {e}")))
+}
+
 /// Whether a Branch's head Version is still the one being shaped: the one a
 /// re-save collapses into, and the one a note-only edit writes onto (#165).
-/// `callers_and_recent` is the part the head row already answers, that the
-/// caller saved it within the collapse window. The rest is why the window
+/// `head_is_callers_to_shape` is the part the head row already answers: that the
+/// caller saved it within the collapse window, or that the agent's Job
+/// asking is the one that wrote it (#265). The rest is why the window
 /// closes early, spelled out where `save_onto_branch` collapses.
 fn version_being_shaped(
     conn: &Connection,
     lineage_id: &str,
     branch_id: &str,
     head_version_id: &str,
-    callers_and_recent: bool,
+    head_is_callers_to_shape: bool,
 ) -> Result<bool, OpError> {
-    Ok(callers_and_recent
+    Ok(head_is_callers_to_shape
         && !version_is_translated(conn, lineage_id, branch_id, head_version_id)?
         && !version_is_held_by_another_branch(conn, lineage_id, branch_id, head_version_id)?)
 }

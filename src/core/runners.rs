@@ -164,7 +164,7 @@ impl Core {
             }
             let own_cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
             if !cookbook_writes_branch(conn, &own_cookbook_id, &its_recipe)? {
-                jobs::end_where_a_copy_would_start(conn, job_id)?;
+                jobs::end_where_a_write_was_refused(conn, job_id, jobs::WOULD_START_A_COPY)?;
                 return Err(OpError::unauthorized(jobs::WOULD_START_A_COPY));
             }
             if mark == JobKey::WritesItsRecipe

@@ -1737,6 +1737,20 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 46,
+        description: "which agent's Job wrote a Version (#265)",
+        sql: r#"
+        -- `job_id` is the agent's Job whose Job Key saved this row, and null
+        -- on every row a Session or an Access Key saved. It is what lets a
+        -- Job's saves shape one Version and keeps anybody else's save out of
+        -- it (ADR 0048). Local only, as `access_key_id` is: it is no part of
+        -- the recipe, so it is in no fingerprint and no Bundle. The Job may
+        -- since have been forgotten, so it is no foreign key.
+        ALTER TABLE branch_versions ADD COLUMN job_id TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

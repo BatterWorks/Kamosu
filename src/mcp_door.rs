@@ -372,13 +372,20 @@ fn server_instructions() -> String {
             "- A save by the same Hand on the same Branch within {window_minutes} \
              minutes of the previous one collapses into the Version being shaped \
              rather than starting a new one, unless another Branch or a \
-             Translation already holds that Version. Its answer says \
-             collapsed: true when it did."
+             Translation already holds that Version, or an agent's Job saved \
+             it. Its answer says collapsed: true when it did."
         ),
-        // #165: a collapse overwrites the Version's name and change note with
-        // whatever this save sends. Goes when that issue is fixed.
-        "- A collapsed save keeps only the name and change_note it sends, so \
-         send them again or the ones already there are erased."
+        // #265: what the line above is for a Job Key, which reads these
+        // words too.
+        "- With a Job Key, every save of the Job collapses into the one \
+         Version the Job started, however long after, and never into a \
+         Version from before the Job. Once the Job has saved, a save by \
+         anyone else, or another Branch or a Translation holding that \
+         Version, has the Job's next save refused, and the Job fails."
+            .to_string(),
+        // #165 is fixed, and this said the opposite until #265 found it.
+        "- A collapsed save keeps the name and change_note the Version \
+         already has unless it sends new ones."
             .to_string(),
         // #166: nothing re-reads an unchanged line. Goes when that issue is
         // fixed.
