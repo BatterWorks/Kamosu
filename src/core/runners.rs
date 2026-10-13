@@ -12,6 +12,9 @@ pub struct RunnerKey {
 }
 
 impl Core {
+    /// How often lapsed holds are looked for when no Runner calls.
+    const HOLD_WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
+
     /// Mint a Runner Key. It belongs to the instance and to no Person, so
     /// nothing here says who asked: that an Operator did is the Catalogue's
     /// declaration, checked in `execute`.
@@ -60,18 +63,26 @@ impl Core {
         })
     }
 
+    /// Revoke a Runner Key. The Job it holds goes back to waiting, and the
+    /// Job Keys it was handed stop working with it (#266).
     pub fn revoke_runner_key(&self, key_id: &str) -> Result<(), OpError> {
-        let changed = self.db().with_conn(|conn| {
-            conn.execute(
-                "UPDATE runner_keys SET revoked = 1 WHERE id = ?1 AND revoked = 0",
-                params![key_id],
-            )
-            .map_err(|e| OpError::internal(format!("cannot revoke Runner Key: {e}")))
-        })?;
-        if changed == 0 {
-            return Err(OpError::not_found("no live Runner Key has that id"));
-        }
-        Ok(())
+        let failed = |e| OpError::internal(format!("cannot revoke Runner Key: {e}"));
+        self.db().with_conn(|conn| {
+            // The Key and what it held go together or not at all.
+            let tx = conn.unchecked_transaction().map_err(failed)?;
+            let changed = tx
+                .execute(
+                    "UPDATE runner_keys SET revoked = 1 WHERE id = ?1 AND revoked = 0",
+                    params![key_id],
+                )
+                .map_err(failed)?;
+            if changed == 0 {
+                return Err(OpError::not_found("no live Runner Key has that id"));
+            }
+            // Nothing can renew its hold or report on its Job from here on.
+            jobs::release_for_revoked_runner(&tx, key_id)?;
+            tx.commit().map_err(failed)
+        })
     }
 
     /// The Runner Key a Secret's hash names, if it names a live one. Reads
@@ -88,10 +99,12 @@ impl Core {
         })
     }
 
-    /// The Person a Job Key's hash names and the Job it is the key of, while
-    /// that Job is being worked: `(person_id, is_operator, job_id)`. A Job
-    /// that has ended, however it ended, and an asker who was disabled or
-    /// deleted both leave the Job Key naming nobody (ADR 0048).
+    /// The Person a Job Key's hash names and the Job it is the key of, until
+    /// that Job ends: `(person_id, is_operator, job_id)`. A Job that has
+    /// ended, however it ended, and an asker who was disabled or deleted both
+    /// leave the Job Key naming nobody (ADR 0048). A hold that lapsed does
+    /// not: the Job waits again and has not ended, and no Secret dies on a
+    /// clock (ADR 0031, #266).
     pub(super) fn lookup_job_key(
         &self,
         hash: &str,
@@ -99,10 +112,10 @@ impl Core {
         self.db().with_conn(|conn| {
             conn.query_row(
                 "SELECT jobs.person_id, people.is_operator, jobs.id
-                   FROM agent_jobs
-                   JOIN jobs ON jobs.id = agent_jobs.job_id
+                   FROM job_keys
+                   JOIN jobs ON jobs.id = job_keys.job_id
                    JOIN people ON people.id = jobs.person_id
-                  WHERE agent_jobs.job_key_hash = ?1 AND jobs.status = 'running'
+                  WHERE job_keys.secret_hash = ?1 AND jobs.status IN ('queued', 'running')
                     AND people.disabled = 0 AND people.deleted = 0",
                 params![hash],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -149,7 +162,7 @@ impl Core {
                 .query_row(
                     "SELECT agent_jobs.branch_id
                        FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
-                      WHERE jobs.id = ?1 AND jobs.status = 'running'",
+                      WHERE jobs.id = ?1 AND jobs.status IN ('queued', 'running')",
                     params![job_id],
                     |row| row.get(0),
                 )
@@ -205,7 +218,8 @@ impl Core {
 
     /// A Runner asking for a Job to do: the oldest that waits, with what to
     /// read and which recipe it is for, or none (#262). The Job is running
-    /// from here until the Runner reports on it.
+    /// from here until the Runner reports on it or stops renewing its hold
+    /// (#266). `ask` is the mark of this ask, the same when it is repeated.
     ///
     /// The Runner is Kamosu's own program started in another mode, so one of
     /// another version is an install half upgraded. It is refused before the
@@ -214,7 +228,14 @@ impl Core {
         &self,
         runner: &RunnerCaller,
         runner_version: &str,
+        ask: &str,
     ) -> Result<Value, OpError> {
+        let ask = required_text(ask, "ask")?;
+        if ask.chars().count() > ASK_CHARS {
+            return Err(OpError::bad_request(format!(
+                "ask is longer than {ASK_CHARS} characters"
+            )));
+        }
         let kamosu_version = env!("CARGO_PKG_VERSION");
         if runner_version != kamosu_version {
             return Err(OpError::bad_request(format!(
@@ -229,7 +250,7 @@ impl Core {
                 params![runner.runner_key_id],
             )
             .map_err(|e| OpError::internal(format!("cannot record the asking: {e}")))?;
-            jobs::take_for_runner(conn, &runner.runner_key_id)
+            jobs::take_for_runner(conn, &runner.runner_key_id, ask, self.hold())
         })?;
         Ok(json!({
             "job": work.map(|work| json!({
@@ -237,8 +258,48 @@ impl Core {
                 "branch_id": work.branch_id,
                 "link": work.link,
                 "job_key": work.job_key,
+                "held_until": work.held_until,
+                "renew_within_seconds": self.renew_within_seconds(),
             })),
         }))
+    }
+
+    /// A Runner renewing its hold on the Job it is working, which moves the
+    /// deadline on (#266). The answer says when to renew next.
+    pub fn renew_hold(&self, runner: &RunnerCaller, job_id: &str) -> Result<Value, OpError> {
+        let held_until = self
+            .db()
+            .with_conn(|conn| jobs::renew_hold(conn, &runner.runner_key_id, job_id, self.hold()))?;
+        Ok(json!({
+            "held_until": held_until,
+            "renew_within_seconds": self.renew_within_seconds(),
+        }))
+    }
+
+    /// How long a hold lasts unless it is renewed.
+    fn hold(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.hold_millis.load(Ordering::Relaxed))
+    }
+
+    /// How long a Runner is told to leave between renewals: a third of the
+    /// hold, so that two renewals can go missing and the third still lands.
+    fn renew_within_seconds(&self) -> f64 {
+        self.hold().as_secs_f64() / 3.0
+    }
+
+    /// Hold Jobs for `hold` in place of `jobs::HOLD`. Compiled only under
+    /// `test-jobs`: a test that waits for a renewal cannot wait two minutes.
+    #[cfg(feature = "test-jobs")]
+    pub fn hold_jobs_for(&self, hold: std::time::Duration) {
+        self.hold_millis
+            .store(hold.as_millis() as u64, Ordering::Relaxed);
+    }
+
+    /// Send the Jobs whose hold lapsed back to waiting. Every call of a
+    /// Runner's does this first, and `spawn_hold_watch` does it when no
+    /// Runner calls.
+    pub fn release_lapsed_holds(&self) -> Result<(), OpError> {
+        self.db().with_conn(jobs::release_lapsed_holds)
     }
 
     /// A Runner saying how the Job it holds ended, and passing on the agent's
@@ -299,6 +360,27 @@ impl Core {
             .map_err(|e| OpError::internal(format!("cannot read the Runner's state: {e}")))
         })
     }
+}
+
+/// The most characters the mark of an ask holds. A Runner makes one up for
+/// each ask, and nothing longer than an id is any use as one.
+const ASK_CHARS: usize = 100;
+
+/// Release lapsed holds for as long as the instance serves (#266), so a Job
+/// whose Runner went quiet reads as waiting when no other Runner asks.
+pub(super) fn spawn_hold_watch(core: Arc<Core>) {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Core::HOLD_WATCH_EVERY);
+        loop {
+            ticker.tick().await;
+            let core = core.clone();
+            // Blocking SQLite: never on the runtime the Doors answer on.
+            let released = tokio::task::spawn_blocking(move || core.release_lapsed_holds()).await;
+            if let Ok(Err(error)) = released {
+                tracing::warn!("cannot release the holds that lapsed: {error}");
+            }
+        }
+    });
 }
 
 /// The four lists of an agent's own report, in the order a Report shows them.

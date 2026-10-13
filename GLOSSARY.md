@@ -83,7 +83,7 @@ _Avoid_: Admin, root, superuser, owner, host
 ### Doing and permission
 
 **Credential**:
-What a request presents to prove who is acting. It comes from one of four places. A Person logging in and an Access Key they minted both act as that Person. A **Job Key** acts as the Person who asked for its Job. A **Runner Key** acts as no Person, and can only take Jobs and report on them. Every Door resolves one before the Core runs anything, so the same permissions apply whether a person or an agent is asking. Obtaining a Credential is not an Operation.
+What a request presents to prove who is acting. It comes from one of four places. A Person logging in and an Access Key they minted both act as that Person. A **Job Key** acts as the Person who asked for its Job. A **Runner Key** acts as no Person, and can only take Jobs, keep hold of them and report on them. Every Door resolves one before the Core runs anything, so the same permissions apply whether a person or an agent is asking. Obtaining a Credential is not an Operation.
 _Avoid_: Token, session, auth, API key, login
 
 **Secret**:

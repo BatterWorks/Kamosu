@@ -38,7 +38,10 @@ fn arguments_for(name: &str) -> Value {
         "revoke_access_key" => json!({ "access_key_id": "ak_parity" }),
         "mint_runner_key" => json!({ "name": "parity Runner" }),
         "revoke_runner_key" => json!({ "runner_key_id": "rk_parity" }),
-        "ask_for_work" => json!({ "runner_version": env!("CARGO_PKG_VERSION") }),
+        "ask_for_work" => {
+            json!({ "runner_version": env!("CARGO_PKG_VERSION"), "ask": "the one ask" })
+        }
+        "renew_hold" => json!({ "job_id": "parity-no-such-job" }),
         "report_on_job" => json!({ "job_id": "parity-no-such-job", "outcome": "completed" }),
         "create_kitchen" => json!({ "name": "Parity Kitchen" }),
         "rename_kitchen" => json!({ "kitchen_id": "k_parity", "name": "Parity Kitchen" }),
@@ -239,7 +242,8 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             "read_shared_recipe" => (r#"{"token":"parity-no-such-token"}"#, 404),
             "make_shared_sheet" => (r#"{"token":"parity-no-such-token"}"#, 200),
             // The Runner's own: it routes, and refuses whoever holds no Runner Key.
-            "ask_for_work" => (r#"{"runner_version":"parity"}"#, 401),
+            "ask_for_work" => (r#"{"runner_version":"parity","ask":"parity"}"#, 401),
+            "renew_hold" => (r#"{"job_id":"parity"}"#, 401),
             "report_on_job" => (r#"{"job_id":"parity","outcome":"completed"}"#, 401),
             _ => ("{}", 200),
         };
@@ -335,6 +339,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "revoke_runner_key"
                 | "runner_status"
                 | "ask_for_work"
+                | "renew_hold"
                 | "report_on_job"
                 | "create_kitchen"
                 | "list_kitchens"
@@ -744,7 +749,7 @@ async fn a_runner_keys_mcp_tool_list_carries_exactly_the_runners_operations() {
         .collect();
     // Named here, not read off the Catalogue: the list a Runner Key is shown
     // is the list of what it can do, and it grows by a decision.
-    assert_eq!(served, ["ask_for_work", "report_on_job"]);
+    assert_eq!(served, ["ask_for_work", "renew_hold", "report_on_job"]);
 
     // Being listed against is not being used.
     let keys = app.core.runner_keys().unwrap();
