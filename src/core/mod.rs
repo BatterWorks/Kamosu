@@ -237,7 +237,8 @@ pub struct Caller {
     /// The Job this Credential is the Job Key of, if it is one (ADR 0048). The
     /// Person is the one who asked for that Job. `Core::execute` refuses a
     /// caller carrying this every Operation the Catalogue does not mark for a
-    /// Job Key, and every route outside the Catalogue refuses it too.
+    /// Job Key, and holds what it writes to that Job's one recipe. Every
+    /// route outside the Catalogue refuses it too, but storing a Photograph.
     pub job_id: Option<String>,
 }
 
@@ -479,6 +480,16 @@ impl Core {
         // exists, whether an amount parses — which stays in the handlers.
         crate::schema::validate_input(op.name, &input)?;
 
+        // What a Job Key writes, it writes on the one recipe its Job is for,
+        // and never where that would start a Copy (ADR 0048). Asked here so
+        // that no Operation learns about Jobs. It comes after the shape is
+        // checked, since it reads what the call sent.
+        if let Asker::Person(caller) = &asker
+            && let Some(job_id) = &caller.job_id
+        {
+            self.hold_job_key_write(caller, job_id, op.job_key, &input)?;
+        }
+
         let invocation = Invocation { asker, job: None };
 
         match op.kind {
@@ -582,10 +593,19 @@ impl Core {
     /// Resolve a raw Secret to the Person it acts as, for everything that is
     /// not `execute`: the routes outside the Catalogue. A Runner Key acts as no
     /// Person, so it is refused here whatever the route. So is a Job Key,
-    /// whose whole reach is its list in the Catalogue.
+    /// whose reach is its list in the Catalogue and the one route
+    /// `authenticate_to_store_photograph` opens to it.
     fn resolve_credential(&self, secret: &str) -> Result<Caller, OpError> {
+        match self.resolve_person(secret)? {
+            caller if caller.job_id.is_some() => Err(nothing_here_for_a_job_key()),
+            caller => Ok(caller),
+        }
+    }
+
+    /// The Person a raw Secret acts as on a route outside the Catalogue, a
+    /// Job Key's asker included. A Runner Key acts as none.
+    fn resolve_person(&self, secret: &str) -> Result<Caller, OpError> {
         match self.present(secret)? {
-            Asker::Person(caller) if caller.job_id.is_some() => Err(nothing_here_for_a_job_key()),
             Asker::Person(caller) => Ok(caller),
             Asker::Runner(_) => Err(runner_key_out_of_place("this route")),
             Asker::Nobody => Err(OpError::credential_names_nobody()),
@@ -725,6 +745,36 @@ impl Core {
     /// out-of-band equivalent of a Catalogue Operation declared `write: true`.
     pub fn authenticate_for_write(&self, secret: Option<&str>) -> Result<Caller, OpError> {
         let caller = self.authenticate(secret)?;
+        if caller.read_only {
+            return Err(OpError::unauthorized(
+                "this route writes, and this Credential is a read-only Access Key",
+            ));
+        }
+        Ok(caller)
+    }
+
+    /// Resolve a Credential for `POST /api/photographs`, which is
+    /// `upload_photograph` in every way but how its bytes travel. So it
+    /// admits whoever that Operation admits, by that Operation's own
+    /// declaration: a Person who may write, and a Job Key while the Operation
+    /// is marked for one, held to what `execute` holds it to (ADR 0048). It
+    /// is the one route outside the Catalogue a Job Key may use.
+    pub fn authenticate_to_store_photograph(
+        &self,
+        secret: Option<&str>,
+    ) -> Result<Caller, OpError> {
+        let secret = secret.filter(|s| !s.is_empty()).ok_or_else(|| {
+            OpError::unauthorized("this route requires a Credential naming a Person")
+        })?;
+        let caller = self.resolve_person(secret)?;
+        if let Some(job_id) = &caller.job_id {
+            let upload = catalogue::find("upload_photograph")
+                .ok_or_else(|| OpError::internal("upload_photograph is not declared"))?;
+            if upload.job_key != JobKey::StoresPhotographs {
+                return Err(nothing_here_for_a_job_key());
+            }
+            self.hold_job_key_write(&caller, job_id, upload.job_key, &Value::Null)?;
+        }
         if caller.read_only {
             return Err(OpError::unauthorized(
                 "this route writes, and this Credential is a read-only Access Key",

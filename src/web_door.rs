@@ -291,7 +291,7 @@ fn call_operation(
 fn upload_photograph(core: &Core, headers: &HeaderMap, body: &[u8]) -> Response {
     let secret = bearer_from_headers(headers);
     match core
-        .authenticate_for_write(secret.as_deref())
+        .authenticate_to_store_photograph(secret.as_deref())
         .and_then(|caller| core.upload_photograph(&caller, body))
     {
         Ok(result) => respond_to(headers, Ok(result)),
