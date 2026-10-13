@@ -6,48 +6,84 @@ The survey behind this is in [`docs/research/ai-recipe-import-in-other-apps.md`]
 
 ## What was decided
 
+### The Runner
+
 - **Kamosu ships the Runner and nothing else of the agent.** The Runner is Kamosu's own program started in another mode. Whoever runs it supplies the agent it starts, the tools that agent needs and the instructions it follows. Kamosu's image stays one program ([ADR 0028](./0028-kamosu-is-one-file-and-one-directory.md)).
-- **The Runner asks, and Kamosu never calls it.** The Runner asks for a Job, keeps renewing its hold on it while the agent works, and hands back the result. Kamosu owns the deadline, so a Job whose Runner goes quiet returns to the line. Cancelling travels in Kamosu's reply to a call the Runner was already making. Kamosu stores no address for a Runner and makes no new outbound call, which leaves [ADR 0033](./0033-kamosu-assumes-the-proxy-did-nothing-but-carry-the-bytes.md) as it was.
-- **A Runner Key is a third source of a Credential.** An Operator mints it, and it is a **Secret** like the others: shown once, stored hashed, revoked and never on a clock ([ADR 0031](./0031-a-secret-is-spent-or-revoked-never-on-a-clock.md)). For one Job it acts as the Person who asked for that Job, under their Hand. Between Jobs it acts as nobody and can only ask for work.
-- **For a Job, a Runner Key may do six things.** Read the library as the asker sees it. Write and correct the one recipe the Job is for. Correct that recipe's Readings. Upload its Photographs. Put existing Tags on it. Delete a Food the Job itself created and then left unused.
-- **It may do nothing else.** No Translation, no Related Recipe, no Food name, no Merge, no new Tag, no deleting a recipe, no other recipe, no account.
-- **Every check that binds the asker binds the Job.** A write is refused wherever the asker's own would be: after they left the Cookbook, or after their account was disabled.
-- **Who may ask.** A fresh Import lands in the asker's own Cookbook, as every Import does. Reading an existing recipe again is offered only to a Co-author of the Cookbook that holds it. Nobody holding only a Share Link can cause a Job for a Runner ([ADR 0032](./0032-a-stranger-may-cause-work-never-work-that-scales-with-them.md)).
-- **Which Imports go to a Runner.** With no Runner, nothing changes. With one, a page that carries structured data is still read by Kamosu, and goes to the agent only when a Co-author asks for it to be read again. A page without structured data, a video link, pasted text, a PDF and a picture go to the agent. For a link, the bare recipe lands at once as it does today, and the agent fills it in.
-- **Any recipe with something to read again can be sent to the agent**, whichever way it arrived. That something is its Source's link or its **Original**. The result is a new Version.
-- **An Original is kept for 30 days.** It is the PDF, picture or pasted text an Import was read from. It belongs to the Import and never to the recipe ([ADR 0025](./0025-an-imported-recipe-is-an-ordinary-recipe.md)), and it is in no Backup. After 30 days, reading again asks for the file.
-- **What the agent makes is an ordinary recipe, saved at once.** There is no approval step. The Import Report says an agent made it, and lists what the agent left undone or was unsure of.
-- **The job is one good recipe, checked against its source and corrected.** A likely duplicate is saved and flagged, not blocked. The recipe stays in the language of its source.
-- **Kamosu sets no caps.** A Runner does one Job at a time and the rest wait. When no Runner has asked for work lately, Kamosu says so, and a waiting Job can be cancelled.
+- **The Runner asks, and Kamosu never calls it.** The Runner asks for a Job, keeps renewing its hold on it while the agent works, and reports how it ended. Kamosu owns the deadline, so a Job whose Runner goes quiet goes back to waiting. Cancelling travels in Kamosu's reply to a call the Runner was already making, and the Runner stops its agent. Kamosu stores no address for a Runner.
+- **A Runner holds one Job at a time,** and a Job is held by one Runner at a time.
+
+### Two keys
+
+- **The Runner Key is the Runner's own.** An Operator mints it. It can ask for work, renew a hold and report on a Job, and nothing else. It never acts as a Person and it cannot touch a recipe.
+- **Each Job comes with a Job Key.** Kamosu hands it to the Runner with the Job, and the Runner hands it to the agent. It acts as the Person who asked for that Job, under their Hand, and only for that Job. It is spent when the Job ends.
+- **The agent never holds the Runner Key.** So an agent that a page has tricked can reach the one Job it was given and no other.
+- **Both are Secrets like the rest:** stored hashed, revoked or spent, never on a clock ([ADR 0031](./0031-a-secret-is-spent-or-revoked-never-on-a-clock.md)).
+
+### What a Job Key may do
+
+- **Five things.** Read the library as the asker sees it, and the Job's own **Original**. Write and correct the one recipe the Job is for. Correct that recipe's Readings. Upload Photographs. Put existing Tags on that recipe.
+- **Nothing else.** No Translation, no Related Recipe, no Food name, no Merge, no deleting a Food, no new Tag, no deleting a recipe, no other recipe, no account.
+- **It can do no more than the asker could.** The Core's one check asks two things of every call: is this on the Job Key's list, and could the asker do it themselves right now.
+- **It never makes a Copy.** If the asker has stopped being a Co-author of the Cookbook, their own edit would start a Copy in their own Cookbook. A Job's write is refused there, and the Job fails and says why.
+- **The MCP door shows a Job Key only what it may call,** as it already hides writing from a read-only Access Key.
+
+### Which Imports go to an agent
+
+- **An instance has a Runner when it has a Runner Key that is not revoked.** Without one, nothing changes.
+- **A page that yields a structured recipe is read by Kamosu, as before.** It goes to the agent only when a Co-author asks for it to be read again.
+- **A link Kamosu cannot read lands as a bare recipe, and a Job for the agent follows.** That covers a page with no structured data, a video, and a page whose fetch was refused, which today lands nothing at all.
+- **Pasted text, a PDF and a picture go to the agent.** The recipe appears when the Job is done.
+
+### Reading again
+
+- **Any recipe with something to read again can be sent to the agent,** whichever way it arrived. That something is its Source's link or its Original.
+- **Only a Co-author of the Cookbook that holds the recipe may ask.** A fresh Import lands in the asker's own Cookbook, as every Import does. Nobody holding only a Share Link can cause a Job for a Runner ([ADR 0032](./0032-a-stranger-may-cause-work-never-work-that-scales-with-them.md)).
+- **A Job leaves at most one new Version.** The agent's saves within a Job shape that one Version. It never folds into a Version that was there before the Job, and a person's later save never folds into it.
+
+### Originals
+
+- **An Original is what a Job reads when that is not a link:** a PDF, a picture or pasted text.
+- **It is kept for 30 days and then deleted.** After that, reading again asks for the file.
+- **It is never part of the recipe** ([ADR 0025](./0025-an-imported-recipe-is-an-ordinary-recipe.md)), and it is in no Backup.
+
+### What lands
+
+- **An ordinary recipe, saved at once.** There is no approval step. The Import Report says an agent made it, and lists what the agent left undone or was unsure of.
+- **One good recipe, checked against its source and corrected.** A likely duplicate is saved and flagged, not blocked. The recipe stays in the language of its source.
+- **A Job that keeps failing stops and says so.** Kamosu sets no other limit on who may ask or how often. When no Runner has asked for work lately, Kamosu says so, and a Job can be cancelled whether it is waiting or being worked.
 
 ## Why
 
 - **The standard was set by an agent, and only an agent meets it.** The maintainer's library is built by an agent following a written skill: it reads the source, saves, reads the save back, compares each number and corrects. Video adds steps that are judgement made in the middle of the task, such as checking that a written recipe found elsewhere is the same dish, or going back for a sharper frame of a label.
 - **Kamosu's image cannot carry the tools.** Video needs a downloader and a frame cutter, and the image is one program with no shell. The survey found that the downloader's stable build lags site changes by weeks, that the tools which survive update themselves, and that where the fetch runs decides whether a site answers at all. All of that belongs outside the binary.
 - **The worker asking for work is the established contract.** GitHub Actions, GitLab Runner, the Forgejo runner and Woodpecker all have the worker open every connection, hold a lease the server can let lapse, and hear "cancel" inside a reply. The one surveyed case of the app calling the worker had no authentication on that call.
-- **The key is narrow because the agent reads strangers' text with nobody watching.** [ADR 0034](./0034-kamosu-names-what-it-does-not-defend.md) says an agent does what it is told, including by text it reads. An Access Key acts as its Person everywhere, so an unattended agent holding one could empty a library on a web page's say-so. With a Runner Key the worst outcome of a successful trick is one wrong recipe.
-- **Acting as the asker keeps authorisation in one place.** The Core's single check still decides everything ([ADR 0001](./0001-both-doors-generated-from-one-operation-catalogue.md)). A Runner Key adds a list of what it may attempt, and the asker's own permissions decide the rest.
-- **Saved at once, because a recipe is visible and reversible.** A wrong recipe sits in its Co-author's own Cookbook with its history. What guards quantities is the agent's own check against the source, which a tap of approval on a phone would not repeat.
+- **A key for each Job, because the agent reads strangers' text with nobody watching.** [ADR 0034](./0034-kamosu-names-what-it-does-not-defend.md) says an agent does what it is told, including by text it reads. An Access Key acts as its Person everywhere, so an unattended agent holding one could empty a library on a web page's say-so. With a Job Key the worst outcome of a successful trick is one wrong recipe. The job runners surveyed give each job a credential of its own for the same reason.
+- **Acting as the asker keeps authorisation in one place.** The Core's single check still decides everything ([ADR 0001](./0001-both-doors-generated-from-one-operation-catalogue.md)). No Operation learns about Jobs. The Job travels with the key.
+- **Saved at once, because a recipe is visible and reversible.** A wrong recipe sits in its Co-author's own Cookbook with every earlier Version behind it. What guards quantities is the agent's own check against the source, which a tap of approval on a phone would not repeat.
 - **"Any provider" is met by the Runner starting any agent.** Kamosu does not need to speak to a model for an Operator to choose one.
 
 ## Considered options
 
 - **Kamosu calls a model itself.** This is what all six surveyed recipe apps do, with a base URL, a key and a model name. It was designed in full under the name "Scribe" and tested on 2026-10-13 (part 5 of the research note). It read faithfully: across seven pages no number in its recipes was absent from the page. Set aside, and not for reading badly. It was about half of the work, it would have put a provider's key in Kamosu for the first time, and an instance that runs an agent gains only seconds from it. It is the option to reopen for instances that will never run a Runner.
+- **One key for the Runner and the agent alike.** This was the first design. Rejected after review: an agent holding the Runner's key could take every waiting Job, every Operation would have had to learn which Job a call was for, and a key that "acts as nobody" between Jobs has no place in how Kamosu knows a caller.
 - **An agent holding an ordinary Access Key.** Rejected for its reach, and because every recipe would land under the key's own Person whoever asked.
-- **Kamosu calls the agent.** Rejected: it needs the agent's address, a server in the agent's container, and an exception to ADR 0033 for a private address.
-- **A fetcher with no model beside Kamosu, feeding a model call inside it.** Rejected with the option above, and because it loses the steps that are judgement.
+- **Letting the agent delete a Food its Job created and left unused.** Rejected. Only an Operator deletes a Food, and nothing records which save created one. The agent names the strays in its report.
+- **Kamosu calls the agent.** Rejected: it needs the agent's address and a server in the agent's container.
+- **A fetcher with no model beside Kamosu, feeding a model call inside it.** Rejected with the first option, and because it loses the steps that are judgement.
 - **A provider's hosted agent.** Rejected: it ties the feature to one provider.
 - **Asking a connected agent through MCP.** Not available. In revision 2026-07-28 a server may only speak inside a request the client already sent, and sampling is deprecated.
-- **A complete companion image published by Kamosu.** Deferred. It needs a public set of instructions and one agent chosen for everybody, which the maintainer's own setup should inform first.
+- **A complete image with an agent in it, published by Kamosu.** Deferred. It needs a public set of instructions and one agent chosen for everybody, which the maintainer's own setup should inform first.
 - **Holding the recipe until someone approves it.** Rejected: a waiting state for a whole recipe is something every list and search would have to respect.
 
 ## Consequences
 
 - **An instance without a Runner gains nothing from this and loses nothing.**
 - **An agent's Import takes minutes**, where a page Kamosu reads itself takes seconds.
-- **A fourth kind of caller exists.** Until now every Credential named a Person from the start. The glossary's entries for Credential, Access Key and Secret change with this record.
-- **The Runner Key's list is the security boundary.** Adding to it is a decision of this weight, never a convenience.
-- **One agent process per Job, in a fresh folder, inside the Runner's own container.** Vendor guidance prefers a fresh container per task. The Runner Key's reach is what makes the lighter arrangement acceptable, and giving the Runner control of the container engine would cost more than it buys.
+- **Two new kinds of caller exist.** Until now every Credential named a Person from the start. The glossary's entries for Credential, Access Key and Secret change with this record.
+- **The Job Key's list is the security boundary.** Adding to it is a decision of this weight, never a convenience.
+- **The Runner speaks to one address, the Kamosu its Operator named.** That is a second place the program makes a request from, beside the guarded client of [ADR 0033](./0033-kamosu-assumes-the-proxy-did-nothing-but-carry-the-bytes.md), which is for addresses a stranger can point Kamosu at. The Runner's never is one, and it is often a private address.
+- **One agent process per Job, in a fresh folder, inside the Runner's own container.** Vendor guidance prefers a fresh container per task. The Job Key's reach is what makes the lighter arrangement acceptable, and giving the Runner control of the container engine would cost more than it buys.
 - **Kamosu cannot see what a Job cost.** The model's bill belongs to whoever runs the Runner, and so does any limit on it.
+- **Stray Foods stay until someone tidies them.** An agent that corrects a Reading can leave the Food it replaced with nothing pointing at it.
 - **Instructions written for an agent with a person present have to learn to work alone.** Where they would stop and ask, the agent leaves the thing undone and says so in the Import Report.
 - **Two things are not measured yet:** what an agent's Job costs and how long it takes, and whether the video sites answer the machine a given Runner is on.

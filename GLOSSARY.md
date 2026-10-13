@@ -65,12 +65,16 @@ A one-use link that turns a stranger into a Person, adds a Person to a Kitchen, 
 _Avoid_: Signup, registration, join code, magic link
 
 **Access Key**:
-A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the three sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account.
+A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account.
 _Avoid_: API key, token, secret, password, Credential
 
 **Runner Key**:
-A **Secret** an Operator mints for a **Runner**, and the third source of a Credential. For one **Job** it acts as the Person who asked for it, under their Hand and only on the recipe that Job is for. Between Jobs it acts as nobody and can only ask for work. It can delete no recipe, touch no other recipe and reach no account (ADR 0048).
+A **Secret** an Operator mints for a **Runner**. It can ask for a **Job**, keep hold of it and report how it ended, and nothing else. It never acts as a Person and it cannot touch a recipe (ADR 0048).
 _Avoid_: Agent key, API key, token, service account, Access Key
+
+**Job Key**:
+A **Secret** that comes with one **Job** a **Runner** takes, for the agent that does it. It acts as the Person who asked for that Job, under their Hand and only on the recipe the Job is for, and it is spent when the Job ends. It can delete nothing, touch no other recipe and reach no account (ADR 0048).
+_Avoid_: Job token, session, Runner Key, Access Key
 
 **Operator**:
 A Person who also administers the instance: seeing who holds an account, minting Invites, raising a Person to Operator and standing one down, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, changing the instance's public address, merging Foods and deleting one nothing points at, sweeping Photographs nothing points at, deleting a Kitchen nobody is left in, and taking and fetching a **Backup**. Nothing beyond that list — no Operator can read another Person's recipes or Attempts, and seeing who holds an account is a list of names and nothing about what they cook. More than one is allowed and the last cannot be demoted, disabled or deleted, because an instance with nobody to administer it can never appoint anybody. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
@@ -79,11 +83,11 @@ _Avoid_: Admin, root, superuser, owner, host
 ### Doing and permission
 
 **Credential**:
-What a request presents to prove who is acting. It comes from one of three places: a Person logging in, an Access Key they minted, or a **Runner Key**. The first two always act as that Person. A Runner Key acts as the Person who asked for the Job it is working, and as nobody while it only asks for work. Every Door resolves one before the Core runs anything, so the same permissions apply whether a person or an agent is asking. Obtaining a Credential is not an Operation.
+What a request presents to prove who is acting. It comes from one of four places. A Person logging in and an Access Key they minted both act as that Person. A **Job Key** acts as the Person who asked for its Job. A **Runner Key** acts as no Person, and can only take Jobs and report on them. Every Door resolves one before the Core runs anything, so the same permissions apply whether a person or an agent is asking. Obtaining a Credential is not an Operation.
 _Avoid_: Token, session, auth, API key, login
 
 **Secret**:
-A long random string where holding it *is* the permission — a **Share Link** token, an **Access Key**, a **Runner Key**, an **Invite**, a recovery link, a **Session**. All are 256 bits of randomness, revocable one at a time, and **never on a clock**. All but the Share Link are stored hashed, shown once at minting, and known afterwards only by a name and when they were last used. A Share Link keeps its Secret readable, so its address can be shown again for as long as it lives: it grants reading one recipe, which whoever holds the database already has (ADR 0031, as amended by #171). A Secret ends in one of exactly two ways — it is *spent*, as an Invite and a recovery link are on first use, or it is *revoked*. A password is not a Secret: it is short, chosen by a person, never stored, and the only thing in Kamosu that is throttled.
+A long random string where holding it *is* the permission — a **Share Link** token, an **Access Key**, a **Runner Key**, a **Job Key**, an **Invite**, a recovery link, a **Session**. All are 256 bits of randomness, revocable one at a time, and **never on a clock**. All but the Share Link are stored hashed, shown once at minting, and known afterwards only by a name and when they were last used. A Share Link keeps its Secret readable, so its address can be shown again for as long as it lives: it grants reading one recipe, which whoever holds the database already has (ADR 0031, as amended by #171). A Secret ends in one of exactly two ways — it is *spent*, as an Invite and a recovery link are on first use and a Job Key is when its Job ends, or it is *revoked*. A password is not a Secret: it is short, chosen by a person, never stored, and the only thing in Kamosu that is throttled.
 _Avoid_: Token, key, credential, nonce, bearer token
 
 **Session**:
@@ -113,7 +117,7 @@ What an **Import** made, as a person reads it — and it does not go away when t
 _Avoid_: Log, error list, summary, receipt, job output
 
 **Original**:
-What an **Import** was read from when that was not a link: a PDF, a picture or pasted text. It is kept for 30 days so the recipe can be read again, and it belongs to the Import, never to the recipe.
+What an agent's **Job** reads when that is not a link: a PDF, a picture or pasted text. It is kept for 30 days so the recipe can be read again, and it is never part of the recipe. It is read and never shown, which is what sets it apart from a **Photograph**.
 _Avoid_: Attachment, upload, source file, scan
 
 **Export**:
