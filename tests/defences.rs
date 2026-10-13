@@ -324,6 +324,22 @@ fn every_secret(app: &support::TestApp, key: &str) -> Vec<Secret> {
         table: "access_keys",
     });
 
+    // A Runner Key, minted by the Operator logged in directly (ADR 0048).
+    let (status, minted) = app.post_op(
+        "mint_runner_key",
+        Some(&session),
+        &json!({ "name": "the kitchen's Runner" }).to_string(),
+    );
+    assert_eq!(status, 200, "{minted}");
+    secrets.push(Secret {
+        what: "a Runner Key",
+        raw: minted["result"]["secret"]
+            .as_str()
+            .expect("a Secret")
+            .into(),
+        table: "runner_keys",
+    });
+
     // An Invite for a new Person, and a recovery link for an existing one.
     // Both are account links, and both are spent on first use.
     for (what, operation, input) in [
@@ -502,7 +518,7 @@ async fn every_secret_is_256_bits_and_all_but_a_share_link_hashed_at_rest() {
     // what stops this file quietly becoming a partial sweep.
     let carrying = tables_holding_a_secret(&app);
     assert!(
-        carrying.len() >= 5,
+        carrying.len() >= 6,
         "expected every kind of Secret to be found, got {carrying:?}"
     );
     for table in &carrying {
@@ -574,9 +590,19 @@ async fn a_secret_still_works_a_year_after_it_was_made() {
         "a year-old Cookbook Invite stopped working: {read}"
     );
 
-    // The two that are Credentials in their own right still open the door.
+    // The three that are Credentials in their own right still open the door.
     for secret in &secrets {
         match secret.what {
+            "a Runner Key" => assert_eq!(
+                app.post_op(
+                    "ask_for_work",
+                    Some(&secret.raw),
+                    &json!({ "runner_version": env!("CARGO_PKG_VERSION") }).to_string(),
+                )
+                .0,
+                200,
+                "a Runner Key stopped working because a year passed"
+            ),
             "a Session" | "an Access Key" => assert_eq!(
                 app.post_op("list_jobs", Some(&secret.raw), "{}").0,
                 200,
@@ -615,6 +641,7 @@ async fn a_secret_is_never_read_back_in_a_listing() {
     for (operation, input) in [
         ("list_access_keys", json!({})),
         ("list_sessions", json!({})),
+        ("list_runner_keys", json!({})),
         ("get_cookbook", json!({})),
     ] {
         let (status, listed) = app.post_op(operation, Some(&key), &input.to_string());

@@ -5906,6 +5906,467 @@ async fn listing_mcp_tools_does_not_itself_count_as_using_the_access_key() {
     );
 }
 
+// --- Runner Keys (issue #260) -------------------------------------------------
+
+/// The first Person of a fresh instance, who is its Operator: their Session's
+/// Secret and their id.
+fn operator_signed_in(app: &support::TestApp) -> (String, String) {
+    let first = json!({
+        "name": "Stéphane",
+        "password": "a password only its person knows",
+        "session_name": "test browser",
+    });
+    let created = app.post_auth_response("/auth/first-person", &first.to_string());
+    assert_eq!(created.status, 200, "{}", created.text());
+    let session = support::session_cookie_secret(&created);
+    let body: Value = serde_json::from_str(&created.text()).unwrap();
+    let id = body["result"]["person"]["id"].as_str().unwrap().to_string();
+    (session, id)
+}
+
+/// A Runner Key minted by the Operator at the web door: its Secret and its id.
+fn runner_key(app: &support::TestApp, session: &str, name: &str) -> (String, String) {
+    let (status, minted) = app.post_op(
+        "mint_runner_key",
+        Some(session),
+        &json!({ "name": name }).to_string(),
+    );
+    assert_eq!(status, 200, "{minted}");
+    (
+        minted["result"]["secret"].as_str().unwrap().to_string(),
+        minted["result"]["id"].as_str().unwrap().to_string(),
+    )
+}
+
+/// What a Runner of this Kamosu's own version sends when it asks for work.
+fn asking() -> String {
+    json!({ "runner_version": env!("CARGO_PKG_VERSION") }).to_string()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_runner_key_asks_for_work_and_is_told_there_is_none() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let (secret, _) = runner_key(&app, &session, "the kitchen's Runner");
+
+    let (status, answered) = app.post_op("ask_for_work", Some(&secret), &asking());
+    assert_eq!(status, 200, "{answered}");
+    assert_eq!(answered["result"], json!({ "job": null }));
+
+    // The same Operation through the other Door.
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "ask_for_work",
+            "arguments": { "runner_version": env!("CARGO_PKG_VERSION") },
+        },
+    });
+    let (_, at_mcp) = app.post_mcp(&call.to_string(), Some(&secret));
+    assert_eq!(at_mcp["result"]["isError"], json!(false), "{at_mcp}");
+    assert_eq!(
+        at_mcp["result"]["structuredContent"],
+        json!({ "job": null }),
+        "{at_mcp}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_an_operator_signed_in_directly_mints_a_runner_key() {
+    let app = support::spawn_app();
+    let (session, operator_id) = operator_signed_in(&app);
+
+    // The Operator's own Access Key cannot: an Access Key mints no Key.
+    let operators_agent = app
+        .core
+        .mint_access_key(&operator_id, "agent", false)
+        .unwrap()
+        .secret;
+    let (status, refused) = app.post_op(
+        "mint_runner_key",
+        Some(&operators_agent),
+        r#"{"name":"a Runner"}"#,
+    );
+    assert_eq!(status, 401, "an Access Key minted a Runner Key: {refused}");
+
+    // Nor can a Person who is no Operator, signed in directly.
+    let (_, invite) = app.post_op("mint_invite", Some(&session), "{}");
+    let joined = app.post_auth_response(
+        "/auth/invite",
+        &json!({
+            "link": invite["result"]["link"],
+            "name": "Camille",
+            "password": "another password nobody else knows",
+            "session_name": "second browser",
+        })
+        .to_string(),
+    );
+    assert_eq!(joined.status, 200, "{}", joined.text());
+    let cook = support::session_cookie_secret(&joined);
+    let (status, refused) = app.post_op("mint_runner_key", Some(&cook), r#"{"name":"a Runner"}"#);
+    assert_eq!(status, 401, "{refused}");
+    for operation in ["list_runner_keys", "revoke_runner_key"] {
+        let (status, refused) =
+            app.post_op(operation, Some(&cook), r#"{"runner_key_id":"rk_none"}"#);
+        assert_eq!(status, 401, "{operation}: {refused}");
+    }
+
+    // Nothing was minted along the way.
+    let (_, listed) = app.post_op("list_runner_keys", Some(&session), "{}");
+    assert_eq!(listed["result"]["runner_keys"], json!([]));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_runner_keys_secret_is_shown_once_and_kept_only_hashed() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = support::spawn_app_in(dir.path());
+    let (session, _) = operator_signed_in(&app);
+    let (secret, id) = runner_key(&app, &session, "the kitchen's Runner");
+    assert_eq!(secret.len(), 64, "256 bits, as every Secret is");
+
+    // Known afterwards by its name and last use, and never by its Secret.
+    let (_, listed) = app.post_op("list_runner_keys", Some(&session), "{}");
+    assert_eq!(
+        listed["result"]["runner_keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|key| (
+                key["id"].clone(),
+                key["name"].clone(),
+                key["last_used_at"].clone(),
+                key["revoked"].clone()
+            ))
+            .collect::<Vec<_>>(),
+        vec![(
+            json!(id),
+            json!("the kitchen's Runner"),
+            Value::Null,
+            json!(false)
+        )]
+    );
+    assert!(!listed.to_string().contains(&secret), "{listed}");
+
+    // The database file and its neighbours hold the Secret nowhere.
+    assert!(dir.path().join(db::DATABASE_FILE).is_file());
+    for entry in std::fs::read_dir(dir.path()).unwrap() {
+        let path = entry.unwrap().path();
+        if !path.is_file() {
+            continue;
+        }
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(
+            !bytes
+                .windows(secret.len())
+                .any(|window| window == secret.as_bytes()),
+            "{} holds the Secret in the clear",
+            path.display()
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn asking_for_work_is_recorded_and_any_person_reads_it() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let cook = app.core.create_person("Camille").expect("person");
+    let cooks_key = app
+        .core
+        .mint_access_key(&cook, "read-only agent", true)
+        .unwrap()
+        .secret;
+
+    // No Runner Key, no Runner.
+    let (status, before) = app.post_op("runner_status", Some(&cooks_key), "{}");
+    assert_eq!(status, 200, "{before}");
+    assert_eq!(
+        before["result"],
+        json!({ "has_runner": false, "last_asked_at": null })
+    );
+
+    // A Runner Key that has never asked: a Runner, not yet heard from.
+    let (secret, id) = runner_key(&app, &session, "the kitchen's Runner");
+    let (_, minted) = app.post_op("runner_status", Some(&cooks_key), "{}");
+    assert_eq!(
+        minted["result"],
+        json!({ "has_runner": true, "last_asked_at": null })
+    );
+
+    assert_eq!(app.post_op("ask_for_work", Some(&secret), &asking()).0, 200);
+
+    let (_, asked) = app.post_op("runner_status", Some(&cooks_key), "{}");
+    assert_eq!(asked["result"]["has_runner"], json!(true));
+    let last_asked = asked["result"]["last_asked_at"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the asking was not recorded: {asked}"));
+    assert!(last_asked.ends_with('Z'), "{last_asked}");
+
+    // The same answer at the MCP door.
+    let call = json!({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": { "name": "runner_status", "arguments": {} },
+    });
+    let (_, at_mcp) = app.post_mcp(&call.to_string(), Some(&cooks_key));
+    assert_eq!(at_mcp["result"]["structuredContent"], asked["result"]);
+
+    // And the Operator's list says the Key was used.
+    let (_, listed) = app.post_op("list_runner_keys", Some(&session), "{}");
+    let key = &listed["result"]["runner_keys"][0];
+    assert_eq!(key["id"], json!(id));
+    assert!(key["last_used_at"].is_string(), "{key}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_revoked_runner_key_is_refused_at_its_next_call_while_another_keeps_working() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let (doomed, doomed_id) = runner_key(&app, &session, "the old Runner");
+    let (survivor, survivor_id) = runner_key(&app, &session, "the new Runner");
+    assert_eq!(app.post_op("ask_for_work", Some(&doomed), &asking()).0, 200);
+
+    let (status, revoked) = app.post_op(
+        "revoke_runner_key",
+        Some(&session),
+        &json!({ "runner_key_id": doomed_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{revoked}");
+    assert_eq!(revoked["result"], json!({ "revoked": true }));
+
+    let (status, refused) = app.post_op("ask_for_work", Some(&doomed), &asking());
+    assert_eq!(
+        status, 401,
+        "the revoked Runner Key still worked: {refused}"
+    );
+    assert_eq!(
+        app.post_op("ask_for_work", Some(&survivor), &asking()).0,
+        200
+    );
+
+    // The list keeps the revoked Key, marked, beside the live one.
+    let (_, listed) = app.post_op("list_runner_keys", Some(&session), "{}");
+    let revoked_by_id: std::collections::BTreeMap<String, bool> = listed["result"]["runner_keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|key| {
+            (
+                key["id"].as_str().unwrap().to_string(),
+                key["revoked"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        revoked_by_id,
+        [(doomed_id.clone(), true), (survivor_id.clone(), false)].into()
+    );
+
+    // Revoking it again finds nothing live to revoke.
+    let (status, _) = app.post_op(
+        "revoke_runner_key",
+        Some(&session),
+        &json!({ "runner_key_id": doomed_id }).to_string(),
+    );
+    assert_eq!(status, 404);
+
+    // With the last live Key gone the instance has no Runner, and still says
+    // when one last asked.
+    let (status, _) = app.post_op(
+        "revoke_runner_key",
+        Some(&session),
+        &json!({ "runner_key_id": survivor_id }).to_string(),
+    );
+    assert_eq!(status, 200);
+    let (_, status_now) = app.post_op("runner_status", Some(&session), "{}");
+    assert_eq!(status_now["result"]["has_runner"], json!(false));
+    assert!(
+        status_now["result"]["last_asked_at"].is_string(),
+        "{status_now}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_operator_mints_lists_and_revokes_a_runner_key_at_the_mcp_door() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let call = |name: &str, arguments: Value, credential: &str| {
+        let payload = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": name, "arguments": arguments },
+        });
+        app.post_mcp(&payload.to_string(), Some(credential)).1["result"].clone()
+    };
+
+    let minted = call(
+        "mint_runner_key",
+        json!({ "name": "the kitchen's Runner" }),
+        &session,
+    );
+    assert_eq!(minted["isError"], json!(false), "{minted}");
+    let secret = minted["structuredContent"]["secret"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let id = minted["structuredContent"]["id"].clone();
+
+    let asked = call(
+        "ask_for_work",
+        json!({ "runner_version": env!("CARGO_PKG_VERSION") }),
+        &secret,
+    );
+    assert_eq!(
+        asked["structuredContent"],
+        json!({ "job": null }),
+        "{asked}"
+    );
+
+    let listed = call("list_runner_keys", json!({}), &session);
+    let key = &listed["structuredContent"]["runner_keys"][0];
+    assert_eq!(key["id"], id);
+    assert_eq!(key["name"], json!("the kitchen's Runner"));
+    assert!(key["last_used_at"].is_string(), "{key}");
+    assert!(!listed.to_string().contains(&secret), "{listed}");
+
+    let revoked = call(
+        "revoke_runner_key",
+        json!({ "runner_key_id": id }),
+        &session,
+    );
+    assert_eq!(
+        revoked["structuredContent"],
+        json!({ "revoked": true }),
+        "{revoked}"
+    );
+
+    let refused = call(
+        "ask_for_work",
+        json!({ "runner_version": env!("CARGO_PKG_VERSION") }),
+        &secret,
+    );
+    assert_eq!(refused["isError"], json!(true), "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_runner_key_reaches_nothing_but_the_runners_own_operations() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let (secret, _) = runner_key(&app, &session, "the kitchen's Runner");
+
+    // One Operation of each other level: for a Person, for an Operator, and
+    // open to anyone. The last answers a stranger, and still not a Runner Key.
+    assert_eq!(app.post_op("instance_status", None, "{}").0, 200);
+    for operation in [
+        "list_jobs",
+        "get_job",
+        "cancel_job",
+        "runner_status",
+        "list_accounts",
+        "list_runner_keys",
+        "instance_status",
+    ] {
+        let (status, refused) = app.post_op(operation, Some(&secret), "{}");
+        assert_eq!(status, 401, "{operation} answered a Runner Key: {refused}");
+        assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+
+        let call = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": operation, "arguments": {} },
+        });
+        let (_, at_mcp) = app.post_mcp(&call.to_string(), Some(&secret));
+        assert_eq!(
+            at_mcp["result"]["isError"],
+            json!(true),
+            "{operation}: {at_mcp}"
+        );
+    }
+    // A Runner Key cannot mint or revoke one either.
+    let (status, _) = app.post_op("mint_runner_key", Some(&secret), r#"{"name":"another"}"#);
+    assert_eq!(status, 401);
+
+    // The routes outside the Catalogue that take a Credential.
+    let photograph = "0".repeat(64);
+    for path in [
+        format!("/api/photographs/{photograph}"),
+        format!("/api/photographs/{photograph}/card"),
+        "/api/backups/kamosu-backup.zip".to_string(),
+        "/api/bundles/b_none".to_string(),
+        "/api/sheets/j_none".to_string(),
+    ] {
+        let (status, _, body) = app.get_bytes(&path, Some(&secret));
+        assert_eq!(
+            status,
+            401,
+            "GET {path} answered a Runner Key: {}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+    for path in ["/api/photographs", "/api/uploads"] {
+        let (status, refused) =
+            app.post_bytes(path, Some(&secret), "application/octet-stream", b"anything");
+        assert_eq!(status, 401, "POST {path} answered a Runner Key: {refused}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nobody_but_a_runner_asks_for_work() {
+    let app = support::spawn_app();
+    let (session, operator_id) = operator_signed_in(&app);
+    let access_key = app
+        .core
+        .mint_access_key(&operator_id, "agent", false)
+        .unwrap()
+        .secret;
+
+    // An Operator's Session, their Access Key, and no Credential at all.
+    for credential in [Some(session.as_str()), Some(access_key.as_str()), None] {
+        let (status, refused) = app.post_op("ask_for_work", credential, &asking());
+        assert_eq!(status, 401, "{refused}");
+        assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+
+        let call = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {
+                "name": "ask_for_work",
+                "arguments": { "runner_version": env!("CARGO_PKG_VERSION") },
+            },
+        });
+        let (_, at_mcp) = app.post_mcp(&call.to_string(), credential);
+        assert_eq!(at_mcp["result"]["isError"], json!(true), "{at_mcp}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_runner_of_another_version_is_refused_in_a_sentence_naming_both() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let (secret, _) = runner_key(&app, &session, "the kitchen's Runner");
+
+    let (status, refused) = app.post_op(
+        "ask_for_work",
+        Some(&secret),
+        r#"{"runner_version":"0.0.1-other"}"#,
+    );
+    assert_eq!(status, 400, "{refused}");
+    let sentence = refused["error"]["message"].as_str().unwrap();
+    assert!(
+        sentence.contains("0.0.1-other") && sentence.contains(env!("CARGO_PKG_VERSION")),
+        "the refusal must name both versions: {sentence}"
+    );
+
+    // The MCP door says the same sentence.
+    let call = json!({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": { "name": "ask_for_work", "arguments": { "runner_version": "0.0.1-other" } },
+    });
+    let (_, at_mcp) = app.post_mcp(&call.to_string(), Some(&secret));
+    assert_eq!(at_mcp["result"]["isError"], json!(true), "{at_mcp}");
+    assert_eq!(at_mcp["result"]["content"][0]["text"], json!(sentence));
+
+    // A Runner that cannot work has not asked.
+    let (_, status_now) = app.post_op("runner_status", Some(&session), "{}");
+    assert_eq!(status_now["result"]["last_asked_at"], Value::Null);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn login_throttling_slows_guesses_but_a_correct_password_clears_it() {
     let app = support::spawn_app();

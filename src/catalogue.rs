@@ -20,6 +20,11 @@ pub enum Permission {
     Person,
     /// A resolved Person who administers this instance.
     Operator,
+    /// A Runner, presenting its Runner Key and acting as no Person (ADR 0048).
+    /// The one level a Person never reaches, an Operator included: an
+    /// Operation declared with it is the Runner's own. A Runner Key in turn
+    /// reaches no other level, `Public` included.
+    Runner,
 }
 
 /// Whether an Operation answers within a request or is too slow to.
@@ -429,6 +434,134 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: empty_input(),
             output_schema: json!({ "type": "object", "properties": { "backups": backups_schema() }, "required": ["backups"], "additionalProperties": false }),
             handler: crate::operations::list_backups,
+        },
+        Operation {
+            name: "mint_runner_key",
+            summary: "Mint a Runner Key, the Secret a Runner asks for work with. \
+                      A Runner is the program beside Kamosu that has an agent \
+                      do the Jobs Kamosu cannot. The Secret is shown once. It \
+                      can ask for work and nothing else, and it acts as no \
+                      Person.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: true,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "name": { "type": "string" } },
+                "required": ["name"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "secret": { "type": "string" },
+                },
+                "required": ["id", "name", "secret"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::mint_runner_key,
+        },
+        Operation {
+            name: "list_runner_keys",
+            summary: "List this instance's Runner Keys by name and last use.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "runner_keys": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string" },
+                                "name": { "type": "string" },
+                                "created_at": { "type": "string" },
+                                "last_used_at": { "type": ["string", "null"] },
+                                "revoked": { "type": "boolean" },
+                            },
+                            "required": ["id", "name", "created_at", "last_used_at", "revoked"],
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "required": ["runner_keys"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_runner_keys,
+        },
+        Operation {
+            name: "revoke_runner_key",
+            summary: "End one Runner Key. The Runner holding it is refused at \
+                      its next call.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "runner_key_id": { "type": "string" } }, "required": ["runner_key_id"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" } }, "required": ["revoked"], "additionalProperties": false }),
+            handler: crate::operations::revoke_runner_key,
+        },
+        Operation {
+            name: "runner_status",
+            summary: "Read whether this instance has a Runner. Also when one \
+                      last asked for work.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "has_runner": {
+                        "type": "boolean",
+                        "description": "True while a Runner Key exists that is not revoked.",
+                    },
+                    "last_asked_at": {
+                        "type": ["string", "null"],
+                        "description": "When a Runner last asked for work, or null when none ever has.",
+                    },
+                },
+                "required": ["has_runner", "last_asked_at"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::runner_status,
+        },
+        Operation {
+            name: "ask_for_work",
+            summary: "Ask for a Job to do. For a Runner alone, with its \
+                      Runner Key. `job` is null when nothing is waiting. \
+                      `runner_version` is the Runner's own version, and a \
+                      Kamosu of another version refuses it.",
+            permission: Permission::Runner,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "runner_version": { "type": "string" } },
+                "required": ["runner_version"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "job": { "type": "null" } },
+                "required": ["job"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::ask_for_work,
         },
         Operation {
             name: "list_sessions",
@@ -5942,6 +6075,7 @@ pub fn declarations() -> Value {
                         Permission::Public => "public",
                         Permission::Person => "person",
                         Permission::Operator => "operator",
+                        Permission::Runner => "runner",
                     },
                     "kind": match op.kind {
                         Kind::Immediate => "immediate",
@@ -6007,6 +6141,17 @@ mod tests {
         );
     }
 
+    /// A Job Kamosu does itself is carried by a worker that knows who asked as
+    /// a Person or as nobody (`jobs.rs`), so it could not carry a Runner's.
+    #[test]
+    fn a_runners_own_operation_answers_at_once() {
+        for op in OPERATIONS.iter() {
+            if op.permission == Permission::Runner {
+                assert_eq!(op.kind, Kind::Immediate, "{} is declared a Job", op.name);
+            }
+        }
+    }
+
     #[test]
     fn declarations_carry_every_operation_verbatim() {
         let declared = declarations();
@@ -6021,7 +6166,7 @@ mod tests {
         // generator reads them, and a number would be a silent renumbering.
         assert!(list.iter().all(|e| matches!(
             e["permission"].as_str(),
-            Some("public" | "person" | "operator")
+            Some("public" | "person" | "operator" | "runner")
         )));
         assert!(
             list.iter()

@@ -25,7 +25,7 @@
 use serde_json::Value;
 use serde_json::json;
 
-use crate::core::{Caller, Core, Invocation, OpError, Reading, RelatedSide};
+use crate::core::{Caller, Core, Invocation, OpError, Reading, RelatedSide, RunnerCaller};
 use crate::jobs;
 
 /// The instance status: the version, whether setup has happened, and the
@@ -275,7 +275,9 @@ pub fn get_job(core: &Core, invocation: &Invocation, input: Value) -> Result<Val
         .ok_or_else(|| OpError::bad_request("get_job takes { job_id }"))?;
 
     let record = core.job(job_id)?.ok_or_else(|| jobs::no_such_job(job_id))?;
-    jobs::ensure_reader(&record, &invocation.caller, || jobs::no_such_job(job_id))?;
+    jobs::ensure_reader(&record, &invocation.caller().cloned(), || {
+        jobs::no_such_job(job_id)
+    })?;
 
     Ok(jobs::to_value(&record))
 }
@@ -300,7 +302,9 @@ pub fn cancel_job(core: &Core, invocation: &Invocation, input: Value) -> Result<
         .ok_or_else(|| OpError::bad_request("cancel_job takes { job_id }"))?;
 
     let record = core.job(job_id)?.ok_or_else(|| jobs::no_such_job(job_id))?;
-    jobs::ensure_reader(&record, &invocation.caller, || jobs::no_such_job(job_id))?;
+    jobs::ensure_reader(&record, &invocation.caller().cloned(), || {
+        jobs::no_such_job(job_id)
+    })?;
 
     let cancelled = core.cancel_job_if_queued(job_id)?;
     Ok(json!({ "cancelled": cancelled }))
@@ -2050,8 +2054,64 @@ pub fn turn_off_meaning_search(
     core.turn_off_meaning_search()
 }
 
+pub fn mint_runner_key(
+    core: &Core,
+    _invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("mint_runner_key takes { name }"))?;
+    let key = core.mint_runner_key(name)?;
+    Ok(json!({ "id": key.id, "name": key.name, "secret": key.secret }))
+}
+
+pub fn list_runner_keys(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    Ok(json!({ "runner_keys": core.runner_keys()? }))
+}
+
+pub fn revoke_runner_key(
+    core: &Core,
+    _invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let runner_key_id = input
+        .get("runner_key_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("revoke_runner_key takes { runner_key_id }"))?;
+    core.revoke_runner_key(runner_key_id)?;
+    Ok(json!({ "revoked": true }))
+}
+
+pub fn runner_status(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.runner_status()
+}
+
+pub fn ask_for_work(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let runner_version = input
+        .get("runner_version")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("ask_for_work takes { runner_version }"))?;
+    core.ask_for_work(runner_of(invocation)?, runner_version)
+}
+
+fn runner_of(invocation: &Invocation) -> Result<&RunnerCaller, OpError> {
+    invocation
+        .runner()
+        .ok_or_else(|| OpError::unauthorized("this Operation requires a Runner Key"))
+}
+
 fn caller_of(invocation: &Invocation) -> Result<&Caller, OpError> {
-    invocation.caller.as_ref().ok_or_else(|| {
+    invocation.caller().ok_or_else(|| {
         OpError::unauthorized("this Operation requires a Credential naming a Person")
     })
 }
