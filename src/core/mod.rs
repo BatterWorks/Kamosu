@@ -39,7 +39,7 @@ use sha2::{Digest, Sha256};
 
 use crate::backups;
 use crate::bundles;
-use crate::catalogue::{self, JobLane, Kind, Permission};
+use crate::catalogue::{self, JobKey, JobLane, Kind, Permission};
 use crate::crouton;
 use crate::db::Db;
 use crate::fingerprint::{canonical_json, stored_version};
@@ -218,9 +218,10 @@ pub struct Caller {
     /// `Core::execute` refuses every Operation the Catalogue declares `write`
     /// to a caller carrying this (ADR 0031).
     pub read_only: bool,
-    /// True when the Credential came from an Access Key rather than a login
-    /// Session. `Core::execute` refuses every Operation the Catalogue declares
-    /// `session_only` to a caller carrying this, however unrestricted the Key.
+    /// True when the Credential came from an Access Key or a Job Key rather
+    /// than a login Session. `Core::execute` refuses every Operation the
+    /// Catalogue declares `session_only` to a caller carrying this, however
+    /// unrestricted the Key.
     pub via_access_key: bool,
     /// Whether this Person administers the instance.
     pub is_operator: bool,
@@ -233,6 +234,11 @@ pub struct Caller {
     /// for an Access Key. What lets the Sessions list say which one is in
     /// your hand (#114).
     pub session_id: Option<String>,
+    /// The Job this Credential is the Job Key of, if it is one (ADR 0048). The
+    /// Person is the one who asked for that Job. `Core::execute` refuses a
+    /// caller carrying this every Operation the Catalogue does not mark for a
+    /// Job Key, and every route outside the Catalogue refuses it too.
+    pub job_id: Option<String>,
 }
 
 /// A Runner, known by the Runner Key it presented. It is no Person and acts as
@@ -252,6 +258,12 @@ pub enum Asker {
     Nobody,
     Person(Caller),
     Runner(RunnerCaller),
+}
+
+/// What a Job Key is answered on every route outside the Catalogue: as if the
+/// thing were not there, so an agent can tell a refusal from a fault.
+fn nothing_here_for_a_job_key() -> OpError {
+    OpError::not_found("nothing is at this address")
 }
 
 /// A Runner Key was presented where only a Person may act.
@@ -398,6 +410,18 @@ impl Core {
             None => Asker::Nobody,
             Some(secret) => self.present(secret)?,
         };
+
+        // A Job Key reaches the Operations marked for it and no other, the
+        // ones open to anyone included (ADR 0048). It is met first, and the
+        // refusal is the one an Operation that does not exist gets. Whether
+        // the asker could do it themselves is everything below, which a Job
+        // Key passes through as the Person it names.
+        if let Asker::Person(caller) = &asker
+            && caller.job_id.is_some()
+            && op.job_key == JobKey::Never
+        {
+            return Err(OpError::unknown_operation(op.name));
+        }
 
         // Who is asking, against the level the Operation is declared with. A
         // Runner Key reaches the Runner's own Operations and no other, the
@@ -557,9 +581,11 @@ impl Core {
 
     /// Resolve a raw Secret to the Person it acts as, for everything that is
     /// not `execute`: the routes outside the Catalogue. A Runner Key acts as no
-    /// Person, so it is refused here whatever the route.
+    /// Person, so it is refused here whatever the route. So is a Job Key,
+    /// whose whole reach is its list in the Catalogue.
     fn resolve_credential(&self, secret: &str) -> Result<Caller, OpError> {
         match self.present(secret)? {
+            Asker::Person(caller) if caller.job_id.is_some() => Err(nothing_here_for_a_job_key()),
             Asker::Person(caller) => Ok(caller),
             Asker::Runner(_) => Err(runner_key_out_of_place("this route")),
             Asker::Nobody => Err(OpError::credential_names_nobody()),
@@ -567,8 +593,8 @@ impl Core {
     }
 
     /// Resolve a raw Secret to whoever it names, and record that it was used:
-    /// a Person, through a Session or an Access Key, or a Runner, through its
-    /// Runner Key. Stored hashed, never in the clear.
+    /// a Person, through a Session, an Access Key or a Job Key, or a Runner,
+    /// through its Runner Key. Stored hashed, never in the clear.
     fn present(&self, secret: &str) -> Result<Asker, OpError> {
         let hash = hash_secret(secret);
         match self.lookup_credential(&hash)? {
@@ -588,18 +614,35 @@ impl Core {
                     is_operator,
                     access_key_id,
                     session_id,
+                    job_id: None,
                 }))
             }
-            None => match self.lookup_runner_key(&hash)? {
-                Some(runner_key_id) => {
+            None => {
+                if let Some(runner_key_id) = self.lookup_runner_key(&hash)? {
                     self.record_use("runner_keys", &hash);
-                    Ok(Asker::Runner(RunnerCaller { runner_key_id }))
+                    return Ok(Asker::Runner(RunnerCaller { runner_key_id }));
                 }
-                // Unknown or already-revoked: the same answer either way, saying
-                // nothing about which. Marked, so the web door can take back a
-                // Session cookie it set that now names nobody (#91).
-                None => Err(OpError::credential_names_nobody()),
-            },
+                match self.lookup_job_key(&hash)? {
+                    // The asker as they stand now, an Operator or not. A Job
+                    // Key is no login, so what only a Person logged in
+                    // directly may do stays out of its reach whatever its
+                    // list comes to hold.
+                    Some((person_id, is_operator, job_id)) => Ok(Asker::Person(Caller {
+                        person_id,
+                        read_only: false,
+                        via_access_key: true,
+                        is_operator,
+                        access_key_id: None,
+                        session_id: None,
+                        job_id: Some(job_id),
+                    })),
+                    // Unknown, revoked or spent: the same answer each way,
+                    // saying nothing about which. Marked, so the web door can
+                    // take back a Session cookie it set that now names nobody
+                    // (#91).
+                    None => Err(OpError::credential_names_nobody()),
+                }
+            }
         }
     }
 
@@ -623,6 +666,7 @@ impl Core {
     /// for the kind of Credential alone:
     ///
     /// - a Runner Key is listed the Runner's own Operations and no other;
+    /// - a Job Key is listed the Operations marked for it and no other;
     /// - everyone else is listed every Operation but the Runner's, and a
     ///   read-only Access Key none that writes (ADR 0031).
     ///
@@ -639,11 +683,16 @@ impl Core {
         let is_runner = hash
             .as_deref()
             .is_some_and(|hash| matches!(self.lookup_runner_key(hash), Ok(Some(_))));
+        let is_job_key = hash
+            .as_deref()
+            .is_some_and(|hash| matches!(self.lookup_job_key(hash), Ok(Some(_))));
         catalogue::OPERATIONS
             .iter()
             .filter(|op| {
                 let left_out = if is_runner {
                     op.permission != Permission::Runner
+                } else if is_job_key {
+                    op.job_key == JobKey::Never
                 } else {
                     op.permission == Permission::Runner || (read_only && op.write)
                 };

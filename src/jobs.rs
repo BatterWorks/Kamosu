@@ -31,7 +31,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use crate::catalogue;
-use crate::core::{Asker, Caller, ErrorKind, Invocation, OpError};
+use crate::core::{Asker, Caller, ErrorKind, Invocation, OpError, generate_secret, hash_secret};
 use crate::db::Db;
 
 /// How often a client should look back at a running Job.
@@ -318,6 +318,8 @@ impl crate::core::Core {
                         access_key_id: None,
                         // Nor which Session: a Job lists no Sessions.
                         session_id: None,
+                        // A Job Key asks for no Job (ADR 0048).
+                        job_id: None,
                     });
                     let invocation = Invocation {
                         // A Job Kamosu does itself was asked for by a Person
@@ -536,12 +538,15 @@ pub fn agent_jobs_as_they_stand(
     Ok(states)
 }
 
-/// What a Runner is handed with a Job: what to read, and which recipe it is
-/// for (#262).
+/// What a Runner is handed with a Job: what to read, which recipe it is for
+/// (#262), and the Job Key its agent presents (#263).
 pub struct AgentWork {
     pub job_id: String,
     pub branch_id: String,
     pub link: String,
+    /// The Job Key's raw Secret. Only its hash is kept, so this is the one
+    /// time it is known.
+    pub job_key: String,
 }
 
 /// Hand the Runner holding `runner_key_id` a Job to do (ADR 0048, #262).
@@ -551,6 +556,10 @@ pub struct AgentWork {
 /// it takes the oldest that waits, which is running from here on. Taking the
 /// connection is what keeps two Runners off one Job: the looking and the
 /// taking are one turn at the database.
+///
+/// Every answer carries a Job Key minted for it, and only the newest one
+/// stands. The Secret is not kept, so a Runner asking again cannot be told
+/// the one it lost.
 pub fn take_for_runner(
     conn: &Connection,
     runner_key_id: &str,
@@ -568,28 +577,40 @@ pub fn take_for_runner(
               LIMIT 1",
             params![runner_key_id],
             |row| {
-                let work = AgentWork {
-                    job_id: row.get(0)?,
-                    branch_id: row.get(1)?,
-                    link: row.get(2)?,
-                };
-                Ok((work, row.get::<_, bool>(3)?))
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get::<_, bool>(3)?,
+                ))
             },
         )
         .optional()
         .map_err(failed)?;
-    let Some((work, already_held)) = found else {
+    let Some((job_id, branch_id, link, already_held)) = found else {
         return Ok(None);
     };
+    let work = AgentWork {
+        job_id,
+        branch_id,
+        link,
+        job_key: generate_secret(),
+    };
+    let job_key_hash = hash_secret(&work.job_key);
     if already_held {
+        conn.execute(
+            "UPDATE agent_jobs SET job_key_hash = ?2 WHERE job_id = ?1",
+            params![work.job_id, job_key_hash],
+        )
+        .map_err(failed)?;
         return Ok(Some(work));
     }
     // Both rows move or neither does: a Job is held only while it is running
     // and names its Runner.
     let tx = conn.unchecked_transaction().map_err(failed)?;
     tx.execute(
-        "UPDATE agent_jobs SET held_by = ?2 WHERE job_id = ?1",
-        params![work.job_id, runner_key_id],
+        "UPDATE agent_jobs SET held_by = ?2, job_key_hash = ?3 WHERE job_id = ?1",
+        params![work.job_id, runner_key_id, job_key_hash],
     )
     .map_err(failed)?;
     tx.execute(
