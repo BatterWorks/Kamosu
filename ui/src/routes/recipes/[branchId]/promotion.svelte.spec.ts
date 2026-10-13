@@ -102,10 +102,15 @@ const cooking = (): DeclinePromotionOutput => ({
 	},
 });
 
-/** The same cooking on the Thread, which also says which Version it counts for (#209). */
+/**
+ * The same cooking on the Thread, which also says which Version it counts
+ * for (#209) and whose it is (#249).
+ */
 const attempt = (over: Partial<Attempt> = {}): Attempt => ({
 	...cooking(),
 	eaten_version_id: 'v_1',
+	person_name: 'Stéphane',
+	mine: true,
 	...over,
 });
 

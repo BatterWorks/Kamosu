@@ -98,7 +98,9 @@
 	 *
 	 * A Thread this phone kept from before the Core said so carries no such
 	 * id. Its cookings stay where they were shown until the read is fresh,
-	 * rather than dropping off the History for one visit.
+	 * rather than dropping off the History for one visit. Nor does it say
+	 * whose a cooking is (#249): the reader's own are told by their id, and
+	 * a cook it has no name for is said to be one.
 	 */
 	const attemptsByVersion = $derived.by(() => {
 		const map = new Map<string, Attempt[]>();
@@ -106,7 +108,11 @@
 			const fromThisPhone: Partial<Attempt> = attempt;
 			const eaten = fromThisPhone.eaten_version_id ?? attempt.version_id;
 			const list = map.get(eaten) ?? [];
-			list.push(attempt);
+			list.push({
+				...attempt,
+				mine: fromThisPhone.mine ?? attempt.person_id === me,
+				person_name: fromThisPhone.person_name ?? m.thread_unnamed_hand(),
+			});
 			map.set(eaten, list);
 		}
 		return map;
@@ -127,14 +133,32 @@
 		);
 	}
 
-	let openAttempt = $state<Attempt | undefined>(undefined);
+	/**
+	 * The cookings a pressed badge stands for, oldest first (#249): the
+	 * reader's own of one Version, or everyone else's.
+	 */
+	let openCookings = $state<Attempt[] | undefined>(undefined);
 
-	/** What an Attempt's sheet is called, and what it says first. */
+	/** What one cooking is called: when, and by whom where that is not the reader. */
 	const whenCooked = (attempt: Attempt) =>
-		m.thread_attempt_cooked({ when: aDate(attempt.created_at) });
+		attempt.mine
+			? m.thread_attempt_cooked({ when: aDate(attempt.created_at) })
+			: m.thread_attempt_cooked_by({
+					name: attempt.person_name,
+					when: aDate(attempt.created_at),
+				});
+
+	/** What the open sheet is called, and what it says first. */
+	function sheetTitle(cookings: Attempt[]): string {
+		if (cookings.length === 1) return whenCooked(cookings[0]);
+		const count = cookings.length;
+		return cookings[0].mine
+			? m.thread_cookings_yours({ count })
+			: m.thread_cookings_others({ count });
+	}
 
 	function closeSheets() {
-		openAttempt = undefined;
+		openCookings = undefined;
 	}
 </script>
 
@@ -150,7 +174,7 @@
 			{attemptsByVersion}
 			{languageSaid}
 			onOpenVersion={openVersion}
-			onOpenAttempt={(attempt) => (openAttempt = attempt)}
+			onOpenCookings={(cookings) => (openCookings = cookings)}
 			onRenamed={reread}
 		/>
 	{/if}
@@ -175,15 +199,39 @@
 	</SheetFrame>
 {/snippet}
 
-{#if openAttempt}
-	{@render sheet(whenCooked(openAttempt), attemptDetail)}
+{#if openCookings}
+	{@render sheet(sheetTitle(openCookings), cookingsDetail)}
 {/if}
-{#snippet attemptDetail()}
+{#snippet cookingsDetail()}
+	{@const cookings = openCookings ?? []}
 	<p class="font-display text-body font-semibold text-ink">
-		{whenCooked(openAttempt!)}
+		{sheetTitle(cookings)}
 	</p>
-	{#if openAttempt!.rating}
-		<p class="text-body text-ink">{ratingLabel(openAttempt!.rating)}</p>
+	{#if cookings.length === 1}
+		{@const cooking = cookings[0]}
+		{#if cooking.rating}
+			<p class="text-body text-ink">{ratingLabel(cooking.rating)}</p>
+		{/if}
+		<p class="mt-1 text-body text-ink-2">{cooking.note ?? m.thread_attempt_no_note()}</p>
+	{:else}
+		<!-- Newest first: the rating on the badge is the one at the top that has one.
+		     Below the Close button, which floats, and scrolling inside the sheet. -->
+		<ul class="clear-both max-h-[60vh] overflow-y-auto">
+			{#each [...cookings].reverse() as cooking (cooking.id)}
+				<li class="border-b border-rule py-2 last:border-b-0">
+					<p class="text-read text-ink">
+						<span class="font-semibold">
+							{cooking.mine
+								? aDate(cooking.created_at)
+								: `${cooking.person_name} · ${aDate(cooking.created_at)}`}
+						</span>
+						{#if cooking.rating}
+							{` · ${ratingLabel(cooking.rating)}`}
+						{/if}
+					</p>
+					<p class="text-read text-ink-2">{cooking.note ?? m.thread_attempt_no_note()}</p>
+				</li>
+			{/each}
+		</ul>
 	{/if}
-	<p class="mt-1 text-body text-ink-2">{openAttempt!.note ?? m.thread_attempt_no_note()}</p>
 {/snippet}

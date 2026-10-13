@@ -1962,7 +1962,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       with every Attempt hanging off it. An Attempt's \
                       eaten_version_id is the Version its rating is about: the \
                       As Cooked once that was kept as a Version, otherwise the \
-                      Version it started from. branch_id is only the \
+                      Version it started from. Its person_name is who cooked, \
+                      and mine says whether that is you. branch_id is only the \
                       entry point — any Branch of the Lineage answers the same \
                       Thread.",
             permission: Permission::Person,
@@ -5525,19 +5526,31 @@ fn attempt_or_null_schema() -> Value {
 /// `version_id`. It is served for every cook, a Kitchen-mate whose As Cooked
 /// is withheld included, and it only ever names a Version already on the
 /// Thread.
+///
+/// `mine` and `person_name` say whose cooking it is (#249). The History keeps
+/// the reader's own cookings of a Version apart from everyone else's and names
+/// whose those are, and an Attempt alone says only `person_id`. `mine` is
+/// said the way a Thread's Branch says it, so a screen is told and does not
+/// work it out.
 fn thread_attempt_schema() -> Value {
-    attempt_schema_with("eaten_version_id", json!({ "type": "string" }))
+    attempt_schema_with(&[
+        ("eaten_version_id", json!({ "type": "string" })),
+        ("mine", json!({ "type": "boolean" })),
+        ("person_name", json!({ "type": "string" })),
+    ])
 }
 
-/// `attempt_schema` with one more required field. How the Thread and the
-/// diary each grow their own Attempt from the one declared shape.
-fn attempt_schema_with(field: &str, declared: Value) -> Value {
+/// `attempt_schema` with more required fields. How the Thread and the diary
+/// each grow their own Attempt from the one declared shape.
+fn attempt_schema_with(fields: &[(&str, Value)]) -> Value {
     let mut schema = attempt_schema();
-    schema["properties"][field] = declared;
-    schema["required"]
-        .as_array_mut()
-        .expect("attempt_schema declares its required fields as an array")
-        .push(json!(field));
+    for (field, declared) in fields {
+        schema["properties"][*field] = declared.clone();
+        schema["required"]
+            .as_array_mut()
+            .expect("attempt_schema declares its required fields as an array")
+            .push(json!(field));
+    }
     schema
 }
 
@@ -5554,7 +5567,7 @@ fn attempt_schema_with(field: &str, declared: Value) -> Value {
 /// still offered is In Progress, not finished and no longer offered is a
 /// cooking somebody walked away from — which happened all the same (ADR 0010).
 fn diary_entry_schema() -> Value {
-    let mut schema = attempt_schema_with(
+    let mut schema = attempt_schema_with(&[(
         "recipe",
         json!({
             "type": "object",
@@ -5576,7 +5589,7 @@ fn diary_entry_schema() -> Value {
             "required": ["branch_id", "title", "written_yield"],
             "additionalProperties": false,
         }),
-    );
+    )]);
     // This cooking's changes not yet kept, as where keeping them as a Version
     // would land (#210), so the diary can offer it on the entry. **Null** where there is nothing to
     // keep: the cooking followed the recipe, the recipe has left the shelf,
