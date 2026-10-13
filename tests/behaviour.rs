@@ -13150,6 +13150,201 @@ async fn the_version_a_language_change_makes_leaves_the_chain_walkable() {
     assert_eq!(status, 200, "{divergence}");
 }
 
+fn spanish_mousse() -> Value {
+    json!({
+        "title": "Mousse de chocolate",
+        "ingredients": [
+            { "kind": "ingredient", "text": "200 g de chocolate negro para repostería" },
+            { "kind": "ingredient", "text": "6 huevos frescos, claras y yemas separadas" },
+            { "kind": "ingredient", "text": "Una pizca de sal fina" },
+        ],
+        "steps": [
+            { "kind": "step", "text": "Derrite el chocolate al baño maría muy despacio." },
+            { "kind": "step", "text": "Monta las claras a punto de nieve con la pizca de sal." },
+            { "kind": "step", "text": "Incorpora las claras al chocolate fundido con cuidado." },
+        ],
+    })
+}
+
+/// A Translation of `branch_id` into `language`: the recipe given, which is
+/// the source in that Language.
+fn translate(
+    app: &support::TestApp,
+    key: &str,
+    branch_id: &str,
+    language: &str,
+    mut recipe: Value,
+) -> String {
+    recipe["branch_id"] = json!(branch_id);
+    recipe["language"] = json!(language);
+    let (status, translated) = app.post_op("start_translation", Some(key), &recipe.to_string());
+    assert_eq!(status, 200, "{translated}");
+    translated["result"]["branch_id"]
+        .as_str()
+        .expect("a Branch id")
+        .to_string()
+}
+
+/// `branch_point` and `divergence` asked about two Branches, each from both
+/// sides: the four answers, with the Operation that gave each.
+fn asked_where_they_parted(
+    app: &support::TestApp,
+    key: &str,
+    one: &str,
+    other: &str,
+) -> Vec<(&'static str, u16, Value)> {
+    let mut answers = Vec::new();
+    for (a, b) in [(one, other), (other, one)] {
+        let (status, point) = app.post_op(
+            "branch_point",
+            Some(key),
+            &json!({ "branch_a_id": a, "branch_b_id": b }).to_string(),
+        );
+        answers.push(("branch_point", status, point));
+        let (status, divergence) = app.post_op(
+            "divergence",
+            Some(key),
+            &json!({ "branch_id": a, "other_branch_id": b }).to_string(),
+        );
+        answers.push(("divergence", status, divergence));
+    }
+    answers
+}
+
+/// Both Operations refuse the pair as a question with no answer, and say where
+/// the link between a Translation and its source is held.
+fn assert_refused_as_a_translation(app: &support::TestApp, key: &str, one: &str, other: &str) {
+    for (operation, status, answer) in asked_where_they_parted(app, key, one, other) {
+        assert_eq!(status, 400, "{operation}: {answer}");
+        assert_eq!(
+            answer["error"]["kind"],
+            json!("bad_request"),
+            "{operation}: {answer}"
+        );
+        let message = answer["error"]["message"].as_str().unwrap();
+        assert!(
+            !message.contains("damaged"),
+            "{operation} calls a healthy recipe damaged: {message}"
+        );
+        assert!(
+            message.contains("Translation") && message.contains("translates_version_id"),
+            "{operation} does not say where the link is held: {message}"
+        );
+    }
+}
+
+/// **Issue #251.** A Translation's chain starts fresh (ADR 0006), so it shares
+/// no Version with the recipe it translates. Asking where the two parted has
+/// no answer, and used to be answered as a damaged Bundle.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translation_has_no_branch_point_with_its_source_and_is_not_called_damaged() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let french = translate(&app, &key, &english, "fr", french_mousse());
+
+    assert_refused_as_a_translation(&app, &key, &english, &french);
+
+    // Two Translations of one recipe share nothing with each other either.
+    let spanish = translate(&app, &key, &english, "es", spanish_mousse());
+    assert_refused_as_a_translation(&app, &key, &french, &spanish);
+    assert_refused_as_a_translation(&app, &key, &english, &spanish);
+}
+
+/// A Spanish Translation made from the French one (#251): it shares no Version
+/// with the French it renders, nor with the English behind that.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translation_of_a_translation_has_no_branch_point_with_its_source() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let french = translate(&app, &key, &english, "fr", french_mousse());
+    let spanish = translate(&app, &key, &french, "es", spanish_mousse());
+
+    assert_refused_as_a_translation(&app, &key, &french, &spanish);
+    assert_refused_as_a_translation(&app, &key, &english, &spanish);
+}
+
+/// The other side of #251: a recipe that has Translations still answers about
+/// its variation exactly as a recipe with none does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_with_a_translation_still_has_a_branch_point_with_its_variation() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": english }).to_string(),
+    );
+    let first_version = read["result"]["head_version_id"].clone();
+    translate(&app, &key, &english, "fr", french_mousse());
+
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": english, "name": "The other way" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let variation = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    let mut changed = english_mousse();
+    changed["branch_id"] = json!(variation);
+    changed["title"] = json!("Chocolate Mousse, the other way");
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &changed.to_string());
+    assert_eq!(status, 200, "{saved}");
+
+    for (operation, status, answer) in asked_where_they_parted(&app, &key, &english, &variation) {
+        assert_eq!(status, 200, "{operation}: {answer}");
+        let parted_at = match operation {
+            "branch_point" => &answer["result"]["version_id"],
+            _ => &answer["result"]["branch_point_version_id"],
+        };
+        assert_eq!(parted_at, &first_version, "{operation}: {answer}");
+    }
+}
+
+/// Two Branches of one Lineage that share no Version, neither a Translation:
+/// nothing Kamosu writes leaves that behind, so it is still damage (#251).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_branches_sharing_no_version_and_translating_nothing_are_still_damaged() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let mousse = shelve(&app, &key, "Chocolate Mousse");
+    let tart = shelve(&app, &key, "Lemon Tart");
+
+    // A Bundle arriving broken, simulated directly: the tart filed under the
+    // mousse's Lineage, with a chain of its own that never meets it.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branches SET lineage_id = ( \
+                     SELECT lineage_id FROM branches WHERE id = ?1 \
+                 ) WHERE id = ?2",
+                rusqlite::params![mousse, tart],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("file the tart under the mousse's Lineage");
+
+    for (operation, status, answer) in asked_where_they_parted(&app, &key, &mousse, &tart) {
+        assert_eq!(status, 500, "{operation}: {answer}");
+        assert_eq!(
+            answer["error"]["kind"],
+            json!("internal"),
+            "{operation}: {answer}"
+        );
+        assert!(
+            answer["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("damaged"),
+            "{operation}: {answer}"
+        );
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_rapid_re_save_never_collapses_away_the_version_a_translation_renders() {
     // Found by live acceptance, not by these tests, because every other test

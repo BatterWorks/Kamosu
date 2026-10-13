@@ -2777,7 +2777,7 @@ export type ReadSharedRecipeOutput = {
 	}[];
 };
 
-/** Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */
+/** Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. A Translation has no Branch Point with its source, nor with another Translation of it: its chain starts fresh, so the two share no Version and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions. */
 export type BranchPointInput = {
 	branch_a_id: string;
 	branch_b_id: string;
@@ -2787,7 +2787,7 @@ export type BranchPointOutput = {
 	version_id: string;
 };
 
-/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. */
+/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. A Translation has no Branch Point with its source, nor with another Translation of it, and the two are in different Languages, so nothing pairs their lines and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions. */
 export type DivergenceInput = {
 	branch_id: string;
 	other_branch_id: string;
@@ -19425,7 +19425,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "branch_point",
-		"summary": "Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess.",
+		"summary": "Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. A Translation has no Branch Point with its source, nor with another Translation of it: its chain starts fresh, so the two share no Version and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -19459,7 +19459,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "divergence",
-		"summary": "Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection.",
+		"summary": "Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. A Translation has no Branch Point with its source, nor with another Translation of it, and the two are in different Languages, so nothing pairs their lines and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -30406,9 +30406,9 @@ export interface KamosuClient {
 	importBundle(input: ImportBundleInput): Promise<Answer<'import_bundle'>>;
 	/** Read a Recipe through its Share Link token. The answer is the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */
 	readSharedRecipe(input: ReadSharedRecipeInput): Promise<Answer<'read_shared_recipe'>>;
-	/** Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */
+	/** Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. A Translation has no Branch Point with its source, nor with another Translation of it: its chain starts fresh, so the two share no Version and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions. */
 	branchPoint(input: BranchPointInput): Promise<Answer<'branch_point'>>;
-	/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. */
+	/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. A Translation has no Branch Point with its source, nor with another Translation of it, and the two are in different Languages, so nothing pairs their lines and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions. */
 	divergence(input: DivergenceInput): Promise<Answer<'divergence'>>;
 	/** See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch. */
 	changedSince(input: ChangedSinceInput): Promise<Answer<'changed_since'>>;
