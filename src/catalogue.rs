@@ -1514,6 +1514,26 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                                             },
                                             "offered": { "type": "integer" },
                                             "unreadable": { "type": "integer" },
+                                            "agent_jobs": {
+                                                "type": "array",
+                                                "description": "Present when this arrival left \
+                                                                 a recipe for a Runner's agent \
+                                                                 to read: that Job and its \
+                                                                 state now. It is part of this \
+                                                                 arrival and is listed nowhere \
+                                                                 else here. `queued` is waiting \
+                                                                 for a Runner.",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "job_id": { "type": "string" },
+                                                        "branch_id": { "type": "string" },
+                                                        "status": { "enum": ["queued", "running", "completed", "failed", "cancelled"] },
+                                                    },
+                                                    "required": ["job_id", "branch_id", "status"],
+                                                    "additionalProperties": false,
+                                                },
+                                            },
                                         },
                                         "required": ["job_id", "status", "created_at", "arrived", "created", "offered", "unreadable"],
                                         "additionalProperties": false,
@@ -1575,7 +1595,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       whole as the recipe file it serves, exactly as \
                       `import_bundle` receives one, with every Version and its \
                       original Source; an ended link is refused and lands \
-                      nothing (#169). Fetching is bound to public \
+                      nothing (#169). While the instance has a Runner, a \
+                      page with no recipe data, or one that refused the \
+                      fetch, lands as a bare recipe and `agent_jobs` names \
+                      the Job waiting for an agent to read it. Fetching is bound to public \
                       addresses at the dialled address and at every redirect \
                       (ADR 0033), and — because a page's own text can tell an \
                       agent to fetch another URL — always takes the single \
@@ -4954,6 +4977,29 @@ fn import_report_schema() -> Value {
                         },
                     },
                     "required": ["foreign_id", "branch_id", "title", "what", "count"],
+                    "additionalProperties": false,
+                },
+            },
+            "agent_jobs": {
+                "type": "array",
+                "description": "Present when a Runner's agent is to read what Kamosu could \
+                                 not: the Job that waits on each such recipe, which is a \
+                                 second Job after this Import, done by that agent and not \
+                                 by Kamosu. Read it with `get_job`, where its operation is \
+                                 `read_by_agent` and it is `queued` until a Runner takes it, \
+                                 and cancel it with `cancel_job`. A recipe has one such Job at a time, so the \
+                                 same link imported again while it waits names the same Job.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "job_id": { "type": "string" },
+                        "branch_id": {
+                            "type": "string",
+                            "description": "The recipe the agent is to write, which is \
+                                             listed under `arrived` or `offered`.",
+                        },
+                    },
+                    "required": ["job_id", "branch_id"],
                     "additionalProperties": false,
                 },
             },

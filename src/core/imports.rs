@@ -167,12 +167,19 @@ impl Core {
                 ) else {
                     continue;
                 };
-                let summary = arrival_summary(
+                let mut summary = arrival_summary(
                     &row.job_id,
                     &row.status,
                     &row.created_at,
                     row.result.as_ref(),
                 );
+                // The agent's Job is found from its arrival, which named it
+                // in its Report, and read as it stands now: the Report was
+                // written when the Import ended and the Job has moved since.
+                let agent_jobs = arrival_agent_jobs(conn, row.result.as_ref())?;
+                if !agent_jobs.is_empty() {
+                    summary["agent_jobs"] = json!(agent_jobs);
+                }
                 match grouped.iter_mut().find(|(kind, _)| *kind == source_kind) {
                     Some((_, rows)) => rows.push(summary),
                     None => grouped.push((source_kind, vec![summary])),
@@ -505,6 +512,39 @@ impl Core {
             "left_out": left_out,
             "related_candidates": related_candidates,
         }))
+    }
+
+    /// Have an agent read the link one Import just landed bare (ADR 0048,
+    /// #261), and say so in that Import's Report.
+    ///
+    /// A recipe that `arrived` is the bare reading and nothing else, newly
+    /// made or found unchanged, and a Job is made on it unless one stands
+    /// already. A recipe that was `offered` the bare reading holds more than
+    /// that: Kamosu read it in full once, or somebody wrote it since. Sending
+    /// that to an agent is for a Co-author to ask (ADR 0048), so only a Job
+    /// already standing on it is named. A candidate that landed nothing has
+    /// no recipe for a Job to be on.
+    pub fn hand_link_to_agent(
+        &self,
+        caller: &Caller,
+        mut report: Value,
+        link: &str,
+    ) -> Result<Value, OpError> {
+        let branch_of = |rows: &str| report[rows][0]["branch_id"].as_str().map(str::to_string);
+        let job = self.db().with_conn(|conn| {
+            if let Some(branch_id) = branch_of("arrived") {
+                let job_id = jobs::wait_for_agent(conn, caller, &branch_id, link)?;
+                return Ok(Some((job_id, branch_id)));
+            }
+            let Some(branch_id) = branch_of("offered") else {
+                return Ok(None);
+            };
+            Ok(jobs::standing_agent_job(conn, &branch_id)?.map(|job_id| (job_id, branch_id)))
+        })?;
+        if let Some((job_id, branch_id)) = job {
+            report["agent_jobs"] = json!([{ "job_id": job_id, "branch_id": branch_id }]);
+        }
+        Ok(report)
     }
 
     /// One candidate against the ledger: unseen becomes a new Lineage,
@@ -956,6 +996,36 @@ fn arrival_summary(job_id: &str, status: &str, created_at: &str, result: Option<
         "offered": count("offered"),
         "unreadable": count("unreadable"),
     })
+}
+
+/// The agent's Jobs an arrival's Report names, each with the recipe it is on
+/// and its state now (#261).
+fn arrival_agent_jobs(conn: &Connection, result: Option<&Value>) -> Result<Vec<Value>, OpError> {
+    let named: Vec<(String, Value)> = result
+        .and_then(|report| report.get("agent_jobs"))
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| {
+                    Some((
+                        row["job_id"].as_str()?.to_string(),
+                        row["branch_id"].clone(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let ids: Vec<String> = named.iter().map(|(job_id, _)| job_id.clone()).collect();
+    let statuses = jobs::agent_job_statuses(conn, &ids)?;
+    Ok(named
+        .into_iter()
+        .filter_map(|(job_id, branch_id)| {
+            let (_, status) = statuses.iter().find(|(id, _)| *id == job_id)?;
+            Some(json!({
+                "job_id": job_id, "branch_id": branch_id, "status": status.as_str(),
+            }))
+        })
+        .collect())
 }
 
 /// An Import id that names nothing here — and, by ADR 0040, an Import of a

@@ -1007,6 +1007,14 @@ pub fn import(core: &Core, invocation: &Invocation, input: Value) -> Result<Valu
 /// both the ledger's foreign id and the Version's Source link, so re-running
 /// the import on the same page matches instead of doubling the library.
 ///
+/// On an instance with a Runner, a link Kamosu cannot read goes to an agent
+/// (ADR 0048, #261). That is a page with no structured recipe data, a video
+/// among them, and a page that answered the fetch with a refusal. It lands
+/// as a bare recipe at once, and a Job for the agent waits on that recipe.
+/// This Import still ends here: the agent's Job is a second Job, named in
+/// the Report. Something that is no link, an address Kamosu will not dial
+/// and a host that never answered are refused as they always were.
+///
 /// A Kamosu Share Link is not read as a web page (#169). Its page carries no
 /// JSON-LD, and flattening it would lose the recipe's History in any case: it
 /// is received as the Bundle it serves, exactly as `import_bundle` receives
@@ -1041,8 +1049,29 @@ pub fn import_web_link(
     if let Some(progress) = progress {
         progress.report(0, None, "reading the page".to_string());
     }
-    let (html, effective_url) = crate::web_import::fetch_page(url)?;
-    let parsed = crate::web_import::extract_recipe(&html, &effective_url);
+    // Asked once, before the fetch, so one answer decides both what a refusal
+    // lands and whether a Job follows.
+    let has_runner = core.has_runner()?;
+    let (parsed, effective_url) = match crate::web_import::fetch_page(url)? {
+        crate::web_import::Page::Read {
+            html,
+            effective_url,
+        } => (
+            crate::web_import::extract_recipe(&html, &effective_url),
+            effective_url,
+        ),
+        // A page that refused Kamosu may let an agent in (ADR 0048), so it
+        // lands as a bare recipe for the agent to fill.
+        crate::web_import::Page::Refused { effective_url, .. } if has_runner => (
+            crate::web_import::unread_page(&effective_url),
+            effective_url,
+        ),
+        crate::web_import::Page::Refused { status, .. } => {
+            return Err(OpError::bad_request(format!(
+                "that page answered with {status}"
+            )));
+        }
+    };
 
     // A photo that failed to fetch, decode or remake never fails the recipe
     // (#45's rule for an uploaded picture, applied the same way to one
@@ -1110,7 +1139,11 @@ pub fn import_web_link(
         "steps": steps,
     });
 
-    core.import(caller, "web", &[candidate], progress)
+    let report = core.import(caller, "web", &[candidate], progress)?;
+    if has_runner && !parsed.found_recipe {
+        return core.hand_link_to_agent(caller, report, &effective_url);
+    }
+    Ok(report)
 }
 
 /// What importing a Share Link would do, before it does it (#170): the page

@@ -11780,6 +11780,459 @@ mod web_link_importer {
              inventing a plausible figure"
         );
     }
+
+    // --- A link Kamosu cannot read waits for an agent (#261, ADR 0048) ------
+
+    const NO_RECIPE_DATA: &str =
+        "<html><head><title>Just a blog post</title></head><body>no recipe here</body></html>";
+
+    /// A cook with an Access Key, on an instance where a Runner Key stands
+    /// when `runner` says so.
+    fn cook_beside_a_runner(app: &support::TestApp, runner: bool) -> String {
+        let person = app.core.create_person("Stéphane").expect("person");
+        if runner {
+            app.core
+                .mint_runner_key("the kitchen's Runner")
+                .expect("a Runner Key");
+        }
+        app.core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret
+    }
+
+    fn a_page_with_no_recipe_data() -> String {
+        spawn_recipe_server(|_base| NO_RECIPE_DATA.to_string(), None)
+    }
+
+    /// A page that answers every fetch with `status` and no recipe.
+    fn a_page_that_refuses(status: u16) -> String {
+        kamosu::web_import::allow_loopback_fetches_for_tests();
+        let status = axum::http::StatusCode::from_u16(status).unwrap();
+        let router = axum::Router::new().route(
+            "/recipe",
+            axum::routing::get(move || async move { (status, "go away") }),
+        );
+        let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+        std_listener.set_nonblocking(true).unwrap();
+        let listener = tokio::net::TcpListener::from_std(std_listener).expect("async listener");
+        let addr = listener.local_addr().expect("local addr");
+        tokio::spawn(async move {
+            axum::serve(listener, router)
+                .await
+                .expect("refusing test server");
+        });
+        format!("http://{addr}/recipe")
+    }
+
+    fn job(app: &support::TestApp, key: &str, job_id: &str) -> Value {
+        let (status, read) = app.post_op(
+            "get_job",
+            Some(key),
+            &json!({ "job_id": job_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{read}");
+        read["result"].clone()
+    }
+
+    /// How many recipes and how many agent's Jobs the instance holds.
+    fn recipes_and_agent_jobs(app: &support::TestApp) -> (i64, i64) {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                let count = |table: &str| {
+                    conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .unwrap()
+                };
+                Ok((count("branches"), count("agent_jobs")))
+            })
+            .unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn beside_a_runner_a_page_with_no_recipe_data_lands_bare_and_a_job_waits_on_it() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, true);
+        let url = a_page_with_no_recipe_data();
+
+        // The Import the cook asked for ends at once, with the bare recipe.
+        let report = import_web_link_and_wait(&app, &key, &url);
+        let arrived = &report["arrived"];
+        assert_eq!(arrived.as_array().unwrap().len(), 1, "{report}");
+        assert_eq!(arrived[0]["status"], json!("created"));
+        assert_eq!(arrived[0]["bare"], json!(true));
+        assert_eq!(arrived[0]["title"], json!("Just a blog post"));
+
+        // A second Job follows it, on that recipe, and waits.
+        let agent_jobs = report["agent_jobs"].as_array().expect("an agent's Job");
+        assert_eq!(agent_jobs.len(), 1, "{report}");
+        assert_eq!(agent_jobs[0]["branch_id"], arrived[0]["branch_id"]);
+        let job_id = agent_jobs[0]["job_id"].as_str().unwrap();
+        let waiting = job(&app, &key, job_id);
+        assert_eq!(waiting["status"], json!("queued"), "{waiting}");
+        assert_eq!(waiting["operation"], json!("read_by_agent"));
+
+        // It is a Job like any other: listed among the cook's own.
+        let (_, listed) = app.post_op("list_jobs", Some(&key), "{}");
+        assert!(
+            listed["result"]["jobs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["id"] == json!(job_id) && row["status"] == json!("queued")),
+            "{listed}"
+        );
+
+        // Neither lane carries it. A lane that tried would have ended it.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert_eq!(job(&app, &key, job_id)["status"], json!("queued"));
+
+        // And the cook can cancel it while it waits.
+        let (_, cancelled) = app.post_op(
+            "cancel_job",
+            Some(&key),
+            &json!({ "job_id": job_id }).to_string(),
+        );
+        assert_eq!(cancelled["result"], json!({ "cancelled": true }));
+        assert_eq!(job(&app, &key, job_id)["status"], json!("cancelled"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn beside_a_runner_a_page_that_refused_the_fetch_lands_bare_and_a_job_waits_on_it() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, true);
+        let url = a_page_that_refuses(403);
+
+        let report = import_web_link_and_wait(&app, &key, &url);
+        let arrived = &report["arrived"];
+        assert_eq!(arrived.as_array().unwrap().len(), 1, "{report}");
+        assert_eq!(arrived[0]["status"], json!("created"));
+        assert_eq!(arrived[0]["bare"], json!(true));
+        // No page was read, so the link is the only name there is.
+        assert_eq!(arrived[0]["title"], json!(url));
+
+        let branch_id = arrived[0]["branch_id"].as_str().unwrap();
+        let (_, recipe) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(
+            recipe["result"]["versions"][0]["content"]["source"]["link"],
+            json!(url)
+        );
+
+        let job_id = report["agent_jobs"][0]["job_id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{report}"));
+        assert_eq!(report["agent_jobs"][0]["branch_id"], json!(branch_id));
+        assert_eq!(job(&app, &key, job_id)["status"], json!("queued"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn beside_a_runner_a_page_kamosu_reads_makes_no_job_for_an_agent() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, true);
+        let url = spawn_recipe_server(
+            |_base| {
+                r#"<html><head><script type="application/ld+json">
+                {"@type": "Recipe", "name": "Flan", "recipeIngredient": ["4 eggs"]}
+                </script></head><body></body></html>"#
+                    .to_string()
+            },
+            None,
+        );
+
+        let report = import_web_link_and_wait(&app, &key, &url);
+        assert_eq!(report["arrived"][0]["title"], json!("Flan"));
+        assert_eq!(report.get("agent_jobs"), None, "{report}");
+        assert_eq!(recipes_and_agent_jobs(&app), (1, 0));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn beside_a_runner_what_kamosu_never_got_an_answer_from_is_still_refused() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, true);
+        kamosu::web_import::allow_loopback_fetches_for_tests();
+
+        // A port nothing listens on: bound to learn a free one, then let go.
+        let silent = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+            listener.local_addr().unwrap()
+        };
+        for (what, url) in [
+            ("something that is no link", "a tart I saw".to_string()),
+            (
+                "a link that is no web page",
+                "ftp://example.com/tart".to_string(),
+            ),
+            (
+                "an address Kamosu will not dial",
+                "http://10.0.0.1/tart".to_string(),
+            ),
+            (
+                "a host that never answered",
+                format!("http://{silent}/tart"),
+            ),
+        ] {
+            let finished = import_web_link_to_the_end(&app, &key, &url);
+            assert_eq!(finished["status"], json!("failed"), "{what}: {finished}");
+            assert_eq!(recipes_and_agent_jobs(&app), (0, 0), "{what}");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn with_no_runner_a_link_kamosu_cannot_read_is_as_it_was() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, false);
+
+        // No recipe data: the bare recipe, and nothing about an agent.
+        let report = import_web_link_and_wait(&app, &key, &a_page_with_no_recipe_data());
+        assert_eq!(report["arrived"][0]["bare"], json!(true), "{report}");
+        assert_eq!(report.get("agent_jobs"), None, "{report}");
+        assert_eq!(recipes_and_agent_jobs(&app), (1, 0));
+
+        // A refusal: the Import fails in the page's own status and lands nothing.
+        let finished = import_web_link_to_the_end(&app, &key, &a_page_that_refuses(403));
+        assert_eq!(finished["status"], json!("failed"), "{finished}");
+        assert_eq!(
+            finished["error"],
+            json!("that page answered with 403 Forbidden")
+        );
+        assert_eq!(recipes_and_agent_jobs(&app), (1, 0));
+
+        // A Runner Key that was revoked is no Runner.
+        let minted = app.core.mint_runner_key("gone").unwrap();
+        app.core.revoke_runner_key(&minted.id).unwrap();
+        let finished = import_web_link_to_the_end(&app, &key, &a_page_that_refuses(403));
+        assert_eq!(finished["status"], json!("failed"), "{finished}");
+        assert_eq!(recipes_and_agent_jobs(&app), (1, 0));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn kamosu_restarted_leaves_an_agents_job_waiting() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app = support::spawn_app_in(dir.path());
+        let key = cook_beside_a_runner(&app, true);
+
+        let report = import_web_link_and_wait(&app, &key, &a_page_with_no_recipe_data());
+        let job_id = report["agent_jobs"][0]["job_id"].as_str().unwrap();
+
+        // A second Kamosu on the same data directory is what a restart is:
+        // it recovers the Jobs it finds before it answers anything.
+        let restarted = support::spawn_app_in(dir.path());
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let waiting = job(&restarted, &key, job_id);
+        assert_eq!(waiting["status"], json!("queued"), "{waiting}");
+        assert_eq!(waiting["error"], Value::Null, "{waiting}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_same_link_again_while_its_job_waits_answers_that_job() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, true);
+        let url = a_page_with_no_recipe_data();
+
+        let first = import_web_link_and_wait(&app, &key, &url);
+        let second = import_web_link_and_wait(&app, &key, &url);
+
+        assert_eq!(second["arrived"][0]["status"], json!("unchanged"));
+        assert_eq!(second["agent_jobs"], first["agent_jobs"], "{second}");
+        assert_eq!(recipes_and_agent_jobs(&app), (1, 1));
+
+        // Once that Job has ended, the link handed over again starts another.
+        let job_id = first["agent_jobs"][0]["job_id"].as_str().unwrap();
+        app.post_op(
+            "cancel_job",
+            Some(&key),
+            &json!({ "job_id": job_id }).to_string(),
+        );
+        let third = import_web_link_and_wait(&app, &key, &url);
+        assert_ne!(third["agent_jobs"][0]["job_id"], json!(job_id), "{third}");
+        assert_eq!(recipes_and_agent_jobs(&app), (1, 2));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_somebody_has_written_since_is_not_sent_to_an_agent_unasked() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, true);
+        let url = a_page_with_no_recipe_data();
+
+        let first = import_web_link_and_wait(&app, &key, &url);
+        let job_id = first["agent_jobs"][0]["job_id"].as_str().unwrap();
+        let branch_id = first["agent_jobs"][0]["branch_id"].as_str().unwrap();
+        let (status, edited) = app.post_op(
+            "edit_recipe",
+            Some(&key),
+            &json!({
+                "branch_id": branch_id,
+                "ingredients": [{ "kind": "ingredient", "text": "4 eggs" }],
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{edited}");
+
+        // The Job still waits on it, so the link handed over again answers it.
+        let again = import_web_link_and_wait(&app, &key, &url);
+        assert_eq!(
+            again["offered"][0]["branch_id"],
+            json!(branch_id),
+            "{again}"
+        );
+        assert_eq!(again["agent_jobs"], first["agent_jobs"], "{again}");
+
+        // With that Job ended, the recipe is the cook's own writing, and no
+        // Job is made behind their back.
+        app.post_op(
+            "cancel_job",
+            Some(&key),
+            &json!({ "job_id": job_id }).to_string(),
+        );
+        let later = import_web_link_and_wait(&app, &key, &url);
+        assert_eq!(
+            later["offered"][0]["branch_id"],
+            json!(branch_id),
+            "{later}"
+        );
+        assert_eq!(later.get("agent_jobs"), None, "{later}");
+        assert_eq!(recipes_and_agent_jobs(&app), (1, 1));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn beside_a_runner_a_page_that_is_not_there_is_refused_and_a_share_link_is_a_bundle() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, true);
+
+        // A mistyped link: the site says there is no such page.
+        for missing in [404, 410] {
+            let finished = import_web_link_to_the_end(&app, &key, &a_page_that_refuses(missing));
+            assert_eq!(finished["status"], json!("failed"), "{finished}");
+            assert_eq!(recipes_and_agent_jobs(&app), (0, 0), "{missing}");
+        }
+
+        // A Share Link still arrives as the Bundle it serves.
+        let (sender, _kitchen, pizza, ..) = a_pizza_worth_sending(&app);
+        let (_token, link) = share(&app, &sender, &pizza);
+        let report = import_web_link_and_wait(&app, &key, &link);
+        assert_eq!(report["source_kind"], json!("bundle"), "{report}");
+        assert_eq!(report.get("agent_jobs"), None, "{report}");
+        assert_eq!(recipes_and_agent_jobs(&app).1, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn deleting_the_recipe_ends_its_agents_job_and_says_why() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, true);
+
+        let report = import_web_link_and_wait(&app, &key, &a_page_with_no_recipe_data());
+        let job_id = report["agent_jobs"][0]["job_id"].as_str().unwrap();
+        let branch_id = report["agent_jobs"][0]["branch_id"].as_str().unwrap();
+
+        let (status, deleted) = app.post_op(
+            "delete_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{deleted}");
+
+        let ended = job(&app, &key, job_id);
+        assert_eq!(ended["status"], json!("failed"), "{ended}");
+        assert_eq!(ended["error"], json!("the recipe this Job was for is gone"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_list_of_imports_shows_the_bare_recipe_and_its_job_as_one_arrival() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, true);
+
+        let report = import_web_link_and_wait(&app, &key, &a_page_with_no_recipe_data());
+        let agent_job = report["agent_jobs"][0].clone();
+        let job_id = agent_job["job_id"].as_str().unwrap();
+
+        let arrivals = || {
+            let (status, listed) = app.post_op("list_imports", Some(&key), "{}");
+            assert_eq!(status, 200, "{listed}");
+            let imports = listed["result"]["imports"].as_array().unwrap().clone();
+            assert_eq!(imports.len(), 1, "{listed}");
+            assert_eq!(imports[0]["source_kind"], json!("web"));
+            imports[0]["arrivals"].as_array().unwrap().clone()
+        };
+
+        let listed = arrivals();
+        assert_eq!(listed.len(), 1, "the agent's Job is no arrival: {listed:?}");
+        assert_eq!(listed[0]["arrived"], json!(1));
+        assert_eq!(listed[0]["created"], json!(1));
+        assert_eq!(
+            listed[0]["agent_jobs"],
+            json!([{
+                "job_id": job_id,
+                "branch_id": agent_job["branch_id"],
+                "status": "queued",
+            }])
+        );
+
+        // The Report was written when the Import ended. The list reads the
+        // Job as it stands now.
+        app.post_op(
+            "cancel_job",
+            Some(&key),
+            &json!({ "job_id": job_id }).to_string(),
+        );
+        assert_eq!(arrivals()[0]["agent_jobs"][0]["status"], json!("cancelled"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_agent_at_the_mcp_door_asks_for_the_same_import_and_a_stranger_is_refused() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, true);
+        let url = a_page_with_no_recipe_data();
+
+        // No Credential, no Import: nobody holding only a Share Link can
+        // cause a Job for a Runner.
+        let (status, refused) =
+            app.post_op("import_web_link", None, &json!({ "url": url }).to_string());
+        assert_eq!(status, 401, "{refused}");
+        let stranger = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": "import_web_link", "arguments": { "url": url } },
+        });
+        let (_, refused) = app.post_mcp(&stranger.to_string(), None);
+        assert!(
+            refused["result"]["isError"] == json!(true) || refused.get("error").is_some(),
+            "{refused}"
+        );
+        assert_eq!(recipes_and_agent_jobs(&app), (0, 0));
+
+        let call = |name: &str, arguments: Value| {
+            let payload = json!({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": { "name": name, "arguments": arguments },
+            });
+            let answered = app.post_mcp(&payload.to_string(), Some(&key)).1["result"].clone();
+            assert_eq!(answered["isError"], json!(false), "{answered}");
+            answered["structuredContent"].clone()
+        };
+
+        let asked = call("import_web_link", json!({ "url": url }));
+        let import_job = asked["job_id"].as_str().expect("a job id");
+        support::wait_terminal(&app, Some(&key), import_job);
+
+        // The same Report at both Doors.
+        let at_mcp = call("get_job", json!({ "job_id": import_job }));
+        assert_eq!(at_mcp, job(&app, &key, import_job));
+        let report = &at_mcp["result"];
+        assert_eq!(report["arrived"][0]["bare"], json!(true), "{at_mcp}");
+
+        // And the same waiting Job, and the same list of Imports.
+        let job_id = report["agent_jobs"][0]["job_id"].as_str().unwrap();
+        let waiting = call("get_job", json!({ "job_id": job_id }));
+        assert_eq!(waiting["status"], json!("queued"), "{waiting}");
+        assert_eq!(waiting, job(&app, &key, job_id));
+        let (_, at_web) = app.post_op("list_imports", Some(&key), "{}");
+        assert_eq!(call("list_imports", json!({})), at_web["result"]);
+    }
 }
 
 // --- Divergence: two recipes, a switch, and Ghosts (issue #55) ---------------
