@@ -167,16 +167,16 @@ impl Core {
                 ) else {
                     continue;
                 };
-                let mut summary = arrival_summary(
-                    &row.job_id,
-                    &row.status,
-                    &row.created_at,
-                    row.result.as_ref(),
-                );
                 // The agent's Job is found from its arrival, which named it
                 // in its Report, and read as it stands now: the Report was
                 // written when the Import ended and the Job has moved since.
-                let agent_jobs = arrival_agent_jobs(conn, row.result.as_ref())?;
+                let mut report = row.result;
+                if let Some(report) = report.as_mut() {
+                    report_with_agent_jobs_as_they_stand(conn, report)?;
+                }
+                let mut summary =
+                    arrival_summary(&row.job_id, &row.status, &row.created_at, report.as_ref());
+                let agent_jobs = arrival_agent_jobs(report.as_ref());
                 if !agent_jobs.is_empty() {
                     summary["agent_jobs"] = json!(agent_jobs);
                 }
@@ -999,33 +999,94 @@ fn arrival_summary(job_id: &str, status: &str, created_at: &str, result: Option<
 }
 
 /// The agent's Jobs an arrival's Report names, each with the recipe it is on
-/// and its state now (#261).
-fn arrival_agent_jobs(conn: &Connection, result: Option<&Value>) -> Result<Vec<Value>, OpError> {
-    let named: Vec<(String, Value)> = result
+/// and its state now (#261): the row `list_imports` shows, cut from a Report
+/// already brought up to date.
+fn arrival_agent_jobs(report: Option<&Value>) -> Vec<Value> {
+    report
         .and_then(|report| report.get("agent_jobs"))
         .and_then(Value::as_array)
         .map(|rows| {
             rows.iter()
-                .filter_map(|row| {
-                    Some((
-                        row["job_id"].as_str()?.to_string(),
-                        row["branch_id"].clone(),
-                    ))
+                .filter(|row| row.get("status").is_some())
+                .map(|row| {
+                    json!({
+                        "job_id": row["job_id"], "branch_id": row["branch_id"],
+                        "status": row["status"],
+                    })
                 })
                 .collect()
         })
-        .unwrap_or_default();
-    let ids: Vec<String> = named.iter().map(|(job_id, _)| job_id.clone()).collect();
-    let statuses = jobs::agent_job_statuses(conn, &ids)?;
-    Ok(named
-        .into_iter()
-        .filter_map(|(job_id, branch_id)| {
-            let (_, status) = statuses.iter().find(|(id, _)| *id == job_id)?;
-            Some(json!({
-                "job_id": job_id, "branch_id": branch_id, "status": status.as_str(),
-            }))
-        })
-        .collect())
+        .unwrap_or_default()
+}
+
+/// Bring an Import Report up to date with the agent's Jobs it names (#262).
+///
+/// The Report was written when the Import ended, and the agent's Job has
+/// moved since. So the Report is kept as it was written and each reading
+/// adds how those Jobs stand now. That keeps the bare recipe and the agent's
+/// work one arrival, however many Reports name the Job.
+///
+/// Each Job gains its `status`. One an agent completed says `made_by_agent`.
+/// One a Runner reported on carries the agent's own report. One that failed,
+/// whoever ended it, is also listed under `unreadable` with the reason, and
+/// the bare recipe stays under `arrived`. A Report naming no such Job is
+/// left exactly as it was.
+pub(super) fn report_with_agent_jobs_as_they_stand(
+    conn: &Connection,
+    report: &mut Value,
+) -> Result<(), OpError> {
+    let Some(named) = report.get("agent_jobs").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    let ids: Vec<String> = named
+        .iter()
+        .filter_map(|row| row["job_id"].as_str().map(str::to_string))
+        .collect();
+    let states = jobs::agent_jobs_as_they_stand(conn, &ids)?;
+
+    let mut could_not_be_read = Vec::new();
+    for state in states {
+        let Some(row) = report["agent_jobs"].as_array_mut().and_then(|rows| {
+            rows.iter_mut()
+                .find(|row| row["job_id"] == json!(state.job_id))
+        }) else {
+            continue;
+        };
+        row["status"] = json!(state.status.as_str());
+        if state.status == jobs::JobStatus::Completed {
+            row["made_by_agent"] = json!(true);
+        }
+        if let Some(agent_report) = state.report {
+            row["agent_report"] = agent_report;
+        }
+        if state.status == jobs::JobStatus::Failed {
+            could_not_be_read.push((row["branch_id"].clone(), state.error));
+        }
+    }
+
+    for (branch_id, reason) in could_not_be_read {
+        // The recipe the Job was on is listed above, bare, under the id and
+        // the name it arrived with.
+        let landed = ["arrived", "offered"]
+            .iter()
+            .filter_map(|rows| report[*rows].as_array())
+            .flatten()
+            .find(|row| row["branch_id"] == branch_id)
+            .cloned()
+            .unwrap_or(Value::Null);
+        let mut entry = json!({
+            "foreign_id": landed["foreign_id"],
+            "reason": reason.unwrap_or_else(|| "the agent's Job failed".to_string()),
+            "branch_id": branch_id,
+        });
+        if landed["title"].is_string() {
+            entry["name"] = landed["title"].clone();
+        }
+        if let Some(unreadable) = report["unreadable"].as_array_mut() {
+            unreadable.push(entry);
+        }
+    }
+    Ok(())
 }
 
 /// An Import id that names nothing here — and, by ADR 0040, an Import of a

@@ -1698,6 +1698,29 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 44,
+        description: "an agent's Job: which Runner holds it and how it ended (#262)",
+        sql: r#"
+        -- `held_by` is the Runner Key that took the Job. A Job is held while
+        -- it is running and this names a Key: one Runner at a time, and a
+        -- Runner one Job at a time. It stays after the Job ends, as the
+        -- record of who did the work.
+        -- `outcome` is how the Runner said the Job ended: 'completed',
+        -- 'failed' when something went wrong on the way, or
+        -- 'could_not_be_read' when the agent says the thing holds no recipe.
+        -- Both of the last two end the Job as failed in `jobs`, and this is
+        -- what tells them apart. It is null on a Job that ended some other
+        -- way, such as its recipe being deleted.
+        -- `report` is the agent's own report as JSON: what it left undone,
+        -- what it was unsure of, likely duplicates and the Foods its
+        -- corrections left unused.
+        ALTER TABLE agent_jobs ADD COLUMN held_by TEXT;
+        ALTER TABLE agent_jobs ADD COLUMN outcome TEXT;
+        ALTER TABLE agent_jobs ADD COLUMN report  TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

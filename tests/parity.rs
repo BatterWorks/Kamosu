@@ -39,6 +39,7 @@ fn arguments_for(name: &str) -> Value {
         "mint_runner_key" => json!({ "name": "parity Runner" }),
         "revoke_runner_key" => json!({ "runner_key_id": "rk_parity" }),
         "ask_for_work" => json!({ "runner_version": env!("CARGO_PKG_VERSION") }),
+        "report_on_job" => json!({ "job_id": "parity-no-such-job", "outcome": "completed" }),
         "create_kitchen" => json!({ "name": "Parity Kitchen" }),
         "rename_kitchen" => json!({ "kitchen_id": "k_parity", "name": "Parity Kitchen" }),
         "set_kitchen_nickname" => json!({ "kitchen_id": "k_parity", "nickname": "Parity" }),
@@ -239,6 +240,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             "make_shared_sheet" => (r#"{"token":"parity-no-such-token"}"#, 200),
             // The Runner's own: it routes, and refuses whoever holds no Runner Key.
             "ask_for_work" => (r#"{"runner_version":"parity"}"#, 401),
+            "report_on_job" => (r#"{"job_id":"parity","outcome":"completed"}"#, 401),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -333,6 +335,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "revoke_runner_key"
                 | "runner_status"
                 | "ask_for_work"
+                | "report_on_job"
                 | "create_kitchen"
                 | "list_kitchens"
                 | "rename_kitchen"
@@ -741,7 +744,7 @@ async fn a_runner_keys_mcp_tool_list_carries_exactly_the_runners_operations() {
         .collect();
     // Named here, not read off the Catalogue: the list a Runner Key is shown
     // is the list of what it can do, and it grows by a decision.
-    assert_eq!(served, ["ask_for_work"]);
+    assert_eq!(served, ["ask_for_work", "report_on_job"]);
 
     // Being listed against is not being used.
     let keys = app.core.runner_keys().unwrap();

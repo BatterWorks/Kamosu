@@ -12233,6 +12233,562 @@ mod web_link_importer {
         let (_, at_web) = app.post_op("list_imports", Some(&key), "{}");
         assert_eq!(call("list_imports", json!({})), at_web["result"]);
     }
+
+    // --- A Runner takes a waiting Job and reports how it ended (#262) ------
+
+    /// A second Runner Key beside the one `cook_beside_a_runner` minted.
+    fn another_runner(app: &support::TestApp, name: &str) -> String {
+        app.core.mint_runner_key(name).expect("a Runner Key").secret
+    }
+
+    /// A cook, and the Secret of the instance's one Runner Key.
+    fn cook_and_runner(app: &support::TestApp) -> (String, String) {
+        let person = app.core.create_person("Stéphane").expect("person");
+        let runner = another_runner(app, "the kitchen's Runner");
+        let key = app
+            .core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret;
+        (key, runner)
+    }
+
+    /// A Runner asking for work at the web door: the Job it was handed, or
+    /// null when nothing waits.
+    fn ask_for_work(app: &support::TestApp, runner: &str) -> Value {
+        let (status, answered) = app.post_op("ask_for_work", Some(runner), &super::asking());
+        assert_eq!(status, 200, "{answered}");
+        answered["result"]["job"].clone()
+    }
+
+    /// A link Kamosu cannot read, imported: the bare recipe's Import Job, the
+    /// agent's Job that waits on it, and the recipe.
+    fn a_job_waiting(app: &support::TestApp, key: &str) -> (String, String, String) {
+        let url = a_page_with_no_recipe_data();
+        let (_, asked) = app.post_op(
+            "import_web_link",
+            Some(key),
+            &json!({ "url": url }).to_string(),
+        );
+        let import_job = asked["result"]["job_id"].as_str().expect("a job id");
+        let finished = support::wait_terminal(app, Some(key), import_job);
+        let agent_job = &finished["result"]["agent_jobs"][0];
+        (
+            import_job.to_string(),
+            agent_job["job_id"]
+                .as_str()
+                .expect("an agent's Job")
+                .to_string(),
+            agent_job["branch_id"].as_str().unwrap().to_string(),
+        )
+    }
+
+    fn report_on_job(
+        app: &support::TestApp,
+        credential: Option<&str>,
+        body: Value,
+    ) -> (u16, Value) {
+        app.post_op("report_on_job", credential, &body.to_string())
+    }
+
+    /// What an agent says of its own work, as a Runner passes it on.
+    fn an_agents_report() -> Value {
+        json!({
+            "left_undone": ["The video never says how long to rest the dough."],
+            "unsure": ["Step 3 may be 180 °C or 160 °C: the label was blurred."],
+            "likely_duplicates": ["b_an_older_recipe"],
+            "unused_foods": ["caster sugar"],
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_runner_is_handed_the_oldest_waiting_job_and_a_second_runner_the_next() {
+        let app = support::spawn_app();
+        let (key, runner) = cook_and_runner(&app);
+        let second_runner = another_runner(&app, "a second Runner");
+
+        let (_, oldest, oldest_recipe) = a_job_waiting(&app, &key);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let (_, newer, newer_recipe) = a_job_waiting(&app, &key);
+
+        // What to read, and which recipe it is for.
+        let handed = ask_for_work(&app, &runner);
+        assert_eq!(handed["job_id"], json!(oldest), "{handed}");
+        assert_eq!(handed["branch_id"], json!(oldest_recipe));
+        let link = handed["link"].as_str().expect("what to read");
+        assert!(link.starts_with("http://127.0.0.1"), "{handed}");
+
+        // Held, it reads as running through the Job Operations. The one
+        // still waiting reads as queued.
+        assert_eq!(job(&app, &key, &oldest)["status"], json!("running"));
+        assert_eq!(job(&app, &key, &newer)["status"], json!("queued"));
+        let (_, listed) = app.post_op("list_jobs", Some(&key), "{}");
+        let status_of = |job_id: &str| {
+            listed["result"]["jobs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == json!(job_id))
+                .unwrap_or_else(|| panic!("{listed}"))["status"]
+                .clone()
+        };
+        assert_eq!(status_of(&oldest), json!("running"));
+        assert_eq!(status_of(&newer), json!("queued"));
+
+        // A second Runner is not handed the same one.
+        let next = ask_for_work(&app, &second_runner);
+        assert_eq!(next["job_id"], json!(newer), "{next}");
+        assert_eq!(next["branch_id"], json!(newer_recipe));
+
+        // Nothing is left for a third.
+        let third_runner = another_runner(&app, "a third Runner");
+        assert_eq!(ask_for_work(&app, &third_runner), Value::Null);
+
+        // A Runner holds one Job at a time: asking again answers the one it
+        // holds, so a reply lost on the way loses no Job.
+        assert_eq!(ask_for_work(&app, &runner)["job_id"], json!(oldest));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_runner_takes_and_reports_through_the_mcp_door_as_at_the_web_door() {
+        let app = support::spawn_app();
+        let (key, runner) = cook_and_runner(&app);
+        let (_, job_id, branch_id) = a_job_waiting(&app, &key);
+
+        let call = |name: &str, arguments: Value| {
+            let payload = json!({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": { "name": name, "arguments": arguments },
+            });
+            app.post_mcp(&payload.to_string(), Some(&runner)).1["result"].clone()
+        };
+
+        let handed = call(
+            "ask_for_work",
+            json!({ "runner_version": env!("CARGO_PKG_VERSION") }),
+        );
+        assert_eq!(handed["isError"], json!(false), "{handed}");
+        let handed = &handed["structuredContent"]["job"];
+        assert_eq!(handed["job_id"], json!(job_id), "{handed}");
+        assert_eq!(handed["branch_id"], json!(branch_id));
+
+        let reported = call(
+            "report_on_job",
+            json!({ "job_id": job_id, "outcome": "completed" }),
+        );
+        assert_eq!(reported["isError"], json!(false), "{reported}");
+        assert_eq!(reported["structuredContent"], json!({ "reported": true }));
+        assert_eq!(job(&app, &key, &job_id)["status"], json!("completed"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn kamosu_restarted_leaves_a_held_job_held() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app = support::spawn_app_in(dir.path());
+        let (key, runner) = cook_and_runner(&app);
+        let (_, job_id, _) = a_job_waiting(&app, &key);
+        assert_eq!(ask_for_work(&app, &runner)["job_id"], json!(job_id));
+
+        let restarted = support::spawn_app_in(dir.path());
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let held = job(&restarted, &key, &job_id);
+        assert_eq!(held["status"], json!("running"), "{held}");
+        assert_eq!(held["error"], Value::Null, "{held}");
+
+        // Still held by the Runner that took it, and by no other.
+        let other = another_runner(&restarted, "a second Runner");
+        assert_eq!(ask_for_work(&restarted, &other), Value::Null);
+        assert_eq!(ask_for_work(&restarted, &runner)["job_id"], json!(job_id));
+        let (status, reported) = report_on_job(
+            &restarted,
+            Some(&runner),
+            json!({ "job_id": job_id, "outcome": "completed" }),
+        );
+        assert_eq!(status, 200, "{reported}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_report_of_completion_ends_the_job_and_the_import_report_says_what_the_agent_did() {
+        let app = support::spawn_app();
+        let (key, runner) = cook_and_runner(&app);
+        let (import_job, job_id, branch_id) = a_job_waiting(&app, &key);
+        ask_for_work(&app, &runner);
+
+        // While the agent works, the Report says so and nothing more.
+        let working = job(&app, &key, &import_job)["result"].clone();
+        assert_eq!(
+            working["agent_jobs"],
+            json!([{ "job_id": job_id, "branch_id": branch_id, "status": "running" }])
+        );
+
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&runner),
+            json!({ "job_id": job_id, "outcome": "completed", "report": an_agents_report() }),
+        );
+        assert_eq!(status, 200, "{reported}");
+        assert_eq!(reported["result"], json!({ "reported": true }));
+
+        let ended = job(&app, &key, &job_id);
+        assert_eq!(ended["status"], json!("completed"), "{ended}");
+        assert_eq!(ended["error"], Value::Null);
+        assert_eq!(
+            ended["result"],
+            json!({ "branch_id": branch_id, "agent_report": an_agents_report() })
+        );
+
+        // The Import Report: one arrival, the bare recipe and the agent's
+        // work on it together.
+        let report = job(&app, &key, &import_job)["result"].clone();
+        assert_eq!(report["arrived"].as_array().unwrap().len(), 1, "{report}");
+        assert_eq!(report["arrived"][0]["branch_id"], json!(branch_id));
+        assert_eq!(report["unreadable"], json!([]), "{report}");
+        assert_eq!(
+            report["agent_jobs"],
+            json!([{
+                "job_id": job_id,
+                "branch_id": branch_id,
+                "status": "completed",
+                "made_by_agent": true,
+                "agent_report": an_agents_report(),
+            }])
+        );
+
+        // An agent with an Access Key reads the same Report at the MCP door.
+        let payload = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": "get_job", "arguments": { "job_id": import_job } },
+        });
+        let at_mcp = app.post_mcp(&payload.to_string(), Some(&key)).1["result"].clone();
+        assert_eq!(at_mcp["isError"], json!(false), "{at_mcp}");
+        assert_eq!(at_mcp["structuredContent"]["result"], report);
+
+        // And the list of Imports still shows one arrival, its Job ended.
+        let (_, listed) = app.post_op("list_imports", Some(&key), "{}");
+        let arrivals = listed["result"]["imports"][0]["arrivals"]
+            .as_array()
+            .unwrap();
+        assert_eq!(arrivals.len(), 1, "{listed}");
+        assert_eq!(arrivals[0]["unreadable"], json!(0));
+        assert_eq!(arrivals[0]["agent_jobs"][0]["status"], json!("completed"));
+
+        // The Runner holds nothing now, and nothing waits.
+        assert_eq!(ask_for_work(&app, &runner), Value::Null);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_report_with_nothing_to_say_reads_as_four_empty_lists() {
+        let app = support::spawn_app();
+        let (key, runner) = cook_and_runner(&app);
+        let (import_job, job_id, _) = a_job_waiting(&app, &key);
+        ask_for_work(&app, &runner);
+
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&runner),
+            json!({ "job_id": job_id, "outcome": "completed", "report": { "unsure": ["  the salt  "] } }),
+        );
+        assert_eq!(status, 200, "{reported}");
+        let report = job(&app, &key, &import_job)["result"].clone();
+        assert_eq!(
+            report["agent_jobs"][0]["agent_report"],
+            json!({
+                "left_undone": [],
+                "unsure": ["the salt"],
+                "likely_duplicates": [],
+                "unused_foods": [],
+            })
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_report_of_failure_ends_the_job_as_failed_and_the_bare_recipe_stays_arrived() {
+        let app = support::spawn_app();
+        let (key, runner) = cook_and_runner(&app);
+        let (import_job, job_id, branch_id) = a_job_waiting(&app, &key);
+        ask_for_work(&app, &runner);
+
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&runner),
+            json!({
+                "job_id": job_id,
+                "outcome": "failed",
+                "reason": "the agent command ended with status 1",
+            }),
+        );
+        assert_eq!(status, 200, "{reported}");
+
+        let ended = job(&app, &key, &job_id);
+        assert_eq!(ended["status"], json!("failed"), "{ended}");
+        assert_eq!(
+            ended["error"],
+            json!("the agent command ended with status 1")
+        );
+        assert_eq!(ended["result"], Value::Null);
+
+        // The reason is under what could not be read, and the bare recipe is
+        // still listed as arrived, and still there.
+        let report = job(&app, &key, &import_job)["result"].clone();
+        assert_eq!(
+            report["arrived"][0]["branch_id"],
+            json!(branch_id),
+            "{report}"
+        );
+        assert_eq!(report["arrived"][0]["bare"], json!(true));
+        assert_eq!(
+            report["unreadable"],
+            json!([{
+                "foreign_id": report["arrived"][0]["foreign_id"],
+                "name": "Just a blog post",
+                "reason": "the agent command ended with status 1",
+                "branch_id": branch_id,
+            }])
+        );
+        // The Runner passed no report on, which reads as four empty lists.
+        assert_eq!(
+            report["agent_jobs"],
+            json!([{
+                "job_id": job_id,
+                "branch_id": branch_id,
+                "status": "failed",
+                "agent_report": {
+                    "left_undone": [],
+                    "unsure": [],
+                    "likely_duplicates": [],
+                    "unused_foods": [],
+                },
+            }])
+        );
+        let (status, recipe) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{recipe}");
+
+        // The same at the MCP door, and in the list of Imports.
+        let payload = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": "get_job", "arguments": { "job_id": import_job } },
+        });
+        let at_mcp = app.post_mcp(&payload.to_string(), Some(&key)).1["result"].clone();
+        assert_eq!(at_mcp["structuredContent"]["result"], report);
+        let (_, listed) = app.post_op("list_imports", Some(&key), "{}");
+        let arrival = &listed["result"]["imports"][0]["arrivals"][0];
+        assert_eq!(arrival["arrived"], json!(1), "{listed}");
+        assert_eq!(arrival["unreadable"], json!(1), "{listed}");
+        assert_eq!(arrival["agent_jobs"][0]["status"], json!("failed"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_report_that_the_thing_could_not_be_read_ends_the_job_with_the_agents_reason() {
+        let app = support::spawn_app();
+        let (key, runner) = cook_and_runner(&app);
+        let (import_job, job_id, _) = a_job_waiting(&app, &key);
+        ask_for_work(&app, &runner);
+
+        let reason = "The page is a restaurant review. It holds no recipe.";
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&runner),
+            json!({
+                "job_id": job_id,
+                "outcome": "could_not_be_read",
+                "reason": reason,
+                "report": { "unsure": ["It names three dishes and gives no quantities."] },
+            }),
+        );
+        assert_eq!(status, 200, "{reported}");
+
+        let ended = job(&app, &key, &job_id);
+        assert_eq!(ended["status"], json!("failed"), "{ended}");
+        assert_eq!(ended["error"], json!(reason));
+
+        let report = job(&app, &key, &import_job)["result"].clone();
+        assert_eq!(report["unreadable"][0]["reason"], json!(reason), "{report}");
+        assert_eq!(
+            report["agent_jobs"][0].get("made_by_agent"),
+            None,
+            "{report}"
+        );
+        // What the agent said on the way is kept with it.
+        assert_eq!(
+            report["agent_jobs"][0]["agent_report"]["unsure"],
+            json!(["It names three dishes and gives no quantities."])
+        );
+
+        // The two ways of failing are told apart where #266 will need them.
+        let outcome: String = app
+            .core
+            .db()
+            .with_conn(|conn| {
+                Ok(conn
+                    .query_row(
+                        "SELECT outcome FROM agent_jobs WHERE job_id = ?1",
+                        [&job_id],
+                        |row| row.get(0),
+                    )
+                    .unwrap())
+            })
+            .unwrap();
+        assert_eq!(outcome, "could_not_be_read");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn only_the_runner_key_holding_a_job_reports_on_it() {
+        let app = support::spawn_app();
+        let (session, _) = super::operator_signed_in(&app);
+        let (key, runner) = cook_and_runner(&app);
+        let other_runner = another_runner(&app, "a second Runner");
+        let (_, job_id, _) = a_job_waiting(&app, &key);
+        let completed = json!({ "job_id": job_id, "outcome": "completed" });
+
+        // Nobody holds it yet, so nobody reports on it.
+        let (status, refused) = report_on_job(&app, Some(&runner), completed.clone());
+        assert_eq!(status, 404, "{refused}");
+
+        ask_for_work(&app, &runner);
+
+        // Another Runner Key is answered as if the Job were not there.
+        let (status, refused) = report_on_job(&app, Some(&other_runner), completed.clone());
+        assert_eq!(status, 404, "{refused}");
+        let (_, absent) = report_on_job(
+            &app,
+            Some(&other_runner),
+            json!({ "job_id": "j_no_such_job", "outcome": "completed" }),
+        );
+        assert_eq!(
+            refused.to_string(),
+            absent.to_string().replace("j_no_such_job", &job_id),
+            "a Job another Runner holds is answered as one that was never there"
+        );
+
+        // A Session, an Access Key and nobody are refused the Operation.
+        for credential in [Some(session.as_str()), Some(key.as_str()), None] {
+            let (status, refused) = report_on_job(&app, credential, completed.clone());
+            assert_eq!(status, 401, "{credential:?}: {refused}");
+            let payload = json!({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": { "name": "report_on_job", "arguments": completed },
+            });
+            let (_, at_mcp) = app.post_mcp(&payload.to_string(), credential);
+            assert!(
+                at_mcp["result"]["isError"] == json!(true) || at_mcp.get("error").is_some(),
+                "{credential:?}: {at_mcp}"
+            );
+        }
+        assert_eq!(job(&app, &key, &job_id)["status"], json!("running"));
+
+        // The Runner holding it reports, once.
+        let (status, reported) = report_on_job(&app, Some(&runner), completed.clone());
+        assert_eq!(status, 200, "{reported}");
+        let (status, refused) = report_on_job(
+            &app,
+            Some(&runner),
+            json!({ "job_id": job_id, "outcome": "failed", "reason": "too late" }),
+        );
+        assert_eq!(status, 404, "{refused}");
+        assert_eq!(job(&app, &key, &job_id)["status"], json!("completed"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_report_that_does_not_say_how_the_job_ended_is_refused_and_ends_nothing() {
+        let app = support::spawn_app();
+        let (key, runner) = cook_and_runner(&app);
+        let (_, job_id, _) = a_job_waiting(&app, &key);
+        ask_for_work(&app, &runner);
+
+        let long = "x".repeat(2001);
+        for (what, body) in [
+            (
+                "an outcome Kamosu does not know",
+                json!({ "job_id": job_id, "outcome": "done" }),
+            ),
+            (
+                "a failure with no reason",
+                json!({ "job_id": job_id, "outcome": "failed" }),
+            ),
+            (
+                "a failure with a blank reason",
+                json!({ "job_id": job_id, "outcome": "could_not_be_read", "reason": "   " }),
+            ),
+            (
+                "a completion with a reason",
+                json!({ "job_id": job_id, "outcome": "completed", "reason": "why not" }),
+            ),
+            (
+                "a part of the report Kamosu does not know",
+                json!({ "job_id": job_id, "outcome": "completed", "report": { "notes": ["hello"] } }),
+            ),
+            (
+                "a sentence too long to show",
+                json!({ "job_id": job_id, "outcome": "completed", "report": { "unsure": [long] } }),
+            ),
+            (
+                "more sentences than a Report shows",
+                json!({
+                    "job_id": job_id,
+                    "outcome": "completed",
+                    "report": { "left_undone": vec!["one more"; 101] },
+                }),
+            ),
+        ] {
+            let (status, refused) = report_on_job(&app, Some(&runner), body);
+            assert_eq!(status, 400, "{what}: {refused}");
+            assert_eq!(
+                job(&app, &key, &job_id)["status"],
+                json!("running"),
+                "{what}"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_job_cancelled_while_it_waited_is_handed_to_no_runner() {
+        let app = support::spawn_app();
+        let (key, runner) = cook_and_runner(&app);
+        let (_, job_id, _) = a_job_waiting(&app, &key);
+        app.post_op(
+            "cancel_job",
+            Some(&key),
+            &json!({ "job_id": job_id }).to_string(),
+        );
+        assert_eq!(ask_for_work(&app, &runner), Value::Null);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_held_job_whose_recipe_is_deleted_ends_and_its_runner_is_handed_the_next() {
+        let app = support::spawn_app();
+        let (key, runner) = cook_and_runner(&app);
+        let (import_job, job_id, branch_id) = a_job_waiting(&app, &key);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let (_, next, _) = a_job_waiting(&app, &key);
+        ask_for_work(&app, &runner);
+
+        let (status, deleted) = app.post_op(
+            "delete_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{deleted}");
+
+        // The Job ended without its Runner, which may not report on it now.
+        let (status, refused) = report_on_job(
+            &app,
+            Some(&runner),
+            json!({ "job_id": job_id, "outcome": "completed" }),
+        );
+        assert_eq!(status, 404, "{refused}");
+        let report = job(&app, &key, &import_job)["result"].clone();
+        assert_eq!(
+            report["unreadable"][0]["reason"],
+            json!("the recipe this Job was for is gone"),
+            "{report}"
+        );
+        // And the Runner is free for the next Job.
+        assert_eq!(ask_for_work(&app, &runner)["job_id"], json!(next));
+    }
 }
 
 // --- Divergence: two recipes, a switch, and Ghosts (issue #55) ---------------

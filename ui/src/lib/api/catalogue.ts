@@ -190,13 +190,34 @@ export type RunnerStatusOutput = {
 	last_asked_at: string | null;
 };
 
-/** Ask for a Job to do. For a Runner alone, with its Runner Key. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
+/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
 export type AskForWorkInput = {
 	runner_version: string;
 };
 /** What ask_for_work answers. */
 export type AskForWorkOutput = {
-	job: null;
+	job: {
+		branch_id: string;
+		job_id: string;
+		link: string;
+	} | null;
+};
+
+/** Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two end the Job as failed and need `reason`, one sentence the cook reads in the Import Report. `report` is the agent's own report, passed on as it wrote it. A Job this Runner Key does not hold, or one that has ended, is answered as a Job that is not there. */
+export type ReportOnJobInput = {
+	job_id: string;
+	outcome: "completed" | "failed" | "could_not_be_read";
+	reason?: string;
+	report?: {
+		left_undone?: string[];
+		likely_duplicates?: string[];
+		unsure?: string[];
+		unused_foods?: string[];
+	};
+};
+/** What report_on_job answers. */
+export type ReportOnJobOutput = {
+	reported: boolean;
 };
 
 /** List this Person's browser Sessions by device and last use. `current` marks the Session asking, so it is never set when an Access Key asks. */
@@ -1772,8 +1793,16 @@ export type ImportInput = {
 /** What import eventually produces, read back through `get_job`. */
 export type ImportOutput = {
 	agent_jobs?: {
+		agent_report?: {
+			left_undone?: string[];
+			likely_duplicates?: string[];
+			unsure?: string[];
+			unused_foods?: string[];
+		};
 		branch_id: string;
 		job_id: string;
+		made_by_agent?: boolean;
+		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
 	}[];
 	arrived: {
 		bare?: boolean;
@@ -1814,6 +1843,7 @@ export type ImportOutput = {
 	}[];
 	source_kind: string;
 	unreadable: {
+		branch_id?: string;
 		foreign_id: string | null;
 		kept_as?: {
 			branch_id: string;
@@ -1833,8 +1863,16 @@ export type ImportCroutonInput = {
 /** What import_crouton eventually produces, read back through `get_job`. */
 export type ImportCroutonOutput = {
 	agent_jobs?: {
+		agent_report?: {
+			left_undone?: string[];
+			likely_duplicates?: string[];
+			unsure?: string[];
+			unused_foods?: string[];
+		};
 		branch_id: string;
 		job_id: string;
+		made_by_agent?: boolean;
+		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
 	}[];
 	arrived: {
 		bare?: boolean;
@@ -1875,6 +1913,7 @@ export type ImportCroutonOutput = {
 	}[];
 	source_kind: string;
 	unreadable: {
+		branch_id?: string;
 		foreign_id: string | null;
 		kept_as?: {
 			branch_id: string;
@@ -1929,8 +1968,16 @@ export type ImportWebLinkInput = {
 /** What import_web_link eventually produces, read back through `get_job`. */
 export type ImportWebLinkOutput = {
 	agent_jobs?: {
+		agent_report?: {
+			left_undone?: string[];
+			likely_duplicates?: string[];
+			unsure?: string[];
+			unused_foods?: string[];
+		};
 		branch_id: string;
 		job_id: string;
+		made_by_agent?: boolean;
+		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
 	}[];
 	arrived: {
 		bare?: boolean;
@@ -1971,6 +2018,7 @@ export type ImportWebLinkOutput = {
 	}[];
 	source_kind: string;
 	unreadable: {
+		branch_id?: string;
 		foreign_id: string | null;
 		kept_as?: {
 			branch_id: string;
@@ -2606,8 +2654,16 @@ export type ImportBundleInput = {
 /** What import_bundle eventually produces, read back through `get_job`. */
 export type ImportBundleOutput = {
 	agent_jobs?: {
+		agent_report?: {
+			left_undone?: string[];
+			likely_duplicates?: string[];
+			unsure?: string[];
+			unused_foods?: string[];
+		};
 		branch_id: string;
 		job_id: string;
+		made_by_agent?: boolean;
+		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
 	}[];
 	arrived: {
 		bare?: boolean;
@@ -2648,6 +2704,7 @@ export type ImportBundleOutput = {
 	}[];
 	source_kind: string;
 	unreadable: {
+		branch_id?: string;
 		foreign_id: string | null;
 		kept_as?: {
 			branch_id: string;
@@ -5023,6 +5080,12 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'runner';
 	};
+	report_on_job: {
+		input: ReportOnJobInput;
+		output: ReportOnJobOutput;
+		kind: 'immediate';
+		permission: 'runner';
+	};
 	list_sessions: {
 		input: ListSessionsInput;
 		output: ListSessionsOutput;
@@ -6370,7 +6433,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "ask_for_work",
-		"summary": "Ask for a Job to do. For a Runner alone, with its Runner Key. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it.",
+		"summary": "Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it.",
 		"permission": "runner",
 		"kind": "immediate",
 		"input_schema": {
@@ -6389,11 +6452,109 @@ export const CATALOGUE = [
 			"additionalProperties": false,
 			"properties": {
 				"job": {
-					"type": "null"
+					"additionalProperties": false,
+					"properties": {
+						"branch_id": {
+							"description": "The recipe the Job is for, which landed bare.",
+							"type": "string"
+						},
+						"job_id": {
+							"type": "string"
+						},
+						"link": {
+							"description": "What the agent is to read.",
+							"type": "string"
+						}
+					},
+					"required": [
+						"job_id",
+						"branch_id",
+						"link"
+					],
+					"type": [
+						"object",
+						"null"
+					]
 				}
 			},
 			"required": [
 				"job"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "report_on_job",
+		"summary": "Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two end the Job as failed and need `reason`, one sentence the cook reads in the Import Report. `report` is the agent's own report, passed on as it wrote it. A Job this Runner Key does not hold, or one that has ended, is answered as a Job that is not there.",
+		"permission": "runner",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"job_id": {
+					"type": "string"
+				},
+				"outcome": {
+					"enum": [
+						"completed",
+						"failed",
+						"could_not_be_read"
+					]
+				},
+				"reason": {
+					"type": "string"
+				},
+				"report": {
+					"additionalProperties": false,
+					"description": "The agent's own report on its work, present once a Runner has passed one on.",
+					"properties": {
+						"left_undone": {
+							"description": "What the agent did not do, a sentence each: an Ingredient Line it could not read, a Step it left out, a photo it could not fetch.",
+							"items": {
+								"type": "string"
+							},
+							"type": "array"
+						},
+						"likely_duplicates": {
+							"description": "The Branch id of each recipe already in the library that this one is likely a duplicate of. The recipe is saved all the same. Kamosu does not check the ids, so read each with `get_recipe`.",
+							"items": {
+								"type": "string"
+							},
+							"type": "array"
+						},
+						"unsure": {
+							"description": "What the agent wrote and was unsure of, a sentence each, so the cook knows where to look.",
+							"items": {
+								"type": "string"
+							},
+							"type": "array"
+						},
+						"unused_foods": {
+							"description": "The name of each Food the agent's corrections left with nothing pointing at it, for an Operator to tidy.",
+							"items": {
+								"type": "string"
+							},
+							"type": "array"
+						}
+					},
+					"type": "object"
+				}
+			},
+			"required": [
+				"job_id",
+				"outcome"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"reported": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"reported"
 			],
 			"type": "object"
 		}
@@ -14281,16 +14442,65 @@ export const CATALOGUE = [
 			"additionalProperties": false,
 			"properties": {
 				"agent_jobs": {
-					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job that waits on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. Read it with `get_job`, where its operation is `read_by_agent` and it is `queued` until a Runner takes it, and cancel it with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it waits names the same Job.",
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it while it waits with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"agent_report": {
+								"additionalProperties": false,
+								"description": "The agent's own report on its work, present once a Runner has passed one on.",
+								"properties": {
+									"left_undone": {
+										"description": "What the agent did not do, a sentence each: an Ingredient Line it could not read, a Step it left out, a photo it could not fetch.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"likely_duplicates": {
+										"description": "The Branch id of each recipe already in the library that this one is likely a duplicate of. The recipe is saved all the same. Kamosu does not check the ids, so read each with `get_recipe`.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unsure": {
+										"description": "What the agent wrote and was unsure of, a sentence each, so the cook knows where to look.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unused_foods": {
+										"description": "The name of each Food the agent's corrections left with nothing pointing at it, for an Operator to tidy.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									}
+								},
+								"type": "object"
+							},
 							"branch_id": {
 								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`.",
 								"type": "string"
 							},
 							"job_id": {
 								"type": "string"
+							},
+							"made_by_agent": {
+								"description": "Present and true once the Job has completed: an agent made this recipe. Nothing on the recipe itself says so.",
+								"type": "boolean"
+							},
+							"status": {
+								"description": "`queued` is waiting for a Runner and `running` is held by one, its agent at work. A `failed` Job is also listed under `unreadable`, with the reason.",
+								"enum": [
+									"queued",
+									"running",
+									"completed",
+									"failed",
+									"cancelled"
+								]
 							}
 						},
 						"required": [
@@ -14495,6 +14705,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"branch_id": {
+								"description": "Where an agent's Job failed on a recipe that had landed bare: that recipe. It stays, still listed under `arrived`, unless the Job failed because the recipe was deleted.",
+								"type": "string"
+							},
 							"foreign_id": {
 								"type": [
 									"string",
@@ -14575,16 +14789,65 @@ export const CATALOGUE = [
 			"additionalProperties": false,
 			"properties": {
 				"agent_jobs": {
-					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job that waits on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. Read it with `get_job`, where its operation is `read_by_agent` and it is `queued` until a Runner takes it, and cancel it with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it waits names the same Job.",
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it while it waits with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"agent_report": {
+								"additionalProperties": false,
+								"description": "The agent's own report on its work, present once a Runner has passed one on.",
+								"properties": {
+									"left_undone": {
+										"description": "What the agent did not do, a sentence each: an Ingredient Line it could not read, a Step it left out, a photo it could not fetch.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"likely_duplicates": {
+										"description": "The Branch id of each recipe already in the library that this one is likely a duplicate of. The recipe is saved all the same. Kamosu does not check the ids, so read each with `get_recipe`.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unsure": {
+										"description": "What the agent wrote and was unsure of, a sentence each, so the cook knows where to look.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unused_foods": {
+										"description": "The name of each Food the agent's corrections left with nothing pointing at it, for an Operator to tidy.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									}
+								},
+								"type": "object"
+							},
 							"branch_id": {
 								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`.",
 								"type": "string"
 							},
 							"job_id": {
 								"type": "string"
+							},
+							"made_by_agent": {
+								"description": "Present and true once the Job has completed: an agent made this recipe. Nothing on the recipe itself says so.",
+								"type": "boolean"
+							},
+							"status": {
+								"description": "`queued` is waiting for a Runner and `running` is held by one, its agent at work. A `failed` Job is also listed under `unreadable`, with the reason.",
+								"enum": [
+									"queued",
+									"running",
+									"completed",
+									"failed",
+									"cancelled"
+								]
 							}
 						},
 						"required": [
@@ -14789,6 +15052,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"branch_id": {
+								"description": "Where an agent's Job failed on a recipe that had landed bare: that recipe. It stays, still listed under `arrived`, unless the Job failed because the recipe was deleted.",
+								"type": "string"
+							},
 							"foreign_id": {
 								"type": [
 									"string",
@@ -15035,16 +15302,65 @@ export const CATALOGUE = [
 			"additionalProperties": false,
 			"properties": {
 				"agent_jobs": {
-					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job that waits on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. Read it with `get_job`, where its operation is `read_by_agent` and it is `queued` until a Runner takes it, and cancel it with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it waits names the same Job.",
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it while it waits with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"agent_report": {
+								"additionalProperties": false,
+								"description": "The agent's own report on its work, present once a Runner has passed one on.",
+								"properties": {
+									"left_undone": {
+										"description": "What the agent did not do, a sentence each: an Ingredient Line it could not read, a Step it left out, a photo it could not fetch.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"likely_duplicates": {
+										"description": "The Branch id of each recipe already in the library that this one is likely a duplicate of. The recipe is saved all the same. Kamosu does not check the ids, so read each with `get_recipe`.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unsure": {
+										"description": "What the agent wrote and was unsure of, a sentence each, so the cook knows where to look.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unused_foods": {
+										"description": "The name of each Food the agent's corrections left with nothing pointing at it, for an Operator to tidy.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									}
+								},
+								"type": "object"
+							},
 							"branch_id": {
 								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`.",
 								"type": "string"
 							},
 							"job_id": {
 								"type": "string"
+							},
+							"made_by_agent": {
+								"description": "Present and true once the Job has completed: an agent made this recipe. Nothing on the recipe itself says so.",
+								"type": "boolean"
+							},
+							"status": {
+								"description": "`queued` is waiting for a Runner and `running` is held by one, its agent at work. A `failed` Job is also listed under `unreadable`, with the reason.",
+								"enum": [
+									"queued",
+									"running",
+									"completed",
+									"failed",
+									"cancelled"
+								]
 							}
 						},
 						"required": [
@@ -15249,6 +15565,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"branch_id": {
+								"description": "Where an agent's Job failed on a recipe that had landed bare: that recipe. It stays, still listed under `arrived`, unless the Job failed because the recipe was deleted.",
+								"type": "string"
+							},
 							"foreign_id": {
 								"type": [
 									"string",
@@ -18436,16 +18756,65 @@ export const CATALOGUE = [
 			"additionalProperties": false,
 			"properties": {
 				"agent_jobs": {
-					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job that waits on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. Read it with `get_job`, where its operation is `read_by_agent` and it is `queued` until a Runner takes it, and cancel it with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it waits names the same Job.",
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it while it waits with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"agent_report": {
+								"additionalProperties": false,
+								"description": "The agent's own report on its work, present once a Runner has passed one on.",
+								"properties": {
+									"left_undone": {
+										"description": "What the agent did not do, a sentence each: an Ingredient Line it could not read, a Step it left out, a photo it could not fetch.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"likely_duplicates": {
+										"description": "The Branch id of each recipe already in the library that this one is likely a duplicate of. The recipe is saved all the same. Kamosu does not check the ids, so read each with `get_recipe`.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unsure": {
+										"description": "What the agent wrote and was unsure of, a sentence each, so the cook knows where to look.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unused_foods": {
+										"description": "The name of each Food the agent's corrections left with nothing pointing at it, for an Operator to tidy.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									}
+								},
+								"type": "object"
+							},
 							"branch_id": {
 								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`.",
 								"type": "string"
 							},
 							"job_id": {
 								"type": "string"
+							},
+							"made_by_agent": {
+								"description": "Present and true once the Job has completed: an agent made this recipe. Nothing on the recipe itself says so.",
+								"type": "boolean"
+							},
+							"status": {
+								"description": "`queued` is waiting for a Runner and `running` is held by one, its agent at work. A `failed` Job is also listed under `unreadable`, with the reason.",
+								"enum": [
+									"queued",
+									"running",
+									"completed",
+									"failed",
+									"cancelled"
+								]
 							}
 						},
 						"required": [
@@ -18650,6 +19019,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"branch_id": {
+								"description": "Where an agent's Job failed on a recipe that had landed bare: that recipe. It stays, still listed under `arrived`, unless the Job failed because the recipe was deleted.",
+								"type": "string"
+							},
 							"foreign_id": {
 								"type": [
 									"string",
@@ -30533,6 +30906,7 @@ export const METHOD_NAMES = {
 	revoke_runner_key: 'revokeRunnerKey',
 	runner_status: 'runnerStatus',
 	ask_for_work: 'askForWork',
+	report_on_job: 'reportOnJob',
 	list_sessions: 'listSessions',
 	rename_session: 'renameSession',
 	revoke_session: 'revokeSession',
@@ -30680,8 +31054,10 @@ export interface KamosuClient {
 	revokeRunnerKey(input: RevokeRunnerKeyInput): Promise<Answer<'revoke_runner_key'>>;
 	/** Read whether this instance has a Runner. Also when one last asked for work. */
 	runnerStatus(input?: RunnerStatusInput): Promise<Answer<'runner_status'>>;
-	/** Ask for a Job to do. For a Runner alone, with its Runner Key. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
+	/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
 	askForWork(input: AskForWorkInput): Promise<Answer<'ask_for_work'>>;
+	/** Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two end the Job as failed and need `reason`, one sentence the cook reads in the Import Report. `report` is the agent's own report, passed on as it wrote it. A Job this Runner Key does not hold, or one that has ended, is answered as a Job that is not there. */
+	reportOnJob(input: ReportOnJobInput): Promise<Answer<'report_on_job'>>;
 	/** List this Person's browser Sessions by device and last use. `current` marks the Session asking, so it is never set when an Access Key asks. */
 	listSessions(input?: ListSessionsInput): Promise<Answer<'list_sessions'>>;
 	/** Rename one of your browser Sessions. A Session is named for its device when it signs in; this corrects the guess or names an older one. An ended Session is not renamed. */

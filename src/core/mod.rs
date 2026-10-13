@@ -495,8 +495,20 @@ impl Core {
     }
 
     /// Read one Job back: its state, progress, and result or failure reason.
+    ///
+    /// An Import's result is its Report, and one that left a recipe for an
+    /// agent is read with that agent's Job as it stands now (#262). Doing it
+    /// here is what gives every reader the same Report: `get_job` at both
+    /// Doors and the tasks extension.
     pub fn job(&self, job_id: &str) -> Result<Option<JobRecord>, OpError> {
-        jobs::read(self, job_id)
+        let Some(mut record) = jobs::read(self, job_id)? else {
+            return Ok(None);
+        };
+        if let Some(report) = record.result.as_mut() {
+            self.db()
+                .with_conn(|conn| imports::report_with_agent_jobs_as_they_stand(conn, report))?;
+        }
+        Ok(Some(record))
     }
 
     /// Every Job one Person has asked for, newest first.
