@@ -501,16 +501,32 @@ pub fn end_for_deleted_recipe(conn: &Connection, branch_id: &str) -> Result<(), 
 pub const WOULD_START_A_COPY: &str = "the person who asked cannot change this recipe: a change of \
      theirs would start a copy in their own Cookbook, and an agent's Job never starts one";
 
-/// End a Job that is being worked because a write of its would have started
-/// a Copy (#264). Failed, with the reason, which spends its Job Key. What it
-/// saved before stays. Marked as the thing itself at fault, as a recipe gone
-/// from under a Job is: trying again would meet the same refusal.
-pub fn end_where_a_copy_would_start(conn: &Connection, job_id: &str) -> Result<(), OpError> {
+/// The reason an agent's Job ends with when somebody saved the recipe between
+/// two of its saves (#265). The cook reads it in the Import Report.
+pub const CHANGED_WHILE_IT_WORKED: &str = "the recipe was changed while the agent worked on it, \
+     so the agent stopped rather than write over that change. What it had saved before is kept";
+
+/// The reason an agent's Job ends with when another Branch or a Translation
+/// holds the Version it was still shaping (#265): a Copy or a variation made
+/// since, a Translation of it, or a Branch that already read the same.
+pub const HELD_ELSEWHERE: &str = "a copy, a variation or a translation of the recipe holds what \
+     the agent had saved, so the agent stopped rather than change it under that one. What it \
+     had saved before is kept";
+
+/// End a Job that is being worked because a write of its was refused, with
+/// one of the reasons above (#264, #265). Failed, which spends its Job Key.
+/// What it saved before stays. Marked as the thing itself at fault, as a
+/// recipe gone from under a Job is: trying again would meet the same refusal.
+pub fn end_where_a_write_was_refused(
+    conn: &Connection,
+    job_id: &str,
+    reason: &str,
+) -> Result<(), OpError> {
     conn.execute(
         "UPDATE jobs SET status = 'failed', error = ?2, error_code = -32602,
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
          WHERE id = ?1 AND status = 'running'",
-        params![job_id, WOULD_START_A_COPY],
+        params![job_id, reason],
     )
     .map_err(|e| OpError::internal(format!("cannot end the Job: {e}")))?;
     Ok(())
