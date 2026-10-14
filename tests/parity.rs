@@ -74,6 +74,7 @@ fn arguments_for(name: &str) -> Value {
         "set_recipe_language" => json!({ "branch_id": "b_parity", "language": "fr" }),
         "rename_version" => json!({ "branch_id": "b_parity", "sequence": 1, "name": "Parity" }),
         "get_recipe" | "delete_recipe" => json!({ "branch_id": "b_parity" }),
+        "read_recipe_again" | "can_read_recipe_again" => json!({ "branch_id": "b_parity" }),
         "export_bundle" | "make_sheet" => json!({ "branch_id": "b_parity" }),
         "import_bundle" => json!({ "data": "" }),
         "import_crouton" => json!({ "upload_id": "u_parity" }),
@@ -183,6 +184,8 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "note_recipe_opened"
             | "get_recipe"
             | "get_recipe_job"
+            | "read_recipe_again"
+            | "can_read_recipe_again"
             | "export_bundle"
             | "make_sheet"
             | "get_thread"
@@ -394,6 +397,8 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "note_recipe_opened"
                 | "get_recipe"
                 | "get_recipe_job"
+                | "read_recipe_again"
+                | "can_read_recipe_again"
                 | "export_bundle"
                 | "make_sheet"
                 | "get_thread"

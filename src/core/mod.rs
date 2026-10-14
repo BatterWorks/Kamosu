@@ -60,6 +60,7 @@ mod keeping_backups;
 mod keeping_photographs;
 mod kitchens;
 mod originals;
+mod reading_again;
 mod readings;
 mod recipes;
 mod related;

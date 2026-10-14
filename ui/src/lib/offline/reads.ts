@@ -51,6 +51,9 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// and ends without this phone doing anything, so a kept answer would name
 	// a Job that ended an hour ago.
 	get_recipe_job: 'never',
+	// Whether a recipe can be read again (#272). It turns on a Runner Key
+	// minted or revoked, and on who writes the Cookbook now, all elsewhere.
+	can_read_recipe_again: 'never',
 	// A whole recipe as a zip, asked for once to be saved somewhere else.
 	export_bundle: 'never',
 	// Where the cook is. With two devices, the last one moved on is where the

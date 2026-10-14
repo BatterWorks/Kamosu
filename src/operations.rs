@@ -296,6 +296,30 @@ pub fn get_recipe_job(
     core.recipe_job(caller_of(invocation)?, branch_id)
 }
 
+pub fn read_recipe_again(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("read_recipe_again takes { branch_id }"))?;
+    core.read_recipe_again(caller_of(invocation)?, branch_id)
+}
+
+pub fn can_read_recipe_again(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("can_read_recipe_again takes { branch_id }"))?;
+    core.can_read_recipe_again(caller_of(invocation)?, branch_id)
+}
+
 /// List the Jobs one Person has asked for, newest first. A stranger has asked
 /// for nothing here: anonymous Jobs belong to no Person to list them by.
 pub fn list_jobs(core: &Core, invocation: &Invocation, _input: Value) -> Result<Value, OpError> {

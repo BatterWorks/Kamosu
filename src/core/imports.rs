@@ -129,19 +129,23 @@ impl Core {
             // of text. All this needs from it is one short string, and only for
             // `import`, the one importer that does not name its source in its
             // own definition.
+            //
+            // An agent's Job is listed where it is its own Import: one reading
+            // an Original, or a recipe read again.
             let arrivals: Vec<ArrivalRow> = {
                 let mut statement = conn
-                    .prepare(
+                    .prepare(&format!(
                         "SELECT id, operation, json_extract(input, '$.source_kind'),
                                 status, result, created_at
                            FROM jobs
                           WHERE person_id = ?1
                             AND (operation IN ('import', 'import_crouton',
                                                'import_bundle', 'import_web_link')
-                                 OR id IN (SELECT job_id FROM agent_jobs
-                                            WHERE original IS NOT NULL))
+                                 OR (operation = '{}' AND {}))
                           ORDER BY created_at DESC",
-                    )
+                        jobs::AGENT_OPERATION,
+                        jobs::ITS_OWN_IMPORT,
+                    ))
                     .map_err(|e| OpError::internal(format!("cannot list arrivals: {e}")))?;
                 statement
                     .query_map(params![person_id], |row| {
@@ -1095,7 +1099,8 @@ fn arrival_agent_jobs(report: Option<&Value>) -> Vec<Value> {
 ///
 /// A Job reading an Original is its own Import, and its Report names it with
 /// no recipe, since the agent creates one (#269). Once it has, the recipe is
-/// named and listed under `arrived` as it reads now.
+/// named and listed under `arrived` as it reads now. A recipe read again is
+/// its own Import too (#272), and its arrival is listed as it reads now.
 pub(super) fn report_with_agent_jobs_as_they_stand(
     conn: &Connection,
     report: &mut Value,
@@ -1146,6 +1151,24 @@ pub(super) fn report_with_agent_jobs_as_they_stand(
         }
     }
 
+    // A recipe read again was listed as it read when the cook asked, and is
+    // read as it reads now, the agent's work included (#272).
+    if let Some(arrived) = report["arrived"].as_array_mut() {
+        for row in arrived
+            .iter_mut()
+            .filter(|row| row["status"] == "read_again")
+        {
+            let (Some(branch_id), Some(foreign_id)) =
+                (row["branch_id"].as_str(), row["foreign_id"].as_str())
+            else {
+                continue;
+            };
+            if let Some(now) = arrival_as_it_reads(conn, branch_id, foreign_id, "read_again")? {
+                *row = now;
+            }
+        }
+    }
+
     for (branch_id, reason) in could_not_be_read {
         // The recipe the Job was on is listed above, bare, under the id and
         // the name it arrived with.
@@ -1182,6 +1205,17 @@ fn created_by_agent(
     job_id: &str,
     branch_id: &str,
 ) -> Result<Option<Value>, OpError> {
+    arrival_as_it_reads(conn, branch_id, job_id, "created")
+}
+
+/// A recipe as the Report lists an arrival, read as it stands now, under
+/// `foreign_id` and `status`. None where the recipe is not there.
+pub(super) fn arrival_as_it_reads(
+    conn: &Connection,
+    branch_id: &str,
+    foreign_id: &str,
+    status: &str,
+) -> Result<Option<Value>, OpError> {
     let found: Option<(String, String)> = conn
         .query_row(
             "SELECT branches.lineage_id, versions.content
@@ -1198,8 +1232,8 @@ fn created_by_agent(
     let content: Value = serde_json::from_str(&content).unwrap_or_default();
     let shape = LandedShape::of(&content);
     Ok(Some(json!({
-        "foreign_id": job_id,
-        "status": "created",
+        "foreign_id": foreign_id,
+        "status": status,
         "lineage_id": lineage_id,
         "branch_id": branch_id,
         "title": content["title"].as_str().unwrap_or_default(),
