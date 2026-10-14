@@ -12075,6 +12075,128 @@ mod web_link_importer {
         assert_eq!(recipes_and_agent_jobs(&app), (1, 2));
     }
 
+    fn head_content(app: &support::TestApp, key: &str, branch_id: &str) -> Value {
+        let (_, recipe) = app.post_op(
+            "get_recipe",
+            Some(key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        let recipe = &recipe["result"];
+        recipe["versions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|version| version["version_id"] == recipe["head_version_id"])
+            .unwrap_or_else(|| panic!("{recipe}"))["content"]
+            .clone()
+    }
+
+    /// The same link, once an agent has read it, matches the recipe the agent
+    /// wrote (#271). Kamosu's own bare reading of the page always differs from
+    /// that, and is not offered as a change. No Job is made, and the Report
+    /// names the one that read it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_same_link_after_an_agent_read_it_matches_its_recipe_and_makes_no_job() {
+        let app = support::spawn_app();
+        let (key, runner) = cook_and_runner(&app);
+        let url = a_page_with_no_recipe_data();
+
+        let first = import_web_link_and_wait(&app, &key, &url);
+        let job_id = first["agent_jobs"][0]["job_id"].as_str().unwrap();
+        let branch_id = first["agent_jobs"][0]["branch_id"].as_str().unwrap();
+        let work = ask_for_work(&app, &runner);
+        let job_key = work["job_key"].as_str().expect("a Job Key");
+        let (status, edited) = app.post_op(
+            "edit_recipe",
+            Some(job_key),
+            &json!({
+                "branch_id": branch_id,
+                "title": "Lemon tart",
+                "ingredients": [{ "kind": "ingredient", "text": "4 eggs" }],
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{edited}");
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&runner),
+            json!({ "job_id": job_id, "outcome": "completed" }),
+        );
+        assert_eq!(status, 200, "{reported}");
+
+        let again = import_web_link_and_wait(&app, &key, &url);
+        assert_eq!(again["offered"], json!([]), "{again}");
+        assert_eq!(again["arrived"][0]["branch_id"], json!(branch_id));
+        assert_eq!(again["arrived"][0]["status"], json!("unchanged"));
+        // Described as the agent left it, not as Kamosu read the page.
+        assert_eq!(again["arrived"][0]["title"], json!("Lemon tart"));
+        assert_eq!(again["arrived"][0]["bare"], json!(false), "{again}");
+        assert_eq!(again["agent_jobs"][0]["job_id"], json!(job_id), "{again}");
+        assert_eq!(again["agent_jobs"][0]["made_by_agent"], json!(true));
+        assert_eq!(recipes_and_agent_jobs(&app), (1, 1));
+        let head = head_content(&app, &key, branch_id);
+        assert_eq!(head["ingredients"][0]["text"], json!("4 eggs"), "{head}");
+
+        // The cook writing it since changes nothing: an agent read the link.
+        let (status, edited) = app.post_op(
+            "edit_recipe",
+            Some(&key),
+            &json!({
+                "branch_id": branch_id,
+                "steps": [{ "kind": "step", "text": "Whisk.", "photo": null }],
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{edited}");
+        let later = import_web_link_and_wait(&app, &key, &url);
+        assert_eq!(later["offered"], json!([]), "{later}");
+        assert_eq!(later["arrived"][0]["status"], json!("unchanged"));
+        assert_eq!(recipes_and_agent_jobs(&app), (1, 1));
+    }
+
+    /// The first Job on a link failed, keeping what its agent had saved
+    /// (#271). The link handed over again is not offered as a change to
+    /// that: a new Job is made on the same recipe, and no second recipe.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_same_link_after_its_agent_failed_is_a_new_job_on_the_same_recipe() {
+        let app = support::spawn_app();
+        let (key, runner) = cook_and_runner(&app);
+        let url = a_page_with_no_recipe_data();
+
+        let first = import_web_link_and_wait(&app, &key, &url);
+        let job_id = first["agent_jobs"][0]["job_id"].as_str().unwrap();
+        let branch_id = first["agent_jobs"][0]["branch_id"].as_str().unwrap();
+        let work = ask_for_work(&app, &runner);
+        let job_key = work["job_key"].as_str().expect("a Job Key");
+        app.post_op(
+            "edit_recipe",
+            Some(job_key),
+            &json!({
+                "branch_id": branch_id,
+                "ingredients": [{ "kind": "ingredient", "text": "4 eggs" }],
+            })
+            .to_string(),
+        );
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&runner),
+            json!({
+                "job_id": job_id, "outcome": "could_not_be_read",
+                "reason": "The video stops halfway.",
+            }),
+        );
+        assert_eq!(status, 200, "{reported}");
+
+        let again = import_web_link_and_wait(&app, &key, &url);
+        assert_eq!(again["offered"], json!([]), "{again}");
+        assert_eq!(again["arrived"][0]["branch_id"], json!(branch_id));
+        let next = again["agent_jobs"][0]["job_id"].as_str().expect("a Job");
+        assert_ne!(next, job_id, "{again}");
+        assert_eq!(again["agent_jobs"][0]["branch_id"], json!(branch_id));
+        assert_eq!(job(&app, &key, next)["status"], json!("queued"));
+        assert_eq!(recipes_and_agent_jobs(&app), (1, 2));
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_recipe_somebody_has_written_since_is_not_sent_to_an_agent_unasked() {
         let app = support::spawn_app();
@@ -34851,6 +34973,214 @@ mod handing_an_original_to_an_agent {
             .expect("the Original is kept");
         assert_eq!(kept, SCANNED);
         assert_eq!(recipes_held(&app), 0);
+    }
+
+    fn agent_jobs_held(app: &support::TestApp) -> i64 {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.query_row("SELECT COUNT(*) FROM agent_jobs", [], |row| row.get(0))
+                    .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+            })
+            .unwrap()
+    }
+
+    /// The agent the Runner is handed the oldest waiting Job for creates its
+    /// recipe and completes: the recipe's id.
+    fn an_agent_creates(app: &support::TestApp, runner: &str, title: &str) -> String {
+        let work = ask_for_work(app, runner);
+        let job_key = work["job_key"].as_str().expect("a Job");
+        let (status, created) = app.post_op(
+            "create_recipe",
+            Some(job_key),
+            &json!({ "title": title }).to_string(),
+        );
+        assert_eq!(status, 200, "{created}");
+        let (status, reported) = app.post_op(
+            "report_on_job",
+            Some(runner),
+            &json!({ "job_id": work["job_id"], "outcome": "completed" }).to_string(),
+        );
+        assert_eq!(status, 200, "{reported}");
+        created["result"]["branch_id"].as_str().unwrap().to_string()
+    }
+
+    /// The same PDF or picture handed over twice is matched by its contents
+    /// (#271), however it is sent. While its first Job waits or is held, the
+    /// answer is that Job; once the agent has made the recipe, the answer is
+    /// that recipe. No second Job and no second recipe. Pasted text is not
+    /// matched.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_same_file_handed_over_again_answers_its_job_and_then_its_recipe() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let (picture, _) = a_picture_taken_somewhere();
+
+        for (bytes, kind, title) in [
+            (BISCUIT.to_vec(), "pdf", "Biscuit de Savoie"),
+            (picture, "picture", "Tarte aux pommes"),
+        ] {
+            let job_id = handed(&app, &at.cook, json!({ "data": base64_of(&bytes) }), kind);
+            let jobs = agent_jobs_held(&app);
+            let again = json!({ "upload_id": staged(&app, &at.cook, &bytes) });
+            assert_eq!(handed(&app, &at.cook, again, kind), job_id, "{kind}");
+
+            let branch_id = an_agent_creates(&app, &at.runner, title);
+            let recipes = recipes_held(&app);
+            let (status, matched) =
+                hand_over(&app, Some(&at.cook), json!({ "data": base64_of(&bytes) }));
+            assert_eq!(status, 200, "{matched}");
+            assert_eq!(
+                matched["result"],
+                json!({ "source_kind": kind, "branch_id": branch_id, "title": title }),
+                "{kind}"
+            );
+            assert_eq!(recipes_held(&app), recipes, "{kind}");
+            assert_eq!(agent_jobs_held(&app), jobs, "{kind}");
+        }
+
+        let first = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        let second = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        assert_ne!(first, second);
+    }
+
+    /// While a Job is held, the same file answers that Job too (#271).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_same_file_while_its_job_is_held_answers_that_job() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let job_id = handed(&app, &at.cook, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        assert_eq!(ask_for_work(&app, &at.runner)["job_id"], json!(job_id));
+        let again = handed(&app, &at.cook, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        assert_eq!(again, job_id);
+        assert_eq!(agent_jobs_held(&app), 1);
+    }
+
+    /// A file whose first Job made no recipe is handed to a Job like the
+    /// first (#271's default). An Import forgotten matches nothing, whether
+    /// its Job still waits or made its recipe: the same file arrives as new.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_file_whose_job_made_no_recipe_is_a_new_job_and_a_forgotten_import_matches_nothing() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let hand_biscuit = || handed(&app, &at.cook, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        let forget_the_pdfs = || {
+            let (_, listed) = app.post_op("list_imports", Some(&at.cook), "{}");
+            let import_id = listed["result"]["imports"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|source| source["source_kind"] == json!("pdf"))
+                .and_then(|source| source["import_id"].as_str())
+                .unwrap_or_else(|| panic!("{listed}"))
+                .to_string();
+            let (status, forgot) = app.post_op(
+                "forget_import",
+                Some(&at.cook),
+                &json!({ "import_id": import_id }).to_string(),
+            );
+            assert_eq!(status, 200, "{forgot}");
+        };
+
+        let cancelled = hand_biscuit();
+        app.post_op(
+            "cancel_job",
+            Some(&at.cook),
+            &json!({ "job_id": cancelled }).to_string(),
+        );
+        let second = hand_biscuit();
+        assert_ne!(second, cancelled);
+
+        // Forgotten while the Job waits: the same file is a Job of its own,
+        // and the Job of the forgotten Import still makes its recipe when its
+        // agent comes. The same file then answers the new Job, not that recipe.
+        forget_the_pdfs();
+        let third = hand_biscuit();
+        assert_ne!(third, second);
+        let made_by_second = an_agent_creates(&app, &at.runner, "Biscuit de Savoie");
+        let (_, matched) = hand_over(&app, Some(&at.cook), json!({ "data": base64_of(BISCUIT) }));
+        assert_eq!(matched["result"]["job_id"], json!(third), "{matched}");
+
+        // Forgotten once its recipe is made: the same file is new again.
+        let made_by_third = an_agent_creates(&app, &at.runner, "Biscuit de Savoie");
+        assert_ne!(made_by_third, made_by_second);
+        let (_, matched) = hand_over(&app, Some(&at.cook), json!({ "data": base64_of(BISCUIT) }));
+        assert_eq!(matched["result"]["branch_id"], json!(made_by_third));
+        forget_the_pdfs();
+        let fourth = hand_biscuit();
+        assert_ne!(fourth, third);
+    }
+
+    /// A cook with an Access Key, in a Cookbook of their own.
+    fn a_cook(app: &support::TestApp, name: &str) -> String {
+        let person = app.core.create_person(name).expect("person");
+        app.core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret
+    }
+
+    /// `guest` joins `host`'s Cookbook.
+    fn joins(app: &support::TestApp, guest: &str, host: &str) {
+        let (_, invited) = app.post_op("invite_to_cookbook", Some(host), "{}");
+        let (status, joined) = app.post_op(
+            "accept_cookbook_invite",
+            Some(guest),
+            &json!({ "secret": invited["result"]["secret"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{joined}");
+    }
+
+    /// The asker left the Cookbook while the Job on a file waited, so its
+    /// agent created the recipe in the asker's own Cookbook now (#271). The
+    /// Cookbook left behind is not answered with that recipe, which none of
+    /// its Co-authors could open.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_file_handed_over_by_someone_who_left_does_not_answer_the_cookbook_they_left() {
+        let app = support::spawn_app();
+        let runner = another_runner(&app, "the kitchen's Runner");
+        let host = a_cook(&app, "Host");
+        let guest = a_cook(&app, "Guest");
+        joins(&app, &guest, &host);
+        handed(&app, &guest, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        let (status, left) = app.post_op("leave_cookbook", Some(&guest), "{}");
+        assert_eq!(status, 200, "{left}");
+        an_agent_creates(&app, &runner, "Biscuit de Savoie");
+
+        let (status, answered) =
+            hand_over(&app, Some(&host), json!({ "data": base64_of(BISCUIT) }));
+        assert_eq!(status, 200, "{answered}");
+        assert!(answered["result"]["job_id"].is_string(), "{answered}");
+        assert_eq!(answered["result"].get("branch_id"), None, "{answered}");
+    }
+
+    /// The asker's Cookbook joined another that had an Import of the same
+    /// kind while the Job on a file waited (#271). The same file still
+    /// answers that Job, and then the recipe its agent made.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_file_whose_cookbook_joined_another_while_its_job_waited_is_still_matched() {
+        let app = support::spawn_app();
+        let runner = another_runner(&app, "the kitchen's Runner");
+        let host = a_cook(&app, "Host");
+        let guest = a_cook(&app, "Guest");
+        // The host's Cookbook has a PDF Import of its own already.
+        handed(&app, &host, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        an_agent_creates(&app, &runner, "Biscuit de Savoie");
+
+        let mut other = BISCUIT.to_vec();
+        other.extend_from_slice(b"\n%another file\n");
+        let job_id = handed(&app, &guest, json!({ "data": base64_of(&other) }), "pdf");
+        joins(&app, &guest, &host);
+        let again = handed(&app, &guest, json!({ "data": base64_of(&other) }), "pdf");
+        assert_eq!(again, job_id);
+
+        let branch_id = an_agent_creates(&app, &runner, "Gâteau de Savoie");
+        let (_, matched) = hand_over(&app, Some(&guest), json!({ "data": base64_of(&other) }));
+        assert_eq!(
+            matched["result"]["branch_id"],
+            json!(branch_id),
+            "{matched}"
+        );
     }
 
     /// The refusal for want of a Runner comes before a staged file is used,

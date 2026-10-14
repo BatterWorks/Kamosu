@@ -439,7 +439,7 @@ impl Core {
                     continue;
                 }
             };
-            let shape = LandedShape::of(&candidate);
+            let mut shape = LandedShape::of(&candidate);
 
             let (lineage_id, branch_id, title) = match self.import_one(
                 caller,
@@ -455,7 +455,11 @@ impl Core {
                     branch_id,
                     title,
                     status,
+                    held,
                 }) => {
+                    if let Some(held) = &held {
+                        shape = LandedShape::of(held);
+                    }
                     arrived.push(json!({
                         "foreign_id": foreign_id, "status": status,
                         "lineage_id": lineage_id, "branch_id": branch_id, "title": title,
@@ -519,13 +523,14 @@ impl Core {
     /// Have an agent read the link one Import just landed bare (ADR 0048,
     /// #261), and say so in that Import's Report.
     ///
-    /// A recipe that `arrived` is the bare reading and nothing else, newly
-    /// made or found unchanged, and a Job is made on it unless one stands
-    /// already. A recipe that was `offered` the bare reading holds more than
-    /// that: Kamosu read it in full once, or somebody wrote it since. Sending
-    /// that to an agent is for a Co-author to ask (ADR 0048), so only a Job
-    /// already standing on it is named. A candidate that landed nothing has
-    /// no recipe for a Job to be on.
+    /// A recipe that `arrived` is the bare reading or an agent's writing,
+    /// newly made or matched. A Job is made on it unless one stands already,
+    /// which is named, or an agent has read it, when the Job that did is
+    /// named and none is made (#271). A recipe that was `offered` the bare
+    /// reading holds more than that: Kamosu read it in full once, or somebody
+    /// wrote it since. Sending that to an agent is for a Co-author to ask
+    /// (ADR 0048), so only a Job already standing on it is named. A candidate
+    /// that landed nothing has no recipe for a Job to be on.
     pub fn hand_link_to_agent(
         &self,
         caller: &Caller,
@@ -535,7 +540,14 @@ impl Core {
         let branch_of = |rows: &str| report[rows][0]["branch_id"].as_str().map(str::to_string);
         let job = self.db().with_conn(|conn| {
             if let Some(branch_id) = branch_of("arrived") {
-                let job_id = jobs::wait_for_agent(conn, caller, &branch_id, link)?;
+                let job_id = match jobs::agent_job_completed_on(conn, &branch_id)? {
+                    // A Job standing on it comes first, and `wait_for_agent`
+                    // answers that one.
+                    Some(completed) if jobs::standing_agent_job(conn, &branch_id)?.is_none() => {
+                        completed
+                    }
+                    _ => jobs::wait_for_agent(conn, caller, &branch_id, link)?,
+                };
                 return Ok(Some((job_id, branch_id)));
             }
             let Some(branch_id) = branch_of("offered") else {
@@ -556,7 +568,9 @@ impl Core {
     /// content as a Version — content-addressed, so this never collides with
     /// or moves anything already on the Branch — and answers `Offered`
     /// without touching `head_version_id`: the offer is never written over
-    /// the Branch on its own.
+    /// the Branch on its own. A bare candidate on a recipe an agent has
+    /// written is `Unchanged` instead (#271): what the agent wrote is the
+    /// reading of that source.
     ///
     /// Whatever the fate, the Branch is then filed under `tags`, English words
     /// in the Cookbook's own list (#128). Filing only adds, so a recipe matched
@@ -628,6 +642,7 @@ impl Core {
                         branch_id,
                         title,
                         status: "created",
+                        held: None,
                     })
                 }
                 Some((lineage_id, branch_id, head_version_id)) => {
@@ -637,6 +652,26 @@ impl Core {
                             branch_id,
                             title,
                             status: "unchanged",
+                            held: None,
+                        })
+                    } else if LandedShape::of(candidate).bare
+                        && agent_has_written(conn, &branch_id)?
+                    {
+                        // Described as the agent left it, not as the page is.
+                        let held: Value = conn
+                            .query_row(
+                                "SELECT content FROM versions WHERE id = ?1",
+                                params![head_version_id],
+                                |row| row.get::<_, String>(0),
+                            )
+                            .map(|content| serde_json::from_str(&content).unwrap_or_default())
+                            .map_err(|e| OpError::internal(format!("cannot read the recipe: {e}")))?;
+                        Ok(ImportOutcome::Landed {
+                            lineage_id,
+                            branch_id,
+                            title: held["title"].as_str().map_or(title, str::to_string),
+                            status: "unchanged",
+                            held: Some(held),
                         })
                     } else {
                         conn.execute(
@@ -898,6 +933,26 @@ fn related_candidates(
     Ok(offered)
 }
 
+/// Whether an agent has written a recipe Kamosu's bare reading of its source
+/// would otherwise be offered as a change to (#271): an agent's Job on it
+/// completed, or the last save on it was an agent's. The bare reading always
+/// differs from an agent's writing, so it is no news. A recipe a person wrote
+/// after an agent that never completed is offered as before (#261).
+fn agent_has_written(conn: &Connection, branch_id: &str) -> Result<bool, OpError> {
+    if jobs::agent_job_completed_on(conn, branch_id)?.is_some() {
+        return Ok(true);
+    }
+    conn.query_row(
+        "SELECT job_id IS NOT NULL FROM branch_versions
+          WHERE branch_id = ?1 ORDER BY sequence DESC LIMIT 1",
+        params![branch_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(Option::unwrap_or_default)
+    .map_err(|e| OpError::internal(format!("cannot read the recipe's History: {e}")))
+}
+
 /// What became of one Import candidate against the ledger.
 enum ImportOutcome {
     /// Newly made (`status: "created"`) or matched and found unchanged
@@ -907,6 +962,10 @@ enum ImportOutcome {
         branch_id: String,
         title: String,
         status: &'static str,
+        /// The recipe as it stands, where the Report describes it rather
+        /// than the candidate: a bare reading matched to what an agent
+        /// wrote (#271).
+        held: Option<Value>,
     },
     Offered {
         lineage_id: String,
