@@ -12812,9 +12812,10 @@ mod web_link_importer {
     /// agent holding one reads strangers' text with nobody watching, so the
     /// list is written out here and not read off the Catalogue: marking one
     /// more Operation fails this test until the name is added on purpose.
-    const THE_JOB_KEYS_LIST: [&str; 14] = [
+    const THE_JOB_KEYS_LIST: [&str; 15] = [
         "branch_point",
         "changed_since",
+        "create_recipe",
         "divergence",
         "edit_recipe",
         "get_food",
@@ -12830,9 +12831,11 @@ mod web_link_importer {
     ];
 
     /// The ones on the list that write, each with what the Core holds it to
-    /// (#264): the Job's one recipe, or a Photograph that is nobody's recipe
-    /// yet. Written out for the reason the list is.
-    const THE_JOB_KEYS_WRITES: [(&str, kamosu::catalogue::JobKey); 5] = [
+    /// (#264): the Job's one recipe, a Photograph that is nobody's recipe
+    /// yet, or the recipe a Job without one creates (#269). Written out for
+    /// the reason the list is.
+    const THE_JOB_KEYS_WRITES: [(&str, kamosu::catalogue::JobKey); 6] = [
+        ("create_recipe", kamosu::catalogue::JobKey::CreatesItsRecipe),
         ("edit_recipe", kamosu::catalogue::JobKey::WritesItsRecipe),
         (
             "save_recipe_version",
@@ -12883,13 +12886,17 @@ mod web_link_importer {
             assert!(op.write, "{} reads, and is marked as a write", op.name);
             // The Core holds a write to the Job's recipe by the `branch_id`
             // the call names, so an Operation marked for it has to take one.
+            // Storing a Photograph and creating the recipe name none.
             let takes_a_recipe = op.input_schema["required"]
                 .as_array()
                 .is_some_and(|required| required.contains(&json!("branch_id")))
                 && op.input_schema["properties"]["branch_id"]["type"] == json!("string");
             assert_eq!(
                 takes_a_recipe,
-                op.job_key != JobKey::StoresPhotographs,
+                !matches!(
+                    op.job_key,
+                    JobKey::StoresPhotographs | JobKey::CreatesItsRecipe
+                ),
                 "{} and the recipe it names",
                 op.name
             );
@@ -13181,7 +13188,7 @@ mod web_link_importer {
             "delete_food",
             "create_tag",
             "delete_recipe",
-            "create_recipe",
+            "import_by_agent",
             "start_variation",
             "rename_version",
             "set_recipe_language",
@@ -33897,4 +33904,857 @@ async fn the_shelf_narrows_to_one_cookbook_and_opens_its_branch() {
     let unseen = call(json!({ "cookbook_id": hers }), &marc);
     assert_eq!(unseen["isError"], json!(true), "{unseen}");
     assert_eq!(unseen, call(json!({ "cookbook_id": "c_nobody" }), &marc));
+}
+
+/// Pasted text, a PDF or a picture handed to an agent and kept as an
+/// Original (#269, ADR 0048). The tests play the Runner and the agent.
+mod handing_an_original_to_an_agent {
+    use super::*;
+    use base64::Engine;
+
+    const BISCUIT: &[u8] = include_bytes!("fixtures/biscuit-de-savoie.pdf");
+    const SCANNED: &[u8] = include_bytes!("fixtures/scanned-page.pdf");
+
+    /// Words found in no recipe and nowhere in Kamosu, so that finding them
+    /// in a file means the pasted text got there.
+    const MARKER: &str = "zeste-de-citron-7f3a9c";
+
+    fn pasted() -> String {
+        format!("Tarte au citron\n\n200 g flour\n1 lemon, {MARKER}\n\nBake it.")
+    }
+
+    /// The Operator and cook, signed in, and the Secret of a Runner Key.
+    struct BesideARunner {
+        cook: String,
+        cook_id: String,
+        runner: String,
+    }
+
+    fn beside_a_runner(app: &support::TestApp) -> BesideARunner {
+        let (cook, cook_id) = super::operator_signed_in(app);
+        BesideARunner {
+            cook,
+            cook_id,
+            runner: another_runner(app, "the kitchen's Runner"),
+        }
+    }
+
+    fn another_runner(app: &support::TestApp, name: &str) -> String {
+        app.core.mint_runner_key(name).expect("a Runner Key").secret
+    }
+
+    fn hand_over(app: &support::TestApp, key: Option<&str>, input: Value) -> (u16, Value) {
+        app.post_op("import_by_agent", key, &input.to_string())
+    }
+
+    /// Hand something over and answer the Job's id, checking it was taken as
+    /// `kind`.
+    fn handed(app: &support::TestApp, key: &str, input: Value, kind: &str) -> String {
+        let (status, asked) = hand_over(app, Some(key), input);
+        assert_eq!(status, 200, "{asked}");
+        assert_eq!(asked["result"]["source_kind"], json!(kind), "{asked}");
+        asked["result"]["job_id"]
+            .as_str()
+            .expect("a Job")
+            .to_string()
+    }
+
+    fn staged(app: &support::TestApp, key: &str, bytes: &[u8]) -> String {
+        let (status, staged) =
+            app.post_bytes("/api/uploads", Some(key), "application/octet-stream", bytes);
+        assert_eq!(status, 200, "{staged}");
+        staged["result"]["upload_id"].as_str().unwrap().to_string()
+    }
+
+    fn base64_of(bytes: &[u8]) -> String {
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
+    /// What a Runner is handed when it asks.
+    fn ask_for_work(app: &support::TestApp, runner: &str) -> Value {
+        let (status, answered) = app.post_op("ask_for_work", Some(runner), &super::asking());
+        assert_eq!(status, 200, "{answered}");
+        answered["result"]["job"].clone()
+    }
+
+    fn job(app: &support::TestApp, key: &str, job_id: &str) -> (u16, Value) {
+        app.post_op(
+            "get_job",
+            Some(key),
+            &json!({ "job_id": job_id }).to_string(),
+        )
+    }
+
+    fn fetch_original(
+        app: &support::TestApp,
+        credential: Option<&str>,
+        job_id: &str,
+    ) -> (u16, String, Vec<u8>) {
+        app.get_bytes(&format!("/api/originals/{job_id}"), credential)
+    }
+
+    fn recipes_held(app: &support::TestApp) -> i64 {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.query_row("SELECT COUNT(*) FROM branches", [], |row| row.get(0))
+                    .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+            })
+            .unwrap()
+    }
+
+    /// A JPEG carrying where it was taken: an Exif segment with a GPS
+    /// latitude, slid in after the start of the image. Answers the picture
+    /// and the latitude's own bytes, which are what to look for afterwards.
+    fn a_picture_taken_somewhere() -> (Vec<u8>, Vec<u8>) {
+        let image = image::RgbImage::from_fn(640, 480, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, 90])
+        });
+        let mut jpeg = Vec::new();
+        image::DynamicImage::ImageRgb8(image)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .expect("encodes");
+
+        // 48° 51' 29.123" N, as three rationals.
+        let latitude: Vec<u8> = [(48u32, 1u32), (51, 1), (29_123, 1000)]
+            .iter()
+            .flat_map(|(top, bottom)| [top.to_le_bytes(), bottom.to_le_bytes()].concat())
+            .collect();
+        let entry = |tag: u16, kind: u16, count: u32, value: [u8; 4]| {
+            [
+                &tag.to_le_bytes()[..],
+                &kind.to_le_bytes(),
+                &count.to_le_bytes(),
+                &value,
+            ]
+            .concat()
+        };
+        let mut tiff = b"II*\0".to_vec();
+        tiff.extend(8u32.to_le_bytes());
+        // The first IFD, at 8, points to the GPS one at 26.
+        tiff.extend(1u16.to_le_bytes());
+        tiff.extend(entry(0x8825, 4, 1, 26u32.to_le_bytes()));
+        tiff.extend(0u32.to_le_bytes());
+        // The GPS IFD, at 26: north, and the latitude's rationals at 56.
+        tiff.extend(2u16.to_le_bytes());
+        tiff.extend(entry(0x0001, 2, 2, *b"N\0\0\0"));
+        tiff.extend(entry(0x0002, 5, 3, 56u32.to_le_bytes()));
+        tiff.extend(0u32.to_le_bytes());
+        assert_eq!(tiff.len(), 56);
+        tiff.extend(&latitude);
+
+        let mut segment = b"Exif\0\0".to_vec();
+        segment.extend(tiff);
+        let mut picture = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        picture.extend(((segment.len() + 2) as u16).to_be_bytes());
+        picture.extend(segment);
+        picture.extend(&jpeg[2..]);
+        (picture, latitude)
+    }
+
+    fn holds(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
+    }
+
+    /// Every file under the data directory but the Originals themselves:
+    /// the database, its write-ahead log, Photographs, staged uploads.
+    fn everything_but_originals(dir: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
+        let mut found = Vec::new();
+        for entry in std::fs::read_dir(dir).expect("a directory").flatten() {
+            let path = entry.path();
+            if path.file_name() == Some(std::ffi::OsStr::new("originals")) {
+                continue;
+            }
+            if path.is_dir() {
+                found.extend(everything_but_originals(&path));
+            } else if let Ok(bytes) = std::fs::read(&path) {
+                found.push((path, bytes));
+            }
+        }
+        found
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn text_a_pdf_a_scan_and_a_picture_each_make_a_waiting_job_and_no_recipe() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let (picture, _) = a_picture_taken_somewhere();
+
+        let jobs = [
+            (
+                handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text"),
+                "pasted_text",
+            ),
+            (
+                handed(
+                    &app,
+                    &at.cook,
+                    json!({ "upload_id": staged(&app, &at.cook, BISCUIT) }),
+                    "pdf",
+                ),
+                "pdf",
+            ),
+            (
+                handed(&app, &at.cook, json!({ "data": base64_of(SCANNED) }), "pdf"),
+                "pdf",
+            ),
+            (
+                handed(
+                    &app,
+                    &at.cook,
+                    json!({ "upload_id": staged(&app, &at.cook, &picture) }),
+                    "picture",
+                ),
+                "picture",
+            ),
+        ];
+        assert_eq!(recipes_held(&app), 0);
+
+        for (job_id, kind) in &jobs {
+            let (status, read) = job(&app, &at.cook, job_id);
+            assert_eq!(status, 200, "{read}");
+            let read = &read["result"];
+            assert_eq!(read["status"], json!("queued"), "{read}");
+            assert_eq!(read["operation"], json!("read_by_agent"));
+            // Its record holds what kind of thing it reads and nothing of it.
+            let report = &read["result"];
+            assert_eq!(report["source_kind"], json!(kind), "{read}");
+            assert_eq!(report["arrived"], json!([]));
+            assert_eq!(
+                report["agent_jobs"],
+                json!([{ "job_id": job_id, "branch_id": null, "status": "queued" }])
+            );
+        }
+
+        // A Runner each, since a Runner holds one Job at a time. The oldest
+        // goes first, with no recipe and no link, and where to fetch it.
+        for (job_id, kind) in &jobs {
+            let runner = another_runner(&app, job_id);
+            let work = ask_for_work(&app, &runner);
+            assert_eq!(work["job_id"], json!(job_id), "{work}");
+            assert_eq!(work["branch_id"], json!(null));
+            assert_eq!(work["link"], json!(null));
+            let address = format!("/api/originals/{job_id}");
+            assert_eq!(
+                work["original"],
+                json!({ "kind": kind, "address": address })
+            );
+            let job_key = work["job_key"].as_str().unwrap();
+            let (status, content_type, bytes) = app.get_bytes(&address, Some(job_key));
+            assert_eq!(status, 200, "{}", String::from_utf8_lossy(&bytes));
+            match *kind {
+                "pasted_text" => {
+                    assert_eq!(content_type, "text/plain; charset=utf-8");
+                    assert_eq!(bytes, pasted().into_bytes());
+                }
+                "pdf" => {
+                    assert_eq!(content_type, "application/pdf");
+                    assert!(bytes == BISCUIT || bytes == SCANNED);
+                }
+                _ => {
+                    assert_eq!(content_type, "image/webp");
+                    assert_eq!(&bytes[..4], b"RIFF");
+                    assert_eq!(&bytes[8..12], b"WEBP");
+                }
+            }
+        }
+        assert_eq!(recipes_held(&app), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_picture_kept_as_an_original_carries_no_location_and_keeps_its_size() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let (picture, latitude) = a_picture_taken_somewhere();
+        assert!(holds(&picture, &latitude) && holds(&picture, b"Exif\0\0"));
+
+        let job_id = handed(
+            &app,
+            &at.cook,
+            json!({ "data": base64_of(&picture) }),
+            "picture",
+        );
+        let work = ask_for_work(&app, &at.runner);
+        let (status, _, kept) = fetch_original(&app, work["job_key"].as_str(), &job_id);
+        assert_eq!(status, 200);
+        assert!(!holds(&kept, &latitude), "the latitude is still in it");
+        assert!(!holds(&kept, b"Exif") && !holds(&kept, b"EXIF"));
+        let read = image::load_from_memory(&kept).expect("a picture");
+        assert_eq!((read.width(), read.height()), (640, 480));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn anything_else_is_refused_in_words_and_so_is_a_stranger_and_no_runner() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+
+        let refused = [
+            json!({ "data": base64_of(b"PK\x03\x04 a zip, which is no recipe") }),
+            json!({ "data": base64_of(b"<svg xmlns='http://www.w3.org/2000/svg'/>") }),
+            json!({ "upload_id": staged(&app, &at.cook, b"just some bytes") }),
+            json!({ "text": "   \n  " }),
+            json!({ "text": "x".repeat(64 * 1024 + 1) }),
+            json!({ "text": "a recipe", "data": base64_of(BISCUIT) }),
+            json!({}),
+        ];
+        for input in refused {
+            let (status, answered) = hand_over(&app, Some(&at.cook), input.clone());
+            assert_eq!(status, 400, "{input}: {answered}");
+            assert!(answered["error"]["message"].as_str().unwrap().len() > 20);
+        }
+        let (status, answered) = hand_over(
+            &app,
+            Some(&at.cook),
+            json!({ "data": base64_of(b"PK\x03\x04") }),
+        );
+        assert_eq!(status, 400);
+        assert_eq!(
+            answered["error"]["message"],
+            json!(
+                "an agent is handed pasted text, a PDF or a picture, and this file is none of them"
+            )
+        );
+
+        // Nobody, and a Runner Key, which acts as no Person.
+        assert_eq!(hand_over(&app, None, json!({ "text": pasted() })).0, 401);
+        assert_eq!(
+            hand_over(&app, Some(&at.runner), json!({ "text": pasted() })).0,
+            401
+        );
+
+        // With the instance's Runner Key revoked it has no Runner.
+        let (_, keys) = app.post_op("list_runner_keys", Some(&at.cook), "{}");
+        let key_id = keys["result"]["runner_keys"][0]["id"].as_str().unwrap();
+        let (status, _) = app.post_op(
+            "revoke_runner_key",
+            Some(&at.cook),
+            &json!({ "runner_key_id": key_id }).to_string(),
+        );
+        assert_eq!(status, 200);
+        let (status, answered) = hand_over(&app, Some(&at.cook), json!({ "text": pasted() }));
+        assert_eq!(status, 400, "{answered}");
+        assert_eq!(answered["error"]["reason"], json!("no_runner"));
+        assert!(
+            answered["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("no Runner")
+        );
+
+        // None of it made a Job.
+        let (_, listed) = app.post_op("list_jobs", Some(&at.cook), "{}");
+        assert_eq!(listed["result"]["jobs"], json!([]), "{listed}");
+        assert!(
+            !app.core.data_dir().join("originals").exists()
+                || std::fs::read_dir(app.core.data_dir().join("originals"))
+                    .unwrap()
+                    .next()
+                    .is_none()
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_database_and_a_backup_hold_none_of_it() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        handed(&app, &at.cook, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        // A stretch of the PDF from its middle, past what every PDF starts with.
+        let of_the_pdf = &BISCUIT[BISCUIT.len() / 2..BISCUIT.len() / 2 + 48];
+
+        for (path, bytes) in everything_but_originals(app.core.data_dir().as_path()) {
+            assert!(!holds(&bytes, MARKER.as_bytes()), "{path:?} holds the text");
+            assert!(!holds(&bytes, of_the_pdf), "{path:?} holds the PDF");
+        }
+        // The Originals are on disk, beside the database.
+        let originals = app.core.data_dir().join("originals");
+        assert_eq!(std::fs::read_dir(&originals).unwrap().count(), 2);
+
+        super::take_a_backup(&app, &at.cook);
+        let backups = app.core.data_dir().join("backups");
+        let archive = std::fs::read_dir(&backups)
+            .unwrap()
+            .flatten()
+            .find(|entry| entry.path().extension() == Some(std::ffi::OsStr::new("zip")))
+            .expect("a Backup")
+            .path();
+        let entries = super::unzip(&std::fs::read(&archive).unwrap());
+        assert!(
+            entries.keys().any(|name| name.ends_with(".db")),
+            "{:?}",
+            entries.keys()
+        );
+        for (name, bytes) in &entries {
+            assert!(!name.contains("originals"), "{name}");
+            assert!(!holds(bytes, MARKER.as_bytes()), "{name} holds the text");
+            assert!(!holds(bytes, of_the_pdf), "{name} holds the PDF");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn only_its_own_job_key_fetches_an_original() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let first = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        let second = handed(&app, &at.cook, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        let first_key = ask_for_work(&app, &at.runner)["job_key"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let second_runner = another_runner(&app, "a second Runner");
+        let second_key = ask_for_work(&app, &second_runner)["job_key"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let person = app.core.create_person("Marc").expect("person");
+        let access_key = app
+            .core
+            .mint_access_key(&at.cook_id, "an agent", false)
+            .unwrap()
+            .secret;
+        let someone_else = app
+            .core
+            .mint_access_key(&person, "browser", false)
+            .unwrap()
+            .secret;
+
+        assert_eq!(fetch_original(&app, Some(&first_key), &first).0, 200);
+        assert_eq!(fetch_original(&app, Some(&second_key), &second).0, 200);
+        for (who, credential, status) in [
+            ("the other Job's Job Key", Some(first_key.as_str()), 404),
+            ("the asker's Session", Some(at.cook.as_str()), 404),
+            ("the asker's Access Key", Some(access_key.as_str()), 404),
+            ("someone else", Some(someone_else.as_str()), 404),
+            ("the Runner Key", Some(second_runner.as_str()), 401),
+            ("nobody", None, 401),
+        ] {
+            let (answered, _, body) = fetch_original(&app, credential, &second);
+            assert_eq!(
+                answered,
+                status,
+                "{who}: {}",
+                String::from_utf8_lossy(&body)
+            );
+        }
+        // An id naming no Job is answered as one naming another's.
+        assert_eq!(
+            fetch_original(&app, Some(&first_key), "j_000000000000000000000000"),
+            fetch_original(&app, Some(&first_key), &second)
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_job_key_creates_one_recipe_in_the_askers_cookbook_and_a_second_hold_keeps_it() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let (_, co_author) = {
+            let person = app.core.create_person("Marc").expect("person");
+            let key = app
+                .core
+                .mint_access_key(&person, "browser", false)
+                .unwrap()
+                .secret;
+            (person, key)
+        };
+        super::write_together(&app, &at.cook, &co_author);
+        let job_id = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+
+        // Until the recipe exists, the Job is the asker's alone to read.
+        assert_eq!(job(&app, &at.cook, &job_id).0, 200);
+        assert_eq!(job(&app, &co_author, &job_id).0, 404);
+
+        let work = ask_for_work(&app, &at.runner);
+        let job_key = work["job_key"].as_str().unwrap().to_string();
+
+        // Nothing it writes names a recipe before it has one.
+        let (status, refused) = app.post_op(
+            "edit_recipe",
+            Some(&job_key),
+            &json!({ "branch_id": "b_anything", "note": "x" }).to_string(),
+        );
+        assert_eq!(status, 400, "{refused}");
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("create_recipe")
+        );
+
+        let the_recipe = json!({
+            "title": "Tarte au citron",
+            "ingredients": [
+                { "kind": "ingredient", "text": "200 g flour" },
+                { "kind": "ingredient", "text": "1 lemon" },
+            ],
+            "steps": [{ "kind": "step", "text": "Bake it." }],
+        });
+        let (status, created) =
+            app.post_op("create_recipe", Some(&job_key), &the_recipe.to_string());
+        assert_eq!(status, 200, "{created}");
+        let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+        assert_eq!(recipes_held(&app), 1);
+
+        // In the asker's own Cookbook, under the asker's Hand.
+        let in_cookbook: String = app
+            .core
+            .db()
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT cookbook_id FROM branches WHERE id = ?1",
+                    rusqlite::params![branch_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        assert_eq!(in_cookbook, super::cookbook_of(&app, &at.cook_id));
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&at.cook),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        let versions = read["result"]["versions"].as_array().unwrap();
+        assert_eq!(versions.len(), 1, "{read}");
+        assert_eq!(versions[0]["hand_id"], json!(at.cook_id));
+
+        // A second create is refused and says which recipe is the Job's.
+        let (status, refused) =
+            app.post_op("create_recipe", Some(&job_key), &the_recipe.to_string());
+        assert_eq!(status, 400, "{refused}");
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains(&branch_id),
+            "{refused}"
+        );
+        assert_eq!(recipes_held(&app), 1);
+
+        // Its correction folds into the Version it created.
+        let (status, edited) = app.post_op(
+            "edit_recipe",
+            Some(&job_key),
+            &json!({ "branch_id": branch_id, "note": "Better the next day." }).to_string(),
+        );
+        assert_eq!(status, 200, "{edited}");
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&at.cook),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(
+            read["result"]["versions"].as_array().unwrap().len(),
+            1,
+            "{read}"
+        );
+
+        // Now a Co-author reads the Job too, and the Report lists the recipe.
+        let (status, by_co_author) = job(&app, &co_author, &job_id);
+        assert_eq!(status, 200, "{by_co_author}");
+        let (_, by_asker) = job(&app, &at.cook, &job_id);
+        assert_eq!(by_co_author, by_asker);
+        let report = &by_asker["result"]["result"];
+        assert_eq!(
+            report["arrived"][0]["branch_id"],
+            json!(branch_id),
+            "{report}"
+        );
+        assert_eq!(report["arrived"][0]["title"], json!("Tarte au citron"));
+        assert_eq!(report["arrived"][0]["bare"], json!(false));
+        assert_eq!(report["agent_jobs"][0]["branch_id"], json!(branch_id));
+
+        // Its Runner's key is revoked, so the Job waits again, and the next
+        // Runner carries on with the same recipe.
+        let (_, keys) = app.post_op("list_runner_keys", Some(&at.cook), "{}");
+        let first_runner = keys["result"]["runner_keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|key| key["name"] == json!("the kitchen's Runner"))
+            .unwrap()["id"]
+            .clone();
+        let (status, _) = app.post_op(
+            "revoke_runner_key",
+            Some(&at.cook),
+            &json!({ "runner_key_id": first_runner }).to_string(),
+        );
+        assert_eq!(status, 200);
+        let next = another_runner(&app, "the next Runner");
+        let again = ask_for_work(&app, &next);
+        assert_eq!(again["job_id"], json!(job_id));
+        assert_eq!(again["branch_id"], json!(branch_id), "{again}");
+        let next_key = again["job_key"].as_str().unwrap();
+        let (status, refused) =
+            app.post_op("create_recipe", Some(next_key), &the_recipe.to_string());
+        assert_eq!(status, 400, "{refused}");
+        assert_eq!(recipes_held(&app), 1);
+
+        // A Bundle of the recipe carries nothing of what was pasted.
+        let (status, _, bundle) =
+            app.get_bytes(&format!("/api/bundles/{branch_id}"), Some(&at.cook));
+        assert_eq!(status, 200);
+        for (name, bytes) in super::unzip(&bundle) {
+            assert!(!holds(&bytes, MARKER.as_bytes()), "{name} holds the text");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn once_its_job_has_ended_a_job_key_creates_nothing() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let job_id = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        let work = ask_for_work(&app, &at.runner);
+        let job_key = work["job_key"].as_str().unwrap();
+        let created = |title: &str| {
+            app.post_op(
+                "create_recipe",
+                Some(job_key),
+                &json!({ "title": title }).to_string(),
+            )
+        };
+        assert_eq!(created("Tarte").0, 200);
+
+        // Once the Job has ended its Job Key creates nothing at all.
+        let (status, _) = app.post_op(
+            "report_on_job",
+            Some(&at.runner),
+            &json!({ "job_id": job_id, "outcome": "completed" }).to_string(),
+        );
+        assert_eq!(status, 200);
+        assert_eq!(created("Another").0, 401);
+        assert_eq!(recipes_held(&app), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_completed_job_says_an_agent_made_the_recipe_and_one_that_made_none_did_not_complete()
+    {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let job_id = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        let work = ask_for_work(&app, &at.runner);
+        let job_key = work["job_key"].as_str().unwrap();
+
+        let report = |outcome: &str| {
+            app.post_op(
+                "report_on_job",
+                Some(&at.runner),
+                &json!({
+                    "job_id": job_id, "outcome": outcome,
+                    "report": { "unsure": ["The oven heat is not given."] },
+                })
+                .to_string(),
+            )
+        };
+        let (status, refused) = report("completed");
+        assert_eq!(status, 400, "{refused}");
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("created no recipe")
+        );
+
+        let (_, created) = app.post_op(
+            "create_recipe",
+            Some(job_key),
+            &json!({ "title": "Tarte au citron" }).to_string(),
+        );
+        let branch_id = created["result"]["branch_id"].clone();
+        assert_eq!(report("completed").0, 200);
+
+        let (_, read) = job(&app, &at.cook, &job_id);
+        let read = &read["result"];
+        assert_eq!(read["status"], json!("completed"), "{read}");
+        let the_report = &read["result"];
+        assert_eq!(the_report["source_kind"], json!("pasted_text"));
+        assert_eq!(the_report["arrived"][0]["branch_id"], branch_id);
+        let agent_job = &the_report["agent_jobs"][0];
+        assert_eq!(agent_job["made_by_agent"], json!(true), "{the_report}");
+        assert_eq!(
+            agent_job["agent_report"]["unsure"],
+            json!(["The oven heat is not given."])
+        );
+
+        // The arrival is listed under its source, as the same Report.
+        let (_, listed) = app.post_op("list_imports", Some(&at.cook), "{}");
+        let source = listed["result"]["imports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|source| source["source_kind"] == json!("pasted_text"))
+            .unwrap_or_else(|| panic!("listed: {listed}"))
+            .clone();
+        assert_eq!(source["arrivals"][0]["job_id"], json!(job_id));
+        assert_eq!(source["arrivals"][0]["arrived"], json!(1));
+        assert_eq!(
+            source["arrivals"][0]["agent_jobs"][0]["status"],
+            json!("completed")
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_job_that_could_not_be_read_keeps_its_original_and_the_report_says_why() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let job_id = handed(&app, &at.cook, json!({ "data": base64_of(SCANNED) }), "pdf");
+        ask_for_work(&app, &at.runner);
+        let why = "The scan is of a wine label, not a recipe.";
+        let (status, reported) = app.post_op(
+            "report_on_job",
+            Some(&at.runner),
+            &json!({ "job_id": job_id, "outcome": "could_not_be_read", "reason": why }).to_string(),
+        );
+        assert_eq!(status, 200, "{reported}");
+
+        let (_, read) = job(&app, &at.cook, &job_id);
+        let read = &read["result"];
+        assert_eq!(read["status"], json!("failed"));
+        assert_eq!(read["error"], json!(why));
+        let report = &read["result"];
+        assert_eq!(report["arrived"], json!([]), "{report}");
+        assert_eq!(
+            report["unreadable"],
+            json!([{ "foreign_id": null, "reason": why }])
+        );
+        assert_eq!(report["agent_jobs"][0]["status"], json!("failed"));
+        let kept = std::fs::read(app.core.data_dir().join("originals").join(&job_id))
+            .expect("the Original is kept");
+        assert_eq!(kept, SCANNED);
+        assert_eq!(recipes_held(&app), 0);
+    }
+
+    /// The refusal for want of a Runner comes before a staged file is used,
+    /// so the same upload is there to send once a Runner is.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn with_no_runner_the_staged_file_is_left_for_later() {
+        let app = support::spawn_app();
+        let (cook, _) = super::operator_signed_in(&app);
+        let upload_id = staged(&app, &cook, BISCUIT);
+        let (status, refused) = hand_over(&app, Some(&cook), json!({ "upload_id": upload_id }));
+        assert_eq!(status, 400, "{refused}");
+        assert_eq!(refused["error"]["reason"], json!("no_runner"));
+        another_runner(&app, "a Runner at last");
+        handed(&app, &cook, json!({ "upload_id": upload_id }), "pdf");
+    }
+
+    /// A PDF may carry a little before its marker, as `read_recipe_pdf`
+    /// already allows.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_pdf_with_bytes_before_its_marker_is_a_pdf() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let mut late = b"\r\n\r\n".to_vec();
+        late.extend(BISCUIT);
+        handed(&app, &at.cook, json!({ "data": base64_of(&late) }), "pdf");
+    }
+
+    /// A create whose link to its Job never landed is still the Job's one
+    /// recipe: found by the Version it wrote, so no second is made.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_created_but_not_yet_linked_is_still_the_jobs_one() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let job_id = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        let work = ask_for_work(&app, &at.runner);
+        let job_key = work["job_key"].as_str().unwrap();
+        let (_, created) = app.post_op(
+            "create_recipe",
+            Some(job_key),
+            &json!({ "title": "Tarte" }).to_string(),
+        );
+        let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+        // As if the process stopped between the create and the link.
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.execute(
+                    "UPDATE agent_jobs SET branch_id = NULL WHERE job_id = ?1",
+                    rusqlite::params![job_id],
+                )
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        let (status, refused) = app.post_op(
+            "create_recipe",
+            Some(job_key),
+            &json!({ "title": "Tarte again" }).to_string(),
+        );
+        assert_eq!(status, 400, "{refused}");
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains(&branch_id)
+        );
+        assert_eq!(recipes_held(&app), 1);
+        let (_, read) = job(&app, &at.cook, &job_id);
+        assert_eq!(
+            read["result"]["result"]["arrived"][0]["branch_id"],
+            json!(branch_id)
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_job_reported_failed_on_every_try_keeps_its_original() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let job_id = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        for _ in 0..3 {
+            let work = ask_for_work(&app, &at.runner);
+            assert_eq!(work["job_id"], json!(job_id), "{work}");
+            let (status, reported) = app.post_op(
+                "report_on_job",
+                Some(&at.runner),
+                &json!({ "job_id": job_id, "outcome": "failed", "reason": "The agent crashed." })
+                    .to_string(),
+            );
+            assert_eq!(status, 200, "{reported}");
+        }
+        let (_, read) = job(&app, &at.cook, &job_id);
+        let read = &read["result"];
+        assert_eq!(read["status"], json!("failed"), "{read}");
+        let reason = read["result"]["unreadable"][0]["reason"].as_str().unwrap();
+        assert!(reason.contains("The agent crashed."), "{reason}");
+        let kept = std::fs::read(app.core.data_dir().join("originals").join(&job_id))
+            .expect("the Original is kept");
+        assert_eq!(kept, pasted().into_bytes());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_agent_with_an_access_key_asks_for_the_same_import_at_the_mcp_door() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let key = app
+            .core
+            .mint_access_key(&at.cook_id, "an agent", false)
+            .unwrap()
+            .secret;
+        let call = |arguments: Value| {
+            let payload = json!({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": { "name": "import_by_agent", "arguments": arguments },
+            });
+            let (status, answered) = app.post_mcp(&payload.to_string(), Some(&key));
+            assert_eq!(status, 200, "{answered}");
+            answered["result"].clone()
+        };
+        let pasted_job = call(json!({ "text": pasted() }));
+        assert_eq!(pasted_job["isError"], json!(false), "{pasted_job}");
+        let answered = &pasted_job["structuredContent"];
+        assert_eq!(answered["source_kind"], json!("pasted_text"));
+        let pdf_job = call(json!({ "data": base64_of(BISCUIT) }));
+        assert_eq!(pdf_job["structuredContent"]["source_kind"], json!("pdf"));
+
+        // The same Job the web door reads.
+        let job_id = answered["job_id"].as_str().unwrap();
+        let (_, at_web) = job(&app, &key, job_id);
+        assert_eq!(at_web["result"]["status"], json!("queued"));
+        let work = ask_for_work(&app, &at.runner);
+        assert_eq!(work["job_id"], json!(job_id));
+    }
 }

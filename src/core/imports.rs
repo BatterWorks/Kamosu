@@ -136,8 +136,10 @@ impl Core {
                                 status, result, created_at
                            FROM jobs
                           WHERE person_id = ?1
-                            AND operation IN ('import', 'import_crouton',
-                                              'import_bundle', 'import_web_link')
+                            AND (operation IN ('import', 'import_crouton',
+                                               'import_bundle', 'import_web_link')
+                                 OR id IN (SELECT job_id FROM agent_jobs
+                                            WHERE original IS NOT NULL))
                           ORDER BY created_at DESC",
                     )
                     .map_err(|e| OpError::internal(format!("cannot list arrivals: {e}")))?;
@@ -611,8 +613,7 @@ impl Core {
                         &language,
                         &version_id,
                         &content_text,
-                        &caller.person_id,
-                        caller.access_key_id.as_deref(),
+                        caller,
                     )?;
                     conn.execute(
                         "INSERT INTO import_ledger (import_id, foreign_id, lineage_id, branch_id) \
@@ -1031,6 +1032,10 @@ fn arrival_agent_jobs(report: Option<&Value>) -> Vec<Value> {
 /// whoever ended it, is also listed under `unreadable` with the reason, and
 /// the bare recipe stays under `arrived`. A Report naming no such Job is
 /// left exactly as it was.
+///
+/// A Job reading an Original is its own Import, and its Report names it with
+/// no recipe, since the agent creates one (#269). Once it has, the recipe is
+/// named and listed under `arrived` as it reads now.
 pub(super) fn report_with_agent_jobs_as_they_stand(
     conn: &Connection,
     report: &mut Value,
@@ -1053,6 +1058,14 @@ pub(super) fn report_with_agent_jobs_as_they_stand(
             continue;
         };
         row["status"] = json!(state.status.as_str());
+        // The recipe an agent reading an Original has created since.
+        let created = match &state.branch_id {
+            Some(branch_id) if row["branch_id"].is_null() => {
+                row["branch_id"] = json!(branch_id);
+                Some(branch_id.clone())
+            }
+            _ => None,
+        };
         if state.status == jobs::JobStatus::Completed {
             row["made_by_agent"] = json!(true);
         }
@@ -1061,6 +1074,12 @@ pub(super) fn report_with_agent_jobs_as_they_stand(
         }
         if state.status == jobs::JobStatus::Failed {
             could_not_be_read.push((row["branch_id"].clone(), state.error));
+        }
+        if let Some(branch_id) = created
+            && let Some(arrival) = created_by_agent(conn, &state.job_id, &branch_id)?
+            && let Some(arrived) = report["arrived"].as_array_mut()
+        {
+            arrived.push(arrival);
         }
     }
 
@@ -1077,8 +1096,11 @@ pub(super) fn report_with_agent_jobs_as_they_stand(
         let mut entry = json!({
             "foreign_id": landed["foreign_id"],
             "reason": reason.unwrap_or_else(|| "the agent's Job failed".to_string()),
-            "branch_id": branch_id,
         });
+        // A Job reading an Original may fail before it made any recipe.
+        if !branch_id.is_null() {
+            entry["branch_id"] = branch_id;
+        }
         if landed["title"].is_string() {
             entry["name"] = landed["title"].clone();
         }
@@ -1087,6 +1109,40 @@ pub(super) fn report_with_agent_jobs_as_they_stand(
         }
     }
     Ok(())
+}
+
+/// The recipe an agent created for a Job reading an Original, as the Report
+/// lists an arrival (#269): the Job's id stands for the foreign id, since what
+/// was handed over had none. None once the recipe is deleted.
+fn created_by_agent(
+    conn: &Connection,
+    job_id: &str,
+    branch_id: &str,
+) -> Result<Option<Value>, OpError> {
+    let found: Option<(String, String)> = conn
+        .query_row(
+            "SELECT branches.lineage_id, versions.content
+               FROM branches JOIN versions ON versions.id = branches.head_version_id
+              WHERE branches.id = ?1",
+            params![branch_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the agent's recipe: {e}")))?;
+    let Some((lineage_id, content)) = found else {
+        return Ok(None);
+    };
+    let content: Value = serde_json::from_str(&content).unwrap_or_default();
+    let shape = LandedShape::of(&content);
+    Ok(Some(json!({
+        "foreign_id": job_id,
+        "status": "created",
+        "lineage_id": lineage_id,
+        "branch_id": branch_id,
+        "title": content["title"].as_str().unwrap_or_default(),
+        "main_photo": shape.main_photo,
+        "bare": shape.bare,
+    })))
 }
 
 /// An Import id that names nothing here — and, by ADR 0040, an Import of a

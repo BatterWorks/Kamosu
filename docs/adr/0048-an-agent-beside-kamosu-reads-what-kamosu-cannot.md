@@ -21,7 +21,7 @@ The survey behind this is in [`docs/research/ai-recipe-import-in-other-apps.md`]
 
 ### What a Job Key may do
 
-- **Five things.** Read the library as the asker sees it, and the Job's own **Original**. Write and correct the one recipe the Job is for. Correct that recipe's Readings. Upload Photographs. Put existing Tags on that recipe.
+- **Five things.** Read the library as the asker sees it, and the Job's own **Original**. Write and correct the one recipe the Job is for, creating it first where the Job reads an Original and so has none. Correct that recipe's Readings. Upload Photographs. Put existing Tags on that recipe.
 - **Nothing else.** No Translation, no Related Recipe, no Food name, no Merge, no deleting a Food, no new Tag, no deleting a recipe, no other recipe, no account.
 - **It can do no more than the asker could.** The Core's one check asks two things of every call: is this on the Job Key's list, and could the asker do it themselves right now.
 - **It never makes a Copy.** If the asker has stopped being a Co-author of the Cookbook, their own edit would start a Copy in their own Cookbook. A Job's write is refused there, and the Job fails and says why.

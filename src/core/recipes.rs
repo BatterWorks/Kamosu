@@ -36,8 +36,7 @@ impl Core {
                 &language,
                 &version_id,
                 &content_text,
-                &caller.person_id,
-                caller.access_key_id.as_deref(),
+                caller,
             )
         })?;
 
@@ -2758,8 +2757,7 @@ pub(super) fn insert_new_lineage_and_branch(
     language: &str,
     version_id: &str,
     content_text: &str,
-    writer_person_id: &str,
-    access_key_id: Option<&str>,
+    writer: &Caller,
 ) -> Result<(), OpError> {
     conn.execute(
         "INSERT OR IGNORE INTO versions (id, content) VALUES (?1, ?2)",
@@ -2778,20 +2776,23 @@ pub(super) fn insert_new_lineage_and_branch(
             cookbook_hand_id,
             language,
             version_id,
-            writer_person_id
+            writer.person_id
         ],
     )
     .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
+    // A Job Key's create writes its Job on the first Version, as any save of
+    // its does, so the Job's later saves fold into this one (#265, #269).
     conn.execute(
         "INSERT INTO branch_versions \
-         (branch_id, sequence, version_id, parent_version_id, hand_id, access_key_id, language) \
-         VALUES (?1, 1, ?2, NULL, ?3, ?4, ?5)",
+         (branch_id, sequence, version_id, parent_version_id, hand_id, access_key_id, language, job_id) \
+         VALUES (?1, 1, ?2, NULL, ?3, ?4, ?5, ?6)",
         params![
             branch_id,
             version_id,
-            writer_person_id,
-            access_key_id,
-            language
+            writer.person_id,
+            writer.access_key_id,
+            language,
+            writer.job_id
         ],
     )
     .map_err(|e| OpError::internal(format!("cannot record first Version: {e}")))?;

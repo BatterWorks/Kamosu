@@ -143,6 +143,11 @@ impl Core {
     ///   translates is refused.
     /// - **It corrects no Reading another recipe holds too**, which is
     ///   `JobKey::CorrectsItsReadings`.
+    /// - **It creates one recipe, and only for a Job that has none** (#269),
+    ///   which is `JobKey::CreatesItsRecipe`. A Job reading an Original
+    ///   waits with no recipe, and until its agent creates one nothing else
+    ///   it writes names a recipe. `execute` then makes the new recipe the
+    ///   Job's own, under a lock this check is taken inside.
     ///
     /// This can end the Job, so it writes as well as checks.
     pub(super) fn hold_job_key_write(
@@ -155,22 +160,39 @@ impl Core {
         let names_its_recipe = match mark {
             JobKey::Never | JobKey::Reads => return Ok(()),
             JobKey::WritesItsRecipe | JobKey::CorrectsItsReadings => true,
-            JobKey::StoresPhotographs => false,
+            JobKey::StoresPhotographs | JobKey::CreatesItsRecipe => false,
         };
         self.db().with_conn(|conn| {
-            let its_recipe: Option<String> = conn
-                .query_row(
-                    "SELECT agent_jobs.branch_id
-                       FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
-                      WHERE jobs.id = ?1 AND jobs.status IN ('queued', 'running')",
-                    params![job_id],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(|e| OpError::internal(format!("cannot read the Job's recipe: {e}")))?;
             // The Job ended between the Job Key being presented and here.
-            let Some(its_recipe) = its_recipe else {
+            let Some(its_recipe) = jobs::standing_recipe_of(conn, job_id)? else {
                 return Err(OpError::credential_names_nobody());
+            };
+            if mark == JobKey::CreatesItsRecipe {
+                // The recipe is made the Job's own just after it is created,
+                // in a second write. Should that one not have landed, the
+                // recipe is found by the first Version the Job wrote.
+                let its_recipe = match its_recipe {
+                    None => jobs::recipe_created_by(conn, job_id)?,
+                    named => named,
+                };
+                return match its_recipe {
+                    None => Ok(()),
+                    Some(its_recipe) => Err(OpError::bad_request(format!(
+                        "this Job's recipe exists already, as {its_recipe}. A Job creates one \
+                         recipe: write that one with edit_recipe or save_recipe_version"
+                    ))),
+                };
+            }
+            let Some(its_recipe) = its_recipe else {
+                if names_its_recipe {
+                    return Err(OpError::bad_request(
+                        "this Job has no recipe yet. Create it with create_recipe, then \
+                         write it",
+                    ));
+                }
+                // A Photograph stored before the recipe exists has no recipe
+                // a Copy could start from.
+                return Ok(());
             };
             if names_its_recipe && input["branch_id"].as_str() != Some(its_recipe.as_str()) {
                 return Err(no_such_branch());
@@ -254,6 +276,10 @@ impl Core {
         })?;
         Ok(json!({
             "job": work.map(|work| json!({
+                "original": work.original.map(|kind| json!({
+                    "kind": kind.as_str(),
+                    "address": original_address(&work.job_id),
+                })),
                 "job_id": work.job_id,
                 "branch_id": work.branch_id,
                 "link": work.link,

@@ -896,6 +896,35 @@ pub fn read_recipe_pdf(
     Ok(pasted_answer(&paste))
 }
 
+/// Hand pasted text, a PDF or a picture to an agent (#269). The text comes
+/// as `text`, and a file the two ways `read_recipe_pdf`'s does. Which a file
+/// is, is read off its bytes in the Core.
+pub fn import_by_agent(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    const USAGE: &str = "import_by_agent takes { text }, the recipe pasted, or { upload_id } \
+                         or { data }: a PDF or a picture sent to POST /api/uploads, or \
+                         base64-encoded";
+    let caller = caller_of(invocation)?;
+    core.ensure_has_runner()?;
+    let handed = match input.get("text").and_then(Value::as_str) {
+        Some(_) if input.get("upload_id").is_some() || input.get("data").is_some() => {
+            return Err(OpError::bad_request(USAGE));
+        }
+        Some(text) => crate::core::Handed::Text(text.to_string()),
+        None => crate::core::Handed::File(sent_file(
+            core,
+            caller,
+            &input,
+            USAGE,
+            Some(crate::core::LARGEST_HANDED_FILE),
+        )?),
+    };
+    core.import_by_agent(caller, handed)
+}
+
 /// The bytes of a file sent to an Operation, the two ways a file arrives
 /// (ADR 0001, #93): `upload_id` names one already sent to `POST
 /// /api/uploads`, used once and deleted whatever the outcome, and `data`

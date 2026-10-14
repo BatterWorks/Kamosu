@@ -1485,8 +1485,7 @@ fn keep_words_as_new_recipe(
         &language,
         &version_id,
         &content_text,
-        &caller.person_id,
-        caller.access_key_id.as_deref(),
+        caller,
     )?;
     Ok(Fate::Kept {
         reason: said(&named),
