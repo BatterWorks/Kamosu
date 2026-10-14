@@ -1843,7 +1843,7 @@ export type ImportOutput = {
 		foreign_id: string;
 		lineage_id: string;
 		main_photo?: string | null;
-		status: "created" | "extended" | "unchanged";
+		status: "created" | "extended" | "unchanged" | "read_again";
 		subject?: boolean;
 		title: string;
 	}[];
@@ -1914,7 +1914,7 @@ export type ImportCroutonOutput = {
 		foreign_id: string;
 		lineage_id: string;
 		main_photo?: string | null;
-		status: "created" | "extended" | "unchanged";
+		status: "created" | "extended" | "unchanged" | "read_again";
 		subject?: boolean;
 		title: string;
 	}[];
@@ -2020,7 +2020,7 @@ export type ImportWebLinkOutput = {
 		foreign_id: string;
 		lineage_id: string;
 		main_photo?: string | null;
-		status: "created" | "extended" | "unchanged";
+		status: "created" | "extended" | "unchanged" | "read_again";
 		subject?: boolean;
 		title: string;
 	}[];
@@ -2707,7 +2707,7 @@ export type ImportBundleOutput = {
 		foreign_id: string;
 		lineage_id: string;
 		main_photo?: string | null;
-		status: "created" | "extended" | "unchanged";
+		status: "created" | "extended" | "unchanged" | "read_again";
 		subject?: boolean;
 		title: string;
 	}[];
@@ -4996,6 +4996,27 @@ export type GetRecipeJobOutput = {
 	} | null;
 };
 
+/** Have an agent read a recipe again from its Source link. It works whichever way the recipe arrived, and makes a Job that waits for a Runner, the way a link Kamosu could not read does. Only a Co-author of the Cookbook that holds the recipe may ask, on a Kamosu with a Runner. The agent's saves become one new Version under your Hand, so the earlier one stays in the History. Where a Job already waits or is being worked on the recipe, that Job is the answer. Its result is an Import Report under the source `read_again`, which says what the agent left undone or was unsure of. Ask `can_read_recipe_again` first to know whether this would be refused, and why. */
+export type ReadRecipeAgainInput = {
+	branch_id: string;
+};
+/** What read_recipe_again answers. */
+export type ReadRecipeAgainOutput = {
+	branch_id: string;
+	job_id: string;
+};
+
+/** Say whether a recipe can be read again, and from what. This is for you, as `read_recipe_again` would answer you. `reason` says why not: `not_a_co_author` when you see the recipe and do not write its Cookbook, `would_start_a_copy` when your Cookbook received it and did not write it, `no_runner` when no agent would read it, and `nothing_to_read` when its Source has no http or https link on the internet. */
+export type CanReadRecipeAgainInput = {
+	branch_id: string;
+};
+/** What can_read_recipe_again answers. */
+export type CanReadRecipeAgainOutput = {
+	can_read_again: boolean;
+	link: string | null;
+	reason: "not_a_co_author" | "would_start_a_copy" | "no_runner" | "nothing_to_read" | null;
+};
+
 /** List the Jobs this Person has asked for, newest first. */
 export type ListJobsInput = Record<string, never>;
 /** What list_jobs answers. */
@@ -5785,6 +5806,18 @@ export interface Operations {
 	get_recipe_job: {
 		input: GetRecipeJobInput;
 		output: GetRecipeJobOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	read_recipe_again: {
+		input: ReadRecipeAgainInput;
+		output: ReadRecipeAgainOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	can_read_recipe_again: {
+		input: CanReadRecipeAgainInput;
+		output: CanReadRecipeAgainOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -14749,10 +14782,12 @@ export const CATALOGUE = [
 								]
 							},
 							"status": {
+								"description": "`read_again` is a recipe already held that a Co-author asked an agent to read again.",
 								"enum": [
 									"created",
 									"extended",
-									"unchanged"
+									"unchanged",
+									"read_again"
 								]
 							},
 							"subject": {
@@ -15103,10 +15138,12 @@ export const CATALOGUE = [
 								]
 							},
 							"status": {
+								"description": "`read_again` is a recipe already held that a Co-author asked an agent to read again.",
 								"enum": [
 									"created",
 									"extended",
-									"unchanged"
+									"unchanged",
+									"read_again"
 								]
 							},
 							"subject": {
@@ -15626,10 +15663,12 @@ export const CATALOGUE = [
 								]
 							},
 							"status": {
+								"description": "`read_again` is a recipe already held that a Co-author asked an agent to read again.",
 								"enum": [
 									"created",
 									"extended",
-									"unchanged"
+									"unchanged",
+									"read_again"
 								]
 							},
 							"subject": {
@@ -19087,10 +19126,12 @@ export const CATALOGUE = [
 								]
 							},
 							"status": {
+								"description": "`read_again` is a recipe already held that a Co-author asked an agent to read again.",
 								"enum": [
 									"created",
 									"extended",
-									"unchanged"
+									"unchanged",
+									"read_again"
 								]
 							},
 							"subject": {
@@ -31068,6 +31109,90 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "read_recipe_again",
+		"summary": "Have an agent read a recipe again from its Source link. It works whichever way the recipe arrived, and makes a Job that waits for a Runner, the way a link Kamosu could not read does. Only a Co-author of the Cookbook that holds the recipe may ask, on a Kamosu with a Runner. The agent's saves become one new Version under your Hand, so the earlier one stays in the History. Where a Job already waits or is being worked on the recipe, that Job is the answer. Its result is an Import Report under the source `read_again`, which says what the agent left undone or was unsure of. Ask `can_read_recipe_again` first to know whether this would be refused, and why.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"job_id": {
+					"description": "The agent's Job, read with `get_job`: a new one, or the one already on the recipe.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"job_id",
+				"branch_id"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "can_read_recipe_again",
+		"summary": "Say whether a recipe can be read again, and from what. This is for you, as `read_recipe_again` would answer you. `reason` says why not: `not_a_co_author` when you see the recipe and do not write its Cookbook, `would_start_a_copy` when your Cookbook received it and did not write it, `no_runner` when no agent would read it, and `nothing_to_read` when its Source has no http or https link on the internet.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"can_read_again": {
+					"type": "boolean"
+				},
+				"link": {
+					"description": "The link in the recipe's Source, which an agent would read. Null where it has none, or one that is no http or https address on the internet.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"reason": {
+					"description": "Why it cannot be read again, or null when it can.",
+					"enum": [
+						"not_a_co_author",
+						"would_start_a_copy",
+						"no_runner",
+						"nothing_to_read",
+						null
+					]
+				}
+			},
+			"required": [
+				"can_read_again",
+				"link",
+				"reason"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "list_jobs",
 		"summary": "List the Jobs this Person has asked for, newest first.",
 		"permission": "person",
@@ -31168,6 +31293,7 @@ export const READS: readonly OperationName[] = [
 	'preview_food_merge',
 	'get_job',
 	'get_recipe_job',
+	'can_read_recipe_again',
 	'list_jobs',
 ];
 
@@ -31302,6 +31428,8 @@ export const METHOD_NAMES = {
 	get_job: 'getJob',
 	cancel_job: 'cancelJob',
 	get_recipe_job: 'getRecipeJob',
+	read_recipe_again: 'readRecipeAgain',
+	can_read_recipe_again: 'canReadRecipeAgain',
 	list_jobs: 'listJobs',
 } as const;
 
@@ -31565,6 +31693,10 @@ export interface KamosuClient {
 	cancelJob(input: CancelJobInput): Promise<Answer<'cancel_job'>>;
 	/** Read which agent's Job waits or is being worked on a recipe. `job` is null when none is, and once the Job has ended. Among those who see the recipe, it names the Job to the Person who asked for it and to the Co-authors of the recipe's Cookbook, who may read it with `get_job`. Anyone else who sees the recipe is answered null. */
 	getRecipeJob(input: GetRecipeJobInput): Promise<Answer<'get_recipe_job'>>;
+	/** Have an agent read a recipe again from its Source link. It works whichever way the recipe arrived, and makes a Job that waits for a Runner, the way a link Kamosu could not read does. Only a Co-author of the Cookbook that holds the recipe may ask, on a Kamosu with a Runner. The agent's saves become one new Version under your Hand, so the earlier one stays in the History. Where a Job already waits or is being worked on the recipe, that Job is the answer. Its result is an Import Report under the source `read_again`, which says what the agent left undone or was unsure of. Ask `can_read_recipe_again` first to know whether this would be refused, and why. */
+	readRecipeAgain(input: ReadRecipeAgainInput): Promise<Answer<'read_recipe_again'>>;
+	/** Say whether a recipe can be read again, and from what. This is for you, as `read_recipe_again` would answer you. `reason` says why not: `not_a_co_author` when you see the recipe and do not write its Cookbook, `would_start_a_copy` when your Cookbook received it and did not write it, `no_runner` when no agent would read it, and `nothing_to_read` when its Source has no http or https link on the internet. */
+	canReadRecipeAgain(input: CanReadRecipeAgainInput): Promise<Answer<'can_read_recipe_again'>>;
 	/** List the Jobs this Person has asked for, newest first. */
 	listJobs(input?: ListJobsInput): Promise<Answer<'list_jobs'>>;
 }

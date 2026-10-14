@@ -504,7 +504,47 @@ pub fn wait_for_agent(
     if let Some(job_id) = standing_agent_job(conn, branch_id)? {
         return Ok(job_id);
     }
-    let job_id = insert(conn, AGENT_OPERATION, Some(caller), &json!({}))?;
+    insert_on_link(conn, caller, branch_id, link, &json!({}))
+}
+
+/// The `source_kind` of a recipe a Co-author asked to have read again
+/// (#272). A Job asked for that way is its own Import, as one reading an
+/// Original is, and its input says so.
+pub const READ_AGAIN: &str = "read_again";
+
+/// Have an agent read `link` again into the recipe `branch_id`, which a
+/// Co-author asked for (ADR 0048, #272). The caller has checked there is no
+/// Job standing on it already. Its result is written by the caller: the Job
+/// is its own Import.
+pub fn wait_for_agent_to_read_again(
+    conn: &Connection,
+    caller: &Caller,
+    branch_id: &str,
+    link: &str,
+) -> Result<String, OpError> {
+    insert_on_link(
+        conn,
+        caller,
+        branch_id,
+        link,
+        &json!({ "source_kind": READ_AGAIN }),
+    )
+}
+
+/// SQL that holds for an agent's Job that is its own Import, on a `jobs`
+/// row: one reading an Original (#269) or a recipe read again (#272). Its
+/// result is the Import Report it was asked with. A Job on a link an Import
+/// landed bare is that Import's, and names no source of its own.
+pub const ITS_OWN_IMPORT: &str = "json_extract(jobs.input, '$.source_kind') IS NOT NULL";
+
+fn insert_on_link(
+    conn: &Connection,
+    caller: &Caller,
+    branch_id: &str,
+    link: &str,
+    input: &Value,
+) -> Result<String, OpError> {
+    let job_id = insert(conn, AGENT_OPERATION, Some(caller), input)?;
     conn.execute(
         "INSERT INTO agent_jobs (job_id, branch_id, link) VALUES (?1, ?2, ?3)",
         params![job_id, branch_id, link],
@@ -602,8 +642,9 @@ pub fn standing_job_on_file(
 }
 
 /// A Cookbook's Import of one kind was joined to another's (`move_imports`):
-/// the Jobs reading a file for it are now for the one kept, so the same file
-/// still finds them and their recipe still goes into its ledger (#271).
+/// the agent's Jobs that are their own Import are now the one kept's. The same
+/// file still finds a Job reading it, and its recipe still goes into its
+/// ledger (#271), and a recipe read again names an Import that is there (#272).
 pub fn move_to_kept_import(
     conn: &Connection,
     from: &str,
@@ -611,10 +652,12 @@ pub fn move_to_kept_import(
     cookbook_id: &str,
 ) -> Result<(), OpError> {
     conn.execute(
-        "UPDATE jobs
-            SET result = json_set(result, '$.import_id', ?2, '$.cookbook_id', ?3)
-          WHERE json_extract(result, '$.import_id') = ?1
-            AND id IN (SELECT job_id FROM agent_jobs WHERE original IS NOT NULL)",
+        &format!(
+            "UPDATE jobs
+                SET result = json_set(result, '$.import_id', ?2, '$.cookbook_id', ?3)
+              WHERE json_extract(result, '$.import_id') = ?1
+                AND operation = '{AGENT_OPERATION}' AND {ITS_OWN_IMPORT}"
+        ),
         params![from, into, cookbook_id],
     )
     .map_err(|e| OpError::internal(format!("cannot move the Import's Jobs: {e}")))?;
@@ -1220,15 +1263,17 @@ pub fn end_as_reported(
     release_lapsed_holds(conn)?;
     let held: Option<(Option<String>, bool)> = conn
         .query_row(
-            "SELECT agent_jobs.branch_id, agent_jobs.original IS NOT NULL
-               FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
-              WHERE jobs.id = ?1 AND jobs.status = 'running' AND agent_jobs.held_by = ?2",
+            &format!(
+                "SELECT agent_jobs.branch_id, {ITS_OWN_IMPORT}
+                   FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
+                  WHERE jobs.id = ?1 AND jobs.status = 'running' AND agent_jobs.held_by = ?2"
+            ),
             params![job_id, runner_key_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
         .map_err(failed)?;
-    let Some((branch_id, reads_an_original)) = held else {
+    let Some((branch_id, its_own_import)) = held else {
         return Err(not_held(conn, runner_key_id, job_id)?);
     };
     // A Job reading an Original makes its recipe, so one that made none did
@@ -1250,8 +1295,9 @@ pub fn end_as_reported(
                 // The thing itself is at fault, as a bad request's input is.
                 (JobStatus::Failed, None, Some(-32602))
             };
-            // A Job reading an Original is its own Import, so its result is
-            // the Import Report it was asked with, kept as it is (#269).
+            // A Job reading an Original or reading a recipe again is its own
+            // Import, so its result is the Import Report it was asked with,
+            // kept as it is (#269, #272).
             tx.execute(
                 "UPDATE jobs SET status = ?2, result = CASE WHEN ?6 THEN result ELSE ?3 END,
                  error = ?4, error_code = ?5,
@@ -1263,7 +1309,7 @@ pub fn end_as_reported(
                     result,
                     reason,
                     error_code,
-                    reads_an_original
+                    its_own_import
                 ],
             )
             .map_err(failed)?;

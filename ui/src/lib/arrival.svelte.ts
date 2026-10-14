@@ -92,7 +92,9 @@ export function outcomeOf(report: ImportBundleOutput): Outcome {
 				branchId: subject.branch_id,
 				title: subject.title,
 				how: 'arrived',
-				status: subject.status,
+				// The Report's schema is every Import's, and `read_again` is a
+				// Co-author's ask (#272), never a Bundle's arrival.
+				status: subject.status === 'read_again' ? undefined : subject.status,
 				passengers: report.arrived
 					.filter((row) => row.branch_id !== subject.branch_id)
 					.map((row) => row.title),

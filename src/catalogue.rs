@@ -3958,6 +3958,94 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::get_recipe_job,
         },
         Operation {
+            name: "read_recipe_again",
+            summary: "Have an agent read a recipe again from its Source link. \
+                      It works whichever way the recipe arrived, and makes a \
+                      Job that waits for a Runner, the way a link Kamosu could \
+                      not read does. Only a Co-author of the Cookbook that holds \
+                      the recipe may ask, on a Kamosu with a Runner. The agent's \
+                      saves become one new Version under your Hand, so the \
+                      earlier one stays in the History. Where a Job already \
+                      waits or is being worked on the recipe, that Job is the \
+                      answer. Its result is an Import Report under the source \
+                      `read_again`, which says what the agent left undone or \
+                      was unsure of. Ask `can_read_recipe_again` first to know \
+                      whether this would be refused, and why.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "The agent's Job, read with `get_job`: a new \
+                                         one, or the one already on the recipe.",
+                    },
+                    "branch_id": { "type": "string" },
+                },
+                "required": ["job_id", "branch_id"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::read_recipe_again,
+        },
+        Operation {
+            name: "can_read_recipe_again",
+            summary: "Say whether a recipe can be read again, and from what. \
+                      This is for you, as `read_recipe_again` would answer \
+                      you. `reason` says why not: \
+                      `not_a_co_author` when you see the recipe and do not \
+                      write its Cookbook, `would_start_a_copy` when your \
+                      Cookbook received it and did not write it, `no_runner` \
+                      when no agent would read it, and `nothing_to_read` when \
+                      its Source has no http or https link on the internet.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "can_read_again": { "type": "boolean" },
+                    "link": {
+                        "type": ["string", "null"],
+                        "description": "The link in the recipe's Source, which an \
+                                         agent would read. Null where it has none, or \
+                                         one that is no http or https address on the \
+                                         internet.",
+                    },
+                    "reason": {
+                        "enum": [
+                            "not_a_co_author", "would_start_a_copy", "no_runner",
+                            "nothing_to_read", null
+                        ],
+                        "description": "Why it cannot be read again, or null when \
+                                         it can.",
+                    },
+                },
+                "required": ["can_read_again", "link", "reason"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::can_read_recipe_again,
+        },
+        Operation {
             name: "list_jobs",
             summary: "List the Jobs this Person has asked for, newest first.",
             permission: Permission::Person,
@@ -5344,7 +5432,11 @@ fn import_report_schema() -> Value {
                                              Bundle, the Branch id it travels under, which \
                                              is the sender's.",
                         },
-                        "status": { "enum": ["created", "extended", "unchanged"] },
+                        "status": {
+                            "enum": ["created", "extended", "unchanged", "read_again"],
+                            "description": "`read_again` is a recipe already held that \
+                                             a Co-author asked an agent to read again.",
+                        },
                         "lineage_id": { "type": "string" },
                         "branch_id": {
                             "type": "string",

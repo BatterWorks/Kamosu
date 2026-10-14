@@ -13557,9 +13557,10 @@ mod web_link_importer {
     }
 
     /// A Job `person` asked for on a recipe that is already there, taken by
-    /// `runner`. No Operation asks for one yet: reading a recipe again is
-    /// #272. So the Job is made the way an Import makes one, and from the
-    /// Runner asking onwards everything goes through the Doors.
+    /// `runner`. `read_recipe_again` asks only as a Co-author, and these
+    /// tests need askers who are none. So the Job is made the way an Import
+    /// makes one, and from the Runner asking onwards everything goes through
+    /// the Doors.
     fn a_job_held_on(
         app: &support::TestApp,
         person: &str,
@@ -15515,6 +15516,582 @@ mod web_link_importer {
                 "{taken_by}"
             );
         }
+    }
+
+    // --- A Co-author asks for a recipe to be read again (#272) -----------
+
+    const A_SOURCE_LINK: &str = "https://a.example/soupe-au-pistou";
+
+    /// A recipe typed by hand by the cook holding `key`, with `link` in its
+    /// Source when there is one.
+    fn typed_by_hand(app: &support::TestApp, key: &str, link: Option<&str>) -> String {
+        let mut recipe = json!({
+            "title": "Soupe",
+            "ingredients": [{ "kind": "ingredient", "text": "200 g haricots" }],
+        });
+        if let Some(link) = link {
+            recipe["source"] = json!({ "text": "a.example", "link": link });
+        }
+        let (status, written) = app.post_op("create_recipe", Some(key), &recipe.to_string());
+        assert_eq!(status, 200, "{written}");
+        written["result"]["branch_id"].as_str().unwrap().to_string()
+    }
+
+    fn read_again(
+        app: &support::TestApp,
+        credential: Option<&str>,
+        branch_id: &str,
+    ) -> (u16, Value) {
+        app.post_op(
+            "read_recipe_again",
+            credential,
+            &json!({ "branch_id": branch_id }).to_string(),
+        )
+    }
+
+    fn can_read_again(
+        app: &support::TestApp,
+        credential: Option<&str>,
+        branch_id: &str,
+    ) -> (u16, Value) {
+        app.post_op(
+            "can_read_recipe_again",
+            credential,
+            &json!({ "branch_id": branch_id }).to_string(),
+        )
+    }
+
+    /// Asked to be read again, and the Job that waits for it.
+    fn asked_to_read_again(app: &support::TestApp, key: &str, branch_id: &str) -> String {
+        let (status, asked) = read_again(app, Some(key), branch_id);
+        assert_eq!(status, 200, "{asked}");
+        assert_eq!(asked["result"]["branch_id"], json!(branch_id), "{asked}");
+        asked["result"]["job_id"].as_str().unwrap().to_string()
+    }
+
+    /// What the agent does once its Runner holds the Job: one whole save and
+    /// a correction, then the Runner reports it completed.
+    fn the_agent_reads_it_again(
+        app: &support::TestApp,
+        runner: &str,
+        job_id: &str,
+        branch_id: &str,
+        title: &str,
+    ) {
+        let handed = ask_for_work(app, runner);
+        assert_eq!(handed["job_id"], json!(job_id), "{handed}");
+        let job_key = handed["job_key"].as_str().unwrap();
+        let mut whole = the_recipe_an_agent_read_again(branch_id);
+        whole["title"] = json!(title);
+        let (status, saved) = app.post_op("save_recipe_version", Some(job_key), &whole.to_string());
+        assert_eq!(status, 200, "{saved}");
+        let correction = json!({ "branch_id": branch_id, "note": "Better the next day." });
+        let (status, saved) = app.post_op("edit_recipe", Some(job_key), &correction.to_string());
+        assert_eq!(status, 200, "{saved}");
+        let (status, reported) = report_on_job(
+            app,
+            Some(runner),
+            json!({ "job_id": job_id, "outcome": "completed", "report": an_agents_report() }),
+        );
+        assert_eq!(status, 200, "{reported}");
+    }
+
+    /// The whole recipe an agent saves, keeping the Source it read.
+    fn the_recipe_an_agent_read_again(branch_id: &str) -> Value {
+        let mut whole = the_recipe_an_agent_read(branch_id);
+        whole["source"] = json!({ "text": "a.example", "link": A_SOURCE_LINK });
+        whole
+    }
+
+    fn hands_in_the_thread(app: &support::TestApp, key: &str, branch_id: &str) -> Vec<Value> {
+        read_recipe(app, key, branch_id)["versions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|version| version["hand_id"].clone())
+            .collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_co_author_has_a_recipe_read_again_and_the_agent_leaves_one_new_version() {
+        let app = support::spawn_app();
+        let (cook, runner) = cook_and_runner(&app);
+        let recipe = typed_by_hand(&app, &cook, Some(A_SOURCE_LINK));
+        let typed = versions_in_the_thread(&app, &cook, &recipe);
+
+        let (status, can) = can_read_again(&app, Some(&cook), &recipe);
+        assert_eq!(status, 200, "{can}");
+        assert_eq!(
+            can["result"],
+            json!({ "can_read_again": true, "link": A_SOURCE_LINK, "reason": null })
+        );
+
+        // A Job waits on the recipe, and the recipe names it.
+        let job_id = asked_to_read_again(&app, &cook, &recipe);
+        let waiting = job(&app, &cook, &job_id);
+        assert_eq!(waiting["status"], json!("queued"), "{waiting}");
+        assert_eq!(waiting["operation"], json!("read_by_agent"));
+        assert_eq!(
+            recipe_job(&app, Some(&cook), &recipe).1["result"],
+            json!({ "job": { "id": job_id, "status": "queued" } })
+        );
+        // Its result is an Import Report with the recipe as an arrival.
+        let report = &waiting["result"];
+        assert_eq!(report["source_kind"], json!("read_again"), "{report}");
+        assert_eq!(report["arrived"][0]["branch_id"], json!(recipe), "{report}");
+        assert_eq!(report["arrived"][0]["status"], json!("read_again"));
+        assert_eq!(report["arrived"][0]["foreign_id"], json!(A_SOURCE_LINK));
+        assert_eq!(report["arrived"][0]["title"], json!("Soupe"));
+        assert_eq!(report["agent_jobs"][0]["job_id"], json!(job_id));
+        assert_eq!(report["agent_jobs"][0]["status"], json!("queued"));
+
+        // Asking again, at either door, answers the same Job.
+        let recipes = recipes_and_agent_jobs(&app);
+        assert_eq!(asked_to_read_again(&app, &cook, &recipe), job_id);
+        let at_the_other_door = at_mcp(
+            &app,
+            &cook,
+            "read_recipe_again",
+            json!({ "branch_id": recipe }),
+        );
+        assert_eq!(
+            at_the_other_door["result"]["structuredContent"],
+            json!({ "job_id": job_id, "branch_id": recipe }),
+            "{at_the_other_door}"
+        );
+        assert_eq!(recipes_and_agent_jobs(&app), recipes);
+
+        // The Runner is handed the link to read and the recipe to write.
+        let handed = ask_for_work(&app, &runner);
+        assert_eq!(handed["job_id"], json!(job_id), "{handed}");
+        assert_eq!(handed["branch_id"], json!(recipe));
+        assert_eq!(handed["link"], json!(A_SOURCE_LINK));
+        assert_eq!(handed["original"], json!(null));
+        // Asking while it is held answers it too.
+        assert_eq!(asked_to_read_again(&app, &cook, &recipe), job_id);
+
+        // The recipe was typed a moment ago under the same Hand, and the
+        // agent's saves are still a Version of their own.
+        let job_key = handed["job_key"].as_str().unwrap();
+        for (operation, input) in [
+            (
+                "save_recipe_version",
+                the_recipe_an_agent_read_again(&recipe),
+            ),
+            (
+                "edit_recipe",
+                json!({ "branch_id": recipe, "note": "Better the next day." }),
+            ),
+        ] {
+            let (status, saved) = app.post_op(operation, Some(job_key), &input.to_string());
+            assert_eq!(status, 200, "{operation}: {saved}");
+        }
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&runner),
+            json!({ "job_id": job_id, "outcome": "completed", "report": an_agents_report() }),
+        );
+        assert_eq!(status, 200, "{reported}");
+
+        let read_again = versions_in_the_thread(&app, &cook, &recipe);
+        assert_eq!(read_again.len(), 2, "{read_again:?}");
+        assert_eq!(read_again[0], typed[0]);
+        let hands = hands_in_the_thread(&app, &cook, &recipe);
+        assert_eq!(hands[0], hands[1]);
+        let head = head_of(&read_recipe(&app, &cook, &recipe)).clone();
+        assert_eq!(head["content"]["title"], json!("Soupe au pistou"), "{head}");
+        assert_eq!(head["content"]["note"], json!("Better the next day."));
+
+        // The Import Report says what the agent did.
+        let ended = job(&app, &cook, &job_id);
+        assert_eq!(ended["status"], json!("completed"), "{ended}");
+        let report = &ended["result"];
+        assert_eq!(report["source_kind"], json!("read_again"), "{report}");
+        assert_eq!(report["arrived"][0]["branch_id"], json!(recipe));
+        assert_eq!(report["arrived"][0]["status"], json!("read_again"));
+        assert_eq!(
+            report["arrived"][0]["title"],
+            json!("Soupe au pistou"),
+            "the arrival reads as the agent left the recipe: {report}"
+        );
+        assert_eq!(report["agent_jobs"][0]["status"], json!("completed"));
+        assert_eq!(report["agent_jobs"][0]["made_by_agent"], json!(true));
+        assert_eq!(report["agent_jobs"][0]["agent_report"], an_agents_report());
+
+        // And it is listed as an arrival of its own.
+        let (_, listed) = app.post_op("list_imports", Some(&cook), "{}");
+        let imports = listed["result"]["imports"].as_array().unwrap();
+        assert_eq!(imports.len(), 1, "{listed}");
+        assert_eq!(imports[0]["source_kind"], json!("read_again"));
+        let arrivals = imports[0]["arrivals"].as_array().unwrap();
+        assert_eq!(arrivals.len(), 1, "{listed}");
+        assert_eq!(arrivals[0]["job_id"], json!(job_id));
+        assert_eq!(arrivals[0]["arrived"], json!(1));
+        assert_eq!(arrivals[0]["created"], json!(0));
+        assert_eq!(
+            arrivals[0]["agent_jobs"],
+            json!([{ "job_id": job_id, "branch_id": recipe, "status": "completed" }])
+        );
+
+        // Once that Job has ended, asking makes another.
+        let again = asked_to_read_again(&app, &cook, &recipe);
+        assert_ne!(again, job_id);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn asking_while_an_imports_job_waits_on_the_recipe_answers_that_job() {
+        let app = support::spawn_app();
+        let (cook, _) = cook_and_runner(&app);
+        let (_, waiting, recipe) = a_job_waiting(&app, &cook);
+        let (_, can) = can_read_again(&app, Some(&cook), &recipe);
+        assert_eq!(can["result"]["can_read_again"], json!(true), "{can}");
+        assert_eq!(asked_to_read_again(&app, &cook, &recipe), waiting);
+        // The Import that landed it still names the Job, and no Import of
+        // its own was made.
+        let (_, listed) = app.post_op("list_imports", Some(&cook), "{}");
+        let kinds: Vec<&Value> = listed["result"]["imports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| &row["source_kind"])
+            .collect();
+        assert_eq!(kinds, vec![&json!("web")], "{listed}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn either_co_author_asks_and_each_ones_version_carries_their_own_hand() {
+        let app = support::spawn_app();
+        let (cook, runner) = cook_and_runner(&app);
+        let (_, co_author) = a_cook(&app, "Marc");
+        super::write_together(&app, &cook, &co_author);
+        let recipe = typed_by_hand(&app, &cook, Some(A_SOURCE_LINK));
+
+        let his = asked_to_read_again(&app, &co_author, &recipe);
+        the_agent_reads_it_again(&app, &runner, &his, &recipe, "Soupe au pistou");
+        let hers = asked_to_read_again(&app, &cook, &recipe);
+        the_agent_reads_it_again(&app, &runner, &hers, &recipe, "Soupe au pistou de Nice");
+
+        let hands = hands_in_the_thread(&app, &cook, &recipe);
+        assert_eq!(hands.len(), 3, "{hands:?}");
+        assert_ne!(hands[1], hands[0], "his Version carries his Hand");
+        assert_eq!(hands[2], hands[0], "hers carries hers");
+        // Each reads their own Job's Report, and so does the other.
+        for (key, job_id) in [(&co_author, &his), (&cook, &hers), (&cook, &his)] {
+            assert_eq!(job(&app, key, job_id)["status"], json!("completed"));
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_from_another_apps_export_or_read_by_kamosu_itself_is_read_again() {
+        let app = support::spawn_app();
+        let (cook, runner) = cook_and_runner(&app);
+
+        // One Crouton recipe, as its own .crumb file.
+        let crumb = json!({
+            "uuid": "PISTOU", "name": "Soupe au pistou",
+            "webLink": A_SOURCE_LINK,
+            "ingredients": [
+                { "order": 0, "ingredient": { "name": "haricots" }, "quantity": { "amount": 200, "quantityType": "GRAMS" } },
+            ],
+            "steps": [{ "order": 0, "isSection": false, "step": "Simmer." }],
+        });
+        let (status, staged) = app.post_bytes(
+            "/api/uploads",
+            Some(&cook),
+            "application/json",
+            crumb.to_string().as_bytes(),
+        );
+        assert_eq!(status, 200, "{staged}");
+        let (status, asked) = app.post_op(
+            "import_crouton",
+            Some(&cook),
+            &json!({ "upload_id": staged["result"]["upload_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{asked}");
+        let finished = support::wait_terminal(
+            &app,
+            Some(&cook),
+            asked["result"]["job_id"].as_str().unwrap(),
+        );
+        let from_crouton = finished["result"]["arrived"][0]["branch_id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("a recipe from the export: {finished}"))
+            .to_string();
+
+        // A page whose structured data Kamosu read in full.
+        let url = spawn_recipe_server(
+            |_| {
+                r#"<html><head><script type="application/ld+json">{
+                    "@context": "https://schema.org", "@type": "Recipe",
+                    "name": "Tarte aux pommes",
+                    "recipeIngredient": ["3 apples", "200 g flour"],
+                    "recipeInstructions": [{ "@type": "HowToStep", "text": "Bake." }]
+                }</script></head><body></body></html>"#
+                    .to_string()
+            },
+            None,
+        );
+        let report = import_web_link_and_wait(&app, &cook, &url);
+        assert!(report.get("agent_jobs").is_none(), "{report}");
+        let read_by_kamosu = report["arrived"][0]["branch_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        for (recipe, link) in [
+            (&from_crouton, A_SOURCE_LINK),
+            (&read_by_kamosu, url.as_str()),
+        ] {
+            let (_, can) = can_read_again(&app, Some(&cook), recipe);
+            assert_eq!(can["result"]["link"], json!(link), "{can}");
+            assert_eq!(can["result"]["can_read_again"], json!(true), "{can}");
+            let job_id = asked_to_read_again(&app, &cook, recipe);
+            let handed = ask_for_work(&app, &runner);
+            assert_eq!(handed["job_id"], json!(job_id), "{handed}");
+            assert_eq!(handed["link"], json!(link));
+            assert_eq!(handed["branch_id"], json!(recipe));
+            let (status, reported) = report_on_job(
+                &app,
+                Some(&runner),
+                json!({ "job_id": job_id, "outcome": "completed" }),
+            );
+            assert_eq!(status, 200, "{reported}");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn only_a_co_author_asks_and_whoever_does_not_see_the_recipe_finds_nothing() {
+        let app = support::spawn_app();
+        let people = a_household(&app);
+        let recipe = typed_by_hand(&app, &people.cook, Some(A_SOURCE_LINK));
+        assert_eq!(
+            super::read_as(&app, &people.kitchen_mate, &recipe).0,
+            200,
+            "the Kitchen-mate sees the recipe"
+        );
+        let jobs_before = recipes_and_agent_jobs(&app);
+
+        // Someone who sees it through a Kitchen is told they may not.
+        let (status, can) = can_read_again(&app, Some(&people.kitchen_mate), &recipe);
+        assert_eq!(status, 200, "{can}");
+        assert_eq!(
+            can["result"],
+            json!({ "can_read_again": false, "link": A_SOURCE_LINK, "reason": "not_a_co_author" })
+        );
+        let (status, refused) = read_again(&app, Some(&people.kitchen_mate), &recipe);
+        assert_eq!(status, 401, "{refused}");
+        assert_eq!(refused["error"]["reason"], json!("not_a_co_author"));
+        let refused = at_mcp(
+            &app,
+            &people.kitchen_mate,
+            "read_recipe_again",
+            json!({ "branch_id": recipe }),
+        );
+        assert!(
+            refused.to_string().contains("only a Co-author"),
+            "{refused}"
+        );
+
+        // Someone who does not see it finds nothing there, as with a recipe
+        // that never was.
+        let never_there = "b_ffffffffffffffff";
+        for operation in ["read_recipe_again", "can_read_recipe_again"] {
+            let to_the_recipe = app.post_op(
+                operation,
+                Some(&people.outsider),
+                &json!({ "branch_id": recipe }).to_string(),
+            );
+            assert_eq!(to_the_recipe.0, 404, "{operation}: {}", to_the_recipe.1);
+            assert_eq!(
+                to_the_recipe,
+                app.post_op(
+                    operation,
+                    Some(&people.outsider),
+                    &json!({ "branch_id": never_there }).to_string(),
+                ),
+                "{operation}"
+            );
+            // No Credential, and a Runner Key, are refused.
+            for credential in [None, Some(people.runner.as_str())] {
+                let (status, refused) = app.post_op(
+                    operation,
+                    credential,
+                    &json!({ "branch_id": recipe }).to_string(),
+                );
+                assert_eq!(status, 401, "{operation}: {refused}");
+            }
+        }
+
+        // A key that only reads may ask whether, and may not ask.
+        let (_, cook) = app.post_op("get_person", Some(&people.cook), "{}");
+        let cook_id = cook["result"]["person_id"].as_str().unwrap();
+        let reads_only = app
+            .core
+            .mint_access_key(cook_id, "reads only", true)
+            .unwrap()
+            .secret;
+        assert_eq!(can_read_again(&app, Some(&reads_only), &recipe).0, 200);
+        let (status, refused) = read_again(&app, Some(&reads_only), &recipe);
+        assert_ne!(status, 200, "{refused}");
+
+        assert_eq!(recipes_and_agent_jobs(&app), jobs_before);
+        // The Co-author may.
+        asked_to_read_again(&app, &people.co_author, &recipe);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn with_no_runner_or_no_link_the_ask_is_refused_in_words() {
+        let app = support::spawn_app();
+        let cook = cook_beside_a_runner(&app, false);
+        let linked = typed_by_hand(&app, &cook, Some(A_SOURCE_LINK));
+        let unlinked = typed_by_hand(&app, &cook, None);
+
+        let refused_with = |recipe: &str, reason: &str, link: Value| {
+            let (status, can) = can_read_again(&app, Some(&cook), recipe);
+            assert_eq!(status, 200, "{can}");
+            assert_eq!(
+                can["result"],
+                json!({ "can_read_again": false, "link": link, "reason": reason })
+            );
+            let (status, refused) = read_again(&app, Some(&cook), recipe);
+            assert_eq!(status, 400, "{refused}");
+            assert_eq!(refused["error"]["reason"], json!(reason), "{refused}");
+            assert!(
+                refused["error"]["message"].as_str().unwrap().len() > 40,
+                "said in words: {refused}"
+            );
+        };
+        refused_with(&linked, "no_runner", json!(A_SOURCE_LINK));
+
+        app.core.mint_runner_key("the kitchen's Runner").unwrap();
+        refused_with(&unlinked, "nothing_to_read", json!(null));
+        // Kamosu never fetched a Source's link, so an agent is sent to none
+        // that Kamosu's own fetch would refuse to set out for (ADR 0033).
+        for link in [
+            "file:///etc/passwd",
+            "http://192.168.1.1/admin",
+            "http://169.254.169.254/latest/meta-data/",
+            "ftp://a.example/soupe",
+            "not a link at all",
+        ] {
+            let recipe = typed_by_hand(&app, &cook, Some(link));
+            refused_with(&recipe, "nothing_to_read", json!(null));
+        }
+        assert_eq!(recipes_and_agent_jobs(&app).1, 0);
+        let (_, can) = can_read_again(&app, Some(&cook), &linked);
+        assert_eq!(can["result"]["can_read_again"], json!(true));
+    }
+
+    /// The case the ticket settles by default: a recipe the Cookbook holds
+    /// and did not write. The asker's change would start a Copy and a Job
+    /// never makes one, so the ask is refused at once.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_received_in_a_bundle_is_not_read_again_by_who_received_it() {
+        let app = support::spawn_app();
+        let (_, sender) = a_cook(&app, "Marc");
+        let (receiver, _) = cook_and_runner(&app);
+        let theirs = typed_by_hand(&app, &sender, Some(A_SOURCE_LINK));
+        let received = super::receive(&app, &receiver, &super::bundle_of(&app, &sender, &theirs));
+        let recipe = received["arrived"][0]["branch_id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("a received recipe: {received}"))
+            .to_string();
+        let before = recipes_and_agent_jobs(&app);
+
+        let (_, can) = can_read_again(&app, Some(&receiver), &recipe);
+        assert_eq!(
+            can["result"],
+            json!({ "can_read_again": false, "link": A_SOURCE_LINK, "reason": "would_start_a_copy" })
+        );
+        let (status, refused) = read_again(&app, Some(&receiver), &recipe);
+        assert_eq!(status, 400, "{refused}");
+        assert_eq!(refused["error"]["reason"], json!("would_start_a_copy"));
+        assert_eq!(recipes_and_agent_jobs(&app), before, "no Job and no Copy");
+
+        // Once a change of theirs has made it their own, it can be.
+        let (status, own) = app.post_op(
+            "edit_recipe",
+            Some(&receiver),
+            &json!({ "branch_id": recipe, "note": "Ours now." }).to_string(),
+        );
+        assert_eq!(status, 200, "{own}");
+        let copy = own["result"]["branch_id"].as_str().unwrap();
+        assert_ne!(copy, recipe);
+        asked_to_read_again(&app, &receiver, copy);
+    }
+
+    /// Two Cookbooks that each had a recipe read again are joined: their two
+    /// Imports become one, and each Report names the one that is there.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn joining_two_cookbooks_leaves_each_read_again_naming_the_import_kept() {
+        let app = support::spawn_app();
+        let (cook, _) = cook_and_runner(&app);
+        let (_, co_author) = a_cook(&app, "Marc");
+        let hers = typed_by_hand(&app, &cook, Some(A_SOURCE_LINK));
+        let his = typed_by_hand(&app, &co_author, Some(A_SOURCE_LINK));
+        let her_job = asked_to_read_again(&app, &cook, &hers);
+        let his_job = asked_to_read_again(&app, &co_author, &his);
+
+        super::write_together(&app, &cook, &co_author);
+
+        for (key, job_id) in [(&cook, &her_job), (&co_author, &his_job)] {
+            let (_, listed) = app.post_op("list_imports", Some(key), "{}");
+            let kept: Vec<&Value> = listed["result"]["imports"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|row| row["source_kind"] == json!("read_again"))
+                .collect();
+            assert_eq!(kept.len(), 1, "{listed}");
+            assert!(kept[0]["import_id"].is_string(), "{listed}");
+            let report = job(&app, key, job_id);
+            assert_eq!(
+                report["result"]["import_id"], kept[0]["import_id"],
+                "{report}"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_job_on_a_recipe_its_asker_did_not_start_fails_once_they_left_the_cookbook() {
+        let app = support::spawn_app();
+        let (cook, runner) = cook_and_runner(&app);
+        let (_, co_author) = a_cook(&app, "Marc");
+        super::write_together(&app, &cook, &co_author);
+        let hers = typed_by_hand(&app, &cook, Some(A_SOURCE_LINK));
+
+        // He asks, a Runner takes it, and he leaves the Cookbook.
+        let job_id = asked_to_read_again(&app, &co_author, &hers);
+        let handed = ask_for_work(&app, &runner);
+        assert_eq!(handed["job_id"], json!(job_id), "{handed}");
+        let job_key = handed["job_key"].as_str().unwrap();
+        let (status, left) = app.post_op("leave_cookbook", Some(&co_author), "{}");
+        assert_eq!(status, 200, "{left}");
+        let before = read_recipe(&app, &cook, &hers);
+        let recipes_after_leaving = branches_held(&app);
+
+        let (status, refused) = app.post_op(
+            "save_recipe_version",
+            Some(job_key),
+            &the_recipe_an_agent_read(&hers).to_string(),
+        );
+        assert_eq!(status, 401, "{refused}");
+        let reason = kamosu::jobs::WOULD_START_A_COPY;
+        let failed = job(&app, &co_author, &job_id);
+        assert_eq!(failed["status"], json!("failed"), "{failed}");
+        assert_eq!(failed["error"], json!(reason));
+        // Its Report lists the recipe as it was, and why it was not read.
+        let report = &failed["result"];
+        assert_eq!(report["unreadable"][0]["reason"], json!(reason), "{report}");
+        assert_eq!(report["unreadable"][0]["branch_id"], json!(hers));
+        assert_eq!(report["arrived"][0]["branch_id"], json!(hers));
+        // It writes nothing more, and made nothing.
+        assert_eq!(
+            app.post_op("search_recipes", Some(job_key), "{}"),
+            an_unknown_secret_is_answered(&app, "search_recipes")
+        );
+        assert_eq!(read_recipe(&app, &cook, &hers), before);
+        assert_eq!(branches_held(&app), recipes_after_leaving);
     }
 }
 

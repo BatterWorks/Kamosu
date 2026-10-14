@@ -364,6 +364,8 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     0048, #260, #262, #263, #264, #266, #268)
   shelves.rs        the home shelves, and the shelf entry every list shows
   translation.rs    translation and a Branch's Language
+  reading_again.rs  a Co-author asking for an agent to read a recipe again
+                    from its Source's link, and whether one can (#272)
   readings.rs       Ingredient Lines, Readings, Foods and Food merges
   originals.rs      pasted text, a PDF or a picture handed to an agent,
                     kept under originals/ for its Job's Job Key alone and

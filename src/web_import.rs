@@ -453,6 +453,15 @@ fn guarded_client(acl: &Acl) -> Result<reqwest::Client, OpError> {
         .map_err(|e| OpError::internal(format!("cannot build the guarded HTTP client: {e}")))
 }
 
+/// Whether `link` is one this guarded fetch would set out to read: http or
+/// https, with no address on the local network written into it (ADR 0033).
+/// A name is not looked up here, so one that leads to such an address passes.
+/// Asked of a link an agent is handed without Kamosu fetching it first, as a
+/// recipe read again is (#272).
+pub fn is_readable_link(link: &str) -> bool {
+    parse_fetchable_url(link).is_ok_and(|url| guarded_acl().validate_url(&url).is_ok())
+}
+
 fn parse_fetchable_url(url: &str) -> Result<Url, OpError> {
     let parsed = Url::parse(url).map_err(|_| OpError::bad_request("that is not a valid URL"))?;
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
