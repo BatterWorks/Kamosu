@@ -1827,6 +1827,17 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 49,
+        description: "when a Job's Original was deleted (#270)",
+        sql: r#"
+        -- An Original is deleted 30 days after its Job ended (ADR 0048).
+        -- `original_deleted_at` is when, null while the file is kept. The
+        -- row keeps `original`, so Kamosu still knows what the Job read.
+        ALTER TABLE agent_jobs ADD COLUMN original_deleted_at TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

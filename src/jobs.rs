@@ -743,6 +743,8 @@ pub struct AgentJobState {
     pub status: JobStatus,
     pub error: Option<String>,
     pub report: Option<Value>,
+    /// Its Original was deleted, 30 days after it ended (#270).
+    pub original_gone: bool,
 }
 
 /// How each of these Jobs stands now, for the ones that are an agent's. An id
@@ -753,7 +755,8 @@ pub fn agent_jobs_as_they_stand(
 ) -> Result<Vec<AgentJobState>, OpError> {
     let mut statement = conn
         .prepare(
-            "SELECT jobs.status, jobs.error, agent_jobs.report, agent_jobs.branch_id
+            "SELECT jobs.status, jobs.error, agent_jobs.report, agent_jobs.branch_id,
+                    agent_jobs.original_deleted_at IS NOT NULL
                FROM jobs JOIN agent_jobs ON agent_jobs.job_id = jobs.id
               WHERE jobs.id = ?1",
         )
@@ -770,6 +773,7 @@ pub fn agent_jobs_as_they_stand(
                     report: row
                         .get::<_, Option<String>>(2)?
                         .and_then(|text| serde_json::from_str(&text).ok()),
+                    original_gone: row.get(4)?,
                 })
             })
             .optional()

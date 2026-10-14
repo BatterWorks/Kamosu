@@ -1873,7 +1873,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                                                     "type": "object",
                                                     "properties": {
                                                         "job_id": { "type": "string" },
-                                                        "branch_id": { "type": "string" },
+                                                        "branch_id": { "type": ["string", "null"] },
                                                         "status": { "enum": ["queued", "running", "completed", "failed", "cancelled"] },
                                                     },
                                                     "required": ["job_id", "branch_id", "status"],
@@ -5479,6 +5479,14 @@ fn import_report_schema() -> Value {
                                              recipe itself says so.",
                         },
                         "agent_report": agent_report_schema(),
+                        "original_gone": {
+                            "type": "boolean",
+                            "description": "Present and true once the pasted text, PDF or \
+                                             picture this Job read has been deleted, \
+                                             which Kamosu does 30 days after the Job \
+                                             ended. `source_kind` still says which it \
+                                             was.",
+                        },
                     },
                     "required": ["job_id", "branch_id"],
                     "additionalProperties": false,

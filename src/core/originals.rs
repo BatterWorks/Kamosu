@@ -1,6 +1,6 @@
 //! Originals: pasted text, a PDF or a picture handed to an agent, kept beside
-//! the database while its Job reads it, and fetched by that Job's Job Key
-//! alone (ADR 0048, #269).
+//! the database until 30 days after its Job ended, and fetched by that Job's
+//! Job Key alone (ADR 0048, #269, #270).
 //!
 //! An Original is a file under `originals/` in the data directory, named by
 //! its Job's id. It is no Photograph: no recipe names it, and the Photograph
@@ -126,6 +126,66 @@ impl Core {
         let bytes = std::fs::read(originals_dir(&self.data_dir()).join(job_id))
             .map_err(|_| nothing_here_for_a_job_key())?;
         Ok((kind, bytes))
+    }
+}
+
+/// How many days an Original is kept once its Job has ended (ADR 0048).
+pub const ORIGINAL_KEPT_DAYS: u32 = 30;
+
+impl Core {
+    /// Delete every Original whose Job ended more than
+    /// [`ORIGINAL_KEPT_DAYS`] ago, on the daily sweep (#270). A Job that
+    /// waits or is held keeps its Original however old it is, and a Job
+    /// ends only once, so its last change is when it ended.
+    ///
+    /// The Job keeps its row and what kind of thing it read, and records
+    /// when its Original went. The file goes first and the record second, so
+    /// a sweep stopped between the two finishes the record next time. The
+    /// answer is how many Originals were deleted.
+    pub fn sweep_originals(&self) -> Result<usize, OpError> {
+        let failed = |e| OpError::internal(format!("cannot sweep the Originals: {e}"));
+        let due: Vec<String> = self.db().with_conn(|conn| {
+            conn.prepare(
+                "SELECT agent_jobs.job_id
+                   FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
+                  WHERE agent_jobs.original IS NOT NULL
+                    AND agent_jobs.original_deleted_at IS NULL
+                    AND jobs.status IN ('completed', 'failed', 'cancelled')
+                    AND jobs.updated_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?1)",
+            )
+            .map_err(failed)?
+            .query_map(params![format!("-{ORIGINAL_KEPT_DAYS} days")], |row| {
+                row.get(0)
+            })
+            .map_err(failed)?
+            .collect::<Result<_, _>>()
+            .map_err(failed)
+        })?;
+
+        let dir = originals_dir(&self.data_dir());
+        let mut swept = 0;
+        for job_id in due {
+            match std::fs::remove_file(dir.join(&job_id)) {
+                Ok(()) => swept += 1,
+                // Already gone, as on an instance restored from a Backup,
+                // which holds no Original.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    tracing::warn!(target: "kamosu::sweep", %job_id, %e, "cannot delete an Original");
+                    continue;
+                }
+            }
+            self.db().with_conn(|conn| {
+                conn.execute(
+                    "UPDATE agent_jobs
+                        SET original_deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                      WHERE job_id = ?1",
+                    params![job_id],
+                )
+                .map_err(failed)
+            })?;
+        }
+        Ok(swept)
     }
 }
 
