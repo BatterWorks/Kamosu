@@ -1791,6 +1791,42 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 48,
+        description: "an agent's Job that reads an Original and creates its recipe (#269)",
+        sql: r#"
+        -- An agent's Job may read an Original rather than a link: pasted
+        -- text, a PDF or a picture, kept as a file under the data directory
+        -- and never in this database (ADR 0048). Such a Job waits with no
+        -- recipe, since the agent creates it.
+        -- `branch_id` is null until the Job's recipe exists, and is set once.
+        -- `link` is null on a Job that reads an Original.
+        -- `original` is what kind of Original the Job reads: 'pasted_text',
+        -- 'pdf' or 'picture'. Null on a Job that reads a link. The file
+        -- itself is named by the Job's id.
+        -- SQLite cannot drop a NOT NULL, so the table is made again.
+        CREATE TABLE agent_jobs_48 (
+            job_id     TEXT PRIMARY KEY REFERENCES jobs(id),
+            branch_id  TEXT,
+            link       TEXT,
+            held_by    TEXT,
+            outcome    TEXT,
+            report     TEXT,
+            held_until TEXT,
+            tries      INTEGER NOT NULL DEFAULT 0,
+            original   TEXT,
+            CHECK ((link IS NULL) <> (original IS NULL))
+        );
+        INSERT INTO agent_jobs_48
+               (job_id, branch_id, link, held_by, outcome, report, held_until, tries)
+        SELECT job_id, branch_id, link, held_by, outcome, report, held_until, tries
+          FROM agent_jobs;
+        DROP TABLE agent_jobs;
+        ALTER TABLE agent_jobs_48 RENAME TO agent_jobs;
+        CREATE INDEX agent_jobs_by_branch ON agent_jobs(branch_id);
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

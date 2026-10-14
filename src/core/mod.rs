@@ -59,6 +59,7 @@ mod imports;
 mod keeping_backups;
 mod keeping_photographs;
 mod kitchens;
+mod originals;
 mod readings;
 mod recipes;
 mod related;
@@ -79,6 +80,7 @@ pub use imports::*;
 use keeping_backups::*;
 use keeping_photographs::*;
 use kitchens::*;
+pub use originals::*;
 pub use readings::*;
 use recipes::*;
 // What the MCP door's instructions and the save summaries say the window is.
@@ -239,7 +241,8 @@ pub struct Caller {
     /// Person is the one who asked for that Job. `Core::execute` refuses a
     /// caller carrying this every Operation the Catalogue does not mark for a
     /// Job Key, and holds what it writes to that Job's one recipe. Every
-    /// route outside the Catalogue refuses it too, but storing a Photograph.
+    /// route outside the Catalogue refuses it too, but storing a Photograph
+    /// and fetching its own Job's Original.
     pub job_id: Option<String>,
 }
 
@@ -327,6 +330,10 @@ pub struct Core {
     /// How long a Runner's hold on a Job lasts unless renewed, in
     /// milliseconds: `jobs::HOLD`, until a test shortens it (#266).
     hold_millis: AtomicU64,
+    /// Held while a Job Key creates its Job's recipe (#269), from the check
+    /// that the Job has none to the moment the new one is made its own, so
+    /// that two creates at once cannot both find it has none.
+    job_key_creates: std::sync::Mutex<()>,
     /// The seed Home shuffles *never cooked* by, once a test has pinned one
     /// (#151). Compiled only under `test-jobs`: a real instance draws a fresh
     /// seed each time Home is asked for, and carries nothing to pin it with.
@@ -348,6 +355,7 @@ impl Core {
             meaning,
             passwords: accounts::Passwords::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
+            job_key_creates: Default::default(),
             #[cfg(feature = "test-jobs")]
             shelf_seed: Default::default(),
         }
@@ -368,6 +376,7 @@ impl Core {
             meaning,
             passwords: accounts::Passwords::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
+            job_key_creates: Default::default(),
             #[cfg(feature = "test-jobs")]
             shelf_seed: Default::default(),
         };
@@ -491,18 +500,43 @@ impl Core {
         // and never where that would start a Copy (ADR 0048). Asked here so
         // that no Operation learns about Jobs. It comes after the shape is
         // checked, since it reads what the call sent.
-        if let Asker::Person(caller) = &asker
-            && let Some(job_id) = &caller.job_id
-        {
-            self.hold_job_key_write(caller, job_id, op.job_key, &input)?;
-        }
+        //
+        // A Job Key creating its Job's recipe holds a lock from the check to
+        // the moment the new recipe is the Job's own (#269).
+        let mut creates_for_job = None;
+        let _one_create_at_a_time = match &asker {
+            Asker::Person(
+                caller @ Caller {
+                    job_id: Some(job_id),
+                    ..
+                },
+            ) => {
+                let lock = (op.job_key == JobKey::CreatesItsRecipe).then(|| {
+                    creates_for_job = Some(job_id.clone());
+                    self.job_key_creates
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                });
+                self.hold_job_key_write(caller, job_id, op.job_key, &input)?;
+                lock
+            }
+            _ => None,
+        };
 
         let invocation = Invocation { asker, job: None };
 
-        match op.kind {
+        let answered = match op.kind {
             Kind::Immediate => (op.handler)(self, &invocation, input),
             Kind::Job => self.ask_job(op.name, op.job_lane, &invocation, input),
+        }?;
+        if let Some(job_id) = creates_for_job {
+            let branch_id = answered["branch_id"]
+                .as_str()
+                .ok_or_else(|| OpError::internal("a created recipe came back with no id"))?;
+            self.db()
+                .with_conn(|conn| jobs::take_its_recipe(conn, &job_id, branch_id))?;
         }
+        Ok(answered)
     }
 
     /// Accept slow work and answer at once with an id. The work itself runs in a
@@ -600,8 +634,9 @@ impl Core {
     /// Resolve a raw Secret to the Person it acts as, for everything that is
     /// not `execute`: the routes outside the Catalogue. A Runner Key acts as no
     /// Person, so it is refused here whatever the route. So is a Job Key,
-    /// whose reach is its list in the Catalogue and the one route
-    /// `authenticate_to_store_photograph` opens to it.
+    /// whose reach is its list in the Catalogue and the two routes opened to
+    /// it: `authenticate_to_store_photograph`, and `read_original` for its own
+    /// Job's Original.
     fn resolve_credential(&self, secret: &str) -> Result<Caller, OpError> {
         match self.resolve_person(secret)? {
             caller if caller.job_id.is_some() => Err(nothing_here_for_a_job_key()),
@@ -765,7 +800,8 @@ impl Core {
     /// admits whoever that Operation admits, by that Operation's own
     /// declaration: a Person who may write, and a Job Key while the Operation
     /// is marked for one, held to what `execute` holds it to (ADR 0048). It
-    /// is the one route outside the Catalogue a Job Key may use.
+    /// is one of two routes outside the Catalogue a Job Key may use, the
+    /// other being its own Job's Original (`read_original`).
     pub fn authenticate_to_store_photograph(
         &self,
         secret: Option<&str>,

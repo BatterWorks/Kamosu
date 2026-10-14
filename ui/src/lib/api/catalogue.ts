@@ -190,7 +190,7 @@ export type RunnerStatusOutput = {
 	last_asked_at: string | null;
 };
 
-/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
+/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
 export type AskForWorkInput = {
 	ask: string;
 	runner_version: string;
@@ -198,11 +198,15 @@ export type AskForWorkInput = {
 /** What ask_for_work answers. */
 export type AskForWorkOutput = {
 	job: {
-		branch_id: string;
+		branch_id: string | null;
 		held_until: string;
 		job_id: string;
 		job_key: string;
-		link: string;
+		link: string | null;
+		original: {
+			address: string;
+			kind: "pasted_text" | "pdf" | "picture";
+		} | null;
 		renew_within_seconds: number;
 	} | null;
 };
@@ -1027,7 +1031,7 @@ export type SetRelatedRecipeOutput = {
 	}[];
 };
 
-/** Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. */
+/** Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. With a Job Key it creates the Job's own recipe, once, for a Job that has none yet: one reading pasted text, a PDF or a picture. */
 export type CreateRecipeInput = {
 	cook_time_minutes?: number | null;
 	ingredients?: {
@@ -1551,6 +1555,18 @@ export type ReadRecipePdfOutput = {
 	title: string | null;
 };
 
+/** Have an agent read text, a PDF or a picture. It reads it into a recipe in your own Cookbook. Only on an instance with a Runner: without one it is refused with reason `no_runner`. A PDF may be a scan. Pass pasted text as `text`. Send a file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. Answers the id of a Job that waits for a Runner, as `get_job` reads it, and what it was taken as. No recipe exists until the agent creates one, under your Hand. Read the Job with `get_job`: its result is the Import Report, which lists the recipe as arrived once it exists and says what the agent left undone, or why it could not be read. Cancel it with `cancel_job`. Kamosu keeps what was handed over for the agent to fetch and never shows it. */
+export type ImportByAgentInput = {
+	data?: string;
+	text?: string;
+	upload_id?: string;
+};
+/** What import_by_agent answers. */
+export type ImportByAgentOutput = {
+	job_id: string;
+	source_kind: "pasted_text" | "pdf" | "picture";
+};
+
 /** Translate a recipe into another Language. It starts an ordinary Branch of the same Lineage in that Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author. */
 export type StartTranslationInput = {
 	branch_id: string;
@@ -1813,7 +1829,7 @@ export type ImportOutput = {
 			unsure?: string[];
 			unused_foods?: string[];
 		};
-		branch_id: string;
+		branch_id: string | null;
 		job_id: string;
 		made_by_agent?: boolean;
 		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -1883,7 +1899,7 @@ export type ImportCroutonOutput = {
 			unsure?: string[];
 			unused_foods?: string[];
 		};
-		branch_id: string;
+		branch_id: string | null;
 		job_id: string;
 		made_by_agent?: boolean;
 		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -1988,7 +2004,7 @@ export type ImportWebLinkOutput = {
 			unsure?: string[];
 			unused_foods?: string[];
 		};
-		branch_id: string;
+		branch_id: string | null;
 		job_id: string;
 		made_by_agent?: boolean;
 		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -2674,7 +2690,7 @@ export type ImportBundleOutput = {
 			unsure?: string[];
 			unused_foods?: string[];
 		};
-		branch_id: string;
+		branch_id: string | null;
 		job_id: string;
 		made_by_agent?: boolean;
 		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -5352,6 +5368,12 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	import_by_agent: {
+		input: ImportByAgentInput;
+		output: ImportByAgentOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	start_translation: {
 		input: StartTranslationInput;
 		output: StartTranslationOutput;
@@ -6471,7 +6493,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "ask_for_work",
-		"summary": "Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it.",
+		"summary": "Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it.",
 		"permission": "runner",
 		"kind": "immediate",
 		"input_schema": {
@@ -6497,8 +6519,11 @@ export const CATALOGUE = [
 					"additionalProperties": false,
 					"properties": {
 						"branch_id": {
-							"description": "The recipe the Job is for, which landed bare.",
-							"type": "string"
+							"description": "The recipe the Job is for, which landed bare. Null on a Job reading an Original until its agent creates the recipe with `create_recipe` and its Job Key.",
+							"type": [
+								"string",
+								"null"
+							]
 						},
 						"held_until": {
 							"description": "When the hold lapses unless `renew_hold` moves it on.",
@@ -6512,8 +6537,36 @@ export const CATALOGUE = [
 							"type": "string"
 						},
 						"link": {
-							"description": "What the agent is to read.",
-							"type": "string"
+							"description": "What the agent is to read, when that is a page. Null when it is an Original.",
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"original": {
+							"additionalProperties": false,
+							"description": "What the agent is to read, when that is not a link: pasted text, a PDF or a picture. Null when it is a link.",
+							"properties": {
+								"address": {
+									"description": "Where the agent fetches it, with a GET carrying the Job Key.",
+									"type": "string"
+								},
+								"kind": {
+									"enum": [
+										"pasted_text",
+										"pdf",
+										"picture"
+									]
+								}
+							},
+							"required": [
+								"kind",
+								"address"
+							],
+							"type": [
+								"object",
+								"null"
+							]
 						},
 						"renew_within_seconds": {
 							"description": "How long to leave before the first `renew_hold`, and between each after.",
@@ -6524,6 +6577,7 @@ export const CATALOGUE = [
 						"job_id",
 						"branch_id",
 						"link",
+						"original",
 						"job_key",
 						"held_until",
 						"renew_within_seconds"
@@ -10215,7 +10269,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "create_recipe",
-		"summary": "Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version.",
+		"summary": "Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. With a Job Key it creates the Job's own recipe, once, for a Job that has none yet: one reading pasted text, a PDF or a picture.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -13098,6 +13152,51 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "import_by_agent",
+		"summary": "Have an agent read text, a PDF or a picture. It reads it into a recipe in your own Cookbook. Only on an instance with a Runner: without one it is refused with reason `no_runner`. A PDF may be a scan. Pass pasted text as `text`. Send a file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. Answers the id of a Job that waits for a Runner, as `get_job` reads it, and what it was taken as. No recipe exists until the agent creates one, under your Hand. Read the Job with `get_job`: its result is the Import Report, which lists the recipe as arrived once it exists and says what the agent left undone, or why it could not be read. Cancel it with `cancel_job`. Kamosu keeps what was handed over for the agent to fetch and never shows it.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"data": {
+					"description": "A PDF or a picture, base64-encoded, for a Door that can send only JSON.",
+					"type": "string"
+				},
+				"text": {
+					"description": "A recipe pasted as text.",
+					"type": "string"
+				},
+				"upload_id": {
+					"description": "The id POST /api/uploads answered for a PDF or a picture. Used once, then deleted.",
+					"type": "string"
+				}
+			},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"job_id": {
+					"type": "string"
+				},
+				"source_kind": {
+					"description": "What it was taken as, and the source the arrival is listed under in `list_imports`.",
+					"enum": [
+						"pasted_text",
+						"pdf",
+						"picture"
+					]
+				}
+			},
+			"required": [
+				"job_id",
+				"source_kind"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "start_translation",
 		"summary": "Translate a recipe into another Language. It starts an ordinary Branch of the same Lineage in that Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author.",
 		"permission": "person",
@@ -14573,8 +14672,11 @@ export const CATALOGUE = [
 								"type": "object"
 							},
 							"branch_id": {
-								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`.",
-								"type": "string"
+								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`. Null while an agent reading pasted text, a PDF or a picture has not created it yet.",
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"job_id": {
 								"type": "string"
@@ -14920,8 +15022,11 @@ export const CATALOGUE = [
 								"type": "object"
 							},
 							"branch_id": {
-								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`.",
-								"type": "string"
+								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`. Null while an agent reading pasted text, a PDF or a picture has not created it yet.",
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"job_id": {
 								"type": "string"
@@ -15433,8 +15538,11 @@ export const CATALOGUE = [
 								"type": "object"
 							},
 							"branch_id": {
-								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`.",
-								"type": "string"
+								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`. Null while an agent reading pasted text, a PDF or a picture has not created it yet.",
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"job_id": {
 								"type": "string"
@@ -18887,8 +18995,11 @@ export const CATALOGUE = [
 								"type": "object"
 							},
 							"branch_id": {
-								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`.",
-								"type": "string"
+								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`. Null while an agent reading pasted text, a PDF or a picture has not created it yet.",
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"job_id": {
 								"type": "string"
@@ -31089,6 +31200,7 @@ export const METHOD_NAMES = {
 	delete_recipe: 'deleteRecipe',
 	read_pasted_recipe: 'readPastedRecipe',
 	read_recipe_pdf: 'readRecipePdf',
+	import_by_agent: 'importByAgent',
 	start_translation: 'startTranslation',
 	set_recipe_language: 'setRecipeLanguage',
 	import: 'import',
@@ -31198,7 +31310,7 @@ export interface KamosuClient {
 	revokeRunnerKey(input: RevokeRunnerKeyInput): Promise<Answer<'revoke_runner_key'>>;
 	/** Read whether this instance has a Runner. Also when one last asked for work. */
 	runnerStatus(input?: RunnerStatusInput): Promise<Answer<'runner_status'>>;
-	/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
+	/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
 	askForWork(input: AskForWorkInput): Promise<Answer<'ask_for_work'>>;
 	/** Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again. This is how a Runner learns that its Job was cancelled, and the refusal says so. */
 	renewHold(input: RenewHoldInput): Promise<Answer<'renew_hold'>>;
@@ -31266,7 +31378,7 @@ export interface KamosuClient {
 	setRecipeTag(input: SetRecipeTagInput): Promise<Answer<'set_recipe_tag'>>;
 	/** Relate two Recipes, or take that link back off. One is a Recipe of your Cookbook, the other any Recipe you may see, joined by a single two-way, untyped link. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
 	setRelatedRecipe(input: SetRelatedRecipeInput): Promise<Answer<'set_related_recipe'>>;
-	/** Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. */
+	/** Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. With a Job Key it creates the Job's own recipe, once, for a Job that has none yet: one reading pasted text, a PDF or a picture. */
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
 	/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch or a Translation already holds that Version, or an agent's Job saved it. Every save with a Job Key collapses into the one Version its Job started, never an earlier one. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, and is refused once that Version is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
@@ -31282,6 +31394,8 @@ export interface KamosuClient {
 	readPastedRecipe(input: ReadPastedRecipeInput): Promise<Answer<'read_pasted_recipe'>>;
 	/** Read a recipe PDF into title, ingredients and method. It takes one printed from a web page or a word processor, reads it the way read_pasted_recipe reads pasted text, and answers the same shape. A printed line that wrapped is joined back into one, and the first line is taken as the title. It writes nothing anywhere: what comes back is shown to whoever sent the PDF, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe. A scan or a photograph of a page holds no text and is refused with reason `pdf_has_no_text`; text is never read out of a picture. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 	readRecipePdf(input: ReadRecipePdfInput): Promise<Answer<'read_recipe_pdf'>>;
+	/** Have an agent read text, a PDF or a picture. It reads it into a recipe in your own Cookbook. Only on an instance with a Runner: without one it is refused with reason `no_runner`. A PDF may be a scan. Pass pasted text as `text`. Send a file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. Answers the id of a Job that waits for a Runner, as `get_job` reads it, and what it was taken as. No recipe exists until the agent creates one, under your Hand. Read the Job with `get_job`: its result is the Import Report, which lists the recipe as arrived once it exists and says what the agent left undone, or why it could not be read. Cancel it with `cancel_job`. Kamosu keeps what was handed over for the agent to fetch and never shows it. */
+	importByAgent(input: ImportByAgentInput): Promise<Answer<'import_by_agent'>>;
 	/** Translate a recipe into another Language. It starts an ordinary Branch of the same Lineage in that Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author. */
 	startTranslation(input: StartTranslationInput): Promise<Answer<'start_translation'>>;
 	/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */

@@ -474,15 +474,18 @@ pub fn agent_job_standing_on(
 }
 
 /// The recipe an agent's Job is for, standing or ended. A Job Kamosu does
-/// itself is for none. The recipe may since have been deleted.
+/// itself is for none, and so is one reading an Original until its agent
+/// creates the recipe (#269). The recipe may since have been deleted.
 pub fn recipe_of_agent_job(conn: &Connection, job_id: &str) -> Result<Option<String>, OpError> {
-    conn.query_row(
-        "SELECT branch_id FROM agent_jobs WHERE job_id = ?1",
-        params![job_id],
-        |row| row.get(0),
-    )
-    .optional()
-    .map_err(|e| OpError::internal(format!("cannot read the Job's recipe: {e}")))
+    Ok(conn
+        .query_row(
+            "SELECT branch_id FROM agent_jobs WHERE job_id = ?1",
+            params![job_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the Job's recipe: {e}")))?
+        .flatten())
 }
 
 /// Have an agent read `link` into the recipe `branch_id`: a Job that waits
@@ -508,6 +511,140 @@ pub fn wait_for_agent(
     )
     .map_err(|e| OpError::internal(format!("cannot record the agent's Job: {e}")))?;
     Ok(job_id)
+}
+
+/// What kind of thing an Original is (#269). Its name is the Import's
+/// `source_kind`, and is what `agent_jobs.original` holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OriginalKind {
+    PastedText,
+    Pdf,
+    Picture,
+}
+
+impl OriginalKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OriginalKind::PastedText => "pasted_text",
+            OriginalKind::Pdf => "pdf",
+            OriginalKind::Picture => "picture",
+        }
+    }
+
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "pasted_text" => Some(OriginalKind::PastedText),
+            "pdf" => Some(OriginalKind::Pdf),
+            "picture" => Some(OriginalKind::Picture),
+            _ => None,
+        }
+    }
+
+    /// What the bytes are, for whoever fetches them.
+    pub fn content_type(self) -> &'static str {
+        match self {
+            OriginalKind::PastedText => "text/plain; charset=utf-8",
+            OriginalKind::Pdf => "application/pdf",
+            // Remade as a Photograph is (`photographs::remake_original`).
+            OriginalKind::Picture => "image/webp",
+        }
+    }
+}
+
+/// Have an agent read an Original into a recipe it creates (#269): a Job that
+/// waits for a Runner, in neither lane, with no recipe yet. Its record says
+/// what kind of thing it reads and holds nothing of it: the Original is a
+/// file the caller keeps beside the database, named by the id this answers.
+pub fn wait_for_agent_on_original(
+    conn: &Connection,
+    caller: &Caller,
+    kind: OriginalKind,
+) -> Result<String, OpError> {
+    let job_id = insert(
+        conn,
+        AGENT_OPERATION,
+        Some(caller),
+        &json!({ "source_kind": kind.as_str() }),
+    )?;
+    conn.execute(
+        "INSERT INTO agent_jobs (job_id, original) VALUES (?1, ?2)",
+        params![job_id, kind.as_str()],
+    )
+    .map_err(|e| OpError::internal(format!("cannot record the agent's Job: {e}")))?;
+    Ok(job_id)
+}
+
+/// Write a Job's result before it has one: the Import Report of a Job that
+/// reads an Original, which is read as it stands from the moment it is asked
+/// for (#269).
+pub fn set_result(conn: &Connection, job_id: &str, result: &Value) -> Result<(), OpError> {
+    conn.execute(
+        "UPDATE jobs SET result = ?2 WHERE id = ?1",
+        params![job_id, result.to_string()],
+    )
+    .map_err(|e| OpError::internal(format!("cannot write the Job's Report: {e}")))?;
+    Ok(())
+}
+
+/// The kind of Original an agent's Job reads, or none where it reads a link
+/// or is no agent's Job.
+pub fn original_of(conn: &Connection, job_id: &str) -> Result<Option<OriginalKind>, OpError> {
+    Ok(conn
+        .query_row(
+            "SELECT original FROM agent_jobs WHERE job_id = ?1",
+            params![job_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the Job's Original: {e}")))?
+        .flatten()
+        .and_then(|name| OriginalKind::named(&name)))
+}
+
+/// Whether an agent's Job waits or is being worked, and the recipe it is for
+/// if it has one yet: `None` once it has ended or where it is no agent's Job.
+pub fn standing_recipe_of(
+    conn: &Connection,
+    job_id: &str,
+) -> Result<Option<Option<String>>, OpError> {
+    conn.query_row(
+        "SELECT agent_jobs.branch_id
+           FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
+          WHERE jobs.id = ?1 AND jobs.status IN ('queued', 'running')",
+        params![job_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read the Job's recipe: {e}")))
+}
+
+/// The agent created its Job's recipe (#269): from here the Job is for that
+/// recipe, as one that began on a bare recipe is. Set once, and never moved
+/// by a second create, which the Core refuses before it runs.
+pub fn take_its_recipe(conn: &Connection, job_id: &str, branch_id: &str) -> Result<(), OpError> {
+    conn.execute(
+        "UPDATE agent_jobs SET branch_id = ?2 WHERE job_id = ?1 AND branch_id IS NULL",
+        params![job_id, branch_id],
+    )
+    .map_err(|e| OpError::internal(format!("cannot give the Job its recipe: {e}")))?;
+    Ok(())
+}
+
+/// The recipe a Job's Job Key created, read off the first Version it wrote,
+/// and made the Job's own where it was not yet (#269).
+pub fn recipe_created_by(conn: &Connection, job_id: &str) -> Result<Option<String>, OpError> {
+    let created: Option<String> = conn
+        .query_row(
+            "SELECT branch_id FROM branch_versions WHERE job_id = ?1 AND sequence = 1",
+            params![job_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the Job's recipe: {e}")))?;
+    if let Some(branch_id) = &created {
+        take_its_recipe(conn, job_id, branch_id)?;
+    }
+    Ok(created)
 }
 
 /// A recipe held twice was folded into one (`fold_branch`): the Job on the
@@ -600,6 +737,9 @@ pub fn end_where_a_write_was_refused(
 /// did, and the agent's own report once a Runner has passed one on.
 pub struct AgentJobState {
     pub job_id: String,
+    /// The recipe the Job is for, which one reading an Original has only
+    /// once its agent created it (#269).
+    pub branch_id: Option<String>,
     pub status: JobStatus,
     pub error: Option<String>,
     pub report: Option<Value>,
@@ -613,7 +753,7 @@ pub fn agent_jobs_as_they_stand(
 ) -> Result<Vec<AgentJobState>, OpError> {
     let mut statement = conn
         .prepare(
-            "SELECT jobs.status, jobs.error, agent_jobs.report
+            "SELECT jobs.status, jobs.error, agent_jobs.report, agent_jobs.branch_id
                FROM jobs JOIN agent_jobs ON agent_jobs.job_id = jobs.id
               WHERE jobs.id = ?1",
         )
@@ -624,6 +764,7 @@ pub fn agent_jobs_as_they_stand(
             .query_row(params![job_id], |row| {
                 Ok(AgentJobState {
                     job_id: job_id.clone(),
+                    branch_id: row.get(3)?,
                     status: JobStatus::from_column(row.get(0)?),
                     error: row.get(1)?,
                     report: row
@@ -670,16 +811,22 @@ fn from_now(hold: std::time::Duration) -> String {
 
 /// What a Runner is handed with a Job: what to read, which recipe it is for
 /// (#262), the Job Key its agent presents (#263), and the deadline of its
-/// hold (#266).
+/// hold (#266). What to read is a link or an Original, never both (#269). A
+/// Job reading an Original has no recipe until its agent creates one.
 pub struct AgentWork {
     pub job_id: String,
-    pub branch_id: String,
-    pub link: String,
+    pub branch_id: Option<String>,
+    pub link: Option<String>,
+    pub original: Option<OriginalKind>,
     /// The Job Key's raw Secret. Only its hash is kept, so this is the one
     /// time it is known.
     pub job_key: String,
     pub held_until: String,
 }
+
+/// A Job a Runner may be handed, as read: its id, its recipe, its link and
+/// the kind of its Original.
+type WaitingJob = (String, Option<String>, Option<String>, Option<String>);
 
 /// Hand the Runner holding `runner_key_id` a Job to do (ADR 0048, #262).
 ///
@@ -706,9 +853,9 @@ pub fn take_for_runner(
     release_lapsed_holds(conn)?;
     // The Job this Runner holds comes first, and after it the waiting ones,
     // oldest first.
-    let found: Option<(String, String, String)> = conn
+    let found: Option<WaitingJob> = conn
         .query_row(
-            "SELECT jobs.id, agent_jobs.branch_id, agent_jobs.link
+            "SELECT jobs.id, agent_jobs.branch_id, agent_jobs.link, agent_jobs.original
                FROM agent_jobs
                JOIN jobs ON jobs.id = agent_jobs.job_id
                JOIN people ON people.id = jobs.person_id
@@ -717,11 +864,11 @@ pub fn take_for_runner(
               ORDER BY jobs.status = 'running' DESC, jobs.created_at, jobs.rowid
               LIMIT 1",
             params![runner_key_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
         .map_err(failed)?;
-    let Some((job_id, branch_id, link)) = found else {
+    let Some((job_id, branch_id, link, original)) = found else {
         return Ok(None);
     };
     let job_key = generate_secret();
@@ -759,6 +906,7 @@ pub fn take_for_runner(
         job_id,
         branch_id,
         link,
+        original: original.as_deref().and_then(OriginalKind::named),
         job_key,
         held_until,
     }))
@@ -975,19 +1123,27 @@ pub fn end_as_reported(
 ) -> Result<(), OpError> {
     let failed = |e| OpError::internal(format!("cannot end the Job: {e}"));
     release_lapsed_holds(conn)?;
-    let branch_id: Option<String> = conn
+    let held: Option<(Option<String>, bool)> = conn
         .query_row(
-            "SELECT agent_jobs.branch_id
+            "SELECT agent_jobs.branch_id, agent_jobs.original IS NOT NULL
                FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
               WHERE jobs.id = ?1 AND jobs.status = 'running' AND agent_jobs.held_by = ?2",
             params![job_id, runner_key_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
         .map_err(failed)?;
-    let Some(branch_id) = branch_id else {
+    let Some((branch_id, reads_an_original)) = held else {
         return Err(not_held(conn, runner_key_id, job_id)?);
     };
+    // A Job reading an Original makes its recipe, so one that made none did
+    // not complete, whatever its agent says (#269).
+    if outcome == AgentOutcome::Completed && branch_id.is_none() {
+        return Err(OpError::bad_request(
+            "the agent created no recipe, so this Job did not complete. Report it failed or \
+             could_not_be_read, with the reason",
+        ));
+    }
     let tx = conn.unchecked_transaction().map_err(failed)?;
     let ended = match outcome {
         AgentOutcome::Failed => end_a_try(&tx, job_id, reason.unwrap_or_default())?,
@@ -999,11 +1155,21 @@ pub fn end_as_reported(
                 // The thing itself is at fault, as a bad request's input is.
                 (JobStatus::Failed, None, Some(-32602))
             };
+            // A Job reading an Original is its own Import, so its result is
+            // the Import Report it was asked with, kept as it is (#269).
             tx.execute(
-                "UPDATE jobs SET status = ?2, result = ?3, error = ?4, error_code = ?5,
+                "UPDATE jobs SET status = ?2, result = CASE WHEN ?6 THEN result ELSE ?3 END,
+                 error = ?4, error_code = ?5,
                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                  WHERE id = ?1",
-                params![job_id, status.as_str(), result, reason, error_code],
+                params![
+                    job_id,
+                    status.as_str(),
+                    result,
+                    reason,
+                    error_code,
+                    reads_an_original
+                ],
             )
             .map_err(failed)?;
             true

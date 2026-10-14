@@ -365,6 +365,9 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   shelves.rs        the home shelves, and the shelf entry every list shows
   translation.rs    translation and a Branch's Language
   readings.rs       Ingredient Lines, Readings, Foods and Food merges
+  originals.rs      pasted text, a PDF or a picture handed to an agent,
+                    kept under originals/ for its Job's Job Key alone and
+                    in no Backup (#269)
   cooking.rs        Attempts and promotion
   keeping_photographs.rs
                     storing, reading and sweeping Photographs
@@ -392,7 +395,9 @@ src/jobs.rs         slow work: two lanes (one for strangers, ADR 0032), progress
                     and is running while one holds it, with a Job Key minted
                     each time a Runner takes it. The hold has a deadline, and
                     a Job is tried a fixed number of times. It is cancelled
-                    waiting or held (ADR 0048, #261, #262, #263, #266, #267)
+                    waiting or held. One reading an Original waits with no
+                    recipe until its agent creates one (ADR 0048, #261, #262,
+                    #263, #266, #267, #269)
 src/language.rs     a Branch's Language, read off the recipe's own text (ADR 0006)
 src/meaning.rs      Meaning Search: the model Kamosu does not ship, and the
                     index it builds from the recipes (ADR 0029)
@@ -463,10 +468,12 @@ Catalogue and both Doors grow it in the same commit.
 - **A Job Key's write is held to its Job's recipe in `Core::execute`, never in
   the Operation** (#264). The mark says which: `WritesItsRecipe` names the
   recipe in `branch_id`, and any other recipe answers as one that is not
-  there. Where the asker's own change would start a Copy, the write is refused
-  and the Job fails. No Operation decides what a Job may reach. `POST /api/photographs`
-  is the one route outside the Catalogue a Job Key may use, by the mark on
-  `upload_photograph`.
+  there. `CreatesItsRecipe` creates the recipe of a Job that has none, once,
+  and the Core makes it the Job's own (#269). Where the asker's own change
+  would start a Copy, the write is refused and the Job fails. No Operation
+  decides what a Job may reach. A Job Key may use two routes outside the
+  Catalogue: `POST /api/photographs`, by the mark on `upload_photograph`, and
+  `GET /api/originals/<job_id>` for its own Job's Original.
 - **A save knows which Job is writing, and that is all any Operation knows of
   Jobs** (#265). `save_onto_branch` writes it on the Version's row beside the
   Access Key, folds a Job's saves into the one Version that Job wrote, and

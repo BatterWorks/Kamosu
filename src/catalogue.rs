@@ -110,6 +110,12 @@ pub enum JobKey {
     /// to the Job's recipe would start a Copy: such a Job writes nothing
     /// more.
     StoresPhotographs,
+    /// Creates the Job's recipe (#269), for a Job that has none yet: one
+    /// reading an Original, whose agent writes the recipe from nothing. The
+    /// Core refuses it once the Job has a recipe, and makes the recipe it
+    /// creates the Job's own, so a Job creates one at most. It lands in the
+    /// asker's own Cookbook under their Hand, as anything they create does.
+    CreatesItsRecipe,
 }
 
 /// One thing Kamosu can be asked to do, defined exactly once.
@@ -614,8 +620,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             name: "ask_for_work",
             summary: "Ask for a Job to do. For a Runner alone, with its \
                       Runner Key. Answers the oldest Job that waits for an \
-                      agent: `link` is what to read and `branch_id` is the \
-                      recipe it is for. The Job is running from then on, \
+                      agent: `link` or `original` is what to read and \
+                      `branch_id` is the recipe it is for, null until the \
+                      agent creates it with `create_recipe`. The Job is \
+                      running from then on, \
                       held by this Runner Key and no other, until \
                       `report_on_job` says how it ended or `held_until` \
                       passes. Call `renew_hold` every \
@@ -659,12 +667,32 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                         "properties": {
                             "job_id": { "type": "string" },
                             "branch_id": {
-                                "type": "string",
-                                "description": "The recipe the Job is for, which landed bare.",
+                                "type": ["string", "null"],
+                                "description": "The recipe the Job is for, which landed bare. \
+                                                 Null on a Job reading an Original until its \
+                                                 agent creates the recipe with `create_recipe` \
+                                                 and its Job Key.",
                             },
                             "link": {
-                                "type": "string",
-                                "description": "What the agent is to read.",
+                                "type": ["string", "null"],
+                                "description": "What the agent is to read, when that is a \
+                                                 page. Null when it is an Original.",
+                            },
+                            "original": {
+                                "type": ["object", "null"],
+                                "description": "What the agent is to read, when that is not \
+                                                 a link: pasted text, a PDF or a picture. \
+                                                 Null when it is a link.",
+                                "properties": {
+                                    "kind": { "enum": ["pasted_text", "pdf", "picture"] },
+                                    "address": {
+                                        "type": "string",
+                                        "description": "Where the agent fetches it, with a \
+                                                         GET carrying the Job Key.",
+                                    },
+                                },
+                                "required": ["kind", "address"],
+                                "additionalProperties": false,
                             },
                             "job_key": {
                                 "type": "string",
@@ -683,8 +711,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                             },
                         },
                         "required": [
-                            "job_id", "branch_id", "link", "job_key", "held_until",
-                            "renew_within_seconds",
+                            "job_id", "branch_id", "link", "original", "job_key",
+                            "held_until", "renew_within_seconds",
                         ],
                         "additionalProperties": false,
                     },
@@ -1350,12 +1378,15 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "create_recipe",
             summary: "Create a Recipe; a title is all it needs. It makes a \
-                      Lineage, a Branch in this Kitchen, and a first Version.",
+                      Lineage, a Branch in this Kitchen, and a first Version. \
+                      With a Job Key it creates the Job's own recipe, once, \
+                      for a Job that has none yet: one reading pasted text, \
+                      a PDF or a picture.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
             session_only: false,
-            job_key: JobKey::Never,
+            job_key: JobKey::CreatesItsRecipe,
             job_lane: JobLane::ByCaller,
             input_schema: create_recipe_input_schema(),
             output_schema: recipe_schema(),
@@ -1578,6 +1609,64 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             }),
             output_schema: pasted_recipe_schema(),
             handler: crate::operations::read_recipe_pdf,
+        },
+        Operation {
+            name: "import_by_agent",
+            summary: "Have an agent read text, a PDF or a picture. It reads \
+                      it into a recipe in your own Cookbook. Only on an \
+                      instance with a Runner: without one it is refused with \
+                      reason `no_runner`. A PDF may be a scan. Pass pasted \
+                      text as `text`. Send a file to POST /api/uploads and \
+                      pass the `upload_id` it answers, or pass it \
+                      base64-encoded as `data`. Answers the id of a Job that \
+                      waits for a Runner, as `get_job` reads it, and what it \
+                      was taken as. No recipe exists until the agent creates \
+                      one, under your Hand. Read the Job with `get_job`: its \
+                      result is the Import Report, which lists the recipe as \
+                      arrived once it exists and says what the agent left \
+                      undone, or why it could not be read. Cancel it with \
+                      `cancel_job`. Kamosu keeps what was handed over for the \
+                      agent to fetch and never shows it.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "A recipe pasted as text.",
+                    },
+                    "upload_id": {
+                        "type": "string",
+                        "description": "The id POST /api/uploads answered for a PDF \
+                                         or a picture. Used once, then deleted.",
+                    },
+                    "data": {
+                        "type": "string",
+                        "description": "A PDF or a picture, base64-encoded, for a Door \
+                                         that can send only JSON.",
+                    },
+                },
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "job_id": { "type": "string" },
+                    "source_kind": {
+                        "enum": ["pasted_text", "pdf", "picture"],
+                        "description": "What it was taken as, and the source the \
+                                         arrival is listed under in `list_imports`.",
+                    },
+                },
+                "required": ["job_id", "source_kind"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::import_by_agent,
         },
         Operation {
             name: "start_translation",
@@ -5370,9 +5459,11 @@ fn import_report_schema() -> Value {
                     "properties": {
                         "job_id": { "type": "string" },
                         "branch_id": {
-                            "type": "string",
+                            "type": ["string", "null"],
                             "description": "The recipe the agent is to write, which is \
-                                             listed under `arrived` or `offered`.",
+                                             listed under `arrived` or `offered`. Null \
+                                             while an agent reading pasted text, a PDF \
+                                             or a picture has not created it yet.",
                         },
                         "status": {
                             "enum": ["queued", "running", "completed", "failed", "cancelled"],
