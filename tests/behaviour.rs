@@ -28557,6 +28557,91 @@ async fn a_file_that_is_not_a_bundle_is_named_with_its_reason() {
     }
 }
 
+/// **A Bundle that unpacks past the cap is refused whole** (#296): every file
+/// in it fits the per-file ceiling, every Photograph it names hashes to its
+/// name, and together they unpack past what one Bundle may. Nothing of it is
+/// kept, not even the real pictures it carried, because the Photographs are
+/// all weighed before the first is stored.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bundle_that_unpacks_past_the_cap_is_refused_whole_and_stores_nothing() {
+    let there = support::spawn_app();
+    let (key, _kitchen, pizza, _lineage, _french, _dough, photos) = a_pizza_worth_sending(&there);
+    let mut files = unzip(&bundle_of(&there, &key, &pizza));
+    let mut sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).unwrap();
+    files.remove(".kamosu/bundle.json");
+
+    // Five files of 60 MiB, each nearly all zeros and a few bytes apart, so
+    // each has a hash of its own: 300 MiB unpacked from a zip of about 300 KB.
+    // Photographs are weighed in the order of their hashes, so each filler's
+    // tail is chosen to hash after the pizza's real pictures: the real ones
+    // are weighed before the cap is passed, and code that stored each as it
+    // was weighed would keep them.
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    for (name, bytes) in &files {
+        archive.start_file(name.as_str(), options).unwrap();
+        std::io::Write::write_all(&mut archive, bytes).unwrap();
+    }
+    let zeros = vec![0u8; 1024 * 1024];
+    let mut zeros_hashed = kamosu::photographs::HashingBytes::default();
+    for _ in 0..60 {
+        zeros_hashed.add(&zeros);
+    }
+    let last_real = photos.iter().max().unwrap();
+    let mut tail: u32 = 0;
+    for n in 0..5 {
+        let (tail_bytes, hash) = loop {
+            tail += 1;
+            let mut hashing = zeros_hashed.clone();
+            hashing.add(&tail.to_be_bytes());
+            let hash = hashing.finish();
+            if hash > *last_real {
+                break (tail.to_be_bytes(), hash);
+            }
+        };
+        let name = format!("photographs/filler {n}.webp");
+        archive.start_file(name.as_str(), options).unwrap();
+        for _ in 0..60 {
+            std::io::Write::write_all(&mut archive, &zeros).unwrap();
+        }
+        std::io::Write::write_all(&mut archive, &tail_bytes).unwrap();
+        sidecar["photographs"][hash] = json!(name);
+    }
+    archive.start_file(".kamosu/bundle.json", options).unwrap();
+    std::io::Write::write_all(&mut archive, &serde_json::to_vec(&sidecar).unwrap()).unwrap();
+    let bomb = archive.finish().unwrap().into_inner();
+    assert!(
+        bomb.len() < 2 * 1024 * 1024,
+        "small enough to send: {}",
+        bomb.len()
+    );
+
+    let here = support::spawn_app();
+    let nadia_key = a_receiver(&here);
+    let report = receive(&here, &nadia_key, &bomb);
+    assert_eq!(report["arrived"], json!([]), "{report}");
+    let unreadable = report["unreadable"].as_array().unwrap();
+    assert_eq!(
+        unreadable.len(),
+        1,
+        "one refusal for the whole file: {report}"
+    );
+    assert_eq!(unreadable[0]["foreign_id"], Value::Null);
+    assert!(
+        unreadable[0]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("unpacks to more than"),
+        "{report}"
+    );
+    for hash in &photos {
+        assert!(
+            !kamosu::photographs::photograph_path(&here.core.data_dir(), hash).exists(),
+            "the pizza's real picture {hash} was not stored either"
+        );
+    }
+}
+
 /// **A Bundle that lost its machine half still keeps the dinner** (ADR 0020,
 /// ADR 0003): with no `.kamosu/` to trust, each note is read back into a new
 /// recipe of your own, and the Report says what was lost.

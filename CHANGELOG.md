@@ -20,6 +20,7 @@
 - The History draws five Branches in five colours. The fourth used to take the first one's colour. [#250]
 - The MCP door's instructions say that a collapsed save keeps the name and change note the Version already has unless it sends new ones. They said the opposite, that the ones already there were erased, which has not been true since those were kept. [#265]
 - `branch_point` and `divergence` asked about a recipe and its Translation, or two Translations of one recipe, refuse the call as a bad request and say where the link is held: `translation` on the Branch, and `translates_version_id` on its Versions. They used to answer an internal error calling the recipe a damaged Bundle. [#251]
+- A Bundle that would unpack to more than 256 MB is refused whole, in its Import Report and when a Share Link's recipe is previewed, and says so. [#296]
 
 [#249]: https://github.com/BatterWorks/Kamosu/issues/249
 [#250]: https://github.com/BatterWorks/Kamosu/issues/250
@@ -34,6 +35,7 @@
 [#267]: https://github.com/BatterWorks/Kamosu/issues/267
 [#268]: https://github.com/BatterWorks/Kamosu/issues/268
 [#269]: https://github.com/BatterWorks/Kamosu/issues/269
+[#296]: https://github.com/BatterWorks/Kamosu/issues/296
 
 ## v0.2.0 - 2026-10-12
 
