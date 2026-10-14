@@ -47,6 +47,10 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// that never moves.
 	get_job: 'never',
 	list_jobs: 'never',
+	// Whether an agent's Job stands on a recipe (#268). It waits, is taken
+	// and ends without this phone doing anything, so a kept answer would name
+	// a Job that ended an hour ago.
+	get_recipe_job: 'never',
 	// A whole recipe as a zip, asked for once to be saved somewhere else.
 	export_bundle: 'never',
 	// Where the cook is. With two devices, the last one moved on is where the

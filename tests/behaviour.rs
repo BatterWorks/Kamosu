@@ -14757,6 +14757,310 @@ mod web_link_importer {
         assert_eq!(job(&app, &cook, &job_id)["status"], json!("cancelled"));
     }
 
+    // --- Who reads an agent's Job, and what its recipe says of it (#268) ----
+
+    /// A Job read at the web door by whoever holds `credential`: the status
+    /// and the answer, a refusal included.
+    fn job_read_by(app: &support::TestApp, credential: Option<&str>, job_id: &str) -> (u16, Value) {
+        app.post_op(
+            "get_job",
+            credential,
+            &json!({ "job_id": job_id }).to_string(),
+        )
+    }
+
+    /// What a recipe says of the agent's Job on it, to whoever holds
+    /// `credential`.
+    fn recipe_job(
+        app: &support::TestApp,
+        credential: Option<&str>,
+        branch_id: &str,
+    ) -> (u16, Value) {
+        app.post_op(
+            "get_recipe_job",
+            credential,
+            &json!({ "branch_id": branch_id }).to_string(),
+        )
+    }
+
+    /// The four People #268 is about, each by an Access Key: the cook who
+    /// asks, a Co-author of the cook's Cookbook, someone who only shares a
+    /// Kitchen with the cook, and someone outside. And the Runner Key.
+    struct Household {
+        cook: String,
+        co_author: String,
+        kitchen_mate: String,
+        outsider: String,
+        runner: String,
+    }
+
+    fn a_household(app: &support::TestApp) -> Household {
+        let (cook, runner) = cook_and_runner(app);
+        let (_, co_author) = a_cook(app, "Marc");
+        super::write_together(app, &cook, &co_author);
+        let (_, kitchen_mate) = a_cook(app, "Hélène");
+        super::kitchen_of(app, &cook, "Chez nous", &[&kitchen_mate]);
+        let (_, outsider) = a_cook(app, "Camille");
+        Household {
+            cook,
+            co_author,
+            kitchen_mate,
+            outsider,
+            runner,
+        }
+    }
+
+    /// Who reads an agent's Job (#268): the Person who asked and the
+    /// Co-authors of the Cookbook its recipe is in. Someone who sees the
+    /// recipe through a Kitchen, and someone outside, are answered as if the
+    /// Job were not there (ADR 0040).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_agents_job_is_read_by_who_asked_and_by_the_co_authors_of_its_recipes_cookbook() {
+        let app = support::spawn_app();
+        let people = a_household(&app);
+        let (operator, _) = super::operator_signed_in(&app);
+        let (import_job, job_id, branch_id) = a_job_waiting(&app, &people.cook);
+        // The Kitchen-mate does see the recipe the Job is on.
+        assert_eq!(
+            super::read_as(&app, &people.kitchen_mate, &branch_id).0,
+            200
+        );
+
+        let read_in_state = |state: &str| {
+            let asked = job(&app, &people.cook, &job_id);
+            assert_eq!(asked["status"], json!(state));
+            let (status, read) = job_read_by(&app, Some(&people.co_author), &job_id);
+            assert_eq!(status, 200, "a Co-author, {state}: {read}");
+            assert_eq!(
+                read["result"], asked,
+                "a Co-author reads what the asker reads"
+            );
+
+            let absent = job_read_by(&app, Some(&people.cook), "j_nothing");
+            assert_eq!(absent.0, 404, "{}", absent.1);
+            for (who, credential) in [
+                ("a Kitchen-mate", Some(people.kitchen_mate.as_str())),
+                ("someone outside", Some(people.outsider.as_str())),
+                ("an Operator", Some(operator.as_str())),
+                ("nobody", None),
+            ] {
+                let (status, refused) = job_read_by(&app, credential, &job_id);
+                assert_eq!(status, 404, "{who}, {state}: {refused}");
+                assert_eq!(
+                    refused["error"]["message"],
+                    json!(format!("no Job with id '{job_id}'")),
+                    "{who}, {state}"
+                );
+            }
+        };
+        read_in_state("queued");
+        // A Runner Key reads no Job, the one it is about to take included.
+        assert_eq!(job_read_by(&app, Some(&people.runner), &job_id).0, 401);
+        let handed = ask_for_work(&app, &people.runner);
+        assert_eq!(handed["job_id"], json!(job_id), "{handed}");
+        read_in_state("running");
+
+        // The tasks extension at the MCP door reads the same Job.
+        let task = |credential: &str| {
+            let payload = json!({
+                "jsonrpc": "2.0", "id": 1, "method": "tasks/get",
+                "params": { "taskId": job_id, "_meta": super::tasks_meta()["_meta"] },
+            });
+            app.post_mcp(&payload.to_string(), Some(credential)).1
+        };
+        let working = task(&people.co_author);
+        assert_eq!(working["result"]["status"], json!("working"), "{working}");
+        let hidden = task(&people.kitchen_mate);
+        assert!(hidden["result"].is_null(), "{hidden}");
+
+        // Reading is not cancelling.
+        let (status, refused) = cancel_job(&app, Some(&people.co_author), &job_id);
+        assert_eq!(status, 404, "{refused}");
+        assert_eq!(job(&app, &people.cook, &job_id)["status"], json!("running"));
+
+        // A Job Kamosu did itself is read as before: by the Person who asked.
+        assert_eq!(job_read_by(&app, Some(&people.cook), &import_job).0, 200);
+        let (status, refused) = job_read_by(&app, Some(&people.co_author), &import_job);
+        assert_eq!(status, 404, "{refused}");
+        // Nor is it listed to anyone but them.
+        let (_, listed) = app.post_op("list_jobs", Some(&people.co_author), "{}");
+        assert_eq!(listed["result"]["jobs"], json!([]), "{listed}");
+
+        // A Co-author reads how the Job ended too.
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&people.runner),
+            json!({ "job_id": job_id, "outcome": "completed", "report": an_agents_report() }),
+        );
+        assert_eq!(status, 200, "{reported}");
+        let (status, ended) = job_read_by(&app, Some(&people.co_author), &job_id);
+        assert_eq!(status, 200, "{ended}");
+        assert_eq!(ended["result"]["status"], json!("completed"));
+        assert_eq!(
+            job_read_by(&app, Some(&people.kitchen_mate), &job_id).0,
+            404
+        );
+    }
+
+    /// Who reads follows who writes the Cookbook now. A Co-author who leaves
+    /// stops reading the Jobs on the recipes that stay. The recipe they
+    /// started goes with them, and its Job with it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn who_reads_an_agents_job_follows_who_writes_the_cookbook_now() {
+        let app = support::spawn_app();
+        let people = a_household(&app);
+        let (_, hers, _) = a_job_waiting(&app, &people.cook);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let (_, his, _) = a_job_waiting(&app, &people.co_author);
+        assert_eq!(job_read_by(&app, Some(&people.co_author), &hers).0, 200);
+        assert_eq!(job_read_by(&app, Some(&people.cook), &his).0, 200);
+
+        let (status, left) = app.post_op("leave_cookbook", Some(&people.co_author), "{}");
+        assert_eq!(status, 200, "{left}");
+
+        assert_eq!(job_read_by(&app, Some(&people.co_author), &hers).0, 404);
+        assert_eq!(job_read_by(&app, Some(&people.cook), &hers).0, 200);
+        // His recipe is in his own Cookbook now, which she does not write.
+        assert_eq!(job_read_by(&app, Some(&people.co_author), &his).0, 200);
+        assert_eq!(job_read_by(&app, Some(&people.cook), &his).0, 404);
+    }
+
+    /// The Person who asked reads their Job without writing the recipe's
+    /// Cookbook, and a Co-author reads it without having asked. The recipe
+    /// names the Job to whoever sees it and may read the Job.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn asking_and_co_authoring_each_let_a_person_read_an_agents_job_on_their_own() {
+        let app = support::spawn_app();
+        let (cook, _) = cook_and_runner(&app);
+        let (mate_id, mate) = a_cook(&app, "Hélène");
+        super::kitchen_of(&app, &cook, "Chez nous", &[&mate]);
+        let (outsider_id, outsider) = a_cook(&app, "Camille");
+        let recipe = super::written(&app, &cook, "Tarte");
+
+        // A Kitchen-mate asks: they see the recipe and do not write it.
+        let hers = a_job_waiting_on(&app, &mate_id, &recipe);
+        let named = json!({ "job": { "id": hers, "status": "queued" } });
+        for (who, credential) in [("the asker", &mate), ("a Co-author", &cook)] {
+            assert_eq!(job_read_by(&app, Some(credential), &hers).0, 200, "{who}");
+            let (status, answered) = recipe_job(&app, Some(credential), &recipe);
+            assert_eq!(status, 200, "{who}: {answered}");
+            assert_eq!(answered["result"], named, "{who}");
+        }
+        assert_eq!(cancel_job(&app, Some(&cook), &hers).0, 404);
+        assert_eq!(cancel_job(&app, Some(&mate), &hers).0, 200);
+
+        // Someone outside asks: the recipe is not there for them, and their
+        // Job is theirs to read by its id.
+        let theirs = a_job_waiting_on(&app, &outsider_id, &recipe);
+        assert_ne!(theirs, hers);
+        assert_eq!(job_read_by(&app, Some(&outsider), &theirs).0, 200);
+        let (status, refused) = recipe_job(&app, Some(&outsider), &recipe);
+        assert_eq!(status, 404, "{refused}");
+        assert_eq!(refused["error"]["message"], json!("no such Branch"));
+        assert_eq!(job_read_by(&app, Some(&cook), &theirs).0, 200);
+        assert_eq!(job_read_by(&app, Some(&mate), &theirs).0, 404);
+        assert_eq!(
+            recipe_job(&app, Some(&mate), &recipe).1["result"],
+            json!({ "job": null })
+        );
+
+        // A deleted recipe is in no Cookbook, so its Job is left with the
+        // Person who asked, who reads why it ended.
+        assert_eq!(super::delete_recipe(&app, &cook, &recipe).0, 200);
+        assert_eq!(job_read_by(&app, Some(&cook), &theirs).0, 404);
+        assert_eq!(job(&app, &outsider, &theirs)["status"], json!("failed"));
+    }
+
+    /// A recipe says which agent's Job waits or is being worked on it, to
+    /// those who may read that Job, at both Doors (#268). It says nothing
+    /// once the Job has ended, and nothing to anyone else.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_names_the_agents_job_standing_on_it_to_who_may_read_that_job() {
+        let app = support::spawn_app();
+        let people = a_household(&app);
+        let (_, job_id, branch_id) = a_job_waiting(&app, &people.cook);
+        let recipe_before = super::read_as(&app, &people.co_author, &branch_id);
+        assert_eq!(recipe_before.0, 200);
+
+        let says = |state: &str| {
+            let named = json!({ "job": { "id": job_id, "status": state } });
+            for (who, credential) in [
+                ("the asker", &people.cook),
+                ("a Co-author", &people.co_author),
+            ] {
+                let (status, answered) = recipe_job(&app, Some(credential), &branch_id);
+                assert_eq!(status, 200, "{who}, {state}: {answered}");
+                assert_eq!(answered["result"], named, "{who}, {state}");
+                let at_mcp = at_mcp(
+                    &app,
+                    credential,
+                    "get_recipe_job",
+                    json!({ "branch_id": branch_id }),
+                );
+                assert_eq!(
+                    at_mcp["result"]["structuredContent"], named,
+                    "{who}, {state}: {at_mcp}"
+                );
+            }
+            // Someone who sees the recipe and may not read its Job is told
+            // what a recipe with no Job on it says.
+            let (status, answered) = recipe_job(&app, Some(&people.kitchen_mate), &branch_id);
+            assert_eq!(status, 200, "{answered}");
+            assert_eq!(answered["result"], json!({ "job": null }), "{state}");
+            // Someone who does not see the recipe: it is not there.
+            let (status, refused) = recipe_job(&app, Some(&people.outsider), &branch_id);
+            assert_eq!(status, 404, "{refused}");
+            assert_eq!(refused["error"]["message"], json!("no such Branch"));
+            assert_eq!(recipe_job(&app, None, &branch_id).0, 401);
+            assert_eq!(recipe_job(&app, Some(&people.runner), &branch_id).0, 401);
+        };
+        says("queued");
+        let handed = ask_for_work(&app, &people.runner);
+        assert_eq!(handed["job_id"], json!(job_id), "{handed}");
+        says("running");
+
+        // Reading the recipe answers what it did, Job or no Job.
+        assert_eq!(
+            super::read_as(&app, &people.co_author, &branch_id),
+            recipe_before
+        );
+
+        // The Job ends, and the recipe no longer says so.
+        let (status, reported) = report_on_job(
+            &app,
+            Some(&people.runner),
+            json!({ "job_id": job_id, "outcome": "completed", "report": an_agents_report() }),
+        );
+        assert_eq!(status, 200, "{reported}");
+        for credential in [&people.cook, &people.co_author, &people.kitchen_mate] {
+            let (status, answered) = recipe_job(&app, Some(credential), &branch_id);
+            assert_eq!(status, 200, "{answered}");
+            assert_eq!(answered["result"], json!({ "job": null }));
+        }
+        assert_eq!(
+            super::read_as(&app, &people.co_author, &branch_id),
+            recipe_before
+        );
+
+        // Nor does a cancelled one, and a recipe that never had a Job says
+        // the same.
+        let (_, cancelled, on_another) = a_job_waiting(&app, &people.cook);
+        assert_eq!(
+            recipe_job(&app, Some(&people.co_author), &on_another).1["result"]["job"]["id"],
+            json!(cancelled)
+        );
+        assert_eq!(cancel_job(&app, Some(&people.cook), &cancelled).0, 200);
+        let plain = super::written(&app, &people.cook, "Tarte");
+        for branch in [&on_another, &plain] {
+            let (status, answered) = recipe_job(&app, Some(&people.co_author), branch);
+            assert_eq!(status, 200, "{answered}");
+            assert_eq!(answered["result"], json!({ "job": null }));
+        }
+        let (status, refused) = recipe_job(&app, Some(&people.cook), "b_nothing");
+        assert_eq!(status, 404, "{refused}");
+        assert_eq!(refused["error"]["message"], json!("no such Branch"));
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_running_job_of_kamosus_own_is_still_not_cancelled() {
         let app = support::spawn_app();

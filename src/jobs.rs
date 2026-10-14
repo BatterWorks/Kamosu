@@ -440,14 +440,49 @@ const RECIPE_GONE: &str = "the recipe this Job was for is gone";
 /// The agent's Job that waits or is being worked on a recipe, if there is one.
 /// A recipe has one at a time.
 pub fn standing_agent_job(conn: &Connection, branch_id: &str) -> Result<Option<String>, OpError> {
+    Ok(agent_job_standing_on(conn, branch_id)?.map(|standing| standing.id))
+}
+
+/// An agent's Job that stands on a recipe: which, whether it waits (`queued`)
+/// or is being worked (`running`), and who asked for it.
+pub struct StandingAgentJob {
+    pub id: String,
+    pub status: String,
+    pub asker: Option<String>,
+}
+
+/// The Job [`standing_agent_job`] answers, with its state and who asked.
+pub fn agent_job_standing_on(
+    conn: &Connection,
+    branch_id: &str,
+) -> Result<Option<StandingAgentJob>, OpError> {
     conn.query_row(
-        "SELECT jobs.id FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
+        "SELECT jobs.id, jobs.status, jobs.person_id
+           FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
           WHERE agent_jobs.branch_id = ?1 AND jobs.status IN ('queued', 'running')",
         params![branch_id],
-        |row| row.get(0),
+        |row| {
+            Ok(StandingAgentJob {
+                id: row.get(0)?,
+                status: row.get(1)?,
+                asker: row.get(2)?,
+            })
+        },
     )
     .optional()
     .map_err(|e| OpError::internal(format!("cannot read the recipe's Job: {e}")))
+}
+
+/// The recipe an agent's Job is for, standing or ended. A Job Kamosu does
+/// itself is for none. The recipe may since have been deleted.
+pub fn recipe_of_agent_job(conn: &Connection, job_id: &str) -> Result<Option<String>, OpError> {
+    conn.query_row(
+        "SELECT branch_id FROM agent_jobs WHERE job_id = ?1",
+        params![job_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read the Job's recipe: {e}")))
 }
 
 /// Have an agent read `link` into the recipe `branch_id`: a Job that waits
@@ -1098,9 +1133,11 @@ pub fn cancel(core: &crate::core::Core, job_id: &str) -> Result<bool, OpError> {
     })
 }
 
-/// Who may read a Job: the Person who asked for it — or anyone, when no Person
-/// did. Work caused anonymously (a Sheet rendered for a Share Link, say) carries
-/// nothing that was not already public, so hiding its state would hide nothing.
+/// Who may read a Job Kamosu does itself: the Person who asked for it, or
+/// anyone when no Person did. Work caused anonymously (a Sheet rendered for a
+/// Share Link, say) carries nothing that was not already public, so hiding its
+/// state would hide nothing. An agent's Job is read by more People, which
+/// `Core::ensure_reads_job` asks (#268).
 ///
 /// Anyone else is refused with `absent` — the refusal the id they named would
 /// have got had it named nothing, so asking tells the caller nothing about other
@@ -1113,29 +1150,39 @@ pub fn ensure_reader(
     caller: &Option<Caller>,
     absent: impl FnOnce() -> OpError,
 ) -> Result<(), OpError> {
-    match (&record.person_id, caller) {
-        (None, _) => Ok(()),
-        (Some(owner), Some(c)) if owner.as_str() == c.person_id => Ok(()),
-        _ => Err(absent()),
+    if asked_by(record, caller) {
+        Ok(())
+    } else {
+        Err(absent())
     }
 }
 
 /// Who may cancel a Job: the Person who asked for it and nobody else (#267),
 /// or anyone when no Person did, as with reading.
 ///
-/// This is asked apart from `ensure_reader` on purpose, though the two answer
-/// alike today. Reading a Job is to be opened to more people than the one who
-/// asked (#268), and that must never open cancelling with it. Anyone else is
-/// refused with `absent`, for the reason given there (ADR 0040).
+/// This is asked apart from who reads on purpose. The Co-authors of the
+/// Cookbook an agent's Job writes in read that Job (#268), and reading it
+/// lets none of them cancel it. Anyone else is refused with `absent`, for the
+/// reason given at `ensure_reader` (ADR 0040).
 pub fn ensure_asker(
     record: &JobRecord,
     caller: &Option<Caller>,
     absent: impl FnOnce() -> OpError,
 ) -> Result<(), OpError> {
+    if asked_by(record, caller) {
+        Ok(())
+    } else {
+        Err(absent())
+    }
+}
+
+/// Whether `caller` is the Person who asked for a Job. A Job no Person asked
+/// for is anyone's.
+pub fn asked_by(record: &JobRecord, caller: &Option<Caller>) -> bool {
     match (&record.person_id, caller) {
-        (None, _) => Ok(()),
-        (Some(asker), Some(c)) if asker.as_str() == c.person_id => Ok(()),
-        _ => Err(absent()),
+        (None, _) => true,
+        (Some(asker), Some(c)) => asker.as_str() == c.person_id,
+        (Some(_), None) => false,
     }
 }
 

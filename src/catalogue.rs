@@ -3762,7 +3762,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             name: "get_job",
             summary: "Read one Job's state, progress, and result or failure. A \
                       failure carries the reason it failed. Readable by the \
-                      Person who asked, or by anyone when no Person did.",
+                      Person who asked, or by anyone when no Person did. An \
+                      agent's Job is also readable by the Co-authors of the \
+                      Cookbook its recipe is in.",
             permission: Permission::Public,
             kind: Kind::Immediate,
             write: false,
@@ -3803,6 +3805,48 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "additionalProperties": false,
             }),
             handler: crate::operations::cancel_job,
+        },
+        Operation {
+            name: "get_recipe_job",
+            summary: "Read which agent's Job waits or is being worked on a \
+                      recipe. `job` is null when none is, and once the Job \
+                      has ended. Among those who see the recipe, it names \
+                      the Job to the Person who asked for it and to the \
+                      Co-authors of the recipe's Cookbook, who may read it \
+                      with `get_job`. Anyone else who sees the recipe is \
+                      answered null.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "job": {
+                        "type": ["object", "null"],
+                        "properties": {
+                            "id": { "type": "string" },
+                            "status": {
+                                "enum": ["queued", "running"],
+                                "description": "`queued` while the Job waits for a Runner, `running` while one holds it.",
+                            },
+                        },
+                        "required": ["id", "status"],
+                        "additionalProperties": false,
+                    },
+                },
+                "required": ["job"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::get_recipe_job,
         },
         Operation {
             name: "list_jobs",

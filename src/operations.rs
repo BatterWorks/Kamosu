@@ -275,11 +275,25 @@ pub fn get_job(core: &Core, invocation: &Invocation, input: Value) -> Result<Val
         .ok_or_else(|| OpError::bad_request("get_job takes { job_id }"))?;
 
     let record = core.job(job_id)?.ok_or_else(|| jobs::no_such_job(job_id))?;
-    jobs::ensure_reader(&record, &invocation.caller().cloned(), || {
+    core.ensure_reads_job(&record, &invocation.caller().cloned(), || {
         jobs::no_such_job(job_id)
     })?;
 
     Ok(jobs::to_value(&record))
+}
+
+/// The agent's Job standing on a recipe (#268). An Operation of its own, so
+/// reading a recipe goes on knowing nothing of Jobs (ADR 0048).
+pub fn get_recipe_job(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("get_recipe_job takes { branch_id }"))?;
+    core.recipe_job(caller_of(invocation)?, branch_id)
 }
 
 /// List the Jobs one Person has asked for, newest first. A stranger has asked
