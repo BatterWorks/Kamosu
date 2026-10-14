@@ -20,7 +20,8 @@
 //! queued until a Runner takes it, is running while that Runner holds it, and
 //! ends as the Runner reports. The hold has a deadline the Runner renews, and
 //! a Job whose deadline passed waits again (#266). The deadline is stored, so
-//! a restart leaves the Job as it was.
+//! a restart leaves the Job as it was. It can be cancelled in either state,
+//! which one of Kamosu's own cannot once a worker carries it (#267).
 //!
 //! A streaming progress mechanism, if one ever exists, may decorate this but is
 //! never instead of it: the row in this table is where watching slow work reads.
@@ -755,26 +756,41 @@ pub fn renew_hold(
 }
 
 /// What a Runner is answered about a Job it does not hold. One it was handed
-/// before is told its hold is gone, which tells it nothing it did not know.
-/// Any other Job is answered as one that is not there, whether another Runner
-/// holds it or it never was (ADR 0040).
+/// before is told its hold is gone, which tells it nothing it did not know,
+/// or that the Job was cancelled, which is how a Runner learns of a cancel
+/// (#267): in the reply to a call it was already making. Any other Job is
+/// answered as one that is not there, whether another Runner holds it or it
+/// never was (ADR 0040).
 fn not_held(conn: &Connection, runner_key_id: &str, job_id: &str) -> Result<OpError, OpError> {
+    let failed = |e| OpError::internal(format!("cannot read the Job's holds: {e}"));
     let was_handed_it: bool = conn
         .query_row(
             "SELECT EXISTS (SELECT 1 FROM job_keys WHERE job_id = ?1 AND runner_key_id = ?2)",
             params![job_id, runner_key_id],
             |row| row.get(0),
         )
-        .map_err(|e| OpError::internal(format!("cannot read the Job's holds: {e}")))?;
-    Ok(if was_handed_it {
-        OpError::not_found(format!(
+        .map_err(failed)?;
+    if !was_handed_it {
+        return Ok(no_such_job(job_id));
+    }
+    let was_cancelled: bool = conn
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM jobs WHERE id = ?1 AND status = 'cancelled')",
+            params![job_id],
+            |row| row.get(0),
+        )
+        .map_err(failed)?;
+    Ok(OpError::not_found(if was_cancelled {
+        format!(
+            "Job '{job_id}' was cancelled. Stop the agent working on it, then ask for work again"
+        )
+    } else {
+        format!(
             "this Runner no longer holds Job '{job_id}'. The hold is gone: its deadline passed \
              before it was renewed, or the Job has ended. Stop the agent working on it, then \
              ask for work again"
-        ))
-    } else {
-        no_such_job(job_id)
-    })
+        )
+    }))
 }
 
 /// Send every Job whose hold has lapsed back to waiting, or end it where that
@@ -1042,18 +1058,42 @@ fn map_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<JobRecord> {
     })
 }
 
-/// Cancel a Job cooperatively: honoured while it still waits in line, acked
-/// either way. Running work decides for itself whether to notice.
-pub fn cancel_if_queued(core: &crate::core::Core, job_id: &str) -> Result<bool, OpError> {
+/// Cancel a Job, and answer whether it was cancelled. Acked either way.
+///
+/// A Job Kamosu does itself is cancelled while it still waits in line. Once
+/// a worker carries it, the handler is running and nothing stops it.
+///
+/// An agent's Job is cancelled whether it waits or a Runner holds it (#267,
+/// ADR 0048), because Kamosu is not the one doing the work. Cancelled is an
+/// end like any other, so every Job Key of the Job is spent from here on
+/// (`lookup_job_key`), and what the agent saved before stays. Kamosu never
+/// calls a Runner: the one holding the Job is refused its next renewal and
+/// told why (`not_held`), and stops its agent then. A cancel is no try.
+pub fn cancel(core: &crate::core::Core, job_id: &str) -> Result<bool, OpError> {
+    let failed = |e| OpError::internal(format!("cannot cancel Job: {e}"));
     core.db().with_conn(|conn| {
-        let changed = conn
+        // The Job and its hold go together or not at all.
+        let tx = conn.unchecked_transaction().map_err(failed)?;
+        let changed = tx
             .execute(
                 "UPDATE jobs SET status = 'cancelled',
                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-                 WHERE id = ?1 AND status = 'queued'",
+                 WHERE id = ?1
+                   AND (status = 'queued'
+                        OR (status = 'running' AND id IN (SELECT job_id FROM agent_jobs)))",
                 params![job_id],
             )
-            .map_err(|e| OpError::internal(format!("cannot cancel Job: {e}")))?;
+            .map_err(failed)?;
+        if changed > 0 {
+            // A Job that has ended has no deadline. Who held it stays, as on
+            // a Job that ended any other way.
+            tx.execute(
+                "UPDATE agent_jobs SET held_until = NULL WHERE job_id = ?1",
+                params![job_id],
+            )
+            .map_err(failed)?;
+        }
+        tx.commit().map_err(failed)?;
         Ok(changed > 0)
     })
 }
@@ -1076,6 +1116,25 @@ pub fn ensure_reader(
     match (&record.person_id, caller) {
         (None, _) => Ok(()),
         (Some(owner), Some(c)) if owner.as_str() == c.person_id => Ok(()),
+        _ => Err(absent()),
+    }
+}
+
+/// Who may cancel a Job: the Person who asked for it and nobody else (#267),
+/// or anyone when no Person did, as with reading.
+///
+/// This is asked apart from `ensure_reader` on purpose, though the two answer
+/// alike today. Reading a Job is to be opened to more people than the one who
+/// asked (#268), and that must never open cancelling with it. Anyone else is
+/// refused with `absent`, for the reason given there (ADR 0040).
+pub fn ensure_asker(
+    record: &JobRecord,
+    caller: &Option<Caller>,
+    absent: impl FnOnce() -> OpError,
+) -> Result<(), OpError> {
+    match (&record.person_id, caller) {
+        (None, _) => Ok(()),
+        (Some(asker), Some(c)) if asker.as_str() == c.person_id => Ok(()),
         _ => Err(absent()),
     }
 }

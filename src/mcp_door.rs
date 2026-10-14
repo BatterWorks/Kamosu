@@ -610,7 +610,8 @@ fn tasks_update(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Res
 }
 
 /// `tasks/cancel`: signal intent to cancel. Acknowledged either way; honoured
-/// while the work still waits in line, cooperative once a worker carries it.
+/// while the work still waits in line, and for an agent's Job while a Runner
+/// holds it too (#267). One of Kamosu's own that a worker carries runs on.
 /// Decoration over the ordinary `cancel_job` Operation — the Catalogue owns
 /// cancellation, this only translates it.
 fn tasks_cancel(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Result<Value, Value> {

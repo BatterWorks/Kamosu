@@ -292,9 +292,10 @@ pub fn list_jobs(core: &Core, invocation: &Invocation, _input: Value) -> Result<
     }))
 }
 
-/// Cancel a Job: the same ownership rule as reading it, and the cancellation
-/// itself lives here in the Core — the MCP door's tasks/cancel is decoration
-/// over this Operation, exactly as ADR 0001 asks of anything state-changing.
+/// Cancel a Job. The Person who asked cancels it and nobody else, which is
+/// asked apart from who may read it (#267). The cancellation itself lives
+/// here in the Core — the MCP door's tasks/cancel is decoration over this
+/// Operation, exactly as ADR 0001 asks of anything state-changing.
 pub fn cancel_job(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let job_id = input
         .get("job_id")
@@ -302,11 +303,11 @@ pub fn cancel_job(core: &Core, invocation: &Invocation, input: Value) -> Result<
         .ok_or_else(|| OpError::bad_request("cancel_job takes { job_id }"))?;
 
     let record = core.job(job_id)?.ok_or_else(|| jobs::no_such_job(job_id))?;
-    jobs::ensure_reader(&record, &invocation.caller().cloned(), || {
+    jobs::ensure_asker(&record, &invocation.caller().cloned(), || {
         jobs::no_such_job(job_id)
     })?;
 
-    let cancelled = core.cancel_job_if_queued(job_id)?;
+    let cancelled = core.cancel_job(job_id)?;
     Ok(json!({ "cancelled": cancelled }))
 }
 

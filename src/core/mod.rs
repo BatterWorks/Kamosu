@@ -558,10 +558,10 @@ impl Core {
         jobs::read_of_person(self, person_id)
     }
 
-    /// Cancel a Job cooperatively: honoured while it still waits in line, acked
-    /// either way. Running work decides for itself whether to notice.
-    pub fn cancel_job_if_queued(&self, job_id: &str) -> Result<bool, OpError> {
-        jobs::cancel_if_queued(self, job_id)
+    /// Cancel a Job, acked either way: one of Kamosu's own while it still
+    /// waits in line, an agent's whether it waits or a Runner holds it (#267).
+    pub fn cancel_job(&self, job_id: &str) -> Result<bool, OpError> {
+        jobs::cancel(self, job_id)
     }
 
     /// Look up what a Secret's hash names, without marking it used: `(person_id,

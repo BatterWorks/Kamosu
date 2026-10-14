@@ -207,7 +207,7 @@ export type AskForWorkOutput = {
 	} | null;
 };
 
-/** Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again. */
+/** Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again. This is how a Runner learns that its Job was cancelled, and the refusal says so. */
 export type RenewHoldInput = {
 	job_id: string;
 };
@@ -217,7 +217,7 @@ export type RenewHoldOutput = {
 	renew_within_seconds: number;
 };
 
-/** Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two need `reason`, one sentence the cook reads in the Import Report. A Job reported `failed` waits to be tried again, and ends as failed once it has been tried as often as Kamosu tries one. `could_not_be_read` ends it as failed at once. `report` is the agent's own report, passed on as it wrote it. A Runner whose hold is gone is refused and told so, and a Job it never held is answered as a Job that is not there. */
+/** Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two need `reason`, one sentence the cook reads in the Import Report. A Job reported `failed` waits to be tried again, and ends as failed once it has been tried as often as Kamosu tries one. `could_not_be_read` ends it as failed at once. `report` is the agent's own report, passed on as it wrote it. A Runner whose hold is gone is refused and told so, as is one whose Job was cancelled, and a Job it never held is answered as a Job that is not there. */
 export type ReportOnJobInput = {
 	job_id: string;
 	outcome: "completed" | "failed" | "could_not_be_read";
@@ -4953,7 +4953,7 @@ export type GetJobOutput = {
 	updated_at: string;
 };
 
-/** Cancel a Job you asked for. It is acknowledged always, and honoured while it still waits in line. */
+/** Cancel a Job you asked for. Always acknowledged, and honoured while it waits or an agent is working on it. */
 export type CancelJobInput = {
 	job_id: string;
 };
@@ -6524,7 +6524,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "renew_hold",
-		"summary": "Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again.",
+		"summary": "Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again. This is how a Runner learns that its Job was cancelled, and the refusal says so.",
 		"permission": "runner",
 		"kind": "immediate",
 		"input_schema": {
@@ -6558,7 +6558,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "report_on_job",
-		"summary": "Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two need `reason`, one sentence the cook reads in the Import Report. A Job reported `failed` waits to be tried again, and ends as failed once it has been tried as often as Kamosu tries one. `could_not_be_read` ends it as failed at once. `report` is the agent's own report, passed on as it wrote it. A Runner whose hold is gone is refused and told so, and a Job it never held is answered as a Job that is not there.",
+		"summary": "Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two need `reason`, one sentence the cook reads in the Import Report. A Job reported `failed` waits to be tried again, and ends as failed once it has been tried as often as Kamosu tries one. `could_not_be_read` ends it as failed at once. `report` is the agent's own report, passed on as it wrote it. A Runner whose hold is gone is refused and told so, as is one whose Job was cancelled, and a Job it never held is answered as a Job that is not there.",
 		"permission": "runner",
 		"kind": "immediate",
 		"input_schema": {
@@ -14515,7 +14515,7 @@ export const CATALOGUE = [
 			"additionalProperties": false,
 			"properties": {
 				"agent_jobs": {
-					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it while it waits with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it with `cancel_job`, while it waits or while it is being worked. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -14862,7 +14862,7 @@ export const CATALOGUE = [
 			"additionalProperties": false,
 			"properties": {
 				"agent_jobs": {
-					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it while it waits with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it with `cancel_job`, while it waits or while it is being worked. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -15375,7 +15375,7 @@ export const CATALOGUE = [
 			"additionalProperties": false,
 			"properties": {
 				"agent_jobs": {
-					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it while it waits with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it with `cancel_job`, while it waits or while it is being worked. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -18829,7 +18829,7 @@ export const CATALOGUE = [
 			"additionalProperties": false,
 			"properties": {
 				"agent_jobs": {
-					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it while it waits with `cancel_job`. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it with `cancel_job`, while it waits or while it is being worked. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -30827,7 +30827,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "cancel_job",
-		"summary": "Cancel a Job you asked for. It is acknowledged always, and honoured while it still waits in line.",
+		"summary": "Cancel a Job you asked for. Always acknowledged, and honoured while it waits or an agent is working on it.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -31130,9 +31130,9 @@ export interface KamosuClient {
 	runnerStatus(input?: RunnerStatusInput): Promise<Answer<'runner_status'>>;
 	/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` is what to read and `branch_id` is the recipe it is for. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it. */
 	askForWork(input: AskForWorkInput): Promise<Answer<'ask_for_work'>>;
-	/** Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again. */
+	/** Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again. This is how a Runner learns that its Job was cancelled, and the refusal says so. */
 	renewHold(input: RenewHoldInput): Promise<Answer<'renew_hold'>>;
-	/** Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two need `reason`, one sentence the cook reads in the Import Report. A Job reported `failed` waits to be tried again, and ends as failed once it has been tried as often as Kamosu tries one. `could_not_be_read` ends it as failed at once. `report` is the agent's own report, passed on as it wrote it. A Runner whose hold is gone is refused and told so, and a Job it never held is answered as a Job that is not there. */
+	/** Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two need `reason`, one sentence the cook reads in the Import Report. A Job reported `failed` waits to be tried again, and ends as failed once it has been tried as often as Kamosu tries one. `could_not_be_read` ends it as failed at once. `report` is the agent's own report, passed on as it wrote it. A Runner whose hold is gone is refused and told so, as is one whose Job was cancelled, and a Job it never held is answered as a Job that is not there. */
 	reportOnJob(input: ReportOnJobInput): Promise<Answer<'report_on_job'>>;
 	/** List this Person's browser Sessions by device and last use. `current` marks the Session asking, so it is never set when an Access Key asks. */
 	listSessions(input?: ListSessionsInput): Promise<Answer<'list_sessions'>>;
@@ -31344,7 +31344,7 @@ export interface KamosuClient {
 	deleteFood(input: DeleteFoodInput): Promise<Answer<'delete_food'>>;
 	/** Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 	getJob(input: GetJobInput): Promise<Answer<'get_job'>>;
-	/** Cancel a Job you asked for. It is acknowledged always, and honoured while it still waits in line. */
+	/** Cancel a Job you asked for. Always acknowledged, and honoured while it waits or an agent is working on it. */
 	cancelJob(input: CancelJobInput): Promise<Answer<'cancel_job'>>;
 	/** List the Jobs this Person has asked for, newest first. */
 	listJobs(input?: ListJobsInput): Promise<Answer<'list_jobs'>>;
