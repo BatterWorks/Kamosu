@@ -34682,6 +34682,146 @@ mod handing_an_original_to_an_agent {
         );
     }
 
+    /// Move a Job's every date `days` into the past, as if it had been asked
+    /// for, and had last moved, that long ago.
+    fn age_job(app: &support::TestApp, job_id: &str, days: u32) {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.execute(
+                    "UPDATE jobs
+                        SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?2),
+                            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?2)
+                      WHERE id = ?1",
+                    rusqlite::params![job_id, format!("-{days} days")],
+                )
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+            })
+            .unwrap();
+    }
+
+    fn original_kept(app: &support::TestApp, job_id: &str) -> bool {
+        kamosu::core::originals_dir(&app.core.data_dir())
+            .join(job_id)
+            .is_file()
+    }
+
+    /// An Original is deleted on the tick 30 days after its Job ended, and
+    /// never while its Job waits or is held, however old (#270). The Job
+    /// still reads, says its Original is gone, and still says what it read;
+    /// the recipe it made is untouched.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_original_is_deleted_30_days_after_its_job_ended_and_never_while_it_stands() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+
+        // One completed, with a recipe, ended 31 days ago.
+        let old = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        let work = ask_for_work(&app, &at.runner);
+        let (_, created) = app.post_op(
+            "create_recipe",
+            Some(work["job_key"].as_str().unwrap()),
+            &json!({ "title": "Tarte au citron" }).to_string(),
+        );
+        let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+        let reported = |job_id: &str, outcome: &str| {
+            let mut report = json!({ "job_id": job_id, "outcome": outcome });
+            if outcome != "completed" {
+                report["reason"] = json!("No recipe.");
+            }
+            let (status, answer) =
+                app.post_op("report_on_job", Some(&at.runner), &report.to_string());
+            assert_eq!(status, 200, "{answer}");
+        };
+        reported(&old, "completed");
+        let recipe_before = app.core.get_recipe(&at.cook_id, &branch_id, None).unwrap();
+
+        // One that could not be read, ended 29 days ago.
+        let young = handed(&app, &at.cook, json!({ "data": base64_of(SCANNED) }), "pdf");
+        ask_for_work(&app, &at.runner);
+        reported(&young, "could_not_be_read");
+
+        // One that failed and one cancelled, both ended 31 days ago.
+        let failed = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        ask_for_work(&app, &at.runner);
+        reported(&failed, "could_not_be_read");
+        let cancelled = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        let (status, answer) = app.post_op(
+            "cancel_job",
+            Some(&at.cook),
+            &json!({ "job_id": cancelled }).to_string(),
+        );
+        assert_eq!(status, 200, "{answer}");
+
+        // One held by a Runner and one waiting, both asked for long ago.
+        let held = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        let waiting = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        let second = another_runner(&app, "a second Runner");
+        assert_eq!(ask_for_work(&app, &second)["job_id"], json!(held));
+
+        age_job(&app, &old, 31);
+        age_job(&app, &failed, 31);
+        age_job(&app, &cancelled, 31);
+        age_job(&app, &young, 29);
+        age_job(&app, &held, 400);
+        age_job(&app, &waiting, 400);
+
+        let swept = app.core.sweep_originals().expect("the sweep runs");
+        assert_eq!(swept, 3);
+        for gone in [&old, &failed, &cancelled] {
+            assert!(!original_kept(&app, gone), "{gone} is 31 days past its Job");
+        }
+        for kept in [&young, &held, &waiting] {
+            assert!(original_kept(&app, kept), "{kept} is kept");
+        }
+
+        // The Job still reads, says what it read, and that it is gone.
+        let (status, read) = job(&app, &at.cook, &old);
+        assert_eq!(status, 200, "{read}");
+        let read = &read["result"];
+        assert_eq!(read["status"], json!("completed"), "{read}");
+        let report = &read["result"];
+        assert_eq!(report["source_kind"], json!("pasted_text"));
+        assert_eq!(report["arrived"][0]["branch_id"], json!(branch_id));
+        let agent_job = &report["agent_jobs"][0];
+        assert_eq!(agent_job["original_gone"], json!(true), "{report}");
+        assert_eq!(agent_job["made_by_agent"], json!(true));
+        let read_kind: Option<String> = app
+            .core
+            .db()
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT original FROM agent_jobs WHERE job_id = ?1",
+                    rusqlite::params![old],
+                    |row| row.get(0),
+                )
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        assert_eq!(
+            read_kind.as_deref(),
+            Some("pasted_text"),
+            "Kamosu still knows the Job read an Original"
+        );
+        // A Job whose Original is kept says nothing of it.
+        let (_, young_read) = job(&app, &at.cook, &young);
+        assert!(
+            young_read["result"]["result"]["agent_jobs"][0]
+                .get("original_gone")
+                .is_none(),
+            "{young_read}"
+        );
+
+        // The recipe is untouched.
+        assert_eq!(
+            app.core.get_recipe(&at.cook_id, &branch_id, None).unwrap(),
+            recipe_before
+        );
+
+        // A second sweep finds nothing more to do.
+        assert_eq!(app.core.sweep_originals().unwrap(), 0);
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_job_that_could_not_be_read_keeps_its_original_and_the_report_says_why() {
         let app = support::spawn_app();

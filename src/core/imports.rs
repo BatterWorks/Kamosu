@@ -1027,7 +1027,8 @@ fn arrival_agent_jobs(report: Option<&Value>) -> Vec<Value> {
 /// adds how those Jobs stand now. That keeps the bare recipe and the agent's
 /// work one arrival, however many Reports name the Job.
 ///
-/// Each Job gains its `status`. One an agent completed says `made_by_agent`.
+/// Each Job gains its `status`. One an agent completed says `made_by_agent`,
+/// and one whose Original was deleted says `original_gone` (#270).
 /// One a Runner reported on carries the agent's own report. One that failed,
 /// whoever ended it, is also listed under `unreadable` with the reason, and
 /// the bare recipe stays under `arrived`. A Report naming no such Job is
@@ -1071,6 +1072,9 @@ pub(super) fn report_with_agent_jobs_as_they_stand(
         }
         if let Some(agent_report) = state.report {
             row["agent_report"] = agent_report;
+        }
+        if state.original_gone {
+            row["original_gone"] = json!(true);
         }
         if state.status == jobs::JobStatus::Failed {
             could_not_be_read.push((row["branch_id"].clone(), state.error));

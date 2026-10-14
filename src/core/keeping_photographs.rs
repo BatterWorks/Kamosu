@@ -413,7 +413,8 @@ impl Core {
 /// from scratch anyway, so there is no state for a failure to corrupt.
 ///
 /// The same daily pass clears staged uploads nobody used (#69), the other
-/// kind of file Kamosu holds only for as long as something needs it.
+/// kind of file Kamosu holds only for as long as something needs it, and
+/// Originals 30 days after their Job ended (#270).
 ///
 /// The work itself is blocking SQLite and filesystem calls, so it goes to a
 /// blocking thread rather than stalling the runtime the Doors answer on.
@@ -425,8 +426,15 @@ pub(super) fn spawn_orphan_sweep(core: Arc<Core>) {
             let core = core.clone();
             let swept = tokio::task::spawn_blocking(move || {
                 let uploads = core.sweep_uploads()?;
+                // A fault among the Originals leaves the rest of the pass
+                // to run, and the next day's tries them again.
+                let originals = core.sweep_originals().unwrap_or_else(|error| {
+                    tracing::warn!(target: "kamosu::sweep", %error, "Originals sweep failed");
+                    0
+                });
                 let mut report = core.sweep_photographs()?;
                 report["uploads_swept"] = json!(uploads);
+                report["originals_swept"] = json!(originals);
                 Ok::<_, OpError>(report)
             })
             .await;

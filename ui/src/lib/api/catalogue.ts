@@ -1832,6 +1832,7 @@ export type ImportOutput = {
 		branch_id: string | null;
 		job_id: string;
 		made_by_agent?: boolean;
+		original_gone?: boolean;
 		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
 	}[];
 	arrived: {
@@ -1902,6 +1903,7 @@ export type ImportCroutonOutput = {
 		branch_id: string | null;
 		job_id: string;
 		made_by_agent?: boolean;
+		original_gone?: boolean;
 		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
 	}[];
 	arrived: {
@@ -1962,7 +1964,7 @@ export type ListImportsOutput = {
 	imports: {
 		arrivals: {
 			agent_jobs?: {
-				branch_id: string;
+				branch_id: string | null;
 				job_id: string;
 				status: "queued" | "running" | "completed" | "failed" | "cancelled";
 			}[];
@@ -2007,6 +2009,7 @@ export type ImportWebLinkOutput = {
 		branch_id: string | null;
 		job_id: string;
 		made_by_agent?: boolean;
+		original_gone?: boolean;
 		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
 	}[];
 	arrived: {
@@ -2693,6 +2696,7 @@ export type ImportBundleOutput = {
 		branch_id: string | null;
 		job_id: string;
 		made_by_agent?: boolean;
+		original_gone?: boolean;
 		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
 	}[];
 	arrived: {
@@ -14685,6 +14689,10 @@ export const CATALOGUE = [
 								"description": "Present and true once the Job has completed: an agent made this recipe. Nothing on the recipe itself says so.",
 								"type": "boolean"
 							},
+							"original_gone": {
+								"description": "Present and true once the pasted text, PDF or picture this Job read has been deleted, which Kamosu does 30 days after the Job ended. `source_kind` still says which it was.",
+								"type": "boolean"
+							},
 							"status": {
 								"description": "`queued` is waiting for a Runner and `running` is held by one, its agent at work. A `failed` Job is also listed under `unreadable`, with the reason.",
 								"enum": [
@@ -15035,6 +15043,10 @@ export const CATALOGUE = [
 								"description": "Present and true once the Job has completed: an agent made this recipe. Nothing on the recipe itself says so.",
 								"type": "boolean"
 							},
+							"original_gone": {
+								"description": "Present and true once the pasted text, PDF or picture this Job read has been deleted, which Kamosu does 30 days after the Job ended. `source_kind` still says which it was.",
+								"type": "boolean"
+							},
 							"status": {
 								"description": "`queued` is waiting for a Runner and `running` is held by one, its agent at work. A `failed` Job is also listed under `unreadable`, with the reason.",
 								"enum": [
@@ -15337,7 +15349,10 @@ export const CATALOGUE = [
 												"additionalProperties": false,
 												"properties": {
 													"branch_id": {
-														"type": "string"
+														"type": [
+															"string",
+															"null"
+														]
 													},
 													"job_id": {
 														"type": "string"
@@ -15549,6 +15564,10 @@ export const CATALOGUE = [
 							},
 							"made_by_agent": {
 								"description": "Present and true once the Job has completed: an agent made this recipe. Nothing on the recipe itself says so.",
+								"type": "boolean"
+							},
+							"original_gone": {
+								"description": "Present and true once the pasted text, PDF or picture this Job read has been deleted, which Kamosu does 30 days after the Job ended. `source_kind` still says which it was.",
 								"type": "boolean"
 							},
 							"status": {
@@ -19006,6 +19025,10 @@ export const CATALOGUE = [
 							},
 							"made_by_agent": {
 								"description": "Present and true once the Job has completed: an agent made this recipe. Nothing on the recipe itself says so.",
+								"type": "boolean"
+							},
+							"original_gone": {
+								"description": "Present and true once the pasted text, PDF or picture this Job read has been deleted, which Kamosu does 30 days after the Job ended. `source_kind` still says which it was.",
 								"type": "boolean"
 							},
 							"status": {
