@@ -119,7 +119,24 @@ pub fn display_path(data_dir: &Path, hash: &str, size: DisplaySize) -> PathBuf {
 /// A Photograph's identity: the contents alone (ADR 0017), distinguished from
 /// a Version's `v_` fingerprint by its own prefix.
 pub fn hash_bytes(bytes: &[u8]) -> String {
-    format!("p_{}", hex::encode(Sha256::digest(bytes)))
+    let mut hashing = HashingBytes::default();
+    hashing.add(bytes);
+    hashing.finish()
+}
+
+/// [`hash_bytes`] of bytes that arrive a piece at a time, so a picture can be
+/// checked against its name without being held whole (#296).
+#[derive(Clone, Default)]
+pub struct HashingBytes(Sha256);
+
+impl HashingBytes {
+    pub fn add(&mut self, piece: &[u8]) {
+        self.0.update(piece);
+    }
+
+    pub fn finish(self) -> String {
+        format!("p_{}", hex::encode(self.0.finalize()))
+    }
 }
 
 /// Remake whatever arrived into the one agreed form: WebP, quality 80, at

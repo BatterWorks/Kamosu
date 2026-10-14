@@ -202,7 +202,7 @@ impl Core {
             })
         };
 
-        let opened = match bundles::open(bytes) {
+        let mut opened = match bundles::open(bytes) {
             Ok(opened) => opened,
             Err(unopened) if unopened.notes.is_empty() => {
                 unreadable.push(json!({ "foreign_id": Value::Null, "reason": unopened.reason }));
@@ -234,12 +234,30 @@ impl Core {
             }
         };
 
+        // Every Photograph is weighed before any is stored, so a Bundle that
+        // unpacks past the cap leaves nothing behind (#296).
+        let carried = match opened.photographs() {
+            Ok(carried) => carried,
+            Err(reason) => {
+                unreadable.push(json!({ "foreign_id": Value::Null, "reason": reason }));
+                return Ok(report(arrived, unreadable));
+            }
+        };
+
         // The Photographs first, and off the database lock: each is a file.
         // Stored exactly as they arrived, since a Photograph from another
-        // instance is already made (ADR 0017).
-        for photograph in opened.photographs {
+        // instance is already made (ADR 0017), and one at a time, so only
+        // one picture's bytes are held at once.
+        for photograph in carried {
             match photograph {
-                bundles::CarriedPhotograph::Sound { hash, bytes } => {
+                bundles::CarriedPhotograph::Sound { hash, name } => {
+                    let Some(bytes) = opened.photograph(&name) else {
+                        unreadable.push(json!({
+                            "foreign_id": name,
+                            "reason": bundles::MISSING_PHOTOGRAPH,
+                        }));
+                        continue;
+                    };
                     // Two different failures, kept apart on purpose. A picture
                     // that is not one, or that claims a size Kamosu will not
                     // open, is left out and named: losing a picture costs a
@@ -392,14 +410,21 @@ impl Core {
         bytes: &[u8],
         shared_by: Option<&str>,
     ) -> Result<Value, OpError> {
-        let opened = bundles::open(bytes).map_err(|unopened| {
+        let cannot_read = |reason: &str| {
             OpError::bad_request(format!(
-                "this link did not hand over a recipe Kamosu can read: {}",
-                unopened.reason
+                "this link did not hand over a recipe Kamosu can read: {reason}"
             ))
-        })?;
-        let subjects = subjects_of(&opened.sidecar);
-        let records = opened.sidecar["branches"]
+        };
+        let mut opened = bundles::open(bytes).map_err(|unopened| cannot_read(&unopened.reason))?;
+        // Weighed whole, as `import_bundle` will weigh it, so a file that
+        // import would refuse is refused here, before anything is staged.
+        let carried = opened
+            .photographs()
+            .map_err(|reason| cannot_read(&reason))?;
+        // Taken out of the opened Bundle, which stays open to read the picture.
+        let sidecar = std::mem::take(&mut opened.sidecar);
+        let subjects = subjects_of(&sidecar);
+        let records = sidecar["branches"]
             .as_array()
             .map(Vec::as_slice)
             .unwrap_or_default();
@@ -423,21 +448,18 @@ impl Core {
             (text, link) => json!({ "text": text, "link": link }),
         };
         let photo = content["main_photo"].as_str().and_then(|wanted| {
-            opened
-                .photographs
-                .iter()
-                .find_map(|photograph| match photograph {
-                    bundles::CarriedPhotograph::Sound { hash, bytes } if hash == wanted => {
-                        photographs::check(bytes).ok()?;
-                        let small = photographs::display_copy(bytes, PREVIEW_PICTURE_EDGE).ok()?;
-                        use base64::Engine;
-                        Some(format!(
-                            "data:image/webp;base64,{}",
-                            base64::engine::general_purpose::STANDARD.encode(small)
-                        ))
-                    }
-                    _ => None,
-                })
+            let name = carried.iter().find_map(|photograph| match photograph {
+                bundles::CarriedPhotograph::Sound { hash, name } if hash == wanted => Some(name),
+                _ => None,
+            })?;
+            let bytes = opened.photograph(name)?;
+            photographs::check(&bytes).ok()?;
+            let small = photographs::display_copy(&bytes, PREVIEW_PICTURE_EDGE).ok()?;
+            use base64::Engine;
+            Some(format!(
+                "data:image/webp;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(small)
+            ))
         });
 
         let held = match self.db().with_conn(|conn| {
