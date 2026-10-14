@@ -13407,6 +13407,26 @@ mod web_link_importer {
         (person, key)
     }
 
+    /// A Job `person` asked for on a recipe that is already there, which
+    /// waits. Where one stands on the recipe already, that one is answered.
+    fn a_job_waiting_on(app: &support::TestApp, person: &str, branch_id: &str) -> String {
+        let caller = kamosu::core::Caller {
+            person_id: person.to_string(),
+            read_only: false,
+            via_access_key: true,
+            is_operator: false,
+            access_key_id: None,
+            session_id: None,
+            job_id: None,
+        };
+        app.core
+            .db()
+            .with_conn(|conn| {
+                kamosu::jobs::wait_for_agent(conn, &caller, branch_id, "https://a.example/soupe")
+            })
+            .expect("a waiting Job")
+    }
+
     /// A Job `person` asked for on a recipe that is already there, taken by
     /// `runner`. No Operation asks for one yet: reading a recipe again is
     /// #272. So the Job is made the way an Import makes one, and from the
@@ -13418,22 +13438,7 @@ mod web_link_importer {
         runner: &str,
         branch_id: &str,
     ) -> HeldJob {
-        let caller = kamosu::core::Caller {
-            person_id: person.to_string(),
-            read_only: false,
-            via_access_key: true,
-            is_operator: false,
-            access_key_id: None,
-            session_id: None,
-            job_id: None,
-        };
-        let job_id = app
-            .core
-            .db()
-            .with_conn(|conn| {
-                kamosu::jobs::wait_for_agent(conn, &caller, branch_id, "https://a.example/soupe")
-            })
-            .expect("a waiting Job");
+        let job_id = a_job_waiting_on(app, person, branch_id);
         let handed = ask_for_work(app, runner);
         assert_eq!(handed["job_id"], json!(job_id), "{handed}");
         HeldJob {
@@ -14489,6 +14494,290 @@ mod web_link_importer {
         assert_eq!(handed["job_id"], json!(held.job_id));
         fail_every_try(&app, &bystander, &held.job_id, "The page timed out.");
         assert_eq!(job(&app, &cook, &held.job_id)["status"], json!("failed"));
+    }
+
+    // --- An agent's Job is cancelled while it is being worked (#267) -------
+
+    fn cancel_job(app: &support::TestApp, credential: Option<&str>, job_id: &str) -> (u16, Value) {
+        app.post_op(
+            "cancel_job",
+            credential,
+            &json!({ "job_id": job_id }).to_string(),
+        )
+    }
+
+    /// What a Runner is told of a Job it was handed that has been cancelled.
+    fn told_it_was_cancelled(job_id: &str) -> String {
+        format!(
+            "Job '{job_id}' was cancelled. Stop the agent working on it, then ask for work again"
+        )
+    }
+
+    /// A Job that was cancelled while `held.runner` held it: it reads as
+    /// cancelled, the Runner is told so when it renews and when it reports,
+    /// the Job Key is spent, and nobody is handed the Job again.
+    fn the_held_job_was_cancelled(app: &support::TestApp, held: &HeldJob) {
+        let cancelled = job(app, &held.cook, &held.job_id);
+        assert_eq!(cancelled["status"], json!("cancelled"), "{cancelled}");
+        assert_eq!(cancelled["error"], Value::Null, "{cancelled}");
+
+        let (status, refused) = renew_hold(app, Some(&held.runner), &held.job_id);
+        assert_eq!(status, 404, "{refused}");
+        assert_eq!(
+            refused["error"]["message"],
+            json!(told_it_was_cancelled(&held.job_id))
+        );
+        let said = at_mcp(
+            app,
+            &held.runner,
+            "renew_hold",
+            json!({ "job_id": held.job_id }),
+        );
+        assert_eq!(said["result"]["isError"], json!(true), "{said}");
+        assert!(said.to_string().contains("was cancelled"), "{said}");
+
+        // A report that arrives afterwards is refused, and changes nothing.
+        let (status, late) = report_on_job(
+            app,
+            Some(&held.runner),
+            json!({ "job_id": held.job_id, "outcome": "completed", "report": an_agents_report() }),
+        );
+        assert_eq!(status, 404, "{late}");
+        assert_eq!(
+            late["error"]["message"],
+            json!(told_it_was_cancelled(&held.job_id))
+        );
+        let still = job(app, &held.cook, &held.job_id);
+        assert_eq!(still["status"], json!("cancelled"), "{still}");
+        assert_eq!(still["result"], Value::Null, "{still}");
+
+        // The Job Key is spent at the cancel, for a read and for a write.
+        let unknown = an_unknown_secret_is_answered(app, "search_recipes");
+        assert_eq!(unknown.0, 401, "{}", unknown.1);
+        assert_eq!(reads_with(app, &held.job_key), unknown);
+        let (status, refused) = app.post_op(
+            "edit_recipe",
+            Some(&held.job_key),
+            &json!({ "branch_id": held.branch_id, "note": "Too late." }).to_string(),
+        );
+        assert_eq!(status, 401, "{refused}");
+
+        // The Runner holds nothing now, and no Runner is handed the Job.
+        assert_eq!(ask_for_work(app, &held.runner), Value::Null);
+        let second = another_runner(app, "a second Runner");
+        assert_eq!(ask_for_work(app, &second), Value::Null);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_held_job_that_is_cancelled_reads_so_at_once_and_its_runner_is_told_when_it_renews() {
+        let app = support::spawn_app();
+        let held = a_job_held(&app);
+        let saved = saved_by_the_job(
+            &app,
+            &held,
+            "save_recipe_version",
+            the_recipe_an_agent_read(&held.branch_id),
+        );
+
+        let (status, cancelled) = cancel_job(&app, Some(&held.cook), &held.job_id);
+        assert_eq!(status, 200, "{cancelled}");
+        assert_eq!(cancelled["result"], json!({ "cancelled": true }));
+        the_held_job_was_cancelled(&app, &held);
+
+        // What the agent saved before the cancel is still on the recipe.
+        let recipe = read_recipe(&app, &held.cook, &held.branch_id);
+        let head = head_of(&recipe);
+        assert_eq!(head["version_id"], saved["version_id"], "{recipe}");
+        assert_eq!(
+            head["content"]["title"],
+            json!("Soupe au pistou"),
+            "{recipe}"
+        );
+
+        // Cancelling it again cancels nothing, and it stays cancelled.
+        let (status, again) = cancel_job(&app, Some(&held.cook), &held.job_id);
+        assert_eq!(status, 200, "{again}");
+        assert_eq!(again["result"], json!({ "cancelled": false }));
+        assert_eq!(
+            job(&app, &held.cook, &held.job_id)["status"],
+            json!("cancelled")
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_held_job_is_cancelled_through_the_tasks_extension_as_through_cancel_job() {
+        let app = support::spawn_app();
+        let held = a_job_held(&app);
+        let task = |method: &str| {
+            let payload = json!({
+                "jsonrpc": "2.0", "id": 1, "method": method,
+                "params": { "taskId": held.job_id, "_meta": super::tasks_meta()["_meta"] },
+            });
+            app.post_mcp(&payload.to_string(), Some(&held.cook)).1
+        };
+        let working = task("tasks/get");
+        assert_eq!(working["result"]["status"], json!("working"), "{working}");
+
+        let ack = task("tasks/cancel");
+        assert_eq!(ack["result"]["resultType"], json!("complete"), "{ack}");
+
+        let cancelled = task("tasks/get");
+        assert_eq!(
+            cancelled["result"]["status"],
+            json!("cancelled"),
+            "{cancelled}"
+        );
+        the_held_job_was_cancelled(&app, &held);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_cancelled_job_leaves_its_recipe_free_for_the_next_job_and_its_runner_for_the_next() {
+        let app = support::spawn_app();
+        let (cook, runner) = cook_and_runner(&app);
+        let held = a_job_held_for(&app, &cook, &runner);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let (_, next, _) = a_job_waiting(&app, &cook);
+
+        assert_eq!(cancel_job(&app, Some(&cook), &held.job_id).0, 200);
+
+        // The Runner asks again without having renewed, and is handed the
+        // next Job and not the cancelled one.
+        assert_eq!(ask_for_work(&app, &runner)["job_id"], json!(next));
+        let (status, refused) = renew_hold(&app, Some(&runner), &held.job_id);
+        assert_eq!(status, 404, "{refused}");
+        assert_eq!(
+            refused["error"]["message"],
+            json!(told_it_was_cancelled(&held.job_id))
+        );
+        assert_eq!(renew_hold(&app, Some(&runner), &next).0, 200);
+
+        // A hold that passed its deadline before the cancel is not sent back
+        // to waiting afterwards: cancelled is where the Job ended.
+        let conn = rusqlite::Connection::open(app.core.database_path()).unwrap();
+        let (held_until, tries): (Option<String>, i64) = conn
+            .query_row(
+                "SELECT held_until, tries FROM agent_jobs WHERE job_id = ?1",
+                [&held.job_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((held_until, tries), (None, 0));
+        app.core.release_lapsed_holds().unwrap();
+        assert_eq!(job(&app, &cook, &held.job_id)["status"], json!("cancelled"));
+
+        // And the recipe can have another Job, which is a new one.
+        let person = app.core.create_person("Camille").expect("person");
+        let another = a_job_waiting_on(&app, &person, &held.branch_id);
+        assert_ne!(another, held.job_id);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_job_that_waits_again_after_a_try_is_cancelled_and_the_job_key_of_that_try_is_spent()
+    {
+        let app = support::spawn_app();
+        let held = a_job_held(&app);
+        the_hold_lapses(&app, &held.job_id);
+        app.core.release_lapsed_holds().unwrap();
+        assert_eq!(
+            job(&app, &held.cook, &held.job_id)["status"],
+            json!("queued")
+        );
+        // The Job Key of the try that lapsed still works while the Job waits.
+        assert_eq!(reads_with(&app, &held.job_key).0, 200);
+
+        let (status, cancelled) = cancel_job(&app, Some(&held.cook), &held.job_id);
+        assert_eq!(status, 200, "{cancelled}");
+        assert_eq!(cancelled["result"], json!({ "cancelled": true }));
+        the_held_job_was_cancelled(&app, &held);
+    }
+
+    /// Who cancels an agent's Job (#267): the Person who asked, and nobody
+    /// else. A Co-author of the Cookbook that holds the recipe may change the
+    /// recipe and still does not cancel the Job on it, so letting more people
+    /// read a Job (#268) lets nobody new cancel one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn only_the_person_who_asked_cancels_an_agents_job_waiting_or_held() {
+        let app = support::spawn_app();
+        let (cook, runner) = cook_and_runner(&app);
+        let (_, co_author) = a_cook(&app, "Marc");
+        super::write_together(&app, &cook, &co_author);
+        let (_, stranger) = a_cook(&app, "Camille");
+        let (operator, _) = super::operator_signed_in(&app);
+        let (_, job_id, branch_id) = a_job_waiting(&app, &cook);
+        // The Co-author writes the recipe the Job is on.
+        let (status, edited) = app.post_op(
+            "edit_recipe",
+            Some(&co_author),
+            &json!({ "branch_id": branch_id, "note": "Ours." }).to_string(),
+        );
+        assert_eq!(status, 200, "{edited}");
+
+        let nobody_else_cancels = |state: &str| {
+            let absent = cancel_job(&app, Some(&cook), "j_nothing");
+            assert_eq!(absent.0, 404, "{}", absent.1);
+            for (who, credential) in [
+                ("a Co-author", Some(co_author.as_str())),
+                ("another Person", Some(stranger.as_str())),
+                ("an Operator", Some(operator.as_str())),
+                ("the Runner", Some(runner.as_str())),
+                ("nobody", None),
+            ] {
+                let (status, refused) = cancel_job(&app, credential, &job_id);
+                assert_ne!(status, 200, "{who}, {state}: {refused}");
+                assert_eq!(
+                    job(&app, &cook, &job_id)["status"],
+                    json!(state),
+                    "{who} cancelled a Job that is {state}"
+                );
+            }
+            // To a Person it is a Job that is not there (ADR 0040).
+            for credential in [&co_author, &stranger, &operator] {
+                let (status, refused) = cancel_job(&app, Some(credential), &job_id);
+                assert_eq!(status, 404, "{refused}");
+                assert_eq!(
+                    refused["error"]["message"],
+                    json!(format!("no Job with id '{job_id}'"))
+                );
+            }
+        };
+        nobody_else_cancels("queued");
+        let handed = ask_for_work(&app, &runner);
+        assert_eq!(handed["job_id"], json!(job_id), "{handed}");
+        nobody_else_cancels("running");
+        // Nor does the Job's own Job Key.
+        let job_key = handed["job_key"].as_str().expect("a Job Key");
+        assert_ne!(cancel_job(&app, Some(job_key), &job_id).0, 200);
+        assert_eq!(job(&app, &cook, &job_id)["status"], json!("running"));
+        assert_eq!(renew_hold(&app, Some(&runner), &job_id).0, 200);
+
+        // The Person who asked does.
+        let (status, cancelled) = cancel_job(&app, Some(&cook), &job_id);
+        assert_eq!(status, 200, "{cancelled}");
+        assert_eq!(cancelled["result"], json!({ "cancelled": true }));
+        assert_eq!(job(&app, &cook, &job_id)["status"], json!("cancelled"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_running_job_of_kamosus_own_is_still_not_cancelled() {
+        let app = support::spawn_app();
+        let (cook, _) = cook_and_runner(&app);
+        let (status, asked) =
+            app.post_op("probe_job", Some(&cook), r#"{"steps":20,"delay_ms":25}"#);
+        assert_eq!(status, 200, "{asked}");
+        let job_id = asked["result"]["job_id"].as_str().expect("a job id");
+        for _ in 0..200 {
+            if job(&app, &cook, job_id)["status"] != json!("queued") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(job(&app, &cook, job_id)["status"], json!("running"));
+
+        let (status, acknowledged) = cancel_job(&app, Some(&cook), job_id);
+        assert_eq!(status, 200, "{acknowledged}");
+        assert_eq!(acknowledged["result"], json!({ "cancelled": false }));
+        let finished = support::wait_terminal(&app, Some(&cook), job_id);
+        assert_eq!(finished["status"], json!("completed"), "{finished}");
     }
 
     /// The ids of a recipe's Versions, oldest first, as `get_recipe` and

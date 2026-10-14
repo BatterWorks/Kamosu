@@ -703,7 +703,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       `renew_within_seconds`, for as long as the agent \
                       works. Refused once the hold is gone, because the \
                       deadline passed or the Job ended: stop the agent \
-                      then, and ask for work again.",
+                      then, and ask for work again. This is how a Runner \
+                      learns that its Job was cancelled, and the refusal \
+                      says so.",
             permission: Permission::Runner,
             kind: Kind::Immediate,
             write: true,
@@ -740,8 +742,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       tried as often as Kamosu tries one. `could_not_be_read` ends \
                       it as failed at once. `report` is the agent's own \
                       report, passed on as it wrote it. A Runner whose hold \
-                      is gone is refused and told so, and a Job it never \
-                      held is answered as a Job that is not there.",
+                      is gone is refused and told so, as is one whose Job \
+                      was cancelled, and a Job it never held is answered \
+                      as a Job that is not there.",
             permission: Permission::Runner,
             kind: Kind::Immediate,
             write: true,
@@ -3777,8 +3780,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "cancel_job",
-            summary: "Cancel a Job you asked for. It is acknowledged always, \
-                      and honoured while it still waits in line.",
+            summary: "Cancel a Job you asked for. Always acknowledged, and \
+                      honoured while it waits or an agent is working on it.",
             permission: Permission::Public,
             kind: Kind::Immediate,
             write: true,
@@ -5314,8 +5317,9 @@ fn import_report_schema() -> Value {
                                  Report changes after the Import has ended. The bare \
                                  recipe and the agent's work on it are one arrival. Read \
                                  the Job itself with `get_job`, where its operation is \
-                                 `read_by_agent`, and cancel it while it waits with \
-                                 `cancel_job`. A recipe has one such Job at a time, so the \
+                                 `read_by_agent`, and cancel it with `cancel_job`, \
+                                 while it waits or while it is being worked. A recipe \
+                                 has one such Job at a time, so the \
                                  same link imported again while it stands names the same Job.",
                 "items": {
                     "type": "object",

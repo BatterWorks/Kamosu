@@ -391,8 +391,8 @@ src/jobs.rs         slow work: two lanes (one for strangers, ADR 0032), progress
                     and an agent's Job, which waits for a Runner in neither lane
                     and is running while one holds it, with a Job Key minted
                     each time a Runner takes it. The hold has a deadline, and
-                    a Job is tried a fixed number of times (ADR 0048, #261,
-                    #262, #263, #266)
+                    a Job is tried a fixed number of times. It is cancelled
+                    waiting or held (ADR 0048, #261, #262, #263, #266, #267)
 src/language.rs     a Branch's Language, read off the recipe's own text (ADR 0006)
 src/meaning.rs      Meaning Search: the model Kamosu does not ship, and the
                     index it builds from the recipes (ADR 0029)
