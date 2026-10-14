@@ -412,6 +412,24 @@ pub(super) fn writes_in(
     .map_err(|e| OpError::internal(format!("cannot check who writes this Cookbook: {e}")))
 }
 
+/// Whether a Person is a Co-author of the Cookbook a Branch is in. A Branch
+/// that is not there has no Co-author.
+pub(super) fn writes_cookbook_of_branch(
+    conn: &Connection,
+    branch_id: &str,
+    person_id: &str,
+) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM branches
+                          JOIN cookbook_authors
+                            ON cookbook_authors.cookbook_id = branches.cookbook_id
+                         WHERE branches.id = ?1 AND cookbook_authors.person_id = ?2)",
+        params![branch_id, person_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot check who writes this recipe: {e}")))
+}
+
 /// **May change**: only a Co-author. Somebody who may not even see the
 /// Cookbook is answered as though it were not here (ADR 0040); somebody who
 /// sees it and does not write it is told so, since they already know it is

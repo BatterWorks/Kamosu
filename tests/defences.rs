@@ -1607,6 +1607,7 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
             }),
         ),
         ("get_recipe", json!({})),
+        ("get_recipe_job", json!({})),
         ("get_thread", json!({})),
         ("note_recipe_opened", json!({})),
         ("rename_version", json!({ "sequence": 1, "name": "a name" })),

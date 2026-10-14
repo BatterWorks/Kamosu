@@ -4932,7 +4932,7 @@ export type DeleteFoodOutput = {
 	deleted: boolean;
 };
 
-/** Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
+/** Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did. An agent's Job is also readable by the Co-authors of the Cookbook its recipe is in. */
 export type GetJobInput = {
 	job_id: string;
 };
@@ -4960,6 +4960,18 @@ export type CancelJobInput = {
 /** What cancel_job answers. */
 export type CancelJobOutput = {
 	cancelled: boolean;
+};
+
+/** Read which agent's Job waits or is being worked on a recipe. `job` is null when none is, and once the Job has ended. Among those who see the recipe, it names the Job to the Person who asked for it and to the Co-authors of the recipe's Cookbook, who may read it with `get_job`. Anyone else who sees the recipe is answered null. */
+export type GetRecipeJobInput = {
+	branch_id: string;
+};
+/** What get_recipe_job answers. */
+export type GetRecipeJobOutput = {
+	job: {
+		id: string;
+		status: "queued" | "running";
+	} | null;
 };
 
 /** List the Jobs this Person has asked for, newest first. */
@@ -5741,6 +5753,12 @@ export interface Operations {
 		output: CancelJobOutput;
 		kind: 'immediate';
 		permission: 'public';
+	};
+	get_recipe_job: {
+		input: GetRecipeJobInput;
+		output: GetRecipeJobOutput;
+		kind: 'immediate';
+		permission: 'person';
 	};
 	list_jobs: {
 		input: ListJobsInput;
@@ -30734,7 +30752,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_job",
-		"summary": "Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did.",
+		"summary": "Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did. An agent's Job is also readable by the Co-authors of the Cookbook its recipe is in.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -30856,6 +30874,56 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "get_recipe_job",
+		"summary": "Read which agent's Job waits or is being worked on a recipe. `job` is null when none is, and once the Job has ended. Among those who see the recipe, it names the Job to the Person who asked for it and to the Co-authors of the recipe's Cookbook, who may read it with `get_job`. Anyone else who sees the recipe is answered null.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"job": {
+					"additionalProperties": false,
+					"properties": {
+						"id": {
+							"type": "string"
+						},
+						"status": {
+							"description": "`queued` while the Job waits for a Runner, `running` while one holds it.",
+							"enum": [
+								"queued",
+								"running"
+							]
+						}
+					},
+					"required": [
+						"id",
+						"status"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"job"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "list_jobs",
 		"summary": "List the Jobs this Person has asked for, newest first.",
 		"permission": "person",
@@ -30955,6 +31023,7 @@ export const READS: readonly OperationName[] = [
 	'list_merge_suggestions',
 	'preview_food_merge',
 	'get_job',
+	'get_recipe_job',
 	'list_jobs',
 ];
 
@@ -31087,6 +31156,7 @@ export const METHOD_NAMES = {
 	delete_food: 'deleteFood',
 	get_job: 'getJob',
 	cancel_job: 'cancelJob',
+	get_recipe_job: 'getRecipeJob',
 	list_jobs: 'listJobs',
 } as const;
 
@@ -31342,10 +31412,12 @@ export interface KamosuClient {
 	mergeFood(input: MergeFoodInput): Promise<Answer<'merge_food'>>;
 	/** Delete a Food nothing points at. One a Reading on some recipe still points at is refused: what a Food knows was expensive to learn and is never discarded by an unrelated act. Readings only a deleted recipe held count for nothing and go with the Food. */
 	deleteFood(input: DeleteFoodInput): Promise<Answer<'delete_food'>>;
-	/** Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
+	/** Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did. An agent's Job is also readable by the Co-authors of the Cookbook its recipe is in. */
 	getJob(input: GetJobInput): Promise<Answer<'get_job'>>;
 	/** Cancel a Job you asked for. Always acknowledged, and honoured while it waits or an agent is working on it. */
 	cancelJob(input: CancelJobInput): Promise<Answer<'cancel_job'>>;
+	/** Read which agent's Job waits or is being worked on a recipe. `job` is null when none is, and once the Job has ended. Among those who see the recipe, it names the Job to the Person who asked for it and to the Co-authors of the recipe's Cookbook, who may read it with `get_job`. Anyone else who sees the recipe is answered null. */
+	getRecipeJob(input: GetRecipeJobInput): Promise<Answer<'get_recipe_job'>>;
 	/** List the Jobs this Person has asked for, newest first. */
 	listJobs(input?: ListJobsInput): Promise<Answer<'list_jobs'>>;
 }

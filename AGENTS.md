@@ -359,9 +359,9 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   related.rs        Related Recipes (#105)
   runners.rs        Runner Keys, a Runner taking a Job, renewing its hold and
                     reporting how it ended, the Job Key that comes with one
-                    and the one recipe its writes are held to, and whether
-                    the instance has a Runner (ADR 0048, #260, #262, #263,
-                    #264, #266)
+                    and the one recipe its writes are held to, who reads an
+                    agent's Job, and whether the instance has a Runner (ADR
+                    0048, #260, #262, #263, #264, #266, #268)
   shelves.rs        the home shelves, and the shelf entry every list shows
   translation.rs    translation and a Branch's Language
   readings.rs       Ingredient Lines, Readings, Foods and Food merges

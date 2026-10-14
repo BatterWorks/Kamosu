@@ -341,6 +341,63 @@ impl Core {
         Ok(self.runner_status()?["has_runner"] == json!(true))
     }
 
+    /// Who may read a Job (#268). One of Kamosu's own is read by the Person
+    /// who asked for it, or by anyone when no Person did. An agent's is read
+    /// by the Person who asked and by the Co-authors of the Cookbook its
+    /// recipe is in, as that Cookbook stands now (`reads_agent_job`). Anyone
+    /// else is refused with `absent`, the answer a Job id naming nothing
+    /// gets (ADR 0040).
+    ///
+    /// Once the recipe is deleted it is in no Cookbook, so the Person who
+    /// asked is the one reader left.
+    ///
+    /// Who cancels is `jobs::ensure_asker`, and this opens none of it.
+    pub fn ensure_reads_job(
+        &self,
+        record: &JobRecord,
+        caller: &Option<Caller>,
+        absent: impl FnOnce() -> OpError,
+    ) -> Result<(), OpError> {
+        if jobs::asked_by(record, caller) {
+            return Ok(());
+        }
+        let Some(caller) = caller else {
+            return Err(absent());
+        };
+        let reads =
+            self.db()
+                .with_conn(|conn| match jobs::recipe_of_agent_job(conn, &record.id)? {
+                    Some(branch_id) => {
+                        reads_agent_job(conn, record.person_id.as_deref(), &branch_id, caller)
+                    }
+                    None => Ok(false),
+                })?;
+        if reads { Ok(()) } else { Err(absent()) }
+    }
+
+    /// The agent's Job that waits or is being worked on a recipe, for
+    /// `get_recipe_job` (#268): its id and which of the two it is, or null.
+    ///
+    /// It is named to those who may read that Job (`reads_agent_job`).
+    /// Anyone else who sees the recipe is answered as a recipe with no Job
+    /// on it answers. Someone who does not see the recipe is told it is not
+    /// there (ADR 0040), the Person who asked included: they read their Job
+    /// by its id.
+    pub fn recipe_job(&self, caller: &Caller, branch_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            ensure_sees_branch(conn, branch_id, &caller.person_id)?;
+            let named = match jobs::agent_job_standing_on(conn, branch_id)? {
+                Some(standing)
+                    if reads_agent_job(conn, standing.asker.as_deref(), branch_id, caller)? =>
+                {
+                    json!({ "id": standing.id, "status": standing.status })
+                }
+                _ => Value::Null,
+            };
+            Ok(json!({ "job": named }))
+        })
+    }
+
     /// Whether this instance has a Runner, which is to say a Runner Key that
     /// is not revoked, and when one last asked for work. The time is read
     /// across every Key, revoked ones included, so replacing a Key does not
@@ -360,6 +417,19 @@ impl Core {
             .map_err(|e| OpError::internal(format!("cannot read the Runner's state: {e}")))
         })
     }
+}
+
+/// Whether `caller` may read the agent's Job on a recipe: they asked for it,
+/// or they are a Co-author of the Cookbook the recipe is in now. Both
+/// `get_job` and `get_recipe_job` ask it here, so the two cannot disagree.
+fn reads_agent_job(
+    conn: &Connection,
+    asker: Option<&str>,
+    branch_id: &str,
+    caller: &Caller,
+) -> Result<bool, OpError> {
+    Ok(asker == Some(caller.person_id.as_str())
+        || writes_cookbook_of_branch(conn, branch_id, &caller.person_id)?)
 }
 
 /// The most characters the mark of an ask holds. A Runner makes one up for
