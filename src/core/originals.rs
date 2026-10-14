@@ -45,21 +45,43 @@ impl Core {
     /// The answer is the Job's id. Its result is an Import Report from the
     /// moment it is asked for, read as the Job stands, so the recipe is listed
     /// as arrived once the agent has created it.
+    ///
+    /// A PDF or a picture handed over before is known by its contents (#271).
+    /// While the caller's Job on it waits or is held, the answer is that Job.
+    /// Once its agent has created the recipe, the answer is that recipe, as
+    /// `branch_id` and `title`, and no Job is made. Pasted text is not matched.
     pub fn import_by_agent(&self, caller: &Caller, handed: Handed) -> Result<Value, OpError> {
         self.ensure_has_runner()?;
+        // As handed over, since a picture is remade before it is kept.
+        let digest = match &handed {
+            Handed::File(bytes) => Some(hex::encode(sha2::Sha256::digest(bytes))),
+            Handed::Text(_) => None,
+        };
         let (kind, bytes) = kept_as(handed)?;
 
         let dir = originals_dir(&self.data_dir());
         std::fs::create_dir_all(&dir)
             .map_err(|e| OpError::internal(format!("cannot make a place for Originals: {e}")))?;
         let failed = |e| OpError::internal(format!("cannot record the agent's Job: {e}"));
-        let job_id = self.db().with_conn(|conn| {
+        self.db().with_conn(|conn| {
             let cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
             let import_id = find_or_create_import(conn, &cookbook_id, kind.as_str())?;
+            if let Some(digest) = &digest {
+                if let Some(job_id) =
+                    jobs::standing_job_on_file(conn, &caller.person_id, &import_id, digest)?
+                {
+                    return Ok(json!({ "job_id": job_id, "source_kind": kind.as_str() }));
+                }
+                if let Some((branch_id, title)) = recipe_in_ledger(conn, &import_id, digest)? {
+                    return Ok(json!({
+                        "source_kind": kind.as_str(), "branch_id": branch_id, "title": title,
+                    }));
+                }
+            }
             // The Job and its Original appear together or not at all: no
             // Runner is handed a Job whose file is not there yet.
             let tx = conn.unchecked_transaction().map_err(failed)?;
-            let job_id = jobs::wait_for_agent_on_original(&tx, caller, kind)?;
+            let job_id = jobs::wait_for_agent_on_original(&tx, caller, kind, digest.as_deref())?;
             jobs::set_result(
                 &tx,
                 &job_id,
@@ -82,9 +104,8 @@ impl Core {
                 let _ = std::fs::remove_file(&path);
                 return Err(failed(e));
             }
-            Ok(job_id)
-        })?;
-        Ok(json!({ "job_id": job_id, "source_kind": kind.as_str() }))
+            Ok(json!({ "job_id": job_id, "source_kind": kind.as_str() }))
+        })
     }
 
     /// Refused, with reason `no_runner`, where no agent would read what is
@@ -187,6 +208,30 @@ impl Core {
         }
         Ok(swept)
     }
+}
+
+/// The recipe an Import's ledger names by a file's digest, and its name now.
+fn recipe_in_ledger(
+    conn: &Connection,
+    import_id: &str,
+    digest: &str,
+) -> Result<Option<(String, String)>, OpError> {
+    conn.query_row(
+        "SELECT branches.id, json_extract(versions.content, '$.title')
+           FROM import_ledger
+           JOIN branches ON branches.id = import_ledger.branch_id
+           JOIN versions ON versions.id = branches.head_version_id
+          WHERE import_ledger.import_id = ?1 AND import_ledger.foreign_id = ?2",
+        params![import_id, digest],
+        |row| {
+            Ok((
+                row.get(0)?,
+                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+            ))
+        },
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read the Import ledger: {e}")))
 }
 
 /// Where Originals are kept, under the one data directory and beside the

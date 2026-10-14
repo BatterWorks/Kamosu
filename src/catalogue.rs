@@ -1620,7 +1620,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       pass the `upload_id` it answers, or pass it \
                       base64-encoded as `data`. Answers the id of a Job that \
                       waits for a Runner, as `get_job` reads it, and what it \
-                      was taken as. No recipe exists until the agent creates \
+                      was taken as. A PDF or a picture handed over before is \
+                      known by its contents: while your Job on it waits or is \
+                      worked, the answer is that Job, and once its recipe \
+                      exists the answer is that recipe as `branch_id` and \
+                      `title`, with no Job. Pasted text is never matched. No \
+                      recipe exists until the agent creates \
                       one, under your Hand. Read the Job with `get_job`: its \
                       result is the Import Report, which lists the recipe as \
                       arrived once it exists and says what the agent left \
@@ -1656,14 +1661,29 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             output_schema: json!({
                 "type": "object",
                 "properties": {
-                    "job_id": { "type": "string" },
+                    "job_id": {
+                        "type": "string",
+                        "description": "The agent's Job: a new one, or yours that \
+                                         waits or is worked on the same file. \
+                                         Absent when `branch_id` is there.",
+                    },
                     "source_kind": {
                         "enum": ["pasted_text", "pdf", "picture"],
                         "description": "What it was taken as, and the source the \
                                          arrival is listed under in `list_imports`.",
                     },
+                    "branch_id": {
+                        "type": "string",
+                        "description": "The recipe an agent already made from the \
+                                         same file, when it was handed over before. \
+                                         No Job is made.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "That recipe's name now.",
+                    },
                 },
-                "required": ["job_id", "source_kind"],
+                "required": ["source_kind"],
                 "additionalProperties": false,
             }),
             handler: crate::operations::import_by_agent,

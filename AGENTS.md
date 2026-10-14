@@ -367,8 +367,9 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   readings.rs       Ingredient Lines, Readings, Foods and Food merges
   originals.rs      pasted text, a PDF or a picture handed to an agent,
                     kept under originals/ for its Job's Job Key alone and
-                    in no Backup, and deleted 30 days after its Job ended
-                    (#269, #270)
+                    in no Backup, and deleted 30 days after its Job ended.
+                    The same file handed over again is known by its
+                    contents (#269, #270, #271)
   cooking.rs        Attempts and promotion
   keeping_photographs.rs
                     storing, reading and sweeping Photographs

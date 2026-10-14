@@ -1924,6 +1924,7 @@ fn move_imports(conn: &Connection, from: &str, into: &str) -> Result<(), OpError
                     params![import_id],
                 )
                 .map_err(|e| OpError::internal(format!("cannot move the import ledger: {e}")))?;
+                jobs::move_to_kept_import(conn, &import_id, &there, into)?;
                 conn.execute("DELETE FROM imports WHERE id = ?1", params![import_id])
                     .map_err(|e| OpError::internal(format!("cannot move Import: {e}")))?;
             }

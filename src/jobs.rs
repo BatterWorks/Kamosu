@@ -555,10 +555,12 @@ impl OriginalKind {
 /// waits for a Runner, in neither lane, with no recipe yet. Its record says
 /// what kind of thing it reads and holds nothing of it: the Original is a
 /// file the caller keeps beside the database, named by the id this answers.
+/// `digest` is a file's, by which the same file is known again (#271).
 pub fn wait_for_agent_on_original(
     conn: &Connection,
     caller: &Caller,
     kind: OriginalKind,
+    digest: Option<&str>,
 ) -> Result<String, OpError> {
     let job_id = insert(
         conn,
@@ -567,11 +569,75 @@ pub fn wait_for_agent_on_original(
         &json!({ "source_kind": kind.as_str() }),
     )?;
     conn.execute(
-        "INSERT INTO agent_jobs (job_id, original) VALUES (?1, ?2)",
-        params![job_id, kind.as_str()],
+        "INSERT INTO agent_jobs (job_id, original, original_digest) VALUES (?1, ?2, ?3)",
+        params![job_id, kind.as_str(), digest],
     )
     .map_err(|e| OpError::internal(format!("cannot record the agent's Job: {e}")))?;
     Ok(job_id)
+}
+
+/// The caller's own Job that waits or is held on the file `digest` names,
+/// for the Import `import_id` (#271). A Job of an Import since forgotten is
+/// not it, and neither is a Co-author's, which the caller could not read.
+pub fn standing_job_on_file(
+    conn: &Connection,
+    person_id: &str,
+    import_id: &str,
+    digest: &str,
+) -> Result<Option<String>, OpError> {
+    conn.query_row(
+        "SELECT jobs.id
+           FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
+          WHERE agent_jobs.original_digest = ?1
+            AND jobs.status IN ('queued', 'running')
+            AND jobs.person_id = ?2
+            AND json_extract(jobs.result, '$.import_id') = ?3
+          ORDER BY jobs.created_at
+          LIMIT 1",
+        params![digest, person_id, import_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read the file's Job: {e}")))
+}
+
+/// A Cookbook's Import of one kind was joined to another's (`move_imports`):
+/// the Jobs reading a file for it are now for the one kept, so the same file
+/// still finds them and their recipe still goes into its ledger (#271).
+pub fn move_to_kept_import(
+    conn: &Connection,
+    from: &str,
+    into: &str,
+    cookbook_id: &str,
+) -> Result<(), OpError> {
+    conn.execute(
+        "UPDATE jobs
+            SET result = json_set(result, '$.import_id', ?2, '$.cookbook_id', ?3)
+          WHERE json_extract(result, '$.import_id') = ?1
+            AND id IN (SELECT job_id FROM agent_jobs WHERE original IS NOT NULL)",
+        params![from, into, cookbook_id],
+    )
+    .map_err(|e| OpError::internal(format!("cannot move the Import's Jobs: {e}")))?;
+    Ok(())
+}
+
+/// The latest agent's Job that completed on a recipe, which says an agent
+/// has read it (#271).
+pub fn agent_job_completed_on(
+    conn: &Connection,
+    branch_id: &str,
+) -> Result<Option<String>, OpError> {
+    conn.query_row(
+        "SELECT jobs.id
+           FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
+          WHERE agent_jobs.branch_id = ?1 AND jobs.status = 'completed'
+          ORDER BY jobs.updated_at DESC
+          LIMIT 1",
+        params![branch_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read the recipe's Jobs: {e}")))
 }
 
 /// Write a Job's result before it has one: the Import Report of a Job that
@@ -621,12 +687,37 @@ pub fn standing_recipe_of(
 /// The agent created its Job's recipe (#269): from here the Job is for that
 /// recipe, as one that began on a bare recipe is. Set once, and never moved
 /// by a second create, which the Core refuses before it runs.
+///
+/// A Job reading a file also has its Import's ledger name the recipe by the
+/// file's digest, so the same file handed over again finds it (#271). Not
+/// where that Import was forgotten while the Job waited, and not where the
+/// ledger names something else by that digest already. Nor where the recipe
+/// is in another Cookbook than the Import, as when the asker left the
+/// Cookbook while the Job waited: that Import's other Co-authors could not
+/// open it.
 pub fn take_its_recipe(conn: &Connection, job_id: &str, branch_id: &str) -> Result<(), OpError> {
+    let failed = |e| OpError::internal(format!("cannot give the Job its recipe: {e}"));
+    let taken = conn
+        .execute(
+            "UPDATE agent_jobs SET branch_id = ?2 WHERE job_id = ?1 AND branch_id IS NULL",
+            params![job_id, branch_id],
+        )
+        .map_err(failed)?;
+    if taken == 0 {
+        return Ok(());
+    }
     conn.execute(
-        "UPDATE agent_jobs SET branch_id = ?2 WHERE job_id = ?1 AND branch_id IS NULL",
-        params![job_id, branch_id],
+        "INSERT OR IGNORE INTO import_ledger (import_id, foreign_id, lineage_id, branch_id)
+         SELECT imports.id, agent_jobs.original_digest, branches.lineage_id, branches.id
+           FROM agent_jobs
+           JOIN jobs ON jobs.id = agent_jobs.job_id
+           JOIN imports ON imports.id = json_extract(jobs.result, '$.import_id')
+           JOIN branches ON branches.id = agent_jobs.branch_id
+                        AND branches.cookbook_id = imports.cookbook_id
+          WHERE agent_jobs.job_id = ?1 AND agent_jobs.original_digest IS NOT NULL",
+        params![job_id],
     )
-    .map_err(|e| OpError::internal(format!("cannot give the Job its recipe: {e}")))?;
+    .map_err(failed)?;
     Ok(())
 }
 

@@ -1838,6 +1838,19 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 50,
+        description: "a file handed to an agent is known again by its contents (#271)",
+        sql: r#"
+        -- `original_digest` is the SHA-256 of a PDF or a picture as it was
+        -- handed over, in hex. It is the foreign id the Import's ledger
+        -- names the recipe by once the agent has created it, and it finds a
+        -- Job that still waits on the same file. Null on pasted text, which
+        -- is not matched, and on a Job that reads a link.
+        ALTER TABLE agent_jobs ADD COLUMN original_digest TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.
