@@ -301,11 +301,47 @@ pub fn read_recipe_again(
     invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
+    const USAGE: &str = "read_recipe_again takes { branch_id }, and with it { text }, the \
+                         recipe pasted again, or { upload_id } or { data }: the PDF or the \
+                         picture handed over again, sent to POST /api/uploads or \
+                         base64-encoded";
+    let caller = caller_of(invocation)?;
     let branch_id = input
         .get("branch_id")
         .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("read_recipe_again takes { branch_id }"))?;
-    core.read_recipe_again(caller_of(invocation)?, branch_id)
+        .ok_or_else(|| OpError::bad_request(USAGE))?;
+    let handed = match input.get("text").and_then(Value::as_str) {
+        Some(_) if input.get("upload_id").is_some() || input.get("data").is_some() => {
+            return Err(OpError::bad_request(USAGE));
+        }
+        Some(text) => Some(crate::core::Handed::Text(text.to_string())),
+        None if input.get("upload_id").is_some() || input.get("data").is_some() => {
+            // Asked before the staged file is read, which uses it up.
+            core.ensure_may_hand_over_to_read_again(caller, branch_id)?;
+            Some(crate::core::Handed::File(sent_file(
+                core,
+                caller,
+                &input,
+                USAGE,
+                Some(crate::core::LARGEST_HANDED_FILE),
+            )?))
+        }
+        None => None,
+    };
+    core.read_recipe_again(caller, branch_id, handed)
+}
+
+/// Hand an agent again the kept Original of a Job that failed on it (#273).
+pub fn read_job_again(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let job_id = input
+        .get("job_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("read_job_again takes { job_id }"))?;
+    core.read_job_again(caller_of(invocation)?, job_id)
 }
 
 pub fn can_read_recipe_again(

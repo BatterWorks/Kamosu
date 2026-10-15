@@ -365,13 +365,15 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   shelves.rs        the home shelves, and the shelf entry every list shows
   translation.rs    translation and a Branch's Language
   reading_again.rs  a Co-author asking for an agent to read a recipe again
-                    from its Source's link, and whether one can (#272)
+                    from its kept Original, a file handed over again, or
+                    its Source's link, and whether one can (#272, #273)
   readings.rs       Ingredient Lines, Readings, Foods and Food merges
   originals.rs      pasted text, a PDF or a picture handed to an agent,
                     kept under originals/ for its Job's Job Key alone and
                     in no Backup, and deleted 30 days after its Job ended.
                     The same file handed over again is known by its
-                    contents (#269, #270, #271)
+                    contents, and a Job that failed on one is asked
+                    again from it (#269, #270, #271, #273)
   cooking.rs        Attempts and promotion
   keeping_photographs.rs
                     storing, reading and sweeping Photographs
@@ -400,8 +402,9 @@ src/jobs.rs         slow work: two lanes (one for strangers, ADR 0032), progress
                     each time a Runner takes it. The hold has a deadline, and
                     a Job is tried a fixed number of times. It is cancelled
                     waiting or held. One reading an Original waits with no
-                    recipe until its agent creates one (ADR 0048, #261, #262,
-                    #263, #266, #267, #269)
+                    recipe until its agent creates one, unless it reads a
+                    recipe again (ADR 0048, #261, #262, #263, #266, #267,
+                    #269, #273)
 src/language.rs     a Branch's Language, read off the recipe's own text (ADR 0006)
 src/meaning.rs      Meaning Search: the model Kamosu does not ship, and the
                     index it builds from the recipes (ADR 0029)

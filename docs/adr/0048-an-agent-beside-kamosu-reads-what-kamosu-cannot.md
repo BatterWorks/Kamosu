@@ -43,7 +43,7 @@ The survey behind this is in [`docs/research/ai-recipe-import-in-other-apps.md`]
 ### Originals
 
 - **An Original is what a Job reads when that is not a link:** a PDF, a picture or pasted text.
-- **It is kept for 30 days and then deleted.** After that, reading again asks for the file.
+- **It is kept for 30 days and then deleted.** After that, reading again asks for the file. The days are counted from the Job that last read it: reading a recipe again from its Original makes that Job keep it too, for 30 days of its own (#273).
 - **It is never part of the recipe** ([ADR 0025](./0025-an-imported-recipe-is-an-ordinary-recipe.md)), and it is in no Backup.
 
 ### What lands
