@@ -3966,18 +3966,25 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "read_recipe_again",
-            summary: "Have an agent read a recipe again from its Source link. \
-                      It works whichever way the recipe arrived, and makes a \
-                      Job that waits for a Runner, the way a link Kamosu could \
-                      not read does. Only a Co-author of the Cookbook that holds \
-                      the recipe may ask, on a Kamosu with a Runner. The agent's \
-                      saves become one new Version under your Hand, so the \
-                      earlier one stays in the History. Where a Job already \
-                      waits or is being worked on the recipe, that Job is the \
-                      answer. Its result is an Import Report under the source \
-                      `read_again`, which says what the agent left undone or \
-                      was unsure of. Ask `can_read_recipe_again` first to know \
-                      whether this would be refused, and why.",
+            summary: "Have an agent read a recipe again. A recipe an agent \
+                      read from a PDF, a picture or pasted text is read from \
+                      what Kamosu kept of it. Kamosu deletes that 30 days \
+                      after its Job ended, and then the ask is refused with \
+                      reason `needs_the_file`: ask again handing the file over, \
+                      as `upload_id` or `data`, or the text as `text`. Any \
+                      other recipe is read from its Source link, whichever way \
+                      it arrived, and takes nothing handed over. It makes a \
+                      Job that waits for a Runner. Only a Co-author of the \
+                      Cookbook that holds the recipe may ask, on a Kamosu with \
+                      a Runner. The agent's saves become one new Version under \
+                      your Hand, so the earlier one stays in the History. Where \
+                      a Job already waits or is being worked on the recipe, \
+                      that Job is the answer, and nothing handed over is kept. \
+                      Its result is an Import Report \
+                      under the source `read_again`, which says what the agent \
+                      left undone or was unsure of. Ask `can_read_recipe_again` \
+                      first to know what it would read, or why it would be \
+                      refused.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -3986,7 +3993,26 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
-                "properties": { "branch_id": { "type": "string" } },
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "text": {
+                        "type": "string",
+                        "description": "The recipe pasted again, where it was read \
+                                         from pasted text Kamosu no longer keeps.",
+                    },
+                    "upload_id": {
+                        "type": "string",
+                        "description": "The id POST /api/uploads answered for the PDF \
+                                         or the picture handed over again. Used once, \
+                                         then deleted.",
+                    },
+                    "data": {
+                        "type": "string",
+                        "description": "The PDF or the picture handed over again, \
+                                         base64-encoded, for a Door that can send only \
+                                         JSON.",
+                    },
+                },
                 "required": ["branch_id"],
                 "additionalProperties": false,
             }),
@@ -4009,12 +4035,17 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             name: "can_read_recipe_again",
             summary: "Say whether a recipe can be read again, and from what. \
                       This is for you, as `read_recipe_again` would answer \
-                      you. `reason` says why not: \
+                      you. `from` is `original` for a recipe an agent read \
+                      from a file or pasted text, and `link` for one read \
+                      from its Source link. `reason` says why not: \
                       `not_a_co_author` when you see the recipe and do not \
                       write its Cookbook, `would_start_a_copy` when your \
                       Cookbook received it and did not write it, `no_runner` \
-                      when no agent would read it, and `nothing_to_read` when \
-                      its Source has no http or https link on the internet.",
+                      when no agent would read it, `needs_the_file` when what \
+                      it was read from is no longer kept and has to be handed \
+                      over again, and `nothing_to_read` when it came from no \
+                      file and its Source has no http or https link on the \
+                      internet.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -4031,26 +4062,99 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "type": "object",
                 "properties": {
                     "can_read_again": { "type": "boolean" },
+                    "from": {
+                        "enum": ["original", "link", null],
+                        "description": "What an agent would read: what Kamosu kept \
+                                         of the file or text the recipe was read \
+                                         from, or handed over again where that is \
+                                         gone, or the Source's link. Null where \
+                                         there is nothing to read.",
+                    },
                     "link": {
                         "type": ["string", "null"],
-                        "description": "The link in the recipe's Source, which an \
-                                         agent would read. Null where it has none, or \
-                                         one that is no http or https address on the \
-                                         internet.",
+                        "description": "The link in the recipe's Source. Null where \
+                                         it has none, or one that is no http or https \
+                                         address on the internet.",
+                    },
+                    "original": {
+                        "enum": ["pasted_text", "pdf", "picture", null],
+                        "description": "What the recipe was read from, where an agent \
+                                         read it from something handed over, kept or \
+                                         not.",
                     },
                     "reason": {
                         "enum": [
                             "not_a_co_author", "would_start_a_copy", "no_runner",
-                            "nothing_to_read", null
+                            "needs_the_file", "nothing_to_read", null
                         ],
                         "description": "Why it cannot be read again, or null when \
                                          it can.",
                     },
                 },
-                "required": ["can_read_again", "link", "reason"],
+                "required": ["can_read_again", "from", "link", "original", "reason"],
                 "additionalProperties": false,
             }),
             handler: crate::operations::can_read_recipe_again,
+        },
+        Operation {
+            name: "read_job_again",
+            summary: "Have an agent read again a file your Job failed on. It \
+                      reads what Kamosu kept of the PDF, the picture or the \
+                      pasted text a Job of yours failed on before it made a \
+                      recipe, so you need not find the file. Kamosu deletes \
+                      that 30 days after the Job ended, \
+                      and then this is refused with reason `original_gone`: \
+                      hand it over again with `import_by_agent`. A Job that \
+                      made a recipe, or did not fail, is refused with reason \
+                      `not_failed_on_a_file`. Only on a Kamosu with a Runner. \
+                      Answers as `import_by_agent` does: a new Job, or the one \
+                      of yours that waits or is worked on the same file, or \
+                      the recipe an agent made from it since.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "The Job that failed, as `get_job` reads it.",
+                    },
+                },
+                "required": ["job_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "The agent's new Job, or yours that waits or \
+                                         is worked on the same file. Absent when \
+                                         `branch_id` is there.",
+                    },
+                    "source_kind": {
+                        "enum": ["pasted_text", "pdf", "picture"],
+                        "description": "What it was read as, and the source the \
+                                         arrival is listed under in `list_imports`.",
+                    },
+                    "branch_id": {
+                        "type": "string",
+                        "description": "The recipe an agent made from the same file \
+                                         since. No Job is made.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "That recipe's name now.",
+                    },
+                },
+                "required": ["source_kind"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::read_job_again,
         },
         Operation {
             name: "list_jobs",

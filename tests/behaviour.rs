@@ -15774,7 +15774,10 @@ mod web_link_importer {
         assert_eq!(status, 200, "{can}");
         assert_eq!(
             can["result"],
-            json!({ "can_read_again": true, "link": A_SOURCE_LINK, "reason": null })
+            json!({
+                "can_read_again": true, "from": "link", "link": A_SOURCE_LINK,
+                "original": null, "reason": null,
+            })
         );
 
         // A Job waits on the recipe, and the recipe names it.
@@ -16027,7 +16030,10 @@ mod web_link_importer {
         assert_eq!(status, 200, "{can}");
         assert_eq!(
             can["result"],
-            json!({ "can_read_again": false, "link": A_SOURCE_LINK, "reason": "not_a_co_author" })
+            json!({
+                "can_read_again": false, "from": "link", "link": A_SOURCE_LINK,
+                "original": null, "reason": "not_a_co_author",
+            })
         );
         let (status, refused) = read_again(&app, Some(&people.kitchen_mate), &recipe);
         assert_eq!(status, 401, "{refused}");
@@ -16102,7 +16108,11 @@ mod web_link_importer {
             assert_eq!(status, 200, "{can}");
             assert_eq!(
                 can["result"],
-                json!({ "can_read_again": false, "link": link, "reason": reason })
+                json!({
+                    "can_read_again": false,
+                    "from": if link.is_null() { json!(null) } else { json!("link") },
+                    "link": link, "original": null, "reason": reason,
+                })
             );
             let (status, refused) = read_again(&app, Some(&cook), recipe);
             assert_eq!(status, 400, "{refused}");
@@ -16152,7 +16162,10 @@ mod web_link_importer {
         let (_, can) = can_read_again(&app, Some(&receiver), &recipe);
         assert_eq!(
             can["result"],
-            json!({ "can_read_again": false, "link": A_SOURCE_LINK, "reason": "would_start_a_copy" })
+            json!({
+                "can_read_again": false, "from": "link", "link": A_SOURCE_LINK,
+                "original": null, "reason": "would_start_a_copy",
+            })
         );
         let (status, refused) = read_again(&app, Some(&receiver), &recipe);
         assert_eq!(status, 400, "{refused}");
@@ -36038,5 +36051,584 @@ mod handing_an_original_to_an_agent {
         assert_eq!(at_web["result"]["status"], json!("queued"));
         let work = ask_for_work(&app, &at.runner);
         assert_eq!(work["job_id"], json!(job_id));
+    }
+
+    // --- A recipe read again from its Original (#273) --------------------
+
+    fn read_again(app: &support::TestApp, key: &str, branch_id: &str, with: Value) -> (u16, Value) {
+        let mut input = with;
+        input["branch_id"] = json!(branch_id);
+        app.post_op("read_recipe_again", Some(key), &input.to_string())
+    }
+
+    /// Asked to be read again, and the Job that waits for it.
+    fn asked_to_read_again(
+        app: &support::TestApp,
+        key: &str,
+        branch_id: &str,
+        with: Value,
+    ) -> String {
+        let (status, asked) = read_again(app, key, branch_id, with);
+        assert_eq!(status, 200, "{asked}");
+        assert_eq!(asked["result"]["branch_id"], json!(branch_id), "{asked}");
+        asked["result"]["job_id"].as_str().unwrap().to_string()
+    }
+
+    fn can_read_again(app: &support::TestApp, key: &str, branch_id: &str) -> Value {
+        let (status, can) = app.post_op(
+            "can_read_recipe_again",
+            Some(key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{can}");
+        can["result"].clone()
+    }
+
+    fn read_job_again(app: &support::TestApp, key: &str, job_id: &str) -> (u16, Value) {
+        app.post_op(
+            "read_job_again",
+            Some(key),
+            &json!({ "job_id": job_id }).to_string(),
+        )
+    }
+
+    /// The ids of a recipe's Versions, oldest first, and who wrote each.
+    fn versions_of(app: &support::TestApp, key: &str, branch_id: &str) -> Vec<(String, Value)> {
+        let (status, read) = app.post_op(
+            "get_recipe",
+            Some(key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{read}");
+        read["result"]["versions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|version| {
+                (
+                    version["version_id"].as_str().unwrap().to_string(),
+                    version["hand_id"].clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// The agent the Runner is handed `job_id` by reads the recipe again: a
+    /// whole save, a correction folded into it, and the Runner reports it
+    /// completed. Answers what the Runner was handed.
+    fn the_agent_reads_it_again(
+        app: &support::TestApp,
+        runner: &str,
+        job_id: &str,
+        branch_id: &str,
+    ) -> Value {
+        let work = ask_for_work(app, runner);
+        assert_eq!(work["job_id"], json!(job_id), "{work}");
+        let job_key = work["job_key"].as_str().unwrap();
+        let whole = json!({
+            "branch_id": branch_id,
+            "title": "Biscuit de Savoie",
+            "ingredients": [{ "kind": "ingredient", "text": "4 eggs" }],
+            "steps": [{ "kind": "step", "text": "Whisk." }],
+        });
+        let (status, saved) = app.post_op("save_recipe_version", Some(job_key), &whole.to_string());
+        assert_eq!(status, 200, "{saved}");
+        let correction = json!({ "branch_id": branch_id, "note": "Better the next day." });
+        let (status, saved) = app.post_op("edit_recipe", Some(job_key), &correction.to_string());
+        assert_eq!(status, 200, "{saved}");
+        let (status, reported) = app.post_op(
+            "report_on_job",
+            Some(runner),
+            &json!({ "job_id": job_id, "outcome": "completed" }).to_string(),
+        );
+        assert_eq!(status, 200, "{reported}");
+        work
+    }
+
+    fn sweep_after(app: &support::TestApp, job_id: &str, days: u32) {
+        age_job(app, job_id, days);
+        app.core.sweep_originals().expect("the sweep runs");
+    }
+
+    /// A recipe an agent made from a PDF, a picture or pasted text is read
+    /// again from the Original it kept (#273). The new Job's Job Key fetches
+    /// it, the agent leaves one new Version under the asker's Hand, and no
+    /// Version's id moves. The 30 days then run from the new Job.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_from_a_file_or_text_is_read_again_from_its_kept_original() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let (picture, _) = a_picture_taken_somewhere();
+
+        for (what, kind) in [
+            (json!({ "text": pasted() }), "pasted_text"),
+            (json!({ "data": base64_of(BISCUIT) }), "pdf"),
+            (json!({ "data": base64_of(&picture) }), "picture"),
+        ] {
+            let first = handed(&app, &at.cook, what, kind);
+            let recipe = an_agent_creates(&app, &at.runner, "Tarte");
+            let kept = std::fs::read(originals_dir(&app).join(&first)).unwrap();
+            let before = versions_of(&app, &at.cook, &recipe);
+            assert_eq!(
+                can_read_again(&app, &at.cook, &recipe),
+                json!({
+                    "can_read_again": true, "from": "original", "link": null,
+                    "original": kind, "reason": null,
+                }),
+                "{kind}"
+            );
+
+            let job_id = asked_to_read_again(&app, &at.cook, &recipe, json!({}));
+            assert_ne!(job_id, first);
+            // Asking while it waits answers it.
+            assert_eq!(
+                asked_to_read_again(&app, &at.cook, &recipe, json!({})),
+                job_id
+            );
+            let (_, waiting) = job(&app, &at.cook, &job_id);
+            let report = &waiting["result"]["result"];
+            assert_eq!(report["source_kind"], json!("read_again"), "{report}");
+            assert_eq!(report["arrived"][0]["branch_id"], json!(recipe));
+            assert_eq!(report["arrived"][0]["status"], json!("read_again"));
+
+            let work = the_agent_reads_it_again(&app, &at.runner, &job_id, &recipe);
+            assert_eq!(work["branch_id"], json!(recipe), "{work}");
+            assert_eq!(work["link"], json!(null));
+            let address = format!("/api/originals/{job_id}");
+            assert_eq!(
+                work["original"],
+                json!({ "kind": kind, "address": address })
+            );
+            // What the new Job holds is the Original the first one kept.
+            assert_eq!(
+                std::fs::read(originals_dir(&app).join(&job_id)).unwrap(),
+                kept,
+                "{kind}"
+            );
+
+            let after = versions_of(&app, &at.cook, &recipe);
+            assert_eq!(after.len(), before.len() + 1, "{kind}: {after:?}");
+            assert_eq!(after[..before.len()], before[..], "{kind}");
+            assert_eq!(after.last().unwrap().1, json!(at.cook_id));
+            let (_, done) = job(&app, &at.cook, &job_id);
+            assert_eq!(done["result"]["status"], json!("completed"), "{done}");
+            assert_eq!(
+                done["result"]["result"]["agent_jobs"][0]["made_by_agent"],
+                json!(true)
+            );
+        }
+    }
+
+    /// While a read-again Job on a kept Original is held, its Job Key fetches
+    /// that Original, and the first Job's Key does not.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_new_jobs_key_fetches_the_kept_original() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let first = handed(&app, &at.cook, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        let recipe = an_agent_creates(&app, &at.runner, "Biscuit de Savoie");
+        let job_id = asked_to_read_again(&app, &at.cook, &recipe, json!({}));
+        let work = ask_for_work(&app, &at.runner);
+        assert_eq!(work["job_id"], json!(job_id));
+        let job_key = work["job_key"].as_str().unwrap();
+        let (status, content_type, bytes) = fetch_original(&app, Some(job_key), &job_id);
+        assert_eq!(status, 200);
+        assert_eq!(content_type, "application/pdf");
+        assert_eq!(bytes, BISCUIT);
+        assert_eq!(fetch_original(&app, Some(job_key), &first).0, 404);
+    }
+
+    /// The Original's 30 days run from the Job that last read it: the first
+    /// Job's copy goes on its own day, the recipe still reads again from the
+    /// new Job's, and once that has gone too the ask needs the file.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn after_a_read_again_the_originals_thirty_days_run_from_that_job() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let first = handed(&app, &at.cook, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        let recipe = an_agent_creates(&app, &at.runner, "Biscuit de Savoie");
+        let again = asked_to_read_again(&app, &at.cook, &recipe, json!({}));
+        the_agent_reads_it_again(&app, &at.runner, &again, &recipe);
+
+        age_job(&app, &first, 31);
+        age_job(&app, &again, 29);
+        assert_eq!(app.core.sweep_originals().unwrap(), 1);
+        assert!(!original_kept(&app, &first));
+        assert!(original_kept(&app, &again));
+        assert_eq!(
+            can_read_again(&app, &at.cook, &recipe)["from"],
+            json!("original")
+        );
+        assert_eq!(
+            can_read_again(&app, &at.cook, &recipe)["can_read_again"],
+            json!(true)
+        );
+
+        sweep_after(&app, &again, 31);
+        assert!(!original_kept(&app, &again));
+        assert_eq!(
+            can_read_again(&app, &at.cook, &recipe),
+            json!({
+                "can_read_again": false, "from": "original", "link": null,
+                "original": "pdf", "reason": "needs_the_file",
+            })
+        );
+    }
+
+    /// Once the Original is gone the ask says it needs the file and makes no
+    /// Job (#273). Asked with a file, it makes a Job reading that file, which
+    /// is kept as that Job's Original. A recipe that also has a Source link
+    /// is read from its Original all the same (the case the ticket settles).
+    /// A file handed over always makes a Job, the same one again included.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn with_the_original_gone_the_ask_needs_the_file_and_reads_what_is_handed_over() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let link = "https://a.example/biscuit";
+        let first = handed(&app, &at.cook, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        let work = ask_for_work(&app, &at.runner);
+        let job_key = work["job_key"].as_str().unwrap();
+        let (status, created) = app.post_op(
+            "create_recipe",
+            Some(job_key),
+            &json!({
+                "title": "Biscuit de Savoie",
+                "source": { "text": "a.example", "link": link },
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{created}");
+        let recipe = created["result"]["branch_id"].as_str().unwrap().to_string();
+        app.post_op(
+            "report_on_job",
+            Some(&at.runner),
+            &json!({ "job_id": first, "outcome": "completed" }).to_string(),
+        );
+        assert_eq!(
+            can_read_again(&app, &at.cook, &recipe),
+            json!({
+                "can_read_again": true, "from": "original", "link": link,
+                "original": "pdf", "reason": null,
+            })
+        );
+
+        sweep_after(&app, &first, 31);
+        assert_eq!(
+            can_read_again(&app, &at.cook, &recipe),
+            json!({
+                "can_read_again": false, "from": "original", "link": link,
+                "original": "pdf", "reason": "needs_the_file",
+            })
+        );
+        let jobs = agent_jobs_held(&app);
+        let (status, refused) = read_again(&app, &at.cook, &recipe, json!({}));
+        assert_eq!(status, 400, "{refused}");
+        assert_eq!(refused["error"]["reason"], json!("needs_the_file"));
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("again")
+        );
+        assert_eq!(agent_jobs_held(&app), jobs);
+
+        // Another file than the first: nothing checks it is the same.
+        let upload = staged(&app, &at.cook, SCANNED);
+        let job_id = asked_to_read_again(&app, &at.cook, &recipe, json!({ "upload_id": upload }));
+        let kept = std::fs::read(originals_dir(&app).join(&job_id)).expect("kept");
+        assert_eq!(kept, SCANNED);
+        let work = ask_for_work(&app, &at.runner);
+        assert_eq!(work["job_id"], json!(job_id));
+        assert_eq!(work["branch_id"], json!(recipe));
+        assert_eq!(work["link"], json!(null));
+        let (status, _, bytes) = fetch_original(&app, work["job_key"].as_str(), &job_id);
+        assert_eq!(status, 200);
+        assert_eq!(bytes, SCANNED);
+        let (status, reported) = app.post_op(
+            "report_on_job",
+            Some(&at.runner),
+            &json!({ "job_id": job_id, "outcome": "completed" }).to_string(),
+        );
+        assert_eq!(status, 200, "{reported}");
+
+        // The recipe now reads again from the file just handed over.
+        assert_eq!(
+            can_read_again(&app, &at.cook, &recipe)["can_read_again"],
+            json!(true)
+        );
+        // Handed over once more, the same file is a Job of its own, and so
+        // is the very first one, which #271 would have matched to the recipe.
+        let jobs = agent_jobs_held(&app);
+        let again = asked_to_read_again(
+            &app,
+            &at.cook,
+            &recipe,
+            json!({ "data": base64_of(BISCUIT) }),
+        );
+        assert_ne!(again, job_id);
+        assert_eq!(agent_jobs_held(&app), jobs + 1);
+        assert_eq!(
+            std::fs::read(originals_dir(&app).join(&again)).unwrap(),
+            BISCUIT
+        );
+    }
+
+    /// Pasted text is handed over again as text.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn text_whose_original_is_gone_is_pasted_again() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let first = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        let recipe = an_agent_creates(&app, &at.runner, "Tarte au citron");
+        sweep_after(&app, &first, 31);
+        assert_eq!(
+            can_read_again(&app, &at.cook, &recipe)["reason"],
+            json!("needs_the_file")
+        );
+        let job_id = asked_to_read_again(&app, &at.cook, &recipe, json!({ "text": pasted() }));
+        let work = ask_for_work(&app, &at.runner);
+        assert_eq!(work["original"]["kind"], json!("pasted_text"));
+        let (_, content_type, bytes) = fetch_original(&app, work["job_key"].as_str(), &job_id);
+        assert_eq!(content_type, "text/plain; charset=utf-8");
+        assert_eq!(bytes, pasted().into_bytes());
+    }
+
+    /// A recipe read from a link, or typed by hand, takes nothing handed
+    /// over, and a refusal leaves a staged file to be sent again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_that_came_from_no_file_takes_no_file() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let typed = |source: Value| {
+            let mut recipe = json!({ "title": "Soupe" });
+            if !source.is_null() {
+                recipe["source"] = source;
+            }
+            let (status, written) =
+                app.post_op("create_recipe", Some(&at.cook), &recipe.to_string());
+            assert_eq!(status, 200, "{written}");
+            written["result"]["branch_id"].as_str().unwrap().to_string()
+        };
+        let linked = typed(json!({ "text": "a.example", "link": "https://a.example/soupe" }));
+        let unlinked = typed(Value::Null);
+        assert_eq!(
+            can_read_again(&app, &at.cook, &unlinked),
+            json!({
+                "can_read_again": false, "from": null, "link": null,
+                "original": null, "reason": "nothing_to_read",
+            })
+        );
+
+        let upload = staged(&app, &at.cook, BISCUIT);
+        for recipe in [&linked, &unlinked] {
+            let (status, refused) =
+                read_again(&app, &at.cook, recipe, json!({ "upload_id": upload }));
+            assert_eq!(status, 400, "{refused}");
+            let (status, refused) = read_again(&app, &at.cook, recipe, json!({ "text": pasted() }));
+            assert_eq!(status, 400, "{refused}");
+        }
+        assert_eq!(agent_jobs_held(&app), 0);
+        // The staged file was not used up by the refusals.
+        handed(&app, &at.cook, json!({ "upload_id": upload }), "pdf");
+    }
+
+    /// After the Import is forgotten, a recipe from a file with no Source
+    /// link has nothing to read again: that memory was the Import's.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn after_the_import_is_forgotten_a_recipe_from_a_file_has_nothing_to_read_again() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        let recipe = an_agent_creates(&app, &at.runner, "Tarte au citron");
+        assert_eq!(
+            can_read_again(&app, &at.cook, &recipe)["from"],
+            json!("original")
+        );
+
+        let (_, listed) = app.post_op("list_imports", Some(&at.cook), "{}");
+        let import_id = listed["result"]["imports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|source| source["source_kind"] == json!("pasted_text"))
+            .and_then(|source| source["import_id"].as_str())
+            .unwrap_or_else(|| panic!("{listed}"))
+            .to_string();
+        let (status, forgot) = app.post_op(
+            "forget_import",
+            Some(&at.cook),
+            &json!({ "import_id": import_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{forgot}");
+
+        assert_eq!(
+            can_read_again(&app, &at.cook, &recipe),
+            json!({
+                "can_read_again": false, "from": null, "link": null,
+                "original": null, "reason": "nothing_to_read",
+            })
+        );
+        let (status, refused) = read_again(&app, &at.cook, &recipe, json!({}));
+        assert_eq!(status, 400, "{refused}");
+        assert_eq!(refused["error"]["reason"], json!("nothing_to_read"));
+    }
+
+    /// A Job that failed on a file before it made a recipe is asked again from
+    /// its kept Original by the Person who asked for it, and by nobody else
+    /// (#273). The new Job is handed over as the file was, and keeps the
+    /// Original as its own. One that made a recipe, or whose Original is gone,
+    /// is refused in words.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_job_that_failed_on_a_file_is_asked_again_by_its_asker_alone() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let co_author = a_cook(&app, "Marc");
+        super::write_together(&app, &at.cook, &co_author);
+
+        let failed = handed(&app, &at.cook, json!({ "data": base64_of(SCANNED) }), "pdf");
+        ask_for_work(&app, &at.runner);
+        let (status, reported) = app.post_op(
+            "report_on_job",
+            Some(&at.runner),
+            &json!({
+                "job_id": failed, "outcome": "could_not_be_read",
+                "reason": "The scan is too dark.",
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{reported}");
+
+        // Nobody but its asker, and to them it is not there.
+        let (status, _) = read_job_again(&app, &co_author, &failed);
+        assert_eq!(status, 404);
+        let (status, _) = read_job_again(&app, &at.runner, &failed);
+        assert_eq!(status, 401);
+
+        let (status, asked) = read_job_again(&app, &at.cook, &failed);
+        assert_eq!(status, 200, "{asked}");
+        assert_eq!(asked["result"]["source_kind"], json!("pdf"));
+        let job_id = asked["result"]["job_id"].as_str().unwrap().to_string();
+        assert_ne!(job_id, failed);
+        // Asked once more while it waits, the same file answers that Job.
+        let (_, once_more) = read_job_again(&app, &at.cook, &failed);
+        assert_eq!(once_more["result"]["job_id"], json!(job_id), "{once_more}");
+
+        let work = ask_for_work(&app, &at.runner);
+        assert_eq!(work["job_id"], json!(job_id));
+        assert_eq!(work["branch_id"], json!(null));
+        let (status, _, bytes) = fetch_original(&app, work["job_key"].as_str(), &job_id);
+        assert_eq!(status, 200);
+        assert_eq!(bytes, SCANNED);
+        let (_, read) = job(&app, &at.cook, &job_id);
+        assert_eq!(read["result"]["result"]["source_kind"], json!("pdf"));
+
+        // Its own 30 days: the failed Job's copy goes, the new one's stays.
+        sweep_after(&app, &failed, 31);
+        assert!(!original_kept(&app, &failed));
+        assert!(original_kept(&app, &job_id));
+        let (status, refused) = read_job_again(&app, &at.cook, &failed);
+        assert_eq!(status, 400, "{refused}");
+        assert_eq!(refused["error"]["reason"], json!("original_gone"));
+
+        // A Job that made a recipe is read again through the recipe.
+        let (_, created) = app.post_op(
+            "create_recipe",
+            Some(work["job_key"].as_str().unwrap()),
+            &json!({ "title": "Biscuit" }).to_string(),
+        );
+        assert!(created["result"]["branch_id"].is_string(), "{created}");
+        app.post_op(
+            "report_on_job",
+            Some(&at.runner),
+            &json!({ "job_id": job_id, "outcome": "completed" }).to_string(),
+        );
+        let (status, refused) = read_job_again(&app, &at.cook, &job_id);
+        assert_eq!(status, 400, "{refused}");
+        assert_eq!(refused["error"]["reason"], json!("not_failed_on_a_file"));
+
+        // A Job that read a link is not one that read a file.
+        let (status, written) = app.post_op(
+            "create_recipe",
+            Some(&at.cook),
+            &json!({ "title": "Soupe", "source": { "text": "a.example", "link": "https://a.example/soupe" } })
+                .to_string(),
+        );
+        assert_eq!(status, 200, "{written}");
+        let linked = written["result"]["branch_id"].as_str().unwrap();
+        let on_a_link = asked_to_read_again(&app, &at.cook, linked, json!({}));
+        let (status, _) = read_job_again(&app, &at.cook, &on_a_link);
+        assert_eq!(status, 404);
+    }
+
+    fn originals_dir(app: &support::TestApp) -> std::path::PathBuf {
+        kamosu::core::originals_dir(&app.core.data_dir())
+    }
+
+    /// Pasted text is known by no digest, so asking twice for a failed Job on
+    /// it answers the one Job the first ask made.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pasted_text_asked_again_twice_is_one_job() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let failed = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        ask_for_work(&app, &at.runner);
+        app.post_op(
+            "report_on_job",
+            Some(&at.runner),
+            &json!({ "job_id": failed, "outcome": "could_not_be_read", "reason": "No recipe." })
+                .to_string(),
+        );
+        let (status, first) = read_job_again(&app, &at.cook, &failed);
+        assert_eq!(status, 200, "{first}");
+        let jobs = agent_jobs_held(&app);
+        let (_, second) = read_job_again(&app, &at.cook, &failed);
+        assert_eq!(second["result"]["job_id"], first["result"]["job_id"]);
+        assert_eq!(agent_jobs_held(&app), jobs);
+    }
+
+    /// What a recipe would be read from is said whatever stands in the way:
+    /// with no Runner, an Original that is gone is still where it came from.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn from_says_original_whatever_the_reason() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let first = handed(&app, &at.cook, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        let recipe = an_agent_creates(&app, &at.runner, "Biscuit de Savoie");
+        sweep_after(&app, &first, 31);
+        let (_, keys) = app.post_op("list_runner_keys", Some(&at.cook), "{}");
+        let key_id = keys["result"]["runner_keys"][0]["id"].clone();
+        let (status, _) = app.post_op(
+            "revoke_runner_key",
+            Some(&at.cook),
+            &json!({ "runner_key_id": key_id }).to_string(),
+        );
+        assert_eq!(status, 200);
+        assert_eq!(
+            can_read_again(&app, &at.cook, &recipe),
+            json!({
+                "can_read_again": false, "from": "original", "link": null,
+                "original": "pdf", "reason": "no_runner",
+            })
+        );
+    }
+
+    /// A recipe read from a file still knows it after the Person who handed
+    /// it over left the Cookbook with it: its Import is still there, in the
+    /// Cookbook they left.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_from_a_file_still_reads_again_after_its_cook_left_the_cookbook() {
+        let app = support::spawn_app();
+        let runner = another_runner(&app, "the kitchen's Runner");
+        let host = a_cook(&app, "Host");
+        let guest = a_cook(&app, "Guest");
+        joins(&app, &guest, &host);
+        handed(&app, &guest, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        let recipe = an_agent_creates(&app, &runner, "Biscuit de Savoie");
+        let (status, left) = app.post_op("leave_cookbook", Some(&guest), "{}");
+        assert_eq!(status, 200, "{left}");
+
+        let can = can_read_again(&app, &guest, &recipe);
+        assert_eq!(can["from"], json!("original"), "{can}");
+        assert_eq!(can["can_read_again"], json!(true), "{can}");
     }
 }

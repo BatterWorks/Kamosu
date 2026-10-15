@@ -1,6 +1,7 @@
 //! Originals: pasted text, a PDF or a picture handed to an agent, kept beside
 //! the database until 30 days after its Job ended, and fetched by that Job's
-//! Job Key alone (ADR 0048, #269, #270).
+//! Job Key alone (ADR 0048, #269, #270). A Job that reads a kept Original
+//! again keeps it as its own, under its own id (#273).
 //!
 //! An Original is a file under `originals/` in the data directory, named by
 //! its Job's id. It is no Photograph: no recipe names it, and the Photograph
@@ -58,7 +59,63 @@ impl Core {
             Handed::Text(_) => None,
         };
         let (kind, bytes) = kept_as(handed)?;
+        self.hand_to_agent(
+            caller,
+            kind,
+            digest.as_deref(),
+            Keeping::Bytes(&bytes),
+            None,
+        )
+    }
 
+    /// Hand an agent again the kept Original of a Job of the caller's that
+    /// failed before its agent made a recipe (#273), so the cook need not find
+    /// the file. It is handed over as the file was, a Job of its own matched
+    /// as the same file is (#271), and the new Job keeps the Original as its
+    /// own, counting its 30 days from itself.
+    ///
+    /// Only the Person who asked for the Job may, and to anybody else it is
+    /// not there (ADR 0040). A Job that made a recipe, or has not failed, is
+    /// refused with reason `not_failed_on_a_file`, and one whose Original
+    /// was deleted with reason `original_gone`.
+    pub fn read_job_again(&self, caller: &Caller, job_id: &str) -> Result<Value, OpError> {
+        self.ensure_has_runner()?;
+        let job = self
+            .db()
+            .with_conn(|conn| jobs::job_on_an_original(conn, job_id))?
+            .filter(|job| job.asker.as_deref() == Some(caller.person_id.as_str()))
+            .ok_or_else(|| jobs::no_such_job(job_id))?;
+        if job.status != jobs::JobStatus::Failed || job.branch_id.is_some() {
+            return Err(OpError::refused_because(
+                "not_failed_on_a_file",
+                "only a Job that failed before its agent made a recipe is asked again from \
+                 its Original. A recipe the agent made is read again with read_recipe_again",
+            ));
+        }
+        if !original_is_kept(&self.data_dir(), job_id, job.deleted) {
+            return Err(original_gone());
+        }
+        self.hand_to_agent(
+            caller,
+            job.kind,
+            job.digest.as_deref(),
+            Keeping::From(job_id),
+            Some(job_id),
+        )
+    }
+
+    /// Make the Job that hands an agent an Original, and keep the Original as
+    /// that Job's (#269). A file known by its `digest` answers the caller's
+    /// Job standing on it, or the recipe its agent made, instead (#271), and
+    /// so does the failed Job `again_of` names, asked again already (#273).
+    fn hand_to_agent(
+        &self,
+        caller: &Caller,
+        kind: OriginalKind,
+        digest: Option<&str>,
+        keeping: Keeping,
+        again_of: Option<&str>,
+    ) -> Result<Value, OpError> {
         let dir = originals_dir(&self.data_dir());
         std::fs::create_dir_all(&dir)
             .map_err(|e| OpError::internal(format!("cannot make a place for Originals: {e}")))?;
@@ -66,7 +123,12 @@ impl Core {
         self.db().with_conn(|conn| {
             let cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
             let import_id = find_or_create_import(conn, &cookbook_id, kind.as_str())?;
-            if let Some(digest) = &digest {
+            if let Some(again_of) = again_of
+                && let Some(job_id) = jobs::standing_job_again_of(conn, again_of)?
+            {
+                return Ok(json!({ "job_id": job_id, "source_kind": kind.as_str() }));
+            }
+            if let Some(digest) = digest {
                 if let Some(job_id) =
                     jobs::standing_job_on_file(conn, &caller.person_id, &import_id, digest)?
                 {
@@ -81,7 +143,7 @@ impl Core {
             // The Job and its Original appear together or not at all: no
             // Runner is handed a Job whose file is not there yet.
             let tx = conn.unchecked_transaction().map_err(failed)?;
-            let job_id = jobs::wait_for_agent_on_original(&tx, caller, kind, digest.as_deref())?;
+            let job_id = jobs::wait_for_agent_on_original(&tx, caller, kind, digest, again_of)?;
             jobs::set_result(
                 &tx,
                 &job_id,
@@ -97,11 +159,9 @@ impl Core {
                     "agent_jobs": [{ "job_id": job_id, "branch_id": null }],
                 }),
             )?;
-            let path = dir.join(&job_id);
-            std::fs::write(&path, &bytes)
-                .map_err(|e| OpError::internal(format!("cannot keep the Original: {e}")))?;
+            keep_original(&dir, &job_id, keeping)?;
             if let Err(e) = tx.commit() {
-                let _ = std::fs::remove_file(&path);
+                let _ = std::fs::remove_file(dir.join(&job_id));
                 return Err(failed(e));
             }
             Ok(json!({ "job_id": job_id, "source_kind": kind.as_str() }))
@@ -234,6 +294,48 @@ fn recipe_in_ledger(
     .map_err(|e| OpError::internal(format!("cannot read the Import ledger: {e}")))
 }
 
+/// What a Job's Original is kept from: bytes handed over now, or the kept
+/// Original of an earlier Job, which the new Job keeps as its own (#273).
+pub(super) enum Keeping<'a> {
+    Bytes(&'a [u8]),
+    From(&'a str),
+}
+
+/// Keep `job_id`'s Original in `dir`. One kept already is linked rather than
+/// copied, so the bytes are on the disk once while each Job's 30 days are
+/// its own, and copied where the disk cannot link.
+pub(super) fn keep_original(
+    dir: &std::path::Path,
+    job_id: &str,
+    keeping: Keeping,
+) -> Result<(), OpError> {
+    let path = dir.join(job_id);
+    let kept = match keeping {
+        Keeping::Bytes(bytes) => std::fs::write(&path, bytes),
+        Keeping::From(earlier) => {
+            let from = dir.join(earlier);
+            std::fs::hard_link(&from, &path).or_else(|_| std::fs::copy(&from, &path).map(|_| ()))
+        }
+    };
+    kept.map_err(|e| OpError::internal(format!("cannot keep the Original: {e}")))
+}
+
+/// Whether a Job's Original is still on the disk: not deleted by the sweep,
+/// and there, which on an instance restored from a Backup it is not.
+pub(super) fn original_is_kept(data_dir: &std::path::Path, job_id: &str, deleted: bool) -> bool {
+    !deleted && originals_dir(data_dir).join(job_id).is_file()
+}
+
+/// Refused, with reason `original_gone`, where an Original is asked for that
+/// was deleted 30 days after its Job ended.
+pub(super) fn original_gone() -> OpError {
+    OpError::refused_because(
+        "original_gone",
+        "Kamosu deleted what was handed over 30 days after its Job ended, so there is \
+         nothing kept to read again. Hand the file over again, or paste the text again",
+    )
+}
+
 /// Where Originals are kept, under the one data directory and beside the
 /// Photographs rather than among them.
 pub fn originals_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
@@ -243,7 +345,7 @@ pub fn originals_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
 /// What is kept of what was handed over, and as what kind. Each kind is held
 /// to the limit Kamosu already sets for it, and a file that is neither a PDF
 /// nor a picture is refused.
-fn kept_as(handed: Handed) -> Result<(OriginalKind, Vec<u8>), OpError> {
+pub(super) fn kept_as(handed: Handed) -> Result<(OriginalKind, Vec<u8>), OpError> {
     match handed {
         Handed::Text(text) => {
             if text.trim().is_empty() {

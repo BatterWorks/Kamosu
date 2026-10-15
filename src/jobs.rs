@@ -531,6 +531,145 @@ pub fn wait_for_agent_to_read_again(
     )
 }
 
+/// Have an agent read again, into the recipe `branch_id`, an Original of
+/// `kind` that the caller keeps under the id this answers (#273). As
+/// [`wait_for_agent_to_read_again`], which reads a link: the Job is the
+/// recipe's from the start, so its agent writes it and creates none.
+pub fn wait_for_agent_to_read_original_again(
+    conn: &Connection,
+    caller: &Caller,
+    branch_id: &str,
+    kind: OriginalKind,
+) -> Result<String, OpError> {
+    let job_id = insert(
+        conn,
+        AGENT_OPERATION,
+        Some(caller),
+        &json!({ "source_kind": READ_AGAIN }),
+    )?;
+    conn.execute(
+        "INSERT INTO agent_jobs (job_id, branch_id, original) VALUES (?1, ?2, ?3)",
+        params![job_id, branch_id, kind.as_str()],
+    )
+    .map_err(|e| OpError::internal(format!("cannot record the agent's Job: {e}")))?;
+    Ok(job_id)
+}
+
+/// The Original a recipe was last read from (#273): the agent's Job that read
+/// it, what kind it is, and whether the sweep has deleted it since (#270).
+pub struct RecipesOriginal {
+    pub job_id: String,
+    pub kind: OriginalKind,
+    pub deleted: bool,
+}
+
+/// The Original the latest agent's Job on a recipe read, where that Job's
+/// Import is still there (#273). That a recipe came from a file is the
+/// Import's memory and never the recipe's: nothing about it is in a Version,
+/// and forgetting the Import forgets it. The Import may be another Cookbook's
+/// than the recipe's, as where the Person who asked left with it.
+pub fn original_of_recipe(
+    conn: &Connection,
+    branch_id: &str,
+) -> Result<Option<RecipesOriginal>, OpError> {
+    let found: Option<(String, String, bool)> = conn
+        .query_row(
+            "SELECT agent_jobs.job_id, agent_jobs.original,
+                    agent_jobs.original_deleted_at IS NOT NULL
+               FROM agent_jobs
+               JOIN jobs ON jobs.id = agent_jobs.job_id
+               JOIN imports ON imports.id = json_extract(jobs.result, '$.import_id')
+              WHERE agent_jobs.branch_id = ?1 AND agent_jobs.original IS NOT NULL
+              ORDER BY jobs.created_at DESC, jobs.rowid DESC
+              LIMIT 1",
+            params![branch_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the recipe's Original: {e}")))?;
+    Ok(found.and_then(|(job_id, kind, deleted)| {
+        OriginalKind::named(&kind).map(|kind| RecipesOriginal {
+            job_id,
+            kind,
+            deleted,
+        })
+    }))
+}
+
+/// The Job that waits or is held reading again the Original of the failed
+/// Job `job_id` (#273). Pasted text is known by no digest, so this is how
+/// asking twice answers the one Job.
+pub fn standing_job_again_of(conn: &Connection, job_id: &str) -> Result<Option<String>, OpError> {
+    conn.query_row(
+        "SELECT id FROM jobs
+          WHERE json_extract(input, '$.again_of') = ?1 AND status IN ('queued', 'running')
+          ORDER BY created_at
+          LIMIT 1",
+        params![job_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read the Job asked again: {e}")))
+}
+
+/// An agent's Job that read an Original, as asking it again needs it (#273):
+/// who asked, how it stands, whether it made a recipe, and its Original.
+pub struct JobOnAnOriginal {
+    pub asker: Option<String>,
+    pub status: JobStatus,
+    pub branch_id: Option<String>,
+    pub kind: OriginalKind,
+    pub digest: Option<String>,
+    pub deleted: bool,
+}
+
+/// The Job `job_id` names, where it is an agent's Job that read an Original.
+pub fn job_on_an_original(
+    conn: &Connection,
+    job_id: &str,
+) -> Result<Option<JobOnAnOriginal>, OpError> {
+    type Row = (
+        Option<String>,
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+        bool,
+    );
+    let found: Option<Row> = conn
+        .query_row(
+            "SELECT jobs.person_id, jobs.status, agent_jobs.branch_id, agent_jobs.original,
+                    agent_jobs.original_digest, agent_jobs.original_deleted_at IS NOT NULL
+               FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
+              WHERE jobs.id = ?1 AND agent_jobs.original IS NOT NULL",
+            params![job_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the Job: {e}")))?;
+    Ok(
+        found.and_then(|(asker, status, branch_id, kind, digest, deleted)| {
+            OriginalKind::named(&kind).map(|kind| JobOnAnOriginal {
+                asker,
+                status: JobStatus::from_column(status),
+                branch_id,
+                kind,
+                digest,
+                deleted,
+            })
+        }),
+    )
+}
+
 /// SQL that holds for an agent's Job that is its own Import, on a `jobs`
 /// row: one reading an Original (#269) or a recipe read again (#272). Its
 /// result is the Import Report it was asked with. A Job on a link an Import
@@ -596,18 +735,19 @@ impl OriginalKind {
 /// what kind of thing it reads and holds nothing of it: the Original is a
 /// file the caller keeps beside the database, named by the id this answers.
 /// `digest` is a file's, by which the same file is known again (#271).
+/// `again_of` is the failed Job whose Original this one reads again (#273).
 pub fn wait_for_agent_on_original(
     conn: &Connection,
     caller: &Caller,
     kind: OriginalKind,
     digest: Option<&str>,
+    again_of: Option<&str>,
 ) -> Result<String, OpError> {
-    let job_id = insert(
-        conn,
-        AGENT_OPERATION,
-        Some(caller),
-        &json!({ "source_kind": kind.as_str() }),
-    )?;
+    let mut input = json!({ "source_kind": kind.as_str() });
+    if let Some(again_of) = again_of {
+        input["again_of"] = json!(again_of);
+    }
+    let job_id = insert(conn, AGENT_OPERATION, Some(caller), &input)?;
     conn.execute(
         "INSERT INTO agent_jobs (job_id, original, original_digest) VALUES (?1, ?2, ?3)",
         params![job_id, kind.as_str(), digest],
@@ -950,7 +1090,8 @@ fn from_now(hold: std::time::Duration) -> String {
 /// What a Runner is handed with a Job: what to read, which recipe it is for
 /// (#262), the Job Key its agent presents (#263), and the deadline of its
 /// hold (#266). What to read is a link or an Original, never both (#269). A
-/// Job reading an Original has no recipe until its agent creates one.
+/// Job reading an Original has no recipe until its agent creates one, unless
+/// it reads a recipe again (#273).
 pub struct AgentWork {
     pub job_id: String,
     pub branch_id: Option<String>,
