@@ -27,9 +27,12 @@ three things:
 - **Its instructions**: what to do with a Job, written for an agent working
   alone. See [Writing the agent's instructions](#writing-the-agents-instructions).
 
-Kamosu ships no agent, no instructions and no image with an agent in it. Do not
-look for one. Kamosu's own image holds one program and no shell, so the agent
-cannot live in it either.
+Kamosu publishes no agent and no image with an agent in it. Its repository
+holds the recipe for one you build yourself, with opencode, the tools and a
+set of instructions: see
+[The image Kamosu's repository builds](#the-image-kamosus-repository-builds).
+Kamosu's own image holds one program and no shell, so the agent cannot live in
+it.
 
 ## How it works
 
@@ -67,6 +70,11 @@ These are the Jobs that go to an agent, once a Runner Key exists:
 - **The Runner of the same version as the Kamosu it asks.** Kamosu refuses a
   Runner of any other version. Upgrade both together.
 - **An agent that runs unattended** on that machine, started by one command.
+  If it reaches Kamosu over MCP, its MCP client must speak revision
+  2026-07-28, the only one Kamosu's MCP door speaks: stateless, with no
+  `initialize` handshake. A client that opens with `initialize` is refused, and
+  the agent is left without Kamosu's tools. opencode 1.x is one such client;
+  opencode 2 speaks it when the server is set to `"protocol": "2026-07-28"`.
 
 ## 1. Make a Runner Key
 
@@ -231,8 +239,75 @@ kamosu runner --kamosu https://recipes.kamosu.example -- /opt/runner/read-a-reci
 
 The command is usually a short script of your own that reads `job.json`,
 connects the agent to Kamosu's MCP door with the Job Key, starts it with your
-instructions, and leaves `report.json` if the agent did not. The two sections
-after the next one are its contract.
+instructions, and leaves `report.json` if the agent did not. Its contract is
+[What the agent is handed](#what-the-agent-is-handed) and
+[What the agent leaves](#what-the-agent-leaves).
+
+## The image Kamosu's repository builds
+
+`runner-image/` in Kamosu's repository builds an image that does steps 2 to 4
+for you: the Runner, an agent, its tools and its instructions, ready to start.
+Kamosu does not publish it. Build it from the repository of the version your
+Kamosu runs.
+
+- **The agent is [opencode](https://opencode.ai) 2**, which speaks to any of
+  several dozen model providers, or to any that offers an OpenAI-compatible
+  API. Nothing in the image names a provider or a model: you give both when
+  the container starts.
+- **The tools**: yt-dlp, which takes its nightly build each time the container
+  starts, ffmpeg, deno for yt-dlp's YouTube support, curl, python3, and
+  poppler for turning a PDF's pages into pictures.
+- **The instructions** are `runner-image/instructions.md`: one recipe, read
+  alone, for each kind of Job. Edit them before you build to suit your
+  library.
+- **Two users, neither of them root.** `runner` runs `kamosu runner` and holds
+  the Runner Key. Each Job is handed to `agent` through one `sudo` rule, with
+  `job.json` and nothing else, so the agent cannot read the Runner Key or the
+  Runner's folders. A Job stops whatever the last one left running.
+
+Build it from Kamosu's image of the same version:
+
+```sh
+git clone https://github.com/BatterWorks/Kamosu && cd Kamosu && git checkout v<version>
+docker build -t kamosu-runner \
+  --build-arg KAMOSU_IMAGE=docker.io/battermanz/kamosu:<version> runner-image
+```
+
+With Podman, add `--format docker` and use the `podman-<version>` tag.
+
+The container takes its settings from an environment file, kept as the
+Runner Key's file above is:
+
+| Variable | What it holds |
+|---|---|
+| `KAMOSU_RUNNER_KEY` | The Runner Key from step 1. |
+| `KAMOSU_AGENT_MODEL` | The model, as opencode names it: `provider/model`. The command below lists them. |
+| The provider's own key | Under the name opencode reads for that provider, such as `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY`. |
+| `KAMOSU_AGENT_EFFORT` | Optional. How hard the model thinks before it answers, in opencode's words for that model, such as `low`, `high` or `max`. Without it, the model's own default. |
+
+To see the models your key opens, ask opencode in the image you built:
+
+```sh
+docker run --rm --env-file ~/.config/kamosu-runner.env --entrypoint opencode \
+  kamosu-runner models --standalone
+```
+
+To change model or effort, edit the file and start the container again.
+
+The image's own command adds the agent command itself, so the container is
+given only Kamosu's address:
+
+```sh
+docker run -d --name kamosu-runner --restart on-failure:3 \
+  --env-file ~/.config/kamosu-runner.env \
+  kamosu-runner --kamosu https://recipes.kamosu.example
+```
+
+A container started without `KAMOSU_AGENT_MODEL` says so and exits. Check it
+with pasted text as in step 3, and read the Runner's output with
+`docker logs kamosu-runner`. In Kamosu's repository, `just runner-image`
+builds both images from the working copy, and `just runner-start` starts it
+beside the development instance.
 
 ## Where to run it
 
@@ -263,7 +338,10 @@ does not cover:
 
 Running the agent as another user than the Runner closes both: start it through
 `sudo -u` or `setpriv` in your command, or give the Runner a container of its
-own.
+own. `sudo --preserve-env` carries the Runner's `PWD` across, which names the
+Job's folder the agent cannot open; set `PWD` to the agent's own folder before
+starting it, because opencode takes its project from `PWD` and fails without
+one it can read.
 
 ## What the agent is handed
 

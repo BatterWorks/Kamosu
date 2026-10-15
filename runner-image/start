@@ -1,0 +1,21 @@
+#!/bin/sh
+# The container's own command, as the Runner's user. Its arguments go to
+# `kamosu runner`, so the container is started as
+#
+#   kamosu-runner --kamosu http://kamosu:5266
+#
+# and the agent command is this image's own.
+set -eu
+
+if [ -z "${KAMOSU_AGENT_MODEL:-}" ]; then
+    echo "Set KAMOSU_AGENT_MODEL to the model the agent uses, as provider/model," >&2
+    echo "and the provider's key in that provider's own variable. See docs/runner.md." >&2
+    exit 2
+fi
+
+# yt-dlp's stable build lags video sites' changes by weeks, so it takes the
+# nightly build each time the container starts. A failed update leaves the
+# build it has, which still reads most videos.
+yt-dlp --update-to nightly >&2 || echo "yt-dlp could not update itself and reads with the build it has." >&2
+
+exec kamosu runner "$@" -- /opt/kamosu-runner/read-a-recipe

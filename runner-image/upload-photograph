@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Store one picture in Kamosu as a Photograph, and print its id.
+
+    upload-photograph <file>
+
+The bytes go as the whole body of `POST <kamosu>api/photographs`, with the
+Job Key, which keeps a picture out of the agent's context. The id it prints
+goes in a recipe's `main_photo` or a step's `photo`.
+"""
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+if len(sys.argv) != 2:
+    sys.exit("usage: upload-photograph <file>")
+with open(sys.argv[1], "rb") as f:
+    body = f.read()
+request = urllib.request.Request(
+    urllib.parse.urljoin(os.environ["KAMOSU_ADDRESS"], "api/photographs"),
+    data=body,
+    headers={
+        "Authorization": "Bearer " + os.environ["KAMOSU_JOB_KEY"],
+        "Content-Type": "application/octet-stream",
+    },
+)
+try:
+    with urllib.request.urlopen(request, timeout=120) as answer:
+        print(json.load(answer)["result"]["photograph_id"])
+except urllib.error.HTTPError as e:
+    sys.exit(f"Kamosu refused the picture: {e.code} {e.read().decode(errors='replace')}")

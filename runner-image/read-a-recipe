@@ -1,0 +1,11 @@
+#!/bin/sh
+# The command the Runner starts for each Job, as the Runner's user, inside the
+# Job's folder. It hands job.json to the agent's user and writes what comes back
+# as report.json. The agent never sees this folder, which is the Runner's alone.
+#
+# --preserve-env carries the Operator's model settings across, and the Runner
+# has already taken its own key out of this environment (`docs/runner.md`,
+# "What the agent is handed").
+set -eu
+exec sudo --non-interactive --preserve-env --user=agent \
+    /opt/kamosu-runner/agent-job <job.json >report.json
