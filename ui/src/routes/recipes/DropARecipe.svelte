@@ -24,6 +24,12 @@
 	More than one file is refused like anything else that is no recipe: every
 	row under the + takes one.
 
+	**On an instance with a Runner a photo of a page is taken too** (#278), and
+	a photo and a PDF go to Kamosu's AI agent, shown once on the sheet that
+	asks before they are sent: the cover says so while they are held. Whether
+	there is a Runner is read from the server when a drag arrives, and again
+	when it is let go. With no Runner a photo is refused in words, as before.
+
 	**Not while a sheet is open over the page**, the one a PDF is checked on
 	included, and not while an act is running. A drop then is turned away
 	like one on any other screen.
@@ -35,12 +41,13 @@
 	import DropCover from '$lib/DropCover.svelte';
 	import { underASheet } from '$lib/page';
 	import type { Act, Adding } from '$lib/adding/adding.svelte';
-	import { ICON, WAITS_FOR_SERVER } from '$lib/adding/sources';
+	import { untrack } from 'svelte';
+	import { ICON, waitsForServer } from '$lib/adding/sources';
 
-	/** The three acts a drop can be. */
-	type Source = Extract<Act, 'pdf' | 'file' | 'link'>;
+	/** The four acts a drop can be. A photo only where there is a Runner (#278). */
+	type DropAct = Extract<Act, 'pdf' | 'file' | 'link' | 'picture'>;
 	/** What the page says while something is held over it. */
-	type Held = Source | 'unsure' | 'photo' | 'no';
+	type Held = DropAct | 'unsure' | 'photo' | 'no';
 
 	interface Props {
 		adding: Adding;
@@ -56,11 +63,16 @@
 	 * Which act a file is, by its type and, once it is let go, its name. A
 	 * Bundle is a zip, which Windows calls `application/x-zip-compressed`.
 	 */
-	function sourceOf(type: string, name = ''): Exclude<Source, 'link'> | undefined {
+	function sourceOf(type: string, name = ''): Exclude<DropAct, 'link'> | undefined {
 		if (type === 'application/pdf' || /\.pdf$/i.test(name)) return 'pdf';
 		if (/^application\/(x-)?zip/.test(type) || /\.zip$/i.test(name)) return 'file';
+		if (type.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(name))
+			return 'picture';
 		return undefined;
 	}
+
+	/** Whether this instance has a Runner, as last read from the server (#278). */
+	const runner = $derived(adding.runner === true);
 
 	/** What the browser admits to, before the name is known. */
 	function held(carried: Carried): Held {
@@ -68,11 +80,13 @@
 		if (carried.files.length !== 1) return 'no';
 		const type = carried.files[0];
 		if (type === '') return 'unsure';
-		return sourceOf(type) ?? (type.startsWith('image/') ? 'photo' : 'no');
+		const source = sourceOf(type);
+		if (source === 'picture') return runner ? 'picture' : 'photo';
+		return source ?? 'no';
 	}
 
 	/** The act to run on what was let go, or nothing where it is no recipe. */
-	function actOn(dropped: Dropped): { source: Source; run: () => void } | undefined {
+	function actOn(dropped: Dropped): { source: DropAct; run: () => void } | undefined {
 		if ('link' in dropped) {
 			const url = dropped.link;
 			if (!url || !/^https?:\/\//i.test(url)) return undefined;
@@ -81,19 +95,29 @@
 		if (dropped.files.length !== 1) return undefined;
 		const file = dropped.files[0];
 		const source = sourceOf(file.type, file.name);
+		if (source === 'pdf') return { source, run: () => void adding.pdfChosen(file) };
+		// Refused without a Runner, once that has been read again (#278).
+		if (source === 'picture') return { source, run: () => void adding.pictureChosen(file) };
 		return source && { source, run: () => void adding[source](file) };
 	}
 
 	function take(dropped: Dropped) {
 		ondrop();
 		const act = actOn(dropped);
-		if (!act) adding.refuse(m.drop_recipes_refused());
-		else if (offline) adding.waitFor(WAITS_FOR_SERVER[act.source]());
+		const refused = runner ? m.drop_recipes_refused_agent() : m.drop_recipes_refused();
+		if (!act || (offline && act.source === 'picture' && !runner)) adding.refuse(refused);
+		else if (offline) adding.waitFor(waitsForServer(act.source, runner));
 		else act.run();
 	}
 
 	const zone = new DropZone(take, () => adding.working === null && !underASheet());
 	$effect(() => zone.listen(window));
+
+	/** A drag arriving is when to ask whether there is a Runner, so the cover can say. */
+	const dragging = $derived(zone.over !== null);
+	$effect(() => {
+		if (dragging && !offline) untrack(() => void adding.readRunner());
+	});
 
 	const showing = $derived(zone.over ? held(zone.over) : null);
 	const refuses = $derived(showing === 'photo' || showing === 'no');
@@ -102,20 +126,27 @@
 		link: ICON.link,
 		file: ICON.file,
 		pdf: ICON.pdf,
+		picture: ICON.picture,
 		unsure: DRAWN.unsure,
 		photo: DRAWN.no,
 		no: DRAWN.no,
 	};
 
 	/** The headline, and the sentence under it. */
-	const WORDS: Record<Held, [() => string, () => string]> = {
-		pdf: [m.drop_recipes_pdf, m.drop_recipes_pdf_then],
-		file: [m.drop_recipes_bundle, m.drop_recipes_bundle_then],
-		link: [m.drop_recipes_link, m.drop_recipes_link_then],
-		unsure: [m.drop_recipes_unsure, m.drop_recipes_takes],
-		photo: [m.drop_recipes_photo, m.drop_recipes_takes],
-		no: [m.drop_recipes_no, m.drop_recipes_takes],
-	};
+	const WORDS = $derived.by((): Record<Held, [() => string, () => string]> => {
+		const takes = runner ? m.drop_recipes_takes_agent : m.drop_recipes_takes;
+		return {
+			pdf: runner
+				? [m.drop_recipes_agent_pdf, m.drop_recipes_agent_then]
+				: [m.drop_recipes_pdf, m.drop_recipes_pdf_then],
+			picture: [m.drop_recipes_picture, m.drop_recipes_agent_then],
+			file: [m.drop_recipes_bundle, m.drop_recipes_bundle_then],
+			link: [m.drop_recipes_link, m.drop_recipes_link_then],
+			unsure: [m.drop_recipes_unsure, takes],
+			photo: [m.drop_recipes_photo, takes],
+			no: [m.drop_recipes_no, takes],
+		};
+	});
 
 	/**
 	 * Offline, a source says what its row under the + says and nothing more.
@@ -123,8 +154,9 @@
 	 * once it is let go.
 	 */
 	const waitsFor = $derived(
-		offline && (showing === 'pdf' || showing === 'file' || showing === 'link')
-			? WAITS_FOR_SERVER[showing]()
+		offline &&
+			(showing === 'pdf' || showing === 'file' || showing === 'link' || showing === 'picture')
+			? waitsForServer(showing, runner)
 			: null,
 	);
 </script>

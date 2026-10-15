@@ -32,6 +32,15 @@
 	rows are drawn here rather than with `NeedsServer`, whose button holds one
 	line of words and no icon.
 
+	**On an instance with a Runner the list is two groups** (#278, option 2,
+	chosen 15 October 2026): the quick ways on top, and under "Kamosu's AI
+	agent reads it · a few minutes" a photo of a page, a PDF and pasted text,
+	which go to the agent and take minutes. A photo or a PDF is shown once on
+	`SendSheet` before it goes. Whether there is a Runner is read from the
+	server each time the list opens, never from what the phone kept, and the
+	first time the list waits for the answer rather than redraw under the
+	finger. With no Runner the list is the five rows it always was.
+
 	**A PDF, a Kamosu zip file or a link can be dropped on Recipes instead**
 	(#204), and is the same act as its row here: `DropARecipe` holds no act of
 	its own, only this +'s `adding`, and offline it says what the row says.
@@ -47,7 +56,7 @@
 	import ToCheck from '$lib/adding/ToCheck.svelte';
 	import FilePicker from '$lib/adding/FilePicker.svelte';
 	import Said from '$lib/adding/Said.svelte';
-	import { ICON, WAITS_FOR_SERVER } from '$lib/adding/sources';
+	import { ICON, waitsForServer, type Source } from '$lib/adding/sources';
 	import DropARecipe from './DropARecipe.svelte';
 
 	interface Props {
@@ -64,32 +73,76 @@
 	/** Whether the list of sources is showing. */
 	let open = $state(false);
 	/** The source whose field is revealed under the search row, if any. */
-	let showing = $state<Exclude<Act, 'file' | 'pdf'> | null>(null);
+	let showing = $state<Exclude<Act, 'file' | 'pdf' | 'picture' | 'send'> | null>(null);
 	let picker = $state<FilePicker | undefined>(undefined);
 	let pdfPicker = $state<FilePicker | undefined>(undefined);
+	let picturePicker = $state<FilePicker | undefined>(undefined);
 	/** The + and its list, so a tap anywhere else can close the list. */
 	let anchor = $state<HTMLDivElement | undefined>(undefined);
 
-	function choose(act: Act) {
+	function choose(act: Source) {
 		open = false;
+		// A new choice, so what the last one said is put away (#278).
+		adding.quiet();
 		if (act === 'file') {
 			showing = null;
 			picker?.open();
 		} else if (act === 'pdf') {
 			showing = null;
 			pdfPicker?.open();
+		} else if (act === 'picture') {
+			showing = null;
+			picturePicker?.open();
 		} else {
 			showing = act;
 		}
 	}
 
-	const sources: { act: Act; label: () => string; why: () => string }[] = [
+	/**
+	 * Open the list, or close it. Whether there is a Runner is read each
+	 * time it opens; the first time, the list waits for the answer.
+	 */
+	async function toggle() {
+		if (open) {
+			open = false;
+			return;
+		}
+		showing = null;
+		if (online.current) {
+			const reading = adding.readRunner();
+			if (adding.runner === null) await reading;
+		}
+		open = true;
+	}
+
+	interface Row {
+		act: Source;
+		label: () => string;
+		why: () => string;
+	}
+
+	/** On an instance with no Runner, as on every instance before #278. */
+	const ALL: Row[] = [
 		{ act: 'link', label: m.plus_link, why: m.plus_link_why },
 		{ act: 'file', label: m.plus_file, why: m.plus_file_why },
 		{ act: 'pdf', label: m.plus_pdf, why: m.plus_pdf_why },
 		{ act: 'paste', label: m.plus_paste, why: m.plus_paste_why },
 		{ act: 'write', label: m.plus_write, why: m.plus_write_why },
 	];
+	/** With a Runner: the quick ways, then what Kamosu's AI agent reads (#278). */
+	const QUICK: Row[] = [
+		{ act: 'link', label: m.plus_link, why: m.plus_link_why },
+		{ act: 'file', label: m.plus_file, why: m.plus_file_why },
+		{ act: 'write', label: m.plus_write, why: m.plus_write_why },
+	];
+	const BY_AGENT: Row[] = [
+		{ act: 'picture', label: m.plus_picture, why: m.plus_picture_why },
+		{ act: 'pdf', label: m.plus_agent_pdf, why: m.plus_agent_pdf_why },
+		{ act: 'paste', label: m.plus_agent_paste, why: m.plus_agent_paste_why },
+	];
+	const groups = $derived(adding.runner ? [QUICK, BY_AGENT] : [ALL]);
+	/** The heading over the field a row opens, which is that row's own label. */
+	const opened = $derived(groups.flat().find((row) => row.act === showing));
 
 	/**
 	 * Something was dropped on Recipes (#204). It is a new choice, as tapping
@@ -113,6 +166,7 @@
 
 <FilePicker {adding} bind:this={picker} />
 <FilePicker {adding} kind="pdf" bind:this={pdfPicker} />
+<FilePicker {adding} kind="picture" bind:this={picturePicker} />
 <DropARecipe {adding} offline={!online.current} ondrop={dropped} />
 
 <div class="flex items-stretch gap-2">
@@ -125,10 +179,7 @@
 			aria-expanded={open}
 			aria-controls={listId}
 			disabled={adding.working !== null}
-			onclick={() => {
-				open = !open;
-				if (open) showing = null;
-			}}
+			onclick={toggle}
 			class="flex h-12 w-12 items-center justify-center rounded-sm border disabled:opacity-60 {open ||
 			showing
 				? 'border-accent bg-card text-accent'
@@ -153,42 +204,51 @@
 				<p class="border-b border-rule px-3 pt-3 pb-2 text-label text-ink-2 uppercase">
 					{m.plus_label()}
 				</p>
-				<ul>
-					{#each sources as source (source.act)}
-						{@const waits = online.current ? null : WAITS_FOR_SERVER[source.act]}
-						<li class="border-b border-rule last:border-b-0">
-							<button
-								type="button"
-								disabled={waits !== null}
-								onclick={() => choose(source.act)}
-								class="flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left disabled:opacity-55"
-							>
-								<span
-									class="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-rule bg-ground-2 text-accent"
+				{#each groups as rows, at (at)}
+					{#if at > 0}
+						<p
+							class="border-y border-rule bg-ground-2 px-3 pt-3 pb-2 text-label text-ink-2 uppercase"
+						>
+							{m.plus_agent_group()}
+						</p>
+					{/if}
+					<ul>
+						{#each rows as source (source.act)}
+							{@const waits = online.current ? null : waitsForServer(source.act, at > 0)}
+							<li class="border-b border-rule last:border-b-0">
+								<button
+									type="button"
+									disabled={waits !== null}
+									onclick={() => choose(source.act)}
+									class="flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left disabled:opacity-55"
 								>
-									<svg
-										viewBox="0 0 24 24"
-										aria-hidden="true"
-										class="h-6 w-6"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="1.5"
-										stroke-linecap="round"
-										stroke-linejoin="round"><path d={ICON[source.act]} /></svg
+									<span
+										class="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-rule bg-ground-2 text-accent"
 									>
-								</span>
-								<span class="min-w-0">
-									{#if waits}
-										<span class="block text-body text-ink-2">{waits()}</span>
-									{:else}
-										<span class="block font-display text-body text-accent">{source.label()}</span>
-										<span class="block text-read text-ink-2">{source.why()}</span>
-									{/if}
-								</span>
-							</button>
-						</li>
-					{/each}
-				</ul>
+										<svg
+											viewBox="0 0 24 24"
+											aria-hidden="true"
+											class="h-6 w-6"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="1.5"
+											stroke-linecap="round"
+											stroke-linejoin="round"><path d={ICON[source.act]} /></svg
+										>
+									</span>
+									<span class="min-w-0">
+										{#if waits}
+											<span class="block text-body text-ink-2">{waits}</span>
+										{:else}
+											<span class="block font-display text-body text-accent">{source.label()}</span>
+											<span class="block text-read text-ink-2">{source.why()}</span>
+										{/if}
+									</span>
+								</button>
+							</li>
+						{/each}
+					</ul>
+				{/each}
 			</div>
 		{/if}
 	</div>
@@ -198,7 +258,7 @@
 	<div class="mt-3 rounded-sm border border-rule bg-ground-2 p-3">
 		<div class="mb-2 flex items-baseline justify-between gap-3">
 			<h2 class="text-label text-ink-2 uppercase">
-				{sources.find((source) => source.act === showing)?.label()}
+				{opened?.label()}
 			</h2>
 			<button type="button" onclick={() => (showing = null)} class="text-read text-accent underline"
 				>{m.plus_cancel()}</button
@@ -223,10 +283,14 @@
 	<p class="mt-2 text-read text-ink-2" role="status">{m.recipes_import_working()}</p>
 {/if}
 
-<!-- A PDF, or a page read from its own text, is checked on the sheet a paste is (#176, #301). -->
+<!--
+	A PDF, or a page read from its own text, is checked on the sheet a paste is
+	(#176, #301), and a photo or a PDF for Kamosu's AI agent is shown on its own
+	before it goes (#278).
+-->
 <ToCheck {adding} />
 
 <!-- A paste says its own refusal inside the sheet it was made from, over this. -->
-{#if showing !== 'paste' && !adding.fromPdf && !adding.fromLink}
+{#if showing !== 'paste' && !adding.fromPdf && !adding.fromLink && !adding.toSend}
 	<Said {adding} />
 {/if}
