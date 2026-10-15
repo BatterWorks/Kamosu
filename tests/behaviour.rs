@@ -15229,8 +15229,10 @@ mod web_link_importer {
 
         // A Kitchen-mate asks: they see the recipe and do not write it.
         let hers = a_job_waiting_on(&app, &mate_id, &recipe);
-        let named = json!({ "job": { "id": hers, "status": "queued" } });
-        for (who, credential) in [("the asker", &mate), ("a Co-author", &cook)] {
+        // Only the asker is told the Job is theirs, since only they cancel it.
+        for (who, credential, yours) in [("the asker", &mate, true), ("a Co-author", &cook, false)]
+        {
+            let named = json!({ "job": { "id": hers, "status": "queued", "yours": yours } });
             assert_eq!(job_read_by(&app, Some(credential), &hers).0, 200, "{who}");
             let (status, answered) = recipe_job(&app, Some(credential), &recipe);
             assert_eq!(status, 200, "{who}: {answered}");
@@ -15261,6 +15263,29 @@ mod web_link_importer {
         assert_eq!(job(&app, &outsider, &theirs)["status"], json!("failed"));
     }
 
+    /// A Runner working on one long Job asks for no other, so renewing its
+    /// hold says it is there, as asking does (#277). Without this a cook
+    /// would be told no agent is answering while one is reading their recipe.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn renewing_a_hold_counts_as_the_runner_being_heard_from() {
+        let app = support::spawn_app();
+        let (cook, runner) = cook_and_runner(&app);
+        let (_, job_id, _) = a_job_waiting(&app, &cook);
+        assert_eq!(ask_for_work(&app, &runner)["job_id"], json!(job_id));
+        let heard = || {
+            let (_, status) = app.post_op("runner_status", Some(&cook), "{}");
+            status["result"]["last_asked_at"]
+                .as_str()
+                .unwrap_or_else(|| panic!("never heard from: {status}"))
+                .to_string()
+        };
+        let asked = heard();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert_eq!(renew_hold(&app, Some(&runner), &job_id).0, 200);
+        let renewed = heard();
+        assert!(renewed > asked, "asked at {asked}, renewed at {renewed}");
+    }
+
     /// A recipe says which agent's Job waits or is being worked on it, to
     /// those who may read that Job, at both Doors (#268). It says nothing
     /// once the Job has ended, and nothing to anyone else.
@@ -15273,11 +15298,11 @@ mod web_link_importer {
         assert_eq!(recipe_before.0, 200);
 
         let says = |state: &str| {
-            let named = json!({ "job": { "id": job_id, "status": state } });
-            for (who, credential) in [
-                ("the asker", &people.cook),
-                ("a Co-author", &people.co_author),
+            for (who, credential, yours) in [
+                ("the asker", &people.cook, true),
+                ("a Co-author", &people.co_author, false),
             ] {
+                let named = json!({ "job": { "id": job_id, "status": state, "yours": yours } });
                 let (status, answered) = recipe_job(&app, Some(credential), &branch_id);
                 assert_eq!(status, 200, "{who}, {state}: {answered}");
                 assert_eq!(answered["result"], named, "{who}, {state}");
@@ -15796,7 +15821,7 @@ mod web_link_importer {
         assert_eq!(waiting["operation"], json!("read_by_agent"));
         assert_eq!(
             recipe_job(&app, Some(&cook), &recipe).1["result"],
-            json!({ "job": { "id": job_id, "status": "queued" } })
+            json!({ "job": { "id": job_id, "status": "queued", "yours": true } })
         );
         // Its result is an Import Report with the recipe as an arrival.
         let report = &waiting["result"];

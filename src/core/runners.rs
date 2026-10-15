@@ -269,12 +269,7 @@ impl Core {
             ));
         }
         let work = self.db().with_conn(|conn| {
-            conn.execute(
-                "UPDATE runner_keys SET last_asked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-                  WHERE id = ?1",
-                params![runner.runner_key_id],
-            )
-            .map_err(|e| OpError::internal(format!("cannot record the asking: {e}")))?;
+            heard_from(conn, &runner.runner_key_id)?;
             jobs::take_for_runner(conn, &runner.runner_key_id, ask, self.hold())
         })?;
         Ok(json!({
@@ -296,9 +291,12 @@ impl Core {
     /// A Runner renewing its hold on the Job it is working, which moves the
     /// deadline on (#266). The answer says when to renew next.
     pub fn renew_hold(&self, runner: &RunnerCaller, job_id: &str) -> Result<Value, OpError> {
-        let held_until = self
-            .db()
-            .with_conn(|conn| jobs::renew_hold(conn, &runner.runner_key_id, job_id, self.hold()))?;
+        let held_until = self.db().with_conn(|conn| {
+            // A Runner working on a long Job asks for no other, so its
+            // renewals say it is there as its asks do (#277).
+            heard_from(conn, &runner.runner_key_id)?;
+            jobs::renew_hold(conn, &runner.runner_key_id, job_id, self.hold())
+        })?;
         Ok(json!({
             "held_until": held_until,
             "renew_within_seconds": self.renew_within_seconds(),
@@ -419,7 +417,8 @@ impl Core {
                 Some(standing)
                     if reads_agent_job(conn, standing.asker.as_deref(), branch_id, caller)? =>
                 {
-                    json!({ "id": standing.id, "status": standing.status })
+                    let yours = standing.asker.as_deref() == Some(caller.person_id.as_str());
+                    json!({ "id": standing.id, "status": standing.status, "yours": yours })
                 }
                 _ => Value::Null,
             };
@@ -428,7 +427,8 @@ impl Core {
     }
 
     /// Whether this instance has a Runner, which is to say a Runner Key that
-    /// is not revoked, and when one last asked for work. The time is read
+    /// is not revoked, and when one was last heard from: asking for work, or
+    /// renewing its hold on the Job it works on (#277). The time is read
     /// across every Key, revoked ones included, so replacing a Key does not
     /// erase when the Runner was last heard from.
     pub fn runner_status(&self) -> Result<Value, OpError> {
@@ -446,6 +446,17 @@ impl Core {
             .map_err(|e| OpError::internal(format!("cannot read the Runner's state: {e}")))
         })
     }
+}
+
+/// Record that a Runner was heard from, which `runner_status` reads.
+fn heard_from(conn: &Connection, runner_key_id: &str) -> Result<(), OpError> {
+    conn.execute(
+        "UPDATE runner_keys SET last_asked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE id = ?1",
+        params![runner_key_id],
+    )
+    .map_err(|e| OpError::internal(format!("cannot record hearing from the Runner: {e}")))?;
+    Ok(())
 }
 
 /// Whether `caller` may read the agent's Job on a recipe: they asked for it,

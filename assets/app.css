@@ -416,6 +416,9 @@
   .top-\[-1px\] {
     top: -1px;
   }
+  .top-\[6px\] {
+    top: 6px;
+  }
   .top-full {
     top: 100%;
   }
@@ -424,6 +427,9 @@
   }
   .right-2 {
     right: var(--spacing-2);
+  }
+  .right-\[calc\(-50\%\+8px\)\] {
+    right: calc(-50% + 8px);
   }
   .bottom-tabbar {
     bottom: calc(var(--spacing-12) + env(safe-area-inset-bottom));
@@ -445,6 +451,9 @@
   }
   .left-\[-1px\] {
     left: -1px;
+  }
+  .left-\[calc\(50\%\+8px\)\] {
+    left: calc(50% + 8px);
   }
   .z-10 {
     z-index: 10;
@@ -716,6 +725,12 @@
   .h-12 {
     height: var(--spacing-12);
   }
+  .h-\[2px\] {
+    height: 2px;
+  }
+  .h-\[14px\] {
+    height: 14px;
+  }
   .h-\[18px\] {
     height: 18px;
   }
@@ -805,6 +820,9 @@
   }
   .w-12 {
     width: var(--spacing-12);
+  }
+  .w-\[14px\] {
+    width: 14px;
   }
   .w-\[18px\] {
     width: 18px;
@@ -1042,6 +1060,9 @@
   .overflow-y-auto {
     overflow-y: auto;
   }
+  .rounded-\[50\%\] {
+    border-radius: 50%;
+  }
   .rounded-sm {
     border-radius: var(--radius-sm);
   }
@@ -1232,6 +1253,9 @@
   .bg-on-accent {
     background-color: var(--color-on-accent);
   }
+  .bg-rule {
+    background-color: var(--color-rule);
+  }
   .bg-support {
     background-color: var(--color-support);
   }
@@ -1285,6 +1309,9 @@
   }
   .px-8 {
     padding-inline: var(--spacing-8);
+  }
+  .px-\[6px\] {
+    padding-inline: 6px;
   }
   .px-\[10px\] {
     padding-inline: 10px;
@@ -1424,6 +1451,9 @@
   .align-\[-2px\] {
     vertical-align: -2px;
   }
+  .align-middle {
+    vertical-align: middle;
+  }
   .font-display {
     font-family: var(--font-display);
   }
@@ -1501,6 +1531,10 @@
   .font-semibold {
     --tw-font-weight: var(--font-weight-semibold);
     font-weight: var(--font-weight-semibold);
+  }
+  .tracking-\[0\] {
+    --tw-tracking: 0;
+    letter-spacing: 0;
   }
   .break-words {
     overflow-wrap: break-word;
@@ -2230,6 +2264,10 @@
   syntax: "*";
   inherits: false;
 }
+@property --tw-tracking {
+  syntax: "*";
+  inherits: false;
+}
 @property --tw-ordinal {
   syntax: "*";
   inherits: false;
@@ -2384,6 +2422,7 @@
       --tw-border-style: solid;
       --tw-leading: initial;
       --tw-font-weight: initial;
+      --tw-tracking: initial;
       --tw-ordinal: initial;
       --tw-slashed-zero: initial;
       --tw-numeric-figure: initial;

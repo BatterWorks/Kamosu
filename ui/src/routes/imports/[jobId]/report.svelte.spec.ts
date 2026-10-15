@@ -13,7 +13,7 @@
  * ticked and nothing else.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import { m } from '$lib/paraglide/messages';
 import ReportTestHarness from './ReportTestHarness.svelte';
@@ -594,5 +594,179 @@ describe("the Import Report of an agent's work", () => {
 		).toBeInTheDocument();
 		expect(screen.getByText('written by an agent · already here, unchanged')).toBeInTheDocument();
 		expect(screen.getByText(m.report_needs_you_none())).toBeInTheDocument();
+	});
+});
+
+/**
+ * While an agent waits or reads (#277), option B as chosen on 2026-10-15: the
+ * tracking line at the top of the Report.
+ */
+describe('the Import Report while an agent waits or reads', () => {
+	const TART = 'Tarte au citron meringuée';
+	const HEARD = { has_runner: true, last_asked_at: new Date().toISOString() };
+
+	const waitingReport = (status: 'queued' | 'running') =>
+		report({
+			source_kind: 'web',
+			arrived: [
+				arrived('tart', TART, {
+					foreign_id: 'https://example.com/tart',
+					bare: true,
+					main_photo: null,
+				}),
+			],
+			left_out: [],
+			related_candidates: [],
+			agent_jobs: [{ job_id: 'j_agent', branch_id: 'b_tart', status }],
+		});
+
+	/** The agent's Job, read by its own id beside the Report's. */
+	const agentJob = (status: GetJobOutput['status']) =>
+		job({
+			id: 'j_agent',
+			operation: 'read_by_agent',
+			status,
+			result: null,
+			progress: { done: null, total: null, message: null },
+		});
+
+	it("draws a link's waiting agent on the tracking line, and the recipe as waited on", async () => {
+		open({
+			get_job: (input) =>
+				input.job_id === 'j_agent'
+					? agentJob('queued')
+					: job({ operation: 'import_web_link', result: waitingReport('queued') }),
+			get_recipe_job: { job: { id: 'j_agent', status: 'queued', yours: true } },
+			runner_status: HEARD,
+		});
+
+		expect(await screen.findByText(m.agent_leave_report())).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: m.agent_stop() })).toBeInTheDocument();
+		expect(screen.getByText(m.report_waiting_for_agent({ title: TART }))).toBeInTheDocument();
+		expect(screen.queryByText(new RegExp('just a name and a link'))).toBeNull();
+	});
+
+	it('reads itself again once the agent has finished', async () => {
+		const kamosu = open({
+			get_job: (input) =>
+				input.job_id === 'j_agent'
+					? agentJob('running')
+					: job({ operation: 'import_web_link', result: waitingReport('running') }),
+			get_recipe_job: { job: { id: 'j_agent', status: 'running', yours: true } },
+			runner_status: HEARD,
+		});
+		await screen.findByText(m.agent_leave_report());
+
+		const done = report({
+			...waitingReport('running'),
+			agent_jobs: [
+				{
+					job_id: 'j_agent',
+					branch_id: 'b_tart',
+					status: 'completed',
+					made_by_agent: true,
+					agent_report: { left_undone: [], unsure: [], likely_duplicates: [], unused_foods: [] },
+				},
+			],
+		});
+		kamosu.answer('get_job', (input) =>
+			input.job_id === 'j_agent'
+				? agentJob('completed')
+				: job({ operation: 'import_web_link', result: done }),
+		);
+
+		expect(
+			await screen.findByText(m.report_written_by_agent({ titles: TART }), {}, { timeout: 5000 }),
+		).toBeInTheDocument();
+		expect(screen.queryByText(m.agent_leave_report())).toBeNull();
+	});
+
+	it("titles an agent's own Import for what was handed over while nothing has arrived", async () => {
+		const own = report({
+			source_kind: 'pasted_text',
+			arrived: [],
+			left_out: [],
+			related_candidates: [],
+			agent_jobs: [{ job_id: 'j_1', branch_id: null, status: 'queued' }],
+		});
+		open({
+			get_job: job({
+				operation: 'read_by_agent',
+				status: 'queued',
+				result: own,
+				progress: { done: null, total: null, message: null },
+			}),
+			runner_status: HEARD,
+		});
+
+		expect(
+			await screen.findByRole('heading', { name: m.report_title_pasted_text() }),
+		).toBeInTheDocument();
+		expect(await screen.findByText(m.report_agent_nothing_yet())).toBeInTheDocument();
+		expect(screen.queryByText(m.report_waiting())).toBeNull();
+	});
+
+	it("says an agent's own Import was stopped, and nothing went wrong", async () => {
+		const own = report({
+			source_kind: 'pasted_text',
+			arrived: [],
+			left_out: [],
+			related_candidates: [],
+			agent_jobs: [{ job_id: 'j_1', branch_id: null, status: 'queued' }],
+		});
+		const asked = job({
+			operation: 'read_by_agent',
+			status: 'queued',
+			result: own,
+			progress: { done: null, total: null, message: null },
+		});
+		const kamosu = open({ get_job: asked, runner_status: HEARD, cancel_job: { cancelled: true } });
+		await fireEvent.click(await screen.findByRole('button', { name: m.agent_stop() }));
+		kamosu.answer('get_job', { ...asked, status: 'cancelled' });
+		await fireEvent.click(screen.getByRole('button', { name: m.agent_stop_yes() }));
+
+		expect(await screen.findByText(m.agent_stopped_nothing())).toBeInTheDocument();
+		await new Promise((wake) => setTimeout(wake, 50));
+		expect(screen.queryByRole('alert')).toBeNull();
+		expect(screen.getByText(m.agent_stopped_nothing())).toBeInTheDocument();
+	});
+
+	it("offers no stopping on a Co-author's Report of a Job the other Co-author asked for", async () => {
+		const kamosu = open({
+			get_job: (input) =>
+				input.job_id === 'j_agent'
+					? agentJob('queued')
+					: job({ operation: 'import_web_link', result: waitingReport('queued') }),
+			get_recipe_job: { job: { id: 'j_agent', status: 'queued', yours: false } },
+			runner_status: HEARD,
+		});
+
+		expect(await screen.findByText(m.agent_leave_report())).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(kamosu.calls.some((call) => call.operation === 'get_recipe_job')).toBe(true),
+		);
+		await new Promise((wake) => setTimeout(wake, 20));
+		expect(screen.queryByRole('button', { name: m.agent_stop() })).toBeNull();
+	});
+
+	it("says an agent's own Import was stopped when it is opened afterwards", async () => {
+		open({
+			get_job: job({
+				operation: 'read_by_agent',
+				status: 'cancelled',
+				result: report({
+					source_kind: 'picture',
+					arrived: [],
+					left_out: [],
+					related_candidates: [],
+					agent_jobs: [{ job_id: 'j_1', branch_id: null, status: 'cancelled' }],
+				}),
+				progress: { done: null, total: null, message: null },
+			}),
+		});
+
+		expect(await screen.findByText(m.agent_stopped_nothing())).toBeInTheDocument();
+		expect(screen.getByRole('heading', { name: m.report_title_picture() })).toBeInTheDocument();
+		expect(screen.queryByRole('alert')).toBeNull();
 	});
 });

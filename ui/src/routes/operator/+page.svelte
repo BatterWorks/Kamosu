@@ -26,6 +26,7 @@
 	(ADR 0040). It does not render an explanation of what it would have held.
 -->
 <script lang="ts">
+	import { RUNNER_KEYS } from '$lib/agent/agent';
 	import { aDate, howLongAgo } from '$lib/dates';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
@@ -70,7 +71,17 @@
 	 * would flash the empty room at an Operator on every visit.
 	 */
 	let mayAdminister = $state<boolean | undefined>(undefined);
-	let room = $state<'worklist' | 'instance'>('worklist');
+	/**
+	 * The Runner Keys are in the instance's room, and a waiting Job that no
+	 * agent answers links straight to them (#277).
+	 */
+	let toRunnerKeys = typeof window !== 'undefined' && window.location.hash === `#${RUNNER_KEYS}`;
+	let room = $state<'worklist' | 'instance'>(toRunnerKeys ? 'instance' : 'worklist');
+	$effect(() => {
+		if (!toRunnerKeys || !mayAdminister) return;
+		toRunnerKeys = false;
+		requestAnimationFrame(() => document.getElementById(RUNNER_KEYS)?.scrollIntoView?.());
+	});
 
 	let accounts = $state<Account[]>([]);
 	let backups = $state<Backup[]>([]);
@@ -892,7 +903,7 @@
 					<p class="mt-2 text-read text-ink-2">{m.operator_backups_blurb()}</p>
 				</Section>
 
-				<Section heading={m.operator_runner_heading()}>
+				<Section id={RUNNER_KEYS} heading={m.operator_runner_heading()}>
 					<!-- Two phrases, one paragraph: the sentence chosen is longer than the
 					     copy guard lets one phrase be (#141). -->
 					<p class="mb-3 text-body text-ink-2">

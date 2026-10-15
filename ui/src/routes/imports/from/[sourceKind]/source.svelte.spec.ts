@@ -10,9 +10,10 @@
  * away with the ledger.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
+import { m } from '$lib/paraglide/messages';
 import type { ListImportsOutput } from '$lib/api/catalogue';
 import SourceTestHarness from './SourceTestHarness.svelte';
 
@@ -225,5 +226,74 @@ describe('one source and what has arrived through it', () => {
 
 		expect(await screen.findByText(/Nothing has come from here/)).toBeInTheDocument();
 		expect(screen.queryByText(/Nothing imported yet/)).not.toBeInTheDocument();
+	});
+});
+
+/** While an agent waits or reads on an arrival (#277), its row carries a tag. */
+describe("a source's arrivals while an agent waits or reads", () => {
+	const agent = (job_id: string, status: Arrival['status'], branch_id: string | null = 'b_1') => ({
+		job_id,
+		branch_id,
+		status,
+	});
+
+	const WEB: Import = {
+		import_id: 'imp_web',
+		source_kind: 'web',
+		created_at: '2026-10-15T11:00:00.000Z',
+		remembered: 3,
+		arrivals: [
+			arrival('j_w3', '2026-10-15T11:10:00.000Z', { agent_jobs: [agent('j_a3', 'running')] }),
+			arrival('j_w2', '2026-10-15T11:10:00.000Z', { agent_jobs: [agent('j_a2', 'queued')] }),
+			arrival('j_w1', '2026-10-14T11:10:00.000Z', { agent_jobs: [agent('j_a1', 'completed')] }),
+		],
+	};
+
+	it('tags each arrival with where its own agent stands, and an ended one with nothing', async () => {
+		draw({ list_imports: { imports: [WEB] } }, 'web');
+
+		const rows = await screen.findAllByRole('listitem');
+		expect(rows[0]).toHaveTextContent(m.agent_step_reading());
+		expect(rows[1]).toHaveTextContent(m.agent_step_waiting());
+		expect(rows[2]).not.toHaveTextContent(m.agent_step_waiting());
+		expect(rows[2]).not.toHaveTextContent(m.agent_step_reading());
+	});
+
+	it("says nothing is being brought in when the arrival is an agent's own, only its tag", async () => {
+		const pasted: Import = {
+			import_id: 'imp_pasted',
+			source_kind: 'pasted_text',
+			created_at: '2026-10-15T11:00:00.000Z',
+			remembered: 0,
+			arrivals: [
+				arrival('j_p1', '2026-10-15T11:10:00.000Z', {
+					status: 'queued',
+					arrived: 0,
+					created: 0,
+					agent_jobs: [agent('j_p1', 'queued', null)],
+				}),
+			],
+		};
+		draw({ list_imports: { imports: [pasted] } }, 'pasted_text');
+
+		expect(
+			await screen.findByRole('heading', { name: m.imports_source_pasted_text() }),
+		).toBeInTheDocument();
+		const [row] = await screen.findAllByRole('listitem');
+		expect(row).toHaveTextContent(m.agent_step_waiting());
+		expect(row).not.toHaveTextContent(m.imports_row_running());
+	});
+
+	it('reads the list again while an agent works on one of its arrivals', async () => {
+		const kamosu = draw({ list_imports: { imports: [WEB] } }, 'web');
+		await screen.findAllByRole('listitem');
+
+		await vi.waitFor(
+			() =>
+				expect(
+					kamosu.calls.filter((call) => call.operation === 'list_imports').length,
+				).toBeGreaterThan(1),
+			{ timeout: 5000 },
+		);
 	});
 });

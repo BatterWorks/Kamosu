@@ -193,6 +193,8 @@
 	import { myPictures } from './my-pictures.svelte';
 	import { languageFamily } from './language-family';
 	import { sharingAChain } from './sharing-a-chain';
+	import AgentWork from '$lib/agent/AgentWork.svelte';
+	import type { GetRecipeJobOutput } from '$lib/api/catalogue';
 
 	interface Props {
 		branchId: string;
@@ -604,6 +606,41 @@
 	const otherKitchen = $derived(divergence ? branchPlainName(divergence.theirs) : '');
 
 	const content = $derived(here?.content ?? recipe?.versions.at(-1)?.content);
+
+	// ---- an agent's Job on it (#277) --------------------------------------
+	//
+	// Read with the recipe, and again each time the recipe is: an agent's Job
+	// waits, is read and ends without this page doing anything. The tracker
+	// reads the Job itself while it shows, and says when it ends, which reads
+	// the recipe again so the page is the recipe as it now is. A Job that
+	// ended stays named here until another recipe opens, so a tracker that was
+	// just stopped goes on saying so; it draws nothing for a Job that ended
+	// any other way.
+
+	let agentJob = $state<GetRecipeJobOutput['job']>(null);
+	let agentJobFor: string | undefined;
+	$effect(() => {
+		void reread;
+		const asked = branchId;
+		let current = true;
+		// Another recipe opened: the last one's Job is not this one's.
+		if (agentJobFor !== asked) agentJob = null;
+		kamosu
+			.getRecipeJob({ branch_id: asked })
+			.then((read) => {
+				if (!current) return;
+				if (read.job || agentJobFor !== asked) agentJob = read.job;
+				agentJobFor = asked;
+			})
+			.catch((error: unknown) => {
+				if (!(error instanceof OperationError)) throw error;
+				// Out of reach: say nothing about a Job rather than something old.
+				if (current) agentJob = null;
+			});
+		return () => {
+			current = false;
+		};
+	});
 	const readings = $derived(here?.readings ?? recipe?.versions.at(-1)?.readings ?? []);
 	/**
 	 * The one subordinate line the Core worked out for THIS reader — scaling and
@@ -876,6 +913,12 @@
 			already In Progress is handed back rather than doubled — so there is
 			nothing here to press twice by mistake.
 		-->
+			{#if agentJob}
+				{#key agentJob.id}
+					<AgentWork jobId={agentJob.id} mine={agentJob.yours} ended={() => (reread += 1)} />
+				{/key}
+			{/if}
+
 			<a
 				href="/cook/{branchId}{toSearch(pageScaledTo)}"
 				class="mx-gutter mt-4 flex min-h-12 items-center justify-center rounded-sm bg-accent px-4 text-center font-display text-body font-semibold text-on-accent"
