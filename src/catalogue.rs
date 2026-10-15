@@ -5745,6 +5745,14 @@ fn import_report_schema() -> Value {
                                              ended. `source_kind` still says which it \
                                              was.",
                         },
+                        "could_not_be_read": {
+                            "type": "boolean",
+                            "description": "Present and true when the agent said what it \
+                                             was handed holds no recipe it can read. The \
+                                             reason under `unreadable` is then the \
+                                             agent's own words. A Job that failed any \
+                                             other way has Kamosu's reason there.",
+                        },
                     },
                     "required": ["job_id", "branch_id"],
                     "additionalProperties": false,
