@@ -593,6 +593,43 @@ docker-build: _check-tokens-fresh _check-client-fresh
 podman-build: _check-tokens-fresh _check-client-fresh
     podman build --format docker --ulimit nofile=65536:65536 -t localhost/kamosu .
 
+# The Runner beside an agent, in an image of its own (#315, runner-image/). It
+# takes `kamosu runner` from the Kamosu image this repository builds, because a
+# Kamosu refuses a Runner of any other version.
+runner_container := "kamosu-runner"
+
+runner-image: podman-build
+    podman build --format docker -t localhost/{{runner_container}} \
+        --build-arg KAMOSU_IMAGE=localhost/kamosu runner-image
+
+# Start that image beside the dev instance. The settings file stays outside the
+# repository: KAMOSU_RUNNER_KEY, KAMOSU_AGENT_MODEL as provider/model, the
+# provider's key in its own variable, and KAMOSU_AGENT_EFFORT if wanted.
+# Restarted three times at most, never for ever (docs/runner.md). It asks the
+# dev instance at the host's LAN address, as `dev-start` prints it, and not
+# on the host's network: an agent a page has tricked should not reach what the
+# host serves on its own loopback.
+runner-start settings=(env_var("HOME") / ".config/kamosu-runner.env"):
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ -f "{{settings}}" ]] || { echo "no settings file at {{settings}}" >&2; exit 1; }
+    lan_ip="$(ip -4 addr show scope global 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)"
+    [[ -n "${lan_ip}" ]] || lan_ip="$(hostname -I | awk '{print $1}')"
+    podman rm -f {{runner_container}} >/dev/null
+    podman run -d --name {{runner_container}} --restart on-failure:3 \
+        --env-file "{{settings}}" localhost/{{runner_container}} \
+        --kamosu "http://${lan_ip}:{{backend_port}}" >/dev/null
+    echo "started: {{runner_container}}, asking http://${lan_ip}:{{backend_port}}"
+    echo "logs:    just runner-logs"
+
+# Follow what the Runner and its agent say.
+runner-logs:
+    podman logs -f {{runner_container}}
+
+# Stop the Runner. Its Job, if it holds one, waits again once the hold lapses.
+runner-stop:
+    podman rm -f --time 30 {{runner_container}} >/dev/null
+
 # Run the image as the one-mount-one-port install: ./kamosu-data holds the truth,
 # 5266 serves the world. Ctrl-C stops it.
 docker-run:

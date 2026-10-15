@@ -1,0 +1,6 @@
+# The Runner's user may start one command as the agent's user, and nothing
+# else. SETENV lets the whole of the Runner's environment cross, which is how
+# the Operator's model settings reach the agent. That is safe only because the
+# Runner takes its own key out of that environment before it starts the
+# command (src/runner.rs, `env_remove`).
+runner ALL=(agent) NOPASSWD:SETENV: /opt/kamosu-runner/agent-job

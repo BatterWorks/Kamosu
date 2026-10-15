@@ -180,6 +180,10 @@ just dev-status # each half running? since when? build-cache size
 just dev-logs   # follow .dev/kamosu.log and .dev/vite.log together
 just dev-stop   # stops both process groups
 just docker-build && just docker-run   # the one-mount-one-port install, as a stranger runs it
+just runner-image   # Kamosu's image from this tree, then the Runner + agent image on it (#315)
+just runner-start   # that image beside the dev instance, settings from ~/.config/kamosu-runner.env
+just runner-logs    # follow the Runner and its agent
+just runner-stop    # stop it; a Job it held waits again once the hold lapses
 ```
 
 **Looking at the dev instance has recipes of its own** (#216), so no ticket
@@ -464,6 +468,11 @@ ui/                 the Svelte app; ui/src/app.css is the design tokens' source
 ui/tools/           the dev tools `just` runs against the dev instance: sign in,
                     photograph screens, capture and serve a prototype (#216).
                     The two release commands live here too (ADR 0047)
+runner-image/       the Runner beside an agent in an image of its own, built
+                    from this repository and published by no release: opencode,
+                    the tools a Job needs, the instructions it follows, and
+                    the two scripts that hand each Job to a user of its own
+                    (#315, docs/runner.md)
 docs/releasing.md   the release runbook
 docs/docker-hub/    the Docker Hub page of the image: its overview and its one-line
                     description, published by a release and never edited on
