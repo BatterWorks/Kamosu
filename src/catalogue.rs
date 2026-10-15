@@ -3982,7 +3982,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       it arrived, and takes nothing handed over. It makes a \
                       Job that waits for a Runner. Only a Co-author of the \
                       Cookbook that holds the recipe may ask, on a Kamosu with \
-                      a Runner. The agent's saves become one new Version under \
+                      a Runner. A recipe is read again once: after a reading \
+                      that finished, or one stopped while a Runner held it, the \
+                      ask is refused with reason `already_read_again`. One that \
+                      failed, or was stopped while it waited, does not count. \
+                      A variation is a recipe of its own, read again once too. \
+                      The agent's saves become one new Version under \
                       your Hand, so the earlier one stays in the History. Where \
                       a Job already waits or is being worked on the recipe, \
                       that Job is the answer, and nothing handed over is kept. \
@@ -4047,7 +4052,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       `not_a_co_author` when you see the recipe and do not \
                       write its Cookbook, `would_start_a_copy` when your \
                       Cookbook received it and did not write it, `no_runner` \
-                      when no agent would read it, `needs_the_file` when what \
+                      when no agent would read it, `already_read_again` when \
+                      it has been read again already, which a recipe is once, \
+                      `needs_the_file` when what \
                       it was read from is no longer kept and has to be handed \
                       over again, and `nothing_to_read` when it came from no \
                       file and its Source has no http or https link on the \
@@ -4091,7 +4098,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     "reason": {
                         "enum": [
                             "not_a_co_author", "would_start_a_copy", "no_runner",
-                            "needs_the_file", "nothing_to_read", null
+                            "already_read_again", "needs_the_file", "nothing_to_read",
+                            null
                         ],
                         "description": "Why it cannot be read again, or null when \
                                          it can.",

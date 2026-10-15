@@ -40,6 +40,7 @@
 	import Section from '$lib/shell/Section.svelte';
 	import { useEnded } from '../ended.svelte';
 	import AgentWork from '$lib/agent/AgentWork.svelte';
+	import SendAgain from './SendAgain.svelte';
 	import { AGENTS_OWN, working } from '$lib/agent/agent';
 
 	interface Props {
@@ -429,6 +430,19 @@
 			: m.report_agent_failed({ reason: loss.reason });
 	};
 
+	/**
+	 * A photo, a PDF or pasted text the agent failed on before it made a
+	 * recipe, which can be sent again from what Kamosu kept (#273, #279).
+	 */
+	const FILES = ['picture', 'pdf', 'pasted_text'] as const;
+	const failedOnAFile = $derived.by(() => {
+		const agent = agentJobs[0];
+		if (job?.status !== 'failed' || !agent || agent.branch_id !== null) return undefined;
+		const kind = FILES.find((one) => one === handed);
+		if (!kind) return undefined;
+		return { kind, gone: agent.original_gone === true, endedAt: job.updated_at };
+	});
+
 	/** What a failed file is called, where no recipe arrived to name it. */
 	const unnamed = $derived(kind ? kind.unnamed() : m.report_unreadable_unnamed());
 
@@ -687,6 +701,14 @@
 						</li>
 					{/each}
 				</ul>
+				{#if failedOnAFile}
+					<SendAgain
+						{jobId}
+						kind={failedOnAFile.kind}
+						gone={failedOnAFile.gone}
+						endedAt={failedOnAFile.endedAt}
+					/>
+				{/if}
 			{/if}
 		</Section>
 

@@ -28,6 +28,13 @@ function show(over: Answers = {}) {
 		},
 		list_attempts: { attempts: [] },
 		get_recipe_job: { job: null },
+		can_read_recipe_again: {
+			can_read_again: false,
+			from: null,
+			link: null,
+			original: null,
+			reason: 'no_runner',
+		},
 		list_kitchens: MY_KITCHENS,
 		// What the page asks for on the side and never waits on.
 		note_recipe_opened: { lineage_id: 'l_1', opened_at: '2026-09-22T00:00:00Z' },

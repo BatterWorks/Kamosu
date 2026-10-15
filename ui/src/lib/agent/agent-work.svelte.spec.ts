@@ -58,7 +58,9 @@ describe("an agent's Job on the tracking line", () => {
 		expect(currentStep()).toHaveTextContent(/since/);
 
 		kamosu.answer('get_job', job('completed'));
-		await vi.waitFor(() => expect(ended).toHaveBeenCalledWith('completed'));
+		await vi.waitFor(() =>
+			expect(ended).toHaveBeenCalledWith('completed', false, expect.any(String)),
+		);
 		expect(screen.queryByText(m.agent_leave())).toBeNull();
 	});
 
@@ -89,7 +91,7 @@ describe("an agent's Job on the tracking line", () => {
 		expect(kamosu.calls.find((call) => call.operation === 'cancel_job')?.input).toEqual({
 			job_id: 'j_agent',
 		});
-		expect(ended).toHaveBeenCalledWith('cancelled');
+		expect(ended).toHaveBeenCalledWith('cancelled', false, expect.any(String));
 		// It goes on saying so after the Job reads as cancelled.
 		kamosu.answer('get_job', job('cancelled'));
 		await new Promise((wake) => setTimeout(wake, 30));

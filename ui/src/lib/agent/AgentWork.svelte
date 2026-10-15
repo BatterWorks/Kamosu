@@ -47,8 +47,11 @@
 		gutter?: boolean;
 		/** How long between reads. Tests shorten it. */
 		every?: number;
-		/** Said once the Job has ended, however it ended. */
-		ended?: (status: GetJobOutput['status']) => void;
+		/**
+		 * Said once the Job has ended, however it ended, whether it was
+		 * reading a recipe again, and when it ended (#279).
+		 */
+		ended?: (status: GetJobOutput['status'], readingAgain: boolean, at: string) => void;
 	}
 
 	let {
@@ -74,9 +77,9 @@
 
 	const at = $derived(job ? working(job.status) : undefined);
 	/** A Job reading a recipe again is updating it, which the page says (#272). */
-	const readingAgain = $derived(
-		(job?.result as { source_kind?: string } | null)?.source_kind === 'read_again',
-	);
+	const isReadingAgain = (read: GetJobOutput) =>
+		(read.result as { source_kind?: string } | null)?.source_kind === 'read_again';
+	const readingAgain = $derived(job !== undefined && isReadingAgain(job));
 	const sentence = $derived(saying === 'leave' && readingAgain ? 'updating' : saying);
 
 	$effect(() => {
@@ -91,7 +94,7 @@
 				if (stopped) return;
 				job = read;
 				if (!working(read.status)) {
-					ended?.(read.status);
+					ended?.(read.status, isReadingAgain(read), read.updated_at);
 					return;
 				}
 				if (read.status === 'queued') {
@@ -131,7 +134,7 @@
 			await kamosu.cancelJob({ job_id: jobId });
 			stopped = true;
 			asking = false;
-			ended?.('cancelled');
+			ended?.('cancelled', readingAgain, new Date().toISOString());
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			said = error.message;

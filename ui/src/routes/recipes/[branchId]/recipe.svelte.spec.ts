@@ -356,17 +356,27 @@ function onTheirs(extra: Answers = {}) {
 	return forked({ get_recipe: marcsRecipe(), ...extra });
 }
 
+/** Nothing to read again: no Runner, unless a test says otherwise (#279). */
+const NOT_READ_AGAIN = {
+	can_read_again: false,
+	from: null,
+	link: null,
+	original: null,
+	reason: 'no_runner' as const,
+};
+
 function renderRecipe(
 	answers: Answers = forked(),
 	branchId = 'mine',
 	/** The phone it is on, and how it fetches a Sheet to share (#149). */
-	on: Pick<ComponentProps<typeof RecipeTestHarness>, 'device' | 'files'> = {},
+	on: Pick<ComponentProps<typeof RecipeTestHarness>, 'device' | 'files' | 'upload'> = {},
 ) {
 	// Your own cookings, read for their pictures (#110). Nobody here has
 	// cooked anything unless a test says so.
 	const kamosu = standIn({
 		list_attempts: { attempts: [] },
 		get_recipe_job: { job: null },
+		can_read_recipe_again: NOT_READ_AGAIN,
 		...answers,
 	});
 	const { rerender } = render(RecipeTestHarness, {
@@ -845,6 +855,7 @@ describe('a Divergence', () => {
 		const kamosu = standIn({
 			list_attempts: { attempts: [] },
 			get_recipe_job: { job: null },
+			can_read_recipe_again: NOT_READ_AGAIN,
 			...onTheirs(),
 		});
 		const { rerender } = render(RecipeTestHarness, {
@@ -3294,6 +3305,236 @@ describe("an agent's Job on the recipe", () => {
 		);
 		await new Promise((wake) => setTimeout(wake, 20));
 		expect(screen.queryByRole('region', { name: m.agent_steps() })).toBeNull();
+	});
+});
+
+describe('reading the recipe again (#279)', () => {
+	const FROM_THE_LINK = {
+		can_read_again: true,
+		from: 'link' as const,
+		link: 'https://www.mykoreankitchen.com/korean-fried-chicken/',
+		original: null,
+		reason: null,
+	};
+	const PHOTO_GONE = {
+		can_read_again: false,
+		from: 'original' as const,
+		link: null,
+		original: 'picture' as const,
+		reason: 'needs_the_file' as const,
+	};
+	const TEXT_GONE = { ...PHOTO_GONE, original: 'pasted_text' as const };
+	const HEARD = { has_runner: true, last_asked_at: new Date().toISOString() };
+	const WAITING = {
+		id: 'j_again',
+		operation: 'read_by_agent',
+		status: 'queued' as const,
+		progress: { done: null, total: null, message: null },
+		result: { source_kind: 'read_again' },
+		error: null,
+		errorCode: null,
+		created_at: new Date().toISOString(),
+		updated_at: new Date().toISOString(),
+	};
+
+	afterEach(() => {
+		Reflect.deleteProperty(navigator, 'onLine');
+	});
+
+	it('offers it above the acts, asks once, and the page then says the agent is on it', async () => {
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				can_read_recipe_again: FROM_THE_LINK,
+				read_recipe_again: { job_id: 'j_again', branch_id: 'mine' },
+				get_job: WAITING,
+				runner_status: HEARD,
+			}),
+		);
+
+		const panel = await screen.findByRole('region', { name: m.read_again_heading() });
+		expect(panel).toHaveTextContent(
+			m.read_again_lede_link({ site: 'mykoreankitchen.com' }) + ' ' + m.read_again_keeps(),
+		);
+		// Above the grid of the other acts.
+		const edit = screen.getByRole('button', { name: m.write_edit() });
+		expect(panel.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		// The first press asks, saying what it costs; nothing is sent yet.
+		expect(panel).toHaveTextContent(m.read_again_cost());
+		expect(kamosu.calls.some((call) => call.operation === 'read_recipe_again')).toBe(false);
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_no() }));
+		expect(panel).not.toHaveTextContent(m.read_again_cost());
+
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		await vi.waitFor(() =>
+			expect(kamosu.calls.find((call) => call.operation === 'read_recipe_again')?.input).toEqual({
+				branch_id: 'mine',
+			}),
+		);
+		// The card above Cook this takes over, and the panel goes while it stands.
+		expect(await screen.findByRole('region', { name: m.agent_steps() })).toBeInTheDocument();
+		expect(screen.queryByRole('region', { name: m.read_again_heading() })).toBeNull();
+	});
+
+	it('offers no stopping when the answer is a reading a Co-author asked for a moment before', async () => {
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				can_read_recipe_again: FROM_THE_LINK,
+				read_recipe_again: { job_id: 'j_theirs', branch_id: 'mine' },
+				get_job: { ...WAITING, id: 'j_theirs' },
+				runner_status: HEARD,
+			}),
+		);
+		const panel = await screen.findByRole('region', { name: m.read_again_heading() });
+		// Marc asked while this page stood open; the page has not read it yet.
+		kamosu.answer('get_recipe_job', { job: { id: 'j_theirs', status: 'queued', yours: false } });
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+
+		expect(await screen.findByRole('region', { name: m.agent_steps() })).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(
+				kamosu.calls.filter((call) => call.operation === 'get_recipe_job').length,
+			).toBeGreaterThan(1),
+		);
+		await new Promise((wake) => setTimeout(wake, 20));
+		expect(screen.queryByRole('button', { name: m.agent_stop() })).toBeNull();
+	});
+
+	it('offers stopping once the page has read that the reading is yours', async () => {
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				can_read_recipe_again: FROM_THE_LINK,
+				read_recipe_again: { job_id: 'j_again', branch_id: 'mine' },
+				get_job: WAITING,
+				runner_status: HEARD,
+			}),
+		);
+		const panel = await screen.findByRole('region', { name: m.read_again_heading() });
+		kamosu.answer('get_recipe_job', { job: { id: 'j_again', status: 'queued', yours: true } });
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		expect(await screen.findByRole('button', { name: m.agent_stop() })).toBeInTheDocument();
+	});
+
+	it.each([
+		['someone who sees it through a Kitchen', 'not_a_co_author'],
+		['an instance with no Runner', 'no_runner'],
+		['a recipe received and never changed', 'would_start_a_copy'],
+		['a recipe with nothing to read again', 'nothing_to_read'],
+		['a recipe read again already', 'already_read_again'],
+	] as const)('offers nothing to %s', async (_, reason) => {
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				can_read_recipe_again: { ...FROM_THE_LINK, can_read_again: false, reason },
+			}),
+		);
+		await screen.findByRole('link', { name: m.recipe_cook_this() });
+		await vi.waitFor(() =>
+			expect(kamosu.calls.some((call) => call.operation === 'can_read_recipe_again')).toBe(true),
+		);
+		await new Promise((wake) => setTimeout(wake, 20));
+		expect(screen.queryByRole('region', { name: m.read_again_heading() })).toBeNull();
+	});
+
+	it('asks for the photo again once Kamosu has deleted it, shows it, and sends it', async () => {
+		const upload = vi.fn(async () => 'up_1');
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				can_read_recipe_again: PHOTO_GONE,
+				read_recipe_again: { job_id: 'j_again', branch_id: 'mine' },
+				get_job: WAITING,
+				runner_status: HEARD,
+			}),
+			'mine',
+			{ upload },
+		);
+		const panel = await screen.findByRole('region', { name: m.read_again_heading() });
+		expect(panel).toHaveTextContent(m.read_again_lede_picture());
+
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		expect(panel).toHaveTextContent(m.read_again_gone_picture());
+		expect(
+			within(panel).getByRole('button', { name: m.read_again_choose_picture() }),
+		).toBeInTheDocument();
+
+		const photo = new File(['jpeg'], 'IMG_2210.jpg', { type: 'image/jpeg' });
+		await userEvent.upload(screen.getByLabelText(m.read_again_choose_picture()), photo);
+		expect(await within(panel).findByText('IMG_2210.jpg')).toBeInTheDocument();
+		expect(within(panel).getByRole('img', { name: m.send_photo_alt() })).toBeInTheDocument();
+
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_send() }));
+		await vi.waitFor(() =>
+			expect(kamosu.calls.find((call) => call.operation === 'read_recipe_again')?.input).toEqual({
+				branch_id: 'mine',
+				upload_id: 'up_1',
+			}),
+		);
+		expect(upload).toHaveBeenCalledWith(photo);
+	});
+
+	it('takes the text pasted again once Kamosu has deleted it', async () => {
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				can_read_recipe_again: TEXT_GONE,
+				read_recipe_again: { job_id: 'j_again', branch_id: 'mine' },
+				get_job: WAITING,
+				runner_status: HEARD,
+			}),
+		);
+		const panel = await screen.findByRole('region', { name: m.read_again_heading() });
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		const send = within(panel).getByRole('button', { name: m.read_again_send() });
+		expect(send).toBeDisabled();
+
+		await fireEvent.input(within(panel).getByLabelText(m.read_again_paste_label()), {
+			target: { value: 'Biscuit de Savoie\n6 œufs' },
+		});
+		await fireEvent.click(send);
+		await vi.waitFor(() =>
+			expect(kamosu.calls.find((call) => call.operation === 'read_recipe_again')?.input).toEqual({
+				branch_id: 'mine',
+				text: 'Biscuit de Savoie\n6 œufs',
+			}),
+		);
+	});
+
+	it('says offline that reading again waits for the server', async () => {
+		renderRecipe(forked({ ...ON_THE_SIDE, can_read_recipe_again: FROM_THE_LINK }));
+		const panel = await screen.findByRole('region', { name: m.read_again_heading() });
+		Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+		window.dispatchEvent(new Event('offline'));
+		await tick();
+		expect(within(panel).getByRole('button', { name: m.read_again_waits() })).toBeDisabled();
+	});
+
+	it('leads to the Report once the reading has ended, while the page watched it', async () => {
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				get_recipe_job: { job: { id: 'j_again', status: 'running', yours: true } },
+				get_job: { ...WAITING, status: 'running' },
+				runner_status: HEARD,
+			}),
+		);
+		await screen.findByText(m.agent_updating());
+		kamosu.answer('get_recipe_job', { job: null });
+		kamosu.answer('get_job', { ...WAITING, status: 'completed' });
+
+		const link = await screen.findByRole(
+			'link',
+			{ name: m.read_again_done_link() },
+			{ timeout: 5000 },
+		);
+		expect(link).toHaveAttribute('href', '/imports/j_again');
 	});
 });
 
