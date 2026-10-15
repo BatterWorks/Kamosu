@@ -116,7 +116,7 @@
 </script>
 
 <script lang="ts">
-	import { aDate } from '$lib/dates';
+	import { aDate, aTime } from '$lib/dates';
 	// What the page is made of. The screen keeps its own state — the recipe it
 	// is reading, the Thread around it, the Divergence, how much it is read at,
 	// and what the last save did — and composes the rest. Each concern that
@@ -194,7 +194,8 @@
 	import { languageFamily } from './language-family';
 	import { sharingAChain } from './sharing-a-chain';
 	import AgentWork from '$lib/agent/AgentWork.svelte';
-	import type { GetRecipeJobOutput } from '$lib/api/catalogue';
+	import ReadAgain from './ReadAgain.svelte';
+	import type { GetJobOutput, GetRecipeJobOutput } from '$lib/api/catalogue';
 
 	interface Props {
 		branchId: string;
@@ -641,6 +642,31 @@
 			current = false;
 		};
 	});
+
+	/**
+	 * A reading again that ended while the page watched it, with when (#279):
+	 * the line above Cook this that leads to its Import Report. Gone when
+	 * another recipe opens; afterwards the Report is under Brought in.
+	 */
+	let readAgainEnded = $state<{ jobId: string; at: string } | null>(null);
+	let readAgainFor: string | undefined;
+	$effect(() => {
+		if (readAgainFor !== branchId) readAgainEnded = null;
+		readAgainFor = branchId;
+	});
+	/** The Job named above once it has ended: it stays named, and stands no more. */
+	let endedJob = $state<string | undefined>(undefined);
+	const jobStands = $derived(agentJob !== null && agentJob.id !== endedJob);
+	function agentEnded(
+		jobId: string,
+		status: GetJobOutput['status'],
+		readingAgain: boolean,
+		at: string,
+	) {
+		endedJob = jobId;
+		if (status === 'completed' && readingAgain) readAgainEnded = { jobId, at };
+		reread += 1;
+	}
 	const readings = $derived(here?.readings ?? recipe?.versions.at(-1)?.readings ?? []);
 	/**
 	 * The one subordinate line the Core worked out for THIS reader — scaling and
@@ -914,9 +940,25 @@
 			nothing here to press twice by mistake.
 		-->
 			{#if agentJob}
-				{#key agentJob.id}
-					<AgentWork jobId={agentJob.id} mine={agentJob.yours} ended={() => (reread += 1)} />
+				{@const jobId = agentJob.id}
+				{#key jobId}
+					<AgentWork
+						{jobId}
+						mine={agentJob.yours}
+						ended={(status, readingAgain, at) => agentEnded(jobId, status, readingAgain, at)}
+					/>
 				{/key}
+			{/if}
+			{#if readAgainEnded}
+				<p
+					class="mx-gutter mt-4 border-l-3 border-accent bg-card px-3 py-2 text-read"
+					role="status"
+				>
+					{m.read_again_done({ time: aTime(readAgainEnded.at) })}
+					<a href="/imports/{readAgainEnded.jobId}" class="text-accent underline"
+						>{m.read_again_done_link()}</a
+					>
+				</p>
 			{/if}
 
 			<a
@@ -1381,6 +1423,26 @@
 						{attempts}
 						versions={recipe.versions}
 						promoted={() => (reread += 1)}
+					/>
+				{/if}
+
+				<!--
+			Reading the recipe again (#279): a panel of its own above the acts,
+			drawn by `ReadAgain.svelte` only where the server says this Person
+			may have it read again, and not while an agent's Job stands on it,
+			which the card above Cook this already says.
+		-->
+				{#if recipe && !jobStands}
+					<ReadAgain
+						{branchId}
+						asOf={reread}
+						asked={(id) => {
+							readAgainEnded = null;
+							// The answer may be a Job a Co-author asked for a moment
+							// earlier, so whose it is comes from the read that follows.
+							agentJob = { id, status: 'queued', yours: false };
+							reread += 1;
+						}}
 					/>
 				{/if}
 

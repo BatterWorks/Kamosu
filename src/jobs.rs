@@ -531,6 +531,26 @@ pub fn wait_for_agent_to_read_again(
     )
 }
 
+/// Whether the recipe `branch_id` has been read again already, which a
+/// recipe is once (#279). A reading counts once an agent finished it, or
+/// was stopped while a Runner held it. One that failed, or was stopped while
+/// it still waited, gives the turn back: no agent finished it, or none
+/// began. A Job stopped while held keeps `held_by` (`cancel`), and one that
+/// waits again has it cleared (`end_a_try`), so `held_by` says which.
+pub fn read_again_already(conn: &Connection, branch_id: &str) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS (
+           SELECT 1 FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
+            WHERE agent_jobs.branch_id = ?1
+              AND json_extract(jobs.input, '$.source_kind') = ?2
+              AND (jobs.status = 'completed'
+                   OR (jobs.status = 'cancelled' AND agent_jobs.held_by IS NOT NULL)))",
+        params![branch_id, READ_AGAIN],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot read the recipe's readings: {e}")))
+}
+
 /// Have an agent read again, into the recipe `branch_id`, an Original of
 /// `kind` that the caller keeps under the id this answers (#273). As
 /// [`wait_for_agent_to_read_again`], which reads a link: the Job is the

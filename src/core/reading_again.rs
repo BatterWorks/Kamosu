@@ -24,6 +24,9 @@ enum CannotReadAgain {
     WouldStartACopy,
     /// No agent would read it.
     NoRunner,
+    /// It has been read again already, which a recipe is once, so that
+    /// nobody runs up the cost of an agent on it by asking over and over.
+    AlreadyReadAgain,
     /// It came from an Original, which was deleted 30 days after its Job
     /// ended (#270): the file is handed over again with the ask.
     NeedsTheFile,
@@ -39,6 +42,7 @@ impl CannotReadAgain {
             CannotReadAgain::NotACoAuthor => "not_a_co_author",
             CannotReadAgain::WouldStartACopy => "would_start_a_copy",
             CannotReadAgain::NoRunner => "no_runner",
+            CannotReadAgain::AlreadyReadAgain => "already_read_again",
             CannotReadAgain::NeedsTheFile => "needs_the_file",
             CannotReadAgain::NothingToRead => "nothing_to_read",
         }
@@ -64,6 +68,11 @@ impl CannotReadAgain {
                 reason,
                 "this Kamosu has no Runner, so no agent would read the recipe again. An \
                  Operator mints a Runner Key and runs a Runner beside Kamosu first",
+            ),
+            CannotReadAgain::AlreadyReadAgain => OpError::refused_because(
+                reason,
+                "this recipe has been read again already, and a recipe is read again once. \
+                 Change it yourself, or start a variation of it, which has a reading of its own",
             ),
             CannotReadAgain::NeedsTheFile => OpError::refused_because(
                 reason,
@@ -305,6 +314,8 @@ fn what_to_read_again(
         Some(CannotReadAgain::WouldStartACopy)
     } else if !has_runner {
         Some(CannotReadAgain::NoRunner)
+    } else if jobs::read_again_already(conn, branch_id)? {
+        Some(CannotReadAgain::AlreadyReadAgain)
     } else if from.is_some() {
         None
     } else if original.is_some() {

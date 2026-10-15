@@ -20,6 +20,7 @@ import ReportTestHarness from './ReportTestHarness.svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetJobOutput, ImportCroutonOutput } from '$lib/api/catalogue';
 import { recipeAnswer } from '../../../testing/recipes';
+import { went } from '../../../testing/navigation';
 
 const side = (branch: string, title: string, over: Record<string, unknown> = {}) => ({
 	lineage_id: `l_${branch}`,
@@ -528,6 +529,7 @@ describe("the Import Report of an agent's work", () => {
 					{ branch_id: null, status: 'failed', could_not_be_read: true, made_by_agent: undefined },
 				),
 			}),
+			runner_status: { has_runner: false, last_asked_at: null },
 		});
 
 		expect(
@@ -537,6 +539,80 @@ describe("the Import Report of an agent's work", () => {
 		expect(loss).toHaveTextContent('Your picture');
 		expect(screen.getByText(/Nothing arrived\./)).toBeInTheDocument();
 		expect(screen.queryByText(/The import stopped/)).not.toBeInTheDocument();
+	});
+
+	describe('a file the agent failed on, sent again (#279)', () => {
+		const reason = 'The scan holds a wine label.';
+		const failedPdf = (gone: boolean) =>
+			job({
+				operation: 'read_by_agent',
+				status: 'failed',
+				error: reason,
+				errorCode: -32602,
+				updated_at: '2026-10-14T10:00:00.000Z',
+				result: agentReport(
+					{ source_kind: 'pdf', arrived: [], unreadable: [{ foreign_id: null, reason }] },
+					{
+						branch_id: null,
+						status: 'failed',
+						could_not_be_read: true,
+						made_by_agent: undefined,
+						original_gone: gone,
+					},
+				),
+			});
+		const RUNNER = { has_runner: true, last_asked_at: '2026-10-15T10:00:00.000Z' };
+
+		it('offers the same PDF again while Kamosu keeps it, and opens the new Job', async () => {
+			const kamosu = open({
+				get_job: failedPdf(false),
+				runner_status: RUNNER,
+				read_job_again: { job_id: 'j_2', source_kind: 'pdf' },
+			});
+
+			const again = await screen.findByRole('button', { name: m.report_again_pdf() });
+			// Its 30 days run from when the Job ended.
+			expect(screen.getByText(/until 13 November/)).toBeInTheDocument();
+			// Under the file that could not be read.
+			const loss = screen.getByText(/The scan holds a wine label/).closest('li')!;
+			expect(loss.compareDocumentPosition(again) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+			await fireEvent.click(again);
+			await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/imports/j_2'));
+			expect(kamosu.calls.find((call) => call.operation === 'read_job_again')?.input).toEqual({
+				job_id: 'j_1',
+			});
+		});
+
+		it('opens the recipe an agent made from the same file since', async () => {
+			open({
+				get_job: failedPdf(false),
+				runner_status: RUNNER,
+				read_job_again: { branch_id: 'b_tart', title: 'Tart', source_kind: 'pdf' },
+			});
+			await fireEvent.click(await screen.findByRole('button', { name: m.report_again_pdf() }));
+			await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_tart'));
+		});
+
+		it('says the PDF is gone once Kamosu has deleted it, and offers nothing', async () => {
+			open({ get_job: failedPdf(true), runner_status: RUNNER });
+			expect(await screen.findByText(m.report_gone_pdf())).toBeInTheDocument();
+			expect(screen.queryByRole('button', { name: m.report_again_pdf() })).toBeNull();
+		});
+
+		it('offers nothing on an instance with no Runner', async () => {
+			const kamosu = open({
+				get_job: failedPdf(false),
+				runner_status: { has_runner: false, last_asked_at: null },
+			});
+			await screen.findByText(/The scan holds a wine label/);
+			await vi.waitFor(() =>
+				expect(kamosu.calls.some((call) => call.operation === 'runner_status')).toBe(true),
+			);
+			await new Promise((wake) => setTimeout(wake, 20));
+			expect(screen.queryByRole('button', { name: m.report_again_pdf() })).toBeNull();
+			expect(screen.queryByText(m.report_gone_pdf())).toBeNull();
+		});
 	});
 
 	it('says a recipe read again by an agent that failed is as it was', async () => {
