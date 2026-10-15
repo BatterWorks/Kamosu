@@ -1,7 +1,10 @@
 /**
  * The ways a new recipe starts, written once (#174): a web page, a Bundle
  * somebody sent you (a Kamosu zip file, ADR 0020), a title you type yourself,
- * a whole recipe pasted as text (#175), and a recipe PDF (#176).
+ * a whole recipe pasted as text (#175), and a recipe PDF (#176). On an
+ * instance with a Runner a photo of a page is one too, and a photo, a PDF and
+ * pasted text go to Kamosu's AI agent rather than to a draft sorted by hand
+ * (#278).
  *
  * Two places offer them. The + beside the search box offers all three every
  * day, and the dead ends `AddOrImport` draws (a search that matched nothing,
@@ -26,8 +29,16 @@ import { StillRunning, waitForJob } from '$lib/api/job';
 import { receiveStaged } from '$lib/receive';
 import type { ImportWebLinkOutput, KamosuClient, ReadPastedRecipeOutput } from '$lib/api/catalogue';
 import { holdPaste, readPdf, type PageReading, type PastedDraft } from '$lib/pasted.svelte';
+import { noteArrival } from '$lib/arrival.svelte';
 
-export type Act = 'link' | 'file' | 'pdf' | 'write' | 'paste';
+/** `send` is handing a photo, a PDF or pasted text to Kamosu's AI agent (#278). */
+export type Act = 'link' | 'file' | 'pdf' | 'picture' | 'write' | 'paste' | 'send';
+
+/** A photo or a PDF chosen or dropped, shown once before it goes to the agent (#278). */
+export interface ToSend {
+	file: File;
+	kind: 'picture' | 'pdf';
+}
 
 export class Adding {
 	/** The act running now, or none. Every button offering an act quiets while one runs. */
@@ -57,6 +68,16 @@ export class Adding {
 	 * the server is out of reach has no label to read, so it is said here.
 	 */
 	waiting = $state<string | undefined>(undefined);
+	/**
+	 * Whether this instance has a Runner, so that a photo, a PDF and pasted
+	 * text go to Kamosu's AI agent (#278), or nothing while that has not been
+	 * read yet. Read from the server each time it matters, never from what
+	 * the phone kept (`runner_status` is never cached), and `null` reads as
+	 * no Runner: the + then offers what it offers on every instance.
+	 */
+	runner = $state<boolean | null>(null);
+	/** A photo or a PDF waiting on the sheet that asks before it is sent, or none. */
+	toSend = $state<ToSend | null>(null);
 
 	#kamosu: KamosuClient;
 	#upload: Uploader;
@@ -114,6 +135,104 @@ export class Adding {
 			const answer = await readPdf(this.#kamosu, await this.#upload(file));
 			if (typeof answer === 'string') return answer;
 			this.fromPdf = answer;
+			return undefined;
+		});
+
+	/**
+	 * Read again whether this instance has a Runner (#278). A refusal leaves
+	 * what was known: the + then draws what it drew.
+	 */
+	async readRunner(): Promise<boolean> {
+		try {
+			const status = await this.#kamosu.runnerStatus({});
+			this.runner = status.has_runner;
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+		}
+		return this.runner === true;
+	}
+
+	/**
+	 * A PDF was chosen or dropped. With a Runner it goes to the agent, a scan
+	 * included, once the sheet has shown it; without one it is read into a
+	 * draft as it always was (#176).
+	 */
+	pdfChosen = (file: File) =>
+		this.#chosen(async () => {
+			if (await this.readRunner()) this.offer({ file, kind: 'pdf' });
+			else await this.pdf(file);
+		});
+
+	/**
+	 * A photo of a page was chosen or dropped (#278). Only an instance with a
+	 * Runner reads one, and a photo dropped on one without is refused in the
+	 * words a drop is refused with.
+	 */
+	pictureChosen = (file: File) =>
+		this.#chosen(async () => {
+			if (await this.readRunner()) this.offer({ file, kind: 'picture' });
+			else this.refuse(m.drop_recipes_refused());
+		});
+
+	/** A file chosen while whether there is a Runner is still being read. */
+	#choosing = false;
+
+	/**
+	 * One file at a time: a second chosen or dropped while the first waits
+	 * for the server's answer is let go, as one is while an act runs.
+	 */
+	async #chosen(decide: () => Promise<void>) {
+		if (this.working || this.#choosing) return;
+		this.#choosing = true;
+		try {
+			await decide();
+		} finally {
+			this.#choosing = false;
+		}
+	}
+
+	/** Forget what the last act said, as a new choice starts. */
+	quiet() {
+		if (this.working) return;
+		this.failed = undefined;
+		this.waiting = undefined;
+		this.stillGoing = false;
+	}
+
+	/** Show a photo or a PDF on the sheet that asks before it is sent. */
+	offer(chosen: ToSend) {
+		this.failed = undefined;
+		this.waiting = undefined;
+		this.stillGoing = false;
+		this.toSend = chosen;
+	}
+
+	/**
+	 * Hand a photo, a PDF or pasted text to Kamosu's AI agent (#278), and go
+	 * to its Import, which says whether it waits or is being read (#277). A
+	 * file handed over before is known by its contents (#271): a Job still on
+	 * it is that same Import, and a recipe already made from it opens, saying
+	 * it was read before.
+	 */
+	send = (handed: { text: string } | { file: File }) =>
+		this.#run('send', async () => {
+			const input =
+				'text' in handed ? { text: handed.text } : { upload_id: await this.#upload(handed.file) };
+			const answer = await this.#kamosu.importByAgent(input);
+			this.toSend = null;
+			if (answer.job_id) {
+				await goto(`/imports/${answer.job_id}`);
+				return undefined;
+			}
+			if (answer.branch_id) {
+				noteArrival({
+					branchId: answer.branch_id,
+					title: answer.title ?? '',
+					how: 'read_before',
+					passengers: [],
+				});
+				await goto(`/recipes/${answer.branch_id}`);
+			}
 			return undefined;
 		});
 
@@ -188,12 +307,17 @@ export class Adding {
 			this.failed = await perform();
 		} catch (error) {
 			if (!(error instanceof Error)) throw error;
-			// Writing and pasting are one Operation each and no Job, so only a
+			// Writing, pasting and sending are one Operation each and no Job
+			// (an upload first, for a file), so only a
 			// refusal is theirs to say; anything else is a Mistake for the
 			// layers that catch those.
 			// Kept here rather than in `write`, so every act leaves `working`
 			// the same way.
-			if ((act === 'write' || act === 'paste') && !(error instanceof OperationError)) throw error;
+			if (
+				(act === 'write' || act === 'paste' || act === 'send') &&
+				!(error instanceof OperationError)
+			)
+				throw error;
 			if (error instanceof StillRunning) this.stillGoing = true;
 			else this.failed = error.message;
 		} finally {

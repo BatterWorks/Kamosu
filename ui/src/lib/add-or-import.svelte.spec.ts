@@ -19,7 +19,7 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import AddOrImportTestHarness from './AddOrImportTestHarness.svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import { OperationError } from '$lib/api/client';
-import { forgetArrival } from './arrival.svelte';
+import { forgetArrival, noteArrival } from './arrival.svelte';
 import { went } from '../testing/navigation';
 import { outlivingTheWait, withTheClockFaked } from '../testing/jobs';
 
@@ -135,6 +135,26 @@ describe('bringing a recipe file in', () => {
 		// saying so is the only way a second recipe appearing is not a surprise.
 		expect(said).toHaveTextContent('Toasted walnut paste came with it');
 		expect(screen.getByRole('button', { name: 'How it went' })).toBeInTheDocument();
+	});
+
+	it('says a photo or a PDF was read before, offering no Report where no Job was made (#278)', async () => {
+		noteArrival({
+			branchId: 'b_read',
+			title: 'Tarte au citron',
+			how: 'read_before',
+			passengers: [],
+		});
+		render(AddOrImportTestHarness, {
+			props: { client: standIn({}).client, upload: vi.fn(), pathname: '/recipes/b_read' },
+		});
+
+		const said = await screen.findByRole('status', { name: 'Read before' });
+		expect(said).toHaveTextContent(
+			"Kamosu's AI agent already read this file into Tarte au citron, so nothing new was made.",
+		);
+		expect(screen.queryByRole('button', { name: 'How it went' })).not.toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
+		expect(screen.queryByRole('status', { name: 'Read before' })).not.toBeInTheDocument();
 	});
 
 	it('says the same file twice changed nothing, rather than showing a second recipe', async () => {

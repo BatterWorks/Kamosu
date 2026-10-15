@@ -401,7 +401,7 @@ describe("the Import Report of an agent's work", () => {
 		const duplicate = await screen.findByRole('link', { name: 'Lemon meringue pie' });
 		expect(duplicate).toHaveAttribute('href', '/recipes/b_pie');
 		expect(duplicate.closest('p')).toHaveTextContent(
-			'The agent thinks this may be the same dish as Lemon meringue pie. Both are kept.',
+			'The AI agent thinks this may be the same dish as Lemon meringue pie. Both are kept.',
 		);
 
 		const look = screen.getByText(/Have a look at/).closest('div') as HTMLElement;
@@ -409,17 +409,17 @@ describe("the Import Report of an agent's work", () => {
 			'href',
 			'/recipes/b_tart',
 		);
-		expect(within(look).getByText('The agent left undone')).toBeInTheDocument();
+		expect(within(look).getByText('The AI agent left undone')).toBeInTheDocument();
 		expect(within(look).getByText('The page gives no cooking time.')).toBeInTheDocument();
-		expect(within(look).getByText('The agent was not sure of')).toBeInTheDocument();
+		expect(within(look).getByText('The AI agent was not sure of')).toBeInTheDocument();
 		expect(within(look).getByText("Foods its corrections didn't use")).toBeInTheDocument();
 		expect(within(look).getByText('caster sugar')).toBeInTheDocument();
 		expect(screen.queryByText(m.report_needs_you_none())).not.toBeInTheDocument();
 
 		// One arrival: the bare landing is not said apart from the agent's work.
-		expect(screen.getByText(`Written by an agent: ${TART}.`)).toBeInTheDocument();
+		expect(screen.getByText(`Written by Kamosu's AI agent: ${TART}.`)).toBeInTheDocument();
 		expect(screen.queryByText(/came as just a name and a link/)).not.toBeInTheDocument();
-		expect(screen.getByText('written by an agent')).toBeInTheDocument();
+		expect(screen.getByText("written by Kamosu's AI agent")).toBeInTheDocument();
 	});
 
 	it('shows three entries of a long list and the rest behind one tap', async () => {
@@ -504,7 +504,7 @@ describe("the Import Report of an agent's work", () => {
 			}),
 		});
 
-		const loss = (await screen.findByText(`The agent couldn't finish: ${reason}`)).closest('li');
+		const loss = (await screen.findByText(`The AI agent couldn't finish: ${reason}`)).closest('li');
 		expect(loss).toHaveTextContent(TART);
 		expect(screen.queryByText(/The agent said/)).not.toBeInTheDocument();
 		expect(screen.getByText(`1 came as just a name and a link: ${TART}.`)).toBeInTheDocument();
@@ -533,7 +533,7 @@ describe("the Import Report of an agent's work", () => {
 		expect(
 			await screen.findByRole('heading', { name: 'The picture you brought in' }),
 		).toBeInTheDocument();
-		const loss = screen.getByText(`The agent said: "${reason}"`).closest('li');
+		const loss = screen.getByText(`The AI agent said: "${reason}"`).closest('li');
 		expect(loss).toHaveTextContent('Your picture');
 		expect(screen.getByText(/Nothing arrived\./)).toBeInTheDocument();
 		expect(screen.queryByText(/The import stopped/)).not.toBeInTheDocument();
@@ -590,9 +590,13 @@ describe("the Import Report of an agent's work", () => {
 		});
 
 		expect(
-			await screen.findByText(`Written by an agent earlier, and already here, unchanged: ${TART}.`),
+			await screen.findByText(
+				`Written by Kamosu's AI agent earlier, and already here, unchanged: ${TART}.`,
+			),
 		).toBeInTheDocument();
-		expect(screen.getByText('written by an agent · already here, unchanged')).toBeInTheDocument();
+		expect(
+			screen.getByText("written by Kamosu's AI agent · already here, unchanged"),
+		).toBeInTheDocument();
 		expect(screen.getByText(m.report_needs_you_none())).toBeInTheDocument();
 	});
 });
