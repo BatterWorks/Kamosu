@@ -98,6 +98,8 @@ Kamosu serves plain HTTP and never handles a certificate. Put your own reverse p
 
 In Kamosu, open **Settings**, then **Account**, and create an Access Key. Tick **Read-only** if the agent only needs to look things up. Point any MCP client at `https://your-kamosu/mcp` with the key as a bearer token. The [GitHub README](https://github.com/BatterWorks/Kamosu#connecting-an-agent) has the exact configuration for Claude Code, Codex and Hermes.
 
+The image also holds the Runner, `/app/kamosu runner`: a program you run beside an agent of your choosing, which hands it what Kamosu cannot read itself, such as a photo of a cookbook page. The image holds no agent. The [Runner guide](https://github.com/BatterWorks/Kamosu/blob/main/docs/runner.md) says how to set one up.
+
 ## Your data
 
 Everything Kamosu owns lives in the one folder mounted at `/data`: the database, the photographs, the Backups, and the search model if you turn Meaning Search on.

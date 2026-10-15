@@ -76,6 +76,7 @@ port, and it sends your data nowhere.
 - [Who it is for](#who-it-is-for)
 - [Quick start](#quick-start)
 - [Connecting an agent](#connecting-an-agent)
+- [A Runner](#a-runner-an-agent-that-reads-what-kamosu-cannot)
 - [Meaning Search](#meaning-search)
 - [Your data](#your-data)
 - [Configuration](#configuration)
@@ -306,6 +307,22 @@ own.
 
 An agent that reads a web page or someone else's recipe can be given
 instructions by that text. A read-only key limits what that can cost.
+
+## A Runner: an agent that reads what Kamosu cannot
+
+Kamosu reads a web page's recipe data itself and calls no model. A photo of a
+cookbook page, a scanned PDF, a video or a page with no recipe data needs one,
+and pasted text reads better with one. A Runner is a small program that runs beside Kamosu, asks it
+for that work, and hands each piece to an agent you choose, which saves the
+recipe into the Cookbook of whoever sent it. It opens no port, and the agent
+it starts can write that one recipe and nothing else.
+
+Kamosu ships the Runner: it is the same program as the server, started as
+`kamosu runner`. You supply the agent, its tools and its instructions, and you
+pay for the model it uses. Kamosu ships no agent and no image with one in it.
+
+An instance without a Runner is complete. It reads what it reads, and nothing
+in it waits for one. [docs/runner.md](docs/runner.md) says how to set one up.
 
 ## Meaning Search
 
