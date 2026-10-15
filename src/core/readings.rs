@@ -308,11 +308,12 @@ impl Core {
     /// on resolving to whatever Branch of the dough its reader holds.
     pub fn set_reading(
         &self,
-        person_id: &str,
+        caller: &Caller,
         branch_id: &str,
         line_index: i64,
         sent: Reading<'_>,
     ) -> Result<Value, OpError> {
+        let person_id = caller.person_id.as_str();
         let Reading {
             amount,
             unit,
@@ -325,7 +326,7 @@ impl Core {
         self.db().with_conn(|conn| {
             // The Branch's OWN Lineage, which is what the cooking scale is read
             // against — not the one this Reading may point at.
-            let (cookbook_id, language, head_version_id, content, of_this_branch): (String, String, String, String, String) = conn
+            let (_, language, head_version_id, content, of_this_branch): (String, String, String, String, String) = conn
                 .query_row(
                     "SELECT branches.cookbook_id, branches.language, branches.head_version_id, versions.content, branches.lineage_id \
                        FROM branches JOIN versions ON versions.id = branches.head_version_id \
@@ -336,7 +337,9 @@ impl Core {
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
                 .ok_or_else(no_such_branch)?;
-            ensure_sees_or_absent(conn, &cookbook_id, person_id, no_such_branch)?;
+            // An Operator's agent correcting its Job's recipe reaches it in
+            // the Cookbook the Operator put it in (#302).
+            ensure_reaches_branch(conn, branch_id, caller)?;
 
             let content: Value = serde_json::from_str(&content)
                 .map_err(|e| OpError::internal(format!("cannot read Version content: {e}")))?;

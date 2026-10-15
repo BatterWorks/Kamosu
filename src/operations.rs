@@ -540,6 +540,15 @@ pub fn get_cookbook(core: &Core, invocation: &Invocation, _input: Value) -> Resu
     core.get_cookbook(&caller.person_id)
 }
 
+pub fn list_cookbooks(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.list_cookbooks(caller)
+}
+
 pub fn rename_cookbook(
     core: &Core,
     invocation: &Invocation,
@@ -656,7 +665,7 @@ pub fn start_variation(
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request(takes))?;
     let caller = caller_of(invocation)?;
-    core.start_variation(&caller.person_id, branch_id, name)
+    core.start_variation(caller, branch_id, name)
 }
 
 pub fn rename_branch(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
@@ -683,7 +692,7 @@ pub fn create_tag(core: &Core, invocation: &Invocation, input: Value) -> Result<
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request(takes))?;
     let caller = caller_of(invocation)?;
-    core.create_tag(&caller.person_id, language, name)
+    core.create_tag(caller, language, name, landing(&input))
 }
 
 pub fn list_tags(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
@@ -695,7 +704,7 @@ pub fn list_tags(core: &Core, invocation: &Invocation, input: Value) -> Result<V
     let cookbook_id = input.get("cookbook_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     Ok(json!({
-        "tags": core.list_tags(&caller.person_id, everywhere, kitchen_id, cookbook_id)?
+        "tags": core.list_tags(caller, everywhere, kitchen_id, cookbook_id)?
     }))
 }
 
@@ -760,7 +769,7 @@ pub fn set_recipe_tag(
         .and_then(Value::as_bool)
         .ok_or_else(|| OpError::bad_request(takes))?;
     let caller = caller_of(invocation)?;
-    core.set_recipe_tag(&caller.person_id, branch_id, tag_id, carried)
+    core.set_recipe_tag(caller, branch_id, tag_id, carried)
 }
 
 pub fn set_related_recipe(
@@ -795,13 +804,13 @@ pub fn set_related_recipe(
         (None, None) => return Err(OpError::bad_request(takes)),
     };
     let caller = caller_of(invocation)?;
-    core.set_related_recipe(&caller.person_id, branch_id, other, related)
+    core.set_related_recipe(caller, branch_id, other, related)
 }
 
 pub fn create_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let language = input.get("language").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
-    core.create_recipe(caller, &input, language)
+    core.create_recipe(caller, &input, language, landing(&input))
 }
 
 pub fn save_recipe_version(
@@ -982,7 +991,7 @@ pub fn import_by_agent(
             Some(crate::core::LARGEST_HANDED_FILE),
         )?),
     };
-    core.import_by_agent(caller, handed)
+    core.import_by_agent(caller, handed, landing(&input))
 }
 
 /// The bytes of a file sent to an Operation, the two ways a file arrives
@@ -1101,7 +1110,13 @@ pub fn import(core: &Core, invocation: &Invocation, input: Value) -> Result<Valu
         .and_then(Value::as_array)
         .ok_or_else(|| OpError::bad_request("import takes { source_kind, candidates }"))?;
     let caller = caller_of(invocation)?;
-    core.import(caller, source_kind, candidates, invocation.job.as_ref())
+    core.import(
+        caller,
+        source_kind,
+        candidates,
+        landing(&input),
+        invocation.job.as_ref(),
+    )
 }
 
 /// Import a recipe straight from a web link (#70): fetch the page through the
@@ -1152,7 +1167,7 @@ pub fn import_web_link(
             progress.report(0, None, "asking for the recipe file".to_string());
         }
         if let Some(bytes) = shared_recipe_file(core, &link)? {
-            return core.import_bundle(caller, &bytes, progress);
+            return core.import_bundle(caller, &bytes, landing(&input), progress);
         }
     }
 
@@ -1260,7 +1275,7 @@ pub fn import_web_link(
         "steps": steps,
     });
 
-    let report = core.import(caller, "web", &[candidate], progress)?;
+    let report = core.import(caller, "web", &[candidate], landing(&input), progress)?;
     if has_runner && !parsed.found_recipe {
         return core.hand_link_to_agent(caller, report, &effective_url);
     }
@@ -1470,7 +1485,7 @@ pub fn get_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("get_recipe takes { branch_id, wanted_yield? }"))?;
     let caller = caller_of(invocation)?;
-    core.get_recipe(&caller.person_id, branch_id, input.get("wanted_yield"))
+    core.get_recipe(caller, branch_id, input.get("wanted_yield"))
 }
 
 /// Receive a Bundle (#67), landed in the caller's own Cookbook as a Job
@@ -1489,7 +1504,7 @@ pub fn import_bundle(core: &Core, invocation: &Invocation, input: Value) -> Resu
     let caller = caller_of(invocation)?;
     let progress = invocation.job.as_ref();
     let bytes = sent_file(core, caller, &input, USAGE, None)?;
-    core.import_bundle(caller, &bytes, progress)
+    core.import_bundle(caller, &bytes, landing(&input), progress)
 }
 
 /// Bring in a Crouton export (#69) — the whole library as a zip of `.crumb`
@@ -1517,7 +1532,7 @@ pub fn import_crouton(
             let outcome = std::fs::File::open(&path)
                 .map_err(|e| OpError::internal(format!("cannot open the upload: {e}")))
                 .and_then(crate::crouton::Export::open)
-                .and_then(|export| core.import_crouton(caller, export, progress));
+                .and_then(|export| core.import_crouton(caller, export, landing(&input), progress));
             let _ = std::fs::remove_file(&path);
             outcome
         }
@@ -1527,7 +1542,7 @@ pub fn import_crouton(
                 .decode(data)
                 .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
             let export = crate::crouton::Export::open(std::io::Cursor::new(bytes))?;
-            core.import_crouton(caller, export, progress)
+            core.import_crouton(caller, export, landing(&input), progress)
         }
         _ => Err(OpError::bad_request(USAGE)),
     }
@@ -1615,7 +1630,7 @@ pub fn set_reading(core: &Core, invocation: &Invocation, input: Value) -> Result
     let lineage_id = input.get("lineage_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     core.set_reading(
-        &caller.person_id,
+        caller,
         branch_id,
         line_index,
         Reading {
@@ -1655,7 +1670,7 @@ pub fn get_thread(core: &Core, invocation: &Invocation, input: Value) -> Result<
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("get_thread takes { branch_id }"))?;
     let caller = caller_of(invocation)?;
-    core.get_thread(&caller.person_id, branch_id)
+    core.get_thread(caller, branch_id)
 }
 
 // ── Share Links (#65, ADR 0026, ADR 0018) ────────────────────────────────────
@@ -1973,7 +1988,7 @@ pub fn delete_recipe(core: &Core, invocation: &Invocation, input: Value) -> Resu
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("delete_recipe takes { branch_id }"))?;
     let caller = caller_of(invocation)?;
-    core.delete_recipe(&caller.person_id, branch_id)?;
+    core.delete_recipe(caller, branch_id)?;
     Ok(json!({ "deleted": true }))
 }
 
@@ -2307,6 +2322,12 @@ fn runner_of(invocation: &Invocation) -> Result<&RunnerCaller, OpError> {
     invocation
         .runner()
         .ok_or_else(|| OpError::unauthorized("this Operation requires a Runner Key"))
+}
+
+/// The Cookbook a create or an Import names to land in, where it names one
+/// (#302). Whether the caller may is the Core's to say.
+fn landing(input: &Value) -> Option<&str> {
+    input.get("cookbook_id").and_then(Value::as_str)
 }
 
 fn caller_of(invocation: &Invocation) -> Result<&Caller, OpError> {

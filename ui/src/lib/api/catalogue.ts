@@ -53,7 +53,7 @@ export type RenamePersonOutput = {
 	name: string;
 };
 
-/** List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here. */
+/** List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook: an Operator reaches their recipes through list_cookbooks (ADR 0049), and no Attempt or Kitchen of theirs from anywhere. */
 export type ListAccountsInput = Record<string, never>;
 /** What list_accounts answers. */
 export type ListAccountsOutput = {
@@ -497,6 +497,26 @@ export type GetCookbookOutput = {
 	recipe_count: number;
 };
 
+/** Every Cookbook and the recipes in it, for an Operator. Each comes with who writes it, and each recipe as a `branch_id` with its title. On a call saying `as_operator`, an Operator looks after any Cookbook (ADR 0049): get_recipe, get_thread, edit_recipe, save_recipe_version, delete_recipe, set_recipe_tag and set_related_recipe reach these recipes, and create_recipe, create_tag, list_tags and the Imports take a `cookbook_id` to work in one. What an Operator writes there is under their own Hand. Attempts, shopping lists and who writes a Cookbook stay their owners'. A read-only Access Key is refused. */
+export type ListCookbooksInput = Record<string, never>;
+/** What list_cookbooks answers. */
+export type ListCookbooksOutput = {
+	cookbooks: {
+		authors: {
+			name: string;
+			person_id: string;
+		}[];
+		id: string;
+		name: string | null;
+		recipes: {
+			branch_id: string;
+			language: string;
+			name: string | null;
+			title: string;
+		}[];
+	}[];
+};
+
 /** Give your Cookbook a name of its own, or clear it. An empty or null name clears it back to its Co-authors' names. Any Co-author may. */
 export type RenameCookbookInput = {
 	name: string | null;
@@ -902,6 +922,8 @@ export type RemoveCookbookAuthorOutput = {
 
 /** Create a Tag in your own Cookbook, named in one Language. A word the Cookbook already files under returns the Tag it already has rather than making a second. */
 export type CreateTagInput = {
+	as_operator?: boolean;
+	cookbook_id?: string;
 	kitchen_id?: string;
 	language: "en" | "fr" | "es";
 	name: string;
@@ -922,6 +944,7 @@ export type CreateTagOutput = {
 
 /** List every Tag your own Cookbook files by. Each is shown in the reader's Reading Language where it has a name there. With `everywhere`, every word any Cookbook you may see files by, one entry per word — what a shelf filters by. With a `kitchen_id`, the same for the Cookbooks seen in that one Kitchen of yours. */
 export type ListTagsInput = {
+	as_operator?: boolean;
 	cookbook_id?: string;
 	everywhere?: boolean;
 	kitchen_id?: string;
@@ -992,6 +1015,7 @@ export type DeleteTagOutput = {
 
 /** File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Kitchen's Tags. Mints no Version: filing is not what a recipe is. */
 export type SetRecipeTagInput = {
+	as_operator?: boolean;
 	branch_id: string;
 	carried: boolean;
 	tag_id: string;
@@ -1014,6 +1038,7 @@ export type SetRecipeTagOutput = {
 
 /** Relate two Recipes, or take that link back off. One is a Recipe of your Cookbook, the other any Recipe you may see, joined by a single two-way, untyped link. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
 export type SetRelatedRecipeInput = {
+	as_operator?: boolean;
 	branch_id: string;
 	related: boolean;
 	related_branch_id?: string;
@@ -1033,7 +1058,9 @@ export type SetRelatedRecipeOutput = {
 
 /** Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. With a Job Key it creates the Job's own recipe, once, for a Job that has none yet: one reading pasted text, a PDF or a picture. */
 export type CreateRecipeInput = {
+	as_operator?: boolean;
 	cook_time_minutes?: number | null;
+	cookbook_id?: string;
 	ingredients?: {
 		kind: "section" | "ingredient";
 		text: string;
@@ -1236,6 +1263,7 @@ export type CreateRecipeOutput = {
 
 /** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch or a Translation already holds that Version, or an agent's Job saved it. Every save with a Job Key collapses into the one Version its Job started, never an earlier one. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, and is refused once that Version is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
 export type SaveRecipeVersionInput = {
+	as_operator?: boolean;
 	branch_id: string;
 	change_note?: string;
 	cook_time_minutes?: number | null;
@@ -1283,6 +1311,7 @@ export type SaveRecipeVersionOutput = {
 
 /** Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch or a Translation already holds it, or an agent's Job saved it), an edit with a Job Key collapses and is refused as its save is, and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was, in the same place, keeps its Reading as it was, a misreading included; correct one with set_reading. */
 export type EditRecipeInput = {
+	as_operator?: boolean;
 	branch_id: string;
 	change_note?: string;
 	cook_time_minutes?: number | null;
@@ -1517,6 +1546,7 @@ export type RenameBranchOutput = {
 
 /** Take one recipe off the shelf for good. It is gone from the shelf, from search and from every member of its Kitchen, and nothing brings it back. **One Branch**: a translation is an ordinary Branch, so deleting the English one leaves the French one whole, and another Kitchen's copy of the same recipe is untouched. **The cooking history stays.** Every Attempt ever made from this recipe keeps its rating, its note and its Photographs, and the Cooked diary keeps each entry under the name the recipe was known by. So does a Shopping List holding it, which says it can no longer be read rather than quietly dropping it. No Version is ever deleted, by this or by anything else. A live Share Link stops working. */
 export type DeleteRecipeInput = {
+	as_operator?: boolean;
 	branch_id: string;
 };
 /** What delete_recipe answers. */
@@ -1557,6 +1587,8 @@ export type ReadRecipePdfOutput = {
 
 /** Have an agent read text, a PDF or a picture. It reads it into a recipe in your own Cookbook. Only on an instance with a Runner: without one it is refused with reason `no_runner`. A PDF may be a scan. Pass pasted text as `text`. Send a file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. Answers the id of a Job that waits for a Runner, as `get_job` reads it, and what it was taken as. A PDF or a picture handed over before is known by its contents: while your Job on it waits or is worked, the answer is that Job, and once its recipe exists the answer is that recipe as `branch_id` and `title`, with no Job. Pasted text is never matched. No recipe exists until the agent creates one, under your Hand. Read the Job with `get_job`: its result is the Import Report, which lists the recipe as arrived once it exists and says what the agent left undone, or why it could not be read. Cancel it with `cancel_job`. Kamosu keeps what was handed over for the agent to fetch and never shows it. */
 export type ImportByAgentInput = {
+	as_operator?: boolean;
+	cookbook_id?: string;
 	data?: string;
 	text?: string;
 	upload_id?: string;
@@ -1790,6 +1822,7 @@ export type SetRecipeLanguageOutput = {
 
 /** Bring already-read recipes into your own Cookbook, as a Job. They come as one batch. Matched by foreign id against this Cookbook's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
 export type ImportInput = {
+	as_operator?: boolean;
 	candidates: {
 		cook_time_minutes?: number | null;
 		foreign_id: string;
@@ -1820,6 +1853,7 @@ export type ImportInput = {
 			noun: string;
 		} | null;
 	}[];
+	cookbook_id?: string;
 	source_kind: string;
 };
 /** What import eventually produces, read back through `get_job`. */
@@ -1891,6 +1925,8 @@ export type ImportOutput = {
 
 /** Bring in a Crouton library, as a Job. It takes the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your own Cookbook through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 export type ImportCroutonInput = {
+	as_operator?: boolean;
+	cookbook_id?: string;
 	data?: string;
 	upload_id?: string;
 };
@@ -1999,6 +2035,8 @@ export type ForgetImportOutput = {
 
 /** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Without a Runner, a page with no recipe data is read from its own article text the way `read_pasted_recipe` reads a paste, and when that finds Ingredient Lines nothing lands: the answer is `to_check` alone, for a person to check and save, with the page as its Source (#301). Where it finds none, the page lands bare as before. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 export type ImportWebLinkInput = {
+	as_operator?: boolean;
+	cookbook_id?: string;
 	url: string;
 };
 /** What import_web_link eventually produces, read back through `get_job`. */
@@ -2276,6 +2314,7 @@ export type TurnOffMeaningSearchOutput = {
 
 /** Read a Recipe: its Branch and every Version, oldest first. The Branch comes as it stands, with its whole chain of Versions. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored. */
 export type GetRecipeInput = {
+	as_operator?: boolean;
 	branch_id: string;
 	wanted_yield?: {
 		amount: string;
@@ -2456,6 +2495,7 @@ export type GetRecipeOutput = {
 
 /** Read the Thread: every Branch of one Lineage you may see. It holds every Version of every Branch of the Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. An Attempt's eaten_version_id is the Version its rating is about: the As Cooked once that was kept as a Version, otherwise the Version it started from. Its person_name is who cooked, and mine says whether that is you. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
 export type GetThreadInput = {
+	as_operator?: boolean;
 	branch_id: string;
 };
 /** What get_thread answers. */
@@ -2699,6 +2739,8 @@ export type MakeSharedSheetOutput = {
 
 /** Receive a Bundle into your own Cookbook, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Cookbook holds it under an id of this instance's own; one your Cookbook already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Cookbook here holding it is no part of the question: each Cookbook receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 export type ImportBundleInput = {
+	as_operator?: boolean;
+	cookbook_id?: string;
 	data?: string;
 	upload_id?: string;
 };
@@ -5292,6 +5334,12 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	list_cookbooks: {
+		input: ListCookbooksInput;
+		output: ListCookbooksOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
 	rename_cookbook: {
 		input: RenameCookbookInput;
 		output: RenameCookbookOutput;
@@ -6061,7 +6109,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "list_accounts",
-		"summary": "List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here.",
+		"summary": "List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook: an Operator reaches their recipes through list_cookbooks (ADR 0049), and no Attempt or Kitchen of theirs from anywhere.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -7859,6 +7907,99 @@ export const CATALOGUE = [
 				"kitchens",
 				"invites",
 				"joins"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_cookbooks",
+		"summary": "Every Cookbook and the recipes in it, for an Operator. Each comes with who writes it, and each recipe as a `branch_id` with its title. On a call saying `as_operator`, an Operator looks after any Cookbook (ADR 0049): get_recipe, get_thread, edit_recipe, save_recipe_version, delete_recipe, set_recipe_tag and set_related_recipe reach these recipes, and create_recipe, create_tag, list_tags and the Imports take a `cookbook_id` to work in one. What an Operator writes there is under their own Hand. Attempts, shopping lists and who writes a Cookbook stay their owners'. A read-only Access Key is refused.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"cookbooks": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"authors": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"name": {
+											"type": "string"
+										},
+										"person_id": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"person_id",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"id": {
+								"type": "string"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"recipes": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"language": {
+											"type": "string"
+										},
+										"name": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"title": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"branch_id",
+										"title",
+										"language",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"authors",
+							"recipes"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"cookbooks"
 			],
 			"type": "object"
 		}
@@ -9797,6 +9938,14 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
+				},
 				"kitchen_id": {
 					"description": "Ignored. Everything you write lands in your own Cookbook (ADR 0041), so there is no Kitchen to name. Accepted so that a client which still sends it is not refused.",
 					"type": "string"
@@ -9885,8 +10034,12 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"cookbook_id": {
-					"description": "One Cookbook you can see: the words it files by. One you cannot see is answered as not found.",
+					"description": "One Cookbook you can see, or any for an Operator with as_operator: the words it files by. One you cannot see is answered as not found.",
 					"type": "string"
 				},
 				"everywhere": {
@@ -10176,6 +10329,10 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				},
@@ -10272,6 +10429,10 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				},
@@ -10355,12 +10516,20 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"cook_time_minutes": {
 					"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
 					"type": [
 						"integer",
 						"null"
 					]
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
 				},
 				"ingredients": {
 					"items": {
@@ -11531,6 +11700,10 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				},
@@ -11766,6 +11939,10 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				},
@@ -13071,6 +13248,10 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				}
@@ -13239,6 +13420,14 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
+				},
 				"data": {
 					"description": "A PDF or a picture, base64-encoded, for a Door that can send only JSON.",
 					"type": "string"
@@ -14534,6 +14723,10 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"candidates": {
 					"items": {
 						"additionalProperties": false,
@@ -14704,6 +14897,10 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
 				},
 				"source_kind": {
 					"description": "Which outside source these candidates came from. One ledger is kept per Cookbook per source kind.",
@@ -15065,6 +15262,14 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
+				},
 				"data": {
 					"description": "The export itself, base64-encoded — for a Door that can send only JSON.",
 					"type": "string"
@@ -15595,6 +15800,14 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
+				},
 				"url": {
 					"description": "The recipe page's address. Fetched through the guarded client; only http:// and https:// are accepted.",
 					"type": "string"
@@ -16897,6 +17110,10 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				},
@@ -17938,6 +18155,10 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				}
@@ -19121,6 +19342,14 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
+				},
 				"data": {
 					"description": "The Bundle's zip, base64-encoded — for a Door that can send only JSON.",
 					"type": "string"
@@ -31468,6 +31697,7 @@ export const READS: readonly OperationName[] = [
 	'list_kitchens',
 	'preview_leaving_kitchen',
 	'get_cookbook',
+	'list_cookbooks',
 	'read_cookbook_invite',
 	'list_tags',
 	'read_pasted_recipe',
@@ -31539,6 +31769,7 @@ export const METHOD_NAMES = {
 	delete_kitchen: 'deleteKitchen',
 	preview_leaving_kitchen: 'previewLeavingKitchen',
 	get_cookbook: 'getCookbook',
+	list_cookbooks: 'listCookbooks',
 	rename_cookbook: 'renameCookbook',
 	invite_to_cookbook: 'inviteToCookbook',
 	cancel_cookbook_invite: 'cancelCookbookInvite',
@@ -31649,7 +31880,7 @@ export interface KamosuClient {
 	getPerson(input?: GetPersonInput): Promise<Answer<'get_person'>>;
 	/** Change this Person's current reminder name. Every Version they ever wrote shows the new one on this instance, since a Hand is named live and nothing is keyed on the name; no id or fingerprint moves. It is also the name they sign in with, so a name somebody else here signs in with is refused. A Bundle already sent keeps the name it left with. */
 	renamePerson(input: RenamePersonInput): Promise<Answer<'rename_person'>>;
-	/** List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here. */
+	/** List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook: an Operator reaches their recipes through list_cookbooks (ADR 0049), and no Attempt or Kitchen of theirs from anywhere. */
 	listAccounts(input?: ListAccountsInput): Promise<Answer<'list_accounts'>>;
 	/** Mint a one-use Invite link for a new Person. */
 	mintInvite(input: MintInviteInput): Promise<Answer<'mint_invite'>>;
@@ -31713,6 +31944,8 @@ export interface KamosuClient {
 	previewLeavingKitchen(input: PreviewLeavingKitchenInput): Promise<Answer<'preview_leaving_kitchen'>>;
 	/** Read your own Cookbook. The answer is its name, who writes it, how many recipes it holds, the Kitchens that see it and the Invites still waiting. */
 	getCookbook(input?: GetCookbookInput): Promise<Answer<'get_cookbook'>>;
+	/** Every Cookbook and the recipes in it, for an Operator. Each comes with who writes it, and each recipe as a `branch_id` with its title. On a call saying `as_operator`, an Operator looks after any Cookbook (ADR 0049): get_recipe, get_thread, edit_recipe, save_recipe_version, delete_recipe, set_recipe_tag and set_related_recipe reach these recipes, and create_recipe, create_tag, list_tags and the Imports take a `cookbook_id` to work in one. What an Operator writes there is under their own Hand. Attempts, shopping lists and who writes a Cookbook stay their owners'. A read-only Access Key is refused. */
+	listCookbooks(input?: ListCookbooksInput): Promise<Answer<'list_cookbooks'>>;
 	/** Give your Cookbook a name of its own, or clear it. An empty or null name clears it back to its Co-authors' names. Any Co-author may. */
 	renameCookbook(input: RenameCookbookInput): Promise<Answer<'rename_cookbook'>>;
 	/** Mint a one-use Invite for somebody to write your Cookbook. They write it with you. When they accept, their recipes and yours become one Cookbook either of you changes. */

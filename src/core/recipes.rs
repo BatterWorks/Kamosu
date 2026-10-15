@@ -9,13 +9,14 @@ impl Core {
     /// Cookbook, and a first Version fingerprinted from its content (ADR 0004,
     /// ADR 0041). A recipe needs only a title — every other field of `input`
     /// (Yield, Prep/Cook Time, Note, Source, Ingredients, Steps) is optional
-    /// (#43). There is no question of where it goes: always into your own
-    /// Cookbook.
+    /// (#43). It goes into your own Cookbook, or into the one `into` names,
+    /// which only an Operator looking after it may name (#302).
     pub fn create_recipe(
         &self,
         caller: &Caller,
         input: &Value,
         language: Option<&str>,
+        into: Option<&str>,
     ) -> Result<Value, OpError> {
         let content = parse_recipe_content(input)?;
         let (version_id, content_text) = stored_version(&content);
@@ -23,7 +24,7 @@ impl Core {
         let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
 
         self.db().with_conn(|conn| {
-            let cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            let cookbook_id = lands_in(conn, caller, into)?;
             let hand_id = cookbook_hand(conn, &cookbook_id)?;
             let language = language_for_new_branch(conn, &caller.person_id, language, &content)?;
 
@@ -40,7 +41,7 @@ impl Core {
             )
         })?;
 
-        self.get_recipe(&caller.person_id, &branch_id, None)
+        self.get_recipe(caller, &branch_id, None)
     }
 
     /// Save a new state of a Recipe onto a Branch: an ordinary edit becomes an
@@ -137,7 +138,7 @@ impl Core {
         self.db().with_conn(|conn| {
             // Before anything else reads the Branch, the identical-content
             // shortcut below included: it answers with the head's Version id.
-            ensure_sees_branch(conn, branch_id, &caller.person_id)?;
+            ensure_reaches_branch(conn, branch_id, caller)?;
             let (lineage_id, language): (String, String) = conn
                 .query_row(
                     "SELECT lineage_id, language FROM branches WHERE id = ?1",
@@ -145,9 +146,10 @@ impl Core {
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
-            // A save is always on behalf of the caller's own Cookbook, which is
-            // where a Copy goes when it is not theirs to write.
-            let own_cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            // The Cookbook a save is made for: the caller's own, which is
+            // where a Copy goes when the Branch is not theirs to write, or the
+            // one an Operator acting as one looks after (#302).
+            let writing_for = changes_for(conn, caller, branch_id)?;
 
             #[allow(clippy::type_complexity)]
             let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content_text, head_translates, head_name, head_change_note, head_job_id): (
@@ -285,7 +287,7 @@ impl Core {
                 let names_new_source = translates_version_id != head_translates;
                 // Every refusal before the one write: one call, one outcome.
                 if (noted || names_new_source)
-                    && !cookbook_writes_branch(conn, &own_cookbook_id, branch_id)?
+                    && !cookbook_writes_branch(conn, &writing_for, branch_id)?
                 {
                     return Err(OpError::bad_request(if noted {
                         "nothing in the recipe changed, and it is not yours to change, \
@@ -367,7 +369,7 @@ impl Core {
                 Some(&lines_this_save_wrote(&head_content, &content)),
             );
 
-            if !cookbook_writes_branch(conn, &own_cookbook_id, branch_id)? {
+            if !cookbook_writes_branch(conn, &writing_for, branch_id)? {
                 // Copy: your Cookbook did not write this Branch, so the change
                 // starts a new one of your own — the source Branch is left
                 // exactly as it was.
@@ -375,7 +377,7 @@ impl Core {
                     conn,
                     branch_id,
                     &lineage_id,
-                    &own_cookbook_id,
+                    &writing_for,
                     &caller.person_id,
                     &language,
                     &version_id,
@@ -609,13 +611,12 @@ impl Core {
     /// table added later that references a Branch and is not swept here fails
     /// the whole delete loudly rather than silently orphaning a row. That
     /// refusal is a safety net worth keeping.
-    pub fn delete_recipe(&self, person_id: &str, branch_id: &str) -> Result<(), OpError> {
+    pub fn delete_recipe(&self, caller: &Caller, branch_id: &str) -> Result<(), OpError> {
         self.db().with_conn(|conn| {
             // ADR 0040: a Person who may not see the recipe is answered
             // exactly as an id naming nothing is; one who sees it and does not
-            // write it is told they may not.
-            let cookbook_id = branch_cookbook(conn, branch_id)?;
-            ensure_writes(conn, &cookbook_id, person_id)?;
+            // write it is told they may not. An Operator looks after it (#302).
+            let cookbook_id = ensure_changes_branch(conn, branch_id, caller, no_such_branch)?;
 
             let transaction = conn
                 .unchecked_transaction()
@@ -701,12 +702,13 @@ impl Core {
     /// oldest first — the Thread's raw material.
     pub fn get_recipe(
         &self,
-        person_id: &str,
+        caller: &Caller,
         branch_id: &str,
         wanted: Option<&Value>,
     ) -> Result<Value, OpError> {
+        let person_id = caller.person_id.as_str();
         self.db().with_conn(|conn| {
-            let cookbook_id = ensure_sees_branch(conn, branch_id, person_id)?;
+            let cookbook_id = ensure_reaches_branch(conn, branch_id, caller)?;
             let (lineage_id, hand_id, language, origin_address, head_version_id, branch_name, arrived): (
                 String,
                 String,
@@ -844,10 +846,11 @@ impl Core {
                 "lineage_id": lineage_id,
                 // Whose recipe this is, and whether the reader writes it: a
                 // save by anybody else starts a Branch of their own (ADR 0041),
-                // which the writing screens say before the tap.
+                // which the writing screens say before the tap. An Operator
+                // looking after the Cookbook writes it as its Co-authors do.
                 "cookbook": cookbook_label(conn, &cookbook_id)?,
                 "name": branch_name,
-                "writes": cookbook_writes_branch(conn, &own_cookbook_id, branch_id)?,
+                "writes": cookbook_writes_branch(conn, &changes_for(conn, caller, branch_id)?, branch_id)?,
                 // And why not, where not (#132): in the reader's own Cookbook
                 // but sent from elsewhere, or in somebody else's Cookbook. The
                 // same two facts a Thread's Branch answers.
@@ -872,7 +875,13 @@ impl Core {
                 // Related Recipes are shelf notes between Lineages, kept by the
                 // Cookbook with its recipes (#131, question 3). They sit beside
                 // the Thread just as Tags do, never inside a Version.
-                "related_recipes": related_recipes_of_lineage(conn, &cookbook_id, &lineage_id, person_id)?,
+                "related_recipes": related_recipes_of_lineage(
+                    conn,
+                    &cookbook_id,
+                    &lineage_id,
+                    person_id,
+                    looks_after(conn, caller)?.then_some(cookbook_id.as_str()),
+                )?,
                 // How this dish has been cooked: how many times, when last,
                 // and each Person's most recent rating by name (#59). Beside
                 // the Versions and never inside one — an Attempt is a private
@@ -890,9 +899,23 @@ impl Core {
     /// left for the caller to read out of `parent_version_id`, or to ask
     /// `branch_point` to compute authoritatively; this never calls it, so
     /// the two stay independently testable.
-    pub fn get_thread(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
+    pub fn get_thread(&self, caller: &Caller, branch_id: &str) -> Result<Value, OpError> {
+        let person_id = caller.person_id.as_str();
         self.db().with_conn(|conn| {
-            ensure_sees_branch(conn, branch_id, person_id)?;
+            let entry_cookbook_id = ensure_reaches_branch(conn, branch_id, caller)?;
+            // An Operator looking after the Cookbook the Thread was entered
+            // from reads that Cookbook's Branches too, as its Co-authors do
+            // (#302). An Operator's Job Key reaching its Job's recipe there
+            // reads that one Branch, and nobody reads a Branch of a Cookbook
+            // they could neither see nor were let into.
+            let (looked_after, reached): (Option<String>, Option<&str>) =
+                if looks_after(conn, caller)? {
+                    (Some(entry_cookbook_id), None)
+                } else if sees_cookbook(conn, &entry_cookbook_id, person_id)? {
+                    (None, None)
+                } else {
+                    (None, Some(branch_id))
+                };
             let lineage_id: String = conn
                 .query_row(
                     "SELECT lineage_id FROM branches WHERE id = ?1",
@@ -911,14 +934,14 @@ impl Core {
                             branches.language, branches.head_version_id, {}, \
                             branches.name, branches.arrived \
                        FROM branches \
-                      WHERE branches.lineage_id = ?1 AND {} \
+                      WHERE branches.lineage_id = ?1 AND ({} OR branches.cookbook_id = ?3 OR branches.id = ?4) \
                       ORDER BY branches.created_at ASC, branches.id ASC",
                     hand_name_sql("branches.hand_id"),
                     visible_to("branches", "?2"),
                 ))
                 .map_err(|e| OpError::internal(format!("cannot list Branches: {e}")))?;
             let rows: Vec<(Value, String)> = statement
-                .query_map(params![lineage_id, person_id], |row| {
+                .query_map(params![lineage_id, person_id, looked_after, reached], |row| {
                     let cookbook_id: String = row.get(1)?;
                     Ok((
                         json!({

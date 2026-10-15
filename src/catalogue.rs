@@ -333,10 +333,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             name: "list_accounts",
             summary: "List who holds an account on this instance. Each comes \
                       with their name, whether they administer it, and whether \
-                      the account is disabled. Nothing about what they cook — \
-                      the Operator administers and does not read (ADR 0007), \
-                      so no recipe, Attempt, Cookbook or Kitchen of theirs is \
-                      reachable from here.",
+                      the account is disabled. Nothing about what they cook: \
+                      an Operator reaches their recipes through \
+                      list_cookbooks (ADR 0049), and no Attempt or Kitchen of \
+                      theirs from anywhere.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: false,
@@ -1076,6 +1076,63 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::get_cookbook,
         },
         Operation {
+            name: "list_cookbooks",
+            summary: "Every Cookbook and the recipes in it, for an Operator. \
+                      Each comes with who writes it, and each recipe as a \
+                      `branch_id` with its title. On a call saying \
+                      `as_operator`, an Operator looks after any Cookbook \
+                      (ADR 0049): get_recipe, get_thread, edit_recipe, \
+                      save_recipe_version, delete_recipe, set_recipe_tag and \
+                      set_related_recipe reach these recipes, and \
+                      create_recipe, create_tag, list_tags and the Imports \
+                      take a `cookbook_id` to work in one. What an Operator \
+                      writes there is under their own Hand. Attempts, \
+                      shopping lists and who writes a Cookbook stay their \
+                      owners'. A read-only Access Key is refused.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "cookbooks": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string" },
+                                "name": { "type": ["string", "null"] },
+                                "authors": { "type": "array", "items": person_ref_schema() },
+                                "recipes": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "branch_id": { "type": "string" },
+                                            "title": { "type": "string" },
+                                            "language": { "type": "string" },
+                                            "name": { "type": ["string", "null"] },
+                                        },
+                                        "required": ["branch_id", "title", "language", "name"],
+                                        "additionalProperties": false,
+                                    },
+                                },
+                            },
+                            "required": ["id", "name", "authors", "recipes"],
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "required": ["cookbooks"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_cookbooks,
+        },
+        Operation {
             name: "rename_cookbook",
             summary: "Give your Cookbook a name of its own, or clear it. An \
                       empty or null name clears it back to its Co-authors' \
@@ -1235,7 +1292,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             session_only: false,
             job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" }, "kitchen_id": ignored_kitchen_id() }, "required": ["language", "name"], "additionalProperties": false }),
+            input_schema: json!({ "type": "object", "properties": { "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" }, "kitchen_id": ignored_kitchen_id(), "cookbook_id": landing_cookbook_id() }, "required": ["language", "name"], "additionalProperties": false }),
             output_schema: tag_schema(),
             handler: crate::operations::create_tag,
         },
@@ -1253,7 +1310,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             session_only: false,
             job_key: JobKey::Reads,
             job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "everywhere": { "type": "boolean" }, "kitchen_id": { "type": "string", "description": "One of your Kitchens: every word its Cookbooks file by, one entry per word." }, "cookbook_id": { "type": "string", "description": "One Cookbook you can see: the words it files by. One you cannot see is answered as not found." } }, "additionalProperties": false }),
+            input_schema: json!({ "type": "object", "properties": { "everywhere": { "type": "boolean" }, "kitchen_id": { "type": "string", "description": "One of your Kitchens: every word its Cookbooks file by, one entry per word." }, "cookbook_id": { "type": "string", "description": "One Cookbook you can see, or any for an Operator with as_operator: the words it files by. One you cannot see is answered as not found." } }, "additionalProperties": false }),
             output_schema: json!({
                 "type": "object",
                 "properties": { "tags": { "type": "array", "items": tag_schema() } },
@@ -1643,6 +1700,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: json!({
                 "type": "object",
                 "properties": {
+                    "cookbook_id": landing_cookbook_id(),
                     "text": {
                         "type": "string",
                         "description": "A recipe pasted as text.",
@@ -1794,6 +1852,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: json!({
                 "type": "object",
                 "properties": {
+                    "cookbook_id": landing_cookbook_id(),
                     "upload_id": {
                         "type": "string",
                         "description": "The id POST /api/uploads answered for the \
@@ -1989,6 +2048,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: json!({
                 "type": "object",
                 "properties": {
+                    "cookbook_id": landing_cookbook_id(),
                     "url": {
                         "type": "string",
                         "description": "The recipe page's address. Fetched \
@@ -2802,6 +2862,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: json!({
                 "type": "object",
                 "properties": {
+                    "cookbook_id": landing_cookbook_id(),
                     "upload_id": {
                         "type": "string",
                         "description": "The id POST /api/uploads answered for the \
@@ -4204,6 +4265,13 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::list_jobs,
         },
     ];
+    // The Operations an Operator may ask to act as one on (#302, ADR 0049),
+    // each declaring `as_operator` beside its own input.
+    for op in operations.iter_mut() {
+        if AS_OPERATOR.contains(&op.name) {
+            op.input_schema["properties"]["as_operator"] = as_operator();
+        }
+    }
     // The demonstration Job exists only where tests can drive it end-to-end
     // through real Doors. Production instances ship no synthetic Operations;
     // their first Jobs arrive with Import, Sheet rendering and Meaning Search.
@@ -5307,12 +5375,56 @@ fn ignored_kitchen_id() -> Value {
     })
 }
 
+/// The Operations that take `as_operator`: a recipe and its Tags read or
+/// changed wherever it is, and a create or an Import landing in any Cookbook
+/// (#302, ADR 0049).
+pub const AS_OPERATOR: [&str; 15] = [
+    "create_recipe",
+    "create_tag",
+    "delete_recipe",
+    "edit_recipe",
+    "get_recipe",
+    "get_thread",
+    "import",
+    "import_bundle",
+    "import_by_agent",
+    "import_crouton",
+    "import_web_link",
+    "list_tags",
+    "save_recipe_version",
+    "set_recipe_tag",
+    "set_related_recipe",
+];
+
+fn as_operator() -> Value {
+    json!({
+        "type": "boolean",
+        "description": "Operator only: act as the Operator on this call, \
+                         reaching a recipe or Cookbook you could not reach \
+                         as yourself, and changing it where it is, under \
+                         your own Hand. Refused to anybody else.",
+    })
+}
+
+/// The Cookbook a create or an Import lands in, where it is not the caller's
+/// own (#302).
+fn landing_cookbook_id() -> Value {
+    json!({
+        "type": "string",
+        "description": "Operator only, with as_operator: the Cookbook to put \
+                         it in, as list_cookbooks names it. Left out, it lands \
+                         in your own. A Cookbook not your own is otherwise \
+                         answered as not found.",
+    })
+}
+
 /// `create_recipe`'s input: a Kitchen and a title are all a Recipe ever
 /// needs — every other field of the recipe's content is optional here.
 fn create_recipe_input_schema() -> Value {
     let mut properties = recipe_content_input_properties();
     let map = properties.as_object_mut().expect("object schema");
     map.insert("kitchen_id".to_string(), ignored_kitchen_id());
+    map.insert("cookbook_id".to_string(), landing_cookbook_id());
     map.insert(
         "language".to_string(),
         json!({
@@ -5469,6 +5581,7 @@ fn import_input_schema() -> Value {
                                  from. One ledger is kept per Cookbook per \
                                  source kind.",
             },
+            "cookbook_id": landing_cookbook_id(),
             "candidates": {
                 "type": "array",
                 "items": {

@@ -9751,7 +9751,10 @@ async fn a_previously_seen_recipe_found_changed_is_offered_never_written_over() 
         .as_str()
         .unwrap()
         .to_string();
-    let original_head = app.core.get_recipe(&person, &branch_id, None).unwrap()["head_version_id"]
+    let original_head = app
+        .core
+        .get_recipe(&as_person(&person), &branch_id, None)
+        .unwrap()["head_version_id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -9772,7 +9775,10 @@ async fn a_previously_seen_recipe_found_changed_is_offered_never_written_over() 
     assert_eq!(offered["title"], json!("Tarte Tatin (revisited)"));
     assert!(offered["candidate_version_id"].as_str().is_some());
 
-    let after = app.core.get_recipe(&person, &branch_id, None).unwrap();
+    let after = app
+        .core
+        .get_recipe(&as_person(&person), &branch_id, None)
+        .unwrap();
     assert_eq!(
         after["head_version_id"],
         json!(original_head),
@@ -13707,6 +13713,7 @@ mod web_link_importer {
             access_key_id: None,
             session_id: None,
             job_id: None,
+            as_operator: false,
         };
         app.core
             .db()
@@ -32739,6 +32746,21 @@ fn someone(app: &support::TestApp, name: &str) -> (String, String) {
     (person, key)
 }
 
+/// A Person as the Core sees one signed in, for a test calling the Core
+/// directly.
+fn as_person(person_id: &str) -> kamosu::core::Caller {
+    kamosu::core::Caller {
+        person_id: person_id.to_string(),
+        read_only: false,
+        via_access_key: false,
+        is_operator: false,
+        access_key_id: None,
+        session_id: None,
+        job_id: None,
+        as_operator: false,
+    }
+}
+
 /// A Kitchen `host` makes, with every one of `guests` asked into it.
 fn kitchen_of(app: &support::TestApp, host_key: &str, name: &str, guests: &[&str]) -> String {
     let (status, made) = app.post_op(
@@ -35718,7 +35740,10 @@ mod handing_an_original_to_an_agent {
             assert_eq!(status, 200, "{answer}");
         };
         reported(&old, "completed");
-        let recipe_before = app.core.get_recipe(&at.cook_id, &branch_id, None).unwrap();
+        let recipe_before = app
+            .core
+            .get_recipe(&as_person(&at.cook_id), &branch_id, None)
+            .unwrap();
 
         // One that could not be read, ended 29 days ago.
         let young = handed(&app, &at.cook, json!({ "data": base64_of(SCANNED) }), "pdf");
@@ -35798,7 +35823,9 @@ mod handing_an_original_to_an_agent {
 
         // The recipe is untouched.
         assert_eq!(
-            app.core.get_recipe(&at.cook_id, &branch_id, None).unwrap(),
+            app.core
+                .get_recipe(&as_person(&at.cook_id), &branch_id, None)
+                .unwrap(),
             recipe_before
         );
 
@@ -36749,5 +36776,497 @@ mod handing_an_original_to_an_agent {
         let can = can_read_again(&app, &guest, &recipe);
         assert_eq!(can["from"], json!("original"), "{can}");
         assert_eq!(can["can_read_again"], json!(true), "{can}");
+    }
+}
+
+/// An Operator looks after every Cookbook's recipes and their Tags, through
+/// the ordinary Operations and under their own Hand (#302, ADR 0049). Nobody
+/// else gains anything, and neither does a Job Key, a Runner Key or a
+/// read-only Access Key.
+mod an_operator_looks_after_every_cookbook {
+    use super::*;
+
+    /// The Operator, signed in, and their id; somebody else with a recipe of
+    /// their own; and a third Person who sees none of it.
+    struct Instance {
+        operator: String,
+        operator_id: String,
+        owner: String,
+        owner_id: String,
+        stranger: String,
+        recipe: String,
+    }
+
+    fn an_instance(app: &support::TestApp) -> Instance {
+        let (operator, operator_id) = super::operator_signed_in(app);
+        let (owner_id, owner) = someone(app, "Camille");
+        let (_, stranger) = someone(app, "Marc");
+        let (status, created) = app.post_op(
+            "create_recipe",
+            Some(&owner),
+            &json!({ "title": "Soupe au pistou", "ingredients": [{ "kind": "ingredient", "text": "2 courgettes" }] }).to_string(),
+        );
+        assert_eq!(status, 200, "{created}");
+        Instance {
+            operator,
+            operator_id,
+            owner,
+            owner_id,
+            stranger,
+            recipe: created["result"]["branch_id"].as_str().unwrap().to_string(),
+        }
+    }
+
+    fn op(app: &support::TestApp, name: &str, key: &str, input: Value) -> (u16, Value) {
+        app.post_op(name, Some(key), &input.to_string())
+    }
+
+    /// The same input, asking to act as an Operator.
+    fn as_operator(input: &Value) -> Value {
+        let mut input = input.clone();
+        input["as_operator"] = json!(true);
+        input
+    }
+
+    /// Without `as_operator` an Operator is a Person like any other: what
+    /// they cannot see is not there, and changing a Kitchen-mate's recipe
+    /// starts a Copy. Nobody else may ask to act as one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_operator_is_a_person_like_any_other_until_a_call_says_otherwise() {
+        let app = support::spawn_app();
+        let at = an_instance(&app);
+        let recipe = json!({ "branch_id": at.recipe });
+        let (status, refused) = op(&app, "get_recipe", &at.operator, recipe.clone());
+        assert_eq!(status, 404, "{refused}");
+
+        let kitchen = kitchen_of(&app, &at.owner, "Chez Camille", &[&at.operator]);
+        assert!(!kitchen.is_empty());
+        let (status, read) = op(&app, "get_recipe", &at.operator, recipe.clone());
+        assert_eq!(status, 200, "{read}");
+        assert_eq!(read["result"]["writes"], json!(false), "{read}");
+        let change = json!({ "branch_id": at.recipe, "note": "Plus de basilic." });
+        let (status, copied) = op(&app, "edit_recipe", &at.operator, change.clone());
+        assert_eq!(status, 200, "{copied}");
+        assert_eq!(copied["result"]["copied"], json!(true), "{copied}");
+        let (status, in_place) = op(&app, "edit_recipe", &at.operator, as_operator(&change));
+        assert_eq!(status, 200, "{in_place}");
+        assert_eq!(in_place["result"]["copied"], json!(false), "{in_place}");
+        assert_eq!(
+            in_place["result"]["branch_id"],
+            json!(at.recipe),
+            "{in_place}"
+        );
+
+        let (status, refused) = op(&app, "get_recipe", &at.stranger, as_operator(&recipe));
+        assert_eq!(status, 401, "{refused}");
+        let (status, refused) = op(&app, "get_recipe", &at.owner, as_operator(&recipe));
+        assert_eq!(status, 401, "{refused}");
+        // An Operation that takes no `as_operator` refuses it by its shape.
+        let (status, refused) = op(&app, "start_attempt", &at.operator, as_operator(&recipe));
+        assert_eq!(status, 400, "{refused}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_operator_reads_changes_and_deletes_a_recipe_in_anybodys_cookbook() {
+        let app = support::spawn_app();
+        let at = an_instance(&app);
+        let recipe = json!({ "branch_id": at.recipe });
+
+        // Somebody who is no Operator is answered as though it were not there.
+        let (status, refused) = op(&app, "get_recipe", &at.stranger, recipe.clone());
+        assert_eq!(status, 404, "{refused}");
+        let (status, refused) = op(&app, "delete_recipe", &at.stranger, recipe.clone());
+        assert_eq!(status, 404, "{refused}");
+
+        let (status, read) = op(&app, "get_recipe", &at.operator, as_operator(&recipe));
+        assert_eq!(status, 200, "{read}");
+        assert_eq!(read["result"]["writes"], json!(true), "{read}");
+        assert_eq!(read["result"]["mine"], json!(false), "{read}");
+
+        // The change is made where the recipe is, never as a Copy, and the
+        // Version names the Operator as its Hand.
+        let (status, edited) = op(
+            &app,
+            "edit_recipe",
+            &at.operator,
+            json!({ "as_operator": true, "branch_id": at.recipe, "title": "Soupe au pistou, vérifiée" }),
+        );
+        assert_eq!(status, 200, "{edited}");
+        assert_eq!(edited["result"]["copied"], json!(false), "{edited}");
+        assert_eq!(edited["result"]["branch_id"], json!(at.recipe), "{edited}");
+
+        let (status, thread) = op(&app, "get_thread", &at.owner, recipe.clone());
+        assert_eq!(status, 200, "{thread}");
+        let (_, owners) = op(&app, "get_recipe", &at.owner, recipe.clone());
+        let versions = owners["result"]["versions"].as_array().unwrap();
+        assert_eq!(versions.len(), 2, "{owners}");
+        assert_eq!(versions[0]["hand_id"], json!(at.owner_id), "{owners}");
+        assert_eq!(versions[1]["hand_id"], json!(at.operator_id), "{owners}");
+        let (status, operators_thread) = op(&app, "get_thread", &at.operator, as_operator(&recipe));
+        assert_eq!(status, 200, "{operators_thread}");
+        assert_eq!(
+            operators_thread["result"]["branches"][0]["branch_id"],
+            json!(at.recipe),
+            "{operators_thread}"
+        );
+
+        let (status, deleted) = op(&app, "delete_recipe", &at.operator, as_operator(&recipe));
+        assert_eq!(status, 200, "{deleted}");
+        let (status, gone) = op(&app, "get_recipe", &at.owner, recipe);
+        assert_eq!(status, 404, "{gone}");
+    }
+
+    /// The Operator's own shelf, search and Tags stay their own: another
+    /// Cookbook is reached by naming it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_operators_own_lists_stay_their_own() {
+        let app = support::spawn_app();
+        let at = an_instance(&app);
+        let (status, found) = op(
+            &app,
+            "search_recipes",
+            &at.operator,
+            json!({ "query": "pistou" }),
+        );
+        assert_eq!(status, 200, "{found}");
+        assert!(
+            !found.to_string().contains(&at.recipe),
+            "the Operator's search reaches only what they see: {found}"
+        );
+
+        let (status, listed) = op(&app, "list_cookbooks", &at.operator, json!({}));
+        assert_eq!(status, 200, "{listed}");
+        let owners = listed["result"]["cookbooks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|cookbook| cookbook["id"] == json!(cookbook_of(&app, &at.owner_id)))
+            .cloned()
+            .unwrap_or_else(|| panic!("the owner's Cookbook is listed: {listed}"));
+        assert_eq!(owners["authors"][0]["name"], json!("Camille"), "{owners}");
+        assert_eq!(
+            owners["recipes"][0]["branch_id"],
+            json!(at.recipe),
+            "{owners}"
+        );
+        assert_eq!(
+            owners["recipes"][0]["title"],
+            json!("Soupe au pistou"),
+            "{owners}"
+        );
+
+        let (status, refused) = op(&app, "list_cookbooks", &at.stranger, json!({}));
+        assert_eq!(status, 401, "{refused}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_operator_creates_imports_and_files_in_anybodys_cookbook() {
+        let app = support::spawn_app();
+        let at = an_instance(&app);
+        let theirs = cookbook_of(&app, &at.owner_id);
+
+        let (status, created) = op(
+            &app,
+            "create_recipe",
+            &at.operator,
+            json!({ "as_operator": true, "title": "Pistou", "cookbook_id": theirs }),
+        );
+        assert_eq!(status, 200, "{created}");
+        let made = created["result"]["branch_id"].as_str().unwrap().to_string();
+        let (status, owners) = op(&app, "get_recipe", &at.owner, json!({ "branch_id": made }));
+        assert_eq!(status, 200, "{owners}");
+        assert_eq!(owners["result"]["mine"], json!(true), "{owners}");
+        assert_eq!(owners["result"]["writes"], json!(true), "{owners}");
+        assert_eq!(
+            owners["result"]["versions"][0]["hand_id"],
+            json!(at.operator_id),
+            "the first Version is the Operator's: {owners}"
+        );
+
+        let (status, imported) = op(
+            &app,
+            "import",
+            &at.operator,
+            json!({ "as_operator": true,
+                "source_kind": "crouton",
+                "cookbook_id": theirs,
+                "candidates": [{ "foreign_id": "a-pistou", "title": "Pistou d'été" }],
+            }),
+        );
+        assert_eq!(status, 200, "{imported}");
+        let job_id = imported["result"]["job_id"].as_str().unwrap();
+        let report = support::wait_terminal(&app, Some(&at.operator), job_id);
+        let arrived = report["result"]["arrived"][0]["branch_id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the recipe arrived: {report}"))
+            .to_string();
+        let (status, owners) = op(
+            &app,
+            "get_recipe",
+            &at.owner,
+            json!({ "branch_id": arrived }),
+        );
+        assert_eq!(status, 200, "{owners}");
+        assert_eq!(owners["result"]["mine"], json!(true), "{owners}");
+
+        // Somebody else naming a Cookbook not their own is answered as one
+        // that is not here.
+        for input in [
+            json!({ "title": "Mine", "cookbook_id": theirs }),
+            json!({ "title": "Mine", "cookbook_id": "c_nobody" }),
+        ] {
+            let (status, refused) = op(&app, "create_recipe", &at.stranger, input);
+            assert_eq!(status, 404, "{refused}");
+        }
+
+        // Tags are filed with the Cookbook's recipes, and the Operator files
+        // there too.
+        let (status, tag) = op(
+            &app,
+            "create_tag",
+            &at.operator,
+            json!({ "as_operator": true, "language": "fr", "name": "été", "cookbook_id": theirs }),
+        );
+        assert_eq!(status, 200, "{tag}");
+        let tag_id = tag["result"]["id"].as_str().unwrap().to_string();
+        let (status, filed) = op(
+            &app,
+            "set_recipe_tag",
+            &at.operator,
+            json!({ "as_operator": true, "branch_id": at.recipe, "tag_id": tag_id, "carried": true }),
+        );
+        assert_eq!(status, 200, "{filed}");
+        let (status, owners_tags) = op(&app, "list_tags", &at.owner, json!({}));
+        assert_eq!(status, 200, "{owners_tags}");
+        assert_eq!(
+            owners_tags["result"]["tags"][0]["id"],
+            json!(tag_id),
+            "{owners_tags}"
+        );
+        let (status, listed) = op(
+            &app,
+            "list_tags",
+            &at.operator,
+            json!({ "as_operator": true, "cookbook_id": theirs }),
+        );
+        assert_eq!(status, 200, "{listed}");
+        assert_eq!(listed["result"]["tags"][0]["id"], json!(tag_id), "{listed}");
+        let (status, refused) = op(
+            &app,
+            "list_tags",
+            &at.stranger,
+            json!({ "cookbook_id": theirs }),
+        );
+        assert_eq!(status, 404, "{refused}");
+
+        let (status, related) = op(
+            &app,
+            "set_related_recipe",
+            &at.operator,
+            json!({ "as_operator": true, "branch_id": at.recipe, "related_branch_id": made, "related": true }),
+        );
+        assert_eq!(status, 200, "{related}");
+        // Read back from the Operator's side, it is a recipe they reach.
+        assert_eq!(
+            related["result"]["related_recipes"][0]["branch_id"],
+            json!(made),
+            "{related}"
+        );
+        let (_, owners) = op(
+            &app,
+            "get_recipe",
+            &at.owner,
+            json!({ "branch_id": at.recipe }),
+        );
+        assert_eq!(
+            owners["result"]["related_recipes"][0]["title"],
+            json!("Pistou"),
+            "{owners}"
+        );
+    }
+
+    /// Attempts, shopping lists and who writes a Cookbook stay their owner's.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_operator_reaches_no_attempt_or_shopping_list() {
+        let app = support::spawn_app();
+        let at = an_instance(&app);
+        let recipe = json!({ "branch_id": at.recipe });
+        for name in ["start_attempt", "add_to_shopping_list", "start_variation"] {
+            let mut input = recipe.clone();
+            if name == "start_variation" {
+                input["name"] = json!("Sans ail");
+            }
+            // Not even asked as the Operator: none of them takes it.
+            let (status, refused) = op(&app, name, &at.operator, as_operator(&input));
+            assert_eq!(status, 400, "{name}: {refused}");
+            let (status, refused) = op(&app, name, &at.operator, input);
+            assert_eq!(status, 404, "{name}: {refused}");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_read_only_key_a_runner_key_and_a_job_key_gain_nothing() {
+        let app = support::spawn_app();
+        let at = an_instance(&app);
+        let recipe = json!({ "branch_id": at.recipe });
+
+        let read_only = app
+            .core
+            .mint_access_key(&at.operator_id, "a reader", true)
+            .unwrap()
+            .secret;
+        let (status, refused) = op(&app, "get_recipe", &read_only, as_operator(&recipe));
+        assert_eq!(status, 401, "{refused}");
+        let (status, refused) = op(&app, "list_cookbooks", &read_only, json!({}));
+        assert_eq!(status, 401, "{refused}");
+
+        let runner = app.core.mint_runner_key("a Runner").unwrap().secret;
+        for name in ["get_recipe", "list_cookbooks"] {
+            let (status, refused) = op(&app, name, &runner, recipe.clone());
+            assert_eq!(status, 401, "{name}: {refused}");
+        }
+
+        // A Job Key of the Operator's, with a recipe of their own, reaches
+        // nobody else's.
+        let (status, asked) = op(
+            &app,
+            "import_by_agent",
+            &at.operator,
+            json!({ "as_operator": true, "text": "Le mien\n\n1 oeuf\n\nCuire." }),
+        );
+        assert_eq!(status, 200, "{asked}");
+        let (status, work) = app.post_op("ask_for_work", Some(&runner), &super::asking());
+        assert_eq!(status, 200, "{work}");
+        let job_key = work["result"]["job"]["job_key"]
+            .as_str()
+            .unwrap_or_else(|| panic!("a Job Key: {work}"));
+        let (status, created) = op(
+            &app,
+            "create_recipe",
+            job_key,
+            json!({ "title": "Le mien" }),
+        );
+        assert_eq!(status, 200, "{created}");
+        assert_eq!(created["result"]["mine"], json!(true), "{created}");
+        let (status, refused) = op(&app, "get_recipe", job_key, recipe.clone());
+        assert_eq!(status, 404, "{refused}");
+        let (status, refused) = op(&app, "get_recipe", job_key, as_operator(&recipe));
+        assert_eq!(status, 401, "{refused}");
+        let (status, refused) = op(
+            &app,
+            "edit_recipe",
+            job_key,
+            json!({ "branch_id": at.recipe, "title": "Pris" }),
+        );
+        assert_eq!(status, 404, "{refused}");
+    }
+
+    /// Pasted text handed to the agent for somebody else's Cookbook: the
+    /// agent's create lands there, and the agent cannot name another.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_operators_import_by_an_agent_lands_in_the_cookbook_named() {
+        let app = support::spawn_app();
+        let at = an_instance(&app);
+        let theirs = cookbook_of(&app, &at.owner_id);
+        let runner = app.core.mint_runner_key("a Runner").unwrap().secret;
+
+        let (status, asked) = op(
+            &app,
+            "import_by_agent",
+            &at.operator,
+            json!({ "as_operator": true, "text": "Tian\n\n2 tomates\n\nCuire.", "cookbook_id": theirs }),
+        );
+        assert_eq!(status, 200, "{asked}");
+        let (status, refused) = op(
+            &app,
+            "import_by_agent",
+            &at.stranger,
+            json!({ "text": "Tian\n\n2 tomates\n\nCuire.", "cookbook_id": theirs }),
+        );
+        assert_eq!(status, 404, "{refused}");
+
+        let (_, work) = app.post_op("ask_for_work", Some(&runner), &super::asking());
+        let job_key = work["result"]["job"]["job_key"]
+            .as_str()
+            .unwrap_or_else(|| panic!("a Job Key: {work}"));
+        let (status, refused) = op(
+            &app,
+            "create_recipe",
+            job_key,
+            json!({ "title": "Tian", "cookbook_id": cookbook_of(&app, &at.operator_id) }),
+        );
+        assert_eq!(status, 400, "{refused}");
+        let (status, created) = op(
+            &app,
+            "create_recipe",
+            job_key,
+            json!({ "title": "Tian", "ingredients": [{ "kind": "ingredient", "text": "2 tomates" }] }),
+        );
+        assert_eq!(status, 200, "{created}");
+        let made = created["result"]["branch_id"].as_str().unwrap();
+        let (status, edited) = op(
+            &app,
+            "edit_recipe",
+            job_key,
+            json!({ "branch_id": made, "steps": [{ "kind": "step", "text": "Cuire." }] }),
+        );
+        assert_eq!(status, 200, "{edited}");
+        assert_eq!(edited["result"]["copied"], json!(false), "{edited}");
+
+        let (status, owners) = op(&app, "get_recipe", &at.owner, json!({ "branch_id": made }));
+        assert_eq!(status, 200, "{owners}");
+        assert_eq!(owners["result"]["mine"], json!(true), "{owners}");
+    }
+
+    /// A failed agent's Job that was landing in somebody else's Cookbook is
+    /// asked again as it was asked, and its agent reads that Cookbook's Tags.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_operators_failed_job_for_another_cookbook_is_asked_again_there() {
+        let app = support::spawn_app();
+        let at = an_instance(&app);
+        let theirs = cookbook_of(&app, &at.owner_id);
+        let runner = app.core.mint_runner_key("a Runner").unwrap().secret;
+
+        let (status, asked) = op(
+            &app,
+            "import_by_agent",
+            &at.operator,
+            json!({ "as_operator": true, "text": "Tian\n\n2 tomates\n\nCuire.", "cookbook_id": theirs }),
+        );
+        assert_eq!(status, 200, "{asked}");
+        let failed = asked["result"]["job_id"].as_str().unwrap().to_string();
+        let (status, _) = app.post_op("ask_for_work", Some(&runner), &super::asking());
+        assert_eq!(status, 200);
+        let (status, reported) = app.post_op(
+            "report_on_job",
+            Some(&runner),
+            &json!({ "job_id": failed, "outcome": "could_not_be_read", "reason": "Illisible." })
+                .to_string(),
+        );
+        assert_eq!(status, 200, "{reported}");
+
+        let (status, again) = op(
+            &app,
+            "read_job_again",
+            &at.operator,
+            json!({ "job_id": failed }),
+        );
+        assert_eq!(status, 200, "{again}");
+        let (_, work) = app.post_op(
+            "ask_for_work",
+            Some(&runner),
+            &super::asking_marked("again"),
+        );
+        let job_key = work["result"]["job"]["job_key"]
+            .as_str()
+            .unwrap_or_else(|| panic!("a Job Key: {work}"));
+        let (status, created) = op(&app, "create_recipe", job_key, json!({ "title": "Tian" }));
+        assert_eq!(status, 200, "{created}");
+        let made = created["result"]["branch_id"].as_str().unwrap();
+        let (status, owners) = op(&app, "get_recipe", &at.owner, json!({ "branch_id": made }));
+        assert_eq!(status, 200, "{owners}");
+        assert_eq!(owners["result"]["mine"], json!(true), "{owners}");
+        let (status, tags) = op(&app, "list_tags", job_key, json!({ "cookbook_id": theirs }));
+        assert_eq!(status, 200, "{tags}");
     }
 }

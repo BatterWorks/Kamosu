@@ -180,10 +180,11 @@ impl Core {
         &self,
         caller: &Caller,
         bytes: &[u8],
+        into: Option<&str>,
         progress: Option<&JobProgress>,
     ) -> Result<Value, OpError> {
         let (cookbook_id, import_id) = self.db().with_conn(|conn| {
-            let cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            let cookbook_id = lands_in(conn, caller, into)?;
             let import_id = find_or_create_import(conn, &cookbook_id, "bundle")?;
             Ok((cookbook_id, import_id))
         })?;
