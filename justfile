@@ -356,10 +356,11 @@ ui-test:
 # `--all-targets` skips a `test = false` target — so without this second pass
 # they would quietly stop compiling and nobody would find out until someone ran
 # one by hand. Type-checking them costs about two seconds, because clippy reads
-# them without linking; it was the linking that was expensive.
+# them without linking; it was the linking that was expensive. The same pass
+# lints the Runner's tests, which compile only in a `test-jobs` build (#274).
 check: _check-tokens-fresh _check-client-fresh _check-cover-fresh _check-messages ui-format-check ui-lint ui-check
     cargo fmt --check && cargo clippy --all-targets -- -D warnings
-    cargo clippy --features test-jobs {{ CORPUS_TARGETS }} -- -D warnings
+    cargo clippy --features test-jobs {{ CORPUS_TARGETS }} --test runner -- -D warnings
 
 # Every tests/*_corpus.rs and the release's library check, as clippy target
 # flags. One list, used by `check`.

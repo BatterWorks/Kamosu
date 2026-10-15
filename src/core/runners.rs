@@ -260,10 +260,13 @@ impl Core {
         }
         let kamosu_version = env!("CARGO_PKG_VERSION");
         if runner_version != kamosu_version {
-            return Err(OpError::bad_request(format!(
-                "this Runner is version {runner_version} and this Kamosu is version \
-                 {kamosu_version}. Run the Runner of the same version as the Kamosu it asks"
-            )));
+            return Err(OpError::refused_because(
+                "another_version",
+                format!(
+                    "this Runner is version {runner_version} and this Kamosu is version \
+                     {kamosu_version}. Run the Runner of the same version as the Kamosu it asks"
+                ),
+            ));
         }
         let work = self.db().with_conn(|conn| {
             conn.execute(

@@ -38,6 +38,18 @@ enum Command {
     /// Mint a one-use recovery link for a named Person. This never reads, prints,
     /// or sets a password; the link holder chooses their own.
     Recover { name: String },
+    /// Run beside an agent: ask the Kamosu at `--kamosu` for Jobs and start the
+    /// agent command given after `--` for each, in a fresh folder holding the
+    /// Job and its Job Key. The Runner Key is read from KAMOSU_RUNNER_KEY.
+    /// Listens on no port and opens no database.
+    Runner {
+        /// Kamosu's address, such as https://recipes.kamosu.example
+        #[arg(long)]
+        kamosu: String,
+        /// The agent command and its arguments, after `--`.
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
+    },
 }
 
 fn main() {
@@ -61,6 +73,9 @@ fn main() {
             std::process::exit(health_check(addr));
         }
         Command::Recover { name } => recover(&config, &name),
+        Command::Runner { kamosu, command } => {
+            std::process::exit(kamosu::runner::run(&kamosu, command))
+        }
     }
 }
 
