@@ -356,7 +356,9 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     whose recipes (ADR 0041)
   cookbooks.rs      Cookbooks: who may change a recipe, joining and
                     separating two, variations, and the may-see and
-                    may-change checks every area calls (ADR 0041, #131)
+                    may-change checks every area calls, an Operator
+                    acting as one on a call that says `as_operator`
+                    among them (ADR 0041, ADR 0049, #131, #302)
   recipes.rs        creating, saving, reading a recipe; threads and divergence;
                     unfolding components; `parse_recipe_content`
   tags.rs           Tags, and putting one on a recipe

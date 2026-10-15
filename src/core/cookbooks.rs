@@ -6,6 +6,9 @@
 //! **May change** is a Co-author. Everything that decides who reads or writes
 //! a recipe comes through here, which is ADR 0040's rule kept in one place: a
 //! Branch the caller may not see is answered exactly as one that is not here.
+//! An Operator **looks after** every Cookbook's recipes beyond both, on a call
+//! that says `as_operator` (#302, ADR 0049), and the one rule saying so is
+//! here too.
 
 use super::*;
 
@@ -15,6 +18,60 @@ impl Core {
         self.db().with_conn(|conn| {
             let cookbook_id = cookbook_of_person(conn, person_id)?;
             cookbook_summary(conn, &cookbook_id, Some(person_id))
+        })
+    }
+
+    /// Every Cookbook on the instance and the recipes in it, for an Operator
+    /// looking after them (#302, ADR 0049): the way to name one, or one of its
+    /// recipes, to the Operations that reach it. Each recipe is a Branch, as
+    /// the shelf names it, with its title as it stands now.
+    pub fn list_cookbooks(&self, caller: &Caller) -> Result<Value, OpError> {
+        // Listing is itself an Operator's act, so it asks no `as_operator`.
+        // The Catalogue lets no Job Key or Runner Key near it, and a
+        // read-only Key gains nothing here either (ADR 0049).
+        if caller.read_only {
+            return Err(OpError::unauthorized(
+                "a read-only Access Key does not look after other Cookbooks",
+            ));
+        }
+        let failed = |e: rusqlite::Error| OpError::internal(format!("cannot list Cookbooks: {e}"));
+        self.db().with_conn(|conn| {
+            let ids: Vec<String> = conn
+                .prepare("SELECT id FROM cookbooks ORDER BY created_at, id")
+                .map_err(failed)?
+                .query_map([], |row| row.get(0))
+                .map_err(failed)?
+                .collect::<Result<_, _>>()
+                .map_err(failed)?;
+            let mut recipes = conn
+                .prepare(
+                    "SELECT branches.id, json_extract(versions.content, '$.title'), \
+                            branches.language, branches.name \
+                       FROM branches JOIN versions ON versions.id = branches.head_version_id \
+                      WHERE branches.cookbook_id = ?1 \
+                      ORDER BY json_extract(versions.content, '$.title') COLLATE NOCASE, \
+                               branches.id",
+                )
+                .map_err(failed)?;
+            let mut cookbooks = Vec::new();
+            for id in ids {
+                let mut cookbook = cookbook_label(conn, &id)?;
+                let held: Vec<Value> = recipes
+                    .query_map(params![id], |row| {
+                        Ok(json!({
+                            "branch_id": row.get::<_, String>(0)?,
+                            "title": row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                            "language": row.get::<_, String>(2)?,
+                            "name": row.get::<_, Option<String>>(3)?,
+                        }))
+                    })
+                    .map_err(failed)?
+                    .collect::<Result<_, _>>()
+                    .map_err(failed)?;
+                cookbook["recipes"] = json!(held);
+                cookbooks.push(cookbook);
+            }
+            Ok(json!({ "cookbooks": cookbooks }))
         })
     }
 
@@ -260,10 +317,11 @@ impl Core {
     /// apart.
     pub fn start_variation(
         &self,
-        person_id: &str,
+        caller: &Caller,
         branch_id: &str,
         name: &str,
     ) -> Result<Value, OpError> {
+        let person_id = caller.person_id.as_str();
         let name = required_text(name, "name")?.to_string();
         let new_branch_id = self.db().with_conn(|conn| {
             ensure_sees_branch(conn, branch_id, person_id)?;
@@ -279,7 +337,7 @@ impl Core {
             }
             copy_branch_into(conn, branch_id, &own, person_id, Some(&name))
         })?;
-        self.get_recipe(person_id, &new_branch_id, None)
+        self.get_recipe(caller, &new_branch_id, None)
     }
 
     /// Name a Branch of the caller's Cookbook, or clear its name. A Cookbook
@@ -458,6 +516,169 @@ pub(super) fn ensure_writes_or_absent(
             "only the people who write this recipe's Cookbook may change it",
         ))
     }
+}
+
+// ── An Operator looking after a Cookbook ─────────────────────────────────────
+//
+// An Operator reaches every Cookbook's recipes and their Tags, through the
+// ordinary Operations and under their own Hand, on a call that says
+// `as_operator` (#302, ADR 0049). Without it an Operator is a Person like any
+// other: their shelf, their search, their Copies. Only the recipe Operations
+// ask the checks below, so Attempts, shopping lists and who writes a Cookbook
+// stay their owner's, and no list asks them.
+
+/// **Looks after** every Cookbook: an Operator acting themselves who asked to
+/// on this call. `Core::execute` refuses `as_operator` to anybody else, a Job
+/// Key and a read-only Key included (ADR 0049). Asked again of the account as
+/// it stands now, so that a Job Kamosu carries later for an Operator since
+/// stood down reaches nothing.
+pub(super) fn looks_after(conn: &Connection, caller: &Caller) -> Result<bool, OpError> {
+    if !caller.as_operator || caller.job_id.is_some() || caller.read_only {
+        return Ok(false);
+    }
+    conn.query_row(
+        "SELECT is_operator FROM people WHERE id = ?1",
+        params![caller.person_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read who administers: {e}")))
+    .map(|is_operator| is_operator.unwrap_or(false))
+}
+
+/// The recipe a Job Key reaches beyond what its asker sees: its own Job's,
+/// where an Operator acting as one asked for the Job, while they are one
+/// (`present` reads the account as it stands). Their Import may have put it in
+/// somebody else's Cookbook. No other Job Key reaches anything beyond sight.
+fn job_recipe_beyond_sight(conn: &Connection, caller: &Caller) -> Result<Option<String>, OpError> {
+    let Some(job_id) = &caller.job_id else {
+        return Ok(None);
+    };
+    if !caller.is_operator || !crate::jobs::asked_as_operator(conn, job_id)? {
+        return Ok(None);
+    }
+    // A Job that created its recipe this very call has not been given it
+    // yet, and is found by the first Version it wrote.
+    Ok(match crate::jobs::standing_recipe_of(conn, job_id)? {
+        Some(None) => crate::jobs::recipe_created_by(conn, job_id)?,
+        standing => standing.flatten(),
+    })
+}
+
+/// Whether a caller reaches a Branch beyond the Cookbooks they see: an
+/// Operator acting as one, or a Job Key on its own recipe as
+/// [`job_recipe_beyond_sight`] says.
+fn reaches_beyond_sight(
+    conn: &Connection,
+    caller: &Caller,
+    branch_id: &str,
+) -> Result<bool, OpError> {
+    if caller.job_id.is_some() {
+        return Ok(job_recipe_beyond_sight(conn, caller)?.as_deref() == Some(branch_id));
+    }
+    looks_after(conn, caller)
+}
+
+/// [`ensure_sees_branch`], for a caller who may look after the Cookbook
+/// holding it. Answers the Branch's Cookbook.
+pub(super) fn ensure_reaches_branch(
+    conn: &Connection,
+    branch_id: &str,
+    caller: &Caller,
+) -> Result<String, OpError> {
+    let cookbook_id = branch_cookbook(conn, branch_id)?;
+    if !reaches_beyond_sight(conn, caller, branch_id)? {
+        ensure_sees_or_absent(conn, &cookbook_id, &caller.person_id, no_such_branch)?;
+    }
+    Ok(cookbook_id)
+}
+
+/// The Cookbook a caller's change to a Branch is made for: the one holding it
+/// where they reach it beyond what they see, their own otherwise. Where it
+/// does not write the Branch, the change is a Copy into it (ADR 0041).
+pub(super) fn changes_for(
+    conn: &Connection,
+    caller: &Caller,
+    branch_id: &str,
+) -> Result<String, OpError> {
+    if reaches_beyond_sight(conn, caller, branch_id)? {
+        branch_cookbook(conn, branch_id)
+    } else {
+        cookbook_of_person(conn, &caller.person_id)
+    }
+}
+
+/// **May change** a Branch, for a caller who may reach it beyond what they
+/// see: [`ensure_writes_or_absent`] on the Cookbook holding it otherwise.
+/// Answers that Cookbook.
+pub(super) fn ensure_changes_branch(
+    conn: &Connection,
+    branch_id: &str,
+    caller: &Caller,
+    absent: impl FnOnce() -> OpError,
+) -> Result<String, OpError> {
+    let cookbook_id = branch_cookbook(conn, branch_id)?;
+    if !reaches_beyond_sight(conn, caller, branch_id)? {
+        ensure_writes_or_absent(conn, &cookbook_id, &caller.person_id, absent)?;
+    }
+    Ok(cookbook_id)
+}
+
+/// [`ensure_sees_or_absent`], for a caller who may look after the Cookbook,
+/// or a Job Key whose recipe it holds.
+pub(super) fn ensure_reaches_or_absent(
+    conn: &Connection,
+    cookbook_id: &str,
+    caller: &Caller,
+    absent: impl FnOnce() -> OpError,
+) -> Result<(), OpError> {
+    if looks_after(conn, caller)? && cookbook_exists(conn, cookbook_id)? {
+        return Ok(());
+    }
+    // A Job Key reaches the Cookbook holding its recipe, to read its Tags.
+    if let Some(its_recipe) = job_recipe_beyond_sight(conn, caller)?
+        && branch_cookbook(conn, &its_recipe)? == cookbook_id
+    {
+        return Ok(());
+    }
+    ensure_sees_or_absent(conn, cookbook_id, &caller.person_id, absent)
+}
+
+/// **Where a create or an Import lands**: the caller's own Cookbook, or the
+/// one `named`, which only somebody looking after every Cookbook names
+/// (#302). Anybody else naming one that is not their own is answered as
+/// though it were not there (ADR 0040). A Job Key names none: its create
+/// lands where an Operator asked for its Job to land, while they are one,
+/// and in its asker's own Cookbook otherwise.
+pub(super) fn lands_in(
+    conn: &Connection,
+    caller: &Caller,
+    named: Option<&str>,
+) -> Result<String, OpError> {
+    let own = cookbook_of_person(conn, &caller.person_id)?;
+    if let Some(job_id) = &caller.job_id {
+        return Ok(match crate::jobs::cookbook_asked_for(conn, job_id)? {
+            Some(asked) if caller.is_operator && named.is_none() => asked,
+            _ => own,
+        });
+    }
+    match named {
+        None => Ok(own),
+        Some(named) if named == own => Ok(own),
+        Some(named) if looks_after(conn, caller)? && cookbook_exists(conn, named)? => {
+            Ok(named.to_string())
+        }
+        Some(_) => Err(no_such_cookbook()),
+    }
+}
+
+fn cookbook_exists(conn: &Connection, cookbook_id: &str) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM cookbooks WHERE id = ?1)",
+        params![cookbook_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot read Cookbook: {e}")))
 }
 
 /// Whether a Cookbook writes a Branch: holds it, and did not merely receive

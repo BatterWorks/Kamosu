@@ -245,6 +245,10 @@ pub struct Caller {
     /// route outside the Catalogue refuses it too, but storing a Photograph
     /// and fetching its own Job's Original.
     pub job_id: Option<String>,
+    /// True when this one call asked to act as an Operator, with
+    /// `as_operator`, and may (#302, ADR 0049). Only then does an Operator
+    /// reach a recipe beyond what they see as a Person.
+    pub as_operator: bool,
 }
 
 /// A Runner, known by the Runner Key it presented. It is no Person and acts as
@@ -264,6 +268,11 @@ pub enum Asker {
     Nobody,
     Person(Caller),
     Runner(RunnerCaller),
+}
+
+/// Whether a call asks to act as an Operator (#302).
+pub(crate) fn asks_as_operator(input: &Value) -> bool {
+    input.get("as_operator").and_then(Value::as_bool) == Some(true)
 }
 
 /// What a Job Key is answered on every route outside the Catalogue: as if the
@@ -424,7 +433,7 @@ impl Core {
         // Resolving a Credential is not an Operation (it precedes every one), but
         // presenting an unrecognised Secret must fail loudly rather than silently
         // become a stranger.
-        let asker = match credential_secret.filter(|secret| !secret.is_empty()) {
+        let mut asker = match credential_secret.filter(|secret| !secret.is_empty()) {
             None => Asker::Nobody,
             Some(secret) => self.present(secret)?,
         };
@@ -496,6 +505,27 @@ impl Core {
         // describe. What it does *not* check is meaning — whether a Branch
         // exists, whether an amount parses — which stays in the handlers.
         crate::schema::validate_input(op.name, &input)?;
+
+        // Acting as an Operator is asked for one call at a time (#302, ADR
+        // 0049): an Operator is a Person like any other until a call says
+        // `as_operator`. Only an Operator acting themselves may say it, never
+        // through a read-only Access Key or a Job Key. Only the Operations
+        // that declare it accept it, which the shape check above holds.
+        if asks_as_operator(&input) {
+            match &mut asker {
+                Asker::Person(caller)
+                    if caller.is_operator && !caller.read_only && caller.job_id.is_none() =>
+                {
+                    caller.as_operator = true;
+                }
+                _ => {
+                    return Err(OpError::unauthorized(
+                        "as_operator is for an Operator acting themselves, signed in or \
+                         through an Access Key that may write",
+                    ));
+                }
+            }
+        }
 
         // What a Job Key writes, it writes on the one recipe its Job is for,
         // and never where that would start a Copy (ADR 0048). Asked here so
@@ -678,6 +708,7 @@ impl Core {
                     access_key_id,
                     session_id,
                     job_id: None,
+                    as_operator: false,
                 }))
             }
             None => {
@@ -698,6 +729,7 @@ impl Core {
                         access_key_id: None,
                         session_id: None,
                         job_id: Some(job_id),
+                        as_operator: false,
                     })),
                     // Unknown, revoked or spent: the same answer each way,
                     // saying nothing about which. Marked, so the web door can

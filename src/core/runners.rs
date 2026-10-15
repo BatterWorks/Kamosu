@@ -168,6 +168,17 @@ impl Core {
                 return Err(OpError::credential_names_nobody());
             };
             if mark == JobKey::CreatesItsRecipe {
+                // Where the recipe lands is the Job's to say and never the
+                // agent's (#302).
+                if input
+                    .get("cookbook_id")
+                    .is_some_and(|named| !named.is_null())
+                {
+                    return Err(OpError::bad_request(
+                        "an agent's Job creates its recipe where the Job was asked for, so \
+                         its create names no cookbook_id. Leave the field out",
+                    ));
+                }
                 // The recipe is made the Job's own just after it is created,
                 // in a second write. Should that one not have landed, the
                 // recipe is found by the first Version the Job wrote.
@@ -197,8 +208,8 @@ impl Core {
             if names_its_recipe && input["branch_id"].as_str() != Some(its_recipe.as_str()) {
                 return Err(no_such_branch());
             }
-            let own_cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
-            if !cookbook_writes_branch(conn, &own_cookbook_id, &its_recipe)? {
+            let writing_for = changes_for(conn, caller, &its_recipe)?;
+            if !cookbook_writes_branch(conn, &writing_for, &its_recipe)? {
                 jobs::end_where_a_write_was_refused(conn, job_id, jobs::WOULD_START_A_COPY)?;
                 return Err(OpError::unauthorized(jobs::WOULD_START_A_COPY));
             }

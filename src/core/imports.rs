@@ -14,6 +14,7 @@ impl Core {
         &self,
         caller: &Caller,
         mut export: crouton::Export,
+        into: Option<&str>,
         progress: Option<&JobProgress>,
     ) -> Result<Value, OpError> {
         let total = export.len();
@@ -65,7 +66,7 @@ impl Core {
                 tags: crumb.tags,
             }
         });
-        self.import_each(caller, "crouton", total, incoming, progress)
+        self.import_each(caller, "crouton", into, total, incoming, progress)
     }
 
     /// What this Person has brought in from outside, and what happened each
@@ -367,11 +368,13 @@ impl Core {
         caller: &Caller,
         source_kind: &str,
         candidates: &[Value],
+        into: Option<&str>,
         progress: Option<&JobProgress>,
     ) -> Result<Value, OpError> {
         self.import_each(
             caller,
             source_kind,
+            into,
             candidates.len(),
             candidates.iter().cloned().map(Incoming::candidate),
             progress,
@@ -394,15 +397,16 @@ impl Core {
         &self,
         caller: &Caller,
         source_kind: &str,
+        into: Option<&str>,
         total: usize,
         mut incoming: impl Iterator<Item = Incoming>,
         progress: Option<&JobProgress>,
     ) -> Result<Value, OpError> {
         let source_kind = required_text(source_kind, "source_kind")?.to_string();
-        // Always into the caller's own Cookbook (ADR 0041): there is no
-        // question of where an imported recipe goes.
+        // Into the caller's own Cookbook (ADR 0041), or the one an Operator
+        // looking after it names (#302).
         let (cookbook_id, cookbook_hand_id) = self.db().with_conn(|conn| {
-            let cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            let cookbook_id = lands_in(conn, caller, into)?;
             let hand_id = cookbook_hand(conn, &cookbook_id)?;
             Ok((cookbook_id, hand_id))
         })?;

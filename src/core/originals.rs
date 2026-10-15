@@ -51,7 +51,12 @@ impl Core {
     /// While the caller's Job on it waits or is held, the answer is that Job.
     /// Once its agent has created the recipe, the answer is that recipe, as
     /// `branch_id` and `title`, and no Job is made. Pasted text is not matched.
-    pub fn import_by_agent(&self, caller: &Caller, handed: Handed) -> Result<Value, OpError> {
+    pub fn import_by_agent(
+        &self,
+        caller: &Caller,
+        handed: Handed,
+        into: Option<&str>,
+    ) -> Result<Value, OpError> {
         self.ensure_has_runner()?;
         // As handed over, since a picture is remade before it is kept.
         let digest = match &handed {
@@ -65,6 +70,7 @@ impl Core {
             digest.as_deref(),
             Keeping::Bytes(&bytes),
             None,
+            into,
         )
     }
 
@@ -95,12 +101,24 @@ impl Core {
         if !original_is_kept(&self.data_dir(), job_id, job.deleted) {
             return Err(original_gone());
         }
+        // Where the failed Job was asked to land, an Operator's naming
+        // included (#302).
+        let into = self
+            .db()
+            .with_conn(|conn| jobs::cookbook_asked_for(conn, job_id))?;
+        // Asked again as the failed Job was: as the Operator, where it went
+        // to somebody else's Cookbook, while the asker still is one.
+        let caller = &Caller {
+            as_operator: caller.as_operator || into.is_some(),
+            ..caller.clone()
+        };
         self.hand_to_agent(
             caller,
             job.kind,
             job.digest.as_deref(),
             Keeping::From(job_id),
             Some(job_id),
+            into.as_deref(),
         )
     }
 
@@ -115,14 +133,19 @@ impl Core {
         digest: Option<&str>,
         keeping: Keeping,
         again_of: Option<&str>,
+        into: Option<&str>,
     ) -> Result<Value, OpError> {
         let dir = originals_dir(&self.data_dir());
         std::fs::create_dir_all(&dir)
             .map_err(|e| OpError::internal(format!("cannot make a place for Originals: {e}")))?;
         let failed = |e| OpError::internal(format!("cannot record the agent's Job: {e}"));
         self.db().with_conn(|conn| {
-            let cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            let cookbook_id = lands_in(conn, caller, into)?;
             let import_id = find_or_create_import(conn, &cookbook_id, kind.as_str())?;
+            // The agent's create lands where this one does, which is the
+            // Job's to say when it is not the asker's own (#302).
+            let elsewhere = (cookbook_id != cookbook_of_person(conn, &caller.person_id)?)
+                .then_some(cookbook_id.as_str());
             if let Some(again_of) = again_of
                 && let Some(job_id) = jobs::standing_job_again_of(conn, again_of)?
             {
@@ -143,7 +166,8 @@ impl Core {
             // The Job and its Original appear together or not at all: no
             // Runner is handed a Job whose file is not there yet.
             let tx = conn.unchecked_transaction().map_err(failed)?;
-            let job_id = jobs::wait_for_agent_on_original(&tx, caller, kind, digest, again_of)?;
+            let job_id =
+                jobs::wait_for_agent_on_original(&tx, caller, kind, digest, again_of, elsewhere)?;
             jobs::set_result(
                 &tx,
                 &job_id,

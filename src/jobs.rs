@@ -328,6 +328,10 @@ impl crate::core::Core {
                         session_id: None,
                         // A Job Key asks for no Job (ADR 0048).
                         job_id: None,
+                        // As it was asked for. Whether the asker may still
+                        // act as an Operator is asked of the account as it
+                        // stands now (`looks_after`).
+                        as_operator: crate::core::asks_as_operator(&record.input),
                     });
                     let invocation = Invocation {
                         // A Job Kamosu does itself was asked for by a Person
@@ -405,6 +409,12 @@ fn insert(
     input: &Value,
 ) -> Result<String, OpError> {
     let job_id = new_id();
+    // A Job asked for by an Operator acting as one says so, which is what lets
+    // its Job Key reach its recipe in somebody else's Cookbook (#302).
+    let mut input = input.clone();
+    if caller.is_some_and(|caller| caller.as_operator) {
+        input["as_operator"] = json!(true);
+    }
     let (person_id, read_only, via_access_key) = match caller {
         Some(caller) => (
             Some(caller.person_id.clone()),
@@ -756,16 +766,22 @@ impl OriginalKind {
 /// file the caller keeps beside the database, named by the id this answers.
 /// `digest` is a file's, by which the same file is known again (#271).
 /// `again_of` is the failed Job whose Original this one reads again (#273).
+/// `cookbook_id` is a Cookbook an Operator named for its recipe, other than
+/// their own (#302).
 pub fn wait_for_agent_on_original(
     conn: &Connection,
     caller: &Caller,
     kind: OriginalKind,
     digest: Option<&str>,
     again_of: Option<&str>,
+    cookbook_id: Option<&str>,
 ) -> Result<String, OpError> {
     let mut input = json!({ "source_kind": kind.as_str() });
     if let Some(again_of) = again_of {
         input["again_of"] = json!(again_of);
+    }
+    if let Some(cookbook_id) = cookbook_id {
+        input["cookbook_id"] = json!(cookbook_id);
     }
     let job_id = insert(conn, AGENT_OPERATION, Some(caller), &input)?;
     conn.execute(
@@ -885,6 +901,35 @@ pub fn standing_recipe_of(
     )
     .optional()
     .map_err(|e| OpError::internal(format!("cannot read the Job's recipe: {e}")))
+}
+
+/// Whether a Job was asked for by an Operator acting as one (#302).
+pub fn asked_as_operator(conn: &Connection, job_id: &str) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT json_extract(input, '$.as_operator') IS 1 FROM jobs WHERE id = ?1",
+        params![job_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(|asked| asked.unwrap_or(false))
+    .map_err(|e| OpError::internal(format!("cannot read the Job: {e}")))
+}
+
+/// The Cookbook an Operator named for an agent's Job reading an Original,
+/// other than their own (#302). `None` for every other Job. Read off the
+/// Import Report, which a join of two Cookbooks moves with the Import
+/// (`move_to_kept_import`), and not off the ask, which nothing moves.
+pub fn cookbook_asked_for(conn: &Connection, job_id: &str) -> Result<Option<String>, OpError> {
+    conn.query_row(
+        "SELECT CASE WHEN json_extract(input, '$.cookbook_id') IS NOT NULL
+                     THEN json_extract(result, '$.cookbook_id') END
+           FROM jobs WHERE id = ?1",
+        params![job_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(Option::flatten)
+    .map_err(|e| OpError::internal(format!("cannot read the Job's Cookbook: {e}")))
 }
 
 /// The agent created its Job's recipe (#269): from here the Job is for that
