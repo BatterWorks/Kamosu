@@ -1019,6 +1019,9 @@ pub struct AgentJobState {
     pub report: Option<Value>,
     /// Its Original was deleted, 30 days after it ended (#270).
     pub original_gone: bool,
+    /// Its agent said what it was handed holds no recipe it can read, so
+    /// `error` is the agent's own words (#276).
+    pub could_not_be_read: bool,
 }
 
 /// How each of these Jobs stands now, for the ones that are an agent's. An id
@@ -1030,7 +1033,8 @@ pub fn agent_jobs_as_they_stand(
     let mut statement = conn
         .prepare(
             "SELECT jobs.status, jobs.error, agent_jobs.report, agent_jobs.branch_id,
-                    agent_jobs.original_deleted_at IS NOT NULL
+                    agent_jobs.original_deleted_at IS NOT NULL,
+                    agent_jobs.outcome IS 'could_not_be_read'
                FROM jobs JOIN agent_jobs ON agent_jobs.job_id = jobs.id
               WHERE jobs.id = ?1",
         )
@@ -1048,6 +1052,7 @@ pub fn agent_jobs_as_they_stand(
                         .get::<_, Option<String>>(2)?
                         .and_then(|text| serde_json::from_str(&text).ok()),
                     original_gone: row.get(4)?,
+                    could_not_be_read: row.get(5)?,
                 })
             })
             .optional()

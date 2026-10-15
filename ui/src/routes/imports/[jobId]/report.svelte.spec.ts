@@ -19,6 +19,7 @@ import { m } from '$lib/paraglide/messages';
 import ReportTestHarness from './ReportTestHarness.svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetJobOutput, ImportCroutonOutput } from '$lib/api/catalogue';
+import { recipeAnswer } from '../../../testing/recipes';
 
 const side = (branch: string, title: string, over: Record<string, unknown> = {}) => ({
 	lineage_id: `l_${branch}`,
@@ -342,5 +343,256 @@ describe('on the wide layout', () => {
 		await screen.findByText(/6 recipes are on your shelf/);
 
 		expect(kamosu.calls.filter((call) => call.operation === 'list_imports')).toHaveLength(1);
+	});
+});
+
+/**
+ * An agent's work (#276), option B as chosen on 2026-10-15: what to look at
+ * goes under Needs you, and Arrived keeps the bare landing and the agent's
+ * work as one row.
+ */
+describe("the Import Report of an agent's work", () => {
+	const TART = 'Tarte au citron meringuée';
+
+	const agentReport = (
+		over: Partial<ImportCroutonOutput> = {},
+		agent: Record<string, unknown> = {},
+	) =>
+		report({
+			source_kind: 'web',
+			arrived: [
+				arrived('tart', TART, {
+					foreign_id: 'https://example.com/tart',
+					bare: true,
+					main_photo: null,
+				}),
+			],
+			left_out: [],
+			related_candidates: [],
+			agent_jobs: [
+				{
+					job_id: 'j_agent',
+					branch_id: 'b_tart',
+					status: 'completed',
+					made_by_agent: true,
+					agent_report: {
+						left_undone: ['The page gives no cooking time.'],
+						unsure: ['Step 2 says 180 °C in one place and 160 °C in another.'],
+						likely_duplicates: ['b_pie'],
+						unused_foods: ['caster sugar'],
+					},
+					...agent,
+				},
+			],
+			...over,
+		});
+
+	const pie = recipeAnswer({ branch_id: 'b_pie', title: 'Lemon meringue pie' });
+
+	it('says an agent wrote the recipe, and puts what it noted under Needs you', async () => {
+		open({
+			get_job: job({ operation: 'import_web_link', result: agentReport() }),
+			get_recipe: pie,
+		});
+
+		expect(
+			await screen.findByRole('heading', { name: 'The link you brought in' }),
+		).toBeInTheDocument();
+		const duplicate = await screen.findByRole('link', { name: 'Lemon meringue pie' });
+		expect(duplicate).toHaveAttribute('href', '/recipes/b_pie');
+		expect(duplicate.closest('p')).toHaveTextContent(
+			'The agent thinks this may be the same dish as Lemon meringue pie. Both are kept.',
+		);
+
+		const look = screen.getByText(/Have a look at/).closest('div') as HTMLElement;
+		expect(within(look).getByRole('link', { name: TART })).toHaveAttribute(
+			'href',
+			'/recipes/b_tart',
+		);
+		expect(within(look).getByText('The agent left undone')).toBeInTheDocument();
+		expect(within(look).getByText('The page gives no cooking time.')).toBeInTheDocument();
+		expect(within(look).getByText('The agent was not sure of')).toBeInTheDocument();
+		expect(within(look).getByText("Foods its corrections didn't use")).toBeInTheDocument();
+		expect(within(look).getByText('caster sugar')).toBeInTheDocument();
+		expect(screen.queryByText(m.report_needs_you_none())).not.toBeInTheDocument();
+
+		// One arrival: the bare landing is not said apart from the agent's work.
+		expect(screen.getByText(`Written by an agent: ${TART}.`)).toBeInTheDocument();
+		expect(screen.queryByText(/came as just a name and a link/)).not.toBeInTheDocument();
+		expect(screen.getByText('written by an agent')).toBeInTheDocument();
+	});
+
+	it('shows three entries of a long list and the rest behind one tap', async () => {
+		const unsure = Array.from({ length: 8 }, (_, n) => `Doubt number ${n + 1}.`);
+		open({
+			get_job: job({
+				operation: 'import_web_link',
+				result: agentReport({}, { agent_report: { unsure } }),
+			}),
+		});
+
+		expect(await screen.findByText('Doubt number 3.')).toBeVisible();
+		const more = screen.getByText('Show 5 more');
+		expect(more.closest('details')).not.toHaveAttribute('open');
+		expect(
+			within(more.closest('details') as HTMLElement).getByText('Doubt number 8.'),
+		).toBeInTheDocument();
+	});
+
+	it('leaves out a likely duplicate that cannot be opened', async () => {
+		const kamosu = open({
+			get_job: job({
+				operation: 'import_web_link',
+				result: agentReport({}, { agent_report: { likely_duplicates: ['b_gone'] } }),
+			}),
+			get_recipe: { refuse: 'not_found' },
+		});
+
+		// "Nothing needs you" waits for the lookup, so this is after it answered.
+		expect(await screen.findByText(m.report_needs_you_none())).toBeInTheDocument();
+		expect(kamosu.calls.filter((call) => call.operation === 'get_recipe')).toEqual([
+			expect.objectContaining({ input: { branch_id: 'b_gone' } }),
+		]);
+		expect(screen.queryByText(/may be the same dish/)).not.toBeInTheDocument();
+	});
+
+	it('names the recipe of a Job on a recipe the link was only offered to', async () => {
+		// A link brought in again names the Job already standing on a recipe
+		// the cook had changed since: that recipe is offered, not arrived.
+		open({
+			get_job: job({
+				operation: 'import_web_link',
+				result: agentReport(
+					{
+						arrived: [],
+						offered: [
+							{
+								foreign_id: 'https://example.com/tart',
+								branch_id: 'b_tart',
+								lineage_id: 'l_tart',
+								candidate_version_id: 'v_candidate',
+								title: TART,
+							},
+						],
+					},
+					{ agent_report: { left_undone: ['The page gives no cooking time.'] } },
+				),
+			}),
+		});
+
+		const look = (await screen.findByText(/Have a look at/)).closest('p') as HTMLElement;
+		expect(look).toHaveTextContent(`Have a look at ${TART}.`);
+		expect(within(look).getByRole('link', { name: TART })).toHaveAttribute(
+			'href',
+			'/recipes/b_tart',
+		);
+	});
+
+	it('words a failure Kamosu ended as the agent not finishing, and keeps the bare recipe arrived', async () => {
+		const reason = 'the recipe this Job was for is gone';
+		open({
+			get_job: job({
+				operation: 'import_web_link',
+				result: agentReport(
+					{
+						unreadable: [
+							{ foreign_id: 'https://example.com/tart', name: TART, branch_id: 'b_tart', reason },
+						],
+					},
+					{ status: 'failed', made_by_agent: undefined, agent_report: undefined },
+				),
+			}),
+		});
+
+		const loss = (await screen.findByText(`The agent couldn't finish: ${reason}`)).closest('li');
+		expect(loss).toHaveTextContent(TART);
+		expect(screen.queryByText(/The agent said/)).not.toBeInTheDocument();
+		expect(screen.getByText(`1 came as just a name and a link: ${TART}.`)).toBeInTheDocument();
+		expect(screen.getByText(m.report_needs_you_none())).toBeInTheDocument();
+	});
+
+	it('quotes the agent where it said a file holds no recipe, and says nothing arrived', async () => {
+		const reason = 'The picture shows a wine label, not a recipe.';
+		open({
+			get_job: job({
+				operation: 'read_by_agent',
+				status: 'failed',
+				error: reason,
+				errorCode: -32602,
+				result: agentReport(
+					{
+						source_kind: 'picture',
+						arrived: [],
+						unreadable: [{ foreign_id: null, reason }],
+					},
+					{ branch_id: null, status: 'failed', could_not_be_read: true, made_by_agent: undefined },
+				),
+			}),
+		});
+
+		expect(
+			await screen.findByRole('heading', { name: 'The picture you brought in' }),
+		).toBeInTheDocument();
+		const loss = screen.getByText(`The agent said: "${reason}"`).closest('li');
+		expect(loss).toHaveTextContent('Your picture');
+		expect(screen.getByText(/Nothing arrived\./)).toBeInTheDocument();
+		expect(screen.queryByText(/The import stopped/)).not.toBeInTheDocument();
+	});
+
+	it('says a recipe read again by an agent that failed is as it was', async () => {
+		open({
+			get_job: job({
+				operation: 'read_by_agent',
+				status: 'failed',
+				error: 'The page has gone.',
+				result: agentReport(
+					{
+						source_kind: 'read_again',
+						arrived: [arrived('tart', TART, { status: 'read_again', main_photo: null })],
+						unreadable: [
+							{
+								foreign_id: 'crouton-tart',
+								name: TART,
+								branch_id: 'b_tart',
+								reason: 'The page has gone.',
+							},
+						],
+					},
+					{
+						status: 'failed',
+						could_not_be_read: true,
+						made_by_agent: undefined,
+						agent_report: undefined,
+					},
+				),
+			}),
+		});
+
+		expect(
+			await screen.findByRole('heading', { name: `Reading ${TART} again` }),
+		).toBeInTheDocument();
+		expect(screen.getByText(new RegExp(`^${TART} is as it was\\.`))).toBeInTheDocument();
+		expect(screen.getByText(`${TART} is as it was before.`)).toBeInTheDocument();
+		expect(screen.getByText('as it was')).toBeInTheDocument();
+	});
+
+	it('says a link brought in again was written by an agent earlier', async () => {
+		open({
+			get_job: job({
+				operation: 'import_web_link',
+				result: agentReport(
+					{
+						arrived: [arrived('tart', TART, { status: 'unchanged', bare: true, main_photo: null })],
+					},
+					{ agent_report: undefined },
+				),
+			}),
+		});
+
+		expect(
+			await screen.findByText(`Written by an agent earlier, and already here, unchanged: ${TART}.`),
+		).toBeInTheDocument();
+		expect(screen.getByText('written by an agent · already here, unchanged')).toBeInTheDocument();
+		expect(screen.getByText(m.report_needs_you_none())).toBeInTheDocument();
 	});
 });

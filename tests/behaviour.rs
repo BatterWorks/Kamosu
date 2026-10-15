@@ -12900,6 +12900,14 @@ mod web_link_importer {
             None,
             "{report}"
         );
+        // The reason is the agent's own words, which a screen may quote as
+        // its (#276). A Job that failed any other way says nothing of this,
+        // which the Job failed on every try above checks row for row.
+        assert_eq!(
+            report["agent_jobs"][0]["could_not_be_read"],
+            json!(true),
+            "{report}"
+        );
         // What the agent said on the way is kept with it.
         assert_eq!(
             report["agent_jobs"][0]["agent_report"]["unsure"],

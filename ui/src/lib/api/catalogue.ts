@@ -1832,6 +1832,7 @@ export type ImportOutput = {
 			unused_foods?: string[];
 		};
 		branch_id: string | null;
+		could_not_be_read?: boolean;
 		job_id: string;
 		made_by_agent?: boolean;
 		original_gone?: boolean;
@@ -1903,6 +1904,7 @@ export type ImportCroutonOutput = {
 			unused_foods?: string[];
 		};
 		branch_id: string | null;
+		could_not_be_read?: boolean;
 		job_id: string;
 		made_by_agent?: boolean;
 		original_gone?: boolean;
@@ -2009,6 +2011,7 @@ export type ImportWebLinkOutput = {
 			unused_foods?: string[];
 		};
 		branch_id: string | null;
+		could_not_be_read?: boolean;
 		job_id: string;
 		made_by_agent?: boolean;
 		original_gone?: boolean;
@@ -2709,6 +2712,7 @@ export type ImportBundleOutput = {
 			unused_foods?: string[];
 		};
 		branch_id: string | null;
+		could_not_be_read?: boolean;
 		job_id: string;
 		made_by_agent?: boolean;
 		original_gone?: boolean;
@@ -14761,6 +14765,10 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"could_not_be_read": {
+								"description": "Present and true when the agent said what it was handed holds no recipe it can read. The reason under `unreadable` is then the agent's own words. A Job that failed any other way has Kamosu's reason there.",
+								"type": "boolean"
+							},
 							"job_id": {
 								"type": "string"
 							},
@@ -15116,6 +15124,10 @@ export const CATALOGUE = [
 									"string",
 									"null"
 								]
+							},
+							"could_not_be_read": {
+								"description": "Present and true when the agent said what it was handed holds no recipe it can read. The reason under `unreadable` is then the agent's own words. A Job that failed any other way has Kamosu's reason there.",
+								"type": "boolean"
 							},
 							"job_id": {
 								"type": "string"
@@ -15641,6 +15653,10 @@ export const CATALOGUE = [
 									"string",
 									"null"
 								]
+							},
+							"could_not_be_read": {
+								"description": "Present and true when the agent said what it was handed holds no recipe it can read. The reason under `unreadable` is then the agent's own words. A Job that failed any other way has Kamosu's reason there.",
+								"type": "boolean"
 							},
 							"job_id": {
 								"type": "string"
@@ -19164,6 +19180,10 @@ export const CATALOGUE = [
 									"string",
 									"null"
 								]
+							},
+							"could_not_be_read": {
+								"description": "Present and true when the agent said what it was handed holds no recipe it can read. The reason under `unreadable` is then the agent's own words. A Job that failed any other way has Kamosu's reason there.",
+								"type": "boolean"
 							},
 							"job_id": {
 								"type": "string"

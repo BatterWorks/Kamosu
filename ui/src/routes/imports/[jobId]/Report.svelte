@@ -76,6 +76,7 @@
 				if (current) job = read;
 			},
 			stopped: () => !current,
+			answersWhenFailed: holdsAReport,
 		})
 			.then((read) => {
 				if (!current) return;
@@ -95,9 +96,22 @@
 		};
 	});
 
-	const report = $derived(
-		job?.status === 'completed' ? (job.result as Report | undefined) : undefined,
-	);
+	/** A failed Job that is an agent's own Import still holds its Report (#269). */
+	function holdsAReport(read: GetJobOutput) {
+		return Boolean((read.result as Report | null)?.agent_jobs?.length);
+	}
+
+	/**
+	 * The Report, once there is one. A Job an agent read a file in is its own
+	 * Import (#269), so it can end as failed and still hold a Report naming
+	 * what could not be read; that is drawn as a Report, not as a stop.
+	 */
+	const report = $derived.by(() => {
+		const result = job?.result as Report | undefined;
+		if (job?.status === 'completed') return result;
+		if (job?.status === 'failed' && holdsAReport(job)) return result;
+		return undefined;
+	});
 	const running = $derived(job !== undefined && ['queued', 'running'].includes(job.status));
 	const done = $derived(job?.progress.done ?? 0);
 	const total = $derived(job?.progress.total ?? 0);
@@ -105,7 +119,12 @@
 	const arrived = $derived(report?.arrived ?? []);
 	const pairs = $derived(report?.related_candidates ?? []);
 	const photos = $derived(arrived.filter((row) => row.main_photo).length);
-	const bare = $derived(arrived.filter((row) => row.bare));
+	/** Landed bare and left so: an agent's recipe or one kept as it was is said apart. */
+	const bare = $derived(
+		arrived.filter(
+			(row) => row.bare && !madeBranches.includes(row.branch_id) && !keptAsItWas.includes(row),
+		),
+	);
 	const siteIcons = $derived(
 		(report?.left_out ?? [])
 			.filter((row) => row.what === 'site_icon')
@@ -225,9 +244,173 @@
 	 * Bundle never produces one.
 	 */
 	const ofABundle = $derived(job?.operation === 'import_bundle');
+
+	// --- An agent's work (#276), option B as chosen on 2026-10-15 ---------------
+	//
+	// What an agent did with an arrival is read off the Report's `agent_jobs`,
+	// which the server brings up to date on every reading (#262). It is said
+	// here and never on the recipe. What the cook should look at goes under
+	// Needs you; Arrived stays the record of what came in, with the bare
+	// landing and the agent's work as one row. A Report naming no agent's Job
+	// is drawn exactly as before.
+
+	type AgentJob = NonNullable<Report['agent_jobs']>[number];
+
+	const agentJobs = $derived(report?.agent_jobs ?? []);
+	/** The Jobs whose agent made its recipe. Only these have notes to look over. */
+	const made = $derived(agentJobs.filter((agent) => agent.made_by_agent && agent.branch_id));
+	const madeBranches = $derived(made.map((agent) => agent.branch_id));
+	const failed = $derived(agentJobs.filter((agent) => agent.status === 'failed'));
+
+	/**
+	 * The recipe an agent's Job is on, by its name. A link brought in again
+	 * names the Job already standing on a recipe it was only offered (#261).
+	 */
+	const titleOf = (branchId: string | null) =>
+		[...arrived, ...(report?.offered ?? [])].find((row) => row.branch_id === branchId)?.title ??
+		m.report_unreadable_unnamed();
+
+	/** What the agent was handed, which names a Report that has one. */
+	const handed = $derived(agentJobs.length ? report?.source_kind : undefined);
+
+	/** Each thing an agent is handed: what its Report is called, and what a failed one is. */
+	const HANDED: Record<string, { title: () => string; unnamed: () => string }> = {
+		web: { title: () => m.report_title_link(), unnamed: () => m.report_unreadable_unnamed() },
+		picture: {
+			title: () => m.report_title_picture(),
+			unnamed: () => m.report_unreadable_picture(),
+		},
+		pdf: { title: () => m.report_title_pdf(), unnamed: () => m.report_unreadable_pdf() },
+		pasted_text: {
+			title: () => m.report_title_pasted_text(),
+			unnamed: () => m.report_unreadable_pasted_text(),
+		},
+		read_again: {
+			title: () => m.report_title_again({ title: titleOf(agentJobs[0]?.branch_id ?? null) }),
+			unnamed: () => m.report_unreadable_unnamed(),
+		},
+	};
+	const kind = $derived(handed ? HANDED[handed] : undefined);
+
+	const title = $derived(
+		kind ? kind.title() : ofABundle ? m.report_title_file() : m.report_title(),
+	);
+
+	/** A recipe read again whose agent failed is left as it was before. */
+	const keptAsItWas = $derived(
+		arrived.filter(
+			(row) =>
+				row.status === 'read_again' && failed.some((agent) => agent.branch_id === row.branch_id),
+		),
+	);
+
+	/**
+	 * The recipes an agent thinks may be the same dish, by their names now.
+	 * One that cannot be opened (deleted, or in a Cookbook the cook has left)
+	 * is left out, since there is nothing to do with it.
+	 */
+	let duplicates = $state<{ branch_id: string; title: string }[]>([]);
+	/** Whether they have been read, so "Nothing needs you" is not said before. */
+	let duplicatesRead = $state(false);
+	$effect(() => {
+		const ids = [...new Set(made.flatMap((agent) => agent.agent_report?.likely_duplicates ?? []))];
+		let current = true;
+		duplicatesRead = false;
+		Promise.all(
+			ids.map((branch_id) =>
+				kamosu
+					.getRecipe({ branch_id })
+					.then((recipe) => ({ branch_id, title: recipe.versions.at(-1)?.content.title ?? '' }))
+					.catch((error: unknown) => {
+						if (!(error instanceof OperationError)) throw error;
+						return undefined;
+					}),
+			),
+		).then((read) => {
+			if (!current) return;
+			duplicates = read.filter((found) => found !== undefined);
+			duplicatesRead = true;
+		});
+		return () => {
+			current = false;
+		};
+	});
+
+	/** The lists under one recipe's card, each only where it has entries. */
+	const notesOf = (agent: AgentJob) =>
+		[
+			{ label: m.report_agent_left_undone(), items: agent.agent_report?.left_undone ?? [] },
+			{ label: m.report_agent_unsure(), items: agent.agent_report?.unsure ?? [] },
+			{ label: m.report_agent_unused_foods(), items: agent.agent_report?.unused_foods ?? [] },
+		].filter((list) => list.items.length);
+
+	const writtenBy = $derived(arrived.filter((row) => madeBranches.includes(row.branch_id)));
+	const writtenNew = $derived(writtenBy.filter((row) => row.status !== 'unchanged'));
+	const writtenBefore = $derived(writtenBy.filter((row) => row.status === 'unchanged'));
+
+	const toLookAt = $derived(made.filter((agent) => notesOf(agent).length));
+
+	/** How many entries of a list show before "Show N more". */
+	const SHOWN = 3;
+
+	/** A failure is the agent's own words only where it said the thing holds no recipe. */
+	const failure = (loss: Report['unreadable'][number]) => {
+		const agent = failed.find((one) => (one.branch_id ?? undefined) === loss.branch_id);
+		if (!agent) return loss.reason;
+		return agent.could_not_be_read
+			? m.report_agent_said({ reason: loss.reason })
+			: m.report_agent_failed({ reason: loss.reason });
+	};
+
+	/** What a failed file is called, where no recipe arrived to name it. */
+	const unnamed = $derived(kind ? kind.unnamed() : m.report_unreadable_unnamed());
+
+	/** Nothing waits for the cook: no pair, no change held, nothing an agent noted. */
+	const nothingNeedsYou = $derived(
+		pairs.length === 0 &&
+			report?.offered.length === 0 &&
+			duplicatesRead &&
+			duplicates.length === 0 &&
+			toLookAt.length === 0,
+	);
+
+	/** Under a row behind Show it: what became of it. */
+	const rowNote = (row: Report['arrived'][number]) => {
+		if (keptAsItWas.includes(row)) return m.report_as_it_was_row();
+		return [
+			madeBranches.includes(row.branch_id)
+				? m.report_written_by_agent_row()
+				: row.bare
+					? m.report_bare_recipe()
+					: '',
+			row.status === 'unchanged' ? m.report_unchanged() : '',
+		]
+			.filter(Boolean)
+			.join(' · ');
+	};
+
+	/**
+	 * A phrase with a link where `{title}` stands, so the sentence is
+	 * translated whole and the link still sits inside it.
+	 */
+	const around = (phrase: (args: { title: string }) => string) =>
+		phrase({ title: '\u0000' }).split('\u0000') as [string, string];
 </script>
 
-<Screen {card} title={ofABundle ? m.report_title_file() : m.report_title()}>
+{#snippet withLink(phrase: (args: { title: string }) => string, title: string, branchId: string)}
+	{@const [before, after] = around(phrase)}
+	{before}<a href="/recipes/{branchId}" class="text-accent underline">{title}</a>{after}
+{/snippet}
+
+{#snippet notes(items: string[])}
+	<ul class="list-disc pl-4 text-read">
+		{#each items as item, index (index)}
+			<li class="mt-1">{item}</li>
+		{/each}
+	</ul>
+{/snippet}
+
+<Screen {card} {title}>
 	{#if unreachable}
 		<p class={['mt-4 border-l-3 border-support px-3 py-2 text-body', panel]} role="alert">
 			{unreachable}
@@ -251,13 +434,19 @@
 				{m.report_needs_you_waiting()}
 			</p>
 		</Section>
-	{:else if job.status !== 'completed' || !report}
+	{:else if !report}
 		<p class={['mt-4 border-l-3 border-support px-3 py-2 text-body', panel]} role="alert">
 			{m.report_stopped({ reason: job.error ?? job.status })}
 		</p>
 	{:else}
 		<p class="mt-4 text-body text-ink-2">
-			{m.report_lede({ count: arrived.length })}
+			{#if keptAsItWas.length}
+				{m.report_lede_kept({ title: keptAsItWas[0].title })}
+			{:else if handed && arrived.length === 0 && made.length === 0}
+				{m.report_lede_nothing()}
+			{:else}
+				{m.report_lede({ count: arrived.length })}
+			{/if}
 			{#if report.unreadable.length}
 				{m.report_lede_unreadable({ count: report.unreadable.length })}
 			{/if}
@@ -267,9 +456,35 @@
 		</p>
 
 		<Section heading={m.report_needs_you()}>
-			{#if pairs.length === 0 && report.offered.length === 0}
+			{#if nothingNeedsYou}
 				<p class="text-read text-ink-2">{m.report_needs_you_none()}</p>
 			{/if}
+
+			{#each duplicates as duplicate (duplicate.branch_id)}
+				<p class={['mb-2 border-l-3 border-accent px-3 py-2 text-read', panel]}>
+					{@render withLink(m.report_agent_duplicate, duplicate.title, duplicate.branch_id)}
+				</p>
+			{/each}
+
+			{#each toLookAt as agent (agent.job_id)}
+				<div class={['mb-2 rounded-sm border border-rule px-3 pb-3', panel]}>
+					<p class="pt-3 text-read">
+						{@render withLink(m.report_agent_look, titleOf(agent.branch_id), agent.branch_id ?? '')}
+					</p>
+					{#each notesOf(agent) as list (list.label)}
+						<p class="mt-3 text-read font-semibold">{list.label}</p>
+						{@render notes(list.items.slice(0, SHOWN))}
+						{#if list.items.length > SHOWN}
+							<details>
+								<summary class="cursor-pointer py-2 text-read font-medium text-accent">
+									{m.report_agent_more({ count: list.items.length - SHOWN })}
+								</summary>
+								{@render notes(list.items.slice(SHOWN))}
+							</details>
+						{/if}
+					{/each}
+				</div>
+			{/each}
 
 			{#if pairs.length}
 				<div class={['rounded-sm border border-rule px-3 pb-3', panel]}>
@@ -377,9 +592,9 @@
 					{#each report.unreadable as loss, index (index)}
 						<li class={['border-l-3 border-support px-3 py-2', panel]}>
 							<p class="text-body font-semibold">
-								{loss.name ?? loss.foreign_id ?? m.report_unreadable_unnamed()}
+								{loss.name ?? (handed ? unnamed : (loss.foreign_id ?? unnamed))}
 							</p>
-							<p class="text-read text-ink-2">{loss.reason}</p>
+							<p class="text-read text-ink-2">{failure(loss)}</p>
 						</li>
 					{/each}
 				</ul>
@@ -393,6 +608,21 @@
 					{m.report_bare({ count: bare.length, titles: bare.map((row) => row.title).join(', ') })}
 				</p>
 			{/if}
+			{#if writtenNew.length}
+				<p class="mt-2 text-read">
+					{m.report_written_by_agent({ titles: writtenNew.map((row) => row.title).join(', ') })}
+				</p>
+			{/if}
+			{#if writtenBefore.length}
+				<p class="mt-2 text-read">
+					{m.report_written_by_agent_unchanged({
+						titles: writtenBefore.map((row) => row.title).join(', '),
+					})}
+				</p>
+			{/if}
+			{#each keptAsItWas as row (row.branch_id)}
+				<p class="mt-2 text-read">{m.report_as_it_was({ title: row.title })}</p>
+			{/each}
 			{#if siteIcons}
 				<p class="mt-2 text-read text-ink-2">{m.report_site_icons({ count: siteIcons })}</p>
 				{#if icons.length}
@@ -441,15 +671,8 @@
 									<a href="/recipes/{row.branch_id}" class="block text-body leading-tight"
 										>{row.title}</a
 									>
-									{#if row.bare || row.status === 'unchanged'}
-										<span class="block text-read text-ink-2">
-											{[
-												row.bare ? m.report_bare_recipe() : '',
-												row.status === 'unchanged' ? m.report_unchanged() : '',
-											]
-												.filter(Boolean)
-												.join(' · ')}
-										</span>
+									{#if rowNote(row)}
+										<span class="block text-read text-ink-2">{rowNote(row)}</span>
 									{/if}
 								</span>
 							</li>
