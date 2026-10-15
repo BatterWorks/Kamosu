@@ -12,6 +12,7 @@
  */
 
 import { aDate } from '$lib/dates';
+import { m } from '$lib/paraglide/messages';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import { tick, type ComponentProps } from 'svelte';
@@ -363,7 +364,11 @@ function renderRecipe(
 ) {
 	// Your own cookings, read for their pictures (#110). Nobody here has
 	// cooked anything unless a test says so.
-	const kamosu = standIn({ list_attempts: { attempts: [] }, ...answers });
+	const kamosu = standIn({
+		list_attempts: { attempts: [] },
+		get_recipe_job: { job: null },
+		...answers,
+	});
 	const { rerender } = render(RecipeTestHarness, {
 		props: { client: kamosu.client, branchId, ...on },
 	});
@@ -837,7 +842,11 @@ describe('a Divergence', () => {
 	it('shows your own recipe, unmarked, once you walk back to it from his', async () => {
 		// The screen is reused from one recipe to the next rather than remade,
 		// so walking along the strip must not carry his page's comparison onto yours.
-		const kamosu = standIn({ list_attempts: { attempts: [] }, ...onTheirs() });
+		const kamosu = standIn({
+			list_attempts: { attempts: [] },
+			get_recipe_job: { job: null },
+			...onTheirs(),
+		});
 		const { rerender } = render(RecipeTestHarness, {
 			props: { client: kamosu.client, branchId: 'theirs' },
 		});
@@ -3190,6 +3199,102 @@ describe('the Source line', () => {
 			expect(document.querySelector('a[href^="javascript"]')).toBeNull();
 		});
 	}
+});
+
+/**
+ * An agent's Job on the recipe (#277), option B as chosen on 2026-10-15: the
+ * tracking line above "Cook this", and nothing on the recipe greyed out.
+ */
+describe("an agent's Job on the recipe", () => {
+	const HEARD = { has_runner: true, last_asked_at: new Date().toISOString() };
+	const agentJob = (status: 'queued' | 'running' | 'completed') => ({
+		id: 'j_agent',
+		operation: 'read_by_agent',
+		status,
+		progress: { done: null, total: null, message: null },
+		result: null,
+		error: null,
+		errorCode: null,
+		created_at: '2026-10-15T11:10:00.000Z',
+		updated_at: '2026-10-15T11:14:00.000Z',
+	});
+	const bare = () => {
+		const recipe = forked().get_recipe as GetRecipeOutput;
+		const version = recipe.versions[0]!;
+		return {
+			...recipe,
+			versions: [{ ...version, content: { ...version.content, ingredients: [], steps: [] } }],
+		};
+	};
+
+	it('draws the tracking line above Cook this for the cook who asked, and leaves Cook this', async () => {
+		renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				get_recipe: bare(),
+				get_recipe_job: { job: { id: 'j_agent', status: 'queued', yours: true } },
+				get_job: agentJob('queued'),
+				runner_status: HEARD,
+			}),
+		);
+
+		const leave = await screen.findByText(m.agent_leave());
+		expect(screen.getByRole('button', { name: m.agent_stop() })).toBeInTheDocument();
+		const cook = screen.getByRole('link', { name: m.recipe_cook_this() });
+		expect(leave.compareDocumentPosition(cook) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
+	it('tells a Co-author an agent is reading the recipe again, and offers no stopping', async () => {
+		renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				get_recipe_job: { job: { id: 'j_agent', status: 'running', yours: false } },
+				get_job: { ...agentJob('running'), result: { source_kind: 'read_again' } },
+				runner_status: HEARD,
+			}),
+		);
+
+		expect(await screen.findByText(m.agent_updating())).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: m.agent_stop() })).toBeNull();
+	});
+
+	it('reads the recipe again once the Job has ended, and the line goes', async () => {
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				get_recipe: bare(),
+				get_recipe_job: { job: { id: 'j_agent', status: 'running', yours: true } },
+				get_job: agentJob('running'),
+				runner_status: HEARD,
+			}),
+		);
+		await screen.findByText(m.agent_leave());
+		const readsBefore = kamosu.calls.filter((call) => call.operation === 'get_recipe').length;
+
+		kamosu.answer('get_recipe_job', { job: null });
+		kamosu.answer('get_job', agentJob('completed'));
+
+		await vi.waitFor(
+			() =>
+				expect(
+					kamosu.calls.filter((call) => call.operation === 'get_recipe').length,
+				).toBeGreaterThan(readsBefore),
+			{ timeout: 5000 },
+		);
+		expect(screen.queryByText(m.agent_leave())).toBeNull();
+	});
+
+	it('draws no line on a recipe with no Job on it', async () => {
+		const { kamosu } = renderRecipe(forked(ON_THE_SIDE));
+
+		await screen.findByRole('link', { name: m.recipe_cook_this() });
+		// Once the page has been told there is no Job, and has drawn what it was told.
+		await vi.waitFor(() =>
+			expect(kamosu.calls.some((call) => call.operation === 'get_recipe_job')).toBe(true),
+		);
+		await new Promise((wake) => setTimeout(wake, 20));
+		expect(screen.queryByRole('region', { name: m.agent_steps() })).toBeNull();
+	});
 });
 
 describe('two columns where the window is roomy (#198)', () => {

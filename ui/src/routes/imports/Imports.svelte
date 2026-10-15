@@ -47,6 +47,8 @@
 	import Empty from '$lib/shell/Empty.svelte';
 	import { sourceName, sourceSummary, whatHappened, whenArrived, type Import } from '$lib/imports';
 	import { useEnded } from './ended.svelte';
+	import AgentTag from '$lib/agent/AgentTag.svelte';
+	import { EVERY_MS, arrivalWorking } from '$lib/agent/agent';
 
 	interface Props {
 		/** The import whose Report is open beside this list, on the wide layout. */
@@ -85,14 +87,24 @@
 	// Read on arrival, again each time the Report beside this list watches its
 	// import end, and again for a row opened while it said running. What is
 	// drawn stays until the new reading is in.
+	/** Moved while an agent waits or reads on an arrival here, to read again (#277). */
+	let again = $state(0);
+
 	$effect(() => {
 		void ended?.count;
 		void openedWhileRunning;
+		void again;
 		let current = true;
+		let timer: ReturnType<typeof setTimeout> | undefined;
 		kamosu
 			.listImports()
 			.then((answer) => {
-				if (current) imports = answer.imports;
+				if (!current) return;
+				imports = answer.imports;
+				const agentsAtWork = answer.imports.some((source) =>
+					source.arrivals.some((arrival) => arrivalWorking(arrival)),
+				);
+				if (agentsAtWork) timer = setTimeout(() => (again += 1), EVERY_MS);
 			})
 			.catch((error: unknown) => {
 				if (!(error instanceof OperationError)) throw error;
@@ -101,6 +113,7 @@
 			});
 		return () => {
 			current = false;
+			clearTimeout(timer);
 		};
 	});
 
@@ -184,6 +197,7 @@
 					<ul>
 						{#each source.arrivals as arrival (arrival.job_id)}
 							{@const happened = whatHappened(arrival)}
+							{@const agent = arrivalWorking(arrival)}
 							<li>
 								<a
 									href={addressOf(arrival.job_id)}
@@ -200,6 +214,7 @@
 									</span>
 									<span class={['block text-read', happened.loss ? 'text-support' : 'text-ink-2']}>
 										{happened.said}
+										{#if agent}<AgentTag at={agent} />{/if}
 									</span>
 								</a>
 							</li>

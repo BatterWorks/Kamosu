@@ -30,6 +30,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import { untrack } from 'svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { useRoom } from '$lib/room.svelte';
 	import { OperationError } from '$lib/api/client';
@@ -38,6 +39,8 @@
 	import Screen from '$lib/shell/Screen.svelte';
 	import Section from '$lib/shell/Section.svelte';
 	import { useEnded } from '../ended.svelte';
+	import AgentWork from '$lib/agent/AgentWork.svelte';
+	import { AGENTS_OWN, working } from '$lib/agent/agent';
 
 	interface Props {
 		jobId: string;
@@ -61,11 +64,14 @@
 
 	let job = $state<GetJobOutput | undefined>(undefined);
 	let unreachable = $state<string | undefined>(undefined);
+	/** Moved when an agent's Job this Report names ends, to read the Report again (#277). */
+	let again = $state(0);
 
 	// Read the Job until it ends — its row is the truth about it (ADR 0032).
 	// Leaving the page stops the reading, never the import.
 	$effect(() => {
 		const id = jobId;
+		void again;
 		let current = true;
 		let waited = false;
 		waitForJob(kamosu, id, {
@@ -77,6 +83,7 @@
 			},
 			stopped: () => !current,
 			answersWhenFailed: holdsAReport,
+			answersWhenCancelled: (read) => read.operation === AGENTS_OWN,
 		})
 			.then((read) => {
 				if (!current) return;
@@ -113,16 +120,28 @@
 		return undefined;
 	});
 	const running = $derived(job !== undefined && ['queued', 'running'].includes(job.status));
+	/**
+	 * This Report is an agent's own Import (#269, #272). Its Job carries the
+	 * Report from the start, naming what was handed over, so the page is
+	 * titled for it while the agent waits or reads.
+	 */
+	const agentsOwn = $derived(job?.operation === AGENTS_OWN);
+	/** What is drawn from: the Report once there is one, and an agent's own before. */
+	const drawn = $derived(report ?? (agentsOwn ? (job?.result as Report | null) : undefined));
 	const done = $derived(job?.progress.done ?? 0);
 	const total = $derived(job?.progress.total ?? 0);
 
-	const arrived = $derived(report?.arrived ?? []);
+	const arrived = $derived(drawn?.arrived ?? []);
 	const pairs = $derived(report?.related_candidates ?? []);
 	const photos = $derived(arrived.filter((row) => row.main_photo).length);
 	/** Landed bare and left so: an agent's recipe or one kept as it was is said apart. */
 	const bare = $derived(
 		arrived.filter(
-			(row) => row.bare && !madeBranches.includes(row.branch_id) && !keptAsItWas.includes(row),
+			(row) =>
+				row.bare &&
+				!madeBranches.includes(row.branch_id) &&
+				!keptAsItWas.includes(row) &&
+				!atWorkOn.includes(row.branch_id),
 		),
 	);
 	const siteIcons = $derived(
@@ -256,7 +275,55 @@
 
 	type AgentJob = NonNullable<Report['agent_jobs']>[number];
 
-	const agentJobs = $derived(report?.agent_jobs ?? []);
+	const agentJobs = $derived(drawn?.agent_jobs ?? []);
+
+	// --- An agent's Job that waits or is read (#277), option B ------------------
+	//
+	// The tracker for each, at the top of the Report. A Job is watched from the
+	// first reading that finds it waiting or read, and stays watched after it
+	// ends, so a tracker that has just been stopped goes on saying so.
+
+	const atWork = $derived(agentJobs.filter((agent) => working(agent.status)));
+	let watched = $state<string[]>([]);
+	/**
+	 * Whose each watched Job is. A link a Co-author brought in may name the
+	 * Job the other Co-author's link already waits on, and only the Person
+	 * who asked stops it (#267), so the recipe is asked, as its page asks. A
+	 * Job with no recipe yet is an agent's own Import, which only the Person
+	 * who asked reads.
+	 */
+	let yours = $state<Record<string, boolean>>({});
+	$effect(() => {
+		const before = untrack(() => watched);
+		const fresh = atWork.filter((agent) => !before.includes(agent.job_id));
+		if (!fresh.length) return;
+		watched = [...before, ...fresh.map((agent) => agent.job_id)];
+		for (const agent of fresh) {
+			const branch = agent.branch_id;
+			if (branch === null) {
+				yours[agent.job_id] = true;
+				continue;
+			}
+			kamosu
+				.getRecipeJob({ branch_id: branch })
+				.then((read) => {
+					yours[agent.job_id] = read.job?.id === agent.job_id && read.job.yours;
+				})
+				.catch((error: unknown) => {
+					if (!(error instanceof OperationError)) throw error;
+				});
+		}
+	});
+	/** The recipes an agent waits or reads on: they have not come as bare, they are waited on. */
+	const atWorkOn = $derived(atWork.map((agent) => agent.branch_id));
+	const waitedOn = $derived(arrived.filter((row) => atWorkOn.includes(row.branch_id)));
+	const hasRecipe = (id: string) =>
+		Boolean(agentJobs.find((agent) => agent.job_id === id)?.branch_id);
+
+	/** An agent's own Import ends with the Job this page reads, which is followed already. */
+	function agentEnded(id: string) {
+		if (id !== jobId) again += 1;
+	}
 	/** The Jobs whose agent made its recipe. Only these have notes to look over. */
 	const made = $derived(agentJobs.filter((agent) => agent.made_by_agent && agent.branch_id));
 	const madeBranches = $derived(made.map((agent) => agent.branch_id));
@@ -271,7 +338,7 @@
 		m.report_unreadable_unnamed();
 
 	/** What the agent was handed, which names a Report that has one. */
-	const handed = $derived(agentJobs.length ? report?.source_kind : undefined);
+	const handed = $derived(agentJobs.length ? drawn?.source_kind : undefined);
 
 	/** Each thing an agent is handed: what its Report is called, and what a failed one is. */
 	const HANDED: Record<string, { title: () => string; unnamed: () => string }> = {
@@ -411,10 +478,32 @@
 {/snippet}
 
 <Screen {card} {title}>
+	{#each watched as id (id)}
+		<AgentWork
+			jobId={id}
+			mine={yours[id] ?? false}
+			saying="report"
+			hasRecipe={hasRecipe(id)}
+			{panel}
+			gutter={false}
+			ended={() => agentEnded(id)}
+		/>
+	{/each}
 	{#if unreachable}
 		<p class={['mt-4 border-l-3 border-support px-3 py-2 text-body', panel]} role="alert">
 			{unreachable}
 		</p>
+	{:else if agentsOwn && (running || job?.status === 'cancelled')}
+		{#if running}
+			<Section heading={m.report_needs_you()}>
+				<p class="text-read text-ink-2">{m.report_agent_nothing_yet()}</p>
+			</Section>
+		{:else if !watched.includes(jobId)}
+			<!-- Stopped before this page opened; one stopped here says so in its tracker. -->
+			<p class={['mt-4 border-l-3 border-rule px-3 py-2 text-read text-ink-2', panel]}>
+				{hasRecipe(jobId) ? m.agent_stopped() : m.agent_stopped_nothing()}
+			</p>
+		{/if}
 	{:else if job === undefined || job.status === 'queued'}
 		<p class="mt-4 text-body text-ink-2">{m.report_waiting()}</p>
 	{:else if running}
@@ -608,6 +697,9 @@
 					{m.report_bare({ count: bare.length, titles: bare.map((row) => row.title).join(', ') })}
 				</p>
 			{/if}
+			{#each waitedOn as row (row.branch_id)}
+				<p class="mt-2 text-read">{m.report_waiting_for_agent({ title: row.title })}</p>
+			{/each}
 			{#if writtenNew.length}
 				<p class="mt-2 text-read">
 					{m.report_written_by_agent({ titles: writtenNew.map((row) => row.title).join(', ') })}

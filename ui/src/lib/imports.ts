@@ -32,8 +32,23 @@ const NAMES: Record<Known, () => string> = {
 	web: () => m.imports_source_web(),
 };
 
+/**
+ * What an agent was handed (#269, #272), each its own source. These are named
+ * but not Known: forgetting one is worded as any other source's is.
+ */
+const AGENT_SOURCES: Record<string, () => string> = {
+	pasted_text: () => m.imports_source_pasted_text(),
+	pdf: () => m.imports_source_pdf(),
+	picture: () => m.imports_source_picture(),
+	read_again: () => m.imports_source_read_again(),
+};
+
 export const sourceName = (kind: string): string =>
-	isKnown(kind) ? NAMES[kind]() : m.imports_source_other({ kind });
+	isKnown(kind)
+		? NAMES[kind]()
+		: Object.hasOwn(AGENT_SOURCES, kind)
+			? AGENT_SOURCES[kind]()
+			: m.imports_source_other({ kind });
 
 const ASKS: Record<Known, () => string> = {
 	crouton: () => m.imports_forget_ask_crouton(),
@@ -117,6 +132,12 @@ export const whenArrived = (at: string): string => aMoment(at);
  * one thing on this row worth a second look.
  */
 export function whatHappened(arrival: Arrival): { said: string; loss: boolean } {
+	// An agent's own Import (#269) is its Job: while it waits or is read, the
+	// row's tag says so, and nothing has arrived to count (#277).
+	const agentsOwn = (arrival.agent_jobs ?? []).some((job) => job.job_id === arrival.job_id);
+	if (agentsOwn && (arrival.status === 'queued' || arrival.status === 'running')) {
+		return { said: '', loss: false };
+	}
 	if (arrival.status === 'queued' || arrival.status === 'running') {
 		return { said: m.imports_row_running(), loss: false };
 	}

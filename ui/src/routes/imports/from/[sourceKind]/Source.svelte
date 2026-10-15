@@ -35,6 +35,8 @@
 	import Section from '$lib/shell/Section.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
 	import Confirm from '$lib/Confirm.svelte';
+	import AgentTag from '$lib/agent/AgentTag.svelte';
+	import { EVERY_MS, arrivalWorking } from '$lib/agent/agent';
 	import {
 		canForget,
 		forgetAsk,
@@ -65,11 +67,19 @@
 	/** Reading the list again after forgetting, with the same guard the first read has. */
 	let reading = 0;
 
+	let timer: ReturnType<typeof setTimeout> | undefined;
+
 	async function load() {
 		const mine = ++reading;
+		clearTimeout(timer);
 		try {
 			const answer = await kamosu.listImports();
-			if (mine === reading) imports = answer.imports;
+			if (mine !== reading) return;
+			imports = answer.imports;
+			// Read again while an agent waits or reads on one of these (#277).
+			const here = answer.imports.find((row) => row.source_kind === sourceKind);
+			if (here?.arrivals.some((arrival) => arrivalWorking(arrival)))
+				timer = setTimeout(load, EVERY_MS);
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			if (mine === reading) said = error.message || m.imports_unreachable();
@@ -81,6 +91,7 @@
 		// A read still in flight when this screen closes must not write into it.
 		return () => {
 			reading += 1;
+			clearTimeout(timer);
 		};
 	});
 
@@ -131,6 +142,7 @@
 			<ul>
 				{#each arrivals as arrival (arrival.job_id)}
 					{@const happened = whatHappened(arrival)}
+					{@const agent = arrivalWorking(arrival)}
 					<li class="border-b border-rule last:border-b-0">
 						<a href="/imports/{arrival.job_id}" class="flex min-h-12 items-center gap-3 py-2">
 							<span class="min-w-0 flex-1">
@@ -139,6 +151,7 @@
 								</span>
 								<span class="block text-read {happened.loss ? 'text-support' : 'text-ink-2'}">
 									{happened.said}
+									{#if agent}<AgentTag at={agent} />{/if}
 								</span>
 							</span>
 							<span aria-hidden="true" class="text-ink-2">›</span>

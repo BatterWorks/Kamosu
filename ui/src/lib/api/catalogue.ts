@@ -182,7 +182,7 @@ export type RevokeRunnerKeyOutput = {
 	revoked: boolean;
 };
 
-/** Read whether this instance has a Runner. Also when one last asked for work. */
+/** Read whether this instance has a Runner. Also when one was last heard from, asking for work or renewing its hold on a Job. */
 export type RunnerStatusInput = Record<string, never>;
 /** What runner_status answers. */
 export type RunnerStatusOutput = {
@@ -5010,6 +5010,7 @@ export type GetRecipeJobOutput = {
 	job: {
 		id: string;
 		status: "queued" | "running";
+		yours: boolean;
 	} | null;
 };
 
@@ -6540,7 +6541,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "runner_status",
-		"summary": "Read whether this instance has a Runner. Also when one last asked for work.",
+		"summary": "Read whether this instance has a Runner. Also when one was last heard from, asking for work or renewing its hold on a Job.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6556,7 +6557,7 @@ export const CATALOGUE = [
 					"type": "boolean"
 				},
 				"last_asked_at": {
-					"description": "When a Runner last asked for work, or null when none ever has.",
+					"description": "When a Runner last asked for work or renewed its hold on a Job, or null when none ever has.",
 					"type": [
 						"string",
 						"null"
@@ -31206,11 +31207,16 @@ export const CATALOGUE = [
 								"queued",
 								"running"
 							]
+						},
+						"yours": {
+							"description": "True when you asked for the Job, and so may cancel it.",
+							"type": "boolean"
 						}
 					},
 					"required": [
 						"id",
-						"status"
+						"status",
+						"yours"
 					],
 					"type": [
 						"object",
@@ -31666,7 +31672,7 @@ export interface KamosuClient {
 	listRunnerKeys(input?: ListRunnerKeysInput): Promise<Answer<'list_runner_keys'>>;
 	/** End one Runner Key. The Runner holding it is refused at its next call. */
 	revokeRunnerKey(input: RevokeRunnerKeyInput): Promise<Answer<'revoke_runner_key'>>;
-	/** Read whether this instance has a Runner. Also when one last asked for work. */
+	/** Read whether this instance has a Runner. Also when one was last heard from, asking for work or renewing its hold on a Job. */
 	runnerStatus(input?: RunnerStatusInput): Promise<Answer<'runner_status'>>;
 	/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it with reason `another_version`. */
 	askForWork(input: AskForWorkInput): Promise<Answer<'ask_for_work'>>;

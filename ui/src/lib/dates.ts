@@ -39,6 +39,20 @@ export const aMoment = (when: string | Date): string =>
 		hourCycle: 'h23',
 	});
 
+/**
+ * A time of day, for something that happened today: `13:10`. A time from
+ * another day is written as `aMoment` writes it, since a bare hour would put
+ * yesterday's into today (#277).
+ */
+export const aTime = (when: string | Date, now: Date = new Date()): string =>
+	at(when).toDateString() === now.toDateString()
+		? at(when).toLocaleTimeString(locale(), {
+				hour: '2-digit',
+				minute: '2-digit',
+				hourCycle: 'h23',
+			})
+		: aMoment(when);
+
 /** A month, as the diary heads one: `September 2026`. */
 export const aMonth = (when: string | Date): string =>
 	at(when).toLocaleDateString(locale(), { month: 'long', year: 'numeric' });

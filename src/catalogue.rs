@@ -591,7 +591,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "runner_status",
             summary: "Read whether this instance has a Runner. Also when one \
-                      last asked for work.",
+                      was last heard from, asking for work or renewing its \
+                      hold on a Job.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -608,7 +609,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     },
                     "last_asked_at": {
                         "type": ["string", "null"],
-                        "description": "When a Runner last asked for work, or null when none ever has.",
+                        "description": "When a Runner last asked for work or renewed its hold on a Job, or null when none ever has.",
                     },
                 },
                 "required": ["has_runner", "last_asked_at"],
@@ -3955,8 +3956,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                                 "enum": ["queued", "running"],
                                 "description": "`queued` while the Job waits for a Runner, `running` while one holds it.",
                             },
+                            "yours": {
+                                "type": "boolean",
+                                "description": "True when you asked for the Job, and so may cancel it.",
+                            },
                         },
-                        "required": ["id", "status"],
+                        "required": ["id", "status", "yours"],
                         "additionalProperties": false,
                     },
                 },

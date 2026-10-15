@@ -27,6 +27,7 @@ function show(over: Answers = {}) {
 			attempts: [],
 		},
 		list_attempts: { attempts: [] },
+		get_recipe_job: { job: null },
 		list_kitchens: MY_KITCHENS,
 		// What the page asks for on the side and never waits on.
 		note_recipe_opened: { lineage_id: 'l_1', opened_at: '2026-09-22T00:00:00Z' },
