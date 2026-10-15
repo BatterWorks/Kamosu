@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { setLocale } from '$lib/paraglide/runtime';
-import { aDate, aDay, aMoment, aMonth } from './dates';
+import { aDate, aDay, aMoment, aMonth, howLongAgo } from './dates';
 
 const noon = '2026-09-25T12:05:00Z';
 
@@ -41,5 +41,28 @@ describe("a date, in the app's own Language", () => {
 
 	it('takes a Date as readily as the string the Core writes', () => {
 		expect(aDate(new Date(noon))).toBe(aDate(noon));
+	});
+});
+
+describe('how long ago, for a time whose point is whether it is recent (#275)', () => {
+	const now = new Date('2026-10-15T10:42:00Z');
+
+	it('counts in the largest whole unit that fits', () => {
+		expect(howLongAgo('2026-10-15T10:41:52Z', now)).toBe('8 seconds ago');
+		expect(howLongAgo('2026-10-15T10:41:00Z', now)).toBe('1 minute ago');
+		expect(howLongAgo('2026-10-15T08:30:00Z', now)).toBe('2 hours ago');
+		expect(howLongAgo('2026-10-12T09:15:00Z', now)).toBe('3 days ago');
+	});
+
+	it('never says a time is now or still to come', () => {
+		expect(howLongAgo('2026-10-15T10:42:00Z', now)).toBe('1 second ago');
+		expect(howLongAgo('2026-10-15T10:42:05Z', now)).toBe('1 second ago');
+	});
+
+	it('speaks the interface Language', () => {
+		setLocale('fr', { reload: false });
+		expect(howLongAgo('2026-10-12T09:15:00Z', now)).toBe('il y a 3 jours');
+		setLocale('es', { reload: false });
+		expect(howLongAgo('2026-10-12T09:15:00Z', now)).toBe('hace 3 días');
 	});
 });
