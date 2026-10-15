@@ -1244,6 +1244,7 @@
   "plus_paste_why": "Kamosu sorts it into title, ingredients and method",
   "plus_paste_make": "Make this recipe",
   "plus_paste_no_title": "No title in it, so give it one here.",
+  "plus_link_read_as_text": "Kamosu found no recipe on this page, so it read the page's own text. Check what it made of it before you make the recipe.",
   "plus_link_why": "A web page with a recipe on it",
   "plus_file": "From a Kamosu zip file",
   "plus_file_why": "A recipe shared from another Kamosu",

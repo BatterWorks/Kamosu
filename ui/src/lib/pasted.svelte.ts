@@ -11,7 +11,13 @@
 
 import { m } from '$lib/paraglide/messages';
 import { OperationError } from '$lib/api/client';
-import type { KamosuClient, ReadPastedRecipeOutput } from '$lib/api/catalogue';
+import type { ImportWebLinkOutput, KamosuClient, ReadPastedRecipeOutput } from '$lib/api/catalogue';
+
+/**
+ * A web page with no recipe data, read from its own text the way a paste is
+ * (#301): what a paste is read into, and the page as its Source.
+ */
+export type PageReading = NonNullable<ImportWebLinkOutput['to_check']>;
 
 /**
  * Pasted text read by `read_pasted_recipe`, or the sentence saying why it
@@ -52,11 +58,13 @@ export async function readPdf(
 
 /**
  * What a paste puts onto the writing screen: a title, if it had one, the two
- * lists, and what it said about the recipe, for its note (#176).
+ * lists, what it said about the recipe, for its note (#176), and the page it
+ * was read from, for a web page read as text (#301).
  */
 export interface PastedDraft {
 	title: string | null;
 	note: string | null;
+	source: PageReading['source'] | null;
 	ingredients: { kind: 'ingredient' | 'section'; text: string }[];
 	steps: { kind: 'step' | 'section'; text: string }[];
 }
@@ -66,11 +74,15 @@ export interface PastedDraft {
  * is a Section in whichever list it landed in, and every line goes in exactly
  * as it came back (ADR 0002).
  */
-export function drafted(pasted: ReadPastedRecipeOutput, boundary: number): PastedDraft {
+export function drafted(
+	pasted: ReadPastedRecipeOutput | PageReading,
+	boundary: number,
+): PastedDraft {
 	const title = pasted.title?.trim() ? pasted.title : null;
 	return {
 		title,
 		note: pasted.note?.trim() ? pasted.note : null,
+		source: 'source' in pasted ? pasted.source : null,
 		ingredients: pasted.lines.slice(0, boundary).map((row) => ({
 			kind: row.kind === 'section' ? 'section' : 'ingredient',
 			text: row.text,

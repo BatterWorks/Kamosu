@@ -1900,6 +1900,7 @@ describe('the recipe screen', () => {
 		holdPaste('mine', {
 			title: 'Korean Fried Chicken',
 			note: 'Best eaten the day it is fried.',
+			source: null,
 			ingredients: [
 				{ kind: 'section', text: 'Brine' },
 				{ kind: 'ingredient', text: '1 lemon' },
@@ -1918,10 +1919,29 @@ describe('the recipe screen', () => {
 		expect(takePaste('mine')).toBeUndefined();
 	});
 
+	// #301: a page with no recipe data, read from its own text, brings its
+	// page along as the Source the recipe is saved with.
+	it('fills the Source of a recipe made from a page read as text', async () => {
+		holdPaste('mine', {
+			title: 'Vietnamese Beef Curry',
+			note: null,
+			source: { text: 'blog.example', link: 'https://blog.example/cari-bo.html' },
+			ingredients: [{ kind: 'ingredient', text: '2 tbsp grated fresh ginger' }],
+			steps: [{ kind: 'step', text: 'Simmer for an hour.' }],
+		});
+		renderRecipe(solo({ ingredients: [], steps: [], source: null }));
+
+		expect(
+			await screen.findByDisplayValue('https://blog.example/cari-bo.html'),
+		).toBeInTheDocument();
+		expect(screen.getByDisplayValue('blog.example')).toBeInTheDocument();
+	});
+
 	it('leaves a paste held for another recipe where it is', async () => {
 		const draft = {
 			title: 'Not this one',
 			note: null,
+			source: null,
 			ingredients: [{ kind: 'ingredient' as const, text: 'a stray line' }],
 			steps: [],
 		};

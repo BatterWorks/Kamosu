@@ -23,6 +23,11 @@
 //! before the split is looked for, so it never votes on where the method
 //! starts.
 //!
+//! **Nor is what stands above the `Ingredients` heading** (#301). A blog
+//! post's caption, chatter, the recipe's own name and a credit link sit
+//! there, and every one of them read as an Ingredient Line. The name becomes
+//! the title and the rest goes to the note, as it came.
+//!
 //! **Nothing else is guessed.** No Yield, no times, no Source, and no
 //! Component: ADR 0008 refuses matching a written line against a recipe on the
 //! shelf in as many words, so a pasted line naming one is an ordinary
@@ -144,6 +149,28 @@ pub struct Paste {
     pub note: Option<String>,
 }
 
+/// How many lines above the split must open with an amount before the
+/// paste reads as a list of ingredients rather than as prose.
+const FEWEST_MEASURED_INGREDIENTS: usize = 2;
+
+impl Paste {
+    /// Whether what is above the split reads as a list of ingredients: at
+    /// least two of its lines open with an amount, as 72% of real Ingredient
+    /// Lines do. The split is drawn in prose too, so lines above it are not
+    /// enough; this is what tells a page read as text from one that held no
+    /// recipe (#301).
+    pub fn has_ingredient_lines(&self) -> bool {
+        self.lines[..self.boundary]
+            .iter()
+            .filter(|line| line.kind == Kind::Line)
+            .filter(|line| {
+                reading::read_line(&line.text).is_some_and(|reading| reading.amount.is_some())
+            })
+            .count()
+            >= FEWEST_MEASURED_INGREDIENTS
+    }
+}
+
 /// Past this many **bytes** a paste is not a recipe somebody typed. The
 /// arithmetic below is quadratic in nothing, but it is linear in this, so the
 /// bound is on the text Kamosu agrees to hold rather than on how many letters
@@ -219,6 +246,11 @@ fn join_wrapped(lines: Vec<String>) -> Vec<String> {
 /// every remaining line looked at once, and the one split.
 fn read_lines(title: Option<String>, rest: Vec<String>) -> Paste {
     let (rest, note) = take_notes(rest);
+    let (title, rest, preamble) = take_preamble(title, rest);
+    let note = match (preamble, note) {
+        (Some(preamble), Some(note)) => Some(format!("{preamble}\n\n{note}")),
+        (preamble, note) => preamble.or(note),
+    };
     let title = title.map(unbullet).filter(|title| !title.is_empty());
     // A marker on a line of its own is a line of nothing, and goes.
     let rest: Vec<String> = rest
@@ -336,26 +368,28 @@ fn unbulleted(line: &str) -> Option<&str> {
 // wider Title Case rule still holds, and a fixed list of whole lines cannot
 // swallow `Salt and pepper`.
 
-/// A line that is exactly one of these is a Section, colon or none. The words
-/// a recipe page puts over its two lists: `Préparation` has no colon, and was
-/// read as a step.
+/// The heading a recipe puts over its list of ingredients, in the three
+/// Languages. It is a Section like the words below, and above it a page says
+/// what it likes, none of which is an Ingredient Line (#301).
+const INGREDIENTS_WORDS: &[&str] = &["ingredients", "ingrédients", "ingredientes"];
+
+/// A line that is exactly one of these, or of [`INGREDIENTS_WORDS`], is a
+/// Section, colon or none. The words a recipe page puts over its two lists:
+/// `Préparation` has no colon, and was read as a step.
 const SECTION_WORDS: &[&str] = &[
     // English
-    "ingredients",
     "method",
     "instructions",
     "directions",
     "preparation",
     "steps",
     // Français
-    "ingrédients",
     "préparation",
     "étapes",
     "méthode",
     "instructions",
     "déroulé",
     // Español
-    "ingredientes",
     "preparación",
     "elaboración",
     "instrucciones",
@@ -399,7 +433,12 @@ fn as_heading(line: &str) -> String {
 }
 
 fn is_section_word(line: &str) -> bool {
-    SECTION_WORDS.contains(&as_heading(line).as_str())
+    let heading = as_heading(line);
+    is_ingredients_heading(line) || SECTION_WORDS.contains(&heading.as_str())
+}
+
+fn is_ingredients_heading(line: &str) -> bool {
+    INGREDIENTS_WORDS.contains(&as_heading(line).as_str())
 }
 
 /// Where a line opens a note, and how far that note runs.
@@ -476,16 +515,163 @@ fn take_notes(lines: Vec<String>) -> (Vec<String>, Option<String>) {
 /// list, so the Unit and the shortness are both asked for.
 fn ends_a_note(line: &str) -> bool {
     let words = line.split_whitespace().count();
-    let reads_as_an_ingredient = words <= SHORT && {
-        let reading = reading::read_line(line).unwrap_or_default();
-        reading.amount.is_some() && reading.unit.is_some()
-    };
     is_section_word(line)
         || strip_step_number(line).is_some()
         || unbulleted(line).is_some()
-        || reads_as_an_ingredient
+        || reads_as_an_ingredient(line)
         || (line.ends_with(':') && words <= LONGEST_SECTION)
 }
+
+/// A short line that opens with an amount and a Unit, which is what an
+/// ingredient is and a sentence of prose is not.
+fn reads_as_an_ingredient(line: &str) -> bool {
+    line.split_whitespace().count() <= SHORT && {
+        let reading = reading::read_line(line).unwrap_or_default();
+        reading.amount.is_some() && reading.unit.is_some()
+    }
+}
+
+/// **What stands above the `Ingredients` heading is about the recipe, not in
+/// it** (#301). A blog puts its caption, its chatter, the recipe's name and a
+/// credit link there, and every one of them read as an Ingredient Line.
+///
+/// The name is the short line just above the heading, past a bare web
+/// address, which is where a page sets it. It is the title ahead of a first
+/// line that stood alone, because a post opens on a photograph's caption as
+/// readily as on a name. A short line is at most a Section's length, no
+/// sentence, carries no digit and opens on no word a yield or a credit
+/// opens on: `Serves 4`, `Serves four` and `By Jane Smith` stand just as
+/// close, and say how many it feeds and who wrote it.
+///
+/// Where a line above the heading reads as an item of a list, the heading
+/// heads a second list and nothing is moved.
+///
+/// Every other line goes to the note, word for word and in the order it came,
+/// a first line that lost the title among them. Answers the title, the lines
+/// from the heading on, and the note.
+fn take_preamble(
+    title: Option<String>,
+    lines: Vec<String>,
+) -> (Option<String>, Vec<String>, Option<String>) {
+    let heading = lines.iter().position(|line| is_ingredients_heading(line));
+    // Ingredients above the heading mean it heads a second list, the
+    // filling's after the pastry's, and nothing above it is a preamble.
+    let Some(heading) =
+        heading.filter(|&at| at > 0 && !lines[..at].iter().any(|line| reads_as_a_list_item(line)))
+    else {
+        return (title, lines, None);
+    };
+    let mut preamble = lines;
+    let rest = preamble.split_off(heading);
+
+    let named = preamble
+        .iter()
+        .rposition(|line| !is_web_address(line) && !is_a_label(line))
+        .filter(|&at| names_a_recipe(&preamble[at]));
+    let (title, displaced) = match named {
+        Some(at) => (Some(preamble.remove(at)), title),
+        None => (title, None),
+    };
+    let note: Vec<String> = displaced.into_iter().chain(preamble).collect();
+    (
+        title,
+        rest,
+        Some(note.join("\n")).filter(|note| !note.is_empty()),
+    )
+}
+
+fn is_web_address(line: &str) -> bool {
+    let line = line.trim();
+    !line.contains(char::is_whitespace)
+        && ["http://", "https://", "www."]
+            .iter()
+            .any(|start| line.starts_with(start))
+}
+
+/// A line saying how many a recipe feeds, how long it takes or who wrote
+/// it: it opens on one of [`NOT_A_NAME`]. Stepped over looking for the name,
+/// as a web address is, because a recipe card sets these between its name
+/// and its list.
+fn is_a_label(line: &str) -> bool {
+    line.split_whitespace().next().is_some_and(|first| {
+        NOT_A_NAME.contains(&first.trim_end_matches(':').to_lowercase().as_str())
+    })
+}
+
+/// A short line that opens with an amount, or carries a list marker: an
+/// item of a list, which prose above a heading never is.
+fn reads_as_a_list_item(line: &str) -> bool {
+    unbulleted(line).is_some()
+        || (line.split_whitespace().count() <= SHORT
+            && reading::read_line(line).is_some_and(|reading| reading.amount.is_some()))
+}
+
+fn names_a_recipe(line: &str) -> bool {
+    let words = line.split_whitespace().count();
+    (1..=LONGEST_SECTION).contains(&words)
+        && !line.ends_with(['.', '!', '?', ':'])
+        && !line.contains(|c: char| c.is_ascii_digit())
+        && !is_a_label(line)
+        && !is_section_word(line)
+        && note_start(line).is_none()
+}
+
+/// The first words of a line saying how many a recipe feeds, how long it
+/// takes, how hard it is or who wrote it, in the three Languages, with or
+/// without a colon after: never its name, however short.
+const NOT_A_NAME: &[&str] = &[
+    // English
+    "serves",
+    "serving",
+    "servings",
+    "makes",
+    "yield",
+    "yields",
+    "portions",
+    "by",
+    "recipe",
+    "adapted",
+    "source",
+    "difficulty",
+    "prep",
+    "cook",
+    "cooking",
+    "total",
+    "time",
+    "feeds",
+    "author",
+    "posted",
+    "photo",
+    "photos",
+    // Français
+    "pour",
+    "personnes",
+    "recette",
+    "adapté",
+    "adaptée",
+    "d'après",
+    "difficulté",
+    "temps",
+    "cuisson",
+    "par",
+    "auteur",
+    "niveau",
+    // Español
+    "para",
+    "por",
+    "rinde",
+    "raciones",
+    "porciones",
+    "receta",
+    "adaptado",
+    "adaptada",
+    "fuente",
+    "dificultad",
+    "tiempo",
+    "cocción",
+    "autor",
+    "nivel",
+];
 
 /// A Section: a line ending in a colon, short, carrying no quantity. See the
 /// module header for why the rule is not wider than that.
@@ -971,6 +1157,194 @@ Pile the noodles in and top them with the pork mixture.";
         // the person's own line breaks are theirs.
         let paste = read_paste("volume et devenir\nonctueux et léger.");
         assert_eq!(paste.lines.len(), 2);
+    }
+
+    /// A blog post as a browser copies it (#301): a photograph's caption on
+    /// a line of its own, the post's chatter, the recipe's own name and a
+    /// credit link, and only then the `Ingredients` heading.
+    const BLOG_POST: &str = "\
+Cari Bo
+
+Hello again! It has been a whole week since my last post, and I have missed it.
+
+My mum makes this about once a month, and I eat it with toasted bread dipped in the sauce.
+
+I never asked her for the recipe, so this one is from another site.
+
+
+Vietnamese Beef Curry (Cari Bo)
+http://recipes.example/vietnamese/beef-curry.php
+
+
+Ingredients
+
+900g / 2 lb stewing beef, cut into 5cm / 2 inch cubes
+2 tbsp grated fresh ginger
+500ml / 16 fl oz canned unsweetened coconut milk, well stirred
+
+Method :
+
+Combine the beef, ginger and half the salt, cover and leave it to marinate for two hours.
+Add the coconut milk and simmer, uncovered, until the beef is tender.";
+
+    #[test]
+    fn what_stands_above_the_ingredients_heading_is_no_ingredient() {
+        let paste = read_paste(BLOG_POST);
+        let (ingredients, steps) = split_of(BLOG_POST);
+        assert_eq!(
+            ingredients,
+            [
+                "Ingredients",
+                "900g / 2 lb stewing beef, cut into 5cm / 2 inch cubes",
+                "2 tbsp grated fresh ginger",
+                "500ml / 16 fl oz canned unsweetened coconut milk, well stirred",
+            ]
+        );
+        assert_eq!(steps[0], "Method :");
+        // The name just above the heading, past the credit link, is the
+        // recipe's; the caption that opened the post is not.
+        assert_eq!(
+            paste.title.as_deref(),
+            Some("Vietnamese Beef Curry (Cari Bo)")
+        );
+        // Everything else above the heading is kept word for word, in the
+        // order it came, in the note.
+        assert_eq!(
+            paste.note.as_deref(),
+            Some(
+                "Cari Bo\n\
+                 Hello again! It has been a whole week since my last post, and I have missed it.\n\
+                 My mum makes this about once a month, and I eat it with toasted bread dipped in the sauce.\n\
+                 I never asked her for the recipe, so this one is from another site.\n\
+                 http://recipes.example/vietnamese/beef-curry.php"
+            )
+        );
+    }
+
+    #[test]
+    fn a_title_that_stood_alone_at_the_top_stays_the_title() {
+        // Nothing short stands just above the heading, only a paragraph, so
+        // the first line keeps the title it always had.
+        let paste = read_paste(
+            "Chocolate Cake\n\nThe one my grandmother made for every birthday, and still the best.\n\
+             Ingredients\n200 g plain flour\n2 eggs\n\
+             Beat the eggs into the flour until it is smooth, then bake it for half an hour.",
+        );
+        assert_eq!(paste.title.as_deref(), Some("Chocolate Cake"));
+        assert_eq!(
+            paste.note.as_deref(),
+            Some("The one my grandmother made for every birthday, and still the best.")
+        );
+        assert_eq!(paste.lines[0].text, "Ingredients");
+    }
+
+    #[test]
+    fn a_line_with_a_number_above_the_heading_is_not_a_title() {
+        // `Serves 4` is short and stands just above the heading, and it is
+        // how many the recipe feeds, not what it is called.
+        let paste = read_paste(
+            "Chocolate Cake\n\nServes 4\n\nIngredients\n200 g plain flour\n2 eggs\n\
+             Beat the eggs into the flour until it is smooth, then bake it for half an hour.",
+        );
+        assert_eq!(paste.title.as_deref(), Some("Chocolate Cake"));
+        assert_eq!(paste.note.as_deref(), Some("Serves 4"));
+    }
+
+    #[test]
+    fn a_page_of_prose_holds_no_ingredient_lines() {
+        // The reader always draws a split, so prose has lines above it. What
+        // a link's page read as text is held to is a list of ingredients:
+        // lines that open with an amount, as 72% of real ones do (#301).
+        let prose = read_paste(
+            "Instructions and Guides\n\nExample Domains\n\
+             A number of domains such as example.com are maintained for documentation purposes.\n\
+             We provide a web service on the example domain hosts to provide basic information.\n\
+             Further Reading\nSpecial-Use Domain Names (RFC 6761)\nLast revised 2026-09-27.",
+        );
+        assert!(!prose.has_ingredient_lines(), "{prose:?}");
+        assert!(read_paste(BLOG_POST).has_ingredient_lines());
+        assert!(read_paste(PLAIN).has_ingredient_lines());
+    }
+
+    #[test]
+    fn a_yield_or_a_credit_above_the_heading_is_not_a_title() {
+        for line in [
+            "Serves four",
+            "Serves: four",
+            "Yield: one loaf",
+            "By Jane Smith",
+            "Recipe by Jane Smith",
+            "Adapted from Ottolenghi",
+            "Difficulty: easy",
+            "Prep time: twenty minutes",
+            "Pour six personnes",
+            "Temps de cuisson : une heure",
+            "Para cuatro",
+            "Feeds a crowd",
+            "Author: Jane Smith",
+            "Posted by Jane",
+            "Par Jane Smith",
+            "Niveau : facile",
+        ] {
+            let paste = read_paste(&format!(
+                "Chocolate Cake\n\n{line}\nIngredients\n200 g plain flour\n2 eggs\n\
+                 Beat the eggs into the flour until it is smooth, then bake it for half an hour."
+            ));
+            assert_eq!(paste.title.as_deref(), Some("Chocolate Cake"), "{line}");
+            assert_eq!(paste.note.as_deref(), Some(line));
+        }
+    }
+
+    #[test]
+    fn an_ingredients_heading_under_a_list_heads_a_second_list() {
+        let paste = read_paste(
+            "Lemon Tart\n\nPastry\n200 g flour\n100 g butter\nFilling ingredients\n3 lemons\n\
+             Ingredients\n2 eggs\n\
+             Rub the butter into the flour, then line the tin and bake it blind.",
+        );
+        assert_eq!(paste.title.as_deref(), Some("Lemon Tart"));
+        assert_eq!(paste.note, None);
+        let texts: Vec<&str> = paste.lines.iter().map(|row| row.text.as_str()).collect();
+        assert_eq!(texts[..3], ["Pastry", "200 g flour", "100 g butter"]);
+
+        // Counted, with no Unit, it is a list all the same.
+        let paste = read_paste(
+            "Lemon Tart\n\n3 eggs\n2 lemons\nsalt\nIngredients\n3 lemons\n\
+             Beat the eggs with the sugar until pale, then fold in the lemon juice.",
+        );
+        assert_eq!(paste.title.as_deref(), Some("Lemon Tart"));
+        assert_eq!(paste.note, None);
+    }
+
+    #[test]
+    fn a_label_between_the_name_and_the_heading_is_stepped_over() {
+        for label in [
+            "Serves 4",
+            "Prep Time 15 mins",
+            "Makes 12 cookies",
+            "Total time: 45 min",
+        ] {
+            let paste = read_paste(&format!(
+                "A lovely post\n\nLemon Tart\n{label}\nIngredients\n200 g flour\n2 eggs\n\
+                 Rub the butter into the flour, then line the tin and bake it blind."
+            ));
+            assert_eq!(paste.title.as_deref(), Some("Lemon Tart"), "{label}");
+            assert_eq!(
+                paste.note.as_deref(),
+                Some(format!("A lovely post\n{label}").as_str())
+            );
+        }
+    }
+
+    #[test]
+    fn the_preamble_rule_reads_the_heading_in_every_language() {
+        let paste = read_paste(
+            "Tarte aux pommes de ma tante\nIngrédients :\n3 pommes\n200 g de farine\n\
+             Éplucher les pommes et les couper en fines lamelles régulières.",
+        );
+        assert_eq!(paste.title.as_deref(), Some("Tarte aux pommes de ma tante"));
+        assert_eq!(paste.lines[0].text, "Ingrédients :");
+        assert_eq!(paste.note, None);
     }
 
     #[test]

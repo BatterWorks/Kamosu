@@ -77,7 +77,7 @@ The survey behind this is in [`docs/research/ai-recipe-import-in-other-apps.md`]
 
 ## Consequences
 
-- **An instance without a Runner gains nothing from this and loses nothing.**
+- **An instance without a Runner loses nothing, and keeps one small gain of its own (#301).** A link to a page with no recipe data is read from the page's own article text, the way a paste is, and shown on the screen a paste is checked on, with the page as its Source. Nothing is saved until a person makes the recipe from there. A page whose text holds no Ingredient Line lands bare, as before. Beside a Runner the same page goes to the agent instead: an agent reads better than the paste reader, and the check would only stand in its way.
 - **An agent's Import takes minutes**, where a page Kamosu reads itself takes seconds.
 - **Two new kinds of caller exist.** Until now every Credential named a Person from the start. The glossary's entries for Credential, Access Key and Secret change with this record.
 - **The Job Key's list is the security boundary.** Adding to it is a decision of this weight, never a convenience.

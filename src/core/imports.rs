@@ -166,6 +166,12 @@ impl Core {
 
             let mut grouped: Vec<(String, Vec<Value>)> = Vec::new();
             for row in arrivals {
+                // A page read from its own text and handed back to be checked
+                // brought nothing in (#301): saved, it is a recipe written by
+                // hand, and unsaved it is nothing.
+                if row.result.as_ref().is_some_and(|result| result.get("to_check").is_some()) {
+                    continue;
+                }
                 let Some(source_kind) = arrival_source_kind(
                     &row.operation,
                     row.declared.as_deref(),

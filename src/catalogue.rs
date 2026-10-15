@@ -1965,7 +1965,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       nothing (#169). While the instance has a Runner, a \
                       page with no recipe data, or one that refused the \
                       fetch, lands as a bare recipe and `agent_jobs` names \
-                      the Job waiting for an agent to read it. Fetching is bound to public \
+                      the Job waiting for an agent to read it. Without a \
+                      Runner, a page with no recipe data is read from its \
+                      own article text the way `read_pasted_recipe` reads a \
+                      paste, and when that finds Ingredient Lines nothing \
+                      lands: the answer is `to_check` alone, for a person to \
+                      check and save, with the page as its Source (#301). \
+                      Where it finds none, the page lands bare as before. \
+                      Fetching is bound to public \
                       addresses at the dialled address and at every redirect \
                       (ADR 0033), and — because a page's own text can tell an \
                       agent to fetch another URL — always takes the single \
@@ -1990,7 +1997,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "required": ["url"],
                 "additionalProperties": false,
             }),
-            output_schema: import_report_schema(),
+            output_schema: web_link_answer_schema(),
             handler: crate::operations::import_web_link,
         },
         Operation {
@@ -5400,6 +5407,40 @@ fn pasted_recipe_schema() -> Value {
         "required": ["title", "lines", "boundary", "note"],
         "additionalProperties": false,
     })
+}
+
+/// What `import_web_link` answers (#301): the Import Report, or, where the
+/// page was read from its own text and nothing landed, `to_check` alone. A
+/// declaration says one shape, so the Report's fields are all optional here
+/// and the description says which of the two came back.
+fn web_link_answer_schema() -> Value {
+    let mut schema = import_report_schema();
+    let mut to_check = pasted_recipe_schema();
+    to_check["description"] = json!(
+        "Present alone when the page held no recipe data and the instance has no \
+         Runner: what its article text read as, the way `read_pasted_recipe` \
+         answers, and nothing was saved. To keep it, make the recipe with this \
+         `source` as its Source."
+    );
+    to_check["properties"]["source"] = json!({
+        "type": "object",
+        "properties": {
+            "text": { "type": "string" },
+            "link": {
+                "type": "string",
+                "description": "The page's own address, after redirects.",
+            },
+        },
+        "required": ["text", "link"],
+        "additionalProperties": false,
+    });
+    to_check["required"]
+        .as_array_mut()
+        .expect("the paste schema lists what it requires")
+        .push(json!("source"));
+    schema["properties"]["to_check"] = to_check;
+    schema["required"] = json!([]);
+    schema
 }
 
 /// Every importer's eventual result: the Import Report, a ledger read by a

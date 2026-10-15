@@ -25,7 +25,7 @@ import { OperationError } from '$lib/api/client';
 import { StillRunning, waitForJob } from '$lib/api/job';
 import { receiveStaged } from '$lib/receive';
 import type { ImportWebLinkOutput, KamosuClient, ReadPastedRecipeOutput } from '$lib/api/catalogue';
-import { holdPaste, readPdf, type PastedDraft } from '$lib/pasted.svelte';
+import { holdPaste, readPdf, type PageReading, type PastedDraft } from '$lib/pasted.svelte';
 
 export type Act = 'link' | 'file' | 'pdf' | 'write' | 'paste';
 
@@ -44,6 +44,13 @@ export class Adding {
 	 * the sheet a paste is checked on, and made the same way.
 	 */
 	fromPdf = $state<ReadPastedRecipeOutput | null>(null);
+	/**
+	 * A web page with no recipe data, read from its own text and waiting to
+	 * be checked (#301), or none. Only an instance with no Runner answers
+	 * one: it is checked on the sheet a paste is checked on, and its page
+	 * goes with it as the recipe's Source.
+	 */
+	fromLink = $state<PageReading | null>(null);
 	/**
 	 * What an act is waiting for, said where it was asked (#204). A button
 	 * says this in its own label and cannot be pressed; a file dropped while
@@ -65,18 +72,24 @@ export class Adding {
 			const asked = await this.#kamosu.importWebLink({ url: url.trim() });
 			const finished = await waitForJob(this.#kamosu, asked.job_id);
 			const result = finished.result as ImportWebLinkOutput;
+			// Nothing landed: the page was read from its own text, and waits
+			// to be checked before anything is made of it (#301).
+			if (result.to_check) {
+				this.fromLink = result.to_check;
+				return undefined;
+			}
 			// A Share Link arrives as the Bundle it serves (#169), so its Report
 			// names the shared recipe as its subject beside the Passengers that
 			// travelled with it. A web page's single row names no subject.
 			const landed =
-				result.arrived.find((row) => row.subject) ?? result.arrived[0] ?? result.offered[0];
+				result.arrived?.find((row) => row.subject) ?? result.arrived?.[0] ?? result.offered?.[0];
 			if (landed) {
 				await goto(`/recipes/${landed.branch_id}`);
 				return undefined;
 			}
 			// The page was reached and held no recipe this instance could read.
 			// Saying so is the whole answer; there is nothing to open.
-			return result.unreadable[0]?.reason ?? m.recipes_import_unreadable();
+			return result.unreadable?.[0]?.reason ?? m.recipes_import_unreadable();
 		});
 
 	/**
@@ -129,6 +142,7 @@ export class Adding {
 			const made = await this.#kamosu.createRecipe({ title: title.trim() });
 			holdPaste(made.branch_id, { ...draft, title: title.trim() });
 			this.fromPdf = null;
+			this.fromLink = null;
 			await goto(`/recipes/${made.branch_id}`);
 			return undefined;
 		});
