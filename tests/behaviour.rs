@@ -6353,6 +6353,7 @@ async fn a_runner_of_another_version_is_refused_in_a_sentence_naming_both() {
         r#"{"runner_version":"0.0.1-other","ask":"the one ask"}"#,
     );
     assert_eq!(status, 400, "{refused}");
+    assert_eq!(refused["error"]["reason"], json!("another_version"));
     let sentence = refused["error"]["message"].as_str().unwrap();
     assert!(
         sentence.contains("0.0.1-other") && sentence.contains(env!("CARGO_PKG_VERSION")),

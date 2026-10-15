@@ -643,7 +643,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       and an ask under a new mark is handed one more and \
                       spends none. `job` is null when nothing is waiting. \
                       `runner_version` is the Runner's own version, and a \
-                      Kamosu of another version refuses it.",
+                      Kamosu of another version refuses it with reason \
+                      `another_version`.",
             permission: Permission::Runner,
             kind: Kind::Immediate,
             write: true,
