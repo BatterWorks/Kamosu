@@ -1083,6 +1083,12 @@ pub fn import(core: &Core, invocation: &Invocation, input: Value) -> Result<Valu
 /// the Report. Something that is no link, an address Kamosu will not dial
 /// and a host that never answered are refused as they always were.
 ///
+/// On an instance without one, such a page is read from its own article
+/// text, the way a paste is (#301). Where that finds Ingredient Lines,
+/// nothing lands and no Import is written: the answer is what it read, for a
+/// person to check on the screen a paste is checked on. Where it finds none,
+/// the page lands bare as it always did.
+///
 /// A Kamosu Share Link is not read as a web page (#169). Its page carries no
 /// JSON-LD, and flattening it would lose the recipe's History in any case: it
 /// is received as the Bundle it serves, exactly as `import_bundle` receives
@@ -1124,10 +1130,21 @@ pub fn import_web_link(
         crate::web_import::Page::Read {
             html,
             effective_url,
-        } => (
-            crate::web_import::extract_recipe(&html, &effective_url),
-            effective_url,
-        ),
+        } => {
+            let parsed = crate::web_import::extract_recipe(&html, &effective_url);
+            // With no agent to hand it to, a page with no recipe data is
+            // read from its own text, and nothing lands until a person has
+            // checked what was made of it (#301).
+            if !has_runner
+                && !parsed.found_recipe
+                && let Some(paste) = read_page_text(&html)
+            {
+                let mut to_check = pasted_answer(&paste);
+                to_check["source"] = json!({ "text": parsed.source_text, "link": effective_url });
+                return Ok(json!({ "to_check": to_check }));
+            }
+            (parsed, effective_url)
+        }
         // A page that refused Kamosu may let an agent in (ADR 0048), so it
         // lands as a bare recipe for the agent to fill.
         crate::web_import::Page::Refused { effective_url, .. } if has_runner => (
@@ -1212,6 +1229,18 @@ pub fn import_web_link(
         return core.hand_link_to_agent(caller, report, &effective_url);
     }
     Ok(report)
+}
+
+/// A page's own article read the way a paste is (#301), or nothing where
+/// that made no recipe: no text, more text than a paste may be, or no line
+/// above the split that is an Ingredient Line rather than a heading.
+fn read_page_text(html: &str) -> Option<crate::pasting::Paste> {
+    let text = crate::page_text::main_text(html)?;
+    if text.len() > crate::pasting::LONGEST_PASTE {
+        return None;
+    }
+    let paste = crate::pasting::read_paste(&text);
+    paste.has_ingredient_lines().then_some(paste)
 }
 
 /// What importing a Share Link would do, before it does it (#170): the page

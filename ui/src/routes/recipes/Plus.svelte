@@ -44,7 +44,7 @@
 	import AddressForm from '$lib/adding/AddressForm.svelte';
 	import TitleForm from '$lib/adding/TitleForm.svelte';
 	import PasteForm from '$lib/adding/PasteForm.svelte';
-	import PasteSheet from '$lib/adding/PasteSheet.svelte';
+	import ToCheck from '$lib/adding/ToCheck.svelte';
 	import FilePicker from '$lib/adding/FilePicker.svelte';
 	import Said from '$lib/adding/Said.svelte';
 	import { ICON, WAITS_FOR_SERVER } from '$lib/adding/sources';
@@ -223,19 +223,10 @@
 	<p class="mt-2 text-read text-ink-2" role="status">{m.recipes_import_working()}</p>
 {/if}
 
-<!-- A PDF, read, is checked on the sheet a paste is checked on (#176). -->
-{#if adding.fromPdf}
-	{#key adding.fromPdf}
-		<PasteSheet
-			{adding}
-			pasted={adding.fromPdf}
-			heading={m.plus_pdf()}
-			onback={() => (adding.fromPdf = null)}
-		/>
-	{/key}
-{/if}
+<!-- A PDF, or a page read from its own text, is checked on the sheet a paste is (#176, #301). -->
+<ToCheck {adding} />
 
 <!-- A paste says its own refusal inside the sheet it was made from, over this. -->
-{#if showing !== 'paste' && !adding.fromPdf}
+{#if showing !== 'paste' && !adding.fromPdf && !adding.fromLink}
 	<Said {adding} />
 {/if}

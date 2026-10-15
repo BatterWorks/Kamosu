@@ -1064,6 +1064,7 @@ describe('the + for every new recipe (#174)', () => {
 		expect(takePaste('b_new')).toEqual({
 			title: 'Lemon drizzle loaf',
 			note: null,
+			source: null,
 			ingredients: [
 				{ kind: 'ingredient', text: '225g butter, softened' },
 				{ kind: 'ingredient', text: '4 eggs' },
@@ -1172,6 +1173,98 @@ describe('the + for every new recipe (#174)', () => {
 		expect(kamosu.calls.find((call) => call.operation === 'import_web_link')?.input).toEqual({
 			url: 'https://example.test/chicken-curry',
 		});
+	});
+
+	/** A blog post with no recipe data, as an instance with no Runner reads it (#301). */
+	const READ_FROM_THE_PAGE = {
+		title: 'Vietnamese Beef Curry (Cari Bo)',
+		lines: [
+			{ kind: 'section' as const, text: 'Ingredients' },
+			{ kind: 'line' as const, text: '2 tbsp grated fresh ginger' },
+			{ kind: 'line' as const, text: '4 tbsp fish sauce' },
+			{ kind: 'section' as const, text: 'Method :' },
+			{ kind: 'line' as const, text: 'Simmer the beef for an hour.' },
+		],
+		boundary: 3,
+		note: 'Cari Bo\nMy mum makes this once a month.',
+		source: { text: 'blog.example', link: 'https://blog.example/cari-bo.html' },
+	};
+
+	/** `import_web_link` answering what it read, having landed nothing. */
+	const readNotLanded = {
+		import_web_link: { job_id: 'j_1' },
+		get_job: {
+			id: 'j_1',
+			operation: 'import_web_link',
+			status: 'completed' as const,
+			progress: {},
+			error: null,
+			errorCode: null,
+			created_at: '2026-10-14T10:00:00.000Z',
+			updated_at: '2026-10-14T10:00:01.000Z',
+			result: { to_check: READ_FROM_THE_PAGE },
+		},
+	};
+
+	// #301: with no Runner, a page with no recipe data comes back read from
+	// its own text, and is checked on the sheet a paste is checked on.
+	it('checks a page read from its own text on the paste sheet, and keeps the page as its Source', async () => {
+		const { kamosu } = renderScreen(Recipes, {
+			...fullShelf,
+			...readNotLanded,
+			create_recipe: made,
+		});
+
+		await openThePlus();
+		await fireEvent.click(screen.getByRole('button', { name: /From a link/ }));
+		const field = screen.getByLabelText(/web address/);
+		await fireEvent.input(field, { target: { value: 'https://blog.example/cari-bo.html' } });
+		await fireEvent.submit(field.closest('form')!);
+
+		const sheet = await screen.findByRole('dialog', { name: 'From a link' });
+		expect(screen.getByLabelText('Title')).toHaveValue('Vietnamese Beef Curry (Cari Bo)');
+		// Why a check is asked, said before anything else (the choice on #301).
+		expect(sheet).toHaveTextContent(
+			"Kamosu found no recipe on this page, so it read the page's own text.",
+		);
+		expect(sheet).toHaveTextContent('2 ingredients and 1 steps.');
+		expect(sheet).toHaveTextContent('My mum makes this once a month.');
+		expect(went).not.toHaveBeenCalled();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Make this recipe' }));
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_new'));
+		expect(kamosu.calls.some((call) => call.operation === 'save_recipe_version')).toBe(false);
+		expect(takePaste('b_new')).toMatchObject({
+			title: 'Vietnamese Beef Curry (Cari Bo)',
+			source: { text: 'blog.example', link: 'https://blog.example/cari-bo.html' },
+			ingredients: [
+				{ kind: 'section', text: 'Ingredients' },
+				{ kind: 'ingredient', text: '2 tbsp grated fresh ginger' },
+				{ kind: 'ingredient', text: '4 tbsp fish sauce' },
+			],
+		});
+	});
+
+	it('checks a page read from its own text where a search found nothing, too', async () => {
+		renderScreen(Recipes, {
+			list_tags: { tags: [] },
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: 'cari bo', closest: false, recipes: [] },
+			...readNotLanded,
+		});
+
+		await fireEvent.click(await screen.findByRole('button', { name: /Import from a link/ }));
+		const field = screen.getByLabelText(/web address/);
+		await fireEvent.input(field, { target: { value: 'https://blog.example/cari-bo.html' } });
+		await fireEvent.submit(field.closest('form')!);
+
+		const sheet = await screen.findByRole('dialog', { name: 'From a link' });
+		expect(sheet).toHaveTextContent('Kamosu found no recipe on this page');
+		expect(screen.getByLabelText('Title')).toHaveValue('Vietnamese Beef Curry (Cari Bo)');
+		await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+		expect(screen.queryByRole('dialog')).toBeNull();
+		expect(went).not.toHaveBeenCalled();
 	});
 
 	it('opens the phone’s own picker for a Kamosu zip file, and brings the file in', async () => {
@@ -1289,6 +1382,7 @@ describe('the + for every new recipe (#174)', () => {
 		expect(takePaste('b_new')).toEqual({
 			title: 'Biscuit de Savoie',
 			note: BISCUIT.note,
+			source: null,
 			ingredients: [
 				{ kind: 'section', text: 'Ingrédients :' },
 				{ kind: 'ingredient', text: 'Trois gros œufs' },

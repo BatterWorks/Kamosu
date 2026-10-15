@@ -1995,7 +1995,7 @@ export type ForgetImportOutput = {
 	import_id: string;
 };
 
-/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
+/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Without a Runner, a page with no recipe data is read from its own article text the way `read_pasted_recipe` reads a paste, and when that finds Ingredient Lines nothing lands: the answer is `to_check` alone, for a person to check and save, with the page as its Source (#301). Where it finds none, the page lands bare as before. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 export type ImportWebLinkInput = {
 	url: string;
 };
@@ -2014,7 +2014,7 @@ export type ImportWebLinkOutput = {
 		original_gone?: boolean;
 		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
 	}[];
-	arrived: {
+	arrived?: {
 		bare?: boolean;
 		branch_id: string;
 		foreign_id: string;
@@ -2024,9 +2024,9 @@ export type ImportWebLinkOutput = {
 		subject?: boolean;
 		title: string;
 	}[];
-	cookbook_id: string;
-	import_id: string;
-	left_out: {
+	cookbook_id?: string;
+	import_id?: string;
+	left_out?: {
 		branch_id: string;
 		count: number;
 		foreign_id: string;
@@ -2034,14 +2034,14 @@ export type ImportWebLinkOutput = {
 		title: string;
 		what: "site_icon" | "extra_photos" | "unreadable_photos";
 	}[];
-	offered: {
+	offered?: {
 		branch_id: string;
 		candidate_version_id: string;
 		foreign_id: string;
 		lineage_id: string;
 		title: string;
 	}[];
-	related_candidates: {
+	related_candidates?: {
 		recipes: {
 			branch_id: string;
 			ingredients: number;
@@ -2051,8 +2051,21 @@ export type ImportWebLinkOutput = {
 		}[];
 		shared: ("name" | "page")[];
 	}[];
-	source_kind: string;
-	unreadable: {
+	source_kind?: string;
+	to_check?: {
+		boundary: number;
+		lines: {
+			kind: "line" | "section";
+			text: string;
+		}[];
+		note: string | null;
+		source: {
+			link: string;
+			text: string;
+		};
+		title: string | null;
+	};
+	unreadable?: {
 		branch_id?: string;
 		foreign_id: string | null;
 		kept_as?: {
@@ -15540,7 +15553,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "import_web_link",
-		"summary": "Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in.",
+		"summary": "Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Without a Runner, a page with no recipe data is read from its own article text the way `read_pasted_recipe` reads a paste, and when that finds Ingredient Lines nothing lands: the answer is `to_check` alone, for a person to check and save, with the page as its Source (#301). Where it finds none, the page lands bare as before. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
@@ -15828,6 +15841,75 @@ export const CATALOGUE = [
 				"source_kind": {
 					"type": "string"
 				},
+				"to_check": {
+					"additionalProperties": false,
+					"description": "Present alone when the page held no recipe data and the instance has no Runner: what its article text read as, the way `read_pasted_recipe` answers, and nothing was saved. To keep it, make the recipe with this `source` as its Source.",
+					"properties": {
+						"boundary": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"lines": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"kind": {
+										"enum": [
+											"line",
+											"section"
+										]
+									},
+									"text": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"text",
+									"kind"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"note": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"source": {
+							"additionalProperties": false,
+							"properties": {
+								"link": {
+									"description": "The page's own address, after redirects.",
+									"type": "string"
+								},
+								"text": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"text",
+								"link"
+							],
+							"type": "object"
+						},
+						"title": {
+							"type": [
+								"string",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"title",
+						"lines",
+						"boundary",
+						"note",
+						"source"
+					],
+					"type": "object"
+				},
 				"unreadable": {
 					"items": {
 						"additionalProperties": false,
@@ -15880,16 +15962,7 @@ export const CATALOGUE = [
 					"type": "array"
 				}
 			},
-			"required": [
-				"import_id",
-				"cookbook_id",
-				"source_kind",
-				"arrived",
-				"offered",
-				"unreadable",
-				"left_out",
-				"related_candidates"
-			],
+			"required": [],
 			"type": "object"
 		}
 	},
@@ -31569,7 +31642,7 @@ export interface KamosuClient {
 	listImports(input?: ListImportsInput): Promise<Answer<'list_imports'>>;
 	/** Throw an Import's ledger away whole. The ledger is the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
 	forgetImport(input: ForgetImportInput): Promise<Answer<'forget_import'>>;
-	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
+	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Without a Runner, a page with no recipe data is read from its own article text the way `read_pasted_recipe` reads a paste, and when that finds Ingredient Lines nothing lands: the answer is `to_check` alone, for a person to check and save, with the page as its Source (#301). Where it finds none, the page lands bare as before. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 	importWebLink(input: ImportWebLinkInput): Promise<Answer<'import_web_link'>>;
 	/** Preview what importing a Kamosu Share Link would do. It answers before anything is written, as a Job (#170). Reaches the recipe file exactly as `import_web_link` does — this instance's own link locally, another Kamosu's at a public address through the guarded client — and answers the shared recipe's title, Source, writer, how many Versions it carries and a small picture, and whether your own Cookbook holds it already, with how many newer Versions the file carries past yours. The file is staged: pass `upload_id` to `import_bundle` to import exactly what was previewed without fetching it again. An ended link, or an address that is no Share Link, is refused. */
 	previewSharedRecipe(input: PreviewSharedRecipeInput): Promise<Answer<'preview_shared_recipe'>>;

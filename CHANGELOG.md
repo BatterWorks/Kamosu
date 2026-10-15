@@ -12,6 +12,8 @@
 
 ### Changed
 
+- On an instance with no Runner, a link to a page with no recipe data is read from the page's own text, the way pasted text is, and opens on the sheet a paste is checked on, saying why. The page is the Source of the recipe made from it. Before, it landed as a bare recipe with the page's title and link and nothing else. A page whose text holds no ingredients still lands bare. `import_web_link` then saves nothing and answers `to_check` alone: what `read_pasted_recipe` would answer, and the page as `source`. [#301]
+- Pasted text or a PDF with an `Ingredients` heading (`Ingrédients`, `Ingredientes`) reads nothing above it as an Ingredient Line. The short line just above the heading is the title, past a bare web address and never a line saying how many it serves or who wrote it, and everything else above it goes to the note word for word. A blog post's photo caption, chatter and credit link used to land among the ingredients. [#301]
 - In the History, a line comes out of the dot of the Version it started from, and the band saying "Splits into 2 Branches here" is gone. A Translation sits directly under the Version it translates, whenever it was written, where it used to leave the top of the page as if the recipe had split before its first Version. [#250]
 - In the History, a Version shows two badges at most, however often it was cooked: yours, as the pot and the last rating you gave it, and everyone else's together, by name. Each opens the cookings it stands for, your older ratings among them. It used to show one badge per cooking, so a Version rated "Again" three times read "Again" three times. `get_thread` says who cooked each Attempt in two new fields, `person_name` and `mine`. [#249]
 
@@ -40,6 +42,7 @@
 [#271]: https://github.com/BatterWorks/Kamosu/issues/271
 [#272]: https://github.com/BatterWorks/Kamosu/issues/272
 [#296]: https://github.com/BatterWorks/Kamosu/issues/296
+[#301]: https://github.com/BatterWorks/Kamosu/issues/301
 
 ## v0.2.0 - 2026-10-12
 

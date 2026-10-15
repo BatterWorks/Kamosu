@@ -28,6 +28,7 @@ pub mod language;
 pub mod mcp_door;
 pub mod meaning;
 pub mod operations;
+pub mod page_text;
 pub mod pairing;
 pub mod pasting;
 pub mod pdf;

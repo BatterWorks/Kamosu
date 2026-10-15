@@ -742,6 +742,7 @@
 					...content,
 					title: pastedDraft.title ?? content.title,
 					note: pastedDraft.note ?? content.note,
+					source: pastedDraft.source ?? content.source,
 					ingredients: pastedDraft.ingredients,
 					steps: pastedDraft.steps.map((step) => ({ ...step, photo: null })),
 				}

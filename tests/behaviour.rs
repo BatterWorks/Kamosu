@@ -11872,6 +11872,157 @@ mod web_link_importer {
             .unwrap()
     }
 
+    // --- With no Runner, a page's own text is read like a paste (#301) -------
+
+    /// A recipe blog post with no recipe data, saved in the shape Blogger
+    /// serves it.
+    const BLOG_POST: &str = include_str!("fixtures/blog-post-with-no-recipe-data.html");
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn without_a_runner_a_post_with_no_recipe_data_is_read_from_its_text_and_lands_nothing() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, false);
+        let url = spawn_recipe_server(|_base| BLOG_POST.to_string(), None);
+
+        let answer = import_web_link_and_wait(&app, &key, &url);
+        let read = &answer["to_check"];
+        assert_eq!(
+            read["title"],
+            json!("Vietnamese Beef Curry (Cari Bo)"),
+            "{answer}"
+        );
+        let lines: Vec<&str> = read["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| line["text"].as_str().unwrap())
+            .collect();
+        let boundary = read["boundary"].as_u64().unwrap() as usize;
+        assert_eq!(lines[0], "Ingredients");
+        assert_eq!(boundary, 16, "{answer}");
+        assert_eq!(
+            lines[1],
+            "900g / 2 lb stewing beef, cut into 5cm / 2 inch cubes"
+        );
+        assert_eq!(
+            lines[15],
+            "500ml / 16 fl oz canned unsweetened coconut milk, well stirred"
+        );
+        assert_eq!(lines[16], "Method :");
+        assert_eq!(lines.len(), 19, "two steps after the heading: {answer}");
+        // The sidebar and the comments are no part of it, and the post's
+        // chatter is in the note rather than among the Ingredient Lines.
+        assert!(!lines.iter().any(|line| line.contains("rice")), "{answer}");
+        let note = read["note"].as_str().unwrap();
+        assert!(note.starts_with("Cari Bo\nHello again!"), "{note}");
+        assert!(
+            note.ends_with("http://recipes.example/vietnamese/beef-curry.php"),
+            "{note}"
+        );
+        // The page is the Source it will be saved with.
+        assert_eq!(read["source"], json!({ "text": "127.0.0.1", "link": url }));
+
+        // Nothing landed, and no Import was written: it waits for a person.
+        assert_eq!(recipes_and_agent_jobs(&app), (0, 0));
+        let (_, imports) = app.post_op("list_imports", Some(&key), "{}");
+        assert_eq!(imports["result"]["imports"], json!([]), "{imports}");
+    }
+
+    /// A page of prose with no recipe on it, shaped like the one live
+    /// acceptance found reading as a recipe to check.
+    const PROSE: &str = "<html><head><title>Example Domains</title></head><body><article>\
+        <p>Instructions and Guides</p><p>Example Domains</p>\
+        <p>A number of domains such as example.com are maintained for documentation purposes.</p>\
+        <p>We provide a web service on the example domain hosts to provide basic information.</p>\
+        <h2>Further Reading</h2><ul><li>Special-Use Domain Names (RFC 6761)</li></ul>\
+        <p>Last revised 2026-09-27.</p></article></body></html>";
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn without_a_runner_a_page_of_prose_with_no_recipe_still_lands_bare() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, false);
+        let url = spawn_recipe_server(|_base| PROSE.to_string(), None);
+
+        // Read as a paste, the page puts a line above the split, so what
+        // keeps it bare is that no line there reads as an ingredient.
+        let read = kamosu::pasting::read_paste(
+            &kamosu::page_text::main_text(PROSE).expect("the page has text"),
+        );
+        assert!(read.boundary > 0, "{read:?}");
+
+        let report = import_web_link_and_wait(&app, &key, &url);
+        assert_eq!(report.get("to_check"), None, "{report}");
+        assert_eq!(report["arrived"][0]["bare"], json!(true), "{report}");
+        assert_eq!(report["arrived"][0]["title"], json!("Example Domains"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_same_post_pasted_by_hand_reads_as_the_link_does() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, false);
+        let url = spawn_recipe_server(|_base| BLOG_POST.to_string(), None);
+        let by_link = import_web_link_and_wait(&app, &key, &url)["to_check"].clone();
+
+        // What a browser copies from the same post, written out in full so
+        // that it owes nothing to what the link read.
+        let copied = "Cari Bo\n\nHello again!\u{a0} It feels like an age since my last post, \
+            though it was only last week.\u{a0}\u{a0} My old camera does this dish no favours.\n\n\
+            My mum cooks this about once a month when I come over for dinner.\u{a0} It is called \
+            Vietnamese Beef Curry or Cari Bo, beef simmered slowly in a spiced coconut soup with \
+            carrots.\u{a0} I like it with toasted bread dipped into the sauce.\n\n\
+            I never asked her for the recipe, so this one comes from another site.\u{a0}\n\n\n\
+            Vietnamese Beef Curry (Cari Bo)\u{a0}\n\
+            http://recipes.example/vietnamese/beef-curry.php \n\n\n\
+            Ingredients\n\n\
+            900g / 2 lb stewing beef, cut into 5cm / 2 inch cubes\n\
+            2 tbsp grated fresh ginger\n\
+            1 large onion, finely chopped\n\
+            6 large garlic cloves, finely chopped\n\
+            3 fresh red chilies, finely chopped\n\
+            3 tbsp curry powder, preferably Madras\n\
+            2 tsp turmeric\n\
+            1 tsp sugar\n\
+            1/2 tsp ground black pepper\n\
+            2 tsp salt\n\
+            3 tbsp peanut or vegetable oil\n\
+            4 tbsp fish sauce\n\
+            4 carrots, cut into 2.5cm / 1 inch chunks\n\
+            2 tbsp cornflour\n\
+            500ml / 16 fl oz canned unsweetened coconut milk, well stirred\n\n\
+            Method :\n\u{a0}\n\
+            Mix the beef with the ginger, onion, garlic, chilies, spices and half the salt, then \
+            leave it to marinate for two hours. Brown it in the hot oil, add hot water and the fish \
+            sauce, and simmer it covered for an hour.\n\n\
+            Add the carrots and simmer for fifteen minutes more.\u{a0} Stir the cornflour into the \
+            coconut milk, pour it in, and simmer uncovered until the sauce thickens.\n";
+        let (status, by_hand) = app.post_op(
+            "read_pasted_recipe",
+            Some(&key),
+            &json!({ "text": copied }).to_string(),
+        );
+        assert_eq!(status, 200, "{by_hand}");
+        let by_hand = &by_hand["result"];
+        for field in ["title", "lines", "boundary", "note"] {
+            assert_eq!(by_hand[field], by_link[field], "{field}");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn beside_a_runner_a_post_with_readable_text_still_goes_to_the_agent() {
+        let app = support::spawn_app();
+        let key = cook_beside_a_runner(&app, true);
+        let url = spawn_recipe_server(|_base| BLOG_POST.to_string(), None);
+
+        let report = import_web_link_and_wait(&app, &key, &url);
+        assert_eq!(report.get("to_check"), None, "{report}");
+        assert_eq!(report["arrived"][0]["bare"], json!(true), "{report}");
+        assert_eq!(
+            report["agent_jobs"].as_array().unwrap().len(),
+            1,
+            "{report}"
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn beside_a_runner_a_page_with_no_recipe_data_lands_bare_and_a_job_waits_on_it() {
         let app = support::spawn_app();
@@ -34453,13 +34604,12 @@ mod reading_a_recipe_pdf {
         assert_eq!(status, 200, "{pasted}");
         let (printed, pasted) = (&printed["result"], &pasted["result"]);
 
-        // The title is the one difference that is not joining. A PDF's first
-        // line is its title; pasted text keeps the rule that a title stands
-        // above a blank line, and copied off this page it has none, so it
-        // arrives as a line for the person to move into the title field.
+        // The title is the same, found two ways. A PDF's first line is its
+        // title. Copied off this page, the paste has no blank line under it,
+        // but it is the short line just above `Ingrédients :`, and that is a
+        // title too (#301).
         assert_eq!(printed["title"], json!("Biscuit de Savoie"));
-        assert_eq!(pasted["title"], Value::Null);
-        assert_eq!(pasted["lines"][0]["text"], json!("Biscuit de Savoie"));
+        assert_eq!(pasted["title"], json!("Biscuit de Savoie"));
 
         let split = |read: &Value, from: usize| {
             let lines = read["lines"].as_array().unwrap().clone();
@@ -34467,7 +34617,7 @@ mod reading_a_recipe_pdf {
             (lines[from..boundary].to_vec(), lines[boundary..].to_vec())
         };
         let (printed_above, printed_below) = split(printed, 0);
-        let (pasted_above, pasted_below) = split(pasted, 1);
+        let (pasted_above, pasted_below) = split(pasted, 0);
 
         // The same ingredients and headings, bullets off, in the same place.
         assert_eq!(pasted_above, printed_above, "{pasted}");
