@@ -26,7 +26,7 @@
 	(ADR 0040). It does not render an explanation of what it would have held.
 -->
 <script lang="ts">
-	import { aDate } from '$lib/dates';
+	import { aDate, howLongAgo } from '$lib/dates';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -34,14 +34,17 @@
 	import Screen from '$lib/shell/Screen.svelte';
 	import Section from '$lib/shell/Section.svelte';
 	import Confirm from '$lib/Confirm.svelte';
+	import RunnerKeySecret from '$lib/operator/RunnerKeySecret.svelte';
 	import { asksWhetherAdministering } from '$lib/operator/administering';
 	import type {
 		ListAccountsOutput,
 		ListBackupsOutput,
 		ListMergeSuggestionsOutput,
 		ListFoodsOutput,
+		ListRunnerKeysOutput,
 		PreviewFoodMergeOutput,
 		RereadIngredientLinesOutput,
+		RunnerStatusOutput,
 		SweepPhotographsOutput,
 	} from '$lib/api/catalogue';
 
@@ -59,6 +62,7 @@
 	type Backup = ListBackupsOutput['backups'][number];
 	type Suggestion = ListMergeSuggestionsOutput['suggestions'][number];
 	type Food = ListFoodsOutput['foods'][number];
+	type RunnerKey = ListRunnerKeysOutput['runner_keys'][number];
 
 	/**
 	 * Whether this Person administers the instance. `undefined` while nobody has
@@ -73,6 +77,8 @@
 	let suggestions = $state<Suggestion[]>([]);
 	let foods = $state<Food[]>([]);
 	let address = $state<string | null>(null);
+	let runnerKeys = $state<RunnerKey[]>([]);
+	let runnerStatus = $state<RunnerStatusOutput | undefined>(undefined);
 
 	/**
 	 * How many unused Foods are listed at once. A library can carry hundreds,
@@ -121,6 +127,7 @@
 			quietly(async () => {
 				address = (await kamosu.getPublicAddress({})).public_address;
 			}),
+			quietly(loadRunner),
 		]);
 	}
 
@@ -164,6 +171,8 @@
 		| { kind: 'disable-account'; who: string }
 		| { kind: 'delete-food'; food: Food }
 		| { kind: 'sweep' }
+		| { kind: 'revoke-runner-key'; key: RunnerKey }
+		| { kind: 'runner-secret'; name: string; secret: string }
 		| { kind: 'merge'; preview: PreviewFoodMergeOutput };
 
 	let asking = $state<Asking | undefined>(undefined);
@@ -276,6 +285,49 @@
 	const weight = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`;
 
 	const when = (at: string) => aDate(at);
+
+	// ── The Runner (#275) ─────────────────────────────────────────────────────
+	//
+	// Option 1 of 15 October 2026. Both reads are never kept on the phone
+	// (`reads.ts`): a kept answer would say a Runner is there after its Key was
+	// revoked, or silent while it works.
+
+	async function loadRunner() {
+		const [keys, status] = await Promise.all([kamosu.listRunnerKeys({}), kamosu.runnerStatus({})]);
+		runnerKeys = keys.runner_keys.filter((key) => !key.revoked);
+		runnerStatus = status;
+	}
+
+	let runnerName = $state('');
+
+	/**
+	 * Past this a Runner is quiet rather than idle. An idle one asks every ten
+	 * seconds, and one reading a recipe asks again when its Job ends, which its
+	 * time limit puts at most half an hour away.
+	 */
+	const QUIET_AFTER = 30 * 60_000;
+
+	const runnerQuiet = (at: string) => Date.now() - new Date(at).getTime() > QUIET_AFTER;
+
+	const mintRunnerKey = () =>
+		act(async () => {
+			const minted = await kamosu.mintRunnerKey({ name: runnerName.trim() });
+			asking = { kind: 'runner-secret', name: minted.name, secret: minted.secret };
+			runnerName = '';
+		}, loadRunner);
+
+	const revokeRunnerKey = (key: RunnerKey) =>
+		act(
+			async () => {
+				await kamosu.revokeRunnerKey({ runner_key_id: key.id });
+			},
+			// Closed first: the key is revoked even if the list then fails to
+			// come back, and the sheet must not offer to revoke it twice.
+			async () => {
+				close();
+				await loadRunner();
+			},
+		);
 
 	// ── Photographs, and reading the library's lines ──────────────────────────
 
@@ -840,6 +892,94 @@
 					<p class="mt-2 text-read text-ink-2">{m.operator_backups_blurb()}</p>
 				</Section>
 
+				<Section heading={m.operator_runner_heading()}>
+					<!-- Two phrases, one paragraph: the sentence chosen is longer than the
+					     copy guard lets one phrase be (#141). -->
+					<p class="mb-3 text-body text-ink-2">
+						{m.operator_runner_what()}
+						{m.operator_runner_what_does()}
+					</p>
+					{#if runnerStatus}
+						{@const asked = runnerStatus.last_asked_at}
+						<div class="rounded-sm border border-rule bg-card p-3">
+							{#if asked === null}
+								<p class="text-body text-ink">{m.operator_runner_never()}</p>
+								<p class="mt-1 text-read text-ink-2">
+									{runnerKeys.length > 0
+										? m.operator_runner_never_keyed()
+										: m.operator_runner_never_unkeyed()}
+								</p>
+							{:else if !runnerStatus.has_runner}
+								<!-- One asked once, and every key since is revoked: no Runner
+								     can ask now, so the card says what would let one. -->
+								<p class="text-body text-ink">
+									{m.operator_runner_quiet({ when: howLongAgo(asked) })}
+								</p>
+								<p class="mt-1 text-read text-ink-2">{m.operator_runner_never_unkeyed()}</p>
+							{:else if runnerQuiet(asked)}
+								<p class="text-body text-ink">
+									{m.operator_runner_quiet({ when: howLongAgo(asked) })}
+								</p>
+								<p class="mt-1 text-read text-ink-2">{m.operator_runner_quiet_more()}</p>
+							{:else}
+								<p class="text-body text-ink">
+									{m.operator_runner_asked({ when: howLongAgo(asked) })}
+								</p>
+								<p class="mt-1 text-read text-ink-2">{m.operator_runner_asked_more()}</p>
+							{/if}
+						</div>
+					{/if}
+					<ul class="mt-3 overflow-hidden rounded-sm border border-rule bg-card">
+						{#each runnerKeys as key (key.id)}
+							<li class="flex items-center gap-3 border-b border-rule p-3 last:border-b-0">
+								<span class="min-w-0 flex-1">
+									<span class="block text-body break-words text-ink">{key.name}</span>
+									<span class="block text-read text-ink-2"
+										>{key.last_used_at
+											? m.access_last_used({ when: howLongAgo(key.last_used_at) })
+											: m.access_never_used()}</span
+									>
+								</span>
+								<button
+									type="button"
+									onclick={() => (asking = { kind: 'revoke-runner-key', key })}
+									class="min-h-12 shrink-0 rounded-sm border border-support px-3 text-read
+								font-medium text-support disabled:opacity-60"
+								>
+									{m.operator_runner_revoke()}
+								</button>
+							</li>
+						{:else}
+							<li class="p-3 text-body text-ink-2">{m.operator_runner_keys_empty()}</li>
+						{/each}
+					</ul>
+					<div class="mt-3 rounded-sm border border-rule bg-card p-3">
+						<form
+							onsubmit={(event) => {
+								event.preventDefault();
+								void mintRunnerKey();
+							}}
+						>
+							<label class="block text-read text-ink-2">
+								{m.operator_runner_name()}
+								<input
+									bind:value={runnerName}
+									required
+									class="mt-1 min-h-12 w-full rounded-sm border border-rule bg-ground px-3 text-body"
+								/>
+							</label>
+							<button
+								type="submit"
+								disabled={working || runnerName.trim() === ''}
+								class="mt-2 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium
+							text-accent disabled:opacity-60"
+							>
+								{m.operator_runner_mint()}
+							</button>
+						</form>
+					</div>
+				</Section>
+
 				<Section heading={m.operator_address_heading()}>
 					<div class="rounded-sm border border-rule bg-card p-3">
 						<p class="text-read text-ink-2">{m.operator_address_current()}</p>
@@ -916,6 +1056,19 @@
 				<p class="text-read text-ink-2">{m.operator_merge_cup_weight()}</p>
 			{/if}
 		</Confirm>
+	{:else if asking.kind === 'runner-secret'}
+		<RunnerKeySecret name={asking.name} secret={asking.secret} ondone={close} />
+	{:else if asking.kind === 'revoke-runner-key'}
+		{@const key = asking.key}
+		<Confirm
+			title={m.operator_runner_revoke_title({ name: key.name })}
+			consequence={m.operator_runner_revoke_consequence()}
+			act={m.operator_runner_revoke()}
+			busy={working}
+			failed={said}
+			run={() => revokeRunnerKey(key)}
+			cancel={close}
+		/>
 	{:else if asking.kind === 'sweep'}
 		<Confirm
 			title={m.operator_sweep_title()}
