@@ -663,6 +663,13 @@ recipe are in its instructions.
   [its Part 7](research/ai-recipe-import-in-other-apps.md#part-7-the-agent-on-sources-that-go-wrong)
   those for sources that go wrong.
 
+  Measured across six settings, Claude Haiku 5.5 at high effort read as well
+  as Claude Sonnet 5.5 and Claude Opus 5.5 for a fifteenth of Sonnet's price:
+  about two cents and a little over a minute a Job. Higher efforts cost more
+  for little better.
+  [Part 8](research/ai-recipe-import-in-other-apps.md#part-8-the-agent-on-six-model-and-effort-settings)
+  has each setting's figures. Nothing in Kamosu depends on that choice.
+
 ## When nothing happens
 
 Start with the Runner's own output, then the **Runner** section of the Operator
