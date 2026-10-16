@@ -597,6 +597,31 @@ with a person beside it have to say what to do instead of asking:
   address. Another site's recipe for the same dish is another cook's recipe,
   with its own amounts: the run that measured this guide saw one read in a
   refused page's place, with another oven temperature and yield.
+- **Say what one recipe means.** A Job writes one recipe. Say what to do
+  with a source holding several (take the first and name the others), and
+  with a recipe that calls for another of its own ("pastry, see below").
+  Left to itself, an agent tested for this guide merged a page of three
+  dressings into one recipe.
+- **Say what the title is.** A recipe Kamosu lands bare carries the page's
+  title, and a page's headline is often not the recipe's name. Tell the
+  agent to use the name over the recipe itself.
+- **Say who corrects a source.** An agent that is told the source decides
+  every number will undo a cook's correction when it reads a recipe again,
+  and one told to keep that correction began correcting sources on its own,
+  at a first reading. Tell it
+  to copy a plain mistake and flag it, to take the source's own correction
+  (an author's reply in the comments), and to keep a person's.
+- **Explain Readings and Foods.** Kamosu reads each line as it is saved,
+  before the agent checks it, and a misread line makes a Food of the wrong
+  words. Tell the agent to correct each Reading with a unit Kamosu converts
+  (`cup`, not an old card's "c"), and to look up and name the Foods its
+  corrections leave unused.
+- **Send it to the captions.** A cooking video often names each ingredient
+  on screen and says it nowhere else. Contact sheets small enough to see a
+  whole video shrink that text past reading, so give the agent a way to
+  read it at full size. It costs time: the video this was learnt on took
+  six minutes and nine cents with its captions read, against four and a
+  half minutes and three cents without.
 
 The Kamosu MCP server describes its own tools, and the rules for saving a
 recipe are in its instructions.
@@ -623,10 +648,15 @@ recipe are in its instructions.
   Job j_… took 52 s and cost $0.0112: 22 tokens in, 5139 out, …
   ```
 
-  Measured on one small model, a Job took from 20 seconds to 2 minutes and
-  cost under three cents, a video with photographs the most.
+  Measured on one small model at medium effort, most Jobs took from 15
+  seconds to 2 minutes and cost under three cents. A picture the agent went
+  over again and again cost seven cents, and a video whose recipe had to be
+  read off its frames took up to seven minutes and ten cents. At high effort
+  that video took fourteen minutes and 36 cents.
   [The research note behind ADR 0048](research/ai-recipe-import-in-other-apps.md#part-6-the-agent-measured-on-the-development-instance)
-  has the figures for each kind of Job.
+  has the figures for each kind of Job, and
+  [its Part 7](research/ai-recipe-import-in-other-apps.md#part-7-the-agent-on-sources-that-go-wrong)
+  those for sources that go wrong.
 
 ## When nothing happens
 
