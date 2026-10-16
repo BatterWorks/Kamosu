@@ -38,6 +38,7 @@ function fakeCaches() {
 			put: async (request: RequestInfo | URL, response: Response) => {
 				store.set(keyOf(request), response.clone());
 			},
+			keys: async () => [...store.keys()].map((url) => new Request(url)),
 		} as unknown as Cache;
 	};
 	return {
@@ -49,7 +50,11 @@ function fakeCaches() {
 	};
 }
 
-type Answer = { status?: number; body: unknown } | 'unreachable';
+/**
+ * What the server does: Kamosu's envelope, a page from something standing in
+ * front of it (a proxy's 502 while Kamosu restarts), or no answer at all.
+ */
+type Answer = { status?: number; body: unknown } | { status: number; page: string } | 'unreachable';
 
 /** A server answering from a script, and remembering what it was asked. */
 function fakeServer(script: (path: string, input: unknown) => Answer) {
@@ -61,6 +66,12 @@ function fakeServer(script: (path: string, input: unknown) => Answer) {
 		asked.push(path);
 		const answer = script(path, body);
 		if (answer === 'unreachable') throw new TypeError('Failed to fetch');
+		if ('page' in answer) {
+			return new Response(answer.page, {
+				status: answer.status,
+				headers: { 'content-type': 'text/html' },
+			});
+		}
 		return new Response(JSON.stringify(answer.body), {
 			status: answer.status ?? 200,
 			headers: { 'content-type': 'application/json' },
@@ -116,6 +127,8 @@ function world(
 }
 
 const ok = (result: unknown): Answer => ({ body: { ok: true, result } });
+/** The reverse proxy answering for a Kamosu that is restarting. */
+const badGateway: Answer = { status: 502, page: '<html>502 Bad Gateway</html>' };
 
 describe('what the phone keeps', () => {
 	it('knows a read from a write by the Catalogue alone', () => {
@@ -226,6 +239,64 @@ describe('a read', () => {
 		expect(w.reached).toEqual([true, false, false, true]);
 	});
 
+	it('is still answered from what was kept when a proxy answers for the server', async () => {
+		// #291: a 502 from the proxy is no answer from Kamosu, and was handed to
+		// the page in place of the kept copy.
+		let restarting = false;
+		const w = world((path) =>
+			restarting
+				? badGateway
+				: path.endsWith('add_to_shopping_list')
+					? ok({})
+					: ok({ title: 'Korean Fried Chicken' }),
+		);
+		await w.call('get_recipe', { branch_id: 'b_1' });
+		await w.call('get_current_attempt');
+		await w.settle();
+		// A write makes every kept read ask the server first.
+		await w.call('add_to_shopping_list', { branch_id: 'b_1' });
+
+		restarting = true;
+		expect((await w.call('get_recipe', { branch_id: 'b_1' })).result).toEqual({
+			title: 'Korean Fried Chicken',
+		});
+		// And a read that is about being current, which always asks first.
+		expect((await w.call('get_current_attempt')).result).toEqual({
+			title: 'Korean Fried Chicken',
+		});
+		await w.settle();
+		expect(w.reached.at(-1)).toBe(false);
+	});
+
+	it('is answered from what was kept when Kamosu says it is busy, but not when it refuses', async () => {
+		let answer: Answer = ok({ title: 'Korean Fried Chicken' });
+		const w = world((path) => (path.endsWith('add_to_shopping_list') ? ok({}) : answer));
+		await w.call('get_recipe', { branch_id: 'b_1' });
+		await w.settle();
+		await w.call('add_to_shopping_list', { branch_id: 'b_1' });
+
+		answer = { status: 503, body: { ok: false, error: { kind: 'busy' } } };
+		expect((await w.call('get_recipe', { branch_id: 'b_1' })).result).toEqual({
+			title: 'Korean Fried Chicken',
+		});
+		// A recipe deleted on another device is Kamosu's answer, not a failure.
+		answer = { status: 404, body: { ok: false, error: { kind: 'not_found' } } };
+		expect(await w.call('get_recipe', { branch_id: 'b_1' })).toEqual({
+			ok: false,
+			error: { kind: 'not_found' },
+		});
+	});
+
+	it('hands on what a proxy answered when nothing was kept', async () => {
+		const w = world(() => badGateway);
+		const request = new Request(`${ORIGIN}/api/op/get_recipe`, {
+			method: 'POST',
+			body: JSON.stringify({ branch_id: 'b_never' }),
+		});
+		const response = await w.worker.handle(request, () => undefined);
+		expect(response!.status).toBe(502);
+	});
+
 	it('fails as the network does when nothing was ever kept', async () => {
 		const w = world(() => 'unreachable');
 		await expect(w.call('get_recipe', { branch_id: 'b_never' })).rejects.toThrow();
@@ -302,6 +373,69 @@ describe('a write', () => {
 		// No queue: offline, a write simply does not happen.
 		online = false;
 		await expect(w.call('promote_as_cooked', { attempt_id: 'a_1' })).rejects.toThrow();
+	});
+
+	it('that changes no recipe leaves what was kept current (#291)', async () => {
+		// Opening a recipe tells the server so, for Home's *recently opened*.
+		// It counted as a write, and every kept read then waited on the server.
+		let title = 'Dan Dan Noodles';
+		const w = world((path) =>
+			path.endsWith('note_recipe_opened') ? ok({ lineage_id: 'l_2' }) : ok({ title }),
+		);
+		await w.call('get_recipe', { branch_id: 'b_1' });
+		await w.settle();
+
+		await w.call('note_recipe_opened', { branch_id: 'b_2' });
+		title = 'Dan Dan Noodles, less chilli';
+		w.later();
+		// From the phone at once, not from the server that has since changed.
+		expect((await w.call('get_recipe', { branch_id: 'b_1' })).result).toEqual({
+			title: 'Dan Dan Noodles',
+		});
+		await w.settle();
+		expect(w.announced).toEqual(['get_recipe']);
+	});
+
+	it('that changes no recipe still brings Home level, however soon Home is back', async () => {
+		// Home, a recipe opened from it, and Home again within seconds: the
+		// recently opened shelf must not stay as it was before the opening.
+		let recent = 'none';
+		const w = world(
+			(path) => (path.endsWith('note_recipe_opened') ? ok({ lineage_id: 'l_1' }) : ok({ recent })),
+			// A clock where a browser's is, well past the ten seconds a kept answer is young.
+			{ ...fakeCaches(), clock: { at: Date.UTC(2026, 9, 16) } },
+		);
+		await w.call('home_shelves');
+		await w.settle();
+		await w.call('note_recipe_opened', { branch_id: 'b_1' });
+		recent = 'b_1';
+
+		// From the phone at once, and refreshed behind it…
+		expect((await w.call('home_shelves')).result).toEqual({ recent: 'none' });
+		await w.settle();
+		expect(w.announced).toEqual(['home_shelves']);
+		// …so the page's ask again shows the recipe just opened.
+		expect((await w.call('home_shelves')).result).toEqual({ recent: 'b_1' });
+	});
+
+	it('that changes no recipe leaves Home phone-first just after a real write', async () => {
+		let recent = 'none';
+		const w = world(
+			(path) =>
+				path.endsWith('note_recipe_opened') || path.endsWith('add_to_shopping_list')
+					? ok({})
+					: ok({ recent }),
+			{ ...fakeCaches(), clock: { at: Date.UTC(2026, 9, 16) } },
+		);
+		await w.call('add_to_shopping_list', { branch_id: 'b_2' });
+		// Asked of the server, the write being newer, and kept.
+		await w.call('home_shelves');
+		await w.call('note_recipe_opened', { branch_id: 'b_1' });
+		recent = 'b_1';
+		// Still from the phone, a few seconds after the write.
+		expect((await w.call('home_shelves')).result).toEqual({ recent: 'none' });
+		await w.settle();
+		expect(w.announced).toEqual(['home_shelves']);
 	});
 
 	it('makes the next read ask the server, so your own change is never shown undone', async () => {
@@ -384,11 +518,28 @@ describe('a Session', () => {
 		expect((await w.call('home_shelves')).ok).toBe(false);
 	});
 
-	it('that is ended empties it', async () => {
-		const w = world(() => ok({ title: 'Mine' }));
+	it('that is ended here empties it', async () => {
+		const w = world((path) =>
+			path.endsWith('revoke_session')
+				? ok({ revoked: true, current: true })
+				: ok({ title: 'Mine' }),
+		);
 		await w.call('get_recipe', { branch_id: 'b_1' });
 		await w.call('revoke_session', { session_id: 's_1' });
 		expect(w.stores.has(READS_CACHE)).toBe(false);
+	});
+
+	it("that is another device's leaves this phone's library alone (#291)", async () => {
+		const w = world((path) =>
+			path.endsWith('revoke_session')
+				? ok({ revoked: true, current: false })
+				: ok({ title: 'Mine' }),
+		);
+		await w.call('get_recipe', { branch_id: 'b_1' });
+		await w.worker.handle(new Request(`${ORIGIN}/api/photographs/p_1/card`), () => undefined);
+		await w.call('revoke_session', { session_id: 's_tablet' });
+		expect(w.stores.get(READS_CACHE)?.size).toBe(1);
+		expect(w.stores.get(PHOTOGRAPHS_CACHE)?.size).toBe(1);
 	});
 });
 

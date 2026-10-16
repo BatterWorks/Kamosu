@@ -217,7 +217,10 @@ pub fn revoke_session(
         .ok_or_else(|| OpError::bad_request("revoke_session takes { session_id }"))?;
     let caller = caller_of(invocation)?;
     core.revoke_session(&caller.person_id, session_id)?;
-    Ok(json!({ "revoked": true }))
+    // Ending the Session in hand signs the caller out; ending another leaves
+    // them signed in, and a browser keeps what it holds (#291).
+    let current = caller.session_id.as_deref() == Some(session_id);
+    Ok(json!({ "revoked": true, "current": current }))
 }
 
 pub fn mint_access_key(

@@ -925,12 +925,14 @@ async fn sessions_are_told_apart_and_can_be_renamed() {
     );
 
     // Renaming never revives: an ended Session is not renamed.
-    let (status, _) = app.post_op(
+    let (status, revoked) = app.post_op(
         "revoke_session",
         Some(&phone_secret),
         &json!({ "session_id": first_id }).to_string(),
     );
     assert_eq!(status, 200);
+    // Another device's Session, so the phone stays signed in (#291).
+    assert_eq!(revoked["result"]["current"], false, "{revoked}");
     let (status, _) = app.post_op(
         "rename_session",
         Some(&phone_secret),
@@ -1003,6 +1005,7 @@ async fn an_ended_session_takes_its_cookie_with_it() {
         &json!({ "session_id": session_id }).to_string(),
     );
     assert_eq!(status, 200, "{revoked}");
+    assert_eq!(revoked["result"]["current"], true, "{revoked}");
 
     // The sign-in screen's first question, asked by a browser still holding the
     // dead cookie. Refused — and the refusal expires the cookie.
