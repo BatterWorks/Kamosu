@@ -236,7 +236,7 @@ describe('the settings screen', () => {
 					},
 				],
 			},
-			revoke_session: { revoked: true },
+			revoke_session: { revoked: true, current: false },
 			revoke_access_key: { revoked: true },
 			list_kitchens: { kitchens: [] },
 		});
@@ -1402,7 +1402,7 @@ describe('telling your Sessions apart (#114)', () => {
 				list_sessions: () => ({ sessions: ended ? three.slice(0, 2) : three }),
 				revoke_session: () => {
 					ended = true;
-					return { revoked: true };
+					return { revoked: true, current: false };
 				},
 			}),
 		);
@@ -1419,7 +1419,10 @@ describe('telling your Sessions apart (#114)', () => {
 	});
 
 	it('signs you out when the Session ended is the one in your hand', async () => {
-		const { kamosu } = renderScreen(Account, signedIn({ revoke_session: { revoked: true } }));
+		const { kamosu } = renderScreen(
+			Account,
+			signedIn({ revoke_session: { revoked: true, current: true } }),
+		);
 
 		await fireEvent.click(within((await rows())[0]).getByRole('button', { name: 'Sign out' }));
 

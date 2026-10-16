@@ -263,12 +263,13 @@ export type RenameSessionOutput = {
 	name: string;
 };
 
-/** End one of your browser Sessions. */
+/** End one of your browser Sessions. `current` says whether it was the one this call was made with, as `list_sessions` marks it: a browser that ended its own is signed out. */
 export type RevokeSessionInput = {
 	session_id: string;
 };
 /** What revoke_session answers. */
 export type RevokeSessionOutput = {
+	current: boolean;
 	revoked: boolean;
 };
 
@@ -6930,7 +6931,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "revoke_session",
-		"summary": "End one of your browser Sessions.",
+		"summary": "End one of your browser Sessions. `current` says whether it was the one this call was made with, as `list_sessions` marks it: a browser that ended its own is signed out.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6948,12 +6949,16 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"current": {
+					"type": "boolean"
+				},
 				"revoked": {
 					"type": "boolean"
 				}
 			},
 			"required": [
-				"revoked"
+				"revoked",
+				"current"
 			],
 			"type": "object"
 		}
@@ -31916,7 +31921,7 @@ export interface KamosuClient {
 	listSessions(input?: ListSessionsInput): Promise<Answer<'list_sessions'>>;
 	/** Rename one of your browser Sessions. A Session is named for its device when it signs in; this corrects the guess or names an older one. An ended Session is not renamed. */
 	renameSession(input: RenameSessionInput): Promise<Answer<'rename_session'>>;
-	/** End one of your browser Sessions. */
+	/** End one of your browser Sessions. `current` says whether it was the one this call was made with, as `list_sessions` marks it: a browser that ended its own is signed out. */
 	revokeSession(input: RevokeSessionInput): Promise<Answer<'revoke_session'>>;
 	/** Mint an Access Key for an agent to act as you. You may make it read-only. */
 	mintAccessKey(input: MintAccessKeyInput): Promise<Answer<'mint_access_key'>>;

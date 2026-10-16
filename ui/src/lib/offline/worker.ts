@@ -14,9 +14,14 @@
  *   never merges.
  * - **After this phone writes, the next read of anything asks the server
  *   first**, so a change you just made is never shown undone by an older copy.
+ *   A write that changes no recipe, such as opening one, is not counted.
+ * - **When the server does not answer, the kept copy does**, whether the
+ *   network failed, something in front of Kamosu answered for it, or Kamosu
+ *   could not answer just then.
  * - **What the phone keeps belongs to the Session that filled it.** Logging in,
- *   logging out and being refused all empty it, so a second person on the
- *   same phone never reads the first one's recipes.
+ *   logging out, being refused and ending this phone's own Session all empty
+ *   it, so a second person on the same phone never reads the first one's
+ *   recipes. Ending another device's Session leaves it.
  */
 
 import {
@@ -25,6 +30,7 @@ import {
 	NOTES_CACHE,
 	PHOTOGRAPHS_CACHE,
 	READS_CACHE,
+	readsChangedBy,
 	policyFor,
 	readKey,
 	serverAnswered,
@@ -65,6 +71,7 @@ export type WorkerMessage =
 
 interface Envelope {
 	ok?: boolean;
+	result?: { current?: boolean };
 	error?: { kind?: string };
 }
 
@@ -91,6 +98,9 @@ const LAST_WRITE = '/__kamosu/last-write';
  * the margin is for a slow phone.
  */
 const JUST_KEPT_MS = 10_000;
+
+/** A kept answer a write changed, refreshed behind on its next ask however young. */
+const OWED_HEADER = 'x-kamosu-owed';
 
 export function createWorker(world: WorkerWorld) {
 	const announce = (operation: string) => world.tell({ type: 'kamosu:refreshed', operation });
@@ -141,6 +151,25 @@ export function createWorker(world: WorkerWorld) {
 		await (await world.caches.open(NOTES_CACHE)).put(LAST_WRITE, new Response(String(lastWrite)));
 	}
 
+	/**
+	 * Mark what was kept for these reads as owing a refresh, so the next ask is
+	 * still answered from the phone and refreshed behind it, however recently
+	 * it was kept. Never removed: offline, the old copy is the only one. The
+	 * refresh keeps a new copy, which carries no mark.
+	 */
+	async function aged(operations: readonly string[]): Promise<void> {
+		const store = await world.caches.open(READS_CACHE);
+		const paths = new Set(operations.map((operation) => `/__kamosu/read/${operation}`));
+		for (const request of await store.keys()) {
+			if (!paths.has(new URL(request.url).pathname)) continue;
+			const kept = await store.match(request);
+			if (!kept) continue;
+			const headers = new Headers(kept.headers);
+			headers.set(OWED_HEADER, '1');
+			await store.put(request, new Response(await kept.text(), { headers }));
+		}
+	}
+
 	/** Everything this Session's reads put on the phone, its pictures included. */
 	async function forget(): Promise<void> {
 		lastWrite = 0;
@@ -160,11 +189,12 @@ export function createWorker(world: WorkerWorld) {
 		const response = await toServer(request);
 		const envelope = parse(await response.clone().text());
 		if (envelope?.ok && write) {
-			await wrote();
-			// Ending a Session may be ending this one. Asking again costs one
-			// read per recipe; showing a signed-out phone someone's library
-			// costs far more.
-			if (operation === 'revoke_session') await forget();
+			const changed = readsChangedBy(operation);
+			await (changed ? aged(changed) : wrote());
+			// Ending the Session in this phone's hand is signing out, and the
+			// server says whether it was (#291). Another device's leaves this
+			// phone signed in and its library where it is.
+			if (operation === 'revoke_session' && envelope.result?.current !== false) await forget();
 		} else if (envelope?.error?.kind === 'unauthorized') {
 			await forget();
 		}
@@ -191,8 +221,19 @@ export function createWorker(world: WorkerWorld) {
 		// refresh behind needs it to tell whether anything changed.
 		const before = kept ? await kept.clone().text() : undefined;
 
+		/**
+		 * The server's answer, kept when it is one. An answer that is not one —
+		 * the proxy's 502 while Kamosu restarts, a hotel wifi's page, Kamosu
+		 * saying it is busy or went wrong — throws as the network failing does,
+		 * so the kept copy answers in its place (#291). Kamosu refusing the read,
+		 * a recipe not found or a Session ended, is its answer, and is not.
+		 */
 		const refresh = async () => {
 			const response = await toServer(request);
+			if (serverAnswered(response) === false || response.status >= 500) {
+				if (kept) throw new Error(`not Kamosu's answer: ${response.status}`);
+				return response;
+			}
 			if (response.status !== 200) {
 				if (response.status === 401) await refused();
 				return response;
@@ -229,7 +270,9 @@ export function createWorker(world: WorkerWorld) {
 		const keptAt = Number(kept?.headers.get(KEPT_HEADER) ?? 0);
 		const current = kept !== undefined && keptAt >= (await lastWritten());
 		if (policy === 'phone-first' && current) {
-			if (world.now() - keptAt >= JUST_KEPT_MS) waitUntil(refresh().catch(() => undefined));
+			if (world.now() - keptAt >= JUST_KEPT_MS || kept.headers.has(OWED_HEADER)) {
+				waitUntil(refresh().catch(() => undefined));
+			}
 			return kept;
 		}
 

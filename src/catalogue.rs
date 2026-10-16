@@ -832,7 +832,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "revoke_session",
-            summary: "End one of your browser Sessions.",
+            summary: "End one of your browser Sessions. `current` says whether it \
+                      was the one this call was made with, as `list_sessions` \
+                      marks it: a browser that ended its own is signed out.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -840,7 +842,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"], "additionalProperties": false }),
-            output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" } }, "required": ["revoked"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" }, "current": { "type": "boolean" } }, "required": ["revoked", "current"], "additionalProperties": false }),
             handler: crate::operations::revoke_session,
         },
         Operation {

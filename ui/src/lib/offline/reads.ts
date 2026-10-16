@@ -111,6 +111,28 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	list_runner_keys: 'never',
 };
 
+/**
+ * Writes that change no recipe, each with the few reads it does change (#291).
+ * Every other kept read stays phone-first after one; those few are refreshed
+ * behind the next time they are asked, however young. Any write not listed
+ * makes the next read of anything ask the server first.
+ *
+ * Opening a recipe tells the server so, for Home's *recently opened*, and it
+ * happens on every recipe opened. Counted as a write, it sent every kept read
+ * after it to the server first, and a slow server then gave none.
+ */
+const CHANGES_NO_RECIPE: Partial<Record<OperationName, readonly OperationName[]>> = {
+	note_recipe_opened: ['home_shelves'],
+};
+
+/**
+ * The reads a write that changes no recipe changes, or `undefined` for any
+ * other write.
+ */
+export function readsChangedBy(operation: string): readonly OperationName[] | undefined {
+	return CHANGES_NO_RECIPE[operation as OperationName];
+}
+
 const READ_SET = new Set<string>(READS);
 
 /** How the Operation called `operation` is answered, or `undefined` for a write. */
