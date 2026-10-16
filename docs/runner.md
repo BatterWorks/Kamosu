@@ -281,16 +281,50 @@ Runner Key's file above is:
 | Variable | What it holds |
 |---|---|
 | `KAMOSU_RUNNER_KEY` | The Runner Key from step 1. |
-| `KAMOSU_AGENT_MODEL` | The model, as opencode names it: `provider/model`. The command below lists them. |
-| The provider's own key | Under the name opencode reads for that provider, such as `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY`. |
-| `KAMOSU_AGENT_EFFORT` | Optional. How hard the model thinks before it answers, in opencode's words for that model, such as `low`, `high` or `max`. Without it, the model's own default. |
+| `KAMOSU_AGENT_MODEL` | The model, as opencode names it: `provider/model`. The command below lists them. With `KAMOSU_AGENT_BASE_URL`, the provider part is a name of your choosing and the model part is the model's id at that service. |
+| `KAMOSU_AGENT_API_KEY` | The key for that model's provider, whichever it is. |
+| `KAMOSU_AGENT_BASE_URL` | Optional. The address of a service opencode does not know that offers an OpenAI-compatible API, such as `https://llm.kamosu.example/v1`. The model is then told it takes pictures, so make it one that does: a photo of a page and a scanned PDF reach it as pictures. |
+| `KAMOSU_AGENT_EFFORT` | Optional. How hard the model thinks before it answers, in opencode's words for that model, such as `low`, `high` or `max`. A model reached through `KAMOSU_AGENT_BASE_URL` takes `low`, `medium` or `high`. Without it, the model's own default. |
 
-To see the models your key opens, ask opencode in the image you built:
+A provider's own variable still works in place of `KAMOSU_AGENT_API_KEY`,
+under the name opencode reads for it, such as `OPENAI_API_KEY`,
+`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY`.
+When both are set, `KAMOSU_AGENT_API_KEY` is the one used. A provider that
+needs more than a key, such as Amazon Bedrock, Google Vertex or Azure, takes
+its own variables, which opencode's provider documentation names.
+
+A settings file for a provider opencode knows:
 
 ```sh
-docker run --rm --env-file ~/.config/kamosu-runner.env --entrypoint opencode \
-  kamosu-runner models --standalone
+KAMOSU_RUNNER_KEY=...
+KAMOSU_AGENT_MODEL=openrouter/the-model-id
+KAMOSU_AGENT_API_KEY=...
 ```
+
+And for a service it does not, where the provider part, `my-service` here, is
+any name:
+
+```sh
+KAMOSU_RUNNER_KEY=...
+KAMOSU_AGENT_MODEL=my-service/the-model-id
+KAMOSU_AGENT_API_KEY=...
+KAMOSU_AGENT_BASE_URL=https://llm.kamosu.example/v1
+```
+
+The key stays in the settings file and the container's environment. opencode
+reads it from there for each Job, and no file the agent writes holds it.
+
+To see the models a key opens, ask opencode in the image you built. It lists
+the providers whose own variable is set, so hand it the key under that name,
+`OPENROUTER_API_KEY` here:
+
+```sh
+docker run --rm --env-file ~/.config/kamosu-runner.env --entrypoint sh \
+  kamosu-runner -c 'OPENROUTER_API_KEY="${KAMOSU_AGENT_API_KEY:-$OPENROUTER_API_KEY}" opencode models --standalone'
+```
+
+A service reached through `KAMOSU_AGENT_BASE_URL` is not in that list. Its
+own documentation names its models.
 
 To change model or effort, edit the file and start the container again.
 

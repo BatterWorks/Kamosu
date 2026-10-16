@@ -97,6 +97,7 @@ for left in glob.glob(os.path.join(tempfile.gettempdir(), "kamosu-agent-*")):
 model = os.environ.get("KAMOSU_AGENT_MODEL", "").strip()
 if not model:
     failed("The Runner's container was started with no model for the agent.")
+provider, _, model_id = model.partition("/")
 effort = os.environ.get("KAMOSU_AGENT_EFFORT", "").strip()
 if effort:
     model += "#" + effort
@@ -157,6 +158,38 @@ config = {
         }
     },
 }
+# The key for the model's provider, whichever it is (#318). The settings hold
+# the variable's name and opencode reads its value, so the key is in no file.
+# Without it, opencode reads the provider's own variable. With a base URL,
+# the provider is one opencode does not know, declared here with the one
+# model, which is told it takes pictures: a photo of a page reaches it as one.
+# No PDF, which an OpenAI-compatible service may refuse: the agent finds it
+# cannot open one and turns its pages into pictures, as instructions.md says.
+settings = {}
+if os.environ.get("KAMOSU_AGENT_API_KEY", "").strip():
+    settings["apiKey"] = "{env:KAMOSU_AGENT_API_KEY}"
+base_url = os.environ.get("KAMOSU_AGENT_BASE_URL", "").strip()
+if base_url:
+    if not model_id:
+        failed("KAMOSU_AGENT_MODEL names no model after its provider, as provider/model.")
+    settings["baseURL"] = base_url
+    config["providers"] = {
+        provider: {
+            "package": "@ai-sdk/openai-compatible",
+            "settings": settings,
+            "models": {
+                model_id: {
+                    "capabilities": {
+                        "tools": True,
+                        "input": ["text", "image"],
+                        "output": ["text"],
+                    }
+                }
+            },
+        }
+    }
+elif settings:
+    config["providers"] = {provider: {"settings": settings}}
 config_dir = os.path.join(root, "config", "opencode")
 os.makedirs(config_dir)
 with open(os.path.join(config_dir, "opencode.json"), "w") as f:
