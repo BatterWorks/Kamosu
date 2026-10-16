@@ -33,6 +33,7 @@
 - The MCP door's instructions say that a collapsed save keeps the name and change note the Version already has unless it sends new ones. They said the opposite, that the ones already there were erased, which has not been true since those were kept. [#265]
 - `branch_point` and `divergence` asked about a recipe and its Translation, or two Translations of one recipe, refuse the call as a bad request and say where the link is held: `translation` on the Branch, and `translates_version_id` on its Versions. They used to answer an internal error calling the recipe a damaged Bundle. [#251]
 - A Bundle that would unpack to more than 256 MB is refused whole, in its Import Report and when a Share Link's recipe is previewed, and says so. [#296]
+- The Import Report of a link is titled "The link you brought in". A link Kamosu read on its own used to be titled "Your Crouton library". [#308]
 
 [#249]: https://github.com/BatterWorks/Kamosu/issues/249
 [#250]: https://github.com/BatterWorks/Kamosu/issues/250
@@ -61,6 +62,7 @@
 [#296]: https://github.com/BatterWorks/Kamosu/issues/296
 [#301]: https://github.com/BatterWorks/Kamosu/issues/301
 [#302]: https://github.com/BatterWorks/Kamosu/issues/302
+[#308]: https://github.com/BatterWorks/Kamosu/issues/308
 [#315]: https://github.com/BatterWorks/Kamosu/issues/315
 [#317]: https://github.com/BatterWorks/Kamosu/issues/317
 [#318]: https://github.com/BatterWorks/Kamosu/issues/318
