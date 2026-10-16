@@ -1715,10 +1715,11 @@ pub(super) fn names_json(named: &[(String, String)]) -> Vec<Value> {
 /// reduces to below. A Bundle importing a Food from another instance arrives
 /// with one entry per Language it has a name in, and is the only situation in
 /// which more than one name arrives together. `import_bundle` is therefore
-/// the one Operation that reaches the multi-name branches below, and
+/// the one Operation that reaches the multi-name branches below, through
+/// [`FoodMatches`], and
 /// `a_food_whose_names_hit_two_foods_here_arrives_as_a_third_and_a_suggestion`
 /// drives them through it.
-pub(super) fn resolve_food_for_names(
+fn resolve_food_for_names(
     conn: &Connection,
     names: &[(&str, &str)],
     exclude: Option<(&str, i64)>,
@@ -1810,6 +1811,80 @@ pub(super) fn resolve_food_for_names(
             Ok(third)
         }
     }
+}
+
+/// The Food Matches one import has already made, so the same names land on
+/// the same Food however many Readings carry them (#292). A Bundle carries a
+/// line's Food again on every Version of the chain, and without this each
+/// Version's names would hit the third Food the last one minted as well, and
+/// mint another.
+///
+/// Names are the same here as they are to the Food Match: the same Language
+/// and the same folded word, in any order, and as many of them. An earlier
+/// Match is used again only while each of those names still answers to
+/// exactly the Foods it answered to once the Match was made. The lock is let
+/// go between two Branches of an import, and an Operator who renames, merges
+/// or deletes a Food there has the names matched afresh.
+#[derive(Default)]
+pub(super) struct FoodMatches(HashMap<Vec<(String, String)>, Matched>);
+
+/// One Match an import made: the Food, and the Foods each name answered to
+/// afterwards, in the order of the names.
+struct Matched {
+    food_id: String,
+    answers: Vec<Vec<String>>,
+}
+
+impl FoodMatches {
+    pub(super) fn resolve(
+        &mut self,
+        conn: &Connection,
+        names: &[(&str, &str)],
+    ) -> Result<String, OpError> {
+        let mut known_as: Vec<(String, String)> = names
+            .iter()
+            .map(|(language, word)| ((*language).to_string(), folded_word(word)))
+            .collect();
+        known_as.sort();
+        if let Some(matched) = self.0.get(&known_as)
+            && matched.answers == answers_to(conn, &known_as)?
+        {
+            return Ok(matched.food_id.clone());
+        }
+        let food_id = resolve_food_for_names(conn, names, None)?;
+        let answers = answers_to(conn, &known_as)?;
+        self.0.insert(
+            known_as,
+            Matched {
+                food_id: food_id.clone(),
+                answers,
+            },
+        );
+        Ok(food_id)
+    }
+}
+
+/// The Foods each already-folded name answers to, in the order of the names.
+fn answers_to(
+    conn: &Connection,
+    known_as: &[(String, String)],
+) -> Result<Vec<Vec<String>>, OpError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT food_id FROM food_names WHERE language = ?1 AND name_folded = ?2 \
+             ORDER BY food_id",
+        )
+        .map_err(|e| OpError::internal(format!("cannot look up Food: {e}")))?;
+    known_as
+        .iter()
+        .map(|(language, folded)| {
+            statement
+                .query_map(params![language, folded], |row| row.get(0))
+                .map_err(|e| OpError::internal(format!("cannot look up Food: {e}")))?
+                .collect::<Result<_, _>>()
+                .map_err(|e| OpError::internal(format!("cannot look up Food: {e}")))
+        })
+        .collect()
 }
 
 /// The lone-word reduction of [`resolve_food_for_names`] — what a Reading's
@@ -1971,6 +2046,47 @@ fn food_summary(
 
 #[cfg(test)]
 mod tests {
+    /// One import matches the same names to the same Food (#292), and
+    /// matches them afresh once a Food they hit has changed in between: the
+    /// lock is let go between two Branches of an import, so an Operator may
+    /// rename a Food meanwhile.
+    #[test]
+    fn an_import_matches_the_same_names_once_until_their_foods_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::db::Db::open(dir.path()).unwrap();
+        db.with_conn(|conn| {
+            let food_a = super::create_food(conn, &[("fr", "farine")]).unwrap();
+            let food_b = super::create_food(conn, &[("en", "flour")]).unwrap();
+            let mut matches = super::FoodMatches::default();
+            let names = [("fr", "farine"), ("en", "flour")];
+
+            let third = matches.resolve(conn, &names).unwrap();
+            assert_ne!(third, food_a);
+            assert_ne!(third, food_b);
+            let again = matches
+                .resolve(conn, &[("en", "Flour"), ("fr", "farine")])
+                .unwrap();
+            assert_eq!(again, third, "the same names, cased and ordered otherwise");
+            let foods: i64 = conn
+                .query_row("SELECT COUNT(*) FROM foods", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(foods, 3, "no fourth Food");
+
+            // An Operator takes "flour" off the third between two Branches.
+            // The names now hit food_a, food_b and a third answering to
+            // farine alone, which is not what the earlier Match saw.
+            conn.execute(
+                "DELETE FROM food_names WHERE food_id = ?1 AND language = 'en'",
+                rusqlite::params![third],
+            )
+            .unwrap();
+            let afresh = matches.resolve(conn, &names).unwrap();
+            assert_ne!(afresh, third, "matched afresh, as without the memo");
+            Ok(())
+        })
+        .unwrap();
+    }
+
     /// The "two hits make a third Food" half of ADR 0022 only ever fires for
     /// an arriving Food known by more than one name — exclusively a Bundle
     /// from another instance. The behaviour test drives it through
