@@ -2,7 +2,7 @@
 
 Research date: 2026-10-13. Asked while designing AI-assisted recipe import for Kamosu from four kinds of source: a recipe web page, pasted text or a text PDF, a picture, and a video link.
 
-The question was how other software already does this, so that Kamosu copies what works instead of inventing it. Four parts were researched independently, each against source code and first-party documentation. Each part keeps its own confidence marks and the commits it read. Nothing in those four parts was built or run. Part 5 was added the same day: a small test of the option the survey pointed to. Part 6 was added on 2026-10-16: the agent Kamosu settled on, measured on the development instance. Part 7 was added the same day: that agent on sources chosen to go wrong, scored against [an answer key](agent-answer-key.md). [ADR 0048](../adr/0048-an-agent-beside-kamosu-reads-what-kamosu-cannot.md) records the decision that followed.
+The question was how other software already does this, so that Kamosu copies what works instead of inventing it. Four parts were researched independently, each against source code and first-party documentation. Each part keeps its own confidence marks and the commits it read. Nothing in those four parts was built or run. Part 5 was added the same day: a small test of the option the survey pointed to. Part 6 was added on 2026-10-16: the agent Kamosu settled on, measured on the development instance. Part 7 was added the same day: that agent on sources chosen to go wrong, scored against [an answer key](agent-answer-key.md). Part 8 was added the same day: the same sources on six model and effort settings, with what each costs. [ADR 0048](../adr/0048-an-agent-beside-kamosu-reads-what-kamosu-cannot.md) records the decision that followed.
 
 When the research was asked for, the design discussion leaned toward a separate agent container beside Kamosu doing all of the reading, with Kamosu itself never calling a model. The parts call this "the lean". It was reasoned without a survey, and each part was told to treat evidence against it as worth as much as evidence for it.
 
@@ -906,3 +906,121 @@ Something that is no recipe costs a third of a cent and under twenty seconds. A 
 ### Limits
 
 One model at one effort, with one run at high effort where a cause was in doubt. Most sources ran once or twice, and the runs that differed show how much a result varies: the duplicate was found in three runs of five, and the Short's step photographs in three of five. Several sources were written for the test, so they are as hard as their writer thought to make them. An instruction can fix what the agent was not told; four of the faults here were the model's, and one of them held at high effort.
+
+## Part 8. The agent on six model and effort settings
+
+Run on 2026-10-16 for #325. Parts 6 and 7 measured one setting, Claude Haiku 5.5 at medium effort. This part ran the sources of [the answer key](agent-answer-key.md) on six settings, twice each, to see whether a higher effort or a larger model reads them better and what it costs.
+
+### Method
+
+- **The agent.** `agent-image/` with `instructions.md` at commit `a65b3ce` (merged as `7bb0cc2`), unchanged through every run, and opencode 2.0.30. `agent-image/agent` gained one log line for this part: the largest single request a Job sent the model, from opencode's count for each message.
+- **The settings.** Claude Haiku 5.5 at medium, high, xhigh and max effort; Claude Sonnet 5.5 at high; Claude Opus 5.5 at medium. `KAMOSU_AGENT_EFFORT` set the effort explicitly on every run. #325 says why these six.
+- **The sources.** Haiku ran all 31 sources of the key: the 18 #324 wrote and 13 kinds #281 tried, keyed for this part as 19 to 31. That makes 32 scored readings a run, since the key scores source 18's first reading and its reading again apart. Sonnet and Opus ran the twelve sources Haiku at medium got wrong at least once in #324, with two easy ones as controls: 1, 2, 3, 9, 10 and 18, 21, 28, 29 and 30, and 4 and 15. They also ran 23 to 26, the sources a Haiku setting failed outside those twelve, as #325 asks. That makes 17 scored readings a run.
+- **Two runs, not three.** The maintainer capped what this part could spend at $60 and made the first run's cost the test: above $20, two runs. The first run cost $20.57 as opencode logged it. Haiku at max effort ran once: after its first run the maintainer judged it too slow to use. With two runs, a setting's spread is its two results side by side.
+- **Opus 5.5 at high effort was not run.** #325 adds it if Opus at medium fails sources a higher effort might pass. The maintainer chose to write up instead, on the reasons in "Which settings are worth running".
+- **A clean library for every source.** Each setting ran in a Kamosu of its own, started from a copy of the development library with the 28 recipes #324 had read from these sources deleted. The library's other recipes stayed, so the search for the same dish found real neighbours, the dish source 21 duplicates among them. A source's recipes were deleted before the next source ran.
+- **The machine.** The development host, as in Part 6. The six settings ran at once, each with its own Kamosu, Runner and agent in rootless Podman containers.
+- **Time** is the agent's own count from its log line, summed over every try of a Job.
+- **Cost** is opencode's count from the same line, at the provider's list prices. A script also priced every try's tokens at Anthropic's prices read on 2026-10-16 (per million tokens: input, output, 5-minute cache write, cache read): Haiku 5.5 $0.10, $0.50, $0.125, $0.01, five times each on a request over 100,000 tokens; Sonnet 5.5 $2, $10, $2.50, $0.10; Opus 5.5 $4, $20, $5, $0.20. The two agree to the cent on every try whose requests the new log line counted, which is every try but 6. On those 6 the count of requests failed, so the script could not see which of a Haiku try's requests paid the higher price, and its price came out $0.93 under opencode's on the four that were Haiku's. opencode's count is used throughout. The total was not checked against Anthropic's Console: its cost report needs an Admin key, which the development host does not hold.
+- **Scoring.** A script runs each key as checks on the recipe, its Readings and its Import Report, and every reading that failed a check was read by hand. Where a check was wrong it was corrected and every run scored again. Source 2's tin size and source 8's pastry are recorded and fail nothing, as the answer key settles. A Job stopped by the 30-minute limit, or cancelled, fails its source, with the cost of every try that logged one.
+- **Every reading** is a row of [`agent-model-runs.csv`](agent-model-runs.csv): its outcome, whether it passed, its tries, time, cost and largest request, and for a reading that did not pass, the check it failed or the verdict read by hand.
+
+### What each setting cost and how it read
+
+The averages are means over every Job a run made; the medians are over every Job of both runs. Haiku at max's stopped Job is left out of both, and counts as a failed reading.
+
+| Setting | Readings passed | Cost of a run | Mean cost a Job | Mean time a Job | Median cost a Job | Median time a Job | Longest Job |
+|---|---|---|---|---|---|---|---|
+| Haiku 5.5 medium | 23 and 26 of 32 | $0.63 and $0.64 | $0.020 and $0.020 | 82 s and 93 s | $0.014 | 58 s | 10 min |
+| Haiku 5.5 high | 29 and 28 of 32 | $1.14 and $0.94 | $0.036 and $0.029 | 129 s and 111 s | $0.018 | 74 s | 23 min |
+| Haiku 5.5 xhigh | 28 and 27 of 32 | $2.26 and $2.09 | $0.071 and $0.065 | 215 s and 176 s | $0.027 | 127 s | 34 min, two tries |
+| Haiku 5.5 max | 30 of 32 | $4.49, and a try not logged | $0.145 | 299 s | $0.100 | 237 s | the silent video, stopped |
+| Sonnet 5.5 high | 14 and 13 of 17 | $5.17 and $5.48 | $0.30 and $0.32 | 136 s and 164 s | $0.274 | 64 s | 18 min |
+| Opus 5.5 medium | 12 and 14 of 17 | $9.94 and $10.65 | $0.58 and $0.63 | 156 s and 162 s | $0.535 | 72 s | 17 min |
+
+The twelve hard sources, which every setting ran. Source 29 is shown apart because its key is in doubt (see "Why sources failed"):
+
+| Setting | Of 13 | Of 12, without source 29 | Cost of a run |
+|---|---|---|---|
+| Haiku 5.5 medium | 7 and 8 | 7 and 7 | $0.36 and $0.40 |
+| Haiku 5.5 high | 11 and 10 | 10 and 9 | $0.81 and $0.64 |
+| Haiku 5.5 xhigh | 10 and 9 | 10 and 9 | $1.85 and $1.59 |
+| Haiku 5.5 max | 11 | 11 | $2.57 |
+| Sonnet 5.5 high | 10 and 9 | 10 and 9 | $4.14 and $4.37 |
+| Opus 5.5 medium | 8 and 10 | 8 and 10 | $7.91 and $8.43 |
+
+The median cost and time of a Job by kind of source, over both runs:
+
+| Setting | Not a recipe | Text, PDF, picture | Page | Read again | Short video | Long video |
+|---|---|---|---|---|---|---|
+| Haiku 5.5 medium | $0.004, 18 s | $0.014, 55 s | $0.018, 77 s | $0.010, 42 s | $0.020, 102 s | $0.109, 534 s |
+| Haiku 5.5 high | $0.004, 17 s | $0.017, 68 s | $0.020, 94 s | $0.013, 50 s | $0.030, 168 s | $0.193, 594 s |
+| Haiku 5.5 xhigh | $0.005, 20 s | $0.024, 104 s | $0.032, 154 s | $0.025, 120 s | $0.076, 253 s | $0.570, 1242 s |
+| Haiku 5.5 max | $0.010, 58 s | $0.096, 234 s | $0.164, 316 s | $0.155, 288 s | $0.319, 506 s | $0.855, 1145 s |
+| Sonnet 5.5 high | $0.146, 14 s | $0.274, 56 s | $0.277, 68 s | $0.185, 42 s | $0.284, 94 s | $0.776, 856 s |
+| Opus 5.5 medium | $0.166, 16 s | $0.519, 70 s | $0.540, 68 s | $0.365, 49 s | $0.582, 108 s | $1.690, 812 s |
+
+On most kinds a Job on Sonnet costs about 15 times what it costs on Haiku at high effort, and on Opus about 30 times. Most of that is the price of the tokens a Job writes to the cache at its start, as #325 predicted: a Job that reads nothing, such as a shopping list, costs $0.15 on Sonnet and $0.004 on Haiku. Sonnet and Opus are no slower than Haiku at high effort on any kind but the long videos, where they took about half as long again.
+
+Every Job ended as its key expects, completed, could not be read or failed, but Haiku at max's stopped Job.
+
+### Passes by source
+
+Readings that passed, of those run, numbered as in the key (18a is source 18's first reading, 18b its reading again):
+
+| Source | Haiku medium | Haiku high | Haiku xhigh | Haiku max | Sonnet high | Opus medium |
+|---|---|---|---|---|---|---|
+| 1. Silent video | 0/2 | 0/2 | 1/2 | 0/1 | 0/2 | 0/2 |
+| 2. Handwritten card | 0/2 | 0/2 | 1/2 | 1/1 | 2/2 | 1/2 |
+| 3. Card upside down | 0/2 | 1/2 | 0/2 | 1/1 | 1/2 | 2/2 |
+| 4. Two-column PDF | 0/2 | 2/2 | 2/2 | 1/1 | 2/2 | 2/2 |
+| 9. Ranges and cans | 2/2 | 2/2 | 2/2 | 1/1 | 2/2 | 2/2 |
+| 10. Story-first page, read again | 1/2 | 2/2 | 2/2 | 1/1 | 2/2 | 2/2 |
+| 15. Shopping list | 2/2 | 2/2 | 2/2 | 1/1 | 2/2 | 2/2 |
+| 18a. Shortbread | 2/2 | 2/2 | 1/2 | 1/1 | 2/2 | 2/2 |
+| 18b. Shortbread read again | 2/2 | 2/2 | 2/2 | 1/1 | 2/2 | 2/2 |
+| 21. PDF of a dish already held | 1/2 | 2/2 | 2/2 | 1/1 | 2/2 | 0/2 |
+| 23. Picture of a page | 1/2 | 2/2 | 1/2 | 1/1 | 2/2 | 2/2 |
+| 24. Tzatziki | 1/2 | 2/2 | 2/2 | 1/1 | 2/2 | 2/2 |
+| 25. Quiche lorraine | 0/2 | 0/2 | 2/2 | 1/1 | 2/2 | 2/2 |
+| 26. Refused page, its copy read | 2/2 | 2/2 | 1/2 | 1/1 | 2/2 | 2/2 |
+| 28. TikTok | 2/2 | 2/2 | 2/2 | 1/1 | 2/2 | 2/2 |
+| 29. Menemen video | 1/2 | 2/2 | 0/2 | 0/1 | 0/2 | 0/2 |
+| 30. YouTube Short | 2/2 | 2/2 | 2/2 | 1/1 | 0/2 | 1/2 |
+
+Every other source passed on every run of every Haiku setting: 5 to 8, 11 to 14, 16, 17, 19, 20, 22, 27 and 31.
+
+### Why sources failed
+
+- **Lines left unread or misread.** Haiku at medium left a line with an amount and no Reading ("juice of ½ lemon", "½ lemon rind") in three runs, and xhigh once ("zest of 1 lemon"). Haiku at medium and high kept the handwritten card's apple slices in a step instead of a line in every run. On the upside-down card Haiku at medium, high and xhigh each read a ½ as ⅛ or ¼ at least once, and Sonnet a ½ as ⅓ once. On the handwritten card Haiku at high read ¼ cup of milk as ⅓ once, and Opus the 3 eggs as 2 once. On the muffin page Haiku at xhigh read 1⅓ cups of milk as 1½ once, and medium dropped the iron pans once.
+- **A page's photograph not stored.** Haiku at medium and high stored no photograph of the quiche in any run, though the page has one. Haiku at xhigh and max, Sonnet and Opus stored it every time. Medium missed the tzatziki's once.
+- **The silent video.** Every setting missed something. Haiku at medium and high in every run, xhigh once, and Sonnet in both runs coated the steak in egg yolks, with no whole eggs. Opus gave the steak "3 eggs" in both runs, and once the onion rings "1 onion", amounts the video never gives. Haiku at xhigh read it right once, in two tries and 34 minutes. Haiku at max reached the 30-minute limit and its second try was stopped by hand.
+- **The Menemen video, and a doubt in its key.** The key's lines are the written recipe the description links, and its "fails on" says only an amount neither the recipe nor the video gives is wrong. Sonnet, Opus and Haiku at xhigh and max took the quantities said in the video ("half an Anaheim pepper", "two tomatoes"), which the key's lines fail and its "fails on" allows. Haiku at high took the written recipe in both runs. The tables count these as fails, and the hard sources are shown without source 29 too.
+- **Titles.** Sonnet called the Short "TikTok Ramen" in both runs, and Opus once: the description calls it the "viral TikTok Ramen hack", and the video's own name is Garlic Butter Ramen. Haiku at medium once titled the sliders "Grandma's Oven-Baked Sliders".
+- **The duplicate.** Opus named another of the library's lentil soups as the likely duplicate of the lentil handout in both runs, and not the recipe for the same dish under another name. Haiku at medium did the same once.
+- **A fault in a key's source.** The refused Taste of Home address held a different banana bread in 2023, before it moved to the recipe the key names. Haiku at xhigh read the 2023 copy once and said so. A key should name a source whose address has held one recipe.
+
+### Requests over 100,000 tokens
+
+Anthropic charges Haiku 5.5 five times its price on a request over 100,000 tokens, counting the cache. The agent sends its whole conversation again at each step, so a long Job crosses the line partway through and pays the higher price on every step after.
+
+| Setting | Readings that crossed | Added by the higher price | Median largest request | Largest request |
+|---|---|---|---|---|
+| Haiku 5.5 medium | 3 of 64 | $0.17 counted, of $1.26 | 56,762 | 135,641 |
+| Haiku 5.5 high | 7 of 64 | $0.50 counted, of $2.08 | 68,100 | 161,938 |
+| Haiku 5.5 xhigh | 15 of 64 | $1.60 counted, of $4.35 | 86,266 | 246,677 |
+| Haiku 5.5 max | 20 of 31 | $2.78, of $4.49 | 116,208 | 324,097 |
+
+At medium and high only the long videos and a few pages crossed. At max most sources did, and the higher price is 62% of what max cost. The first three figures are floors: on 4 long Jobs on these settings the request count failed, and opencode priced them $0.93 above what the counted requests show. Sonnet's and Opus's largest requests were of the same size as Haiku at high's (medians 72,385 and 71,955 tokens), and they pay one price at any length.
+
+### Which settings are worth running
+
+- **Haiku 5.5 at high effort is the setting to run.** It passed 28 or 29 of 32 readings, and on the hard sources without source 29 it read as many as Sonnet (10 and 9 of 12, the same as Sonnet) and one more than Opus over two runs, at $0.02 a Job, a fifteenth of Sonnet's price, and a little over a minute. Against medium it gives a Reading to lines medium leaves without one, reads the card's fractions more often, and stores the tzatziki's photograph, for about $0.004 more a Job.
+- **Haiku 5.5 at medium effort** is the cheapest and fastest, and was right in every run on everything that is not a recipe, on clean pasted text, on the TikTok and the Short, and on most pages. Its faults are on handwritten and old printed sources, and on a page's photograph.
+- **Haiku 5.5 at xhigh and max cost more for little better.** xhigh costs twice high and takes nearly twice as long. It stored the quiche's photograph and read the silent video right once, in 34 minutes, and was otherwise no better. Max passed the most readings of any Haiku setting in its one run, but costs four to five times high, takes about four minutes on an ordinary Job, pays the higher price on most sources, and could not read the silent video in 30 minutes.
+- **Sonnet 5.5 at high and Opus 5.5 at medium cost 15 to 30 times more and fix a few things.** Sonnet read the handwritten card right in both runs, where Haiku at medium and high never did; Opus read the upside-down card right in both; both stored the quiche's photograph. Against that, each made faults Haiku at high did not: a video's title, amounts a silent video never gives, the wrong duplicate. Over the hard sources neither passed more than Haiku at high. Opus cost twice Sonnet and read no better.
+- **Opus 5.5 at high effort** would cost about $10 a run of the hard sources. Opus at medium read no better than Haiku at high, and three of its faults are choices (amounts for a video that shows none, which recipe is the same dish, which name a video goes by) that more effort would not obviously change; one, the card's eggs, is a misreading it got right in the other run.
+
+### Limits
+
+Two runs of each setting, one of Haiku at max, so a setting's spread is two results, and a difference of one reading between settings is within it. One machine and one day; sites that answered from a home connection may refuse elsewhere. Several sources were written for the test. The Menemen and Taste of Home keys each name one right answer where a cook might accept another. 314 tries ran over 292 Jobs, for $43.44 as opencode logged it, with one more try on Haiku at max that was stopped before it logged a cost.

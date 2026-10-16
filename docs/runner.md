@@ -646,7 +646,12 @@ recipe are in its instructions.
 
   ```text
   Job j_… took 52 s and cost $0.0112: 22 tokens in, 5139 out, …
+  Job j_… sent 14 requests, the largest 61204 tokens; 0 went past 100000, …
   ```
+
+  The second line is there because an agent sends its whole conversation
+  again at each step, and some providers charge more for a request past
+  100,000 tokens, so a long Job pays more for each step after it crosses.
 
   Measured on one small model at medium effort, most Jobs took from 15
   seconds to 2 minutes and cost under three cents. A picture the agent went
