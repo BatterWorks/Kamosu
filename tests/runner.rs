@@ -8,6 +8,10 @@
 //! The stand-in is Python, which `just test` needs on the path beside
 //! `sqlite3` (AGENTS.md).
 //!
+//! An agent in a container of its own is played by a second stand-in, which
+//! listens on a Unix socket, serves one call and ends, and is started again
+//! as its container would be (#317).
+//!
 //! It needs a `test-jobs` build, in which a test may shorten the Runner's
 //! paces and its hold, so it is compiled in no other.
 #![cfg(feature = "test-jobs")]
@@ -78,6 +82,125 @@ elif mode == "lingers":
     time.sleep(300)
 "#;
 
+/// The stand-in for an agent in a container of its own: it listens on the
+/// socket it is given, greets the Runner, takes one Job and ends, as the
+/// agent's container does. The pasted text says what it does:
+///
+/// - `writes`: creates the recipe with its Job Key and sends a report.
+/// - `silent`: hangs up with no report. `garbage`: sends a report that is
+///   not JSON.
+/// - `lingers`: waits for the Runner to hang up, and notes that it did.
+///
+/// It notes what it was sent, and its pid, under `STAND_IN_SEEN`.
+const SOCKET_STAND_IN: &str = r#"#!/usr/bin/env python3
+import json, os, socket, sys, urllib.parse, urllib.request
+
+path = sys.argv[1]
+if os.path.exists(path):
+    os.unlink(path)
+listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+listener.bind(path)
+listener.listen(1)
+call, _ = listener.accept()
+listener.close()
+os.unlink(path)
+call.sendall(os.environ.get("STAND_IN_GREETING", '{"kamosu_agent":1}').encode() + b"\n")
+line = call.makefile("rb").readline()
+if not line:
+    sys.exit(0)
+handed = json.loads(line)
+job = handed["job"]
+key = job["job_key"]
+seen = os.path.join(os.environ["STAND_IN_SEEN"], job["job_id"])
+os.makedirs(seen, exist_ok=True)
+
+def note(name, text):
+    with open(os.path.join(seen, name), "w") as f:
+        f.write(text)
+
+def ask(path, body=None):
+    request = urllib.request.Request(
+        urllib.parse.urljoin(handed["kamosu"], path),
+        data=None if body is None else json.dumps(body).encode(),
+        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+    )
+    return urllib.request.urlopen(request).read().decode()
+
+note("pid", str(os.getpid()))
+note("sent", line.decode())
+mode = ask(job["original"]["address"]).split(":", 1)[1].strip()
+
+if mode == "writes":
+    ask("api/op/create_recipe", {"title": "The stand-in's soup"})
+    call.sendall(json.dumps({"outcome": "completed",
+                             "report": {"unsure": ["The stand-in guessed the salt."]}}).encode())
+elif mode == "garbage":
+    call.sendall(b"not a report")
+elif mode == "lingers":
+    note("started", "")
+    if call.recv(1) == b"":
+        note("hung up", "")
+call.close()
+"#;
+
+/// The socket stand-in, started again each time it ends, as a container
+/// with a restart policy is, until the test ends.
+struct SocketAgent {
+    socket: PathBuf,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    _place: tempfile::TempDir,
+}
+
+impl SocketAgent {
+    fn start(seen: &Path, greeting: Option<&str>) -> SocketAgent {
+        let place = tempfile::tempdir().expect("a place for the agent");
+        let script = place.path().join("socket-stand-in.py");
+        std::fs::write(&script, SOCKET_STAND_IN).unwrap();
+        let socket = place.path().join("agent.sock");
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (seen, greeting) = (seen.to_path_buf(), greeting.map(str::to_string));
+        let (path, stopped) = (socket.clone(), stop.clone());
+        std::thread::spawn(move || {
+            // The script goes with the test's temporary folder.
+            while !stopped.load(std::sync::atomic::Ordering::SeqCst) && script.exists() {
+                let mut command = std::process::Command::new("python3");
+                command
+                    .arg(&script)
+                    .arg(&path)
+                    .env("STAND_IN_SEEN", &seen)
+                    .stdin(Stdio::null());
+                if let Some(greeting) = &greeting {
+                    command.env("STAND_IN_GREETING", greeting);
+                }
+                let mut child = command.spawn().expect("the stand-in starts");
+                // Checked often, so a test that ends stops its stand-in.
+                loop {
+                    if child.try_wait().unwrap().is_some() {
+                        break;
+                    }
+                    if stopped.load(std::sync::atomic::Ordering::SeqCst) {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            }
+        });
+        SocketAgent {
+            socket,
+            stop,
+            _place: place,
+        }
+    }
+}
+
+impl Drop for SocketAgent {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// A Runner started as its own process, stopped when the test ends.
 struct RunningRunner {
     child: Child,
@@ -135,6 +258,11 @@ struct Start<'a> {
 }
 
 fn start_runner(start: Start) -> RunningRunner {
+    start_runner_for(start, None)
+}
+
+/// The same, handing its Jobs to the agent at `socket` when one is given.
+fn start_runner_for(start: Start, socket: Option<&Path>) -> RunningRunner {
     let place = tempfile::tempdir().expect("a place for the Runner");
     let script = place.path().join("stand-in.py");
     std::fs::write(&script, STAND_IN).unwrap();
@@ -146,9 +274,12 @@ fn start_runner(start: Start) -> RunningRunner {
     let log = std::fs::File::create(&output).unwrap();
 
     let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_kamosu"));
+    command.args(["runner", "--kamosu", &start.kamosu]);
+    match socket {
+        Some(socket) => command.arg("--agent-socket").arg(socket),
+        None => command.arg("--").arg(&script),
+    };
     command
-        .args(["runner", "--kamosu", &start.kamosu, "--"])
-        .arg(&script)
         .env("KAMOSU_RUNNER_KEY", start.runner_key)
         .env("KAMOSU_DATA_DIR", start.data_dir)
         .env("TMPDIR", place.path().join("folders"))
@@ -595,7 +726,180 @@ async fn a_runner_follows_no_redirect() {
     );
 }
 
-/// How many TCP sockets a process holds that are listening.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_runner_hands_each_job_to_a_fresh_agent_at_a_socket() {
+    let app = support::spawn_app();
+    let (key, runner_key) = cook_and_runner(&app);
+    let data_dir = tempfile::tempdir().unwrap();
+    let first = paste_for_the_agent(&app, &key, "writes");
+    let second = paste_for_the_agent(&app, &key, "writes");
+    let seen = tempfile::tempdir().unwrap();
+    let place = tempfile::tempdir().unwrap();
+    let socket = place.path().join("agent.sock");
+
+    // No agent answers yet, so the Runner says so and takes no Job.
+    let runner = start_runner_for(
+        Start {
+            kamosu: format!("http://{}", app.addr),
+            runner_key: &runner_key,
+            extra_env: vec![],
+            data_dir: data_dir.path(),
+        },
+        Some(&socket),
+    );
+    wait_for("the Runner waiting for its agent", &runner, || {
+        runner.said().contains("Waiting for the agent at")
+    });
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(job(&app, &key, &first)["status"], json!("queued"));
+
+    // An agent answers, and works both Jobs: each in a life of its own.
+    let agent = SocketAgent::start(seen.path(), None);
+    let runner = {
+        drop(runner);
+        start_runner_for(
+            Start {
+                kamosu: format!("http://{}", app.addr),
+                runner_key: &runner_key,
+                extra_env: vec![],
+                data_dir: data_dir.path(),
+            },
+            Some(&agent.socket),
+        )
+    };
+    for job_id in [&first, &second] {
+        let finished = ended(&app, &key, job_id, &runner);
+        assert_eq!(
+            finished["status"],
+            json!("completed"),
+            "{finished}\n{}",
+            runner.said()
+        );
+        assert!(
+            finished
+                .to_string()
+                .contains("The stand-in guessed the salt."),
+            "{finished}"
+        );
+    }
+    let pid = |job_id: &str| read_pid(&seen.path().join(job_id).join("pid"));
+    assert_ne!(pid(&first), pid(&second), "one agent worked two Jobs");
+
+    // The agent was sent what job.json holds, and not the Runner Key.
+    let sent = std::fs::read_to_string(seen.path().join(&first).join("sent")).unwrap();
+    assert!(
+        !sent.contains(&runner_key),
+        "the agent was sent the Runner Key"
+    );
+    let sent: Value = serde_json::from_str(&sent).unwrap();
+    assert_eq!(sent["kamosu"], json!(format!("http://{}/", app.addr)));
+    assert_eq!(sent["mcp"], json!(format!("http://{}/mcp", app.addr)));
+    assert_eq!(sent["job"]["job_id"], json!(first));
+    assert!(
+        sent["job"]["job_key"]
+            .as_str()
+            .is_some_and(|k| !k.is_empty())
+    );
+    assert_eq!(sent["job"].get("held_until"), None, "{sent}");
+    // Calling a socket is not listening on one.
+    assert_eq!(listening_sockets(runner.pid()), 0, "{}", runner.said());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_agent_at_a_socket_that_sends_no_plain_report_fails_its_job() {
+    let app = support::spawn_app();
+    let (key, runner_key) = cook_and_runner(&app);
+    let data_dir = tempfile::tempdir().unwrap();
+    let silent = paste_for_the_agent(&app, &key, "silent");
+    let garbage = paste_for_the_agent(&app, &key, "garbage");
+    let seen = tempfile::tempdir().unwrap();
+    let agent = SocketAgent::start(seen.path(), None);
+
+    let runner = start_runner_for(
+        Start {
+            kamosu: format!("http://{}", app.addr),
+            runner_key: &runner_key,
+            extra_env: vec![],
+            data_dir: data_dir.path(),
+        },
+        Some(&agent.socket),
+    );
+    let silent = ended(&app, &key, &silent, &runner);
+    assert_eq!(silent["status"], json!("failed"), "{silent}");
+    assert!(
+        silent.to_string().contains("the agent left no report"),
+        "{silent}"
+    );
+    let garbage = ended(&app, &key, &garbage, &runner);
+    assert_eq!(garbage["status"], json!("failed"), "{garbage}");
+    assert!(
+        garbage
+            .to_string()
+            .contains("the agent's report is not JSON"),
+        "{garbage}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_runner_hangs_up_on_an_agent_at_a_socket_past_the_time_limit() {
+    let app = support::spawn_app();
+    let (key, runner_key) = cook_and_runner(&app);
+    let data_dir = tempfile::tempdir().unwrap();
+    let job_id = paste_for_the_agent(&app, &key, "lingers");
+    let seen = tempfile::tempdir().unwrap();
+    let agent = SocketAgent::start(seen.path(), None);
+
+    let runner = start_runner_for(
+        Start {
+            kamosu: format!("http://{}", app.addr),
+            runner_key: &runner_key,
+            extra_env: vec![("KAMOSU_RUNNER_TEST_TIME_LIMIT_MS", "1500".to_string())],
+            data_dir: data_dir.path(),
+        },
+        Some(&agent.socket),
+    );
+    let finished = ended(&app, &key, &job_id, &runner);
+    assert_eq!(finished["status"], json!("failed"), "{finished}");
+    assert!(
+        finished
+            .to_string()
+            .contains("the agent ran past the Runner's time limit of 1.5 seconds and was stopped"),
+        "{finished}"
+    );
+    let hung_up = seen.path().join(&job_id).join("hung up");
+    wait_for("the agent seeing the Runner hang up", &runner, || {
+        hung_up.exists()
+    });
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_socket_that_does_not_greet_as_an_agent_is_handed_no_job() {
+    let app = support::spawn_app();
+    let (key, runner_key) = cook_and_runner(&app);
+    let data_dir = tempfile::tempdir().unwrap();
+    let job_id = paste_for_the_agent(&app, &key, "writes");
+    let seen = tempfile::tempdir().unwrap();
+    let agent = SocketAgent::start(seen.path(), Some(r#"{"kamosu_agent":2}"#));
+
+    let runner = start_runner_for(
+        Start {
+            kamosu: format!("http://{}", app.addr),
+            runner_key: &runner_key,
+            extra_env: vec![],
+            data_dir: data_dir.path(),
+        },
+        Some(&agent.socket),
+    );
+    wait_for("the Runner saying why it waits", &runner, || {
+        runner
+            .said()
+            .contains(r#"it greeted the Runner with something other than {"kamosu_agent":1}"#)
+    });
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(job(&app, &key, &job_id)["status"], json!("queued"));
+}
+
+/// How many TCP and Unix sockets a process holds that are listening.
 fn listening_sockets(pid: u32) -> usize {
     let held: Vec<String> = std::fs::read_dir(format!("/proc/{pid}/fd"))
         .unwrap()
@@ -610,7 +914,7 @@ fn listening_sockets(pid: u32) -> usize {
             )
         })
         .collect();
-    ["tcp", "tcp6"]
+    let tcp = ["tcp", "tcp6"]
         .iter()
         .flat_map(|table| {
             std::fs::read_to_string(format!("/proc/{pid}/net/{table}"))
@@ -626,7 +930,20 @@ fn listening_sockets(pid: u32) -> usize {
             fields.get(3) == Some(&"0A")
                 && fields.get(9).is_some_and(|i| held.iter().any(|h| h == i))
         })
-        .count()
+        .count();
+    let unix = std::fs::read_to_string(format!("/proc/{pid}/net/unix"))
+        .unwrap_or_default()
+        .lines()
+        .skip(1)
+        .filter(|line| {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            // Flags 00010000 is a socket accepting calls; the inode is the
+            // seventh field.
+            fields.get(3) == Some(&"00010000")
+                && fields.get(6).is_some_and(|i| held.iter().any(|h| h == i))
+        })
+        .count();
+    tcp + unix
 }
 
 /// Every file a process holds open, by path.

@@ -38,16 +38,21 @@ enum Command {
     /// Mint a one-use recovery link for a named Person. This never reads, prints,
     /// or sets a password; the link holder chooses their own.
     Recover { name: String },
-    /// Run beside an agent: ask the Kamosu at `--kamosu` for Jobs and start the
-    /// agent command given after `--` for each, in a fresh folder holding the
-    /// Job and its Job Key. The Runner Key is read from KAMOSU_RUNNER_KEY.
-    /// Listens on no port and opens no database.
+    /// Run beside an agent: ask the Kamosu at `--kamosu` for Jobs and hand
+    /// each, with its Job Key, to the agent command given after `--`, in a
+    /// fresh folder, or to the agent listening at `--agent-socket`. The Runner
+    /// Key is read from KAMOSU_RUNNER_KEY. Listens on no port and opens no
+    /// database.
     Runner {
         /// Kamosu's address, such as https://recipes.kamosu.example
         #[arg(long)]
         kamosu: String,
+        /// The Unix socket an agent in a container of its own listens on, in
+        /// place of an agent command (#317).
+        #[arg(long, conflicts_with = "command")]
+        agent_socket: Option<std::path::PathBuf>,
         /// The agent command and its arguments, after `--`.
-        #[arg(last = true, required = true)]
+        #[arg(last = true, required_unless_present = "agent_socket")]
         command: Vec<String>,
     },
 }
@@ -73,8 +78,16 @@ fn main() {
             std::process::exit(health_check(addr));
         }
         Command::Recover { name } => recover(&config, &name),
-        Command::Runner { kamosu, command } => {
-            std::process::exit(kamosu::runner::run(&kamosu, command))
+        Command::Runner {
+            kamosu,
+            agent_socket,
+            command,
+        } => {
+            let agent = match agent_socket {
+                Some(socket) => kamosu::runner::Agent::Socket(socket),
+                None => kamosu::runner::Agent::Command(command),
+            };
+            std::process::exit(kamosu::runner::run(&kamosu, agent))
         }
     }
 }
