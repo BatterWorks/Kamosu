@@ -9,7 +9,8 @@ set -eu
 
 if [ -z "${KAMOSU_AGENT_MODEL:-}" ]; then
     echo "Set KAMOSU_AGENT_MODEL to the model the agent uses, as provider/model," >&2
-    echo "and the provider's key in that provider's own variable. See docs/runner.md." >&2
+    echo "and its key in KAMOSU_AGENT_API_KEY or the provider's own variable." >&2
+    echo "See docs/runner.md." >&2
     exit 2
 fi
 

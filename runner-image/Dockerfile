@@ -6,8 +6,7 @@
 #
 # Nothing here names a provider or a model. The Operator gives both, with the
 # provider's key and the effort, when the container starts (`docs/runner.md`,
-# "The image Kamosu's repository builds"). opencode reads the key from the
-# provider's own environment variable, so the image never says which.
+# "The image Kamosu's repository builds").
 #
 # Two users, and neither is root. `runner` runs `kamosu runner` and holds the
 # Runner Key. `agent` runs opencode and everything it starts, through one

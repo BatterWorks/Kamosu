@@ -603,8 +603,8 @@ runner-image: podman-build
         --build-arg KAMOSU_IMAGE=localhost/kamosu runner-image
 
 # Start that image beside the dev instance. The settings file stays outside the
-# repository: KAMOSU_RUNNER_KEY, KAMOSU_AGENT_MODEL as provider/model, the
-# provider's key in its own variable, and KAMOSU_AGENT_EFFORT if wanted.
+# repository and holds KAMOSU_RUNNER_KEY and the agent's settings, as
+# docs/runner.md's table names them.
 # Restarted three times at most, never for ever (docs/runner.md). It asks the
 # dev instance at the host's LAN address, as `dev-start` prints it, and not
 # on the host's network: an agent a page has tricked should not reach what the
