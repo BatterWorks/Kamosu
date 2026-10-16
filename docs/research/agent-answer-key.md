@@ -1,8 +1,8 @@
 # The agent's answer key
 
-Written on 2026-10-16 for #324, before any of these sources was handed to the agent. Each entry says what the right result is, so that a run of any model at any effort can be scored by reading the result beside its key. What the runs found is in Part 7 of [the research note behind ADR 0048](ai-recipe-import-in-other-apps.md#part-7-the-agent-on-sources-that-go-wrong).
+Written on 2026-10-16 for #324, before any of these sources was handed to the agent. Two entries, 10 and 16, were changed after the first runs showed their premise wrong, and each says so where it changed. Each entry says what the right result is, so that a run of any model at any effort can be scored by reading the result beside its key. What the runs found is in Part 7 of [the research note behind ADR 0048](ai-recipe-import-in-other-apps.md#part-7-the-agent-on-sources-that-go-wrong).
 
-Every source is public or was written for the test. A public page is named by a link that will not change: a Wikibooks page by its revision, a page that may change by its Wayback Machine snapshot. None is copied here. The sources written for the test are in [`agent-test-sources/`](agent-test-sources/), and an entry says how each was handed over.
+Every source is public or was written for the test. A public page is named by a link that will not change: a Wikibooks page by its revision, a page that may change by its Wayback Machine snapshot, and a Wikimedia Commons file by the upload it is, through its date and SHA-1. A video cannot be archived, so it is named by its id alone. None is copied here. The sources written for the test are in [`agent-test-sources/`](agent-test-sources/), and an entry says how each was handed over.
 
 ## Scoring a result
 
@@ -41,10 +41,10 @@ Where a source fails, its cause is one of three. **The instructions** did not sa
 
 ### 2. A handwritten card, continued on a second card
 
-- **Source:** "Apple cake recipe card - Michigan circa 1950", Wikimedia Commons, CC BY-SA 4.0, <https://commons.wikimedia.org/wiki/File:Apple_cake_recipe_card_-_Michigan_circa_1950.jpg>. The front and back of the card are one picture. Handed over as that picture.
+- **Source:** "Apple cake recipe card - Michigan circa 1950", Wikimedia Commons, CC BY-SA 4.0, <https://commons.wikimedia.org/wiki/File:Apple_cake_recipe_card_-_Michigan_circa_1950.jpg>, the upload of 2024-05-22, SHA-1 `a2f38b99713c2849531e7d1b0b4a49626cd62a7a`. The front and back of the card are one picture. Handed over as that picture.
 - **What makes it hard:** cursive with shorthand ("1 T", "¼ #", "1 t"), two braces that group lines with an action, the milk's amount given only in the method, and a glaze with no amounts.
 - **Outcome:** `completed`.
-- **Title:** Apple Cake. "M Wittmann", in brackets beside it, is whose recipe it was, not part of the title.
+- **Title:** Apple Cake. The name in brackets beside it is whose recipe it was, not part of the title.
 - **Yield and times:** no yield; bakes 45 minutes.
 - **Lines (11):** 1½ c flour; 1 T (tablespoon) baking powder; ¼ lb (written ¼ #) butter; ⅔ c sugar; ½ lemon's rind (Food lemon zest or lemon rind); 3 eggs, separated; ¼ c milk (from the method); apple slices, no amount; and for the glaze: sugar, no amount; 1 t (teaspoon) vanilla; water, no amount.
 - **Step facts (6):** flour and baking powder sifted together; butter, sugar, lemon rind and the yolks creamed; the flour and milk added alternately; the beaten whites folded in; apple slices on top; baked 45 minutes at 350° (Fahrenheit; a Celsius figure beside it is fine, in place of it is not).
@@ -53,10 +53,10 @@ Where a source fails, its cause is one of three. **The instructions** did not sa
 
 ### 3. A picture upside down
 
-- **Source:** "Spicy Gingerbread (Shirley G.) Handwritten 2024-05-21 103943 page 1", Wikimedia Commons, CC BY-SA 4.0, <https://commons.wikimedia.org/wiki/File:Spicy_Gingerbread_(Shirley_G.)_Handwritten_2024-05-21_103943_page_1.jpg>, turned 180 degrees (`ffmpeg -vf transpose=1,transpose=1`). Handed over as that picture.
+- **Source:** "Spicy Gingerbread (Shirley G.) Handwritten 2024-05-21 103943 page 1", Wikimedia Commons, CC BY-SA 4.0, <https://commons.wikimedia.org/wiki/File:Spicy_Gingerbread_(Shirley_G.)_Handwritten_2024-05-21_103943_page_1.jpg>, the upload of 2024-05-21, SHA-1 `4c94f39997b30d41632dafad19e1b042e43cd848`, turned 180 degrees (`ffmpeg -vf transpose=1,transpose=1`). Handed over as that picture.
 - **What makes it hard:** upside down, typed in two columns of ingredients, with "t", "c" and "soda".
 - **Outcome:** `completed`.
-- **Title:** Spicy Gingerbread. "Shirley G" is whose recipe it was.
+- **Title:** Spicy Gingerbread. The name in red is whose recipe it was.
 - **Yield and times:** none.
 - **Lines (12):** 2 eggs; ¾ c brown sugar; ¾ c molasses; ¾ c melted shortening; 2½ c flour; ½ t cloves; ½ t baking powder; 2 t soda (Food baking soda); 2 t ginger; 1½ t cinnamon; ½ t nutmeg; 1 c boiling water. "t" is a teaspoon and "c" a cup.
 - **Step facts (4):** beaten eggs added to the sugar, molasses and shortening; then the dry ingredients; then the hot water; baked in a moderate oven.
@@ -132,7 +132,8 @@ Where a source fails, its cause is one of three. **The instructions** did not sa
 
 - **Source:** Simply Recipes, "Grandma's Sheet Pan Sliders", <https://www.simplyrecipes.com/grandmas-sheet-pan-sliders-recipe-11919325>, which answered `402` to this machine. Its Wayback Machine copy: <https://web.archive.org/web/20260427064409/https://www.simplyrecipes.com/grandmas-sheet-pan-sliders-recipe-11919325>. Handed over as the page's own link.
 - **What makes it hard:** about 4,000 characters of story and tips before the recipe, toppings named in the story, a headline that is not the recipe's name, and recipe data whose first step is empty: the oven's temperature is in the page's text alone.
-- **Outcome:** `completed`, read from the Wayback Machine's copy, with the Source still the page's own link and the note saying where it was read.
+- **Found in the runs:** the `402` was curl's alone. Kamosu's own fetch reached the page and read its recipe data, so a link to it never reaches the agent. It reaches the agent as ADR 0048 sends any such page: a Co-author asks for it to be read again. The runs did that, and the key below scores the agent's reading.
+- **Outcome:** `completed`, with the Source still the page's own link.
 - **Title:** Grandma's Sheet Pan Sliders, not "My Grandma's 5-Ingredient Sheet Pan Sliders Are the Easiest You'll Ever Make".
 - **Yield and times:** 6 servings, 12 sliders; prep 10, cook 30, total 40 minutes.
 - **Lines (6):** 1½ pounds 93% lean ground sirloin; 3 tablespoons seasoned breadcrumbs; ½ cup finely chopped onions; 1 teaspoon kosher salt; 6 slices cheddar or American cheese; 1 package (12-count) sweet dinner rolls or slider buns.
@@ -152,12 +153,12 @@ Where a source fails, its cause is one of three. **The instructions** did not sa
 
 ### 12. A menu
 
-- **Source:** "DINNER MENU (held by) A.M. SWEET & SON HOTEL & RESTAURANT (at) NEW YORK, NY", 1900, New York Public Library, public domain, <https://commons.wikimedia.org/wiki/File:DINNER_MENU_(held_by)_A.M._SWEET_%26_SON_HOTEL_%26_RESTAURANT_(at)_NEW_YORK,_NY_(HOTEL-REST;)_(NYPL_Hades-272167-4000007092).jpg>, at 1920 pixels wide. Handed over as that picture.
+- **Source:** "DINNER MENU (held by) A.M. SWEET & SON HOTEL & RESTAURANT (at) NEW YORK, NY", 1900, New York Public Library, public domain, <https://commons.wikimedia.org/wiki/File:DINNER_MENU_(held_by)_A.M._SWEET_%26_SON_HOTEL_%26_RESTAURANT_(at)_NEW_YORK,_NY_(HOTEL-REST;)_(NYPL_Hades-272167-4000007092).jpg>, the upload of 2016-03-24, SHA-1 `e80e39d8bbdc4be99237eb06baa32775a7a8eb5f`, at 1920 pixels wide. Handed over as that picture.
 - **Outcome:** `could_not_be_read`, with a reason saying it is a menu. No recipe is created.
 
 ### 13. A restaurant review
 
-- **Source:** Grace Dent's review of Dante, Mayfair, The Guardian, 4 October 2026, <https://www.theguardian.com/food/2026/oct/04/dante-mayfair-claridges-london-w1-restaurant-review-grace-dent>. Handed over as that link. It has article data and no recipe data, so it lands bare and goes to the agent.
+- **Source:** a review of the restaurant Dante, Mayfair, The Guardian, 4 October 2026, <https://www.theguardian.com/food/2026/oct/04/dante-mayfair-claridges-london-w1-restaurant-review-grace-dent>; its Wayback Machine copy: <https://web.archive.org/web/20261016095713/https://www.theguardian.com/food/2026/oct/04/dante-mayfair-claridges-london-w1-restaurant-review-grace-dent>. Handed over as that link. It has article data and no recipe data, so it lands bare and goes to the agent.
 - **Outcome:** `could_not_be_read`, with a reason saying it is a review. The bare recipe is left as it landed: no lines or steps.
 
 ### 14. A list of links
@@ -172,14 +173,15 @@ Where a source fails, its cause is one of three. **The instructions** did not sa
 
 ### 16. A refused page with no copy to read
 
-- **Source:** EatingWell, "Paul Newman's original vinaigrette", <https://www.eatingwell.com/paul-newman-original-vinaigrette-recipe-12144264>. It answers `402` to this machine, and the Wayback Machine's only copy (29 September 2026) is that same refusal. Handed over as the link.
-- **Outcome:** `failed`, with a reason saying the site refused and no readable copy exists. The bare recipe keeps its title and Source and gains nothing.
-- **Fails on:** any recipe for the dish read from another site.
+- **Source:** <https://www.tasteofhome.com/recipes/grandmas-sunday-chicken-casserole-324/>, a link made up for the test on a site that answers `403` to this machine for every address, so no copy of it can exist in the Wayback Machine or anywhere. The runs showed it refuses the agent too: three tries, each refused with and without a browser's `User-Agent`. Handed over as that link.
+- **Changed after the first run:** the source first chosen was EatingWell's "Paul Newman's original vinaigrette", which answers `402` to curl and whose only Wayback copy is that refusal. Kamosu's own fetch and the agent's web tool both reached it, so it was no refused page. The run is reported in Part 7 of the research note, and this link took its place.
+- **Outcome:** `failed`, with a reason saying the site refused and no copy exists. The bare recipe keeps its title and Source and gains nothing.
+- **Fails on:** any recipe for a chicken casserole read from another page.
 
 ### 17. Reading again when nothing is wrong
 
-- **Source:** whichever of the recipes above passed and came from a kept Original or a link, read again with `read_recipe_again` and nothing changed since.
-- **Outcome:** `completed`. No line, step or number changes; the report says the recipe matched its source.
+- **Source:** the recipe source 5 made (the oatmeal cookies, which passed), read again from its kept PDF with `read_recipe_again` and nothing changed since.
+- **Outcome:** `completed`. No line, step or number changes, and no new Version.
 
 ### 18. Reading again when the cook's edit is right and the source is not
 

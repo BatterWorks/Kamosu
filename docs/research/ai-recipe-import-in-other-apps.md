@@ -2,7 +2,7 @@
 
 Research date: 2026-10-13. Asked while designing AI-assisted recipe import for Kamosu from four kinds of source: a recipe web page, pasted text or a text PDF, a picture, and a video link.
 
-The question was how other software already does this, so that Kamosu copies what works instead of inventing it. Four parts were researched independently, each against source code and first-party documentation. Each part keeps its own confidence marks and the commits it read. Nothing in those four parts was built or run. Part 5 was added the same day: a small test of the option the survey pointed to. Part 6 was added on 2026-10-16: the agent Kamosu settled on, measured on the development instance. [ADR 0048](../adr/0048-an-agent-beside-kamosu-reads-what-kamosu-cannot.md) records the decision that followed.
+The question was how other software already does this, so that Kamosu copies what works instead of inventing it. Four parts were researched independently, each against source code and first-party documentation. Each part keeps its own confidence marks and the commits it read. Nothing in those four parts was built or run. Part 5 was added the same day: a small test of the option the survey pointed to. Part 6 was added on 2026-10-16: the agent Kamosu settled on, measured on the development instance. Part 7 was added the same day: that agent on sources chosen to go wrong, scored against [an answer key](agent-answer-key.md). [ADR 0048](../adr/0048-an-agent-beside-kamosu-reads-what-kamosu-cannot.md) records the decision that followed.
 
 When the research was asked for, the design discussion leaned toward a separate agent container beside Kamosu doing all of the reading, with Kamosu itself never calling a model. The parts call this "the lean". It was reasoned without a survey, and each part was told to treat evidence against it as worth as much as evidence for it.
 
@@ -772,3 +772,137 @@ Recipe sites refused this machine more than video sites did. Food Network and Ta
 ### Limits
 
 One run of each kind, on one machine, on one model at one effort. A long video with no written recipe anywhere, whose method has to be read off its frames from start to end, was not tried; it is the kind most likely to run longest. Sites that answered this home connection may refuse a server in a data centre, and the reverse.
+
+## Part 7. The agent on sources that go wrong
+
+Run on 2026-10-16 for #324. Part 6 tried the easy sources, a recipe whole in one place on a clean page. This part looked for the sources that go wrong, wrote down what the right recipe was for each before the agent saw it, and scored each result against that. The key, the scoring method and the sources written for the test are in [`agent-answer-key.md`](agent-answer-key.md).
+
+### Method
+
+- **The agent, the model and the machine** as in Part 6: `agent-image/` at that date, Claude Haiku 5.5 at medium effort, the development host.
+- **Eighteen sources**, public or written for the test: a silent ten-minute video, two cards from the 1950s (one handwritten and running onto its back, one typed and turned upside down), three PDFs (two columns, grams beside cups, two languages side by side), a page of three recipes, a pie that calls for its own pastry, a Wikibooks page of ranges and cans, a story-first page, a page whose comments correct it, four things that are no recipe (a menu, a review, a list of links, a shopping list), a refused page with no copy, and two recipes read again. Of "a photo taken at an angle or upside down", upside down was tried and an angle was not.
+- **A clean library for each run.** Before a source ran again, the recipe its last run made was deleted, and before the regression passes every recipe #281 had made from the same sources. The library still held about 130 other recipes, so the agent's search for the same dish found real neighbours.
+- **The passes.** The first ran every source on the instructions as #281 left them. Each failure was sorted by cause. Where the cause was the instructions they were corrected, and the source ran again. Where it was in doubt between the instructions and the model, one run at high effort decided it. Then every kind #281 tried ran again, three times over, the last after the last change to the instructions.
+- **Time and cost** as Part 6 measured them, from the agent's own log line.
+
+### What came back
+
+| # | Source | First pass | Cause | After the changes |
+|---|---|---|---|---|
+| 1 | Silent video, captions name the ingredients | 12 of 22 lines, 3 of 7 step facts, no amount invented | Instructions: captions carry no number, so nothing sent the agent to read them | 21 of 22 lines, 5 of 7 facts. Every miss left is one mistake: the steak goes through the onion rings' beer batter instead of flour, egg and panko, so the eggs are missing too. Wrong at high effort as well: the model |
+| 2 | Handwritten card on two sides | 7 of 11 lines: "c" and "#" kept as units; junk Foods not named | Instructions, and Kamosu (#326) | 11 of 11, 6 of 6. On the second pass the glaze and the apples had become a step, and a rule now keeps an ingredient with no amount as a line. The tin's size is named at neither effort: see below |
+| 3 | Typed card upside down | ½ t nutmeg read as ⅛ t; "c" kept as a unit | Model for the fraction, right on both later runs; instructions for the unit | 12 of 12, 4 of 4 |
+| 4 | Two-column PDF | Pass | | |
+| 5 | Grams and cups side by side | Pass | | |
+| 6 | Two languages side by side | Pass, in English, the French named | | |
+| 7 | A page of three recipes | All three merged into one, under the page's headline | Instructions: the rule for several recipes was written for pasted text alone | The first alone, the others named |
+| 8 | A pie calling for its own pastry, amounts in words | 15 of 15, 8 of 8, the pastry a section; that it is a recipe of its own said in the note, not `left_undone` | | |
+| 9 | Ranges, cans, "to taste" | 9 of 9 lines, 6 of 6 facts, no photograph | Model: at high effort it stored the photograph and five of the steps' | |
+| 10 | Story-first page | Kamosu read it itself; read again by the agent, right but titled with the headline | Instructions: nothing said what a title is | Titled "Grandma's Sheet Pan Sliders" |
+| 11 | Comments correct the recipe | Pass: the author's 1 tsp taken, the readers' changes not | | |
+| 12–15 | Menu, review, list of links, shopping list | Pass: each could not be read, nothing created or filled in | | |
+| 16 | Refused page, no copy | Pass: failed, saying so, no other casserole read | | |
+| 17 | Reading again, nothing wrong | Pass: no new Version | | |
+| 18 | Reading again after a cook's right correction | The source's typo put back over the cook's correction | Instructions: "change the recipe to match it" had no exception | The cook's 180 °C kept, the typo named |
+
+Sources 1, 2, 3 and 18 each needed more than one change. The second pass on the shortbread turned up a fault the first change caused: told to keep a cook's correction, the agent corrected the source's typo on its own at the first reading. The rule now says to copy a plain mistake as written and flag it, to take the source's own correction, and to keep a person's.
+
+Source 16 was first an EatingWell page that answers curl with `402` and whose only Wayback copy is that refusal. Kamosu's fetch and the agent's web tool both reached it, and the agent read the article's ratio of oil to vinegar, faithfully, under the article's headline. A link made up for the test on Taste of Home took its place; it refused the agent three times, as a Job reported `failed` is tried, before the Job ended failed. Source 10 was meant to reach the agent by being refused, and Kamosu read it itself. Which sites refuse Kamosu is not which sites refuse curl from the same machine.
+
+Two of the key's asks go past what the instructions say. The key wants a card's missing tin size in `left_undone`, and the instructions ask only for empty fields; neither effort named it. The key wants the pie's pastry named in `left_undone`, and the agent said it in the note. Neither is changed here: the instructions are as the last regression ran them, and the ticket that compares models scores against this key and can settle both.
+
+### Faults by cause
+
+- **The instructions (9).** Captions on a video were never read. Several recipes in one source were merged everywhere but pasted text. A title was taken from a page's headline, and after the first correction a video's title from the site's ("TikTok - Make Your Day"). A Reading's unit stayed as an old card wrote it ("c", "#"). The Foods Kamosu's first reading leaves behind went unnamed. An ingredient with no amount became part of a step. A cook's correction was undone on reading again. Then, told to keep it, the agent corrected a source's typo on a first reading. The search for the same dish ran under one name, so a soup called "Shorbet Ads" missed "Egyptian Lentil Soup" in two of the four runs before the search was made explicit, and found it on the last run after.
+- **The model (4).** A fraction misread on an upside-down card, right on the next two runs. A page's photograph not stored, stored at high effort. A video's step photographs skipped in two runs in a row, taken in the runs before and after; the instructions now check for them before the report. Which batter goes on what in a few quick frames of video, wrong at high effort too.
+- **Kamosu (1).** Its reader takes a lone "c" or "#" after an amount as part of the Food, making Foods such as "c flour" (#326). The agent now corrects each Reading and names the Food left behind.
+
+### Every kind #281 tried, again
+
+On the final instructions, at medium effort, each from a library without its earlier reading:
+
+| Kind | Source | Result | Time | Cost |
+|---|---|---|---|---|
+| Pasted text | the lentil soup | right, likely duplicate flagged | 35 s | $0.0105 |
+| Pasted text, French | the chocolate cake | right, in French | 30 s | $0.0094 |
+| PDF with text, a likely duplicate | the lentil handout | right, Egyptian Lentil Soup flagged | 55 s | $0.0183 |
+| Scanned PDF | the 1906 page of four recipes | right, the other three named | 70 s | $0.0157 |
+| Picture of a page | the 1906 page of four recipes | right, the other three named | 37 s | $0.0133 |
+| Page with no recipe data | Wikibooks Tzatziki | right, with its photograph | 63 s | $0.0233 |
+| Page with no recipe data, French | Wikibooks Quiche lorraine | right, in French; labelled English, as #321 | 56 s | $0.0170 |
+| Page that refused Kamosu's fetch | Taste of Home, read from the Wayback Machine | right, Source kept | 86 s | $0.0239 |
+| Page carrying instructions for an agent | the page served for #281 | only the Job's recipe new, no Tag made, the address never asked, the orders named in the report | 70 s | $0.0184 |
+| Video, description only | a TikTok | right, its own title, five step photographs | 114 s | $0.0204 |
+| Video, written recipe elsewhere | a 23-minute YouTube video | right, from the cook's written recipe, the video's differences noted | 150 s | $0.0263 |
+| Video, with step photographs | a YouTube Short | right, four step photographs | 73 s | $0.0193 |
+| Read again from a link | Tzatziki after a hand edit | restored | 37 s | $0.0106 |
+| Read again from a kept Original | the picture after a hand edit | restored | 39 s | $0.0099 |
+| Video read again | the Short | right, its four step photographs kept | 51 s | $0.0097 |
+
+Read again from a file handed over again was not run: the agent is handed that file exactly as it is handed a kept Original, and Kamosu's side of it is not what changed here. A Job cancelled 15 seconds after the agent started was stopped 24 seconds after the cancel. A Runner stopped 15 seconds into a Job left it waiting again 112 seconds later, and the next Runner finished it in 46 seconds. Sources 7 and 10 ran on the final instructions too and passed, in 84 s for $0.0216 and 53 s for $0.0141.
+
+Two earlier regression passes, after earlier changes, are where the TikTok's title, the Short's step photographs and the missed duplicate showed. Each kind passed in one of them at least, and every kind passed in the last.
+
+### Time and cost per run
+
+The first pass, on the instructions as #281 left them:
+
+| Source | Time | Cost |
+|---|---|---|
+| 1. Silent video | 271 s | $0.0283 |
+| 2. Handwritten card | 64 s | $0.0147 |
+| 3. Card upside down | 94 s | $0.0208 |
+| 4. Two-column PDF | 46 s | $0.0116 |
+| 5. Grams and cups | 56 s | $0.0123 |
+| 6. Two languages | 40 s | $0.0087 |
+| 7. Three recipes on a page | 88 s | $0.0176 |
+| 8. Pie with its own pastry | 55 s | $0.0131 |
+| 9. Ranges and cans | 50 s | $0.0110 |
+| 10. Story-first page, read again | 45 s | $0.0128 |
+| 11. Comments correct it | 81 s | $0.0171 |
+| 12. Menu | 15 s | $0.0035 |
+| 13. Review | 18 s | $0.0037 |
+| 14. List of links | 19 s | $0.0036 |
+| 15. Shopping list | 17 s | $0.0029 |
+| 16. The EatingWell page first chosen | 70 s | $0.0135 |
+| 16. Refused, no copy (the last of three tries) | 15 s | $0.0044 |
+| 17. Read again, nothing wrong | 35 s | $0.0086 |
+| 18. Shortbread, then read again | 40 s, 40 s | $0.0109, $0.0097 |
+
+The same sources again, as the instructions were corrected:
+
+| Source | Pass | Time | Cost |
+|---|---|---|---|
+| 1. Silent video, captions read | second | 376 s | $0.0858 |
+| 1. The same | high effort | 860 s | $0.3618 |
+| 2. Handwritten card | second | 66 s | $0.0156 |
+| 2. Handwritten card | third | 44 s | $0.0124 |
+| 2. Handwritten card | high effort | 114 s | $0.0258 |
+| 3. Card upside down | second | 64 s | $0.0182 |
+| 3. Card upside down | third | 96 s | $0.0659 |
+| 7. Three recipes on a page | second | 76 s | $0.0184 |
+| 9. Ranges and cans | high effort | 121 s | $0.0205 |
+| 10. Story-first page, read again | second | 70 s | $0.0194 |
+| 16. The EatingWell page, for its title | second | 27 s | $0.0082 |
+| 18. Shortbread | second | 37 s | $0.0122 |
+| 18. Shortbread, then read again | third | 36 s, 33 s | $0.0112, $0.0087 |
+
+Something that is no recipe costs a third of a cent and under twenty seconds. A video whose recipe has to be read off its frames is the dearest kind, and reading its captions tripled what it cost: $0.09 against $0.03, and six minutes against four and a half. The same video at high effort took fourteen minutes and cost $0.36, with the one fault left unchanged. The upside-down card cost three times as much on its third run as on its first, for the same recipe, reading 1.1 million tokens from the cache against 0.7 million: the agent went over the card more times. The 23-minute YouTube video ranged from 150 to 425 seconds and from $0.03 to $0.10 across the three regression passes.
+
+### What changed in the instructions
+
+`agent-image/instructions.md` gained:
+
+- the captions laid over a video, read from a strip cut out of every second at a size that can be read
+- one recipe per Job: the first of several, the others named, and a recipe the first calls for kept as a section of its own
+- the title, as the dish's own name and never a page's headline or a site's title
+- a plain mistake in a source copied and flagged, the source's own correction taken, and a person's correction kept when reading again
+- an ingredient with no amount kept as a line
+- the unit of a Reading in a word Kamosu converts, with the old cards' "c", "#" and "soda"
+- the Foods left unused by Kamosu's first reading looked up and named
+- the search for the same dish under each name the source gives it and under its main ingredient
+- a check, before the report, that a recipe from a video has its photographs
+
+### Limits
+
+One model at one effort, with one run at high effort where a cause was in doubt. Most sources ran once or twice, and the runs that differed show how much a result varies: the duplicate was found in three runs of five, and the Short's step photographs in three of five. Several sources were written for the test, so they are as hard as their writer thought to make them. An instruction can fix what the agent was not told; four of the faults here were the model's, and one of them held at high effort.

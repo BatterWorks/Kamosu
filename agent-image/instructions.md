@@ -93,6 +93,19 @@ Work in your folder. yt-dlp, ffmpeg and deno are installed.
    ffmpeg -loglevel error -y -ss <seconds> -i v.mp4 -frames:v 1 -q:v 3 frame.jpg
    ```
 
+   Text laid over the video, such as "flour" or "sea salt" as it goes in, is
+   the video's own list of ingredients, and the sheets above shrink it past
+   reading. Read every caption: cut the strip it sits in, the middle of the
+   bottom fifth unless you saw it elsewhere, from a frame every second:
+
+   ```sh
+   ffmpeg -loglevel error -i v.mp4 -vf 'fps=1,crop=iw/2:ih/5:iw/4:ih*4/5,scale=480:-1,tile=4x12' cap%d.jpg
+   ```
+
+   Strip *n* (from 0) of `cap` *k* (from 1) is second `48 × (k − 1) + n`.
+   Every ingredient a caption names is a line of the recipe, with or without
+   an amount, and the moment it appears says which step it goes in.
+
 4. **The photographs.** A video is its own picture of the dish, so its
    recipe takes photographs from it even when its words held the whole
    recipe. Download it as above if you have not, and pull one full-size
@@ -121,10 +134,8 @@ report's reason; do not keep retrying.
 
 ### Pasted text
 
-Read `original.txt`. It is what the person pasted, and it may hold more than
-one recipe, or a recipe and a story around it. Read the one recipe it is
-about; if it plainly holds several, read the first and name the others in
-`left_undone`.
+Read `original.txt`. It is what the person pasted, and it may hold a recipe
+and a story around it, or more than one recipe ([One recipe](#one-recipe)).
 
 ### A PDF
 
@@ -153,21 +164,49 @@ When `job.branch_id` is set, read that recipe with `get_recipe` first.
 - **It has ingredient lines or steps**: someone asked for it to be read again
   from its source. Read the source afresh as above, then change the recipe
   with `edit_recipe` to match it. The History keeps what was there before.
+  One difference stays: where the source is plainly wrong and the recipe
+  has it right, such as an oven at 18 °C beside the source's own 350 °F,
+  someone has corrected it. Keep the recipe's value, and say in `unsure`
+  what the source says.
+
+## One recipe
+
+A Job writes one recipe, whatever the source holds.
+
+- **A source holding several recipes**, such as a page of three dressings or
+  a cookbook page, gives its first, or the one its link or caption names.
+  Name each of the others in `left_undone`. Never merge two recipes into one.
+- **A recipe the first one calls for**, such as "1 quantity rough puff
+  pastry (see below)", is part of it. Keep the line as written, and add the
+  called-for recipe's lines and steps under a section of their own.
 
 ## Writing the recipe
 
+- **The title is the dish's own name**, as the recipe's card, its heading
+  over the ingredients, or a video's description or cook gives it. It is
+  never a page's headline or the title a browser shows: "Grandma's Sheet Pan
+  Sliders", not "My Grandma's 5-Ingredient Sheet Pan Sliders Are the
+  Easiest You'll Ever Make", and "Garlic Butter Noodles", not "TikTok - Make
+  Your Day". A recipe Kamosu landed bare carries the page's title, so
+  always change it.
 - **The source decides every quantity, time, temperature and method.** Copy
   numbers and units as written, both where it gives two ("½ cup (100 g)").
   Where the source is silent, leave the field empty and say so in
   `left_undone`. A plausible guess in a recipe someone cooks from is worse
-  than a gap.
+  than a gap. Where the source is plainly wrong, such as an oven at 18 °C
+  beside its own 350 °F, copy it as written and say in `unsure` what looks
+  wrong: a person corrects a source, you do not. The one exception is the
+  source's own correction, such as its author saying in the comments that
+  a tablespoon was a typo for a teaspoon: take that, and say so in the note.
 - **Keep the recipe in the language of its source.** Do not translate it.
 - **Build the fullest recipe the source supports**: the title, the yield, the
   times, the ingredient lines with their sections, the steps, a note for what
   the source says around the method (tips, swaps, where the amounts came
   from), and the source's link where there is one.
 - **One ingredient per line**, written as the source writes it. A choice the
-  source writes in the line ("skyr or Greek yogurt") stays in it.
+  source writes in the line ("skyr or Greek yogurt") stays in it. An
+  ingredient the source names with no amount, such as "apple slices" or a
+  glaze's "sugar, vanilla, water", is still a line of its own.
 - **Photographs.** Where the source has a picture of the dish, store it and
   use it as the recipe's main photograph. A step the source pictures may take
   its picture too. Store one with:
@@ -203,21 +242,35 @@ When `job.branch_id` is set, read that recipe with `get_recipe` first.
      recipe's own.
    - **A Reading that names a recipe** (`lineage_id`) makes that line a part
      made from another recipe. Leave it as it is.
-   - **The amount and the unit are the line's own.**
+   - **The amount and the unit are the line's own.** The unit is the one
+     the line means, in a word Kamosu converts, such as `cup`, `tbsp`,
+     `tsp`, `lb` or `g`. Old cards write "c" for a cup, "#" for a pound
+     and "soda" for baking soda: send `cup`, `lb` and "baking soda", though
+     the line keeps the card's words. A unit left as "c" never scales and
+     never adds up on a shopping list.
 
    Correct a wrong one with `set_reading`, sending the line's whole Reading:
    its amount, its unit and the Food's word, in the recipe's language, as
    `target`. A word the library has no Food for in that language makes a new
-   Food. A correction can
-   leave a Food that nothing points at any more; name each one in
-   `unused_foods`, since you cannot delete a Food.
-4. Correct what is wrong and read it back again, until it matches.
+   Food.
+
+   Kamosu reads every line as it is saved, before you check it, and a line it
+   misreads makes a Food of the wrong words, such as "c flour". Note the Food
+   of each Reading you correct. When you have finished, look each one up
+   with `list_foods`: one that no Reading uses any more (`reading_count` 0)
+   goes in `unused_foods`, since you cannot delete a Food.
+4. A recipe from a video has a main photograph and step photographs, all
+   frames of the video ([A video](#a-video), step 4). Take them now if it
+   has none.
+5. Correct what is wrong and read it back again, until it matches.
 
 ## Looking for the same dish
 
-Search the library with `search_recipes` for the dish and its main
-ingredients. A recipe that may be the same dish goes in `likely_duplicates`
-by its `branch_id`. Save the recipe anyway; the person decides.
+Search the library with `search_recipes` once for each name the source
+gives the dish, and once for its main ingredient with the kind of dish it
+is, such as "lentil soup". A recipe that may be the same dish, under any
+name, goes in `likely_duplicates` by its `branch_id`. Save the recipe
+anyway; the person decides.
 
 ## The report
 
