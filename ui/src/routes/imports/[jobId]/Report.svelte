@@ -249,21 +249,28 @@
 		photo ? `/api/photographs/${photo}/card` : undefined;
 
 	/**
-	 * Whose import this is, and so what to call it and where *back* goes.
+	 * Whose import this is, and so what to call it.
 	 *
-	 * Read off the Job's Operation rather than the Report's `source_kind`,
-	 * because the Job says it the moment it is first read and the Report only
-	 * once the work has finished — and this page is already on screen while the
-	 * bar fills. A recipe file reaches this page too, since #93 (one recipe file
-	 * ends on the recipe, and this is where *How it went* leads); before that it
-	 * was only ever a Crouton library, and calling a friend's recipe *your
-	 * Crouton library* was a plain lie about what you were looking at.
+	 * The Report's `source_kind` says, once the work has finished. Until then
+	 * the Job's Operation does, because the Job says it the moment it is first
+	 * read and this page is already on screen while the bar fills. A recipe
+	 * file reaches this page too, since #93 (one recipe file ends on the
+	 * recipe, and this is where *How it went* leads); before that it was only
+	 * ever a Crouton library, and calling a friend's recipe *your Crouton
+	 * library* was a plain lie about what you were looking at. A web link no
+	 * agent read was told the same lie until #308, and the generic `import`
+	 * can name `web` too, which only the Report shows.
 	 *
-	 * Everything else here reads correctly for either source. The one phrase
-	 * that names Crouton, `report_changed`, belongs to an `offered` row, and a
+	 * Everything else here reads correctly for any source. The one phrase that
+	 * names Crouton, `report_changed`, belongs to an `offered` row, and a
 	 * Bundle never produces one.
 	 */
-	const ofABundle = $derived(job?.operation === 'import_bundle');
+	const SOURCE_OF: Record<string, string> = { import_bundle: 'bundle', import_web_link: 'web' };
+	const source = $derived(drawn?.source_kind ?? (job ? SOURCE_OF[job.operation] : undefined));
+	const TITLED: Record<string, () => string> = {
+		bundle: () => m.report_title_file(),
+		web: () => m.report_title_link(),
+	};
 
 	// --- An agent's work (#276), option B as chosen on 2026-10-15 ---------------
 	//
@@ -361,7 +368,7 @@
 	const kind = $derived(handed ? HANDED[handed] : undefined);
 
 	const title = $derived(
-		kind ? kind.title() : ofABundle ? m.report_title_file() : m.report_title(),
+		kind ? kind.title() : ((source && TITLED[source]?.()) ?? m.report_title()),
 	);
 
 	/** A recipe read again whose agent failed is left as it was before. */

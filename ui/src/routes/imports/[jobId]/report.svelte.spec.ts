@@ -150,6 +150,62 @@ describe('the Import Report', () => {
 		expect(screen.queryByRole('heading', { name: 'Your Crouton library' })).not.toBeInTheDocument();
 	});
 
+	it('does not call a web link no agent read a Crouton library (#308)', async () => {
+		// #276 named the Reports an agent worked on, and left a link with no
+		// agent in it under the Crouton title.
+		open({
+			get_job: job({
+				operation: 'import_web_link',
+				result: report({
+					source_kind: 'web',
+					arrived: [arrived('tart', 'Tarte au citron', { subject: true })],
+					left_out: [],
+					related_candidates: [],
+				}),
+			}),
+		});
+
+		expect(
+			await screen.findByRole('heading', { name: 'The link you brought in' }),
+		).toBeInTheDocument();
+		expect(screen.queryByRole('heading', { name: 'Your Crouton library' })).not.toBeInTheDocument();
+	});
+
+	it('names a link while its import still runs, before any Report says so', async () => {
+		open({
+			get_job: job({
+				operation: 'import_web_link',
+				status: 'running',
+				progress: { done: 0, total: 1, message: 'reading' },
+				result: null,
+			}),
+		});
+
+		expect(
+			await screen.findByRole('heading', { name: 'The link you brought in' }),
+		).toBeInTheDocument();
+	});
+
+	it('names a link the generic import brought in by its Report', async () => {
+		// `import` takes whatever source its caller names, so only the Report
+		// says this one was a web link.
+		open({
+			get_job: job({
+				operation: 'import',
+				result: report({
+					source_kind: 'web',
+					arrived: [arrived('tart', 'Tarte au citron', { subject: true })],
+					left_out: [],
+					related_candidates: [],
+				}),
+			}),
+		});
+
+		expect(
+			await screen.findByRole('heading', { name: 'The link you brought in' }),
+		).toBeInTheDocument();
+	});
+
 	it('is already a page while the import runs, and becomes the Report when it ends', async () => {
 		const kamosu = open({
 			get_job: job({
