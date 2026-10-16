@@ -592,6 +592,11 @@ with a person beside it have to say what to do instead of asking:
   cannot delete a Food; an Operator tidies them.
 - **Use `could_not_be_read`** when the thing holds no recipe, and say why in
   one sentence.
+- **Read the page you were given, or a copy of it.** A page that refuses
+  the agent can often be read from the Wayback Machine's copy of the same
+  address. Another site's recipe for the same dish is another cook's recipe,
+  with its own amounts: the run that measured this guide saw one read in a
+  refused page's place, with another oven temperature and yield.
 
 The Kamosu MCP server describes its own tools, and the rules for saving a
 recipe are in its instructions.
@@ -610,7 +615,18 @@ recipe are in its instructions.
   next Runner that asks.
 - **Kamosu cannot see what a Job cost.** The agent's model bill, and any limit
   on it, belong to whoever runs the Runner. Kamosu sets no limit on how often
-  people send things to the agent.
+  people send things to the agent. The image Kamosu's repository builds says
+  in its log, after each Job, how long the agent worked and what opencode
+  counts the Job cost at the provider's list prices:
+
+  ```text
+  Job j_… took 52 s and cost $0.0112: 22 tokens in, 5139 out, …
+  ```
+
+  Measured on one small model, a Job took from 20 seconds to 2 minutes and
+  cost under three cents, a video with photographs the most.
+  [The research note behind ADR 0048](research/ai-recipe-import-in-other-apps.md#part-6-the-agent-measured-on-the-development-instance)
+  has the figures for each kind of Job.
 
 ## When nothing happens
 
