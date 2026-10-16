@@ -335,18 +335,23 @@ returncode = agent.wait()
 took = time.monotonic() - started
 
 
+def opencode(*args):
+    """Ask opencode about the Job that just ended, in the Job's own folder."""
+    answer = subprocess.run(
+        ["opencode", *args, "--standalone"], cwd=work, env=env,
+        stdin=subprocess.DEVNULL, capture_output=True, timeout=60,
+    )
+    return json.loads(answer.stdout)
+
+
 def say_what_it_cost():
     """Say in the log how long the Job took and what opencode counts it cost.
     Kamosu cannot see what a Job cost, so this line is where the Operator
     reads it (#281). The cost is opencode's own count at the provider's list
-    prices, and zero for a model it has no price for."""
+    prices, and zero for a model it has no price for. Answers the Job's
+    token totals, or None."""
     try:
-        counted = subprocess.run(
-            ["opencode", "stats", "--standalone", "--all", "--json"],
-            cwd=work, env=env, stdin=subprocess.DEVNULL, capture_output=True,
-            timeout=60,
-        )
-        stats = json.loads(counted.stdout)
+        stats = opencode("stats", "--all", "--json")
         tokens = stats["tokens"]
         cache = tokens.get("cache", {})
         say(
@@ -355,13 +360,63 @@ def say_what_it_cost():
             f"{tokens.get('reasoning', 0)} reasoning, {cache.get('read', 0)} read "
             f"from the cache and {cache.get('write', 0)} written to it."
         )
+        return tokens
     # Anything at all: opencode's answer is not Kamosu's to vouch for, and
     # the report goes to the Runner whatever this line could say.
     except Exception as e:
         say(f"Job {job.get('job_id')} took {took:.0f} s; what it cost could not be read: {e}.")
+        return None
 
 
-say_what_it_cost()
+totals = say_what_it_cost()
+
+# A request above this many tokens, cache included, is priced higher by some
+# providers (#325).
+LONG_REQUEST = 100_000
+
+
+def prompt_size(tokens):
+    cache = tokens.get("cache", {})
+    return tokens["input"] + cache.get("read", 0) + cache.get("write", 0)
+
+
+def say_largest_request():
+    """Say in the log the largest single request the Job sent the model, and
+    how many went past LONG_REQUEST with the tokens they held. The totals
+    above cannot say it: an agent sends its whole conversation again at each
+    step, so one long Job crosses that line partway through (#325). The
+    requests are those of the sessions opencode lists, and the line says so
+    when they hold fewer tokens than the totals."""
+    try:
+        requests = []
+        for session in opencode("session", "list", "--format", "json"):
+            exported = opencode("session", "export", session["id"])
+            requests += [m["tokens"] for m in exported.get("messages", [])
+                         if isinstance(m, dict) and m.get("tokens")]
+        long_requests = [t for t in requests if prompt_size(t) > LONG_REQUEST]
+        held = {
+            "in": sum(t["input"] for t in long_requests),
+            "out": sum(t["output"] + t.get("reasoning", 0) for t in long_requests),
+            "read": sum(t.get("cache", {}).get("read", 0) for t in long_requests),
+            "write": sum(t.get("cache", {}).get("write", 0) for t in long_requests),
+        }
+        counted = sum(prompt_size(t) for t in requests)
+        short = ""
+        if totals and counted < prompt_size(totals):
+            short = f" These requests hold {counted} of the Job's {prompt_size(totals)} tokens sent."
+        say(
+            f"Job {job.get('job_id')} sent {len(requests)} requests, the largest "
+            f"{max(map(prompt_size, requests), default=0)} tokens; "
+            f"{len(long_requests)} went past {LONG_REQUEST}, holding {held['in']} tokens "
+            f"in, {held['out']} out, {held['read']} read from the cache and "
+            f"{held['write']} written to it.{short}"
+        )
+    # As with the cost: the report goes to the Runner whatever this line says.
+    except Exception as e:
+        say(f"Job {job.get('job_id')}: its largest request could not be read: {e}.")
+
+
+say_largest_request()
 
 # The contract asks for status 0 with a report, so a report left by an agent
 # that then crashed does not stand.
