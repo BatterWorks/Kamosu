@@ -29767,6 +29767,103 @@ async fn a_food_whose_names_hit_two_foods_here_arrives_as_a_third_and_a_suggesti
     );
 }
 
+/// **One import makes the third Food once** (#292). The same colliding line
+/// rides on every Version of a chain, and each Version's Reading used to hit
+/// the third Food the last one minted as well, so five Versions made five
+/// Foods and a merge suggestion between nearly every pair of them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_colliding_food_on_every_version_of_a_chain_makes_one_third_food() {
+    let there = support::spawn_app();
+    let (_marc, marc_key, _) = person_with_kitchen(&there, "Marc");
+    let bread = read_a_word(&there, &marc_key, "fr", "farine");
+    let farine = food_named(&there, &marc_key, "fr", "farine");
+    let (status, named) = there.post_op(
+        "set_food_names",
+        Some(&marc_key),
+        &json!({ "food_id": farine, "language": "en", "names": ["flour"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+    for note in ["Rest it.", "Rest it longer.", "Overnight.", "Two nights."] {
+        backdate_branch_head(&there, &bread);
+        let (status, edited) = there.post_op(
+            "edit_recipe",
+            Some(&marc_key),
+            &json!({ "branch_id": bread, "note": note }).to_string(),
+        );
+        assert_eq!(status, 200, "{edited}");
+        assert_eq!(edited["result"]["collapsed"], json!(false), "{edited}");
+    }
+    let bytes = bundle_of(&there, &marc_key, &bread);
+    let files = unzip(&bytes);
+    let sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).unwrap();
+    assert_eq!(
+        sidecar["branches"][0]["versions"].as_array().unwrap().len(),
+        5,
+        "five Versions travel, each with its flour line"
+    );
+
+    let here = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&here);
+    read_a_word(&here, &key, "fr", "farine");
+    read_a_word(&here, &key, "en", "flour");
+    let ours_fr = food_named(&here, &key, "fr", "farine");
+    let ours_en = food_named(&here, &key, "en", "flour");
+
+    let report = receive(&here, &key, &bytes);
+    assert_eq!(
+        arrived_row(&report, &bread)["status"],
+        json!("created"),
+        "{report}"
+    );
+
+    let (_, listed) = here.post_op("list_foods", Some(&key), "{}");
+    let foods = listed["result"]["foods"].as_array().unwrap();
+    assert_eq!(foods.len(), 3, "ours two and one third: {listed}");
+    let third_id = foods
+        .iter()
+        .map(|food| food["id"].as_str().unwrap())
+        .find(|id| *id != ours_fr && *id != ours_en)
+        .unwrap();
+
+    let (_, suggestions) = here.post_op("list_merge_suggestions", Some(&key), "{}");
+    assert_eq!(
+        suggestions["result"]["suggestions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3,
+        "one cluster of three Foods, so three pairs: {suggestions}"
+    );
+
+    let held: Vec<Option<String>> = here
+        .core
+        .db()
+        .with_conn(|conn| {
+            let mut statement = conn
+                .prepare(
+                    "SELECT readings.food_id FROM branches \
+                     JOIN branch_versions ON branch_versions.branch_id = branches.id \
+                     JOIN readings ON readings.version_id = branch_versions.version_id \
+                      WHERE branches.id = ?1 AND readings.line_index = 0",
+                )
+                .unwrap();
+            let held = statement
+                .query_map(rusqlite::params![landed_as(&report, &bread)], |row| {
+                    row.get(0)
+                })
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            Ok(held)
+        })
+        .unwrap();
+    assert_eq!(held.len(), 5, "a Reading on each Version: {held:?}");
+    assert!(
+        held.iter().all(|food| food.as_deref() == Some(third_id)),
+        "every Version's flour line points at the one third Food: {held:?}"
+    );
+}
+
 /// Every name a Food has in a Language travels (#179). `names` keeps the one
 /// name per Language it always held, so an instance that predates several
 /// names reads the Bundle as before; `other_names` carries the rest.

@@ -325,6 +325,7 @@ impl Core {
             Ok(held_before)
         })?;
 
+        let mut food_matches = FoodMatches::default();
         for (done, record) in records.iter().enumerate() {
             // Reported between Branches and never under the lock: a Job's
             // progress is itself written to the database.
@@ -341,7 +342,14 @@ impl Core {
                     .unchecked_transaction()
                     .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
                 let fate = match bundles::damage(record) {
-                    None => place_carried_branch(conn, &cookbook_id, caller, record, &held_before)?,
+                    None => place_carried_branch(
+                        conn,
+                        &cookbook_id,
+                        caller,
+                        record,
+                        &held_before,
+                        &mut food_matches,
+                    )?,
                     Some(damage) => {
                         let language = record["language"].as_str();
                         let words = bundles::head(record).map(|version| &version["content"]);
@@ -1154,6 +1162,7 @@ fn place_carried_branch(
     caller: &Caller,
     record: &Value,
     held_before: &HashSet<String>,
+    food_matches: &mut FoodMatches,
 ) -> Result<Fate, OpError> {
     let travelling_id = record["branch_id"].as_str().unwrap_or_default();
     let lineage_id = record["lineage_id"].as_str().unwrap_or_default();
@@ -1235,7 +1244,7 @@ fn place_carried_branch(
                 ],
             )
             .map_err(|e| OpError::internal(format!("cannot place Branch: {e}")))?;
-            write_carried_versions(conn, &branch_id, &versions, held_before)?;
+            write_carried_versions(conn, &branch_id, &versions, held_before, food_matches)?;
             file_carried_tags(conn, cookbook_id, &branch_id, record)?;
             remember_arrived_hands(conn, record)?;
             return Ok(placed("created", &branch_id));
@@ -1247,7 +1256,13 @@ fn place_carried_branch(
         Verdict::Extends { held } => held,
     };
 
-    write_carried_versions(conn, &branch_id, &versions[held..], held_before)?;
+    write_carried_versions(
+        conn,
+        &branch_id,
+        &versions[held..],
+        held_before,
+        food_matches,
+    )?;
     conn.execute(
         "UPDATE branches SET head_version_id = ?1, language = ?2, \
                 origin_address = COALESCE(?3, origin_address) \
@@ -1274,6 +1289,7 @@ fn write_carried_versions(
     branch_id: &str,
     versions: &[Value],
     held_before: &HashSet<String>,
+    food_matches: &mut FoodMatches,
 ) -> Result<(), OpError> {
     for version in versions {
         let version_id = version["version_id"].as_str().unwrap_or_default();
@@ -1312,7 +1328,7 @@ fn write_carried_versions(
         )
         .map_err(|e| OpError::internal(format!("cannot place a carried Version: {e}")))?;
         if !held_before.contains(version_id) {
-            write_carried_readings(conn, version_id, version)?;
+            write_carried_readings(conn, version_id, version, food_matches)?;
         }
     }
     Ok(())
@@ -1322,11 +1338,13 @@ fn write_carried_versions(
 /// recomputed (ADR 0021) — a line the sender had no Reading for stays unread
 /// here too. A Food arrives as its names and goes through the one Food Match
 /// every door uses (ADR 0022), with every name it carried at once: that is the
-/// one place two names can hit two Foods, and doubt then makes a third.
+/// one place two names can hit two Foods, and doubt then makes a third. The
+/// import makes it once, however many Versions carry the line (#292).
 fn write_carried_readings(
     conn: &Connection,
     version_id: &str,
     version: &Value,
+    food_matches: &mut FoodMatches,
 ) -> Result<(), OpError> {
     let lines = version["content"]["ingredients"]
         .as_array()
@@ -1374,7 +1392,7 @@ fn write_carried_readings(
             })
             .collect();
         let food_id = match (lineage_id, names.is_empty()) {
-            (None, false) => Some(resolve_food_for_names(conn, &names, None)?),
+            (None, false) => Some(food_matches.resolve(conn, &names)?),
             _ => None,
         };
         if amount.is_none() && unit.is_none() && target.is_none() && lineage_id.is_none() {

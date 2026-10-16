@@ -37,6 +37,7 @@
 - A phone shows the recipes it holds while Kamosu restarts behind a proxy or answers that it is busy. It used to show the proxy's error page, or Kamosu's error, in their place. [#291]
 - Opening a recipe no longer stops a phone answering the next screens from the recipes it holds. Until the server answered, a slow server showed nothing at all. [#291]
 - Ending another device's Session in Settings leaves this phone's library on it. It used to be deleted, and downloaded again in full at the next start. `revoke_session` says in a new field, `current`, whether the Session it ended is the one the call was made with. [#291]
+- A Bundle whose Food answers to names that two Foods here hold apart makes one new Food and one set of merge suggestions, however many of its Versions carry the line. It used to make a new Food for each Version, and a suggestion between nearly every pair of them. [#292]
 
 [#249]: https://github.com/BatterWorks/Kamosu/issues/249
 [#250]: https://github.com/BatterWorks/Kamosu/issues/250
@@ -63,6 +64,7 @@
 [#279]: https://github.com/BatterWorks/Kamosu/issues/279
 [#281]: https://github.com/BatterWorks/Kamosu/issues/281
 [#291]: https://github.com/BatterWorks/Kamosu/issues/291
+[#292]: https://github.com/BatterWorks/Kamosu/issues/292
 [#296]: https://github.com/BatterWorks/Kamosu/issues/296
 [#301]: https://github.com/BatterWorks/Kamosu/issues/301
 [#302]: https://github.com/BatterWorks/Kamosu/issues/302
