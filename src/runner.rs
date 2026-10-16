@@ -25,12 +25,32 @@
 //! - `report.json`, left by the agent: `outcome` is `completed`,
 //!   `could_not_be_read` or `failed`, `reason` is one sentence for the last
 //!   two, and `report` is the agent's own report as `report_on_job` takes it.
+//!
+//! An agent in a container of its own is handed its Job through a Unix socket
+//! in place of a command (#317), so that the Runner Key is in another container
+//! altogether. The agent listens and the Runner calls it, one call for each
+//! Job, and that call is the whole of what the two say to each other:
+//!
+//! 1. The agent greets the Runner with one line, `{"kamosu_agent":1}`. The
+//!    Runner holds the call from then on, and asks Kamosu for work only while
+//!    an agent waits on it.
+//! 2. The Runner sends one line, what `job.json` holds.
+//! 3. The agent sends what `report.json` holds, and hangs up.
+//!
+//! The Runner hanging up first is how it stops the agent: past the time
+//! limit, when Kamosu ends the hold, and when the Runner itself is stopped.
+//! The agent is expected to take one call in its life and end with it, so that
+//! a container restarted for the next Job holds nothing of the last. The
+//! Runner waits `agent_rest` before calling again, which leaves an agent's
+//! container time to end with everything the Job started.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value, json};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::UnixStream;
 use tokio::process::Command;
 use url::Url;
 
@@ -43,6 +63,19 @@ pub const JOB_FILE: &str = "job.json";
 
 /// What the agent leaves behind for the Runner, in the same folder.
 pub const REPORT_FILE: &str = "report.json";
+
+/// The line an agent at a socket greets the Runner with. The number is the
+/// version of what the two say to each other.
+pub const AGENT_GREETING: &str = r#"{"kamosu_agent":1}"#;
+
+/// Whom the Runner hands each Job to.
+#[derive(Clone, Debug)]
+pub enum Agent {
+    /// A command it starts in a fresh folder, with `job.json` there.
+    Command(Vec<String>),
+    /// An agent listening on this Unix socket, in a container of its own.
+    Socket(PathBuf),
+}
 
 /// Every pace the Runner keeps, in one place.
 #[derive(Clone, Debug)]
@@ -67,6 +100,12 @@ pub struct Pace {
     pub stop_grace: Duration,
     /// How long one call to Kamosu may take before it counts as out of reach.
     pub call_timeout: Duration,
+    /// How long to wait before calling an agent's socket again when no agent
+    /// answers there.
+    pub agent_every: Duration,
+    /// How long to wait after a Job before calling an agent's socket again,
+    /// for the agent's container to end and start afresh.
+    pub agent_rest: Duration,
 }
 
 impl Pace {
@@ -77,6 +116,8 @@ impl Pace {
         time_limit: Duration::from_secs(30 * 60),
         stop_grace: Duration::from_secs(10),
         call_timeout: Duration::from_secs(30),
+        agent_every: Duration::from_secs(1),
+        agent_rest: Duration::from_secs(2),
     };
 
     /// The pace of this build. A `test-jobs` build lets a test shorten the
@@ -96,6 +137,8 @@ impl Pace {
                 pace.ask_every = every;
                 pace.out_of_reach_first = every;
                 pace.out_of_reach_most = every * 4;
+                pace.agent_every = every;
+                pace.agent_rest = every;
             }
             if let Some(limit) = millis("KAMOSU_RUNNER_TEST_TIME_LIMIT_MS") {
                 pace.time_limit = limit;
@@ -121,7 +164,7 @@ fn stated_version() -> String {
 
 /// Run the Runner until it is stopped, or until Kamosu refuses it in a way
 /// asking again cannot mend. Answers the exit code.
-pub fn run(kamosu: &str, command: Vec<String>) -> i32 {
+pub fn run(kamosu: &str, agent: Agent) -> i32 {
     let kamosu = match kamosu_address(kamosu) {
         Ok(kamosu) => kamosu,
         Err(why) => {
@@ -141,7 +184,7 @@ pub fn run(kamosu: &str, command: Vec<String>) -> i32 {
         }
     };
     scrub_from_environment(RUNNER_KEY_VAR);
-    if command.is_empty() {
+    if matches!(&agent, Agent::Command(command) if command.is_empty()) {
         eprintln!("Name the agent command to start for each Job, after `--`.");
         return 2;
     }
@@ -151,7 +194,7 @@ pub fn run(kamosu: &str, command: Vec<String>) -> i32 {
         .build()
         .expect("tokio runtime");
     runtime.block_on(async move {
-        let runner = Runner::new(kamosu, runner_key, command, Pace::of_this_build());
+        let runner = Runner::new(kamosu, runner_key, agent, Pace::of_this_build());
         tokio::select! {
             code = runner.run() => code,
             _ = stop_signal() => {
@@ -247,6 +290,16 @@ enum Answer {
     OutOfReach(String),
 }
 
+/// How the Runner's hold on a Job ended, with the agent's own end inside.
+enum Held<T> {
+    /// The agent ended by itself, this way.
+    Ended(T),
+    /// It ran past the time limit.
+    TimedOut,
+    /// Kamosu ended the hold: the Job was cancelled, or the hold lapsed.
+    Released,
+}
+
 /// How an agent command's time with its Job ended.
 enum Ended {
     /// It ended by itself.
@@ -268,7 +321,7 @@ struct Working {
 struct Runner {
     kamosu: Url,
     runner_key: String,
-    command: Vec<String>,
+    agent: Agent,
     pace: Pace,
     /// The Runner's own client. It speaks to the one address the Runner was
     /// given, follows no redirect and goes through no proxy. It is kept apart
@@ -280,7 +333,7 @@ struct Runner {
 }
 
 impl Runner {
-    fn new(kamosu: Url, runner_key: String, command: Vec<String>, pace: Pace) -> Runner {
+    fn new(kamosu: Url, runner_key: String, agent: Agent, pace: Pace) -> Runner {
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
@@ -290,7 +343,7 @@ impl Runner {
         Runner {
             kamosu,
             runner_key,
-            command,
+            agent,
             pace,
             client,
             working: Arc::new(Mutex::new(None)),
@@ -306,7 +359,15 @@ impl Runner {
         );
         let mut ask = fresh_mark();
         let mut away = Away::default();
+        // The call an agent at a socket waits on. A Job is asked for only
+        // while one does, so none is taken that no agent can work.
+        let mut call: Option<AgentCall> = None;
         loop {
+            if let Agent::Socket(socket) = &self.agent
+                && !call.as_mut().is_some_and(AgentCall::still_there)
+            {
+                call = Some(self.reach_agent(socket).await);
+            }
             let asked = self
                 .call(
                     "ask_for_work",
@@ -320,7 +381,12 @@ impl Runner {
                     // arrived is repeated under the same mark, below.
                     ask = fresh_mark();
                     match answer.get("job").filter(|job| !job.is_null()) {
-                        Some(job) => self.work(job).await,
+                        Some(job) => {
+                            self.work(job, call.take()).await;
+                            if matches!(self.agent, Agent::Socket(_)) {
+                                tokio::time::sleep(self.pace.agent_rest).await;
+                            }
+                        }
                         None => tokio::time::sleep(self.pace.ask_every).await,
                     }
                 }
@@ -367,23 +433,29 @@ impl Runner {
         }
     }
 
-    /// Do one Job: hand it to the agent command in a fresh folder, and report
-    /// how it ended.
-    async fn work(&self, job: &Value) {
+    /// Do one Job: hand it to the agent waiting on `line`, or else to the
+    /// agent command in a fresh folder, and report how it ended.
+    async fn work(&self, job: &Value, call: Option<AgentCall>) {
         let Some(job_id) = job["job_id"].as_str() else {
             eprintln!("Kamosu handed out a Job with no id: {job}");
             return;
         };
         eprintln!("Working Job {job_id}.");
-        let report = match fresh_folder() {
-            Ok(folder) => {
-                let report = self.hand_over(job_id, job, &folder).await;
-                remove_folder(&folder);
-                report
-            }
-            Err(e) => Some(Report::Failed(format!(
-                "the Runner could not make a folder for the agent: {e}"
-            ))),
+        let report = match (call, &self.agent) {
+            (Some(call), _) => self.hand_over_by_socket(job_id, job, call).await,
+            (None, Agent::Command(command)) => match fresh_folder() {
+                Ok(folder) => {
+                    let report = self.hand_over(job_id, job, command, &folder).await;
+                    remove_folder(&folder);
+                    report
+                }
+                Err(e) => Some(Report::Failed(format!(
+                    "the Runner could not make a folder for the agent: {e}"
+                ))),
+            },
+            (None, Agent::Socket(_)) => Some(Report::Failed(
+                "the Runner had no agent to hand the Job to".to_string(),
+            )),
         };
         if let Some(report) = report {
             self.report(job_id, report).await;
@@ -393,14 +465,20 @@ impl Runner {
     /// Start the agent command in `folder` with the Job written down there,
     /// keep the hold while it runs, and answer what to report. None when
     /// Kamosu ended the hold, which leaves the Runner nothing to report.
-    async fn hand_over(&self, job_id: &str, job: &Value, folder: &Path) -> Option<Report> {
+    async fn hand_over(
+        &self,
+        job_id: &str,
+        job: &Value,
+        command: &[String],
+        folder: &Path,
+    ) -> Option<Report> {
         if let Err(e) = write_job_file(folder, &self.kamosu, job) {
             return Some(Report::Failed(format!(
                 "the Runner could not write the Job down for the agent: {e}"
             )));
         }
-        let mut child = match Command::new(&self.command[0])
-            .args(&self.command[1..])
+        let mut child = match Command::new(&command[0])
+            .args(&command[1..])
             .current_dir(folder)
             .env_remove(RUNNER_KEY_VAR)
             .stdin(std::process::Stdio::null())
@@ -422,19 +500,94 @@ impl Runner {
             folder: folder.to_path_buf(),
         });
 
+        let ended = match self.hold_while(job_id, job, child.wait()).await {
+            Held::Ended(Ok(status)) => Ended::Exited(status),
+            Held::Ended(Err(e)) => Ended::Lost(e.to_string()),
+            Held::TimedOut => {
+                stop_group(group, &mut child, self.pace.stop_grace).await;
+                Ended::TimedOut
+            }
+            Held::Released => {
+                stop_group(group, &mut child, self.pace.stop_grace).await;
+                Ended::Released
+            }
+        };
+        // Whatever the command left running is stopped with it, before its
+        // report is read, so nothing it started can still be writing there.
+        kill_group(group, libc::SIGKILL);
+        *self.working.lock().unwrap() = None;
+
+        match ended {
+            Ended::Exited(status) if !status.success() => Some(Report::Failed(format!(
+                "the agent command ended in an error ({status})"
+            ))),
+            Ended::Exited(_) => Some(read_report(folder)),
+            Ended::TimedOut => Some(self.past_the_time_limit()),
+            Ended::Lost(why) => Some(Report::Failed(format!(
+                "the Runner lost track of the agent command: {why}"
+            ))),
+            Ended::Released => None,
+        }
+    }
+
+    /// Hand the Job to the agent waiting on `line`, keep the hold until the
+    /// agent's report arrives, and answer what to report. None when Kamosu
+    /// ended the hold. However the Job ends, the Runner hangs up, which is the
+    /// agent's sign to stop.
+    async fn hand_over_by_socket(
+        &self,
+        job_id: &str,
+        job: &Value,
+        mut call: AgentCall,
+    ) -> Option<Report> {
+        let mut sent = serde_json::to_vec(&handed_job(&self.kamosu, job)).expect("JSON");
+        sent.push(b'\n');
+        let written =
+            tokio::time::timeout(self.pace.call_timeout, call.stream.write_all(&sent)).await;
+        if let Some(why) = match written {
+            Ok(Ok(())) => None,
+            Ok(Err(e)) => Some(e.to_string()),
+            Err(_) => Some("it took nothing in".to_string()),
+        } {
+            return Some(Report::Failed(format!(
+                "the Runner could not hand the Job to the agent: {why}"
+            )));
+        }
+        let held = self
+            .hold_while(job_id, job, report_from_call(&mut call.stream))
+            .await;
+        drop(call);
+        match held {
+            Held::Ended(report) => Some(report),
+            Held::TimedOut => Some(self.past_the_time_limit()),
+            Held::Released => None,
+        }
+    }
+
+    fn past_the_time_limit(&self) -> Report {
+        Report::Failed(format!(
+            "the agent ran past the Runner's time limit of {} and was stopped",
+            spoken(self.pace.time_limit)
+        ))
+    }
+
+    /// Wait for `ending`, the agent's end, renewing the hold on the Job
+    /// meanwhile, until it ends, runs past the time limit or Kamosu ends the
+    /// hold.
+    async fn hold_while<T>(
+        &self,
+        job_id: &str,
+        job: &Value,
+        ending: impl std::future::Future<Output = T>,
+    ) -> Held<T> {
+        tokio::pin!(ending);
         let time_limit = tokio::time::Instant::now() + self.pace.time_limit;
         let mut renew_every = renew_within(job);
         let mut next_renewal = tokio::time::Instant::now() + renew_every;
-        let ended = loop {
+        loop {
             tokio::select! {
-                status = child.wait() => break match status {
-                    Ok(status) => Ended::Exited(status),
-                    Err(e) => Ended::Lost(e.to_string()),
-                },
-                _ = tokio::time::sleep_until(time_limit) => {
-                    stop_group(group, &mut child, self.pace.stop_grace).await;
-                    break Ended::TimedOut;
-                }
+                ended = &mut ending => return Held::Ended(ended),
+                _ = tokio::time::sleep_until(time_limit) => return Held::TimedOut,
                 _ = tokio::time::sleep_until(next_renewal) => {
                     // A renewal may take half the time between two, so that
                     // one that hangs leaves time for more before the hold
@@ -452,8 +605,7 @@ impl Runner {
                                 "Kamosu ended this Runner's hold on Job {job_id}: {message}. \
                                  Stopping the agent."
                             );
-                            stop_group(group, &mut child, self.pace.stop_grace).await;
-                            break Ended::Released;
+                            return Held::Released;
                         }
                         Answer::OutOfReach(why) | Answer::Redirected(why) => {
                             eprintln!(
@@ -467,25 +619,36 @@ impl Runner {
                     };
                 }
             }
-        };
-        // Whatever the command left running is stopped with it, before its
-        // report is read, so nothing it started can still be writing there.
-        kill_group(group, libc::SIGKILL);
-        *self.working.lock().unwrap() = None;
+        }
+    }
 
-        match ended {
-            Ended::Exited(status) if !status.success() => Some(Report::Failed(format!(
-                "the agent command ended in an error ({status})"
-            ))),
-            Ended::Exited(_) => Some(read_report(folder)),
-            Ended::TimedOut => Some(Report::Failed(format!(
-                "the agent ran past the Runner's time limit of {} and was stopped",
-                spoken(self.pace.time_limit)
-            ))),
-            Ended::Lost(why) => Some(Report::Failed(format!(
-                "the Runner lost track of the agent command: {why}"
-            ))),
-            Ended::Released => None,
+    /// Call the agent at `socket` until one answers with its greeting, and
+    /// answer the call it waits on. Says once why none does, each time the
+    /// reason changes.
+    async fn reach_agent(&self, socket: &Path) -> AgentCall {
+        let mut said: Option<String> = None;
+        loop {
+            let why = match UnixStream::connect(socket).await {
+                Ok(stream) => match AgentCall::greeted(stream, self.pace.call_timeout).await {
+                    Ok(call) => {
+                        if said.is_some() {
+                            eprintln!("The agent at {} answers.", socket.display());
+                        }
+                        return call;
+                    }
+                    Err(why) => why,
+                },
+                Err(e) => e.to_string(),
+            };
+            if said.as_deref() != Some(&why) {
+                eprintln!(
+                    "Waiting for the agent at {}: {why}. Kamosu is asked for no Job \
+                     until it answers.",
+                    socket.display()
+                );
+                said = Some(why);
+            }
+            tokio::time::sleep(self.pace.agent_every).await;
         }
     }
 
@@ -537,6 +700,8 @@ impl Runner {
     /// Stop the agent of the Job being worked, if one is, and remove its
     /// folder. For when the Runner itself is stopped.
     async fn stop_the_job_being_worked(&self) {
+        // An agent at a socket is stopped by the Runner hanging up, which
+        // its ending does.
         let Some(working) = self.working.lock().unwrap().take() else {
             return;
         };
@@ -682,14 +847,90 @@ fn read_report(folder: &Path) -> Report {
         }
         Ok(_) => {}
     }
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(e) => return unreadable(e),
-    };
-    match serde_json::from_str::<Value>(&text) {
+    match std::fs::read_to_string(&path) {
+        Ok(text) => report_from_text(&text),
+        Err(e) => unreadable(e),
+    }
+}
+
+/// The report an agent at a socket sends before it hangs up. Nothing sent
+/// fails the Job, as no report.json does, and so does more than a report holds.
+async fn report_from_call(stream: &mut UnixStream) -> Report {
+    let mut sent = Vec::new();
+    if let Err(e) = (&mut *stream)
+        .take(REPORT_MOST_BYTES + 1)
+        .read_to_end(&mut sent)
+        .await
+    {
+        return Report::Failed(format!("the agent's report could not be read: {e}"));
+    }
+    if sent.len() as u64 > REPORT_MOST_BYTES {
+        return Report::Failed(format!(
+            "the agent's report is larger than {} MB",
+            REPORT_MOST_BYTES / 1024 / 1024
+        ));
+    }
+    if sent.iter().all(u8::is_ascii_whitespace) {
+        return Report::Failed("the agent left no report".to_string());
+    }
+    match String::from_utf8(sent) {
+        Ok(text) => report_from_text(&text),
+        Err(e) => Report::Failed(format!("the agent's report is not JSON: {e}")),
+    }
+}
+
+/// A report as the agent wrote it, which must be a JSON object.
+fn report_from_text(text: &str) -> Report {
+    match serde_json::from_str::<Value>(text) {
         Ok(report) if report.is_object() => Report::FromTheAgent(report),
         Ok(_) => Report::Failed("the agent's report is not a JSON object".to_string()),
         Err(e) => Report::Failed(format!("the agent's report is not JSON: {e}")),
+    }
+}
+
+/// A call to an agent at a socket, from its greeting until its Job ends.
+struct AgentCall {
+    stream: UnixStream,
+}
+
+impl AgentCall {
+    /// The call, once the agent has greeted the Runner as one. Anything
+    /// else at the socket is not an agent the Runner hands a Job to.
+    async fn greeted(mut stream: UnixStream, within: Duration) -> Result<AgentCall, String> {
+        let mut greeting = Vec::new();
+        let read = tokio::time::timeout(within, async {
+            loop {
+                let byte = stream.read_u8().await?;
+                if byte == b'\n' || greeting.len() >= 256 {
+                    return Ok::<(), std::io::Error>(());
+                }
+                greeting.push(byte);
+            }
+        })
+        .await;
+        match read {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(format!("it hung up without a greeting ({e})")),
+            Err(_) => return Err("it gave no greeting".to_string()),
+        }
+        let expected: Value = serde_json::from_str(AGENT_GREETING).expect("the greeting");
+        match serde_json::from_slice::<Value>(&greeting) {
+            Ok(greeting) if greeting == expected => Ok(AgentCall { stream }),
+            _ => Err(format!(
+                "it greeted the Runner with something other than {AGENT_GREETING}"
+            )),
+        }
+    }
+
+    /// Whether the agent still waits on the call. It sends nothing between
+    /// its greeting and its report, so anything to read means it hung up or
+    /// is no agent the Runner should trust with a Job.
+    fn still_there(&mut self) -> bool {
+        let mut byte = [0u8; 1];
+        matches!(
+            self.stream.try_read(&mut byte),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
+        )
     }
 }
 
@@ -706,21 +947,24 @@ fn fresh_folder() -> std::io::Result<PathBuf> {
     Ok(folder)
 }
 
-/// Write down what the Job is for the agent: Kamosu's addresses and the Job
-/// as Kamosu handed it, less the Runner's own hold.
+/// Write down what the Job is for the agent command.
 fn write_job_file(folder: &Path, kamosu: &Url, job: &Value) -> std::io::Result<()> {
+    let text = serde_json::to_string_pretty(&handed_job(kamosu, job)).expect("JSON");
+    std::fs::write(folder.join(JOB_FILE), text)
+}
+
+/// What `job.json` holds, which an agent at a socket is sent as one line.
+fn handed_job(kamosu: &Url, job: &Value) -> Value {
     let mut job = job.clone();
     if let Some(job) = job.as_object_mut() {
         job.remove("held_until");
         job.remove("renew_within_seconds");
     }
-    let handed = json!({
+    json!({
         "kamosu": kamosu.as_str(),
         "mcp": kamosu.join("mcp").expect("the MCP door's address").as_str(),
         "job": job,
-    });
-    let text = serde_json::to_string_pretty(&handed).expect("JSON");
-    std::fs::write(folder.join(JOB_FILE), text)
+    })
 }
 
 fn remove_folder(folder: &Path) {
