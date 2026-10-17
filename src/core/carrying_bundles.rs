@@ -9,11 +9,17 @@ impl Core {
     /// Translations, every Component it needs as a Passenger, and every
     /// Photograph any of their Versions shows.
     ///
-    /// Nothing is written anywhere, and nothing about who can see the
-    /// Passengers changes: they travel because the recipe needs them (ADR
-    /// 0008), and exporting is a read of the library, not a change to it.
+    /// Nothing about who can see the Passengers changes: they travel because
+    /// the recipe needs them (ADR 0008). The one thing written is that each
+    /// carried Branch's head has left (#328), so the next save starts a
+    /// Version rather than collapsing into the one the receiver holds.
     pub fn bundle(&self, person_id: &str, branch_id: &str) -> Result<bundles::Written, OpError> {
-        let (mut contents, hashes) = self.gather_bundle(person_id, branch_id)?;
+        let (mut contents, hashes) = self.db().with_conn(|conn| {
+            let cookbook_id = ensure_sees_branch(conn, branch_id, person_id)?;
+            let gathered = bundle_contents(conn, branch_id, &cookbook_id)?;
+            mark_heads_carried(conn, &gathered.0)?;
+            Ok(gathered)
+        })?;
         self.fill_photographs(&mut contents, hashes);
         bundles::write(&contents)
     }
@@ -99,6 +105,18 @@ impl Core {
     /// every Translation and every Passenger whichever page you asked from, so
     /// reading a share in French and taking the file is the same file.
     pub fn shared_bundle(&self, token: &str) -> Result<bundles::Written, OpError> {
+        self.shared_bundle_marking(token, true)
+    }
+
+    /// The same Bundle, for a preview or an import on the instance that
+    /// shared it (#170). Nothing leaves: the receiver's Branch is written
+    /// here, beside the sender's, and holds the Version that way. Marking
+    /// the head as carried would close the hour on a preview nobody took.
+    pub fn shared_bundle_here(&self, token: &str) -> Result<bundles::Written, OpError> {
+        self.shared_bundle_marking(token, false)
+    }
+
+    fn shared_bundle_marking(&self, token: &str, mark: bool) -> Result<bundles::Written, OpError> {
         let shared = self.read_shared_recipe(token)?;
         if shared["ended"].as_bool().unwrap_or(false) {
             return Err(OpError::not_found(
@@ -111,7 +129,11 @@ impl Core {
             .to_string();
         let (mut contents, hashes) = self.db().with_conn(|conn| {
             let cookbook_id = branch_cookbook(conn, &branch_id)?;
-            bundle_contents(conn, &branch_id, &cookbook_id)
+            let gathered = bundle_contents(conn, &branch_id, &cookbook_id)?;
+            if mark {
+                mark_heads_carried(conn, &gathered.0)?;
+            }
+            Ok(gathered)
         })?;
 
         let data_dir = self.data_dir();
@@ -796,6 +818,28 @@ fn bundle_contents(
         missing_photographs: Vec::new(),
     };
     Ok((contents, hashes))
+}
+
+/// Say that a Bundle carried away the head of every Branch it holds (#328).
+///
+/// A collapse replaces the head in place, which is right only while nobody
+/// else has it. Once a receiver holds that Version, replacing it would make
+/// the sender's next Bundle disagree with their chain from that Version on,
+/// and they could receive no Bundle of the recipe again. Marked in the same
+/// lock as the gathering, so no save slips between what was read and what is
+/// marked. A Bundle whose zip then fails to build has marked one Version too
+/// many, which costs an extra Version and nothing else.
+fn mark_heads_carried(conn: &Connection, contents: &bundles::Contents) -> Result<(), OpError> {
+    for carried in &contents.branches {
+        conn.execute(
+            "UPDATE branch_versions SET bundled = 1 \
+              WHERE branch_id = ?1 \
+                AND sequence = (SELECT MAX(sequence) FROM branch_versions WHERE branch_id = ?1)",
+            params![carried.local_id],
+        )
+        .map_err(|e| OpError::internal(format!("cannot mark what a Bundle carried: {e}")))?;
+    }
+    Ok(())
 }
 
 /// One Branch as a Bundle's sidecar records it: its ids, its Language, the

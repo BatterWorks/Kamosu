@@ -1046,10 +1046,11 @@ pub const CHANGED_WHILE_IT_WORKED: &str = "the recipe was changed while the agen
 
 /// The reason an agent's Job ends with when another Branch or a Translation
 /// holds the Version it was still shaping (#265): a Copy or a variation made
-/// since, a Translation of it, or a Branch that already read the same.
-pub const HELD_ELSEWHERE: &str = "a copy, a variation or a translation of the recipe holds what \
-     the agent had saved, so the agent stopped rather than change it under that one. What it \
-     had saved before is kept";
+/// since, a Translation of it, or a Branch that already read the same. A
+/// Bundle that carried the Version away holds it too (#328).
+pub const HELD_ELSEWHERE: &str = "a copy, a variation or a translation of the recipe, or a recipe \
+     file sent from it, holds what the agent had saved, so the agent stopped rather than change \
+     it under that one. What it had saved before is kept";
 
 /// End a Job because a write of its was refused, with one of the reasons
 /// above (#264, #265). Failed, which spends its Job Keys. The Job is being
