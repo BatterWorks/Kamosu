@@ -173,6 +173,9 @@
 		 * recipe could not be marked (#87). It travels with the rest for the
 		 * same reason they do: the screen that knows is closing.
 		 *
+		 * `version_id` is the Version the Branch now stands on. Where it is the
+		 * one the page already held, the save changed nothing (#329).
+		 *
 		 * `language_offer` is the Language this text reads as where that
 		 * disagrees with the one the recipe carries — an offer to be put to
 		 * the cook and never a change (#106, ADR 0006). It travels up with the
@@ -182,6 +185,7 @@
 		 */
 		onSaved: (landed: {
 			branch_id: string;
+			version_id: string;
 			collapsed: boolean;
 			copied: boolean;
 			named: boolean;
@@ -976,6 +980,9 @@
 			saving = false;
 			onSaved({
 				branch_id: answered.branch_id,
+				// A Translation answers its whole new Branch, which stands on
+				// the Version it just made.
+				version_id: 'head_version_id' in answered ? answered.head_version_id : answered.version_id,
 				collapsed: answered.collapsed,
 				copied: answered.copied,
 				named,
@@ -1024,6 +1031,7 @@
 		saving = false;
 		onSaved({
 			branch_id: started.branch_id,
+			version_id: saved.version_id,
 			collapsed: false,
 			copied: true,
 			named,

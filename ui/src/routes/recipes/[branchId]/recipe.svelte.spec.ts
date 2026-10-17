@@ -2913,6 +2913,72 @@ describe('a recipe that has a Translation', () => {
 	});
 });
 
+describe('a Copy started from a draft that changed nothing (#329)', () => {
+	it('says no copy was made, never that it saved', async () => {
+		// The Core makes no Copy of content the head already holds: merely
+		// reading a recipe you cannot change must never start one (ADR 0041).
+		// It answers the Branch that was open, with `copied: false`.
+		renderRecipe(
+			onTheirs({
+				save_recipe_version: {
+					branch_id: 'theirs',
+					version_id: 'v_theirs',
+					parent_version_id: null,
+					sequence: 1,
+					collapsed: false,
+					copied: false,
+					language: 'en',
+					language_offer: null,
+					translates_version_id: null,
+				},
+			}),
+			'theirs',
+		);
+		await compared();
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		const act = /Start my own copy/;
+		await fireEvent.click((await screen.findAllByRole('button', { name: act }))[0] as HTMLElement);
+		const inSheet = await screen.findAllByRole('button', { name: act });
+		await fireEvent.click(inSheet[inSheet.length - 1] as HTMLElement);
+
+		expect(await screen.findByText('Nothing changed, so no copy was made.')).toBeInTheDocument();
+		expect(screen.queryByText(/^Saved\./)).not.toBeInTheDocument();
+	});
+
+	it('still says Saved where the save wrote a Version the page did not hold', async () => {
+		// The page can hold `writes: false` after the cook was made a Co-author
+		// elsewhere: the Core then writes onto the recipe itself. Only a save
+		// that answers the Version already there changed nothing.
+		renderRecipe(
+			onTheirs({
+				save_recipe_version: {
+					branch_id: 'theirs',
+					version_id: 'v_after',
+					parent_version_id: 'v_theirs',
+					sequence: 2,
+					collapsed: false,
+					copied: false,
+					language: 'en',
+					language_offer: null,
+					translates_version_id: null,
+				},
+			}),
+			'theirs',
+		);
+		await compared();
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		const act = /Start my own copy/;
+		await fireEvent.click((await screen.findAllByRole('button', { name: act }))[0] as HTMLElement);
+		const inSheet = await screen.findAllByRole('button', { name: act });
+		await fireEvent.click(inSheet[inSheet.length - 1] as HTMLElement);
+
+		expect(await screen.findByText('Saved.')).toBeInTheDocument();
+		expect(screen.queryByText('Nothing changed, so no copy was made.')).not.toBeInTheDocument();
+	});
+});
+
 describe('the Language offer on the recipe', () => {
 	it('puts the offer where the save already speaks, once a save answers one', async () => {
 		renderRecipe({ ...forked({ ...ON_THE_SIDE, ...savedReading('fr') }) });

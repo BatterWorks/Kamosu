@@ -1124,6 +1124,7 @@
   "write_saved": "Saved.",
   "write_saved_collapsed": "Joined to your last save, not a new history entry.",
   "write_saved_copied": "Your own copy is made. You are standing in it now.",
+  "write_saved_nothing_to_copy": "Nothing changed, so no copy was made.",
   "write_saving": "Saving…",
   "write_source_link": "Its link",
   "write_source_text": "Source",

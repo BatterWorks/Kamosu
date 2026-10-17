@@ -1124,6 +1124,7 @@
   "write_saved": "Enregistré.",
   "write_saved_collapsed": "Joint à votre dernier enregistrement, sans nouvelle entrée dans l’historique.",
   "write_saved_copied": "Votre propre copie est faite. Vous vous tenez dedans.",
+  "write_saved_nothing_to_copy": "Rien n’a changé, donc aucune copie n’a été faite.",
   "write_saving": "Enregistrement…",
   "write_source_link": "Son lien",
   "write_source_text": "Source",

@@ -845,6 +845,7 @@ describe('writing a recipe', () => {
 		expect(sent(kamosu)).toBeDefined();
 		expect(onSaved).toHaveBeenCalledWith({
 			branch_id: 'mine',
+			version_id: 'v_1',
 			collapsed: true,
 			copied: false,
 			named: true,
@@ -879,6 +880,7 @@ describe('writing a recipe', () => {
 		await saveThrough(/Start my own copy/);
 		expect(onSaved).toHaveBeenCalledWith({
 			branch_id: 'b_my_copy',
+			version_id: 'v_9',
 			collapsed: false,
 			copied: true,
 			named: true,
@@ -1640,6 +1642,8 @@ describe('translating a recipe', () => {
 		// the Language it is written in, so there is nothing to put to the cook.
 		expect(onSaved).toHaveBeenCalledWith({
 			branch_id: 'b_fr',
+			// The new Branch's head: the Version the Translation just made.
+			version_id: 'v_2',
 			collapsed: false,
 			copied: false,
 			named: true,
