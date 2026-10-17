@@ -2,9 +2,9 @@
  * The ways a new recipe starts, written once (#174): a web page, a Bundle
  * somebody sent you (a Kamosu zip file, ADR 0020), a title you type yourself,
  * a whole recipe pasted as text (#175), and a recipe PDF (#176). On an
- * instance with a Runner a photo of a page is one too, and a photo, a PDF and
- * pasted text go to Kamosu's AI agent rather than to a draft sorted by hand
- * (#278).
+ * instance with a Runner a photo of a page and a video are ones too, and a
+ * photo, a video, a PDF and pasted text go to Kamosu's AI agent rather than
+ * to a draft sorted by hand (#278, #349).
  *
  * Two places offer them. The + beside the search box offers all three every
  * day, and the dead ends `AddOrImport` draws (a search that matched nothing,
@@ -31,8 +31,11 @@ import type { ImportWebLinkOutput, KamosuClient, ReadPastedRecipeOutput } from '
 import { holdPaste, readPdf, type PageReading, type PastedDraft } from '$lib/pasted.svelte';
 import { noteArrival } from '$lib/arrival.svelte';
 
-/** `send` is handing a photo, a PDF or pasted text to Kamosu's AI agent (#278). */
-export type Act = 'link' | 'file' | 'pdf' | 'picture' | 'write' | 'paste' | 'send';
+/**
+ * `send` is handing a photo, a PDF, pasted text or a video's link to Kamosu's
+ * AI agent (#278, #349). `video` is the row that asks for that link.
+ */
+export type Act = 'link' | 'file' | 'pdf' | 'picture' | 'video' | 'write' | 'paste' | 'send';
 
 /** A photo or a PDF chosen or dropped, shown once before it goes to the agent (#278). */
 export interface ToSend {
@@ -208,16 +211,22 @@ export class Adding {
 	}
 
 	/**
-	 * Hand a photo, a PDF or pasted text to Kamosu's AI agent (#278), and go
-	 * to its Import, which says whether it waits or is being read (#277). A
-	 * file handed over before is known by its contents (#271): a Job still on
-	 * it is that same Import, and a recipe already made from it opens, saying
-	 * it was read before.
+	 * Hand a photo, a PDF, pasted text or a video's link to Kamosu's AI agent
+	 * (#278, #349), and go to its Import, which says whether it waits or is
+	 * being read (#277). A file handed over before is known by its contents
+	 * (#271): a Job still on it is that same Import, and a recipe already
+	 * made from it opens, saying it was read before. A link is never matched,
+	 * and Kamosu does not read it first, so nothing lands before the agent's
+	 * recipe.
 	 */
-	send = (handed: { text: string } | { file: File }) =>
+	send = (handed: { text: string } | { link: string } | { file: File }) =>
 		this.#run('send', async () => {
 			const input =
-				'text' in handed ? { text: handed.text } : { upload_id: await this.#upload(handed.file) };
+				'text' in handed
+					? { text: handed.text }
+					: 'link' in handed
+						? { link: handed.link.trim() }
+						: { upload_id: await this.#upload(handed.file) };
 			const answer = await this.#kamosu.importByAgent(input);
 			this.toSend = null;
 			if (answer.job_id) {

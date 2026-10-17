@@ -968,19 +968,44 @@ pub fn read_recipe_pdf(
     Ok(pasted_answer(&paste))
 }
 
-/// Hand pasted text, a PDF or a picture to an agent (#269). The text comes
-/// as `text`, and a file the two ways `read_recipe_pdf`'s does. Which a file
-/// is, is read off its bytes in the Core.
+/// The longest link handed to an agent, in bytes. A browser's address bar
+/// holds far more, but a recipe's page or video is never that long, and the
+/// link is held in a Job's row for as long as the Job is kept.
+const LONGEST_LINK: usize = 2048;
+
+/// Hand pasted text, a link, a PDF or a picture to an agent (#269, #349).
+/// The text comes as `text`, the link as `link`, and a file the two ways
+/// `read_recipe_pdf`'s does. Which a file is, is read off its bytes in the
+/// Core.
 pub fn import_by_agent(
     core: &Core,
     invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
-    const USAGE: &str = "import_by_agent takes { text }, the recipe pasted, or { upload_id } \
-                         or { data }: a PDF or a picture sent to POST /api/uploads, or \
-                         base64-encoded";
+    const USAGE: &str = "import_by_agent takes { text }, the recipe pasted, { link }, a web \
+                         page or a video, or { upload_id } or { data }: a PDF or a picture \
+                         sent to POST /api/uploads, or base64-encoded";
     let caller = caller_of(invocation)?;
     core.ensure_has_runner()?;
+    if let Some(link) = input.get("link").and_then(Value::as_str) {
+        if ["text", "upload_id", "data"]
+            .iter()
+            .any(|field| input.get(field).is_some())
+        {
+            return Err(OpError::bad_request(USAGE));
+        }
+        // Semantic, so here rather than in the declaration (#85): Kamosu
+        // fetches nothing, but the agent will, and the link is held to what
+        // the guarded fetch would set out to read (ADR 0033).
+        let link = link.trim();
+        if link.len() > LONGEST_LINK || !crate::web_import::is_readable_link(link) {
+            return Err(OpError::bad_request(format!(
+                "that is not a web address an agent can read: an http:// or https:// link \
+                 of at most {LONGEST_LINK} bytes, to no address on the local network"
+            )));
+        }
+        return core.import_link_by_agent(caller, link, landing(&input));
+    }
     let handed = match input.get("text").and_then(Value::as_str) {
         Some(_) if input.get("upload_id").is_some() || input.get("data").is_some() => {
             return Err(OpError::bad_request(USAGE));
@@ -1278,7 +1303,13 @@ pub fn import_web_link(
         "steps": steps,
     });
 
-    let report = core.import(caller, "web", &[candidate], landing(&input), progress)?;
+    let report = core.import(
+        caller,
+        crate::jobs::LINK_SOURCE,
+        &[candidate],
+        landing(&input),
+        progress,
+    )?;
     if has_runner && !parsed.found_recipe {
         return core.hand_link_to_agent(caller, report, &effective_url);
     }

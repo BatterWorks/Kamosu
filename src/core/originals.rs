@@ -171,17 +171,7 @@ impl Core {
             jobs::set_result(
                 &tx,
                 &job_id,
-                &json!({
-                    "import_id": import_id,
-                    "cookbook_id": cookbook_id,
-                    "source_kind": kind.as_str(),
-                    "arrived": [],
-                    "offered": [],
-                    "unreadable": [],
-                    "left_out": [],
-                    "related_candidates": [],
-                    "agent_jobs": [{ "job_id": job_id, "branch_id": null }],
-                }),
+                &imports::report_before_its_agent(&import_id, &cookbook_id, kind.as_str(), &job_id),
             )?;
             keep_original(&dir, &job_id, keeping)?;
             if let Err(e) = tx.commit() {

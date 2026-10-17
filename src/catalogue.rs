@@ -671,14 +671,15 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                             "branch_id": {
                                 "type": ["string", "null"],
                                 "description": "The recipe the Job is for, which landed bare. \
-                                                 Null on a Job reading an Original until its \
+                                                 Null on a Job reading an Original, or a link \
+                                                 handed over with nothing landed, until its \
                                                  agent creates the recipe with `create_recipe` \
                                                  and its Job Key.",
                             },
                             "link": {
                                 "type": ["string", "null"],
                                 "description": "What the agent is to read, when that is a \
-                                                 page. Null when it is an Original.",
+                                                 page or a video. Null when it is an Original.",
                             },
                             "original": {
                                 "type": ["object", "null"],
@@ -1675,11 +1676,16 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "import_by_agent",
-            summary: "Have an agent read text, a PDF or a picture. It reads \
-                      it into a recipe in your own Cookbook. Only on an \
+            summary: "Have an agent make a recipe from text, a link or a \
+                      file. The file is a PDF or a picture, and the recipe \
+                      lands in your own Cookbook. Only on an \
                       instance with a Runner: without one it is refused with \
                       reason `no_runner`. A PDF may be a scan. Pass pasted \
-                      text as `text`. Send a file to POST /api/uploads and \
+                      text as `text`. Pass a web page or a video as `link`: \
+                      Kamosu does not read it first, so nothing lands before \
+                      the agent's recipe, and the Job is listed under the \
+                      source `web`. A link sent again is never matched. \
+                      Send a file to POST /api/uploads and \
                       pass the `upload_id` it answers, or pass it \
                       base64-encoded as `data`. Answers the id of a Job that \
                       waits for a Runner, as `get_job` reads it, and what it \
@@ -1709,6 +1715,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                         "type": "string",
                         "description": "A recipe pasted as text.",
                     },
+                    "link": {
+                        "type": "string",
+                        "description": "A web page or a video with a recipe in it, \
+                                         as an http:// or https:// address.",
+                    },
                     "upload_id": {
                         "type": "string",
                         "description": "The id POST /api/uploads answered for a PDF \
@@ -1732,7 +1743,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                                          Absent when `branch_id` is there.",
                     },
                     "source_kind": {
-                        "enum": ["pasted_text", "pdf", "picture"],
+                        "enum": ["pasted_text", "pdf", "picture", "web"],
                         "description": "What it was taken as, and the source the \
                                          arrival is listed under in `list_imports`.",
                     },
@@ -5868,8 +5879,9 @@ fn import_report_schema() -> Value {
                             "type": ["string", "null"],
                             "description": "The recipe the agent is to write, which is \
                                              listed under `arrived` or `offered`. Null \
-                                             while an agent reading pasted text, a PDF \
-                                             or a picture has not created it yet.",
+                                             while an agent reading pasted text, a PDF, \
+                                             a picture or a link handed to it alone has \
+                                             not created it yet.",
                         },
                         "status": {
                             "enum": ["queued", "running", "completed", "failed", "cancelled"],
