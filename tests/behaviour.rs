@@ -5909,6 +5909,82 @@ async fn listing_mcp_tools_does_not_itself_count_as_using_the_access_key() {
     );
 }
 
+/// What the MCP door lists to a Secret, by name.
+fn mcp_tool_names(app: &support::TestApp, secret: &str) -> Vec<String> {
+    let (_, listing) = app.post_mcp(
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+        Some(secret),
+    );
+    listing["result"]["tools"]
+        .as_array()
+        .expect("tools list")
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("tool name").to_string())
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_access_key_is_not_listed_the_tools_it_is_always_refused() {
+    let app = support::spawn_app();
+    let (session, operator) = operator_signed_in(&app);
+    let full_power_key = app
+        .core
+        .mint_access_key(&operator, "full agent", false)
+        .unwrap()
+        .secret;
+    let read_only_key = app
+        .core
+        .mint_access_key(&operator, "reader", true)
+        .unwrap()
+        .secret;
+    let session_only: Vec<&str> = kamosu::catalogue::OPERATIONS
+        .iter()
+        .filter(|op| op.session_only)
+        .map(|op| op.name)
+        .collect();
+    assert!(
+        session_only.contains(&"mint_access_key"),
+        "{session_only:?}"
+    );
+
+    // The Operator's own Session is listed every one of them, as before.
+    let to_the_session = mcp_tool_names(&app, &session);
+    for name in &session_only {
+        assert!(
+            to_the_session.iter().any(|tool| tool == name),
+            "a Session was not listed {name}"
+        );
+    }
+    // An Access Key, however unrestricted, is listed none of them (#347).
+    for key in [&full_power_key, &read_only_key] {
+        let to_the_key = mcp_tool_names(&app, key);
+        assert!(
+            to_the_key.iter().any(|tool| tool == "get_recipe"),
+            "the Key lost its ordinary tools: {to_the_key:?}"
+        );
+        for name in &session_only {
+            assert!(
+                !to_the_key.iter().any(|tool| tool == name),
+                "an Access Key was listed {name}, which it is always refused"
+            );
+        }
+    }
+
+    // Called anyway, one answers with the refusal it always gave.
+    let call = json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": { "name": "mint_access_key", "arguments": { "name": "a second key" } },
+    });
+    let (_, refused) = app.post_mcp(&call.to_string(), Some(&full_power_key));
+    assert_eq!(refused["result"]["isError"], json!(true), "{refused}");
+    assert!(
+        refused.to_string().contains(
+            "Operation 'mint_access_key' may be performed only by a Person logged in directly"
+        ),
+        "{refused}"
+    );
+}
+
 // --- Runner Keys (issue #260) -------------------------------------------------
 
 /// The first Person of a fresh instance, who is its Operator: their Session's
@@ -13287,16 +13363,7 @@ mod web_link_importer {
 
     /// What the MCP door lists to a Credential, sorted.
     fn tools_listed_to(app: &support::TestApp, credential: &str) -> Vec<String> {
-        let (_, listing) = app.post_mcp(
-            r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
-            Some(credential),
-        );
-        let mut tools: Vec<String> = listing["result"]["tools"]
-            .as_array()
-            .expect("tools list")
-            .iter()
-            .map(|tool| tool["name"].as_str().expect("tool name").to_string())
-            .collect();
+        let mut tools = mcp_tool_names(app, credential);
         tools.sort_unstable();
         tools
     }

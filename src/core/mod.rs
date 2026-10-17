@@ -762,19 +762,23 @@ impl Core {
     ///
     /// - a Runner Key is listed the Runner's own Operations and no other;
     /// - a Job Key is listed the Operations marked for it and no other;
-    /// - everyone else is listed every Operation but the Runner's, and a
-    ///   read-only Access Key none that writes (ADR 0031).
+    /// - everyone else is listed every Operation but the Runner's, an Access
+    ///   Key none that is `session_only`, and a read-only one none that
+    ///   writes either (ADR 0031, #347).
     ///
     /// An unresolvable or absent Secret is listed as a full Credential is: the
     /// listing itself requires none.
     pub fn operations_listed_to(&self, secret: Option<&str>) -> Vec<&'static catalogue::Operation> {
         let hash = secret.filter(|s| !s.is_empty()).map(hash_secret);
-        let read_only = hash.as_deref().is_some_and(|hash| {
-            self.lookup_credential(hash)
-                .ok()
-                .flatten()
-                .is_some_and(|(_, read_only, _, _, _, _)| read_only)
-        });
+        let credential = hash
+            .as_deref()
+            .and_then(|hash| self.lookup_credential(hash).ok().flatten());
+        let read_only = credential
+            .as_ref()
+            .is_some_and(|(_, read_only, _, _, _, _)| *read_only);
+        let is_access_key = credential
+            .as_ref()
+            .is_some_and(|(_, _, is_session, _, _, _)| !is_session);
         let is_runner = hash
             .as_deref()
             .is_some_and(|hash| matches!(self.lookup_runner_key(hash), Ok(Some(_))));
@@ -789,7 +793,9 @@ impl Core {
                 } else if is_job_key {
                     op.job_key == JobKey::Never
                 } else {
-                    op.permission == Permission::Runner || (read_only && op.write)
+                    op.permission == Permission::Runner
+                        || (read_only && op.write)
+                        || (is_access_key && op.session_only)
                 };
                 !left_out
             })
