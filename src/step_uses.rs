@@ -23,7 +23,9 @@
 //!   on #184.
 //! - **What comes after *until* is not going in.** *Steam until most of the
 //!   water has evaporated* adds no water, so a mention after *until*,
-//!   *jusqu'à* or *hasta* counts for nothing up to the next comma or full stop.
+//!   *jusqu'à* or *hasta* counts for nothing up to the next comma or full
+//!   stop, or the next thing to do: *until soft and add the garlic* adds the
+//!   garlic (#294).
 //!
 //! Whole words only, as always: *rice* is never found in *price*, nor *ail* in
 //! half the French language. One trailing `s` on a word is forgiven, so a line
@@ -48,6 +50,64 @@ const UNTIL: &[&str] = &["until", "till", "jusqu", "hasta"];
 /// What ends such a clause: a comma, the end of a sentence, or anything that
 /// sets words apart as firmly as one.
 const CLAUSE_ENDS: &[char] = &[',', '.', ';', ':', '!', '?', '(', ')', '\n'];
+
+/// The words that end an [`UNTIL`] clause where no mark does, since what
+/// follows is the next thing to do: *whisk until pale then fold in the
+/// flour* (#294).
+/// Spanish *después* is left out, since *después de* is *after*.
+const THEN: &[&str] = &["then", "puis", "luego"];
+
+/// The things a cook does that end an [`UNTIL`] clause after *and*, *et* or
+/// *y*: *cook until soft and add the garlic*. *And* alone does not, since it
+/// joins two foods inside the condition as often, as in *until the butter and
+/// sugar are pale*, and nor does a word as often a noun, as *top* is in *until
+/// the bottom and top are crisp* (#294).
+const NEXT_ACTIONS: &[&str] = &[
+    "add",
+    "fold",
+    "stir",
+    "pour",
+    "mix",
+    "whisk",
+    "beat",
+    "toss",
+    "sprinkle",
+    "scatter",
+    "drizzle",
+    "season",
+    "combine",
+    "transfer",
+    "place",
+    "put",
+    "serve",
+    "ajoutez",
+    "ajouter",
+    "incorporez",
+    "versez",
+    "mélangez",
+    "saupoudrez",
+    "parsemez",
+    "salez",
+    "servez",
+    "añade",
+    "añadir",
+    "agrega",
+    "agregar",
+    "incorpora",
+    "vierte",
+    "mezcla",
+    "espolvorea",
+    "sirve",
+];
+
+/// What joins the condition to one of the [`NEXT_ACTIONS`].
+const AND: &[&str] = &["and", "et", "y"];
+
+/// Whether a folded word is one of `list`, which is written with its accents.
+fn one_of(list: &[&str], word: &str) -> bool {
+    let word = folded_for_search(word);
+    list.iter().any(|listed| folded_for_search(listed) == word)
+}
 
 /// One word of folded text, and whether it sits in an *until* clause.
 struct Word {
@@ -116,7 +176,12 @@ fn words_of(text: &str) -> Vec<Word> {
     let mut marked = Vec::with_capacity(words.len());
     let mut until_in: Option<usize> = None;
     for (at, (text, clause)) in words.iter().enumerate() {
-        if until_in.is_some_and(|open| open != *clause) {
+        let next_action = one_of(THEN, text)
+            || (one_of(AND, text)
+                && words
+                    .get(at + 1)
+                    .is_some_and(|(next, _)| one_of(NEXT_ACTIONS, next)));
+        if until_in.is_some_and(|open| open != *clause) || next_action {
             until_in = None;
         }
         if until_in.is_none() && UNTIL.contains(&text.as_str()) {
@@ -849,6 +914,58 @@ mod tests {
     }
 
     #[test]
+    fn an_until_clause_ends_at_the_next_thing_the_cook_does() {
+        assert_eq!(
+            uses(
+                &[
+                    "Whisk the eggs until pale then fold in the flour and the sugar.",
+                    "Cook the onions until soft and add the garlic.",
+                    "Beat until the butter and sugar are pale.",
+                ],
+                &["egg", "flour", "sugar", "onion", "garlic", "butter"]
+            ),
+            [step(&[0, 1, 2]), step(&[3, 4]), step(&[])],
+            "*and* alone stays inside the condition: the butter and sugar \
+             are what should look pale, not what goes in"
+        );
+        assert_eq!(
+            uses(
+                &[
+                    "Fouettez jusqu'à ce que le beurre et le sucre blanchissent puis ajoutez la farine.",
+                    "Cuisez jusqu'à ce que l'oignon soit tendre et ajoutez l'ail.",
+                    "Bate hasta que la mantequilla y el azúcar blanqueen y añade la harina.",
+                    "Cocina hasta que esté dorado, luego agrega el ajo.",
+                    "Cocina hasta que esté dorado luego agrega el ajo.",
+                ],
+                &[
+                    "beurre",
+                    "sucre",
+                    "farine",
+                    "oignon",
+                    "ail",
+                    "mantequilla",
+                    "azúcar",
+                    "harina",
+                    "ajo"
+                ]
+            ),
+            [step(&[2]), step(&[4]), step(&[7]), step(&[8]), step(&[8])],
+        );
+        assert_eq!(
+            uses(
+                &[
+                    "Cook until the bottom and top of the tortilla are crisp.",
+                    "Hierve hasta que se evapore después de añadir el vino.",
+                ],
+                &["tortilla", "vino"]
+            ),
+            [step(&[]), step(&[])],
+            "*top* after *and* is part of the condition, and *después de* is \
+             *after*, not *then*"
+        );
+    }
+
+    #[test]
     fn a_describing_word_alone_links_nothing() {
         assert_eq!(
             uses(
@@ -1153,6 +1270,14 @@ mod tests {
                     "Cover and leave it alone.",
                 ],
                 &["", "chicken", "panko", "water", "", ""],
+                &[],
+            ),
+            (
+                &[
+                    "Whisk the eggs until pale then fold in the flour and the sugar.",
+                    "Cook the onions until soft and add the garlic.",
+                ],
+                &["egg", "flour", "sugar", "onion", "garlic"],
                 &[],
             ),
             (
