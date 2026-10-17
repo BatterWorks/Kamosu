@@ -44,6 +44,7 @@
 - On a variation's recipe page, the marks comparing it to the recipe it came from no longer draw a reworded Step or Ingredient Line out of the variation's own order. Such a line was sometimes matched to the wrong line of the other recipe and drawn where that line sat, so the variation's last Step could show as Step 1. [#303]
 - An Ingredient Line from an old American recipe card reads a lone `c` after an amount as a cup and `#` as a pound, as `t` and `T` already read as spoons: `3/4 c brown sugar` is three quarters of a cup of brown sugar. It used to name a Food "c brown sugar", and an import with no agent kept it. A French `c. à` is still a spoon, and `180 C` in a Step is still an oven. Foods already made this way stay until an Operator merges or deletes them. [#326]
 - A save within the hour after a recipe was exported, as a file or through a Share Link, starts a new Version. It used to fold into the Version the file had carried, and every later file of that recipe was then refused by whoever had received the first, as disagreeing with the recipe they held. `save_recipe_version` and `edit_recipe` answer `collapsed: false` for it, and a name or change note sent alone for the Version that left is refused, as it is once the hour is over. [#328]
+- "Start my own copy" pressed on a recipe in someone else's Cookbook with nothing changed says "Nothing changed, so no copy was made." It used to say "Saved.", though no copy is made of a recipe left as it was. [#329]
 
 [#249]: https://github.com/BatterWorks/Kamosu/issues/249
 [#250]: https://github.com/BatterWorks/Kamosu/issues/250
@@ -86,6 +87,7 @@
 [#325]: https://github.com/BatterWorks/Kamosu/issues/325
 [#326]: https://github.com/BatterWorks/Kamosu/issues/326
 [#328]: https://github.com/BatterWorks/Kamosu/issues/328
+[#329]: https://github.com/BatterWorks/Kamosu/issues/329
 
 ## v0.2.0 - 2026-10-12
 

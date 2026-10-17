@@ -315,7 +315,18 @@
 	 * it could be read (#83).
 	 */
 	let wrote = $state<
-		| { collapsed: boolean; copied: boolean; named: boolean; language_offer: string | null }
+		| {
+				collapsed: boolean;
+				copied: boolean;
+				named: boolean;
+				language_offer: string | null;
+				/**
+				 * The save stayed on a recipe the cook cannot change, on the
+				 * Version it already stood on: nothing changed, so the Core
+				 * made no Copy (#329).
+				 */
+				nothingToCopy: boolean;
+		  }
 		| undefined
 	>(undefined);
 
@@ -376,6 +387,7 @@
 	 */
 	function afterSave(landed: {
 		branch_id: string;
+		version_id: string;
 		collapsed: boolean;
 		copied: boolean;
 		named: boolean;
@@ -404,7 +416,15 @@
 			follow(landed.branch_id);
 			return;
 		}
-		wrote = landed;
+		// A save on a recipe the cook cannot change that answers the Version
+		// the page already held made nothing: the Core starts no Copy for
+		// content the recipe already holds (ADR 0041), so "Saved." would be
+		// untrue (#329). Both halves are asked, since `writes` alone can be
+		// out of date and the Version alone says nothing about a Copy.
+		wrote = {
+			...landed,
+			nothingToCopy: recipe?.writes === false && landed.version_id === recipe.head_version_id,
+		};
 		reread += 1;
 	}
 
@@ -1360,6 +1380,10 @@
 						{copiedInto.varied
 							? m.write_saved_varied({ name: copiedInto.varied })
 							: m.write_saved_copied()}
+					</p>
+				{:else if wrote?.nothingToCopy}
+					<p class="mx-gutter mt-4 text-read text-accent" role="status">
+						{m.write_saved_nothing_to_copy()}
 					</p>
 				{:else if wrote}
 					<p class="mx-gutter mt-4 text-read text-accent" role="status">

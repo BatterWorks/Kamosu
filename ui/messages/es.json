@@ -1124,6 +1124,7 @@
   "write_saved": "Guardado.",
   "write_saved_collapsed": "Unido a su último guardado, sin nueva entrada en el historial.",
   "write_saved_copied": "Su propia copia está hecha. Está dentro de ella ahora.",
+  "write_saved_nothing_to_copy": "No ha cambiado nada, así que no se ha hecho ninguna copia.",
   "write_saving": "Guardando…",
   "write_source_link": "Su enlace",
   "write_source_text": "Fuente",
