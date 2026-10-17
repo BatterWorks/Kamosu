@@ -153,7 +153,8 @@ impl Core {
 
     /// Say what Language a recipe is written in — the *never changed without
     /// the cook saying so* half of ADR 0006's rule, and the only thing that
-    /// acts on a save's `language_offer`.
+    /// acts on a save's `language_offer`. The one Language a save sets is a
+    /// guess nobody said (#321).
     ///
     /// **Changing a Language makes a Version.** Once recipes travel between
     /// instances, a label alterable without a trace would be a hole in an
@@ -182,10 +183,21 @@ impl Core {
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
+            let own_cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            let writes_it = cookbook_writes_branch(conn, &own_cookbook_id, branch_id)?;
 
             if language == current {
                 // Already what it says: nothing changed, so no Version. Saying
                 // a recipe is in the Language it is already in is not an edit.
+                // It is still said, so a guess stops being one (#321), on a
+                // Branch the caller's Cookbook writes.
+                if writes_it {
+                    conn.execute(
+                        "UPDATE branches SET language_guessed = 0 WHERE id = ?1",
+                        params![branch_id],
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot keep the Language: {e}")))?;
+                }
                 return Ok(json!({
                     "branch_id": branch_id,
                     "language": current,
@@ -217,8 +229,7 @@ impl Core {
             // Branch another Cookbook writes — a Kitchen-mate's, or one that
             // arrived in a Bundle — it is a Copy like any other change (ADR
             // 0020, ADR 0041), and the new Language lands on the Copy.
-            let own_cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
-            let branch_id = if cookbook_writes_branch(conn, &own_cookbook_id, branch_id)? {
+            let branch_id = if writes_it {
                 branch_id.to_string()
             } else {
                 start_copy(
@@ -269,7 +280,7 @@ impl Core {
             )
             .map_err(|e| OpError::internal(format!("cannot record the Language change: {e}")))?;
             conn.execute(
-                "UPDATE branches SET language = ?1 WHERE id = ?2",
+                "UPDATE branches SET language = ?1, language_guessed = 0 WHERE id = ?2",
                 params![language, branch_id],
             )
             .map_err(|e| OpError::internal(format!("cannot set the Language: {e}")))?;
@@ -295,21 +306,38 @@ impl Core {
 /// Falling back to the Reading Language rather than to Unknown is deliberate:
 /// Unknown means "honestly more than one Language", which is a statement about
 /// the recipe, and a recipe that is nothing but a title has made no such
-/// statement. The cook's own Language is the better guess, and the next save
-/// that has real text in it will offer to correct it.
+/// statement. The cook's own Language is the better guess, and it is answered
+/// as one: `guessed` is true, and the first save whose text says a Language
+/// sets it (#321).
 pub(super) fn language_for_new_branch(
     conn: &Connection,
     person_id: &str,
     stated: Option<&str>,
     content: &Value,
-) -> Result<String, OpError> {
+) -> Result<NewBranchLanguage, OpError> {
     if let Some(stated) = stated {
-        return Ok(supported_branch_language(required_text(stated, "language")?)?.to_string());
+        return Ok(NewBranchLanguage {
+            language: supported_branch_language(required_text(stated, "language")?)?.to_string(),
+            guessed: false,
+        });
     }
     if let Some(detected) = crate::language::detect_content(content) {
-        return Ok(detected.to_string());
+        return Ok(NewBranchLanguage {
+            language: detected.to_string(),
+            guessed: false,
+        });
     }
-    reading_language_of(conn, person_id)
+    Ok(NewBranchLanguage {
+        language: reading_language_of(conn, person_id)?,
+        guessed: true,
+    })
+}
+
+/// The Language a new Branch starts in, and whether it is only the writer's
+/// own taken for a text too short to read (#321).
+pub(super) struct NewBranchLanguage {
+    pub(super) language: String,
+    pub(super) guessed: bool,
 }
 
 /// Check that a Version being claimed as the source of a Translation really is
@@ -365,7 +393,11 @@ pub(super) fn translation_source(
 }
 
 /// Whether any other Branch of this Lineage renders a Version of this one.
-fn has_translations(conn: &Connection, lineage_id: &str, branch_id: &str) -> Result<bool, OpError> {
+pub(super) fn has_translations(
+    conn: &Connection,
+    lineage_id: &str,
+    branch_id: &str,
+) -> Result<bool, OpError> {
     conn.query_row(
         "SELECT EXISTS ( \
             SELECT 1 FROM branch_versions AS translation \

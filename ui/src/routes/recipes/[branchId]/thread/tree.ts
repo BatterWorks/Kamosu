@@ -110,10 +110,14 @@ export function buildGroup(
  * an occurrence is answered per occurrence precisely so this is answerable, so
  * the comparison is against the previous occurrence ON THE SAME BRANCH rather
  * than against the Branch's Language now, which is only ever the latest one.
+ *
+ * Only an occurrence of the same Version says a Language. A save that changed
+ * the words and moved the Language with them settled a guess (#321), and
+ * reads as the save it was.
  */
 export function languageSaidAt(versions: ThreadVersion[]): Map<string, string> {
 	const said = new Map<string, string>();
-	const carried = new Map<string, string | null>();
+	const carried = new Map<string, { language: string | null; version_id: string }>();
 	// Oldest first per Branch, which is the order a Thread is read in.
 	const inOrder = [...versions].sort(
 		(a, b) => a.branch_id.localeCompare(b.branch_id) || a.sequence - b.sequence,
@@ -123,10 +127,15 @@ export function languageSaidAt(versions: ThreadVersion[]): Map<string, string> {
 		// The first occurrence on a Branch states a Language rather than
 		// changing one: a recipe has always been in some Language, and saying
 		// so of its first Version would mark every recipe ever written.
-		if (before !== undefined && version.language !== null && version.language !== before) {
+		if (
+			before !== undefined &&
+			before.version_id === version.version_id &&
+			version.language !== null &&
+			version.language !== before.language
+		) {
 			said.set(`${version.branch_id}:${version.sequence}`, version.language);
 		}
-		carried.set(version.branch_id, version.language);
+		carried.set(version.branch_id, { language: version.language, version_id: version.version_id });
 	}
 	return said;
 }

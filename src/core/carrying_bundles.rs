@@ -1264,7 +1264,9 @@ fn place_carried_branch(
         food_matches,
     )?;
     conn.execute(
-        "UPDATE branches SET head_version_id = ?1, language = ?2, \
+        // The Language a Bundle carries is the sender's, never a guess here
+        // (#321).
+        "UPDATE branches SET head_version_id = ?1, language = ?2, language_guessed = 0, \
                 origin_address = COALESCE(?3, origin_address) \
           WHERE id = ?4",
         params![head_version_id, language, origin_address, branch_id],

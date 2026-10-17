@@ -66,10 +66,12 @@ impl Core {
     /// legitimate is lost: an arrived Bundle and a kept Share Link both put the
     /// Branch in the receiver's own Cookbook first.
     ///
-    /// Two things about Language happen here, and neither of them writes one
-    /// (ADR 0006). The save reads the new text and, where it disagrees with
-    /// the Language the Branch carries, answers `language_offer` — a
-    /// suggestion for the cook, never a change. And `translates_version_id`
+    /// Two things about Language happen here (ADR 0006). The save reads the
+    /// new text and, where it disagrees with the Language the Branch carries,
+    /// answers `language_offer` — a suggestion for the cook, never a change.
+    /// The one Language it writes is a guess's: a Branch that took the
+    /// writer's own because its text was too short to read takes the first
+    /// Language its text says (#321). And `translates_version_id`
     /// carries forward from the Version being replaced unless this save names
     /// a new one, so editing a Translation's wording never quietly claims it
     /// has caught up with its source. Naming one works even when no word
@@ -139,11 +141,11 @@ impl Core {
             // Before anything else reads the Branch, the identical-content
             // shortcut below included: it answers with the head's Version id.
             ensure_reaches_branch(conn, branch_id, caller)?;
-            let (lineage_id, language): (String, String) = conn
+            let (lineage_id, language, language_guessed): (String, String, bool) = conn
                 .query_row(
-                    "SELECT lineage_id, language FROM branches WHERE id = ?1",
+                    "SELECT lineage_id, language, language_guessed FROM branches WHERE id = ?1",
                     params![branch_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
             // The Cookbook a save is made for: the caller's own, which is
@@ -214,6 +216,24 @@ impl Core {
                 }
                 None => head_translates.clone(),
             };
+
+            // A Language that was only the writer's own, taken for a text too
+            // short to read, ends with the first save that gives the recipe
+            // Ingredient Lines or Steps: it takes the Language their text
+            // reads as, or keeps the guess as the cook's own where it reads as
+            // none (#321). Nobody said it, so this changes nothing anybody
+            // said. A recipe with a Translation keeps it, since a Translation
+            // is in another Language than its source (ADR 0006).
+            let fills = ["ingredients", "steps"]
+                .iter()
+                .any(|field| content[field].as_array().is_some_and(|lines| !lines.is_empty()));
+            let settles = language_guessed && fills;
+            let language = if settles && !has_translations(conn, &lineage_id, branch_id)? {
+                crate::language::detect_content(&content).map_or(language, str::to_string)
+            } else {
+                language
+            };
+            let language_guessed = language_guessed && !settles;
 
             // The Language the new text reads as, where it disagrees with the
             // one the Branch carries. Computed before the identical-content
@@ -382,6 +402,13 @@ impl Core {
                     &language,
                     &version_id,
                 )?;
+                // Settled or not, the guess stands on the Copy as this save
+                // left it (#321).
+                conn.execute(
+                    "UPDATE branches SET language_guessed = ?1 WHERE id = ?2",
+                    params![language_guessed, new_branch_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot start the Copy: {e}")))?;
 
                 conn.execute(
                     "INSERT INTO branch_versions \
@@ -492,8 +519,9 @@ impl Core {
                 .map_err(|e| OpError::internal(format!("cannot append Version: {e}")))?;
             }
             conn.execute(
-                "UPDATE branches SET head_version_id = ?1 WHERE id = ?2",
-                params![version_id, branch_id],
+                "UPDATE branches SET head_version_id = ?1, language = ?3, language_guessed = ?4 \
+                  WHERE id = ?2",
+                params![version_id, branch_id, language, language_guessed],
             )
             .map_err(|e| OpError::internal(format!("cannot move Branch head: {e}")))?;
 
@@ -2747,8 +2775,10 @@ pub(super) fn start_copy(
         &whose_branch(conn, branch_id)?,
     )?;
     conn.execute(
-        "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, name, started_by) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        // A guessed Language is the Copy's guess too (#321). A save that
+        // settles it says so on the Copy after.
+        "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, name, started_by, language_guessed) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, (SELECT language_guessed FROM branches WHERE id = ?9))",
         params![
             new_branch_id,
             lineage_id,
@@ -2757,7 +2787,8 @@ pub(super) fn start_copy(
             language,
             head_version_id,
             name,
-            started_by
+            started_by,
+            branch_id
         ],
     )
     .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
@@ -2777,7 +2808,7 @@ pub(super) fn insert_new_lineage_and_branch(
     branch_id: &str,
     cookbook_id: &str,
     cookbook_hand_id: &str,
-    language: &str,
+    language: &NewBranchLanguage,
     version_id: &str,
     content_text: &str,
     writer: &Caller,
@@ -2790,16 +2821,17 @@ pub(super) fn insert_new_lineage_and_branch(
     conn.execute("INSERT INTO lineages (id) VALUES (?1)", params![lineage_id])
         .map_err(|e| OpError::internal(format!("cannot mint Lineage: {e}")))?;
     conn.execute(
-        "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, started_by) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, started_by, language_guessed) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             branch_id,
             lineage_id,
             cookbook_id,
             cookbook_hand_id,
-            language,
+            language.language,
             version_id,
-            writer.person_id
+            writer.person_id,
+            language.guessed
         ],
     )
     .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
@@ -2814,7 +2846,7 @@ pub(super) fn insert_new_lineage_and_branch(
             version_id,
             writer.person_id,
             writer.access_key_id,
-            language,
+            language.language,
             writer.job_id
         ],
     )
@@ -2831,7 +2863,7 @@ pub(super) fn insert_new_lineage_and_branch(
     // A recipe whose own content will not parse is a recipe left unread, never
     // a failed write.
     if let Ok(content) = serde_json::from_str::<Value>(content_text) {
-        read_unread_lines(conn, version_id, language, &content, None);
+        read_unread_lines(conn, version_id, &language.language, &content, None);
     }
     Ok(())
 }

@@ -801,6 +801,25 @@ describe('a Language said, in the Thread', () => {
 
 		expect(await screen.findByText('Said this recipe is in French.')).toBeInTheDocument();
 	});
+
+	it('reads a save that changed the words as the save it was', async () => {
+		// The first save that fills a bare recipe sets a guessed Language with
+		// its words (#321). Nobody said that Language, so the row says what the
+		// save wrote down.
+		const filled = {
+			get_thread: {
+				...(saidItIsFrench.get_thread as Record<string, unknown>),
+				versions: [
+					occurrence(1, 'v_1', 'en'),
+					occurrence(2, 'v_2', 'fr', { change_note: 'Read from the page' }),
+				],
+			},
+		} as Answers;
+		renderThread('b_mine', filled);
+
+		expect(await screen.findByText('Read from the page')).toBeInTheDocument();
+		expect(screen.queryByText('Said this recipe is in French.')).not.toBeInTheDocument();
+	});
 });
 
 describe('who wrote each Version, in the Thread (#113)', () => {

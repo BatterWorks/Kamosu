@@ -1851,6 +1851,19 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 51,
+        description: "a Language guessed for a bare recipe is set by the first text that says one (#321)",
+        sql: r#"
+        -- 1 while the Branch's Language is the writer's own, taken because
+        -- its text was too short to read one out of and nobody stated one.
+        -- The first save whose text says a Language sets it and clears this.
+        -- Every Branch already here counts as stated: nothing recorded which
+        -- of them were guesses.
+        ALTER TABLE branches ADD COLUMN language_guessed INTEGER NOT NULL DEFAULT 0;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

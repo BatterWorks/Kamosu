@@ -1809,7 +1809,7 @@ export type StartTranslationOutput = {
 	writes: boolean;
 };
 
-/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
+/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so, except to set one guessed for a recipe that held too little text to read, from the first text that says one. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
 export type SetRecipeLanguageInput = {
 	branch_id: string;
 	language: "en" | "fr" | "es" | "unknown";
@@ -11892,7 +11892,7 @@ export const CATALOGUE = [
 					"type": "boolean"
 				},
 				"language": {
-					"description": "The Language this recipe still carries. A save never changes it.",
+					"description": "The Language this recipe carries. A save changes only a guess.",
 					"type": "string"
 				},
 				"language_offer": {
@@ -12132,7 +12132,7 @@ export const CATALOGUE = [
 					"type": "boolean"
 				},
 				"language": {
-					"description": "The Language this recipe still carries. A save never changes it.",
+					"description": "The Language this recipe carries. A save changes only a guess.",
 					"type": "string"
 				},
 				"language_offer": {
@@ -14671,7 +14671,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_recipe_language",
-		"summary": "Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in.",
+		"summary": "Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so, except to set one guessed for a recipe that held too little text to read, from the first text that says one. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -26607,7 +26607,7 @@ export const CATALOGUE = [
 					"type": "boolean"
 				},
 				"language": {
-					"description": "The Language this recipe still carries. A save never changes it.",
+					"description": "The Language this recipe carries. A save changes only a guess.",
 					"type": "string"
 				},
 				"language_offer": {
@@ -27809,7 +27809,7 @@ export const CATALOGUE = [
 					"type": "boolean"
 				},
 				"language": {
-					"description": "The Language this recipe still carries. A save never changes it.",
+					"description": "The Language this recipe carries. A save changes only a guess.",
 					"type": "string"
 				},
 				"language_offer": {
@@ -32001,7 +32001,7 @@ export interface KamosuClient {
 	importByAgent(input: ImportByAgentInput): Promise<Answer<'import_by_agent'>>;
 	/** Translate a recipe into another Language. It starts an ordinary Branch of the same Lineage in that Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author. */
 	startTranslation(input: StartTranslationInput): Promise<Answer<'start_translation'>>;
-	/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
+	/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so, except to set one guessed for a recipe that held too little text to read, from the first text that says one. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
 	setRecipeLanguage(input: SetRecipeLanguageInput): Promise<Answer<'set_recipe_language'>>;
 	/** Bring already-read recipes into your own Cookbook, as a Job. They come as one batch. Matched by foreign id against this Cookbook's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
 	import(input: ImportInput): Promise<Answer<'import'>>;

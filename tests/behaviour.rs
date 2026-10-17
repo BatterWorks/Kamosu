@@ -12252,6 +12252,36 @@ mod web_link_importer {
             .clone()
     }
 
+    /// A link that lands bare is labelled with a guess, since its title is
+    /// too short to read, and the agent's save that fills it sets the
+    /// Language from what it wrote (#321). A Job Key has no
+    /// `set_recipe_language`, and needs none.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_agents_save_that_fills_a_bare_link_sets_its_language() {
+        let app = support::spawn_app();
+        let held = a_job_held(&app);
+        let (_, landed) = app.post_op(
+            "get_recipe",
+            Some(&held.cook),
+            &json!({ "branch_id": held.branch_id }).to_string(),
+        );
+        assert_eq!(landed["result"]["language"], json!("en"), "{landed}");
+
+        let mut filled = super::french_mousse();
+        filled["branch_id"] = json!(held.branch_id);
+        let (status, saved) = app.post_op("edit_recipe", Some(&held.job_key), &filled.to_string());
+        assert_eq!(status, 200, "{saved}");
+        assert_eq!(saved["result"]["language"], json!("fr"), "{saved}");
+        assert_eq!(saved["result"]["language_offer"], json!(null));
+
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&held.cook),
+            &json!({ "branch_id": held.branch_id }).to_string(),
+        );
+        assert_eq!(read["result"]["language"], json!("fr"));
+    }
+
     /// The same link, once an agent has read it, matches the recipe the agent
     /// wrote (#271). Kamosu's own bare reading of the page always differs from
     /// that, and is not offered as a change. No Job is made, and the Report
@@ -17884,6 +17914,159 @@ async fn a_language_is_detected_from_the_text_when_there_is_none_to_disagree_wit
         &json!({ "branch_id": spanish }).to_string(),
     );
     assert_eq!(spanish_read["result"]["language"], json!("es"));
+}
+
+/// A recipe that was nothing but a title took the writer's Language as a
+/// guess, and the first save whose text says a Language sets it (#321).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_first_save_whose_text_says_a_language_sets_a_guessed_one() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let bare = shelve(&app, &key, "Quiche lorraine");
+
+    // A save still too short to read keeps the guess, and offers nothing.
+    let (status, titled) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": bare, "title": "Quiche" }).to_string(),
+    );
+    assert_eq!(status, 200, "{titled}");
+    assert_eq!(titled["result"]["language"], json!("en"));
+    assert_eq!(titled["result"]["language_offer"], json!(null));
+
+    backdate_branch_head(&app, &bare);
+    let mut filled = french_mousse();
+    filled["branch_id"] = json!(bare);
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &filled.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["language"], json!("fr"), "{saved}");
+    assert_eq!(saved["result"]["language_offer"], json!(null));
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": bare }).to_string(),
+    );
+    assert_eq!(read["result"]["language"], json!("fr"));
+    let versions = read["result"]["versions"].as_array().unwrap();
+    assert_eq!(versions.last().unwrap()["language"], json!("fr"));
+    assert_eq!(
+        versions.first().unwrap()["language"],
+        json!("en"),
+        "the bare Version stood in the guess, and still says so"
+    );
+
+    // Once the text has said one, it is the recipe's, and the next save that
+    // disagrees only offers.
+    backdate_branch_head(&app, &bare);
+    let mut english = english_mousse();
+    english["branch_id"] = json!(bare);
+    let (_, again) = app.post_op("save_recipe_version", Some(&key), &english.to_string());
+    assert_eq!(again["result"]["language"], json!("fr"));
+    assert_eq!(again["result"]["language_offer"], json!("en"));
+}
+
+/// The first save that gives a bare recipe lines ends the guess, whether or
+/// not its text says a Language: a recipe the cook has filled is theirs, and
+/// a later save only offers (#321).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_first_fill_too_short_to_read_ends_the_guess() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let bare = shelve(&app, &key, "Quiche lorraine");
+
+    let (status, short) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": bare,
+            "ingredients": [{ "kind": "ingredient", "text": "sel" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{short}");
+    assert_eq!(short["result"]["language"], json!("en"));
+    assert_eq!(short["result"]["language_offer"], json!(null), "{short}");
+
+    let mut filled = french_mousse();
+    filled["branch_id"] = json!(bare);
+    let (_, saved) = app.post_op("save_recipe_version", Some(&key), &filled.to_string());
+    assert_eq!(saved["result"]["language"], json!("en"), "{saved}");
+    assert_eq!(saved["result"]["language_offer"], json!("fr"));
+}
+
+/// A Translation renders its source in another Language, so a guess on a
+/// source that already has one stays, and the text is only offered (#321,
+/// ADR 0006).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_guess_with_a_translation_is_not_set_to_the_translations_language() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let bare = shelve(&app, &key, "Quiche lorraine");
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({ "branch_id": bare, "language": "fr", "title": "Quiche lorraine" }).to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+
+    let mut filled = french_mousse();
+    filled["branch_id"] = json!(bare);
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &filled.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["language"], json!("en"), "{saved}");
+    assert_eq!(saved["result"]["language_offer"], json!("fr"));
+}
+
+/// A variation of a bare recipe starts from the same guess, and its own
+/// first fill sets it (#321).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_variation_of_a_bare_recipe_keeps_its_guess() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let bare = shelve(&app, &key, "Quiche lorraine");
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": bare, "name": "Sans lardons" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let variation = varied["result"]["branch_id"].as_str().unwrap();
+
+    let mut filled = french_mousse();
+    filled["branch_id"] = json!(variation);
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &filled.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["language"], json!("fr"), "{saved}");
+}
+
+/// A Language somebody said is never a guess, however bare the recipe was
+/// when they said it (#321, ADR 0006).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_language_stated_on_a_bare_recipe_is_kept_when_it_is_filled() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+
+    let stated = shelve_recipe(
+        &app,
+        &key,
+        json!({ "title": "Quiche lorraine", "language": "es" }),
+    );
+    let set = shelve(&app, &key, "Pâte brisée");
+    let (status, answered) = app.post_op(
+        "set_recipe_language",
+        Some(&key),
+        &json!({ "branch_id": set, "language": "en" }).to_string(),
+    );
+    assert_eq!(status, 200, "{answered}");
+
+    for (branch, language) in [(&stated, "es"), (&set, "en")] {
+        let mut filled = french_mousse();
+        filled["branch_id"] = json!(branch);
+        let (status, saved) = app.post_op("save_recipe_version", Some(&key), &filled.to_string());
+        assert_eq!(status, 200, "{saved}");
+        assert_eq!(saved["result"]["language"], json!(language), "{saved}");
+        assert_eq!(saved["result"]["language_offer"], json!("fr"));
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

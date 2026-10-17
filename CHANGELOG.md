@@ -40,6 +40,7 @@
 - A Bundle whose Food answers to names that two Foods here hold apart makes one new Food and one set of merge suggestions, however many of its Versions carry the line. It used to make a new Food for each Version, and a suggestion between nearly every pair of them. [#292]
 - On the writing screen, a short line or Step dragged over a taller one settles where the finger is. The two used to swap back and forth for as long as the finger stayed over part of the taller row. [#293]
 - A Step that waits until something looks right and then adds an ingredient links that ingredient, as "cook the onions until soft and add the garlic" now links the garlic. Everything after "until" up to the next comma or full stop used to link nothing. [#294]
+- A recipe that arrives as nothing but a title takes the Language of the first ingredients or steps saved into it, whoever saves it, Kamosu's AI agent included. A link to a French page that went to the agent used to stay labelled in the cook's own Language once the agent had filled it in French, since the agent cannot change a Language. A Language somebody said, on arrival or with `set_recipe_language`, is still only offered against. A recipe that arrived bare before this upgrade keeps its Language. [#321]
 - On a variation's recipe page, the marks comparing it to the recipe it came from no longer draw a reworded Step or Ingredient Line out of the variation's own order. Such a line was sometimes matched to the wrong line of the other recipe and drawn where that line sat, so the variation's last Step could show as Step 1. [#303]
 
 [#249]: https://github.com/BatterWorks/Kamosu/issues/249
@@ -78,6 +79,7 @@
 [#315]: https://github.com/BatterWorks/Kamosu/issues/315
 [#317]: https://github.com/BatterWorks/Kamosu/issues/317
 [#318]: https://github.com/BatterWorks/Kamosu/issues/318
+[#321]: https://github.com/BatterWorks/Kamosu/issues/321
 [#324]: https://github.com/BatterWorks/Kamosu/issues/324
 [#325]: https://github.com/BatterWorks/Kamosu/issues/325
 
