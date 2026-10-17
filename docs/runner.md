@@ -15,9 +15,9 @@ The decision behind all of it is
 
 ## What Kamosu ships, and what you supply
 
-**Kamosu ships the Runner and nothing else of the agent.** The Runner is the
-same `kamosu` program as the server, started as `kamosu runner`. You supply
-three things:
+**Kamosu's own image holds the Runner and nothing else of the agent.** The
+Runner is the same `kamosu` program as the server, started as `kamosu runner`.
+Beside it, an agent needs three things:
 
 - **The agent**: Claude Code, Codex, or any program that can follow
   instructions and call Kamosu over MCP or HTTP.
@@ -27,10 +27,10 @@ three things:
 - **Its instructions**: what to do with a Job, written for an agent working
   alone. See [Writing the agent's instructions](#writing-the-agents-instructions).
 
-Kamosu publishes no agent and no image with an agent in it. Its repository
-holds the recipe for one you build yourself, with opencode, the tools and a
-set of instructions: see
-[The image Kamosu's repository builds](#the-image-kamosus-repository-builds).
+You can supply all three yourself, or take the agent's image Kamosu
+publishes, `battermanz/kamosu-agent`, which holds opencode, the tools and a
+set of instructions you can replace: see
+[The agent image Kamosu publishes](#the-agent-image-kamosu-publishes).
 Kamosu's own image holds one program and no shell, so the agent cannot live in
 it.
 
@@ -243,12 +243,16 @@ instructions, and leaves `report.json` if the agent did not. Its contract is
 [What the agent is handed](#what-the-agent-is-handed) and
 [What the agent leaves](#what-the-agent-leaves).
 
-## The image Kamosu's repository builds
+## The agent image Kamosu publishes
 
-`agent-image/` in Kamosu's repository builds an agent's image that does steps
-2 to 4 for you: an agent, its tools and its instructions, ready to start beside
-a Runner. Kamosu does not publish it. Build it from the repository of the
-version your Kamosu runs.
+Every release of Kamosu publishes an agent's image that does steps 2 to 4 for
+you: an agent, its tools and its instructions, ready to start beside a Runner.
+It is `docker.io/battermanz/kamosu-agent`, built from `agent-image/` in
+Kamosu's repository, with the same tags as Kamosu's own image: `<version>` and
+`latest` for Docker, `podman-<version>` and `podman-latest` for Podman, each
+for amd64 and arm64. **Take the tag of the version your Kamosu runs.** A
+release that did not change the agent gives its new tag to the image already
+published, so a new version of Kamosu may bring nothing new to download here.
 
 - **The agent is [opencode](https://opencode.ai) 2**, which speaks to any of
   several dozen model providers, or to any that offers an OpenAI-compatible
@@ -257,9 +261,10 @@ version your Kamosu runs.
 - **The tools**: yt-dlp, which takes its nightly build each time the container
   starts, ffmpeg, deno for yt-dlp's YouTube support, curl, python3, and
   poppler for turning a PDF's pages into pictures, on Alpine.
-- **The instructions** are `agent-image/instructions.md`: one recipe, read
-  alone, for each kind of Job. Edit them before you build to suit your
-  library.
+- **The instructions** are `agent-image/instructions.md`, in the image as
+  `/opt/kamosu-agent/instructions.md`: one recipe, read alone, for each kind
+  of Job. To change them, mount your own copy over that file, as
+  [Your own instructions](#your-own-instructions) shows.
 
 **The Runner and the agent run in two containers.** The Runner is Kamosu's
 own image, which holds one program, no shell and no root, started as `kamosu
@@ -274,7 +279,9 @@ is given the container engine's socket or any added capability.
 restart policy starts it again, empty, for the next. Nothing one Job leaves
 behind reaches the next.
 
-Build the agent's image:
+To change more than the instructions, such as a tool, build the image
+yourself from the repository of your version, and use the name you gave it in
+place of the published one below:
 
 ```sh
 git clone https://github.com/BatterWorks/Kamosu && cd Kamosu && git checkout v<version>
@@ -322,13 +329,13 @@ KAMOSU_AGENT_BASE_URL=https://llm.kamosu.example/v1
 The key stays in the settings file and the container's environment. opencode
 reads it from there for each Job, and no file the agent writes holds it.
 
-To see the models a key opens, ask opencode in the image you built. It lists
+To see the models a key opens, ask opencode in the agent's image. It lists
 the providers whose own variable is set, so hand it the key under that name,
 `OPENROUTER_API_KEY` here:
 
 ```sh
 docker run --rm --env-file ~/.config/kamosu-agent.env --entrypoint sh \
-  kamosu-agent -c 'OPENROUTER_API_KEY="${KAMOSU_AGENT_API_KEY:-$OPENROUTER_API_KEY}" opencode models --standalone'
+  docker.io/battermanz/kamosu-agent:<version> -c 'OPENROUTER_API_KEY="${KAMOSU_AGENT_API_KEY:-$OPENROUTER_API_KEY}" opencode models --standalone'
 ```
 
 A service reached through `KAMOSU_AGENT_BASE_URL` is not in that list. Its
@@ -339,7 +346,7 @@ Beside Kamosu in one Compose project, the two containers are:
 ```yaml
 services:
   kamosu-agent:
-    image: kamosu-agent
+    image: docker.io/battermanz/kamosu-agent:<version>
     restart: always
     env_file: ~/.config/kamosu-agent.env
     read_only: true
@@ -372,10 +379,11 @@ volumes:
       o: size=1m,uid=1000,gid=1000,mode=0755
 ```
 
-- **The Runner's image is Kamosu's own, of the same version**, since a Kamosu
-  refuses a Runner of any other. With Podman, use the `podman-<version>` tag.
-  Its health check asks for a Kamosu server, which a Runner is not, so it is
-  turned off.
+- **Both images are of the version your Kamosu runs.** The Runner's is Kamosu's
+  own, since a Kamosu refuses a Runner of any other, and the agent is made for
+  the Runner of its own version. With Podman, use the `podman-<version>` tag of
+  each. The Runner's health check asks for a Kamosu server, which a Runner is
+  not, so it is turned off.
 - **The socket's volume is in memory and belongs to the agent's user**, uid
   1000, which the Runner's user may call but not write in. The agent clears it
   each time it starts, before anything else, so nothing a Job leaves there
@@ -400,6 +408,26 @@ starts it again until you mend its settings. Check it
 with pasted text as in step 3, and read what the two say with `docker logs`.
 In Kamosu's repository, `just agent-image` builds both images from the working
 copy, and `just runner-start` starts them beside the development instance.
+
+### Your own instructions
+
+The agent reads `/opt/kamosu-agent/instructions.md` at the start of every Job.
+To change what it does, copy `agent-image/instructions.md` from the repository
+at your version, edit it, and mount your copy over that file, read-only. In the
+Compose file above, the agent's volumes become:
+
+```yaml
+    volumes:
+      - agent-socket:/run/kamosu-agent
+      - ./my-instructions.md:/opt/kamosu-agent/instructions.md:ro
+```
+
+With `podman run`, the same is
+`-v ./my-instructions.md:/opt/kamosu-agent/instructions.md:ro`. The file must be
+readable by the agent's user, uid 1000. A new version of the image may bring
+better instructions, which your copy does not follow until you bring the
+changes into it. When you upgrade, compare `agent-image/instructions.md`
+between the two versions.
 
 ## Where to run it
 
@@ -429,7 +457,7 @@ does not cover:
   read the memory of another of the same user, the Runner's included.
 
 Putting the agent in a container of its own closes both, as
-[the image Kamosu's repository builds](#the-image-kamosus-repository-builds)
+[the agent image Kamosu publishes](#the-agent-image-kamosu-publishes)
 does. Running it as another user than the Runner, through `sudo -u` in your
 command, closes them too, inside one machine. `sudo --preserve-env` carries the
 Runner's `PWD` across, which names the Job's folder the agent cannot open; set
@@ -640,7 +668,7 @@ recipe are in its instructions.
   next Runner that asks.
 - **Kamosu cannot see what a Job cost.** The agent's model bill, and any limit
   on it, belong to whoever runs the Runner. Kamosu sets no limit on how often
-  people send things to the agent. The image Kamosu's repository builds says
+  people send things to the agent. The agent image Kamosu publishes says
   in its log, after each Job, how long the agent worked and what opencode
   counts the Job cost at the provider's list prices:
 

@@ -472,10 +472,11 @@ ui/tools/           the dev tools `just` runs against the dev instance: sign in,
                     photograph screens, capture and serve a prototype (#216).
                     The two release commands live here too (ADR 0047)
 agent-image/        the agent beside a Runner, in an Alpine image of its own,
-                    built from this repository and published by no release:
+                    which every release publishes as battermanz/kamosu-agent
+                    and builds again only when this folder changed:
                     opencode, the tools a Job needs, the instructions it
                     follows, and the program that takes one Job from the
-                    Runner through a socket and ends (#315, #317,
+                    Runner through a socket and ends (#315, #317, #345,
                     docs/runner.md)
 docs/releasing.md   the release runbook
 docs/docker-hub/    the Docker Hub page of the image: its overview and its one-line

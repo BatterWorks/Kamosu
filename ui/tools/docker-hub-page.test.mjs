@@ -1,7 +1,8 @@
-// The release hook publishes these two files to Docker Hub as they are
-// (docs/releasing.md, "The release hook"). Docker Hub refuses text over its
-// size limits, and it renders the overview away from this repository, so a
-// relative address in it leads nowhere. This fails before a release does (#235).
+// The release hook publishes these files to Docker Hub as they are, two for
+// Kamosu's page and two for its agent's (docs/releasing.md, "The release
+// hook"). Docker Hub refuses text over its size limits, and it renders the
+// overview away from this repository, so a relative address in it leads
+// nowhere. This fails before a release does (#235, #345).
 
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -11,9 +12,22 @@ import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-const OVERVIEW = 'docs/docker-hub/overview.md';
-const SHORT_DESCRIPTION = 'docs/docker-hub/short-description.txt';
+// Each page the hook publishes, by the repository it describes.
+const PAGES = [
+	{
+		repository: 'battermanz/kamosu',
+		overview: 'docs/docker-hub/overview.md',
+		shortDescription: 'docs/docker-hub/short-description.txt',
+	},
+	{
+		repository: 'battermanz/kamosu-agent',
+		overview: 'docs/docker-hub/agent/overview.md',
+		shortDescription: 'docs/docker-hub/agent/short-description.txt',
+	},
+];
+const [KAMOSU, AGENT] = PAGES;
 const COMPOSE_FILE = 'docker-compose.yml';
+const RUNNER_GUIDE = 'docs/runner.md';
 
 // Docker Hub's limits for the two fields.
 const SHORT_DESCRIPTION_MAX_CHARACTERS = 100;
@@ -75,13 +89,25 @@ function withoutComments(yaml) {
 		.join('\n');
 }
 
-test('the short description is one line within the limit', async () => {
-	assert.deepEqual(descriptionFaults(await read(SHORT_DESCRIPTION)), []);
-});
+for (const page of PAGES) {
+	test(`the short description of ${page.repository} is one line within the limit`, async () => {
+		assert.deepEqual(descriptionFaults(await read(page.shortDescription)), []);
+	});
 
-test('the overview fits the size limit', async () => {
-	assert.deepEqual(overviewFaults(await read(OVERVIEW)), []);
-});
+	test(`the overview of ${page.repository} fits the size limit`, async () => {
+		assert.deepEqual(overviewFaults(await read(page.overview)), []);
+	});
+
+	test(`every link and image in the overview of ${page.repository} is an absolute address`, async () => {
+		const found = addresses(await read(page.overview));
+		assert.notEqual(found.length, 0, 'the overview links somewhere');
+		assert.deepEqual(
+			found.filter((address) => !/^https:\/\/[^/]/.test(address)),
+			[],
+			'relative addresses do not resolve on Docker Hub',
+		);
+	});
+}
 
 test('a short description past the limit is a fault, and one at it is not', () => {
 	assert.deepEqual(descriptionFaults(`${'a'.repeat(100)}\n`), []);
@@ -98,16 +124,6 @@ test('an overview past the limit is a fault, and one at it is not', () => {
 	assert.deepEqual(overviewFaults('a'.repeat(25_001)), ['25001 bytes, limit 25000']);
 	// The limit counts bytes, so an accented letter is two of them.
 	assert.deepEqual(overviewFaults('é'.repeat(12_501)), ['25002 bytes, limit 25000']);
-});
-
-test('every link and image in the overview is an absolute address', async () => {
-	const found = addresses(await read(OVERVIEW));
-	assert.notEqual(found.length, 0, 'the overview links somewhere');
-	assert.deepEqual(
-		found.filter((address) => !/^https:\/\/[^/]/.test(address)),
-		[],
-		'relative addresses do not resolve on Docker Hub',
-	);
 });
 
 test('the address finder sees every way Markdown can point somewhere', () => {
@@ -127,8 +143,20 @@ test('the address finder sees every way Markdown can point somewhere', () => {
 	);
 });
 
+// The first yaml code block of a Markdown file, which is its Compose file.
+async function composeBlock(file) {
+	const block = /^```yaml\n([\s\S]*?)^```$/m.exec(await read(file));
+	assert.ok(block, `a Compose file in a yaml code block of ${file}`);
+	return block[1];
+}
+
 test("the overview's Compose file is the repository's, without its comments", async () => {
-	const block = /^```yaml\n([\s\S]*?)^```$/m.exec(await read(OVERVIEW));
-	assert.ok(block, 'a Compose file in a yaml code block');
-	assert.equal(withoutComments(block[1]), withoutComments(await read(COMPOSE_FILE)));
+	assert.equal(
+		withoutComments(await composeBlock(KAMOSU.overview)),
+		withoutComments(await read(COMPOSE_FILE)),
+	);
+});
+
+test("the agent overview's Compose file is the Runner guide's", async () => {
+	assert.equal(await composeBlock(AGENT.overview), await composeBlock(RUNNER_GUIDE));
 });

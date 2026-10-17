@@ -318,8 +318,11 @@ recipe into the Cookbook of whoever sent it. It opens no port, and the agent
 it starts can write that one recipe and nothing else.
 
 Kamosu ships the Runner: it is the same program as the server, started as
-`kamosu runner`. You supply the agent, its tools and its instructions, and you
-pay for the model it uses. Kamosu ships no agent and no image with one in it.
+`kamosu runner`. For the agent, take the image every release publishes,
+[`battermanz/kamosu-agent`](https://hub.docker.com/r/battermanz/kamosu-agent),
+at the same version as your Kamosu. It holds opencode, the tools it needs and a
+set of instructions you can replace with your own. Or supply an agent of your own.
+Either way, you choose the model's provider and pay for the model.
 
 An instance without a Runner is complete. It reads what it reads, and nothing
 in it waits for one. [docs/runner.md](docs/runner.md) says how to set one up.

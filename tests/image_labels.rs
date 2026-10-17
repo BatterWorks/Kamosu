@@ -1,6 +1,8 @@
 //! The image says which release it is (#233): the `Dockerfile` writes the
 //! `VERSION` and `GIT_SHA` build arguments to two labels, the only trace of a
-//! build a registry lookup can see. This reads the file, so it needs no Docker.
+//! build a registry lookup can see. The agent's image does the same, and its
+//! revision is how the release hook knows whether a release changed it
+//! (#345). This reads the files, so it needs no Docker.
 
 const ARGUMENTS: [&str; 2] = ["VERSION", "GIT_SHA"];
 
@@ -14,6 +16,9 @@ const LABELS: [(&str, &str); 2] = [
 /// the image itself that may declare them.
 const STAMP: &str = "stamp";
 
+/// Every image a release publishes, by its Dockerfile.
+const DOCKERFILES: [&str; 2] = ["Dockerfile", "agent-image/Dockerfile"];
+
 /// One stage of the `Dockerfile`: its `FROM` line and every line under it.
 struct Stage {
     /// What follows `AS`, or nothing for the stage that ships.
@@ -21,9 +26,9 @@ struct Stage {
     lines: Vec<String>,
 }
 
-/// Every stage in order. The last is the image that ships.
-fn stages() -> Vec<Stage> {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Dockerfile");
+/// Every stage of one Dockerfile in order. The last is the image that ships.
+fn stages(file: &str) -> Vec<Stage> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(file);
     let dockerfile = std::fs::read_to_string(path).expect("the Dockerfile is read");
     let mut stages: Vec<Stage> = Vec::new();
     for line in dockerfile.lines() {
@@ -41,7 +46,7 @@ fn stages() -> Vec<Stage> {
             // Nothing above the first FROM may declare an argument either.
             assert!(
                 !stages.is_empty() || !ARGUMENTS.iter().any(|one| declares(line, one)),
-                "`{line}` is above every stage"
+                "`{line}` is above every stage of {file}"
             );
         }
         if let Some(stage) = stages.last_mut() {
@@ -103,84 +108,100 @@ fn label(stage: &Stage, key: &str) -> Option<(usize, String)> {
 
 #[test]
 fn the_image_is_labelled_with_its_version_and_its_commit() {
-    let stages = stages();
-    let shipped = stages.last().expect("the Dockerfile has a stage");
+    for file in DOCKERFILES {
+        let stages = stages(file);
+        let shipped = stages.last().expect("the Dockerfile has a stage");
 
-    for (key, argument) in LABELS {
-        let (written_at, value) =
-            label(shipped, key).unwrap_or_else(|| panic!("the last stage writes {key}"));
-        assert_eq!(value, format!("${{{argument}}}"), "{key}");
+        for (key, argument) in LABELS {
+            let (written_at, value) = label(shipped, key)
+                .unwrap_or_else(|| panic!("the last stage of {file} writes {key}"));
+            assert_eq!(value, format!("${{{argument}}}"), "{key} in {file}");
 
-        // An argument is in scope only below its declaration, in its own
-        // stage. Read anywhere else it is empty, and no build says so.
-        assert!(
-            declared_empty_at(shipped, argument) < written_at,
-            "{argument} is declared above {key}"
-        );
-    }
-}
-
-#[test]
-fn no_stage_that_compiles_takes_either_build_argument() {
-    let stages = stages();
-    let (_, above) = stages.split_last().expect("the Dockerfile has a stage");
-
-    // A changed argument throws away every layer below its declaration, and
-    // in these stages that is the compiled libraries or the binary itself.
-    for stage in above.iter().filter(|stage| stage.name != STAMP) {
-        let instructions = stage.lines.iter().filter(|line| !line.starts_with('#'));
-        for line in instructions {
-            for argument in ARGUMENTS {
-                assert!(!declares(line, argument), "`{line}` in `{}`", stage.name);
-            }
-            // Built on the stamp, or copying from it, a stage would be thrown
-            // away with it.
+            // An argument is in scope only below its declaration, in its own
+            // stage. Read anywhere else it is empty, and no build says so.
             assert!(
-                !line.split(['=', ' ']).any(|word| word == STAMP),
-                "`{line}` in `{}` reads the stamp",
-                stage.name
+                declared_empty_at(shipped, argument) < written_at,
+                "{argument} is declared above {key} in {file}"
             );
         }
     }
 }
 
 #[test]
-fn a_changed_argument_reaches_the_labels_through_a_copied_file() {
-    let stages = stages();
-    let shipped = stages.last().expect("the Dockerfile has a stage");
-    let stamp = stages
-        .iter()
-        .find(|stage| stage.name == STAMP)
-        .expect("a `stamp` stage");
+fn no_stage_that_compiles_takes_either_build_argument() {
+    for file in DOCKERFILES {
+        let stages = stages(file);
+        let (_, above) = stages.split_last().expect("the Dockerfile has a stage");
 
-    // Podman 4.9 reuses a LABEL step by its text, the argument unread: with
-    // the layers above unchanged, a new commit kept the last one's label. It
-    // compares a copied file by what the file holds, so the stamp holds both
-    // arguments and the image copies it in above its labels.
-    let written = stamp
-        .lines
-        .iter()
-        .position(|line| instruction(line, "RUN").is_some())
-        .expect("the stamp stage writes its file");
-    let run = &stamp.lines[written];
-    assert!(run.ends_with(" > /stamp"), "the stamp is written to /stamp");
-    for argument in ARGUMENTS {
-        assert!(declared_empty_at(stamp, argument) < written);
-        assert!(
-            run.contains(&format!("\"${argument}\"")),
-            "the stamp holds {argument}"
-        );
+        // A changed argument throws away every layer below its declaration,
+        // and in these stages that is the compiled libraries, the binary
+        // itself, or the agent's downloads.
+        for stage in above.iter().filter(|stage| stage.name != STAMP) {
+            let instructions = stage.lines.iter().filter(|line| !line.starts_with('#'));
+            for line in instructions {
+                for argument in ARGUMENTS {
+                    assert!(
+                        !declares(line, argument),
+                        "`{line}` in `{}` of {file}",
+                        stage.name
+                    );
+                }
+                // Built on the stamp, or copying from it, a stage would be
+                // thrown away with it.
+                assert!(
+                    !line.split(['=', ' ']).any(|word| word == STAMP),
+                    "`{line}` in `{}` of {file} reads the stamp",
+                    stage.name
+                );
+            }
+        }
     }
+}
 
-    let copied = shipped
-        .lines
-        .iter()
-        .position(|line| {
-            instruction(line, "COPY").is_some_and(|copy| copy.starts_with("--from=stamp /stamp "))
-        })
-        .expect("the last stage copies /stamp in from the stamp stage");
-    for (key, _) in LABELS {
-        let (written_at, _) = label(shipped, key).expect("the last stage writes the label");
-        assert!(copied < written_at, "the stamp is copied in above {key}");
+#[test]
+fn a_changed_argument_reaches_the_labels_through_a_copied_file() {
+    for file in DOCKERFILES {
+        let stages = stages(file);
+        let shipped = stages.last().expect("the Dockerfile has a stage");
+        let stamp = stages
+            .iter()
+            .find(|stage| stage.name == STAMP)
+            .unwrap_or_else(|| panic!("a `stamp` stage in {file}"));
+
+        // Podman 4.9 reuses a LABEL step by its text, the argument unread:
+        // with the layers above unchanged, a new commit kept the last one's
+        // label. It compares a copied file by what the file holds, so the
+        // stamp holds both arguments and the image copies it in above its
+        // labels.
+        let written = stamp
+            .lines
+            .iter()
+            .position(|line| instruction(line, "RUN").is_some())
+            .expect("the stamp stage writes its file");
+        let run = &stamp.lines[written];
+        assert!(run.ends_with(" > /stamp"), "the stamp is written to /stamp");
+        for argument in ARGUMENTS {
+            assert!(declared_empty_at(stamp, argument) < written);
+            assert!(
+                run.contains(&format!("\"${argument}\"")),
+                "the stamp holds {argument} in {file}"
+            );
+        }
+
+        let copied = shipped
+            .lines
+            .iter()
+            .position(|line| {
+                instruction(line, "COPY")
+                    .is_some_and(|copy| copy.starts_with("--from=stamp /stamp "))
+            })
+            .unwrap_or_else(|| panic!("the last stage of {file} copies /stamp in"));
+        for (key, _) in LABELS {
+            let (written_at, _) = label(shipped, key).expect("the last stage writes the label");
+            assert!(
+                copied < written_at,
+                "the stamp is copied in above {key} in {file}"
+            );
+        }
     }
 }
