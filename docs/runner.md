@@ -104,6 +104,16 @@ install -m 600 /dev/null ~/.config/kamosu-runner.env
 read -rs key && printf 'KAMOSU_RUNNER_KEY=%s\n' "$key" >> ~/.config/kamosu-runner.env; unset key
 ```
 
+The same file holds Kamosu's address, so the commands below name only the
+agent:
+
+```sh
+printf 'KAMOSU_RUNNER_INSTANCE=%s\n' https://recipes.kamosu.example >> ~/.config/kamosu-runner.env
+```
+
+`--kamosu <address>` on the command line does the same, and wins over the
+file.
+
 ## 2. Put the program beside the agent
 
 The program is `/app/kamosu` in Kamosu's image. Take it from the image of the
@@ -191,20 +201,20 @@ with open("report.json", "w") as f:
 
 Start the Runner with it. The agent command comes after `--`, and the Runner
 starts it directly, with no shell. It starts it inside the Job's folder, so
-**name the script by its full path**. The parentheses load the key in a shell
-of its own, so it is gone from yours when the Runner stops:
+**name the script by its full path**. The parentheses load the settings in a
+shell of their own, so the key is gone from yours when the Runner stops:
 
 ```sh
 (set -a; . ~/.config/kamosu-runner.env; set +a
- ./kamosu runner --kamosu https://recipes.kamosu.example -- python3 "$PWD/stand-in.py")
+ ./kamosu runner -- python3 "$PWD/stand-in.py")
 ```
 
-In the image from step 2, pass the key's file to the container instead:
+In the image from step 2, pass the settings file to the container instead:
 
 ```sh
 docker run -d --name kamosu-runner --restart on-failure:3 \
   --env-file ~/.config/kamosu-runner.env \
-  kamosu-runner --kamosu https://recipes.kamosu.example -- python3 /opt/runner/stand-in.py
+  kamosu-runner -- python3 /opt/runner/stand-in.py
 ```
 
 The Runner says `Kamosu Runner <version> asking https://recipes.kamosu.example/
@@ -234,7 +244,7 @@ for ever, each time asking Kamosu with a key it refuses. Podman did so several
 times a second when this guide was tested.
 
 ```sh
-kamosu runner --kamosu https://recipes.kamosu.example -- /opt/runner/read-a-recipe
+kamosu runner -- /opt/runner/read-a-recipe
 ```
 
 The command is usually a short script of your own that reads `job.json`,
@@ -291,8 +301,24 @@ docker build -t kamosu-agent agent-image
 With Podman, add `--format docker`.
 
 Each container takes its settings from an environment file of its own, kept
-as the Runner Key's file above is. The Runner's holds `KAMOSU_RUNNER_KEY` and
-nothing else. The agent's holds the rest:
+as the Runner Key's file above is. The Runner's holds three:
+
+| Variable | What it holds |
+|---|---|
+| `KAMOSU_RUNNER_KEY` | The Runner Key from step 1. The Runner reads it from here and nowhere else. |
+| `KAMOSU_RUNNER_INSTANCE` | Kamosu's address. Beside Kamosu in one Compose project, `http://kamosu:5266`. `--kamosu` does the same, and wins when both are given. |
+| `KAMOSU_RUNNER_AGENT_SOCKET` | The socket the agent listens on, `/run/kamosu-agent/agent.sock` in the Compose file below. `--agent-socket` does the same, and wins when both are given. Leave it out, or empty, when an agent command follows `--`. |
+
+For the Compose file below, the Runner's settings file is this, with Kamosu's
+address beside it in place of the one step 1 wrote:
+
+```sh
+KAMOSU_RUNNER_KEY=...
+KAMOSU_RUNNER_INSTANCE=http://kamosu:5266
+KAMOSU_RUNNER_AGENT_SOCKET=/run/kamosu-agent/agent.sock
+```
+
+The agent's holds the rest:
 
 | Variable | What it holds |
 |---|---|
@@ -359,8 +385,7 @@ services:
 
   kamosu-runner:
     image: docker.io/battermanz/kamosu:<version>
-    command: [runner, --kamosu, "http://kamosu:5266",
-              --agent-socket, /run/kamosu-agent/agent.sock]
+    command: [runner]
     restart: on-failure:3
     env_file: ~/.config/kamosu-runner.env
     read_only: true
@@ -547,9 +572,10 @@ A Job reported `failed` waits to be tried again, keeping what the agent saved.
 
 ## An agent in a container of its own
 
-Given `--agent-socket <path>` in place of a command, the Runner hands each Job
-to an agent listening on that Unix socket, which the image above does. That
-puts the Runner Key in another container altogether. The agent listens and
+Given `--agent-socket <path>`, or `KAMOSU_RUNNER_AGENT_SOCKET`, in place of a
+command, the Runner hands each Job to an agent listening on that Unix socket,
+which the image above does. That puts the Runner Key in another container
+altogether. The agent listens and
 the Runner calls it, one call for each Job:
 
 1. The agent greets the Runner with one line: `{"kamosu_agent":1}`. The Runner

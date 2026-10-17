@@ -58,6 +58,14 @@ use url::Url;
 /// argument: every process on the machine can read another's arguments.
 pub const RUNNER_KEY_VAR: &str = "KAMOSU_RUNNER_KEY";
 
+/// The variable Kamosu's address may be read from, in place of `--kamosu`.
+/// Not `KAMOSU_ADDRESS`, which is the address a server listens on (#348).
+pub const INSTANCE_VAR: &str = "KAMOSU_RUNNER_INSTANCE";
+
+/// The variable the agent's socket may be read from, in place of
+/// `--agent-socket`.
+pub const AGENT_SOCKET_VAR: &str = "KAMOSU_RUNNER_AGENT_SOCKET";
+
 /// What the Runner writes down for the agent, in the Job's folder.
 pub const JOB_FILE: &str = "job.json";
 
@@ -162,10 +170,65 @@ fn stated_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// What the Runner was told on its command line. A flag left out is read from
+/// its variable, and an agent command is only ever a command line.
+pub struct Told {
+    pub kamosu: Option<String>,
+    pub agent_socket: Option<PathBuf>,
+    pub command: Vec<String>,
+}
+
+/// A variable's value, or nothing when it is unset or holds only spaces, so
+/// an empty line in a settings file counts as no setting. Not clap's `env`,
+/// which hands an empty value on as a value given.
+fn setting(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+/// Kamosu's address and the agent, each from its flag or else its variable.
+fn settings(told: Told) -> Result<(String, Agent), String> {
+    let kamosu = told
+        .kamosu
+        .or_else(|| setting(INSTANCE_VAR))
+        .ok_or(format!(
+            "Give Kamosu's address, as --kamosu or in {INSTANCE_VAR}."
+        ))?;
+    let socket = told
+        .agent_socket
+        .or_else(|| setting(AGENT_SOCKET_VAR).map(PathBuf::from));
+    let agent = match (socket, told.command.is_empty()) {
+        (Some(_), false) => {
+            return Err(format!(
+                "{AGENT_SOCKET_VAR} names an agent's socket, and an agent command is \
+                 given after `--`. Give one of the two."
+            ));
+        }
+        (Some(socket), true) => Agent::Socket(socket),
+        (None, false) => Agent::Command(told.command),
+        (None, true) => {
+            return Err(format!(
+                "Name the agent: a command to start for each Job, after `--`, or the \
+                 socket it listens on, as --agent-socket or in {AGENT_SOCKET_VAR}."
+            ));
+        }
+    };
+    Ok((kamosu, agent))
+}
+
 /// Run the Runner until it is stopped, or until Kamosu refuses it in a way
 /// asking again cannot mend. Answers the exit code.
-pub fn run(kamosu: &str, agent: Agent) -> i32 {
-    let kamosu = match kamosu_address(kamosu) {
+pub fn run(told: Told) -> i32 {
+    let (kamosu, agent) = match settings(told) {
+        Ok(settings) => settings,
+        Err(why) => {
+            eprintln!("{why}");
+            return 2;
+        }
+    };
+    let kamosu = match kamosu_address(&kamosu) {
         Ok(kamosu) => kamosu,
         Err(why) => {
             eprintln!("{why}");
@@ -184,10 +247,6 @@ pub fn run(kamosu: &str, agent: Agent) -> i32 {
         }
     };
     scrub_from_environment(RUNNER_KEY_VAR);
-    if matches!(&agent, Agent::Command(command) if command.is_empty()) {
-        eprintln!("Name the agent command to start for each Job, after `--`.");
-        return 2;
-    }
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -213,10 +272,13 @@ fn kamosu_address(given: &str) -> Result<Url, String> {
     let mut address = Url::parse(given.trim())
         .map_err(|e| format!("`{given}` is not an address the Runner can ask: {e}"))?;
     if !address.username().is_empty() || address.password().is_some() {
-        // The agent is handed this address, so it must hold no Secret.
+        // The agent is handed this address, so it must hold no Secret. Nor
+        // does the refusal, which lands in the Runner's log.
+        let _ = address.set_username("");
+        let _ = address.set_password(None);
         return Err(format!(
-            "`{given}` holds a name or a password. Give Kamosu's address without one: \
-             the Runner Key is how the Runner signs in"
+            "`{address}` was given with a name or a password. Give Kamosu's address \
+             without one: the Runner Key is how the Runner signs in"
         ));
     }
     if !matches!(address.scheme(), "http" | "https") || address.host().is_none() {

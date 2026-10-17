@@ -40,19 +40,22 @@ enum Command {
     Recover { name: String },
     /// Run beside an agent: ask the Kamosu at `--kamosu` for Jobs and hand
     /// each, with its Job Key, to the agent command given after `--`, in a
-    /// fresh folder, or to the agent listening at `--agent-socket`. The Runner
-    /// Key is read from KAMOSU_RUNNER_KEY. Listens on no port and opens no
+    /// fresh folder, or to the agent listening at `--agent-socket`. Either
+    /// flag may be left to KAMOSU_RUNNER_INSTANCE or KAMOSU_RUNNER_AGENT_SOCKET,
+    /// and the Runner Key is read from KAMOSU_RUNNER_KEY. Listens on no port and opens no
     /// database.
     Runner {
-        /// Kamosu's address, such as https://recipes.kamosu.example
+        /// Kamosu's address, such as https://recipes.kamosu.example. Read
+        /// from KAMOSU_RUNNER_INSTANCE when left out.
         #[arg(long)]
-        kamosu: String,
+        kamosu: Option<String>,
         /// The Unix socket an agent in a container of its own listens on, in
-        /// place of an agent command (#317).
+        /// place of an agent command (#317). Read from
+        /// KAMOSU_RUNNER_AGENT_SOCKET when left out.
         #[arg(long, conflicts_with = "command")]
         agent_socket: Option<std::path::PathBuf>,
         /// The agent command and its arguments, after `--`.
-        #[arg(last = true, required_unless_present = "agent_socket")]
+        #[arg(last = true)]
         command: Vec<String>,
     },
 }
@@ -82,13 +85,11 @@ fn main() {
             kamosu,
             agent_socket,
             command,
-        } => {
-            let agent = match agent_socket {
-                Some(socket) => kamosu::runner::Agent::Socket(socket),
-                None => kamosu::runner::Agent::Command(command),
-            };
-            std::process::exit(kamosu::runner::run(&kamosu, agent))
-        }
+        } => std::process::exit(kamosu::runner::run(kamosu::runner::Told {
+            kamosu,
+            agent_socket,
+            command,
+        })),
     }
 }
 

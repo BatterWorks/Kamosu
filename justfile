@@ -606,8 +606,8 @@ agent-image: podman-build
 
 # Start both beside the dev instance, as docs/runner.md's compose file does.
 # The settings file stays outside the repository and holds KAMOSU_RUNNER_KEY
-# and the agent's settings, as docs/runner.md's table names them: the Runner
-# is given the first alone and the agent everything else. The agent's
+# and the agent's settings, as docs/runner.md's tables name them: the Runner
+# is given its KAMOSU_RUNNER_ lines alone and the agent everything else. The agent's
 # container is restarted after every Job, on a read-only image with /tmp in
 # memory; the Runner three times at most, never for ever. The Runner asks the
 # dev instance at the host's LAN address, as `dev-start` prints it, and not
@@ -626,12 +626,12 @@ runner-start settings=(env_var("HOME") / ".config/kamosu-runner.env"):
     podman run -d --name {{agent_container}} --restart always \
         --read-only --tmpfs /tmp:rw,exec,mode=1777,size=4g \
         --cap-drop all --security-opt no-new-privileges \
-        --env-file <(grep -v '^KAMOSU_RUNNER_KEY=' "{{settings}}") \
+        --env-file <(grep -v '^KAMOSU_RUNNER_' "{{settings}}") \
         -v {{agent_socket_volume}}:/run/kamosu-agent \
         localhost/{{agent_container}} >/dev/null
     podman run -d --name {{runner_container}} --restart on-failure:3 \
         --read-only --cap-drop all --security-opt no-new-privileges --no-healthcheck \
-        --env-file <(grep '^KAMOSU_RUNNER_KEY=' "{{settings}}") \
+        --env-file <(grep '^KAMOSU_RUNNER_' "{{settings}}") \
         -v {{agent_socket_volume}}:/run/kamosu-agent \
         localhost/kamosu runner --kamosu "http://${lan_ip}:{{backend_port}}" \
         --agent-socket /run/kamosu-agent/agent.sock >/dev/null
