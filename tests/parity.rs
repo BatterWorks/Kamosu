@@ -708,7 +708,9 @@ async fn a_read_only_access_keys_mcp_tool_list_carries_exactly_the_reads() {
 
     let mut expected_reads: Vec<&str> = catalogue::OPERATIONS
         .iter()
-        .filter(|op| !op.write && op.permission != catalogue::Permission::Runner)
+        .filter(|op| {
+            !op.write && !op.session_only && op.permission != catalogue::Permission::Runner
+        })
         .map(|op| op.name)
         .collect();
     expected_reads.sort_unstable();
@@ -716,11 +718,11 @@ async fn a_read_only_access_keys_mcp_tool_list_carries_exactly_the_reads() {
     assert_eq!(
         served, expected_reads,
         "a read-only Access Key's MCP tool list must be exactly the Catalogue's \
-         non-writing Operations — nothing more, nothing less"
+         non-writing Operations an Access Key may call — nothing more, nothing less"
     );
 
-    // A full-power Key's list is untouched: every Operation a Person may be
-    // listed, writes included.
+    // A full-power Key's list is every Operation a Person may be listed, writes
+    // included, but those no Access Key may call (#347).
     let (_, full_listing) = app.post_mcp(
         r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
         Some(&full_key),
@@ -732,7 +734,10 @@ async fn a_read_only_access_keys_mcp_tool_list_carries_exactly_the_reads() {
         .map(|t| t["name"].as_str().expect("tool name"))
         .collect();
     full_served.sort_unstable();
-    let mut every_operation = listed_to_a_person();
+    let mut every_operation: Vec<&str> = listed_to_a_person()
+        .into_iter()
+        .filter(|name| !catalogue::find(name).expect("declared").session_only)
+        .collect();
     every_operation.sort_unstable();
     assert_eq!(full_served, every_operation);
 }
