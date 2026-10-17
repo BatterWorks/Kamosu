@@ -609,16 +609,24 @@
 		return true;
 	}
 
-	/** Which row the finger is over now, and the list rearranged to match. */
+	/**
+	 * Which row the finger is over now, and the list rearranged to match.
+	 *
+	 * The row being dragged is left out of the count: its place is the number
+	 * of OTHER rows whose middle the finger has passed. Counting it as well
+	 * made a short row over a tall one swap back and forth on every frame,
+	 * because moving the short row moves the tall one's middle past the finger
+	 * and back (#293).
+	 */
 	function settle() {
 		if (!dragging) return;
-		const rows = rowsOf(dragging.list);
-		let to = rows.findIndex((row) => {
+		const { list, index } = dragging;
+		const to = rowsOf(list).filter((row, at) => {
+			if (at === index) return false;
 			const box = row.getBoundingClientRect();
-			return pointerAt < box.top + box.height / 2;
-		});
-		if (to < 0) to = rows.length - 1;
-		if (shift(dragging.list, dragging.index, to)) dragging = { list: dragging.list, index: to };
+			return box.top + box.height / 2 < pointerAt;
+		}).length;
+		if (shift(list, index, to)) dragging = { list, index: to };
 	}
 
 	/**
