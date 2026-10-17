@@ -253,6 +253,7 @@ async function saveThrough(name: RegExp) {
 
 afterEach(() => {
 	Reflect.deleteProperty(navigator, 'onLine');
+	vi.restoreAllMocks();
 });
 
 describe('writing a recipe', () => {
@@ -420,6 +421,89 @@ describe('writing a recipe', () => {
 		const input = sent(kamosu);
 		expect((input?.ingredients as { text: string }[])[0]!.text).toBe('Dan Dan Sauce');
 		expect(input?.steps).toHaveLength(4);
+	});
+
+	it('settles a short row dragged over a tall one, frame after frame (#293)', async () => {
+		renderWriting();
+		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+
+		// jsdom lays nothing out, so each row is given a height and stacked in
+		// the order the list is in now. The chilli oil row is tall, the way a
+		// line that wraps to two is; every other row is 80px.
+		const TALL = 'chilli oil, to taste';
+		const heightOf = (row: Element) =>
+			(row.querySelector('textarea') as HTMLTextAreaElement | null)?.value === TALL ? 140 : 80;
+		vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+			this: HTMLElement,
+		) {
+			const list = this.closest('ul, ol');
+			if (!this.matches('li[data-row]') || !list) return new DOMRect(0, 0, 0, 0);
+			let top = 0;
+			for (const row of list.querySelectorAll('li[data-row]')) {
+				if (row === this) break;
+				top += heightOf(row);
+			}
+			return new DOMRect(0, top, 300, heightOf(this));
+		});
+		// The scroll tick runs settle on every frame. The frames are kept and
+		// run by hand, so the test says how many have passed.
+		const frames: FrameRequestCallback[] = [];
+		vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+			frames.push(callback);
+			return frames.length;
+		});
+		const nextFrame = async () => {
+			frames.shift()?.(0);
+			await tick();
+		};
+		// Every row of the Ingredients, headings included, so a line that slid
+		// under the next heading is caught as well as one in the wrong place.
+		const ingredients = screen
+			.getByRole('textbox', { name: 'Ingredient line 1' })
+			.closest('ul, ol') as HTMLElement;
+		const order = () =>
+			Array.from(ingredients.querySelectorAll('textarea'), (field) => field.value);
+
+		// The sesame paste row sits from 80 to 160, the chilli oil row under it
+		// from 160 to 300. Held at 135 the finger is past the middle of the
+		// short row and short of the middle of the tall one, the band where the
+		// two used to swap on every frame.
+		const sesame = rowFields()
+			.find((field) => field.value === '2 tbsp Chinese sesame paste')!
+			.closest('li')!;
+		await fireEvent.pointerDown(within(sesame).getByRole('button', { name: /Drag to move/ }), {
+			button: 0,
+			clientY: 100,
+		});
+		await fireEvent.pointerMove(window, { clientY: 135 });
+		const held = [
+			'Dan Dan Sauce',
+			'2 tbsp Chinese sesame paste',
+			TALL,
+			'To serve',
+			'3 tbsp peanuts (finely chopped)',
+		];
+		expect(order()).toEqual(held);
+		for (let frame = 0; frame < 6; frame += 1) {
+			await nextFrame();
+			expect(order()).toEqual(held);
+		}
+
+		// Past the middle of the tall row the short one goes below it, and stays.
+		await fireEvent.pointerMove(window, { clientY: 240 });
+		const moved = [
+			'Dan Dan Sauce',
+			TALL,
+			'2 tbsp Chinese sesame paste',
+			'To serve',
+			'3 tbsp peanuts (finely chopped)',
+		];
+		expect(order()).toEqual(moved);
+		for (let frame = 0; frame < 6; frame += 1) {
+			await nextFrame();
+			expect(order()).toEqual(moved);
+		}
+		await fireEvent.pointerUp(window);
 	});
 
 	it('renames and reorders a heading in the METHOD too, not only in the list', async () => {
