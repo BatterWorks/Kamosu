@@ -21,9 +21,10 @@
 //!    each other. Otherwise both stand, unjoined, and nothing is ever labelled a
 //!    guess — the texts are the evidence.
 //!
-//! This module is deliberately not a test seam. It is exercised through the
-//! `divergence` Operation against real Versions in a real database, because what
-//! matters is what a cook is shown, not what a matcher returns.
+//! This module is mostly exercised through the `divergence` Operation against
+//! real Versions in a real database, because what matters is what a cook is
+//! shown, not what a matcher returns. The few tests below hold real lists that
+//! once paired wrong.
 
 use serde_json::{Value, json};
 
@@ -191,28 +192,48 @@ fn origins(base: &[Line], side: &[Line]) -> Vec<Option<usize>> {
         }
     }
 
-    // Pass two — the handful somebody edited, matched by reading. Best match
-    // wins, and only if it clears the bar; whatever is left is genuinely new.
+    // Pass two — the handful somebody edited, matched by reading. Every pair
+    // that clears the bar is a candidate, and the closest are made first: taken
+    // in the side's own order, a line that merely shares "the steak … minutes"
+    // could take the line another one plainly rewrites (#303).
+    let mut candidates: Vec<(f64, usize, usize)> = Vec::new();
     for (i, line) in side.iter().enumerate() {
         if from[i].is_some() {
             continue;
         }
-        let mut best: Option<usize> = None;
-        let mut best_score = EDITED;
         for (b, base_line) in base.iter().enumerate() {
             if used[b] || base_line.kind != line.kind {
                 continue;
             }
             let score = similarity(&base_line.text, &line.text);
-            if score > best_score {
-                best_score = score;
-                best = Some(b);
+            if score > EDITED {
+                candidates.push((score, i, b));
             }
         }
-        if let Some(b) = best {
-            from[i] = Some(b);
-            used[b] = true;
+    }
+    // Closest first; a tie goes to the side's earlier line, then the Branch
+    // Point's, so the same two lists always pair the same way.
+    candidates.sort_by(|&(score_x, i_x, b_x), &(score_y, i_y, b_y)| {
+        score_y
+            .total_cmp(&score_x)
+            .then((i_x, b_x).cmp(&(i_y, b_y)))
+    });
+    for (_, i, b) in candidates {
+        if from[i].is_some() || used[b] {
+            continue;
         }
+        // The rows are laid on the Branch Point's order, so a pair that crosses
+        // one already made would draw this side's own lines out of their order.
+        // That is an uncertain reading, and an uncertain reading declines.
+        let crosses = from
+            .iter()
+            .enumerate()
+            .any(|(j, o)| o.is_some_and(|c| (j < i) != (c < b)));
+        if crosses {
+            continue;
+        }
+        from[i] = Some(b);
+        used[b] = true;
     }
 
     from
@@ -363,4 +384,89 @@ pub fn compare_field(mine: &Value, theirs: &Value) -> Value {
         "mine": mine.clone(),
         "theirs": theirs.clone(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn steps(texts: &[&str]) -> Vec<Line> {
+        texts
+            .iter()
+            .enumerate()
+            .map(|(index, text)| Line {
+                kind: "step".to_string(),
+                text: text.to_string(),
+                index,
+            })
+            .collect()
+    }
+
+    /// #303: a variation that reworded all six Steps of its source. Read in the
+    /// side's own order, Step 3 took the source's rest Step on shared words, and
+    /// Step 6 then paired with the source's first Step and was drawn on top.
+    #[test]
+    fn a_reworded_method_keeps_its_own_order() {
+        let source = steps(&[
+            "Take the steak out of the fridge about 45 minutes before cooking.",
+            "Preheat the oven to 200 °C on 4D hot air.",
+            "Pat the steak dry. Salt it just before it goes in the pan.",
+            "Heat the cast iron pan until it is smoking hot. Sear the steak 2½ minutes per side.",
+            "Put the pan in the oven for 4 minutes.",
+            "Rest the steak for 8 minutes before cutting.",
+        ]);
+        let variation = steps(&[
+            "Salt the steak and leave it uncovered in the fridge for 24 hours to dry.",
+            "Put the oil in a cast iron pan on the wok burner at 5 and heat until it smokes.",
+            "Stand the steak on its fat edge for 1½ minutes, still at 5.",
+            "Lay the steak flat and cook for 4 minutes at 5, flipping every 30 seconds.",
+            "Turn the burner down to 4 and cook for 1 more minute, still flipping every 30 seconds.",
+            "Rest the steak for 5 minutes before cutting.",
+        ]);
+
+        let rows = read(&source, &variation, &source);
+
+        let order: Vec<usize> = rows
+            .iter()
+            .filter_map(|row| row.mine.as_ref().map(|line| line.index))
+            .collect();
+        assert_eq!(order, vec![0, 1, 2, 3, 4, 5]);
+
+        let rest = rows
+            .iter()
+            .find(|row| row.mine.as_ref().is_some_and(|line| line.index == 5))
+            .unwrap();
+        assert_eq!(
+            rest.theirs.as_ref().map(|line| line.text.as_str()),
+            Some("Rest the steak for 8 minutes before cutting.")
+        );
+    }
+
+    /// Two Steps swapped and each reworded: both pairs clear the bar, but made
+    /// together they cross, and the second would draw this side's Step 2 above
+    /// its Step 1. The closer pair stands and the other declines.
+    #[test]
+    fn a_pair_that_crosses_one_already_made_declines() {
+        let source = steps(&[
+            "Preheat the oven to 200 °C.",
+            "Sear the steak 2 minutes per side.",
+        ]);
+        let swapped = steps(&[
+            "Sear the steak 3 minutes per side.",
+            "Preheat the oven to 180 °C on fan.",
+        ]);
+
+        let rows = read(&source, &swapped, &source);
+
+        let order: Vec<usize> = rows
+            .iter()
+            .filter_map(|row| row.mine.as_ref().map(|line| line.index))
+            .collect();
+        assert_eq!(order, vec![0, 1]);
+        let paired: Vec<(usize, usize)> = rows
+            .iter()
+            .filter_map(|row| Some((row.mine.as_ref()?.index, row.theirs.as_ref()?.index)))
+            .collect();
+        assert_eq!(paired, vec![(0, 1)]);
+    }
 }
