@@ -1,9 +1,9 @@
 /**
  * What each way of adding a recipe is drawn with and says while the server is
  * out of reach, written once for the + (#174) and for a recipe dropped onto
- * Recipes (#204), which is the same act by another road. A photo of a page,
- * and a PDF or pasted text on an instance with a Runner, go to Kamosu's AI
- * agent (#278).
+ * Recipes (#204), which is the same act by another road. A photo of a page
+ * and a video's link, and a PDF or pasted text on an instance with a Runner,
+ * go to Kamosu's AI agent (#278, #349).
  */
 
 import { m } from '$lib/paraglide/messages';
@@ -23,6 +23,8 @@ export const ICON: Record<Source, string> = {
 	// A camera: its body, the bump on top, the lens (#278).
 	picture:
 		'M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zM12 17a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z',
+	// A screen with a play button on it (#349).
+	video: 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM10 9v6l5-3z',
 };
 
 /** What an act says offline instead of its label (#76). */
@@ -33,6 +35,7 @@ export const WAITS_FOR_SERVER: Record<Source, () => string> = {
 	write: m.offline_waits_write,
 	paste: m.offline_waits_paste,
 	picture: m.offline_waits_picture,
+	video: m.offline_waits_video,
 };
 
 /**

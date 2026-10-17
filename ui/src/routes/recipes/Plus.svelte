@@ -34,12 +34,14 @@
 
 	**On an instance with a Runner the list is two groups** (#278, option 2,
 	chosen 15 October 2026): the quick ways on top, and under "Kamosu's AI
-	agent reads it · a few minutes" a photo of a page, a PDF and pasted text,
-	which go to the agent and take minutes. A photo or a PDF is shown once on
-	`SendSheet` before it goes. Whether there is a Runner is read from the
-	server each time the list opens, never from what the phone kept, and the
-	first time the list waits for the answer rather than redraw under the
-	finger. With no Runner the list is the five rows it always was.
+	agent makes the recipe · a few minutes" (#349, chosen 17 October 2026) a
+	photo of a page, a PDF, pasted text and a video, which go to the agent and
+	take minutes. A photo or a PDF is shown once on `SendSheet` before it
+	goes. A video opens a field for its link, which goes straight to the
+	agent: From a link would land a bare recipe from the page's title
+	first. Whether there is a Runner is read from the server each time the
+	list opens, never from what the phone kept, and the first time the list
+	waits for the answer rather than redraw under the finger. With no Runner the list is the five rows it always was.
 
 	**A PDF, a Kamosu zip file or a link can be dropped on Recipes instead**
 	(#204), and is the same act as its row here: `DropARecipe` holds no act of
@@ -53,6 +55,7 @@
 	import AddressForm from '$lib/adding/AddressForm.svelte';
 	import TitleForm from '$lib/adding/TitleForm.svelte';
 	import PasteForm from '$lib/adding/PasteForm.svelte';
+	import VideoForm from '$lib/adding/VideoForm.svelte';
 	import ToCheck from '$lib/adding/ToCheck.svelte';
 	import FilePicker from '$lib/adding/FilePicker.svelte';
 	import Said from '$lib/adding/Said.svelte';
@@ -139,6 +142,7 @@
 		{ act: 'picture', label: m.plus_picture, why: m.plus_picture_why },
 		{ act: 'pdf', label: m.plus_agent_pdf, why: m.plus_agent_pdf_why },
 		{ act: 'paste', label: m.plus_agent_paste, why: m.plus_agent_paste_why },
+		{ act: 'video', label: m.plus_video, why: m.plus_video_why },
 	];
 	const groups = $derived(adding.runner ? [QUICK, BY_AGENT] : [ALL]);
 	/** The heading over the field a row opens, which is that row's own label. */
@@ -268,6 +272,8 @@
 			<AddressForm {adding} />
 		{:else if showing === 'paste'}
 			<PasteForm {adding} />
+		{:else if showing === 'video'}
+			<VideoForm {adding} />
 		{:else}
 			<TitleForm {adding} />
 		{/if}
@@ -290,7 +296,7 @@
 -->
 <ToCheck {adding} />
 
-<!-- A paste says its own refusal inside the sheet it was made from, over this. -->
-{#if showing !== 'paste' && !adding.fromPdf && !adding.fromLink && !adding.toSend}
+<!-- A paste or a video says its own refusal inside the field it was made from, over this. -->
+{#if showing !== 'paste' && showing !== 'video' && !adding.fromPdf && !adding.fromLink && !adding.toSend}
 	<Said {adding} />
 {/if}

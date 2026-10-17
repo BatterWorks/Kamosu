@@ -534,6 +534,44 @@ impl Core {
         }))
     }
 
+    /// Hand a link to an agent with nothing landed first (#349), as pasted
+    /// text is handed over (#269): a Job that waits for a Runner with no
+    /// recipe, whose agent creates it in the caller's own Cookbook under
+    /// their Hand. Kamosu never fetches the link itself, so no bare recipe
+    /// lands from the page's title. The same link sent again is not matched,
+    /// and makes a Job of its own.
+    ///
+    /// The answer is the Job's id. Its result is an Import Report from the
+    /// moment it is asked for, under the source a link imported is listed
+    /// under, read as the Job stands.
+    pub fn import_link_by_agent(
+        &self,
+        caller: &Caller,
+        link: &str,
+        into: Option<&str>,
+    ) -> Result<Value, OpError> {
+        self.ensure_has_runner()?;
+        let failed = |e| OpError::internal(format!("cannot record the agent's Job: {e}"));
+        self.db().with_conn(|conn| {
+            let cookbook_id = lands_in(conn, caller, into)?;
+            let import_id = find_or_create_import(conn, &cookbook_id, jobs::LINK_SOURCE)?;
+            // The agent's create lands where this one does, which is the
+            // Job's to say when it is not the asker's own (#302).
+            let elsewhere = (cookbook_id != cookbook_of_person(conn, &caller.person_id)?)
+                .then_some(cookbook_id.as_str());
+            // No Runner is handed a Job whose Report is not written yet.
+            let tx = conn.unchecked_transaction().map_err(failed)?;
+            let job_id = jobs::wait_for_agent_on_link_alone(&tx, caller, link, elsewhere)?;
+            jobs::set_result(
+                &tx,
+                &job_id,
+                &report_before_its_agent(&import_id, &cookbook_id, jobs::LINK_SOURCE, &job_id),
+            )?;
+            tx.commit().map_err(failed)?;
+            Ok(json!({ "job_id": job_id, "source_kind": jobs::LINK_SOURCE }))
+        })
+    }
+
     /// Have an agent read the link one Import just landed bare (ADR 0048,
     /// #261), and say so in that Import's Report.
     ///
@@ -1036,7 +1074,7 @@ fn arrival_source_kind(
     match operation {
         "import_crouton" => Some("crouton".to_string()),
         "import_bundle" => Some("bundle".to_string()),
-        "import_web_link" => Some("web".to_string()),
+        "import_web_link" => Some(jobs::LINK_SOURCE.to_string()),
         "import" => declared.map(str::to_string),
         _ => None,
     }
@@ -1134,7 +1172,8 @@ pub(super) fn report_with_agent_jobs_as_they_stand(
             continue;
         };
         row["status"] = json!(state.status.as_str());
-        // The recipe an agent reading an Original has created since.
+        // The recipe an agent reading an Original, or a link handed to it
+        // alone, has created since.
         let created = match &state.branch_id {
             Some(branch_id) if row["branch_id"].is_null() => {
                 row["branch_id"] = json!(branch_id);
@@ -1197,7 +1236,7 @@ pub(super) fn report_with_agent_jobs_as_they_stand(
             "foreign_id": landed["foreign_id"],
             "reason": reason.unwrap_or_else(|| "the agent's Job failed".to_string()),
         });
-        // A Job reading an Original may fail before it made any recipe.
+        // A Job that creates its recipe may fail before it made any.
         if !branch_id.is_null() {
             entry["branch_id"] = branch_id;
         }
@@ -1211,9 +1250,32 @@ pub(super) fn report_with_agent_jobs_as_they_stand(
     Ok(())
 }
 
-/// The recipe an agent created for a Job reading an Original, as the Report
-/// lists an arrival (#269): the Job's id stands for the foreign id, since what
-/// was handed over had none. None once the recipe is deleted.
+/// The Import Report of an agent's Job that creates its recipe, before it
+/// has (#269, #349): nothing arrived yet, and the one Job named with no
+/// recipe. It is read as the Job stands from then on.
+pub(super) fn report_before_its_agent(
+    import_id: &str,
+    cookbook_id: &str,
+    source_kind: &str,
+    job_id: &str,
+) -> Value {
+    json!({
+        "import_id": import_id,
+        "cookbook_id": cookbook_id,
+        "source_kind": source_kind,
+        "arrived": [],
+        "offered": [],
+        "unreadable": [],
+        "left_out": [],
+        "related_candidates": [],
+        "agent_jobs": [{ "job_id": job_id, "branch_id": null }],
+    })
+}
+
+/// The recipe an agent created for a Job reading an Original, or a link
+/// handed to it alone, as the Report lists an arrival (#269, #349): the Job's
+/// id stands for the foreign id, since no ledger names what was handed over.
+/// None once the recipe is deleted.
 fn created_by_agent(
     conn: &Connection,
     job_id: &str,

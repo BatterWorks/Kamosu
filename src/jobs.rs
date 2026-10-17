@@ -792,6 +792,34 @@ pub fn wait_for_agent_on_original(
     Ok(job_id)
 }
 
+/// Have an agent make a recipe from `link` (#349): a Job that waits for a
+/// Runner with no recipe, as one reading an Original does, whose agent
+/// creates the recipe. It is its own Import, under the source a link
+/// imported is listed under. `cookbook_id` is a Cookbook an Operator named
+/// for its recipe, other than their own (#302).
+pub fn wait_for_agent_on_link_alone(
+    conn: &Connection,
+    caller: &Caller,
+    link: &str,
+    cookbook_id: Option<&str>,
+) -> Result<String, OpError> {
+    let mut input = json!({ "source_kind": LINK_SOURCE });
+    if let Some(cookbook_id) = cookbook_id {
+        input["cookbook_id"] = json!(cookbook_id);
+    }
+    let job_id = insert(conn, AGENT_OPERATION, Some(caller), &input)?;
+    conn.execute(
+        "INSERT INTO agent_jobs (job_id, link) VALUES (?1, ?2)",
+        params![job_id, link],
+    )
+    .map_err(|e| OpError::internal(format!("cannot record the agent's Job: {e}")))?;
+    Ok(job_id)
+}
+
+/// The `source_kind` a link brought in is listed under, read by Kamosu or
+/// by an agent.
+pub const LINK_SOURCE: &str = "web";
+
 /// The caller's own Job that waits or is held on the file `digest` names,
 /// for the Import `import_id` (#271). A Job of an Import since forgotten is
 /// not it, and neither is a Co-author's, which the caller could not read.
@@ -1488,7 +1516,7 @@ pub fn end_as_reported(
     let Some((branch_id, its_own_import)) = held else {
         return Err(not_held(conn, runner_key_id, job_id)?);
     };
-    // A Job reading an Original makes its recipe, so one that made none did
+    // A Job with no recipe makes its own, so one that made none did
     // not complete, whatever its agent says (#269).
     if outcome == AgentOutcome::Completed && branch_id.is_none() {
         return Err(OpError::bad_request(

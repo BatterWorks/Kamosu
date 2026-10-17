@@ -37320,6 +37320,154 @@ mod handing_an_original_to_an_agent {
         assert_eq!(can["from"], json!("original"), "{can}");
         assert_eq!(can["can_read_again"], json!(true), "{can}");
     }
+
+    /// A video's address. Its host is reserved and answers nobody, so a test
+    /// passes only where Kamosu never fetches it.
+    const A_VIDEO: &str = "https://video.example/watch?v=tarte-au-citron";
+
+    /// A link handed to an agent alone (#349): no bare recipe lands from the
+    /// page first, the Runner is handed the link with no recipe, and the
+    /// agent's create is the Job's recipe, listed where a link brought in is.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_link_handed_to_an_agent_lands_nothing_until_its_agent_creates_the_recipe() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let job_id = handed(
+            &app,
+            &at.cook,
+            json!({ "link": format!("  {A_VIDEO} ") }),
+            "web",
+        );
+        assert_eq!(recipes_held(&app), 0);
+        let (_, read) = job(&app, &at.cook, &job_id);
+        assert_eq!(read["result"]["status"], json!("queued"), "{read}");
+        let report = &read["result"]["result"];
+        assert_eq!(report["source_kind"], json!("web"), "{report}");
+        assert_eq!(report["arrived"], json!([]));
+        assert_eq!(report["agent_jobs"][0]["branch_id"], Value::Null);
+
+        let work = ask_for_work(&app, &at.runner);
+        assert_eq!(work["job_id"], json!(job_id), "{work}");
+        assert_eq!(work["link"], json!(A_VIDEO), "{work}");
+        assert_eq!(work["branch_id"], Value::Null, "{work}");
+        assert_eq!(work["original"], Value::Null, "{work}");
+        let job_key = work["job_key"].as_str().unwrap();
+
+        // Nothing it writes names a recipe before it has one.
+        let (status, refused) = app.post_op(
+            "edit_recipe",
+            Some(job_key),
+            &json!({ "branch_id": "b_anything", "note": "x" }).to_string(),
+        );
+        assert_eq!(status, 400, "{refused}");
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("create_recipe"),
+            "{refused}"
+        );
+
+        let the_recipe = json!({
+            "title": "Tarte au citron",
+            "source": { "text": "Video", "link": A_VIDEO },
+            "ingredients": [{ "kind": "ingredient", "text": "200 g flour" }],
+        });
+        let (status, created) =
+            app.post_op("create_recipe", Some(job_key), &the_recipe.to_string());
+        assert_eq!(status, 200, "{created}");
+        let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+        let (status, refused) =
+            app.post_op("create_recipe", Some(job_key), &the_recipe.to_string());
+        assert_eq!(status, 400, "{refused}");
+        assert_eq!(recipes_held(&app), 1);
+
+        // In the asker's own Cookbook, under the asker's Hand.
+        let (_, recipe) = app.post_op(
+            "get_recipe",
+            Some(&at.cook),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(recipe["result"]["mine"], json!(true), "{recipe}");
+        assert_eq!(
+            recipe["result"]["versions"][0]["hand_id"],
+            json!(at.cook_id)
+        );
+
+        let (status, reported) = app.post_op(
+            "report_on_job",
+            Some(&at.runner),
+            &json!({ "job_id": job_id, "outcome": "completed" }).to_string(),
+        );
+        assert_eq!(status, 200, "{reported}");
+        let (_, read) = job(&app, &at.cook, &job_id);
+        let report = &read["result"]["result"];
+        assert_eq!(read["result"]["status"], json!("completed"), "{read}");
+        assert_eq!(
+            report["arrived"][0]["branch_id"],
+            json!(branch_id),
+            "{report}"
+        );
+        assert_eq!(report["arrived"][0]["title"], json!("Tarte au citron"));
+        assert_eq!(report["agent_jobs"][0]["branch_id"], json!(branch_id));
+        assert_eq!(report["agent_jobs"][0]["made_by_agent"], json!(true));
+
+        // Listed under the source a link brought in is.
+        let (_, listed) = app.post_op("list_imports", Some(&at.cook), "{}");
+        let source = listed["result"]["imports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|source| source["source_kind"] == json!("web"))
+            .unwrap_or_else(|| panic!("listed: {listed}"))
+            .clone();
+        assert_eq!(source["arrivals"][0]["job_id"], json!(job_id), "{source}");
+        assert_eq!(source["arrivals"][0]["arrived"], json!(1));
+
+        // The same link again is a Job of its own.
+        let again = handed(&app, &at.cook, json!({ "link": A_VIDEO }), "web");
+        assert_ne!(again, job_id);
+    }
+
+    /// A link no agent should be sent to is refused in words, and so is
+    /// any link on an instance with no Runner. None of it makes a Job.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_link_an_agent_should_not_read_is_refused_and_so_is_one_with_no_runner() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let refused = [
+            json!({ "link": "" }),
+            json!({ "link": "a tart" }),
+            json!({ "link": "ftp://video.example/tart" }),
+            json!({ "link": "file:///etc/passwd" }),
+            json!({ "link": "http://192.168.1.4/tart" }),
+            json!({ "link": "http://10.0.0.5:5266/api/op/list_accounts" }),
+            json!({ "link": format!("{A_VIDEO}&{}", "x".repeat(2048)) }),
+            json!({ "link": A_VIDEO, "text": pasted() }),
+            json!({ "link": A_VIDEO, "data": base64_of(BISCUIT) }),
+        ];
+        for input in refused {
+            let (status, answered) = hand_over(&app, Some(&at.cook), input.clone());
+            assert_eq!(status, 400, "{input}: {answered}");
+            assert!(answered["error"]["message"].as_str().unwrap().len() > 20);
+        }
+
+        let (_, keys) = app.post_op("list_runner_keys", Some(&at.cook), "{}");
+        let key_id = keys["result"]["runner_keys"][0]["id"].as_str().unwrap();
+        let (status, _) = app.post_op(
+            "revoke_runner_key",
+            Some(&at.cook),
+            &json!({ "runner_key_id": key_id }).to_string(),
+        );
+        assert_eq!(status, 200);
+        let (status, answered) = hand_over(&app, Some(&at.cook), json!({ "link": A_VIDEO }));
+        assert_eq!(status, 400, "{answered}");
+        assert_eq!(answered["error"]["reason"], json!("no_runner"));
+
+        let (_, listed) = app.post_op("list_jobs", Some(&at.cook), "{}");
+        assert_eq!(listed["result"]["jobs"], json!([]), "{listed}");
+        assert_eq!(agent_jobs_held(&app), 0);
+    }
 }
 
 /// An Operator looks after every Cookbook's recipes and their Tags, through
@@ -37756,6 +37904,44 @@ mod an_operator_looks_after_every_cookbook {
         assert_eq!(status, 200, "{edited}");
         assert_eq!(edited["result"]["copied"], json!(false), "{edited}");
 
+        let (status, owners) = op(&app, "get_recipe", &at.owner, json!({ "branch_id": made }));
+        assert_eq!(status, 200, "{owners}");
+        assert_eq!(owners["result"]["mine"], json!(true), "{owners}");
+    }
+
+    /// A link handed to the agent alone for somebody else's Cookbook (#349)
+    /// lands there as pasted text does.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_operators_link_for_an_agent_lands_in_the_cookbook_named() {
+        let app = support::spawn_app();
+        let at = an_instance(&app);
+        let theirs = cookbook_of(&app, &at.owner_id);
+        let runner = app.core.mint_runner_key("a Runner").unwrap().secret;
+        let link = "https://video.example/watch?v=tian";
+
+        let (status, refused) = op(
+            &app,
+            "import_by_agent",
+            &at.stranger,
+            json!({ "link": link, "cookbook_id": theirs }),
+        );
+        assert_eq!(status, 404, "{refused}");
+        let (status, asked) = op(
+            &app,
+            "import_by_agent",
+            &at.operator,
+            json!({ "as_operator": true, "link": link, "cookbook_id": theirs }),
+        );
+        assert_eq!(status, 200, "{asked}");
+
+        let (_, work) = app.post_op("ask_for_work", Some(&runner), &super::asking());
+        assert_eq!(work["result"]["job"]["link"], json!(link), "{work}");
+        let job_key = work["result"]["job"]["job_key"]
+            .as_str()
+            .unwrap_or_else(|| panic!("a Job Key: {work}"));
+        let (status, created) = op(&app, "create_recipe", job_key, json!({ "title": "Tian" }));
+        assert_eq!(status, 200, "{created}");
+        let made = created["result"]["branch_id"].as_str().unwrap();
         let (status, owners) = op(&app, "get_recipe", &at.owner, json!({ "branch_id": made }));
         assert_eq!(status, 200, "{owners}");
         assert_eq!(owners["result"]["mine"], json!(true), "{owners}");
