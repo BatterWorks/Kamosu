@@ -299,7 +299,7 @@ _Avoid_: Diff, match, alignment, correlation, line id, key
 ### Language and measures
 
 **Language**:
-The language a Branch is written in. Detected from the recipe's own text when it is saved — set when there is none, offered when it disagrees with one already there, never changed silently — and always correctable. It may be **Unknown**, which is a permanent and unremarkable state for a recipe that is honestly more than one language: it shows to every reader and can neither be a Translation nor have one. Changing it makes a Version.
+The language a Branch is written in. Detected from the recipe's own text when it is saved — set when there is none, offered when it disagrees with one already there, never changed silently — and always correctable. A recipe that arrives as too little text to read takes its writer's Reading Language as a guess, and the first save that gives it Ingredient Lines or Steps sets the Language its text reads as, since nobody said the guess. It may be **Unknown**, which is a permanent and unremarkable state for a recipe that is honestly more than one language: it shows to every reader and can neither be a Translation nor have one. Changing it makes a Version.
 _Avoid_: Locale, i18n, language code
 
 **Translation**:

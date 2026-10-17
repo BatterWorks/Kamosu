@@ -1450,10 +1450,12 @@ pub(super) fn copy_branch_into(
         cookbook_hand(conn, cookbook_id)?
     };
     conn.execute(
+        // A guessed Language is the copy's guess too (#321).
         "INSERT INTO branches \
          (id, travelling_id, lineage_id, cookbook_id, hand_id, language, origin_address, \
-          head_version_id, name, started_by, arrived) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+          head_version_id, name, started_by, arrived, language_guessed) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, \
+                 (SELECT language_guessed FROM branches WHERE id = ?12))",
         params![
             new_branch_id,
             keeps_travelling.then_some(&travelling),
@@ -1466,6 +1468,7 @@ pub(super) fn copy_branch_into(
             name,
             started_by,
             keeps_travelling as i64,
+            source,
         ],
     )
     .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;

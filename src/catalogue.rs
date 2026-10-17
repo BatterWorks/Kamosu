@@ -1778,7 +1778,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Say what Language a recipe is written in. The only thing \
                       that acts on a save's language offer — Kamosu detects and \
                       offers, and never changes a Language without the cook \
-                      saying so. Changing it makes a Version, so the change \
+                      saying so, except to set one guessed for a recipe that \
+                      held too little text to read, from the first text that \
+                      says one. Changing it makes a Version, so the change \
                       leaves a trace in the recipe's own history. Setting it to \
                       `unknown` says the recipe is honestly more than one \
                       Language: from then on it is offered nothing, marked \
@@ -4881,7 +4883,7 @@ fn saved_version_schema() -> Value {
             },
             "language": {
                 "type": "string",
-                "description": "The Language this recipe still carries. A save never changes it.",
+                "description": "The Language this recipe carries. A save changes only a guess.",
             },
             "language_offer": {
                 "type": ["string", "null"],
