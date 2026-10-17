@@ -8,7 +8,7 @@ The survey behind this is in [`docs/research/ai-recipe-import-in-other-apps.md`]
 
 ### The Runner
 
-- **Kamosu ships the Runner and nothing else of the agent.** The Runner is Kamosu's own program started in another mode. Whoever runs it supplies the agent it starts, the tools that agent needs and the instructions it follows. Kamosu's image stays one program ([ADR 0028](./0028-kamosu-is-one-file-and-one-directory.md)).
+- **Kamosu ships the Runner and nothing else of the agent.** The Runner is Kamosu's own program started in another mode. Whoever runs it supplies the agent it starts, the tools that agent needs and the instructions it follows. Kamosu's image stays one program ([ADR 0028](./0028-kamosu-is-one-file-and-one-directory.md)). _(Amended by [#345](https://github.com/BatterWorks/Kamosu/issues/345): **every release also publishes the agent's image Kamosu's repository builds, as `battermanz/kamosu-agent`.** It holds opencode, its tools and the instructions in `agent-image/`, and it is a second image beside Kamosu's, which stays one program. Whoever runs a Runner still chooses: that image or an agent of their own, the provider and the model, and, by mounting a file over the image's, the instructions. Nothing in the image names a provider or a model.)_
 - **The Runner asks, and Kamosu never calls it.** The Runner asks for a Job, keeps renewing its hold on it while the agent works, and reports how it ended. Kamosu owns the deadline, so a Job whose Runner goes quiet goes back to waiting. Cancelling travels in Kamosu's reply to a call the Runner was already making, and the Runner stops its agent. Kamosu stores no address for a Runner.
 - **A Runner holds one Job at a time,** and a Job is held by one Runner at a time.
 
@@ -72,7 +72,7 @@ The survey behind this is in [`docs/research/ai-recipe-import-in-other-apps.md`]
 - **A fetcher with no model beside Kamosu, feeding a model call inside it.** Rejected with the first option, and because it loses the steps that are judgement.
 - **A provider's hosted agent.** Rejected: it ties the feature to one provider.
 - **Asking a connected agent through MCP.** Not available. In revision 2026-07-28 a server may only speak inside a request the client already sent, and sampling is deprecated.
-- **A complete image with an agent in it, published by Kamosu.** Deferred. It needs a public set of instructions and one agent chosen for everybody, which the maintainer's own setup should inform first.
+- **A complete image with an agent in it, published by Kamosu.** Deferred. It needs a public set of instructions and one agent chosen for everybody, which the maintainer's own setup should inform first. _(Amended by [#345](https://github.com/BatterWorks/Kamosu/issues/345): taken up on 2026-10-17. Both conditions are met: opencode is the agent, because it speaks to any provider, and `agent-image/instructions.md` is public, tested on real sources in #324. The image carries Kamosu's version and is built again only when `agent-image/` changes, or when a release moves its rebuild line for Alpine's security fixes.)_
 - **Holding the recipe until someone approves it.** Rejected: a waiting state for a whole recipe is something every list and search would have to respect.
 
 ## Consequences

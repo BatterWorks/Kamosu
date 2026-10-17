@@ -4,12 +4,19 @@
 # instructions it follows, beside a Runner in a container of its own. The
 # Runner is Kamosu's own image started as `kamosu runner`, and hands each Job
 # over through a socket in a volume the two share, so the Runner Key is never
-# in this container (`docs/runner.md`, "The image Kamosu's repository builds").
+# in this container (`docs/runner.md`, "The agent image Kamosu publishes").
 #
 # Alpine, as the thinnest base that carries every tool: a distroless image
 # has no shell, and the agent's work is running tools through one. One user,
 # never root. Nothing here names a provider or a model: the Operator gives
 # both when the container starts.
+#
+# A release publishes this image as battermanz/kamosu-agent, and builds it
+# again only when something in this folder changed since the commit the
+# published one was built from (#345). Alpine's security fixes reach the image
+# only through a build, so a release that finds some since the last one moves
+# the date in the rebuild line, the first line of the packages' RUN below, on
+# its bump branch (docs/releasing.md, the checklist).
 
 FROM docker.io/library/alpine:3.24 AS tools
 ARG TARGETARCH
@@ -41,6 +48,15 @@ RUN case "${TARGETARCH}" in \
     && grep ' yt-dlp$' SHA2-256SUMS | sha256sum -c - \
     && chmod 755 opencode yt-dlp
 
+# The two build arguments, written to a file the image copies in above its
+# labels, as Kamosu's own Dockerfile does and for the same reason (see the foot
+# of this file). Nothing is built on this stage, so a changed argument reruns
+# one `printf` and no download.
+FROM docker.io/library/alpine:3.24 AS stamp
+ARG VERSION=""
+ARG GIT_SHA=""
+RUN printf '%s\n%s\n' "$VERSION" "$GIT_SHA" > /stamp
+
 FROM docker.io/library/alpine:3.24
 # What reading needs, whatever the model: ffmpeg cuts a video's frames and
 # sound, python3 runs yt-dlp and this container's own command, deno runs
@@ -49,7 +65,15 @@ FROM docker.io/library/alpine:3.24
 # needs libstdc++. These are held by the Alpine release above, which takes
 # security fixes alone: deno is Alpine's own build, since deno publishes none
 # for musl.
-RUN apk add --no-cache \
+#
+# The rebuild line is part of this RUN and not a comment, because a build
+# reuses a step whose text has not changed: an edited comment would rebuild
+# the image with last time's packages. A new date reruns this step, which
+# upgrades what the base image holds and installs the rest at Alpine's
+# current versions.
+RUN : "Rebuilt for Alpine's fixes as of 2026-10-17" \
+    && apk upgrade --no-cache \
+    && apk add --no-cache \
         ca-certificates curl deno ffmpeg libstdc++ poppler-utils python3
 
 RUN adduser -D -u 1000 -s /bin/sh agent
@@ -66,3 +90,16 @@ RUN install -d -o agent -g agent -m 755 /run/kamosu-agent
 USER agent
 WORKDIR /tmp
 ENTRYPOINT ["/opt/kamosu-agent/agent"]
+# The release that built the image and the commit it was built from (#345),
+# empty unless the build passes them: `--build-arg VERSION=0.3.0 --build-arg
+# GIT_SHA=<commit>`. An image reused for a later release keeps both, so the
+# revision is what says which agent-image/ the image holds.
+# Declared last, so a changed argument throws away only the copy and the
+# labels. The copy is what makes Podman write the labels again: Podman 4.9
+# reuses a LABEL step by its text, the argument unread, and compares a copied
+# file by what it holds. tests/image_labels.rs holds this file to it.
+ARG VERSION=""
+ARG GIT_SHA=""
+COPY --from=stamp /stamp /opt/kamosu-agent/stamp
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}"
