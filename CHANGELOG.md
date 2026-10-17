@@ -39,6 +39,7 @@
 - Ending another device's Session in Settings leaves this phone's library on it. It used to be deleted, and downloaded again in full at the next start. `revoke_session` says in a new field, `current`, whether the Session it ended is the one the call was made with. [#291]
 - A Bundle whose Food answers to names that two Foods here hold apart makes one new Food and one set of merge suggestions, however many of its Versions carry the line. It used to make a new Food for each Version, and a suggestion between nearly every pair of them. [#292]
 - On the writing screen, a short line or Step dragged over a taller one settles where the finger is. The two used to swap back and forth for as long as the finger stayed over part of the taller row. [#293]
+- A Step that waits until something looks right and then adds an ingredient links that ingredient, as "cook the onions until soft and add the garlic" now links the garlic. Everything after "until" up to the next comma or full stop used to link nothing. [#294]
 
 [#249]: https://github.com/BatterWorks/Kamosu/issues/249
 [#250]: https://github.com/BatterWorks/Kamosu/issues/250
@@ -67,6 +68,7 @@
 [#291]: https://github.com/BatterWorks/Kamosu/issues/291
 [#292]: https://github.com/BatterWorks/Kamosu/issues/292
 [#293]: https://github.com/BatterWorks/Kamosu/issues/293
+[#294]: https://github.com/BatterWorks/Kamosu/issues/294
 [#296]: https://github.com/BatterWorks/Kamosu/issues/296
 [#301]: https://github.com/BatterWorks/Kamosu/issues/301
 [#302]: https://github.com/BatterWorks/Kamosu/issues/302
