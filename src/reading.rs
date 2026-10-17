@@ -1878,19 +1878,32 @@ fn offers_a_choice(words: &[&str]) -> bool {
 /// `longest` of them: the longest window the closed set recognises, and
 /// failing that one word from the [`OPEN_UNITS`]. Nothing is a Unit at 0.
 ///
-/// A lone `t` or `T` is a spoon only after an amount (#208). With none
-/// before it a single letter opens a name, `T bone steak`.
+/// A lone `t`, `T`, `c` or `#` is a Unit only after an amount (#208, #326).
+/// With none before it a single letter opens a name, `T bone steak`. A lone
+/// `c` before one of the [`FRENCH_SPOON_WORDS`] is a French spoon this
+/// reader has no name for, `c. à dessert`, and never a cup.
 fn unit_at(words: &[&str], longest: usize, after_an_amount: bool) -> usize {
     (1..=longest.min(3))
         .rev()
         .find(|&take| {
             let written = words[..take].join(" ");
+            let french_spoon = units::lone_cup(&written)
+                && words
+                    .get(take)
+                    .is_some_and(|next| listed(FRENCH_SPOON_WORDS, next));
             let known = units::recognise(&written).is_some()
-                && (after_an_amount || units::lone_spoon(&written).is_none());
+                && (after_an_amount || !units::lone_letter(&written))
+                && !french_spoon;
             known || (take == 1 && listed(OPEN_UNITS, words[0]))
         })
         .unwrap_or(0)
 }
+
+/// The words after a French `c.` that say it is a *cuillère* and not the
+/// cup of an American card (#326): `à`, a spoon's name written without it,
+/// `c. soupe`, or the `de` of a spoon left unnamed, `1 c. de sel`. A cup in
+/// French is a `tasse`, so no French line is a lone `c` of something.
+const FRENCH_SPOON_WORDS: &[&str] = &["à", "soupe", "café", "thé", "dessert", "moka", "de", "d'"];
 
 /// The words with any [`PRAISE`] word at their start dropped, and the glue
 /// and sizes around it: `good big pinch of salt` is `pinch of salt`.
@@ -2126,7 +2139,12 @@ fn amount_at(text: &str, words: &[(usize, usize)], index: usize) -> Option<(Step
             + text[from..to]
                 .trim_end_matches(|c: char| !c.is_alphanumeric() && c != '.')
                 .len();
-        units::recognise(&text[from..end]).map(|_| (end, take))
+        let unit = &text[from..end];
+        // `180 C` in a sentence is an oven, never cups (#326).
+        if units::lone_cup(unit) {
+            return None;
+        }
+        units::recognise(unit).map(|_| (end, take))
     })?;
     let unit_start = words[unit_from].0;
     let end = full_stop_left_out(text, unit_start, unit_end);
@@ -3768,6 +3786,58 @@ mod tests {
             read("Viande : un T bone"),
             parts(None, None, Some("T bone"))
         );
+    }
+
+    #[test]
+    fn a_lone_c_or_hash_after_an_amount_is_a_cup_or_a_pound() {
+        // The shorthand of old American recipe cards (#326).
+        for (line, amount, unit, food, id) in [
+            ("3/4 c brown sugar", "3/4", "c", "brown sugar", "cup"),
+            ("1 c. flour", "1", "c.", "flour", "cup"),
+            ("2 C milk", "2", "C", "milk", "cup"),
+            ("1c sugar", "1", "c", "sugar", "cup"),
+            ("¼ # butter", "¼", "#", "butter", "pound"),
+        ] {
+            assert_eq!(
+                read(line),
+                parts(Some(amount), Some(unit), Some(food)),
+                "{line}"
+            );
+            assert_eq!(units::recognise(unit).map(|u| u.id), Some(id), "{line}");
+        }
+        // Every French spoon stays a spoon, the ones Kamosu lists by name
+        // and the ones it does not: `à` after the letter says *cuillère*.
+        assert_eq!(
+            read("1 c. à soupe d'huile"),
+            parts(Some("1"), Some("c. à soupe"), Some("huile"))
+        );
+        assert_eq!(
+            read("2 c à s de sucre"),
+            parts(Some("2"), Some("c à s"), Some("sucre"))
+        );
+        let unit = |line: &str| read_line(line).and_then(|reading| reading.unit);
+        for line in [
+            "1 c. à dessert de miel",
+            // Written with no `à`, or with no spoon's name at all.
+            "1 c. soupe d'huile",
+            "2 c. café de sel",
+            "1 c thé de vanille",
+            "1 c. de sel",
+            "1 c. d'huile",
+        ] {
+            assert_eq!(unit(line), None, "{line}");
+        }
+        // With no amount before it the letter is part of a name.
+        assert_eq!(read("c flour"), parts(None, None, Some("c flour")));
+        assert_eq!(unit("# butter"), None);
+    }
+
+    #[test]
+    fn a_lone_c_in_a_step_is_no_cup() {
+        // An oven written `180 C` is a temperature, not a hundred and eighty
+        // cups (#326).
+        assert!(amounts_in_step("Bake at 180 C for 20 minutes.").is_empty());
+        assert!(amounts_in_step("Add 1 c sugar.").is_empty());
     }
 
     #[test]

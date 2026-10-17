@@ -139,6 +139,9 @@ pub const UNITS: &[Unit] = &[
         base: 453.592_37,
         spellings: &[
             "lb", "lbs", "pound", "pounds", "livre", "livres", "libra", "libras",
+            // The pound sign of an old American recipe card, `¼ # butter`. A
+            // Unit only after an amount, as every [`lone_letter`] is (#326).
+            "#",
         ],
     },
     // --- Volume -----------------------------------------------------------
@@ -286,7 +289,11 @@ pub const UNITS: &[Unit] = &[
         family: Family::Volume,
         system: System::Customary,
         base: 236.588_236_5,
-        spellings: &["cup", "cups", "tasse", "tasses", "taza", "tazas"],
+        // A lone `c` is the cup of an old American recipe card, `3/4 c
+        // brown sugar`, and a Unit only after an amount, as every
+        // [`lone_letter`] is (#326). Where `à` follows it is a French
+        // *cuillère*, and the reader leaves it be.
+        spellings: &["cup", "cups", "tasse", "tasses", "taza", "tazas", "c"],
     },
     // The US liquid quart, four cups (#182). The bare word `quart` is left
     // out on purpose: in French it is a quarter, and a Step reading *laisser
@@ -491,6 +498,21 @@ pub fn lone_spoon(word: &str) -> Option<&'static str> {
         "T" => Some("T"),
         _ => None,
     }
+}
+
+/// Whether a word is a Unit written as one character, `t`, `T`, `c` or `#`:
+/// a Unit only where an amount stands before it, since with none a single
+/// letter opens a name, `T bone steak` (#208, #326).
+pub fn lone_letter(word: &str) -> bool {
+    lone_spoon(word).is_some() || lone_cup(word) || fold(word) == "#"
+}
+
+/// Whether a word is the lone `c` or `C` of a cup, with or without its full
+/// stop (#326). French writes the same letter for a *cuillère*, so the reader
+/// asks what follows it, and a Step does not read it at all: `180 C` there is
+/// an oven.
+pub fn lone_cup(word: &str) -> bool {
+    fold(word) == "c"
 }
 
 // --- Reading a quantity ------------------------------------------------------

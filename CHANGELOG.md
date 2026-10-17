@@ -42,6 +42,7 @@
 - A Step that waits until something looks right and then adds an ingredient links that ingredient, as "cook the onions until soft and add the garlic" now links the garlic. Everything after "until" up to the next comma or full stop used to link nothing. [#294]
 - A recipe that arrives as nothing but a title takes the Language of the first ingredients or steps saved into it, whoever saves it, Kamosu's AI agent included. A link to a French page that went to the agent used to stay labelled in the cook's own Language once the agent had filled it in French, since the agent cannot change a Language. A Language somebody said, on arrival or with `set_recipe_language`, is still only offered against. A recipe that arrived bare before this upgrade keeps its Language. [#321]
 - On a variation's recipe page, the marks comparing it to the recipe it came from no longer draw a reworded Step or Ingredient Line out of the variation's own order. Such a line was sometimes matched to the wrong line of the other recipe and drawn where that line sat, so the variation's last Step could show as Step 1. [#303]
+- An Ingredient Line from an old American recipe card reads a lone `c` after an amount as a cup and `#` as a pound, as `t` and `T` already read as spoons: `3/4 c brown sugar` is three quarters of a cup of brown sugar. It used to name a Food "c brown sugar", and an import with no agent kept it. A French `c. à` is still a spoon, and `180 C` in a Step is still an oven. Foods already made this way stay until an Operator merges or deletes them. [#326]
 
 [#249]: https://github.com/BatterWorks/Kamosu/issues/249
 [#250]: https://github.com/BatterWorks/Kamosu/issues/250
@@ -82,6 +83,7 @@
 [#321]: https://github.com/BatterWorks/Kamosu/issues/321
 [#324]: https://github.com/BatterWorks/Kamosu/issues/324
 [#325]: https://github.com/BatterWorks/Kamosu/issues/325
+[#326]: https://github.com/BatterWorks/Kamosu/issues/326
 
 ## v0.2.0 - 2026-10-12
 
