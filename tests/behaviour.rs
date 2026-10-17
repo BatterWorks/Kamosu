@@ -16923,6 +16923,7 @@ async fn a_divergence_reads_the_same_from_either_branch() {
                 other => other,
             },
             "from_branch_point": row["from_branch_point"],
+            "place": { "mine": row["place"]["theirs"], "theirs": row["place"]["mine"] },
             "mine": row["theirs"],
             "theirs": row["mine"],
         })
@@ -16938,6 +16939,102 @@ async fn a_divergence_reads_the_same_from_either_branch() {
             );
         }
     }
+}
+
+/// #337: a Step dragged to the top of a variation and not reworded. Each page
+/// reads its own order, the answer comes in the variation's, and only the
+/// Step that moved is marked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_step_moved_without_rewording_keeps_each_pages_own_order() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Stéphane").expect("person");
+    let key = app
+        .core
+        .mint_access_key(&person, "browser", false)
+        .unwrap()
+        .secret;
+    let steps = |texts: &[&str]| -> Value {
+        texts
+            .iter()
+            .map(|text| json!({ "kind": "step", "text": text }))
+            .collect()
+    };
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Steak",
+            "steps": steps(&["Preheat the oven.", "Sear the steak.", "Salt the steak."]),
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let source = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": source, "name": "Dry-brined" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let variation = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    let (status, edited) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": variation,
+            "steps": steps(&["Salt the steak.", "Preheat the oven.", "Sear the steak."]),
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+
+    let (status, divergence) = app.post_op(
+        "divergence",
+        Some(&key),
+        &json!({ "branch_id": variation, "other_branch_id": source }).to_string(),
+    );
+    assert_eq!(status, 200, "{divergence}");
+    let rows = rows_of(&divergence, "steps");
+
+    let read = |side: &str| -> Vec<(String, String)> {
+        let mut drawn: Vec<(u64, String, String)> = rows
+            .iter()
+            .map(|row| {
+                (
+                    row["place"][side].as_u64().unwrap(),
+                    row[side]["text"].as_str().unwrap().to_string(),
+                    row["state"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        drawn.sort();
+        drawn
+            .into_iter()
+            .map(|(_, text, state)| (text, state))
+            .collect()
+    };
+    let pair = |text: &str, state: &str| (text.to_string(), state.to_string());
+    assert_eq!(
+        read("mine"),
+        vec![
+            pair("Salt the steak.", "moved"),
+            pair("Preheat the oven.", "same"),
+            pair("Sear the steak.", "same"),
+        ]
+    );
+    assert_eq!(
+        read("theirs"),
+        vec![
+            pair("Preheat the oven.", "same"),
+            pair("Sear the steak.", "same"),
+            pair("Salt the steak.", "moved"),
+        ]
+    );
+    assert_eq!(
+        rows[0]["mine"]["text"],
+        json!("Salt the steak."),
+        "the answer comes in the asker's own order"
+    );
 }
 
 /// A Branch in a Kitchen you do not cook in is not yours to read, and a

@@ -88,6 +88,7 @@ function compared(over: Partial<ChangedSinceOutput> = {}): ChangedSinceOutput {
 				kind: 'ingredient',
 				state: 'changed',
 				from_branch_point: true,
+				place: { mine: 0, theirs: 0 },
 				mine: line('1 cup potato starch', 0),
 				theirs: line('¾ cup potato starch', 0),
 			},
@@ -95,6 +96,7 @@ function compared(over: Partial<ChangedSinceOutput> = {}): ChangedSinceOutput {
 				kind: 'ingredient',
 				state: 'same',
 				from_branch_point: true,
+				place: { mine: 1, theirs: 1 },
 				mine: line('¼ cup honey', 1),
 				theirs: line('¼ cup honey', 1),
 			},
@@ -102,6 +104,7 @@ function compared(over: Partial<ChangedSinceOutput> = {}): ChangedSinceOutput {
 				kind: 'ingredient',
 				state: 'only-theirs',
 				from_branch_point: true,
+				place: { mine: 2, theirs: 2 },
 				mine: null,
 				theirs: line('1 Tbsp rice vinegar', 2),
 			},
@@ -109,6 +112,7 @@ function compared(over: Partial<ChangedSinceOutput> = {}): ChangedSinceOutput {
 				kind: 'ingredient',
 				state: 'only-mine',
 				from_branch_point: false,
+				place: { mine: 3, theirs: 3 },
 				mine: line('1 Tbsp sesame oil', 2),
 				theirs: null,
 			},
@@ -118,6 +122,7 @@ function compared(over: Partial<ChangedSinceOutput> = {}): ChangedSinceOutput {
 				kind: 'step',
 				state: 'changed',
 				from_branch_point: true,
+				place: { mine: 0, theirs: 0 },
 				mine: step('Coat the chicken and rest it 30 minutes.', 0),
 				theirs: step('Coat the chicken.', 0),
 			},
@@ -125,6 +130,7 @@ function compared(over: Partial<ChangedSinceOutput> = {}): ChangedSinceOutput {
 				kind: 'step',
 				state: 'same',
 				from_branch_point: true,
+				place: { mine: 1, theirs: 1 },
 				mine: step('Deep fry at 175 C until golden.', 1),
 				theirs: step('Deep fry at 175 C until golden.', 1),
 			},
@@ -338,6 +344,46 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 		expect(went).toEqual([]);
 	});
 
+	it('draws a Step moved since in this Version’s order, and says where it is now (#337)', async () => {
+		const [coat, fry] = ['Coat the chicken.', 'Deep fry at 175 C until golden.'];
+		const answer = compared();
+		answer.mine.content.steps = [fry, coat].map((text) => ({ kind: 'step', text, photo: null }));
+		answer.theirs.content.steps = [coat, fry].map((text) => ({ kind: 'step', text, photo: null }));
+		answer.mine.measured.steps = [null, null];
+		answer.steps = [
+			{
+				kind: 'step',
+				state: 'moved',
+				from_branch_point: true,
+				place: { mine: 0, theirs: 1 },
+				mine: step(fry, 0),
+				theirs: step(fry, 1),
+			},
+			{
+				kind: 'step',
+				state: 'same',
+				from_branch_point: true,
+				place: { mine: 1, theirs: 0 },
+				mine: step(coat, 1),
+				theirs: step(coat, 0),
+			},
+		];
+		renderOlder({ changed_since: answer, save_recipe_version: SAVED });
+
+		const moved = (await screen.findByText(fry)).closest('li')!;
+		expect(moved).toHaveTextContent('step 1 in the recipe now');
+		const method = moved.closest('ol')!;
+		expect(method.textContent!.indexOf(coat)).toBeLessThan(method.textContent!.indexOf(fry));
+
+		await fireEvent.click(screen.getByText(fry));
+		expect(
+			screen.getByText(
+				'The words are the same now. Only the place differs: step 1 in the recipe now.',
+			),
+		).toBeInTheDocument();
+		expect(within(moved).queryAllByRole('button')).toHaveLength(1);
+	});
+
 	it('puts a Step back with the Photograph it had', async () => {
 		const answer = compared();
 		answer.theirs.content.steps = [
@@ -349,6 +395,7 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 			kind: 'step',
 			state: 'only-theirs',
 			from_branch_point: true,
+			place: { mine: answer.steps.length, theirs: answer.steps.length },
 			mine: null,
 			theirs: step('Rest it.', 2),
 		});

@@ -29,7 +29,8 @@ export function changedLines(against: Against | undefined): ChangedLine[] {
 	if (!against) return [];
 	const of = (rows: Against['ingredients'], list: string): ChangedLine[] =>
 		rows
-			.filter((row) => row.state !== 'same')
+			// A line moved word for word changes nothing a cook confirms here.
+			.filter((row) => row.state !== 'same' && row.state !== 'moved')
 			.map((row, at) => ({
 				key: `${list}-${at}`,
 				state: row.state,

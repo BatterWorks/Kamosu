@@ -20,7 +20,7 @@ import userEvent from '@testing-library/user-event';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import { realFiles } from '$lib/api/files';
 import { OperationError } from '$lib/api/client';
-import type { GetRecipeOutput } from '$lib/api/catalogue';
+import type { DivergenceOutput, GetRecipeOutput } from '$lib/api/catalogue';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
 import { went } from '../../../testing/navigation';
 import { outlivingTheWait, withTheClockFaked } from '../../../testing/jobs';
@@ -134,6 +134,7 @@ function divergence() {
 				kind: 'ingredient',
 				state: 'changed' as const,
 				from_branch_point: true,
+				place: { mine: 0, theirs: 0 },
 				mine: line('1 cup potato starch (or corn starch)', 0),
 				theirs: line('¾ cup potato starch', 0),
 			},
@@ -141,6 +142,7 @@ function divergence() {
 				kind: 'ingredient',
 				state: 'same' as const,
 				from_branch_point: true,
+				place: { mine: 1, theirs: 1 },
 				mine: line('¼ cup honey', 1),
 				theirs: line('¼ cup honey', 1),
 			},
@@ -150,6 +152,7 @@ function divergence() {
 				kind: 'ingredient',
 				state: 'only-mine' as const,
 				from_branch_point: true,
+				place: { mine: 2, theirs: 2 },
 				mine: line('¼ cup brown sugar', 2),
 				theirs: null,
 			},
@@ -158,6 +161,7 @@ function divergence() {
 				kind: 'ingredient',
 				state: 'only-mine' as const,
 				from_branch_point: false,
+				place: { mine: 3, theirs: 3 },
 				mine: line('1 Tbsp rice vinegar', 3),
 				theirs: null,
 			},
@@ -167,6 +171,7 @@ function divergence() {
 				kind: 'ingredient',
 				state: 'only-theirs' as const,
 				from_branch_point: false,
+				place: { mine: 4, theirs: 4 },
 				mine: null,
 				theirs: line('1 tsp gochugaru', 2),
 			},
@@ -176,6 +181,7 @@ function divergence() {
 				kind: 'step',
 				state: 'only-mine' as const,
 				from_branch_point: true,
+				place: { mine: 0, theirs: 0 },
 				mine: step('Deep fry at 190 C until crisp.', 0),
 				theirs: null,
 			},
@@ -183,6 +189,7 @@ function divergence() {
 				kind: 'step',
 				state: 'only-theirs' as const,
 				from_branch_point: true,
+				place: { mine: 1, theirs: 1 },
 				mine: null,
 				theirs: step('Air fry at 200 C for 18 minutes.', 0),
 			},
@@ -190,6 +197,7 @@ function divergence() {
 				kind: 'step',
 				state: 'only-theirs' as const,
 				from_branch_point: false,
+				place: { mine: 2, theirs: 2 },
 				mine: null,
 				theirs: step('Let it sit 5 minutes before saucing.', 1),
 			},
@@ -656,6 +664,107 @@ describe('a Divergence', () => {
 			'1 Tbsp rice vinegar',
 		]);
 		expect(input.change_note).toBe('Took ¾ cup potato starch from Chez Marc.');
+	});
+
+	it('draws a Step he moved where he put it, says where yours has it, and saves yours in your order (#337)', async () => {
+		const [a, b, c] = ['Marinate the chicken.', 'Coat it in starch.', 'Make the sauce.'];
+		const answers = onTheirs(SAVED_ONTO_MINE);
+		const d = (answers as Record<string, unknown>).divergence as DivergenceOutput;
+		d.mine.content.steps = [a, b, c].map((text) => ({ kind: 'step' as const, text, photo: null }));
+		d.theirs.content.steps = [c, a, b].map((text) => ({
+			kind: 'step' as const,
+			text,
+			photo: null,
+		}));
+		d.steps = [
+			{
+				kind: 'step',
+				state: 'same' as const,
+				from_branch_point: true,
+				place: { mine: 0, theirs: 1 },
+				mine: step(a, 0),
+				theirs: step(a, 1),
+			},
+			{
+				kind: 'step',
+				state: 'same' as const,
+				from_branch_point: true,
+				place: { mine: 1, theirs: 2 },
+				mine: step(b, 1),
+				theirs: step(b, 2),
+			},
+			{
+				kind: 'step',
+				state: 'moved' as const,
+				from_branch_point: true,
+				place: { mine: 2, theirs: 0 },
+				mine: step(c, 2),
+				theirs: step(c, 0),
+			},
+		];
+		const { kamosu } = renderRecipe(answers, 'theirs');
+		await compared();
+
+		// His page reads his order, with the moved Step his first.
+		const method = (await screen.findByText(c)).closest('ol') as HTMLElement;
+		const order = [a, b, c].sort(
+			(x, y) => method.textContent!.indexOf(x) - method.textContent!.indexOf(y),
+		);
+		expect(order).toEqual([c, a, b]);
+		const moved = screen.getByText(c).closest('li') as HTMLElement;
+		expect(moved).toHaveTextContent('yours has this as step 3');
+		expect(moved).toHaveTextContent(/^1/);
+
+		// The same words: there is nothing to carry.
+		await fireEvent.click(screen.getByText(c));
+		expect(
+			screen.getByText(
+				'The words are the same in both. Only the place differs: yours has this as step 3.',
+			),
+		).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /Write this into mine/i })).toBeNull();
+
+		// Carrying another line across leaves your own Steps in your order.
+		await fireEvent.click(await screen.findByText('¾ cup potato starch'));
+		await fireEvent.click(screen.getByRole('button', { name: /Write this into mine/i }));
+		await fireEvent.click(screen.getByRole('button', { name: /Save a Version/i }));
+		await fireEvent.click(
+			screen.getAllByRole('button', { name: /^Save a Version$/i }).at(-1) as HTMLElement,
+		);
+		const saved = kamosu.calls.find((call) => call.operation === 'save_recipe_version');
+		expect((saved?.input as { steps: { text: string }[] }).steps.map((s) => s.text)).toEqual([
+			a,
+			b,
+			c,
+		]);
+	});
+
+	it('says an Ingredient Line he moved is higher up or lower down in yours (#337)', async () => {
+		const answers = onTheirs();
+		const d = (answers as Record<string, unknown>).divergence as DivergenceOutput;
+		// His honey sits above his starch; yours sits below yours.
+		d.theirs.content.ingredients = [
+			THEIR_INGREDIENTS[1],
+			THEIR_INGREDIENTS[0],
+			THEIR_INGREDIENTS[2],
+		];
+		d.ingredients[0].place = { mine: 0, theirs: 1 };
+		d.ingredients[0].theirs = line('¾ cup potato starch', 1);
+		d.ingredients[1] = {
+			...d.ingredients[1],
+			state: 'moved' as const,
+			place: { mine: 1, theirs: 0 },
+			theirs: line('¼ cup honey', 0),
+		};
+		renderRecipe(answers, 'theirs');
+		await compared();
+
+		const honey = (await screen.findByText('¼ cup honey')).closest('li') as HTMLElement;
+		expect(honey).toHaveTextContent('lower down in yours');
+		const list = honey.closest('ul') as HTMLElement;
+		expect(list.textContent!.indexOf('¼ cup honey')).toBeLessThan(
+			list.textContent!.indexOf('¾ cup potato starch'),
+		);
 	});
 
 	it('takes a line out of yours as he did, from his page', async () => {

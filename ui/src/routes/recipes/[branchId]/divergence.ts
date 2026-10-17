@@ -44,6 +44,42 @@ export function numbering() {
 	return (ghost: boolean) => (ghost ? null : ++n);
 }
 
+/**
+ * The rows in the order one side's page draws them, each with its index in
+ * the answer, which is what names it (#337). Each page reads its own lines in
+ * its own order, so a line one cook moved sits in a different place on each.
+ */
+export function inOrder(rows: Row[], side: Side): { row: Row; index: number }[] {
+	return rows
+		.map((row, index) => ({ row, index }))
+		.sort((a, b) => a.row.place[side] - b.row.place[side]);
+}
+
+/** Where a moved line sits in the other recipe. */
+export interface Elsewhere {
+	step: number | null;
+	higher: boolean;
+}
+
+/**
+ * Where a moved line sits in the other recipe: a Step by its number there,
+ * anything else by whether it is higher up or lower down, counted against the
+ * lines that sit in the same place on both pages (#337). Null for any other row.
+ */
+export function elsewhere(rows: Row[], index: number, side: Side): Elsewhere | null {
+	const row = rows[index];
+	const other: Side = side === 'mine' ? 'theirs' : 'mine';
+	const there = row?.[other];
+	if (!row || row.state !== 'moved' || !there) return null;
+	const step =
+		row.kind === 'step'
+			? rows.filter((r) => r.kind === 'step' && r[other] && r[other].index <= there.index).length
+			: null;
+	const inPlace = rows.filter((r) => r.mine && r.theirs && r.state !== 'moved');
+	const above = (at: Side) => inPlace.filter((r) => r.place[at] < row.place[at]).length;
+	return { step, higher: above(other) < above(side) };
+}
+
 /** One row, seen from the recipe you are standing in. */
 export interface Seen {
 	/** The line the recipe you are IN has here. Null makes this row a Ghost. */
@@ -54,9 +90,11 @@ export interface Seen {
 	/** Whether this line was already there at the Branch Point. */
 	shared: boolean;
 	state: Row['state'];
+	/** Where the other recipe has this line, when it is the same line moved. */
+	elsewhere: Elsewhere | null;
 }
 
-export function see(row: Row, side: Side): Seen {
+export function see(row: Row, side: Side, moved: Elsewhere | null = null): Seen {
 	const own = side === 'mine' ? row.mine : row.theirs;
 	const other = side === 'mine' ? row.theirs : row.mine;
 	return {
@@ -65,6 +103,7 @@ export function see(row: Row, side: Side): Seen {
 		ghost: !own,
 		shared: row.from_branch_point,
 		state: row.state,
+		elsewhere: moved,
 	};
 }
 
@@ -82,6 +121,7 @@ export function see(row: Row, side: Side): Seen {
  * read "Maison Batterman took it out" when Chez Marc had.
  */
 export function caption(seen: Seen, side: Side, kitchen: string): string {
+	if (seen.elsewhere) return movedCaption(seen.elsewhere, side, kitchen);
 	if (!seen.ghost) {
 		// A line both have, worded differently: on your page it is not theirs,
 		// on theirs it is not yours.
@@ -93,10 +133,24 @@ export function caption(seen: Seen, side: Side, kitchen: string): string {
 		: m.divergence_ghost_never_had({ kitchen });
 }
 
+/** Where the other recipe has a moved line, said about whose it is. */
+function movedCaption(where: Elsewhere, side: Side, kitchen: string): string {
+	if (side === 'mine') {
+		if (where.step !== null) return m.divergence_moved_step({ kitchen, number: where.step });
+		return where.higher
+			? m.divergence_moved_higher({ kitchen })
+			: m.divergence_moved_lower({ kitchen });
+	}
+	if (where.step !== null) return m.divergence_moved_step_yours({ number: where.step });
+	return where.higher ? m.divergence_moved_higher_yours() : m.divergence_moved_lower_yours();
+}
+
 /** What Kamosu says about a Ghost when it is asked. It never hedges: by the
  *  time this is read, both texts are already on the page. `kitchen` is the
  *  other version's name, for the same reason as above. */
 export function sentence(seen: Seen, side: Side, kitchen: string): string {
+	if (seen.elsewhere)
+		return m.divergence_said_moved({ where: movedCaption(seen.elsewhere, side, kitchen) });
 	if (!seen.ghost) return seen.other?.text ?? '';
 	if (side === 'mine') return m.divergence_said_added({ kitchen });
 	return seen.shared
@@ -152,7 +206,7 @@ export function between(kitchen: string): Words {
 	return {
 		caption: (seen, side) => caption(seen, side, kitchen),
 		heading: (seen, side) =>
-			seen.ghost
+			seen.ghost || seen.elsewhere
 				? m.divergence_what_happened()
 				: side === 'theirs'
 					? m.divergence_your_line()
@@ -262,7 +316,8 @@ export function fieldText(value: unknown): string {
 /**
  * Your recipe with the lines you have carried across written into it, rebuilt
  * from the rows so a taken line lands where the Pairing puts it rather than at
- * the bottom of the list.
+ * the bottom of the list. The rows come in your page's order, so a line you
+ * moved stays where you put it (#337).
  *
  * Untouched, this reproduces your own list exactly, which is what makes it safe
  * to send as a whole Version: `save_recipe_version` replaces what is on the

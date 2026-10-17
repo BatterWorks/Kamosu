@@ -10,7 +10,13 @@
  */
 import { m } from '$lib/paraglide/messages';
 import type { DivergenceOutput } from '$lib/api/catalogue';
-import { proseOf, type Taken, type Words } from '../divergence';
+import { proseOf, type Elsewhere, type Taken, type Words } from '../divergence';
+
+/** Where the recipe now has a line this Version has elsewhere (#337). */
+function nowAt({ step, higher }: Elsewhere): string {
+	if (step !== null) return m.older_moved_step({ number: step });
+	return higher ? m.older_moved_higher() : m.older_moved_lower();
+}
 
 /**
  * `writes` is whether the reader may save onto this Branch. Only then is a
@@ -22,19 +28,24 @@ export function sinceThen(writes: boolean): Words {
 		caption(seen, _side, taken) {
 			if (taken === 'remove') return m.older_taken_remove();
 			if (taken) return m.older_taken();
+			if (seen.elsewhere) return nowAt(seen.elsewhere);
 			if (seen.ghost) return m.older_added();
 			return seen.other ? m.older_changed() : m.older_taken_out();
 		},
 		heading: (seen) =>
-			seen.ghost || !seen.other ? m.divergence_what_happened() : m.older_now_line(),
+			seen.ghost || !seen.other || seen.elsewhere
+				? m.divergence_what_happened()
+				: m.older_now_line(),
 		sentence(seen) {
+			if (seen.elsewhere) return m.older_said_moved({ where: nowAt(seen.elsewhere) });
 			if (seen.ghost) return m.older_said_added();
 			return seen.other ? seen.other.text : m.older_said_taken_out();
 		},
 		offer(row, taken) {
 			if (!writes) return null;
 			if (taken) return 'undo';
-			if (row.state === 'same') return null;
+			// A line moved is the same words: the order is the editor's to change.
+			if (row.state === 'same' || row.state === 'moved') return null;
 			// A line written since can always be taken out again: unlike a line
 			// of another Kitchen's, it is the reader's own recipe that has it.
 			return row.state === 'only-mine' ? 'remove' : 'write';
