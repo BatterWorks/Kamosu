@@ -40,6 +40,7 @@
 - A Bundle whose Food answers to names that two Foods here hold apart makes one new Food and one set of merge suggestions, however many of its Versions carry the line. It used to make a new Food for each Version, and a suggestion between nearly every pair of them. [#292]
 - On the writing screen, a short line or Step dragged over a taller one settles where the finger is. The two used to swap back and forth for as long as the finger stayed over part of the taller row. [#293]
 - A Step that waits until something looks right and then adds an ingredient links that ingredient, as "cook the onions until soft and add the garlic" now links the garlic. Everything after "until" up to the next comma or full stop used to link nothing. [#294]
+- On a variation's recipe page, the marks comparing it to the recipe it came from no longer draw a reworded Step or Ingredient Line out of the variation's own order. Such a line was sometimes matched to the wrong line of the other recipe and drawn where that line sat, so the variation's last Step could show as Step 1. [#303]
 
 [#249]: https://github.com/BatterWorks/Kamosu/issues/249
 [#250]: https://github.com/BatterWorks/Kamosu/issues/250
@@ -72,6 +73,7 @@
 [#296]: https://github.com/BatterWorks/Kamosu/issues/296
 [#301]: https://github.com/BatterWorks/Kamosu/issues/301
 [#302]: https://github.com/BatterWorks/Kamosu/issues/302
+[#303]: https://github.com/BatterWorks/Kamosu/issues/303
 [#308]: https://github.com/BatterWorks/Kamosu/issues/308
 [#315]: https://github.com/BatterWorks/Kamosu/issues/315
 [#317]: https://github.com/BatterWorks/Kamosu/issues/317
