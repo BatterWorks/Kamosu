@@ -184,7 +184,16 @@
 	import { useFiles } from '$lib/api/files';
 	import { same, toSearch, type Wanted } from '$lib/how-much';
 	import { takePaste, type PastedDraft } from '$lib/pasted.svelte';
-	import { nutritionText, numbering, rowKey } from './divergence';
+	import {
+		between,
+		elsewhere,
+		inOrder,
+		nutritionText,
+		numbering,
+		rowKey,
+		see,
+		type Row,
+	} from './divergence';
 	import { sheet } from './sheet.svelte';
 	import { onThePhone } from './on-the-phone.svelte';
 	import { unfolding } from './unfolding.svelte';
@@ -1127,6 +1136,27 @@
 				{/if}
 			{/snippet}
 
+			<!-- A heading read against another recipe. One moved word for word says
+			     where the other has it, as a line does (#337). -->
+			{#snippet dividedSection(
+				row: Row,
+				line: { text: string } | null,
+				moved: ReturnType<typeof elsewhere>,
+			)}
+				<li class="border-b border-rule py-4 pb-1">
+					<h3 class="font-display text-label text-ink-2 uppercase">{line?.text}</h3>
+					{#if moved}
+						<p class="mt-1 text-label text-accent uppercase">
+							{between(otherKitchen).caption(
+								see(row, divergent.side, moved),
+								divergent.side,
+								undefined,
+							)}
+						</p>
+					{/if}
+				</li>
+			{/snippet}
+
 			<!--
 			TWO COLUMNS WHERE THE WINDOW IS ROOMY (#198, ADR 0044): the Ingredients
 			on the left in two fifths, the Method on the right in three, and the
@@ -1166,15 +1196,12 @@
 						{/if}
 						<ul class="px-gutter">
 							{#if divergent.showing && divergence}
-								{#each divergence.ingredients as row, index (rowKey('ingredients', index))}
+								{#each inOrder(divergence.ingredients, divergent.side) as { row, index } (rowKey('ingredients', index))}
 									{@const key = rowKey('ingredients', index)}
 									{@const own = divergent.side === 'mine' ? row.mine : row.theirs}
+									{@const moved = elsewhere(divergence.ingredients, index, divergent.side)}
 									{#if row.kind === 'section'}
-										<li class="border-b border-rule py-4 pb-1">
-											<h3 class="font-display text-label text-ink-2 uppercase">
-												{(own ?? row.mine ?? row.theirs)?.text}
-											</h3>
-										</li>
+										{@render dividedSection(row, own ?? row.mine ?? row.theirs, moved)}
 									{:else if row.state === 'same'}
 										{@render ingredientLine(own?.text ?? '', own?.index ?? -1)}
 									{:else}
@@ -1191,6 +1218,7 @@
 											{row}
 											side={divergent.side}
 											{otherKitchen}
+											{moved}
 											beneath={marked?.said ?? (own ? fixes.beneathLine(own.index) : '')}
 											open={divergent.isOpen(key)}
 											taken={divergent.taken.get(key)}
@@ -1260,16 +1288,14 @@
 					<ol class="px-gutter">
 						{#if divergent.showing && divergence}
 							{@const number = numbering()}
-							{#each divergence.steps as row, index (rowKey('steps', index))}
+							{#each inOrder(divergence.steps, divergent.side) as { row, index } (rowKey('steps', index))}
 								{@const key = rowKey('steps', index)}
 								{@const own = divergent.side === 'mine' ? row.mine : row.theirs}
-								{@const n = number(!own)}
+								<!-- A heading takes no number, as on the page unmarked. -->
+								{@const n = row.kind === 'section' ? null : number(!own)}
+								{@const moved = elsewhere(divergence.steps, index, divergent.side)}
 								{#if row.kind === 'section'}
-									<li class="border-b border-rule py-4 pb-1">
-										<h3 class="font-display text-label text-ink-2 uppercase">
-											{(own ?? row.mine ?? row.theirs)?.text}
-										</h3>
-									</li>
+									{@render dividedSection(row, own ?? row.mine ?? row.theirs, moved)}
 								{:else if row.state === 'same'}
 									<li class="flex gap-3 border-b border-rule py-3">
 										<span class="w-6 shrink-0 font-display text-line font-semibold text-accent"
@@ -1285,6 +1311,7 @@
 										{row}
 										side={divergent.side}
 										{otherKitchen}
+										{moved}
 										number={n}
 										conversions={own ? (measured.steps[own.index] ?? []) : []}
 										photo={own ? (content.steps[own.index]?.photo ?? null) : null}

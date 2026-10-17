@@ -47,7 +47,7 @@
 	import Unfolded from '../Unfolded.svelte';
 	import Annexe from '../Annexe.svelte';
 	import Carrying from '../Carrying.svelte';
-	import { nutritionText, numbering, rowKey } from '../divergence';
+	import { elsewhere, inOrder, nutritionText, numbering, rowKey, see } from '../divergence';
 	import { marking } from '../marking.svelte';
 	import { unfolding } from '../unfolding.svelte';
 	import { corrections } from '../corrections.svelte';
@@ -253,9 +253,13 @@
 	</li>
 {/snippet}
 
-{#snippet section(text: string)}
+{#snippet section(text: string, moved: string | null = null)}
 	<li class="border-b border-rule py-4 pb-1">
 		<h3 class="font-display text-label text-ink-2 uppercase">{text}</h3>
+		<!-- A heading moved word for word says where it is now, as a line does (#337). -->
+		{#if moved}
+			<p class="mt-1 text-label text-accent uppercase">{moved}</p>
+		{/if}
 	</li>
 {/snippet}
 
@@ -352,11 +356,15 @@
 		</h2>
 		<ul class="px-gutter">
 			{#if marks.showing}
-				{#each compared.ingredients as row, index (rowKey('ingredients', index))}
+				{#each inOrder(compared.ingredients, 'theirs') as { row, index } (rowKey('ingredients', index))}
 					{@const key = rowKey('ingredients', index)}
 					{@const own = row.theirs}
+					{@const moved = elsewhere(compared.ingredients, index, 'theirs')}
 					{#if row.kind === 'section'}
-						{@render section((own ?? row.mine)?.text ?? '')}
+						{@render section(
+							(own ?? row.mine)?.text ?? '',
+							moved ? words.caption(see(row, 'theirs', moved), 'theirs', undefined) : null,
+						)}
 					{:else if row.state === 'same'}
 						{@render ingredientLine(own?.text ?? '', own?.index ?? -1)}
 					{:else}
@@ -366,6 +374,7 @@
 							{row}
 							side="theirs"
 							{words}
+							{moved}
 							beneath={own
 								? (unfold.at([], own.index)?.said ?? beneath.beneathLine(own.index))
 								: ''}
@@ -397,12 +406,16 @@
 		<ol class="px-gutter">
 			{#if marks.showing}
 				{@const number = numbering()}
-				{#each compared.steps as row, index (rowKey('steps', index))}
+				{#each inOrder(compared.steps, 'theirs') as { row, index } (rowKey('steps', index))}
 					{@const key = rowKey('steps', index)}
 					{@const own = row.theirs}
 					{@const n = row.kind === 'section' ? null : number(!own)}
+					{@const moved = elsewhere(compared.steps, index, 'theirs')}
 					{#if row.kind === 'section'}
-						{@render section((own ?? row.mine)?.text ?? '')}
+						{@render section(
+							(own ?? row.mine)?.text ?? '',
+							moved ? words.caption(see(row, 'theirs', moved), 'theirs', undefined) : null,
+						)}
 					{:else if row.state === 'same' && own}
 						{@render stepLine(own.text, own.index, n, content.steps[own.index]?.photo ?? null)}
 					{:else}
@@ -410,6 +423,7 @@
 							{row}
 							side="theirs"
 							{words}
+							{moved}
 							number={n}
 							conversions={own ? (measured.steps[own.index] ?? []) : []}
 							photo={own ? (content.steps[own.index]?.photo ?? null) : null}

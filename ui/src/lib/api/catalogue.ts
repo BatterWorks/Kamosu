@@ -2512,7 +2512,11 @@ export type GetThreadOutput = {
 						kind: string;
 						text: string;
 					} | null;
-					state: "same" | "changed" | "only-mine" | "only-theirs";
+					place: {
+						mine: number;
+						theirs: number;
+					};
+					state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 					theirs: {
 						index: number;
 						kind: string;
@@ -2527,7 +2531,11 @@ export type GetThreadOutput = {
 						kind: string;
 						text: string;
 					} | null;
-					state: "same" | "changed" | "only-mine" | "only-theirs";
+					place: {
+						mine: number;
+						theirs: number;
+					};
+					state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 					theirs: {
 						index: number;
 						kind: string;
@@ -3011,7 +3019,7 @@ export type BranchPointOutput = {
 	version_id: string;
 };
 
-/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. A Translation has no Branch Point with its source, nor with another Translation of it, and the two are in different Languages, so nothing pairs their lines and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions. */
+/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. A line both have word for word in another place is `moved`, and `place` says where each side's page draws a row. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. A Translation has no Branch Point with its source, nor with another Translation of it, and the two are in different Languages, so nothing pairs their lines and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions. */
 export type DivergenceInput = {
 	branch_id: string;
 	other_branch_id: string;
@@ -3069,7 +3077,11 @@ export type DivergenceOutput = {
 			kind: string;
 			text: string;
 		} | null;
-		state: "same" | "changed" | "only-mine" | "only-theirs";
+		place: {
+			mine: number;
+			theirs: number;
+		};
+		state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 		theirs: {
 			index: number;
 			kind: string;
@@ -3195,7 +3207,11 @@ export type DivergenceOutput = {
 			kind: string;
 			text: string;
 		} | null;
-		state: "same" | "changed" | "only-mine" | "only-theirs";
+		place: {
+			mine: number;
+			theirs: number;
+		};
+		state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 		theirs: {
 			index: number;
 			kind: string;
@@ -3372,7 +3388,11 @@ export type ChangedSinceOutput = {
 			kind: string;
 			text: string;
 		} | null;
-		state: "same" | "changed" | "only-mine" | "only-theirs";
+		place: {
+			mine: number;
+			theirs: number;
+		};
+		state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 		theirs: {
 			index: number;
 			kind: string;
@@ -3498,7 +3518,11 @@ export type ChangedSinceOutput = {
 			kind: string;
 			text: string;
 		} | null;
-		state: "same" | "changed" | "only-mine" | "only-theirs";
+		place: {
+			mine: number;
+			theirs: number;
+		};
+		state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 		theirs: {
 			index: number;
 			kind: string;
@@ -3705,7 +3729,11 @@ export type StartAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3720,7 +3748,11 @@ export type StartAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3801,7 +3833,11 @@ export type AdvanceAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3816,7 +3852,11 @@ export type AdvanceAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3895,7 +3935,11 @@ export type FinishAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3910,7 +3954,11 @@ export type FinishAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3989,7 +4037,11 @@ export type EditAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -4004,7 +4056,11 @@ export type EditAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -4138,7 +4194,11 @@ export type SetAsCookedOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -4153,7 +4213,11 @@ export type SetAsCookedOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -4228,7 +4292,11 @@ export type DeclinePromotionOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -4243,7 +4311,11 @@ export type DeclinePromotionOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -4339,7 +4411,11 @@ export type GetCurrentAttemptOutput = {
 						kind: string;
 						text: string;
 					} | null;
-					state: "same" | "changed" | "only-mine" | "only-theirs";
+					place: {
+						mine: number;
+						theirs: number;
+					};
+					state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 					theirs: {
 						index: number;
 						kind: string;
@@ -4354,7 +4430,11 @@ export type GetCurrentAttemptOutput = {
 						kind: string;
 						text: string;
 					} | null;
-					state: "same" | "changed" | "only-mine" | "only-theirs";
+					place: {
+						mine: number;
+						theirs: number;
+					};
+					state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 					theirs: {
 						index: number;
 						kind: string;
@@ -4428,7 +4508,11 @@ export type ListAttemptsOutput = {
 						kind: string;
 						text: string;
 					} | null;
-					state: "same" | "changed" | "only-mine" | "only-theirs";
+					place: {
+						mine: number;
+						theirs: number;
+					};
+					state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 					theirs: {
 						index: number;
 						kind: string;
@@ -4443,7 +4527,11 @@ export type ListAttemptsOutput = {
 						kind: string;
 						text: string;
 					} | null;
-					state: "same" | "changed" | "only-mine" | "only-theirs";
+					place: {
+						mine: number;
+						theirs: number;
+					};
+					state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 					theirs: {
 						index: number;
 						kind: string;
@@ -18219,10 +18307,29 @@ export const CATALOGUE = [
 																"null"
 															]
 														},
+														"place": {
+															"additionalProperties": false,
+															"properties": {
+																"mine": {
+																	"minimum": 0,
+																	"type": "integer"
+																},
+																"theirs": {
+																	"minimum": 0,
+																	"type": "integer"
+																}
+															},
+															"required": [
+																"mine",
+																"theirs"
+															],
+															"type": "object"
+														},
 														"state": {
 															"enum": [
 																"same",
 																"changed",
+																"moved",
 																"only-mine",
 																"only-theirs"
 															]
@@ -18255,6 +18362,7 @@ export const CATALOGUE = [
 														"kind",
 														"state",
 														"from_branch_point",
+														"place",
 														"mine",
 														"theirs"
 													],
@@ -18295,10 +18403,29 @@ export const CATALOGUE = [
 																"null"
 															]
 														},
+														"place": {
+															"additionalProperties": false,
+															"properties": {
+																"mine": {
+																	"minimum": 0,
+																	"type": "integer"
+																},
+																"theirs": {
+																	"minimum": 0,
+																	"type": "integer"
+																}
+															},
+															"required": [
+																"mine",
+																"theirs"
+															],
+															"type": "object"
+														},
 														"state": {
 															"enum": [
 																"same",
 																"changed",
+																"moved",
 																"only-mine",
 																"only-theirs"
 															]
@@ -18331,6 +18458,7 @@ export const CATALOGUE = [
 														"kind",
 														"state",
 														"from_branch_point",
+														"place",
 														"mine",
 														"theirs"
 													],
@@ -20858,7 +20986,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "divergence",
-		"summary": "Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. A Translation has no Branch Point with its source, nor with another Translation of it, and the two are in different Languages, so nothing pairs their lines and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions.",
+		"summary": "Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. A line both have word for word in another place is `moved`, and `place` says where each side's page draws a row. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. A Translation has no Branch Point with its source, nor with another Translation of it, and the two are in different Languages, so nothing pairs their lines and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -21060,10 +21188,29 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"place": {
+								"additionalProperties": false,
+								"properties": {
+									"mine": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"theirs": {
+										"minimum": 0,
+										"type": "integer"
+									}
+								},
+								"required": [
+									"mine",
+									"theirs"
+								],
+								"type": "object"
+							},
 							"state": {
 								"enum": [
 									"same",
 									"changed",
+									"moved",
 									"only-mine",
 									"only-theirs"
 								]
@@ -21096,6 +21243,7 @@ export const CATALOGUE = [
 							"kind",
 							"state",
 							"from_branch_point",
+							"place",
 							"mine",
 							"theirs"
 						],
@@ -21798,10 +21946,29 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"place": {
+								"additionalProperties": false,
+								"properties": {
+									"mine": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"theirs": {
+										"minimum": 0,
+										"type": "integer"
+									}
+								},
+								"required": [
+									"mine",
+									"theirs"
+								],
+								"type": "object"
+							},
 							"state": {
 								"enum": [
 									"same",
 									"changed",
+									"moved",
 									"only-mine",
 									"only-theirs"
 								]
@@ -21834,6 +22001,7 @@ export const CATALOGUE = [
 							"kind",
 							"state",
 							"from_branch_point",
+							"place",
 							"mine",
 							"theirs"
 						],
@@ -22717,10 +22885,29 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"place": {
+								"additionalProperties": false,
+								"properties": {
+									"mine": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"theirs": {
+										"minimum": 0,
+										"type": "integer"
+									}
+								},
+								"required": [
+									"mine",
+									"theirs"
+								],
+								"type": "object"
+							},
 							"state": {
 								"enum": [
 									"same",
 									"changed",
+									"moved",
 									"only-mine",
 									"only-theirs"
 								]
@@ -22753,6 +22940,7 @@ export const CATALOGUE = [
 							"kind",
 							"state",
 							"from_branch_point",
+							"place",
 							"mine",
 							"theirs"
 						],
@@ -23455,10 +23643,29 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"place": {
+								"additionalProperties": false,
+								"properties": {
+									"mine": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"theirs": {
+										"minimum": 0,
+										"type": "integer"
+									}
+								},
+								"required": [
+									"mine",
+									"theirs"
+								],
+								"type": "object"
+							},
 							"state": {
 								"enum": [
 									"same",
 									"changed",
+									"moved",
 									"only-mine",
 									"only-theirs"
 								]
@@ -23491,6 +23698,7 @@ export const CATALOGUE = [
 							"kind",
 							"state",
 							"from_branch_point",
+							"place",
 							"mine",
 							"theirs"
 						],
@@ -24580,10 +24788,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -24616,6 +24843,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -24656,10 +24884,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -24692,6 +24939,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -25085,10 +25333,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -25121,6 +25388,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -25161,10 +25429,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -25197,6 +25484,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -25596,10 +25884,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -25632,6 +25939,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -25672,10 +25980,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -25708,6 +26035,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -26107,10 +26435,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -26143,6 +26490,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -26183,10 +26531,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -26219,6 +26586,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -26872,10 +27240,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -26908,6 +27295,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -26948,10 +27336,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -26984,6 +27391,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -27346,10 +27754,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -27382,6 +27809,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -27422,10 +27850,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -27458,6 +27905,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -27915,10 +28363,29 @@ export const CATALOGUE = [
 															"null"
 														]
 													},
+													"place": {
+														"additionalProperties": false,
+														"properties": {
+															"mine": {
+																"minimum": 0,
+																"type": "integer"
+															},
+															"theirs": {
+																"minimum": 0,
+																"type": "integer"
+															}
+														},
+														"required": [
+															"mine",
+															"theirs"
+														],
+														"type": "object"
+													},
 													"state": {
 														"enum": [
 															"same",
 															"changed",
+															"moved",
 															"only-mine",
 															"only-theirs"
 														]
@@ -27951,6 +28418,7 @@ export const CATALOGUE = [
 													"kind",
 													"state",
 													"from_branch_point",
+													"place",
 													"mine",
 													"theirs"
 												],
@@ -27991,10 +28459,29 @@ export const CATALOGUE = [
 															"null"
 														]
 													},
+													"place": {
+														"additionalProperties": false,
+														"properties": {
+															"mine": {
+																"minimum": 0,
+																"type": "integer"
+															},
+															"theirs": {
+																"minimum": 0,
+																"type": "integer"
+															}
+														},
+														"required": [
+															"mine",
+															"theirs"
+														],
+														"type": "object"
+													},
 													"state": {
 														"enum": [
 															"same",
 															"changed",
+															"moved",
 															"only-mine",
 															"only-theirs"
 														]
@@ -28027,6 +28514,7 @@ export const CATALOGUE = [
 													"kind",
 													"state",
 													"from_branch_point",
+													"place",
 													"mine",
 													"theirs"
 												],
@@ -28391,10 +28879,29 @@ export const CATALOGUE = [
 																"null"
 															]
 														},
+														"place": {
+															"additionalProperties": false,
+															"properties": {
+																"mine": {
+																	"minimum": 0,
+																	"type": "integer"
+																},
+																"theirs": {
+																	"minimum": 0,
+																	"type": "integer"
+																}
+															},
+															"required": [
+																"mine",
+																"theirs"
+															],
+															"type": "object"
+														},
 														"state": {
 															"enum": [
 																"same",
 																"changed",
+																"moved",
 																"only-mine",
 																"only-theirs"
 															]
@@ -28427,6 +28934,7 @@ export const CATALOGUE = [
 														"kind",
 														"state",
 														"from_branch_point",
+														"place",
 														"mine",
 														"theirs"
 													],
@@ -28467,10 +28975,29 @@ export const CATALOGUE = [
 																"null"
 															]
 														},
+														"place": {
+															"additionalProperties": false,
+															"properties": {
+																"mine": {
+																	"minimum": 0,
+																	"type": "integer"
+																},
+																"theirs": {
+																	"minimum": 0,
+																	"type": "integer"
+																}
+															},
+															"required": [
+																"mine",
+																"theirs"
+															],
+															"type": "object"
+														},
 														"state": {
 															"enum": [
 																"same",
 																"changed",
+																"moved",
 																"only-mine",
 																"only-theirs"
 															]
@@ -28503,6 +29030,7 @@ export const CATALOGUE = [
 														"kind",
 														"state",
 														"from_branch_point",
+														"place",
 														"mine",
 														"theirs"
 													],
@@ -32063,7 +32591,7 @@ export interface KamosuClient {
 	readSharedRecipe(input: ReadSharedRecipeInput): Promise<Answer<'read_shared_recipe'>>;
 	/** Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. A Translation has no Branch Point with its source, nor with another Translation of it: its chain starts fresh, so the two share no Version and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions. */
 	branchPoint(input: BranchPointInput): Promise<Answer<'branch_point'>>;
-	/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. A Translation has no Branch Point with its source, nor with another Translation of it, and the two are in different Languages, so nothing pairs their lines and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions. */
+	/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. A line both have word for word in another place is `moved`, and `place` says where each side's page draws a row. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. A Translation has no Branch Point with its source, nor with another Translation of it, and the two are in different Languages, so nothing pairs their lines and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions. */
 	divergence(input: DivergenceInput): Promise<Answer<'divergence'>>;
 	/** See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch. */
 	changedSince(input: ChangedSinceInput): Promise<Answer<'changed_since'>>;

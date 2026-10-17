@@ -2952,8 +2952,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       lets a screen show two whole recipes with a switch \
                       between them rather than a difference (ADR 0014). Every \
                       row carries both sides' own words; a line only one side \
-                      has is a Ghost. Which line is which is read against the \
-                      Branch Point, never by an id stapled to a line (ADR \
+                      has is a Ghost. A line both have word for word in \
+                      another place is `moved`, and `place` says where each \
+                      side's page draws a row. Which line is which is read \
+                      against the Branch Point, never by an id stapled to a line (ADR \
                       0019), and an uncertain reading declines to pair rather \
                       than claiming a connection. A Translation has no Branch \
                       Point with its source, nor with another Translation of \
@@ -5176,16 +5178,30 @@ fn divergence_row_schema() -> Value {
             // the other. There is deliberately no confidence value anywhere:
             // an uncertain reading declines to pair, and shows as two
             // unjoined rows rather than one row wearing a hedge (ADR 0019).
-            "state": { "enum": ["same", "changed", "only-mine", "only-theirs"] },
+            // moved: both sides have it word for word, in places the rest of
+            // the two lists do not agree on (#337).
+            "state": { "enum": ["same", "changed", "moved", "only-mine", "only-theirs"] },
             // Whether this line was already at the Branch Point. It separates
             // "they took this out" from "they never had it" — the same Ghost,
             // a different sentence, and only the first can be carried across
             // as a removal.
             "from_branch_point": { "type": "boolean" },
+            // Where this row is drawn on each side's page: its own lines in
+            // its own order, the other side's Ghosts slotted in. The rows come
+            // in `mine`'s order (#337).
+            "place": {
+                "type": "object",
+                "properties": {
+                    "mine": { "type": "integer", "minimum": 0 },
+                    "theirs": { "type": "integer", "minimum": 0 },
+                },
+                "required": ["mine", "theirs"],
+                "additionalProperties": false,
+            },
             "mine": divergence_line_schema(),
             "theirs": divergence_line_schema(),
         },
-        "required": ["kind", "state", "from_branch_point", "mine", "theirs"],
+        "required": ["kind", "state", "from_branch_point", "place", "mine", "theirs"],
         "additionalProperties": false,
     })
 }
@@ -6574,8 +6590,9 @@ fn as_cooked_schema() -> Value {
             // adds or drops a line, which they may.
             //
             // `same` where the line was left alone, `changed` where it was
-            // rewritten, `only-mine` where the cook dropped it and
-            // `only-theirs` where they added one.
+            // rewritten, `moved` where it was put elsewhere word for word,
+            // `only-mine` where the cook dropped it and `only-theirs` where
+            // they added one.
             "against": {
                 "type": "object",
                 "properties": {
