@@ -10611,6 +10611,24 @@ mod web_link_importer {
     use super::*;
     use axum::response::IntoResponse;
 
+    /// Take off a Branch head the mark that a Bundle carried it (#328), as on a
+    /// Version sent before Kamosu recorded that: what lets a test rewrite in place
+    /// a Version somebody else already holds.
+    fn forget_the_head_was_bundled(app: &support::TestApp, branch_id: &str) {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.execute(
+                    "UPDATE branch_versions SET bundled = 0 \
+                     WHERE branch_id = ?1 AND sequence = (SELECT MAX(sequence) FROM branch_versions WHERE branch_id = ?1)",
+                    rusqlite::params![branch_id],
+                )
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+                Ok(())
+            })
+            .expect("forget the Bundle");
+    }
+
     /// Serve one recipe page (and, optionally, one photo) on an ephemeral loopback
     /// port. Returns the page's own URL.
     fn spawn_recipe_server(html: impl FnOnce(&str) -> String, photo: Option<Vec<u8>>) -> String {
@@ -11255,8 +11273,11 @@ mod web_link_importer {
         );
 
         // The sender rewrites the Version Nadia already holds, the same day:
-        // an edit amends the head rather than adding one. Importing would now
-        // refuse, so the preview must not promise "nothing new" or "newer".
+        // an edit amends the head rather than adding one. Kamosu now closes a
+        // Version a Bundle carried (#328), but one sent before it recorded
+        // that can still be rewritten. Importing would then refuse, so the
+        // preview must not promise "nothing new" or "newer".
+        forget_the_head_was_bundled(&there, &pizza);
         let (status, saved) = there.post_op(
             "edit_recipe",
             Some(&key),
@@ -15695,9 +15716,9 @@ mod web_link_importer {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_copy_or_a_translation_holding_a_jobs_version_has_the_next_save_refused() {
+    async fn a_copy_a_translation_or_a_bundle_holding_a_jobs_version_has_the_next_save_refused() {
         let reason = kamosu::jobs::HELD_ELSEWHERE;
-        for taken_by in ["a variation", "a Translation"] {
+        for taken_by in ["a variation", "a Translation", "a Bundle"] {
             let app = support::spawn_app();
             let held = a_job_held(&app);
             saved_by_the_job(
@@ -15711,6 +15732,10 @@ mod web_link_importer {
                 let (status, varied) =
                     app.post_op("start_variation", Some(&held.cook), &asking.to_string());
                 assert_eq!(status, 200, "{varied}");
+            } else if taken_by == "a Bundle" {
+                // The cook sends the recipe as a file while the agent is on it
+                // (#328): somebody now holds the Version it was shaping.
+                super::bundle_of(&app, &held.cook, &held.branch_id);
             } else {
                 super::translate(
                     &app,
@@ -29217,6 +29242,77 @@ async fn a_second_bundle_from_the_same_sender_extends_the_branch_already_held() 
         &json!({ "branch_id": pizza_here }).to_string(),
     );
     assert_eq!(still["result"]["versions"].as_array().unwrap().len(), 3);
+}
+
+/// **A Version a Bundle carried is no longer being shaped** (#328). Stéphane
+/// exports his pizza, fixes a typo within the hour and exports again. Had the
+/// fix collapsed into the Version that left, the second Bundle's chain would
+/// disagree with the one Nadia holds, and she could receive no Bundle of it
+/// again. A save after the export starts a Version of its own, and a save
+/// after that one, which no Bundle carried, still collapses into it. A Share
+/// Link handing the file to a stranger closes the Version the same way.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_save_within_the_hour_after_an_export_starts_a_version_of_its_own() {
+    let there = support::spawn_app();
+    let (key, _kitchen, pizza, _lineage, _french, _dough, _photos) = a_pizza_worth_sending(&there);
+    let versions = |branch_id: &str| -> usize {
+        let (_, recipe) = there.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        recipe["result"]["versions"].as_array().unwrap().len()
+    };
+    let edit = |note: &str| -> Value {
+        let (status, edited) = there.post_op(
+            "edit_recipe",
+            Some(&key),
+            &json!({ "branch_id": pizza, "note": note }).to_string(),
+        );
+        assert_eq!(status, 200, "{edited}");
+        edited["result"].clone()
+    };
+
+    // A save of his own heads the Branch, so the next one would collapse.
+    edit("Rest the dough overnight.");
+    let before = versions(&pizza);
+    let first = bundle_of(&there, &key, &pizza);
+
+    let fixed = edit("Rest the dough overnight, covered.");
+    assert_eq!(fixed["collapsed"], json!(false), "{fixed}");
+    assert_eq!(
+        versions(&pizza),
+        before + 1,
+        "the typo fix is its own Version"
+    );
+
+    // Nothing has carried the typo fix yet, so it is still being shaped.
+    let again = edit("Rest the dough overnight, well covered.");
+    assert_eq!(again["collapsed"], json!(true), "{again}");
+    assert_eq!(versions(&pizza), before + 1);
+    let second = bundle_of(&there, &key, &pizza);
+
+    let here = support::spawn_app();
+    let nadia_key = a_receiver(&here);
+    let received = receive(&here, &nadia_key, &first);
+    assert_eq!(received["unreadable"], json!([]), "{received}");
+    let report = receive(&here, &nadia_key, &second);
+    assert_eq!(report["unreadable"], json!([]), "{report}");
+    assert_eq!(
+        arrived_row(&report, &pizza)["status"],
+        json!("extended"),
+        "{report}"
+    );
+
+    // A stranger taking the file from a Share Link carries it away too.
+    edit("Rest the dough overnight, well covered, cold.");
+    assert_eq!(versions(&pizza), before + 2);
+    let (token, _url) = share(&there, &key, &pizza);
+    let taken = kamosu::http_min::get(there.addr, &format!("/s/{token}/bundle")).expect("a reply");
+    assert_eq!(taken.status, 200);
+    let after_share = edit("Rest the dough overnight, well covered, in the fridge.");
+    assert_eq!(after_share["collapsed"], json!(false), "{after_share}");
+    assert_eq!(versions(&pizza), before + 3);
 }
 
 /// **Two households on one instance each receive the same friend's recipe**

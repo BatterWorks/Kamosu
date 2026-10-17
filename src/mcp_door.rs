@@ -371,9 +371,9 @@ fn server_instructions() -> String {
         format!(
             "- A save by the same Hand on the same Branch within {window_minutes} \
              minutes of the previous one collapses into the Version being shaped \
-             rather than starting a new one, unless another Branch or a \
-             Translation already holds that Version, or an agent's Job saved \
-             it. Its answer says collapsed: true when it did."
+             rather than starting a new one, unless another Branch, a \
+             Translation or a Bundle already holds that Version, or an agent's \
+             Job saved it. Its answer says collapsed: true when it did."
         ),
         // #265: what the line above is for a Job Key, which reads these
         // words too.

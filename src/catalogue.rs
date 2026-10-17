@@ -1463,8 +1463,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       edit_recipe instead. A re-save by the same Hand within \
                       60 minutes of the last one collapses into the Version \
                       already being shaped rather than starting a new one, \
-                      unless another Branch or a Translation already holds \
-                      that Version, or an agent's Job saved it. Every save \
+                      unless another Branch, a Translation or a Bundle \
+                      already holds that Version, or an agent's Job saved \
+                      it. Every save \
                       with a Job Key collapses into the one Version its Job \
                       started, never an earlier one. Once that Job has saved, \
                       its next save is refused, failing the Job, if anyone \
@@ -1507,8 +1508,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       exactly save_recipe_version: the result is saved as the \
                       recipe's new state, a re-edit by the same Hand within 60 \
                       minutes collapses into the Version being shaped (unless \
-                      another Branch or a Translation already holds it, or an \
-                      agent's Job saved it), an edit with a Job Key collapses \
+                      another Branch, a Translation or a Bundle already holds \
+                      it, or an agent's Job saved it), an edit with a Job Key \
+                      collapses \
                       and is refused as its save is, and \
                       changing a recipe your Cookbook did not write is a Copy. \
                       A collapsed edit keeps the name and change_note the \

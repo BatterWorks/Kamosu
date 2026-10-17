@@ -1864,6 +1864,19 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 52,
+        description: "a Version a Bundle carried is no longer being shaped (#328)",
+        sql: r#"
+        -- 1 once a Bundle has carried this row's Version away as its
+        -- Branch's head, through the app or a Share Link. A save after that
+        -- starts a new Version rather than collapsing into the one that
+        -- left, whose chain the receiver now holds. Every row already here
+        -- counts as never carried: nothing recorded an export.
+        ALTER TABLE branch_versions ADD COLUMN bundled INTEGER NOT NULL DEFAULT 0;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

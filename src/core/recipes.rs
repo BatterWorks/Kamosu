@@ -265,14 +265,8 @@ impl Core {
             // is told the same thing whatever it sent.
             if let Some(job_id) = &caller.job_id {
                 let refused = if head_is_callers_to_shape {
-                    (version_is_translated(conn, &lineage_id, branch_id, &head_version_id)?
-                        || version_is_held_by_another_branch(
-                            conn,
-                            &lineage_id,
-                            branch_id,
-                            &head_version_id,
-                        )?)
-                    .then_some(crate::jobs::HELD_ELSEWHERE)
+                    version_has_left(conn, &lineage_id, branch_id, &head_version_id)?
+                        .then_some(crate::jobs::HELD_ELSEWHERE)
                 } else {
                     job_has_saved_onto(conn, job_id, branch_id)?
                         .then_some(crate::jobs::CHANGED_WHILE_IT_WORKED)
@@ -2698,9 +2692,49 @@ fn version_being_shaped(
     head_version_id: &str,
     head_is_callers_to_shape: bool,
 ) -> Result<bool, OpError> {
-    Ok(head_is_callers_to_shape
-        && !version_is_translated(conn, lineage_id, branch_id, head_version_id)?
-        && !version_is_held_by_another_branch(conn, lineage_id, branch_id, head_version_id)?)
+    Ok(
+        head_is_callers_to_shape
+            && !version_has_left(conn, lineage_id, branch_id, head_version_id)?,
+    )
+}
+
+/// Whether somebody besides this Branch holds its head Version: a
+/// Translation rendering it, another Branch naming it in its chain, or a
+/// Bundle that carried it away (#328). Any one of them closes the collapse
+/// window, since replacing the Version would pull it out from under them.
+fn version_has_left(
+    conn: &Connection,
+    lineage_id: &str,
+    branch_id: &str,
+    version_id: &str,
+) -> Result<bool, OpError> {
+    Ok(
+        version_is_translated(conn, lineage_id, branch_id, version_id)?
+            || version_is_held_by_another_branch(conn, lineage_id, branch_id, version_id)?
+            || head_was_bundled(conn, branch_id)?,
+    )
+}
+
+/// Whether a Bundle carried this Branch's head away, through the app or a
+/// Share Link (#328). The receiver holds the chain up to it, and a sender
+/// who replaced it in place could send them nothing of this recipe again:
+/// the next Bundle's chain would disagree with theirs. Asked of the head row
+/// itself, since the same Version can stand at two places in one chain, and
+/// only the head is rewritten.
+fn head_was_bundled(conn: &Connection, branch_id: &str) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS ( \
+            SELECT 1 FROM branch_versions \
+             WHERE branch_id = ?1 AND bundled = 1 \
+               AND sequence = (SELECT MAX(sequence) FROM branch_versions WHERE branch_id = ?1) )",
+        params![branch_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| {
+        OpError::internal(format!(
+            "cannot ask whether a Bundle carried this Version: {e}"
+        ))
+    })
 }
 
 /// Whether another Branch of this Lineage names this exact Version in its own

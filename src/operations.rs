@@ -1344,7 +1344,7 @@ fn shared_recipe_file(
     match core.read_shared_recipe(&link.token) {
         Ok(_) => {
             return core
-                .shared_bundle(&link.token)
+                .shared_bundle_here(&link.token)
                 .map(|written| Some(written.bytes))
                 .map_err(|e| match e.kind {
                     // Ended: refused, as a far Kamosu's answer would be.
