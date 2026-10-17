@@ -42,8 +42,7 @@ services:
 
   kamosu-runner:
     image: docker.io/battermanz/kamosu:<version>
-    command: [runner, --kamosu, "http://kamosu:5266",
-              --agent-socket, /run/kamosu-agent/agent.sock]
+    command: [runner]
     restart: on-failure:3
     env_file: ~/.config/kamosu-runner.env
     read_only: true
@@ -64,7 +63,15 @@ volumes:
 
 With Podman, use the `podman-<version>` tags of both images.
 
-The Runner's settings file holds `KAMOSU_RUNNER_KEY` and nothing else. An Operator makes the key in Kamosu: **Settings**, then **Administer this instance**, then **Runner** on the **Instance** tab. The agent's settings file holds the rest:
+The Runner's settings file holds its key, Kamosu's address and the agent's socket:
+
+```sh
+KAMOSU_RUNNER_KEY=...
+KAMOSU_RUNNER_INSTANCE=http://kamosu:5266
+KAMOSU_RUNNER_AGENT_SOCKET=/run/kamosu-agent/agent.sock
+```
+
+An Operator makes the key in Kamosu: **Settings**, then **Administer this instance**, then **Runner** on the **Instance** tab. The agent's settings file holds the rest:
 
 | Variable | What it holds |
 | --- | --- |

@@ -263,6 +263,22 @@ fn start_runner(start: Start) -> RunningRunner {
 
 /// The same, handing its Jobs to the agent at `socket` when one is given.
 fn start_runner_for(start: Start, socket: Option<&Path>) -> RunningRunner {
+    let kamosu = start.kamosu.clone();
+    start_runner_told(start, |command, script| {
+        command.args(["--kamosu", &kamosu]);
+        match socket {
+            Some(socket) => command.arg("--agent-socket").arg(socket),
+            None => command.arg("--").arg(script),
+        };
+    })
+}
+
+/// The same, with its command line written by `tell`, which is handed the
+/// stand-in agent command. `Start::kamosu` is not passed on by itself.
+fn start_runner_told(
+    start: Start,
+    tell: impl FnOnce(&mut std::process::Command, &Path),
+) -> RunningRunner {
     let place = tempfile::tempdir().expect("a place for the Runner");
     let script = place.path().join("stand-in.py");
     std::fs::write(&script, STAND_IN).unwrap();
@@ -274,12 +290,12 @@ fn start_runner_for(start: Start, socket: Option<&Path>) -> RunningRunner {
     let log = std::fs::File::create(&output).unwrap();
 
     let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_kamosu"));
-    command.args(["runner", "--kamosu", &start.kamosu]);
-    match socket {
-        Some(socket) => command.arg("--agent-socket").arg(socket),
-        None => command.arg("--").arg(&script),
-    };
+    command.arg("runner");
+    tell(&mut command, &script);
     command
+        // Whatever the shell running the tests holds, a test says its own.
+        .env_remove("KAMOSU_RUNNER_INSTANCE")
+        .env_remove("KAMOSU_RUNNER_AGENT_SOCKET")
         .env("KAMOSU_RUNNER_KEY", start.runner_key)
         .env("KAMOSU_DATA_DIR", start.data_dir)
         .env("TMPDIR", place.path().join("folders"))
@@ -803,6 +819,146 @@ async fn a_runner_hands_each_job_to_a_fresh_agent_at_a_socket() {
     assert_eq!(sent["job"].get("held_until"), None, "{sent}");
     // Calling a socket is not listening on one.
     assert_eq!(listening_sockets(runner.pid()), 0, "{}", runner.said());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_runner_takes_its_address_and_agent_socket_from_the_environment_alone() {
+    let app = support::spawn_app();
+    let (key, runner_key) = cook_and_runner(&app);
+    let data_dir = tempfile::tempdir().unwrap();
+    let job_id = paste_for_the_agent(&app, &key, "writes");
+    let seen = tempfile::tempdir().unwrap();
+    let agent = SocketAgent::start(seen.path(), None);
+
+    let runner = start_runner_told(
+        Start {
+            kamosu: String::new(),
+            runner_key: &runner_key,
+            extra_env: vec![
+                ("KAMOSU_RUNNER_INSTANCE", format!("http://{}", app.addr)),
+                (
+                    "KAMOSU_RUNNER_AGENT_SOCKET",
+                    agent.socket.display().to_string(),
+                ),
+            ],
+            data_dir: data_dir.path(),
+        },
+        |_, _| {},
+    );
+    let finished = ended(&app, &key, &job_id, &runner);
+    assert_eq!(
+        finished["status"],
+        json!("completed"),
+        "{finished}\n{}",
+        runner.said()
+    );
+    let sent = std::fs::read_to_string(seen.path().join(&job_id).join("sent")).unwrap();
+    let sent: Value = serde_json::from_str(&sent).unwrap();
+    assert_eq!(sent["kamosu"], json!(format!("http://{}/", app.addr)));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_flag_wins_over_its_variable() {
+    let app = support::spawn_app();
+    let (key, runner_key) = cook_and_runner(&app);
+    let data_dir = tempfile::tempdir().unwrap();
+    let job_id = paste_for_the_agent(&app, &key, "writes");
+    let seen = tempfile::tempdir().unwrap();
+    let agent = SocketAgent::start(seen.path(), None);
+    // A port nothing listens on, and a socket nothing answers at.
+    let nowhere = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let place = tempfile::tempdir().unwrap();
+
+    let runner = start_runner_for(
+        Start {
+            kamosu: format!("http://{}", app.addr),
+            runner_key: &runner_key,
+            extra_env: vec![
+                ("KAMOSU_RUNNER_INSTANCE", format!("http://{nowhere}")),
+                (
+                    "KAMOSU_RUNNER_AGENT_SOCKET",
+                    place.path().join("nobody.sock").display().to_string(),
+                ),
+            ],
+            data_dir: data_dir.path(),
+        },
+        Some(&agent.socket),
+    );
+    let finished = ended(&app, &key, &job_id, &runner);
+    assert_eq!(
+        finished["status"],
+        json!("completed"),
+        "{finished}\n{}",
+        runner.said()
+    );
+    assert!(!runner.said().contains("out of reach"), "{}", runner.said());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_runner_refuses_settings_it_cannot_work_with_from_either_place() {
+    let data_dir = tempfile::tempdir().unwrap();
+    // Each case is given the stand-in as its agent command unless it says not.
+    let refused = |extra_env: Vec<(&'static str, String)>, agent_command: bool| {
+        let mut runner = start_runner_told(
+            Start {
+                kamosu: String::new(),
+                runner_key: "a key",
+                extra_env,
+                data_dir: data_dir.path(),
+            },
+            |command, script| {
+                if agent_command {
+                    command.arg("--").arg(script);
+                }
+            },
+        );
+        assert_eq!(runner.ends(), 2, "{}", runner.said());
+        runner.said()
+    };
+
+    // No address in either place.
+    let said = refused(vec![], true);
+    assert!(
+        said.contains("Give Kamosu's address, as --kamosu or in KAMOSU_RUNNER_INSTANCE."),
+        "{said}"
+    );
+    // A socket from the variable beside an agent command.
+    let said = refused(
+        vec![
+            ("KAMOSU_RUNNER_INSTANCE", "http://127.0.0.1:9".to_string()),
+            ("KAMOSU_RUNNER_AGENT_SOCKET", "/run/agent.sock".to_string()),
+        ],
+        true,
+    );
+    assert!(said.contains("Give one of the two."), "{said}");
+    // An empty socket variable is no socket, so the address is what is
+    // refused: the variable is checked as the flag is.
+    let said = refused(
+        vec![
+            (
+                "KAMOSU_RUNNER_INSTANCE",
+                "http://cook:secret@127.0.0.1:9".to_string(),
+            ),
+            ("KAMOSU_RUNNER_AGENT_SOCKET", String::new()),
+        ],
+        true,
+    );
+    assert!(said.contains("given with a name or a password"), "{said}");
+    assert!(!said.contains("Give one of the two."), "{said}");
+    // The refusal lands in the Runner's log, so it repeats no password.
+    assert!(!said.contains("secret"), "{said}");
+    // No agent in either place, the empty variable counting as none.
+    let said = refused(
+        vec![
+            ("KAMOSU_RUNNER_INSTANCE", "http://127.0.0.1:9".to_string()),
+            ("KAMOSU_RUNNER_AGENT_SOCKET", " ".to_string()),
+        ],
+        false,
+    );
+    assert!(said.contains("Name the agent:"), "{said}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
