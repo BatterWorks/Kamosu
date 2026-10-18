@@ -9,7 +9,7 @@ import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { ChangedSinceOutput } from '$lib/api/catalogue';
 import OlderVersionTestHarness from './OlderVersionTestHarness.svelte';
-import { cookbookLabel } from '../../../../testing/recipes';
+import { cookbookLabel, recipeAnswer } from '../../../../testing/recipes';
 
 type Side = ChangedSinceOutput['mine'];
 type Lines = Side['content']['ingredients'];
@@ -81,6 +81,7 @@ function compared(over: Partial<ChangedSinceOutput> = {}): ChangedSinceOutput {
 			newest: false,
 		},
 		writes: true,
+		keeping_needs_name: true,
 		mine: side('v_now', NOW, STEPS_NOW),
 		theirs: side('v_then', THEN, STEPS_THEN),
 		ingredients: [
@@ -479,6 +480,99 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 		await fireEvent.click(await screen.findByText('¾ cup potato starch'));
 		expect(screen.getByText('1 cup potato starch')).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /into the recipe/ })).toBeNull();
+	});
+
+	it('puts the Version back as the recipe once the sheet is confirmed (#354)', async () => {
+		const { kamosu, went } = renderOlder({ put_back_version: { ...SAVED, version_id: 'v_then' } });
+		await fireEvent.click(await screen.findByRole('button', { name: 'Put this Version back' }));
+		const sheet = within(await screen.findByRole('dialog'));
+		expect(sheet.getByText(/The History keeps every Version/)).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('put_back_version');
+		await fireEvent.click(sheet.getByRole('button', { name: 'Put it back' }));
+		await expect.poll(() => went).toEqual(['/recipes/b_1']);
+		expect(kamosu.calls.find((call) => call.operation === 'put_back_version')?.input).toEqual({
+			branch_id: 'b_1',
+			version_id: 'v_then',
+		});
+	});
+
+	it('starts a named variation from this Version (#354)', async () => {
+		const { kamosu, went } = renderOlder({
+			start_variation: recipeAnswer({ branch_id: 'b_variation' }),
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'Start a variation from it' }));
+		const sheet = within(await screen.findByRole('dialog'));
+		const start = sheet.getByRole('button', { name: 'Start the variation' });
+		expect(start).toBeDisabled();
+		await fireEvent.input(sheet.getByRole('textbox'), { target: { value: '  As it was  ' } });
+		await fireEvent.click(start);
+		await expect.poll(() => went).toEqual(['/recipes/b_variation']);
+		expect(kamosu.calls.find((call) => call.operation === 'start_variation')?.input).toEqual({
+			branch_id: 'b_1',
+			name: 'As it was',
+			version_id: 'v_then',
+		});
+	});
+
+	it('offers its writer the two acts, and nobody else either of them (#354)', async () => {
+		renderOlder({ changed_since: compared({ writes: false }) });
+		await screen.findByText('¾ cup potato starch');
+		expect(screen.queryByRole('button', { name: 'Put this Version back' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Start a variation from it' })).toBeNull();
+		expect(
+			screen.getByRole('button', { name: 'Keep this Version as your own copy' }),
+		).toBeInTheDocument();
+	});
+
+	it('gives its writer no copy to keep (#354)', async () => {
+		renderOlder();
+		await screen.findByRole('button', { name: 'Put this Version back' });
+		expect(screen.queryByRole('button', { name: 'Keep this Version as your own copy' })).toBeNull();
+	});
+
+	it('keeps the Version as a reader’s own copy, saying whose stays as it is (#354)', async () => {
+		const { kamosu, went } = renderOlder({
+			changed_since: compared({ writes: false, keeping_needs_name: false }),
+			keep_version_as_copy: recipeAnswer({ branch_id: 'b_mine' }),
+		});
+		await fireEvent.click(
+			await screen.findByRole('button', { name: 'Keep this Version as your own copy' }),
+		);
+		const sheet = within(await screen.findByRole('dialog'));
+		expect(sheet.getByText(/Stéphane’s stays as it is/)).toBeInTheDocument();
+		expect(sheet.queryByRole('textbox')).toBeNull();
+		await fireEvent.click(sheet.getByRole('button', { name: 'Keep my own copy' }));
+		await expect.poll(() => went).toEqual(['/recipes/b_mine']);
+		expect(kamosu.calls.find((call) => call.operation === 'keep_version_as_copy')?.input).toEqual({
+			branch_id: 'b_1',
+			version_id: 'v_then',
+		});
+	});
+
+	it('asks a reader who has their own copy already to name this one (#354)', async () => {
+		const { kamosu } = renderOlder({
+			changed_since: compared({ writes: false, keeping_needs_name: true }),
+			keep_version_as_copy: recipeAnswer({ branch_id: 'b_mine' }),
+		});
+		await fireEvent.click(
+			await screen.findByRole('button', { name: 'Keep this Version as your own copy' }),
+		);
+		const sheet = within(await screen.findByRole('dialog'));
+		expect(sheet.getByText(/You already have your own Korean Fried Chicken/)).toBeInTheDocument();
+		await fireEvent.input(sheet.getByRole('textbox'), { target: { value: 'Stéphane’s' } });
+		await fireEvent.click(sheet.getByRole('button', { name: 'Keep my own copy' }));
+		await expect
+			.poll(() => kamosu.calls.find((call) => call.operation === 'keep_version_as_copy')?.input)
+			.toEqual({ branch_id: 'b_1', version_id: 'v_then', name: 'Stéphane’s' });
+	});
+
+	it('says what the Core refused and stays open (#354)', async () => {
+		const { went } = renderOlder({ put_back_version: { refuse: 'bad_request' } });
+		await fireEvent.click(await screen.findByRole('button', { name: 'Put this Version back' }));
+		const sheet = within(await screen.findByRole('dialog'));
+		await fireEvent.click(sheet.getByRole('button', { name: 'Put it back' }));
+		expect(await sheet.findByRole('alert')).toBeInTheDocument();
+		expect(went).toEqual([]);
 	});
 
 	it('sends the newest Version’s address to the recipe, which is what it is', async () => {

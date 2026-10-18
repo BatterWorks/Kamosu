@@ -658,7 +658,7 @@ pub fn start_variation(
     invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
-    let takes = "start_variation takes { branch_id, name }";
+    let takes = "start_variation takes { branch_id, name, version_id? }";
     let branch_id = input
         .get("branch_id")
         .and_then(Value::as_str)
@@ -667,8 +667,48 @@ pub fn start_variation(
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request(takes))?;
+    let version_id = input.get("version_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
-    core.start_variation(caller, branch_id, name)
+    core.start_variation(caller, branch_id, name, version_id)
+}
+
+/// Put an older Version of a recipe back as the recipe (#354).
+pub fn put_back_version(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "put_back_version takes { branch_id, version_id }";
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let version_id = input
+        .get("version_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.put_back_version(caller, branch_id, version_id)
+}
+
+/// Keep a Version of somebody else's recipe as your own copy (#354).
+pub fn keep_version_as_copy(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "keep_version_as_copy takes { branch_id, version_id, name? }";
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let version_id = input
+        .get("version_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let name = input.get("name").and_then(Value::as_str);
+    let caller = caller_of(invocation)?;
+    core.keep_version_as_copy(caller, branch_id, version_id, name)
 }
 
 pub fn rename_branch(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {

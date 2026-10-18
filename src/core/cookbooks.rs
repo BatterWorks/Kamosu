@@ -315,11 +315,15 @@ impl Core {
     /// under a name they give it (ADR 0041): "Vegetarian" beside the one they
     /// already have. The name is required, because nothing else tells the two
     /// apart.
+    ///
+    /// It starts from the recipe as it stands, or from an older Version of it
+    /// where `version_id` names one (#354), and forks in the Thread there.
     pub fn start_variation(
         &self,
         caller: &Caller,
         branch_id: &str,
         name: &str,
+        version_id: Option<&str>,
     ) -> Result<Value, OpError> {
         let person_id = caller.person_id.as_str();
         let name = required_text(name, "name")?.to_string();
@@ -335,7 +339,63 @@ impl Core {
                      it; saving a change to it starts your own copy instead",
                 ));
             }
-            copy_branch_into(conn, branch_id, &own, person_id, Some(&name))
+            let at = match version_id {
+                Some(version_id) => Some(occurrence(conn, branch_id, version_id)?.0),
+                None => None,
+            };
+            copy_branch_at(conn, branch_id, at, &own, person_id, Some(&name))
+        })?;
+        self.get_recipe(caller, &new_branch_id, None)
+    }
+
+    /// **Keep a Version of somebody else's recipe as your own copy** (#354):
+    /// a Branch of it in your own Cookbook whose head is that Version, an
+    /// older one included. The Branch it came from is not touched.
+    ///
+    /// For whoever sees the recipe and does not write it. Its writers put a
+    /// Version back or start a variation from it instead.
+    ///
+    /// Your Cookbook keeps one Branch of its own of a recipe in a Language
+    /// without a name, so where it already holds one this needs a `name`,
+    /// and the copy is a named variation beside it. `changed_since` says
+    /// beforehand whether it will (`keeping_needs_name`).
+    pub fn keep_version_as_copy(
+        &self,
+        caller: &Caller,
+        branch_id: &str,
+        version_id: &str,
+        name: Option<&str>,
+    ) -> Result<Value, OpError> {
+        let person_id = caller.person_id.as_str();
+        // A blank name is no name, here where one may be left out.
+        let name = name.map(str::trim).filter(|name| !name.is_empty());
+        let new_branch_id = self.db().with_conn(|conn| {
+            ensure_sees_branch(conn, branch_id, person_id)?;
+            let (at, _) = occurrence(conn, branch_id, version_id)?;
+            let own = cookbook_of_person(conn, person_id)?;
+            if cookbook_writes_branch(conn, &own, branch_id)? {
+                return Err(OpError::bad_request(
+                    "this recipe is yours to write already; put the Version back or start a \
+                     variation from it instead",
+                ));
+            }
+            if name.is_none() && keeping_needs_name(conn, &own, branch_id)? {
+                return Err(OpError::bad_request(
+                    "your Cookbook already holds its own copy of this recipe in this \
+                     Language, so this one needs a name",
+                ));
+            }
+            // The newest Version kept is the recipe kept, as any other Copy
+            // of it is: a sent one stays the sender's to send again.
+            let newest = branch_head(conn, branch_id)?.head_version_id == version_id;
+            copy_branch_at(
+                conn,
+                branch_id,
+                (!newest).then_some(at),
+                &own,
+                person_id,
+                name,
+            )
         })?;
         self.get_recipe(caller, &new_branch_id, None)
     }
@@ -1289,6 +1349,25 @@ fn holds_own_branch(
     .map_err(|e| OpError::internal(format!("cannot read Branches: {e}")))
 }
 
+/// Whether a copy of `branch_id` kept in `cookbook_id` needs a name of its
+/// own (#354): the Cookbook already holds a Branch of its own of that recipe
+/// in that Language, and the Branch is not a named variation, whose copy
+/// keeps its name.
+pub(super) fn keeping_needs_name(
+    conn: &Connection,
+    cookbook_id: &str,
+    branch_id: &str,
+) -> Result<bool, OpError> {
+    let (lineage_id, language, name): (String, String, Option<String>) = conn
+        .query_row(
+            "SELECT lineage_id, language, name FROM branches WHERE id = ?1",
+            params![branch_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
+    Ok(name.is_none() && holds_own_branch(conn, cookbook_id, &lineage_id, &language)?)
+}
+
 /// The name a Branch arriving in `cookbook_id` needs, if any: none when the
 /// Cookbook holds no Branch of its own of that recipe in that Language yet,
 /// and otherwise `fallback` — whose it was — so the two can be told apart.
@@ -1355,12 +1434,22 @@ pub(super) fn cookbook_display_name(
 /// either (#265). Shared by every way a Branch is copied, so the chain cannot
 /// be carried two ways.
 pub(super) fn carry_chain(conn: &Connection, from: &str, onto: &str) -> Result<(), OpError> {
+    carry_chain_to(conn, from, onto, None)
+}
+
+/// [`carry_chain`], stopping at the row `up_to` where one is given.
+fn carry_chain_to(
+    conn: &Connection,
+    from: &str,
+    onto: &str,
+    up_to: Option<i64>,
+) -> Result<(), OpError> {
     conn.execute(
         "INSERT INTO branch_versions \
          (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at, translates_version_id, language, job_id) \
          SELECT ?1, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at, translates_version_id, language, job_id \
-           FROM branch_versions WHERE branch_id = ?2",
-        params![onto, from],
+           FROM branch_versions WHERE branch_id = ?2 AND (?3 IS NULL OR sequence <= ?3)",
+        params![onto, from, up_to],
     )
     .map_err(|e| OpError::internal(format!("cannot carry the chain onto the new Branch: {e}")))?;
     Ok(())
@@ -1381,6 +1470,20 @@ pub(super) fn carry_chain(conn: &Connection, from: &str, onto: &str) -> Result<(
 pub(super) fn copy_branch_into(
     conn: &Connection,
     source: &str,
+    cookbook_id: &str,
+    started_by: &str,
+    name: Option<&str>,
+) -> Result<String, OpError> {
+    copy_branch_at(conn, source, None, cookbook_id, started_by, name)
+}
+
+/// [`copy_branch_into`], where the copy may start at an older Version of
+/// `source` (#354): `at` is a sequence on it, and the chain is carried up to
+/// that row and no further, so the Thread forks there.
+pub(super) fn copy_branch_at(
+    conn: &Connection,
+    source: &str,
+    at: Option<i64>,
     cookbook_id: &str,
     started_by: &str,
     name: Option<&str>,
@@ -1418,6 +1521,16 @@ pub(super) fn copy_branch_into(
         name: source_name,
         ..
     } = source_row;
+    let head = match at {
+        Some(sequence) => conn
+            .query_row(
+                "SELECT version_id FROM branch_versions WHERE branch_id = ?1 AND sequence = ?2",
+                params![source, sequence],
+                |row| row.get(0),
+            )
+            .map_err(|e| OpError::internal(format!("cannot read Version: {e}")))?,
+        None => head,
+    };
     let new_branch_id = format!("b_{}", hex::encode(random_bytes(8)));
     // A variation keeps the name it was given wherever it goes; an unnamed
     // Branch is named after the Cookbook it came from only where the
@@ -1433,7 +1546,9 @@ pub(super) fn copy_branch_into(
         )?,
     };
     // The sender's Branch, received again: one per Cookbook under their id.
-    let keeps_travelling = arrived && {
+    // A copy from an older Version of it is a recipe of the receiver's own,
+    // since the sender's next Bundle continues the newest one (#354).
+    let keeps_travelling = at.is_none() && arrived && {
         let taken: bool = conn
             .query_row(
                 "SELECT EXISTS (SELECT 1 FROM branches \
@@ -1472,7 +1587,7 @@ pub(super) fn copy_branch_into(
         ],
     )
     .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
-    carry_chain(conn, source, &new_branch_id)?;
+    carry_chain_to(conn, source, &new_branch_id, at)?;
     refile_tags(conn, source, &new_branch_id, cookbook_id)?;
     Ok(new_branch_id)
 }

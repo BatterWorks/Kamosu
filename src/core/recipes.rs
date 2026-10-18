@@ -533,6 +533,107 @@ impl Core {
         })
     }
 
+    /// **Put an older Version back** (#354): it becomes the recipe again, as a
+    /// new Version on top of the newest, every field as it held it.
+    ///
+    /// It never collapses into the Version being shaped, whoever saved that
+    /// and however recently. A collapse would replace the Version the cook is
+    /// stepping away from, and the Thread keeps it.
+    ///
+    /// Nothing is read or carried: the Version is already written, and its
+    /// Readings are keyed on its id, so a Reading corrected on it comes back
+    /// corrected, and one cleared on it stays cleared. It keeps the source
+    /// Version it said it translates, and the Language is the Branch's own,
+    /// settled where it was only guessed, as a save settles it.
+    ///
+    /// Only for those who write the Branch's Cookbook. Anybody else who sees
+    /// it keeps the Version as their own copy instead.
+    pub fn put_back_version(
+        &self,
+        caller: &Caller,
+        branch_id: &str,
+        version_id: &str,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            ensure_sees_branch(conn, branch_id, &caller.person_id)?;
+            let own = cookbook_of_person(conn, &caller.person_id)?;
+            if !cookbook_writes_branch(conn, &own, branch_id)? {
+                return Err(OpError::unauthorized(
+                    "only the people who write this recipe's Cookbook may put one of its \
+                     Versions back; keep it as your own copy instead",
+                ));
+            }
+            let (_, translates_version_id) = occurrence(conn, branch_id, version_id)?;
+            #[allow(clippy::type_complexity)]
+            let (head_sequence, head_version_id, lineage_id, language, language_guessed): (
+                i64,
+                String,
+                String,
+                String,
+                bool,
+            ) = conn
+                .query_row(
+                    "SELECT branch_versions.sequence, branches.head_version_id, \
+                            branches.lineage_id, branches.language, branches.language_guessed \
+                       FROM branches JOIN branch_versions ON branch_versions.branch_id = branches.id \
+                      WHERE branches.id = ?1 ORDER BY branch_versions.sequence DESC LIMIT 1",
+                    params![branch_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                )
+                .map_err(|e| OpError::internal(format!("cannot read Branch head: {e}")))?;
+            if version_id == head_version_id {
+                return Err(OpError::bad_request(
+                    "this Version is the recipe as it stands already",
+                ));
+            }
+            let content = version_content(conn, version_id)?;
+            // A guessed Language settles as a save of the same content would
+            // settle it (#321).
+            let fills = ["ingredients", "steps"]
+                .iter()
+                .any(|field| content[field].as_array().is_some_and(|lines| !lines.is_empty()));
+            let settles = language_guessed && fills;
+            let language = if settles && !has_translations(conn, &lineage_id, branch_id)? {
+                crate::language::detect_content(&content).map_or(language, str::to_string)
+            } else {
+                language
+            };
+            conn.execute(
+                "INSERT INTO branch_versions \
+                 (branch_id, sequence, version_id, parent_version_id, hand_id, access_key_id, translates_version_id, language) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    branch_id,
+                    head_sequence + 1,
+                    version_id,
+                    head_version_id,
+                    caller.person_id,
+                    caller.access_key_id,
+                    translates_version_id,
+                    language
+                ],
+            )
+            .map_err(|e| OpError::internal(format!("cannot append Version: {e}")))?;
+            conn.execute(
+                "UPDATE branches SET head_version_id = ?1, language = ?3, \
+                        language_guessed = ?4 WHERE id = ?2",
+                params![version_id, branch_id, language, language_guessed && !settles],
+            )
+            .map_err(|e| OpError::internal(format!("cannot move Branch head: {e}")))?;
+            Ok(json!({
+                "branch_id": branch_id,
+                "version_id": version_id,
+                "parent_version_id": head_version_id,
+                "sequence": head_sequence + 1,
+                "collapsed": false,
+                "copied": false,
+                "language_offer": language_offer(&language, &content),
+                "language": language,
+                "translates_version_id": translates_version_id,
+            }))
+        })
+    }
+
     /// Rename a Version — the one thing about it that can change later
     /// (GLOSSARY.md, "Version"). An absent or empty name clears it. Targeted
     /// by `sequence` rather than `version_id`: the same content can recur
@@ -1217,11 +1318,11 @@ impl Core {
             });
             // Whether the reader writes this Branch, as `get_recipe` says it:
             // only then can a line be written back into the recipe.
-            answer["writes"] = json!(cookbook_writes_branch(
-                conn,
-                &cookbook_of_person(conn, person_id)?,
-                branch_id,
-            )?);
+            let own = cookbook_of_person(conn, person_id)?;
+            answer["writes"] = json!(cookbook_writes_branch(conn, &own, branch_id)?);
+            // Whether keeping this Version as the reader's own copy asks for a
+            // name first (#354).
+            answer["keeping_needs_name"] = json!(keeping_needs_name(conn, &own, branch_id)?);
             Ok(answer)
         })
     }
@@ -2696,6 +2797,25 @@ fn version_being_shaped(
         head_is_callers_to_shape
             && !version_has_left(conn, lineage_id, branch_id, head_version_id)?,
     )
+}
+
+/// Where a Version last occurs on a Branch: its sequence there, and the source
+/// Version it said it translates. The same content can recur on one Branch,
+/// and the last time is the one the Thread shows nearest the head (#354).
+pub(super) fn occurrence(
+    conn: &Connection,
+    branch_id: &str,
+    version_id: &str,
+) -> Result<(i64, Option<String>), OpError> {
+    conn.query_row(
+        "SELECT sequence, translates_version_id FROM branch_versions \
+          WHERE branch_id = ?1 AND version_id = ?2 ORDER BY sequence DESC LIMIT 1",
+        params![branch_id, version_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read Version: {e}")))?
+    .ok_or_else(|| OpError::bad_request("version_id is not a Version of this Branch"))
 }
 
 /// Whether somebody besides this Branch holds its head Version: a

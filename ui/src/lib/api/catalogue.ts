@@ -1378,13 +1378,210 @@ export type EditRecipeOutput = {
 	version_id: string;
 };
 
-/** Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it ("Vegetarian"). Changing one never changes the other. */
+/** Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it ("Vegetarian"). Changing one never changes the other. With version_id, a Version of that Branch, it starts from that older Version instead of the newest, and the recipe stays as it is. Only for those who write the recipe's Cookbook. */
 export type StartVariationInput = {
 	branch_id: string;
 	name: string;
+	version_id?: string;
 };
 /** What start_variation answers. */
 export type StartVariationOutput = {
+	arrived: boolean;
+	branch_id: string;
+	cookbook: {
+		authors: {
+			name: string;
+			person_id: string;
+		}[];
+		id: string;
+		name: string | null;
+	};
+	cooked: {
+		count: number;
+		last_cooked_at: string | null;
+		ratings: {
+			at: string;
+			given_on: "newest" | "older" | "another";
+			name: string;
+			person_id: string;
+			rating: "again" | "tweak" | "no";
+			version_id: string | null;
+		}[];
+	};
+	hand_id: string;
+	head_version_id: string;
+	language: string;
+	lineage_id: string;
+	mine: boolean;
+	name: string | null;
+	origin_address: string | null;
+	related_recipes: {
+		branch_id: string | null;
+		language: string | null;
+		language_fallback: boolean;
+		lineage_id: string;
+		main_photo: string | null;
+		title: string;
+	}[];
+	tags: {
+		cookbook_id: string;
+		id: string;
+		language: string | null;
+		language_fallback: boolean;
+		name: string | null;
+		names: {
+			language: string;
+			name: string;
+		}[];
+		recipes: number;
+	}[];
+	translation: {
+		source_branch_id: string | null;
+		translates_version_id: string;
+		versions_behind: number | null;
+	} | null;
+	versions: {
+		change_note: string | null;
+		components: {
+			branch_id: string | null;
+			content: {
+				cook_time_minutes: number | null;
+				ingredients: {
+					kind: "section" | "ingredient";
+					text: string;
+				}[];
+				main_photo: string | null;
+				note: string | null;
+				nutrition: {
+					basis: "per_serving" | "per_100g";
+					calories: number;
+				} | null;
+				prep_time_minutes: number | null;
+				source: {
+					link: string | null;
+					text: string;
+				} | null;
+				steps: {
+					kind: "section" | "step";
+					photo: string | null;
+					text: string;
+				}[];
+				title: string;
+				yield: {
+					amount: string;
+					noun: string;
+				} | null;
+			} | null;
+			held: boolean;
+			lineage_id: string;
+			measured: {
+				ingredients: (string | null)[];
+				steps: ({
+					measured: string;
+					written: string;
+				}[] | null)[];
+			} | null;
+			path: number[];
+			readings: ({
+				amount: string | null;
+				lineage_id: string | null;
+				target: string | null;
+				unit: string | null;
+			} | null)[] | null;
+			said: string;
+			share: number | null;
+			stopped: boolean;
+			title: string | null;
+		}[];
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		cooking: {
+			steps: ({
+				timer_seconds: number | null;
+				uses: number[];
+			} | null)[];
+		};
+		created_at: string;
+		hand_id: string;
+		language: string | null;
+		measured: {
+			ingredients: (string | null)[];
+			steps: ({
+				measured: string;
+				written: string;
+			}[] | null)[];
+		};
+		name: string | null;
+		parent_version_id: string | null;
+		readings: ({
+			amount: string | null;
+			lineage_id: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
+		scaled_to: {
+			amount: string;
+			noun: string;
+		} | null;
+		sequence: number;
+		translates_version_id: string | null;
+		version_id: string;
+	}[];
+	writes: boolean;
+};
+
+/** Make an older Version the recipe again. It is saved as a new Version on top of the newest, every field as that Version held it. It never collapses into the Version being shaped, so the Thread keeps the one stepped away from. The Readings that Version had come back with it. version_id is a Version of that Branch, and not its newest. Only for those who write the recipe's Cookbook; anybody else may keep_version_as_copy. */
+export type PutBackVersionInput = {
+	branch_id: string;
+	version_id: string;
+};
+/** What put_back_version answers. */
+export type PutBackVersionOutput = {
+	branch_id: string;
+	collapsed: boolean;
+	copied: boolean;
+	language: string;
+	language_offer: string | null;
+	parent_version_id: string | null;
+	sequence: number;
+	translates_version_id: string | null;
+	version_id: string;
+};
+
+/** Keep a Version of a recipe as your own copy. For a recipe you do not write: the copy goes in your own Cookbook and starts from that Version, an older one included, and the recipe it came from is not changed. Where your Cookbook already holds its own copy of that recipe in that Language, a name is required and this one is a named variation beside it; changed_since says so as keeping_needs_name. Those who write the recipe use put_back_version or start_variation instead. */
+export type KeepVersionAsCopyInput = {
+	branch_id: string;
+	name?: string;
+	version_id: string;
+};
+/** What keep_version_as_copy answers. */
+export type KeepVersionAsCopyOutput = {
 	arrived: boolean;
 	branch_id: string;
 	cookbook: {
@@ -3352,7 +3549,7 @@ export type DivergenceOutput = {
 	};
 };
 
-/** See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch. */
+/** See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch, and so may put_back_version or start_variation from that Version; anybody else may keep_version_as_copy. */
 export type ChangedSinceInput = {
 	branch_id: string;
 	version_id: string;
@@ -3421,6 +3618,7 @@ export type ChangedSinceOutput = {
 			text: string;
 		} | null;
 	}[];
+	keeping_needs_name: boolean;
 	lineage_id: string;
 	mine: {
 		arrived: boolean;
@@ -5574,6 +5772,18 @@ export interface Operations {
 	start_variation: {
 		input: StartVariationInput;
 		output: StartVariationOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	put_back_version: {
+		input: PutBackVersionInput;
+		output: PutBackVersionOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	keep_version_as_copy: {
+		input: KeepVersionAsCopyInput;
+		output: KeepVersionAsCopyOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -12397,7 +12607,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "start_variation",
-		"summary": "Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it (\"Vegetarian\"). Changing one never changes the other.",
+		"summary": "Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it (\"Vegetarian\"). Changing one never changes the other. With version_id, a Version of that Branch, it starts from that older Version instead of the newest, and the recipe stays as it is. Only for those who write the recipe's Cookbook.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -12408,11 +12618,1121 @@ export const CATALOGUE = [
 				},
 				"name": {
 					"type": "string"
+				},
+				"version_id": {
+					"type": "string"
 				}
 			},
 			"required": [
 				"branch_id",
 				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"arrived": {
+					"type": "boolean"
+				},
+				"branch_id": {
+					"type": "string"
+				},
+				"cookbook": {
+					"additionalProperties": false,
+					"properties": {
+						"authors": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"id": {
+							"type": "string"
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"id",
+						"name",
+						"authors"
+					],
+					"type": "object"
+				},
+				"cooked": {
+					"additionalProperties": false,
+					"properties": {
+						"count": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"last_cooked_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"ratings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"at": {
+										"type": "string"
+									},
+									"given_on": {
+										"description": "The Version rated: this recipe's newest, an older one, or another Branch's.",
+										"enum": [
+											"newest",
+											"older",
+											"another"
+										],
+										"type": "string"
+									},
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									},
+									"rating": {
+										"enum": [
+											"again",
+											"tweak",
+											"no"
+										],
+										"type": "string"
+									},
+									"version_id": {
+										"description": "An older Version this recipe still holds; null otherwise.",
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"person_id",
+									"name",
+									"rating",
+									"at",
+									"given_on",
+									"version_id"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						}
+					},
+					"required": [
+						"count",
+						"last_cooked_at",
+						"ratings"
+					],
+					"type": "object"
+				},
+				"hand_id": {
+					"type": "string"
+				},
+				"head_version_id": {
+					"type": "string"
+				},
+				"language": {
+					"type": "string"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"mine": {
+					"type": "boolean"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"origin_address": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"related_recipes": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"language_fallback": {
+								"type": "boolean"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"main_photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"lineage_id",
+							"branch_id",
+							"title",
+							"main_photo",
+							"language",
+							"language_fallback"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"tags": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"cookbook_id": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"language_fallback": {
+								"type": "boolean"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"names": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"language": {
+											"type": "string"
+										},
+										"name": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"language",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"recipes": {
+								"type": "integer"
+							}
+						},
+						"required": [
+							"id",
+							"cookbook_id",
+							"name",
+							"language",
+							"names",
+							"recipes",
+							"language_fallback"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"translation": {
+					"additionalProperties": false,
+					"properties": {
+						"source_branch_id": {
+							"description": "The recipe this one translates. Null where that recipe is not on this instance — a Translation may arrive on its own, and how far behind it has fallen is then unanswerable rather than zero.",
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"translates_version_id": {
+							"description": "The Version of the source this recipe's newest Version renders.",
+							"type": "string"
+						},
+						"versions_behind": {
+							"description": "How many Versions the source has moved on since the one this translates. Zero means up to date.",
+							"type": [
+								"integer",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"translates_version_id",
+						"source_branch_id",
+						"versions_behind"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"versions": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"change_note": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"components": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"content": {
+											"additionalProperties": false,
+											"properties": {
+												"cook_time_minutes": {
+													"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+													"type": [
+														"integer",
+														"null"
+													]
+												},
+												"ingredients": {
+													"items": {
+														"additionalProperties": false,
+														"properties": {
+															"kind": {
+																"enum": [
+																	"section",
+																	"ingredient"
+																]
+															},
+															"text": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"kind",
+															"text"
+														],
+														"type": "object"
+													},
+													"type": "array"
+												},
+												"main_photo": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"note": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"nutrition": {
+													"additionalProperties": false,
+													"properties": {
+														"basis": {
+															"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+															"enum": [
+																"per_serving",
+																"per_100g"
+															]
+														},
+														"calories": {
+															"description": "Calories, zero or more.",
+															"minimum": 0,
+															"type": "number"
+														}
+													},
+													"required": [
+														"calories",
+														"basis"
+													],
+													"type": [
+														"object",
+														"null"
+													]
+												},
+												"prep_time_minutes": {
+													"description": "Whole minutes of active preparation.",
+													"type": [
+														"integer",
+														"null"
+													]
+												},
+												"source": {
+													"additionalProperties": false,
+													"properties": {
+														"link": {
+															"type": [
+																"string",
+																"null"
+															]
+														},
+														"text": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"text",
+														"link"
+													],
+													"type": [
+														"object",
+														"null"
+													]
+												},
+												"steps": {
+													"items": {
+														"additionalProperties": false,
+														"properties": {
+															"kind": {
+																"enum": [
+																	"section",
+																	"step"
+																]
+															},
+															"photo": {
+																"type": [
+																	"string",
+																	"null"
+																]
+															},
+															"text": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"kind",
+															"text",
+															"photo"
+														],
+														"type": "object"
+													},
+													"type": "array"
+												},
+												"title": {
+													"type": "string"
+												},
+												"yield": {
+													"additionalProperties": false,
+													"properties": {
+														"amount": {
+															"type": "string"
+														},
+														"noun": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"amount",
+														"noun"
+													],
+													"type": [
+														"object",
+														"null"
+													]
+												}
+											},
+											"required": [
+												"title",
+												"yield",
+												"prep_time_minutes",
+												"cook_time_minutes",
+												"note",
+												"main_photo",
+												"source",
+												"nutrition",
+												"ingredients",
+												"steps"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"held": {
+											"type": "boolean"
+										},
+										"lineage_id": {
+											"type": "string"
+										},
+										"measured": {
+											"additionalProperties": false,
+											"properties": {
+												"ingredients": {
+													"items": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"type": "array"
+												},
+												"steps": {
+													"items": {
+														"items": {
+															"additionalProperties": false,
+															"properties": {
+																"measured": {
+																	"type": "string"
+																},
+																"written": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"written",
+																"measured"
+															],
+															"type": "object"
+														},
+														"type": [
+															"array",
+															"null"
+														]
+													},
+													"type": "array"
+												}
+											},
+											"required": [
+												"ingredients",
+												"steps"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"path": {
+											"items": {
+												"type": "integer"
+											},
+											"type": "array"
+										},
+										"readings": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"amount": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"lineage_id": {
+														"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"target": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"unit": {
+														"type": [
+															"string",
+															"null"
+														]
+													}
+												},
+												"required": [
+													"amount",
+													"unit",
+													"target",
+													"lineage_id"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"type": [
+												"array",
+												"null"
+											]
+										},
+										"said": {
+											"type": "string"
+										},
+										"share": {
+											"type": [
+												"number",
+												"null"
+											]
+										},
+										"stopped": {
+											"type": "boolean"
+										},
+										"title": {
+											"type": [
+												"string",
+												"null"
+											]
+										}
+									},
+									"required": [
+										"path",
+										"lineage_id",
+										"held",
+										"stopped",
+										"branch_id",
+										"title",
+										"share",
+										"said",
+										"content",
+										"readings",
+										"measured"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"content": {
+								"additionalProperties": false,
+								"properties": {
+									"cook_time_minutes": {
+										"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"ingredients": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"section",
+														"ingredient"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"main_photo": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"note": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"nutrition": {
+										"additionalProperties": false,
+										"properties": {
+											"basis": {
+												"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+												"enum": [
+													"per_serving",
+													"per_100g"
+												]
+											},
+											"calories": {
+												"description": "Calories, zero or more.",
+												"minimum": 0,
+												"type": "number"
+											}
+										},
+										"required": [
+											"calories",
+											"basis"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"prep_time_minutes": {
+										"description": "Whole minutes of active preparation.",
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"source": {
+										"additionalProperties": false,
+										"properties": {
+											"link": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"text",
+											"link"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"steps": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"section",
+														"step"
+													]
+												},
+												"photo": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text",
+												"photo"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"title": {
+										"type": "string"
+									},
+									"yield": {
+										"additionalProperties": false,
+										"properties": {
+											"amount": {
+												"type": "string"
+											},
+											"noun": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"amount",
+											"noun"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"title",
+									"yield",
+									"prep_time_minutes",
+									"cook_time_minutes",
+									"note",
+									"main_photo",
+									"source",
+									"nutrition",
+									"ingredients",
+									"steps"
+								],
+								"type": "object"
+							},
+							"cooking": {
+								"additionalProperties": false,
+								"properties": {
+									"steps": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"timer_seconds": {
+													"minimum": 1,
+													"type": [
+														"integer",
+														"null"
+													]
+												},
+												"uses": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												}
+											},
+											"required": [
+												"uses",
+												"timer_seconds"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"type": "array"
+									}
+								},
+								"required": [
+									"steps"
+								],
+								"type": "object"
+							},
+							"created_at": {
+								"type": "string"
+							},
+							"hand_id": {
+								"type": "string"
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"measured": {
+								"additionalProperties": false,
+								"properties": {
+									"ingredients": {
+										"items": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"type": "array"
+									},
+									"steps": {
+										"items": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"measured": {
+														"type": "string"
+													},
+													"written": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"written",
+													"measured"
+												],
+												"type": "object"
+											},
+											"type": [
+												"array",
+												"null"
+											]
+										},
+										"type": "array"
+									}
+								},
+								"required": [
+									"ingredients",
+									"steps"
+								],
+								"type": "object"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"parent_version_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"readings": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"lineage_id": {
+											"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"target": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"unit": {
+											"type": [
+												"string",
+												"null"
+											]
+										}
+									},
+									"required": [
+										"amount",
+										"unit",
+										"target",
+										"lineage_id"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"type": "array"
+							},
+							"scaled_to": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"sequence": {
+								"type": "integer"
+							},
+							"translates_version_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"version_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"sequence",
+							"version_id",
+							"parent_version_id",
+							"hand_id",
+							"name",
+							"change_note",
+							"created_at",
+							"content",
+							"readings",
+							"measured",
+							"cooking",
+							"components",
+							"translates_version_id",
+							"language",
+							"scaled_to"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"writes": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"branch_id",
+				"lineage_id",
+				"cookbook",
+				"name",
+				"writes",
+				"mine",
+				"arrived",
+				"hand_id",
+				"language",
+				"origin_address",
+				"head_version_id",
+				"versions",
+				"translation",
+				"tags",
+				"related_recipes",
+				"cooked"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "put_back_version",
+		"summary": "Make an older Version the recipe again. It is saved as a new Version on top of the newest, every field as that Version held it. It never collapses into the Version being shaped, so the Thread keeps the one stepped away from. The Readings that Version had come back with it. version_id is a Version of that Branch, and not its newest. Only for those who write the recipe's Cookbook; anybody else may keep_version_as_copy.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id",
+				"version_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"collapsed": {
+					"type": "boolean"
+				},
+				"copied": {
+					"description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
+					"type": "boolean"
+				},
+				"language": {
+					"description": "The Language this recipe carries. A save changes only a guess.",
+					"type": "string"
+				},
+				"language_offer": {
+					"description": "The Language this text reads as, when that disagrees with the one the recipe carries — an offer to put to the cook, never a change. Null when they agree, when there is too little text to tell, and always when the Language is unknown.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"parent_version_id": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"sequence": {
+					"type": "integer"
+				},
+				"translates_version_id": {
+					"description": "The Version of the source this Version renders, for a Translation. Carried forward from the Version replaced unless this save named a new one; null on a recipe that translates nothing.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id",
+				"version_id",
+				"parent_version_id",
+				"sequence",
+				"collapsed",
+				"copied",
+				"language",
+				"language_offer",
+				"translates_version_id"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "keep_version_as_copy",
+		"summary": "Keep a Version of a recipe as your own copy. For a recipe you do not write: the copy goes in your own Cookbook and starts from that Version, an older one included, and the recipe it came from is not changed. Where your Cookbook already holds its own copy of that recipe in that Language, a name is required and this one is a named variation beside it; changed_since says so as keeping_needs_name. Those who write the recipe use put_back_version or start_variation instead.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id",
+				"version_id"
 			],
 			"type": "object"
 		},
@@ -22819,7 +24139,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "changed_since",
-		"summary": "See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch.",
+		"summary": "See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch, and so may put_back_version or start_variation from that Version; anybody else may keep_version_as_copy.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -23083,6 +24403,10 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"keeping_needs_name": {
+					"description": "Whether keep_version_as_copy needs a name here: your Cookbook already holds its own copy of this recipe in this Language.",
+					"type": "boolean"
 				},
 				"lineage_id": {
 					"type": "string"
@@ -24563,7 +25887,8 @@ export const CATALOGUE = [
 				"steps",
 				"fields",
 				"version",
-				"writes"
+				"writes",
+				"keeping_needs_name"
 			],
 			"type": "object"
 		}
@@ -32461,6 +33786,8 @@ export const METHOD_NAMES = {
 	save_recipe_version: 'saveRecipeVersion',
 	edit_recipe: 'editRecipe',
 	start_variation: 'startVariation',
+	put_back_version: 'putBackVersion',
+	keep_version_as_copy: 'keepVersionAsCopy',
 	rename_branch: 'renameBranch',
 	delete_recipe: 'deleteRecipe',
 	read_pasted_recipe: 'readPastedRecipe',
@@ -32658,8 +33985,12 @@ export interface KamosuClient {
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
 	/** Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch, a Translation or a Bundle already holds it, or an agent's Job saved it), an edit with a Job Key collapses and is refused as its save is, and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was, in the same place, keeps its Reading as it was, a misreading included; correct one with set_reading. */
 	editRecipe(input: EditRecipeInput): Promise<Answer<'edit_recipe'>>;
-	/** Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it ("Vegetarian"). Changing one never changes the other. */
+	/** Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it ("Vegetarian"). Changing one never changes the other. With version_id, a Version of that Branch, it starts from that older Version instead of the newest, and the recipe stays as it is. Only for those who write the recipe's Cookbook. */
 	startVariation(input: StartVariationInput): Promise<Answer<'start_variation'>>;
+	/** Make an older Version the recipe again. It is saved as a new Version on top of the newest, every field as that Version held it. It never collapses into the Version being shaped, so the Thread keeps the one stepped away from. The Readings that Version had come back with it. version_id is a Version of that Branch, and not its newest. Only for those who write the recipe's Cookbook; anybody else may keep_version_as_copy. */
+	putBackVersion(input: PutBackVersionInput): Promise<Answer<'put_back_version'>>;
+	/** Keep a Version of a recipe as your own copy. For a recipe you do not write: the copy goes in your own Cookbook and starts from that Version, an older one included, and the recipe it came from is not changed. Where your Cookbook already holds its own copy of that recipe in that Language, a name is required and this one is a named variation beside it; changed_since says so as keeping_needs_name. Those who write the recipe use put_back_version or start_variation instead. */
+	keepVersionAsCopy(input: KeepVersionAsCopyInput): Promise<Answer<'keep_version_as_copy'>>;
 	/** Name a recipe's Branch in your Cookbook, or clear its name. A Cookbook keeps one unnamed Branch of a recipe in each Language, so a second one needs a name. */
 	renameBranch(input: RenameBranchInput): Promise<Answer<'rename_branch'>>;
 	/** Take one recipe off the shelf for good. It is gone from the shelf, from search and from every member of its Kitchen, and nothing brings it back. **One Branch**: a translation is an ordinary Branch, so deleting the English one leaves the French one whole, and another Kitchen's copy of the same recipe is untouched. **The cooking history stays.** Every Attempt ever made from this recipe keeps its rating, its note and its Photographs, and the Cooked diary keeps each entry under the name the recipe was known by. So does a Shopping List holding it, which says it can no longer be read rather than quietly dropping it. No Version is ever deleted, by this or by anything else. A live Share Link stops working. */
@@ -32736,7 +34067,7 @@ export interface KamosuClient {
 	branchPoint(input: BranchPointInput): Promise<Answer<'branch_point'>>;
 	/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. A line both have word for word in another place is `moved`, and `place` says where each side's page draws a row. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. A Translation has no Branch Point with its source, nor with another Translation of it, and the two are in different Languages, so nothing pairs their lines and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions. */
 	divergence(input: DivergenceInput): Promise<Answer<'divergence'>>;
-	/** See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch. */
+	/** See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch, and so may put_back_version or start_variation from that Version; anybody else may keep_version_as_copy. */
 	changedSince(input: ChangedSinceInput): Promise<Answer<'changed_since'>>;
 	/** Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
 	setReading(input: SetReadingInput): Promise<Answer<'set_reading'>>;

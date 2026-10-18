@@ -16926,6 +16926,376 @@ async fn an_older_version_is_laid_over_the_newest_of_its_branch() {
     assert_eq!(status, 404, "{refused}");
 }
 
+/// A recipe of Stéphane's with two Versions, for #354: the first, whose
+/// soy sauce line he corrected by hand to read tamari, and a newer one he
+/// saved a moment ago. Answers his key, his Kitchen, the Branch, and the two
+/// Version ids.
+fn a_recipe_with_an_older_version(
+    app: &support::TestApp,
+) -> (String, String, String, String, String) {
+    let (_, key, kitchen) = person_with_kitchen(app, "Stéphane");
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Soupe",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 tbsp soy sauce" },
+                { "kind": "ingredient", "text": "1 litre stock" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let branch = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let first = created["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, corrected) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": branch, "line_index": 0,
+            "amount": "2", "unit": "tbsp", "target": "tamari",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{corrected}");
+    backdate_branch_head(app, &branch);
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch,
+            "title": "Soupe d'hiver",
+            "ingredients": [
+                { "kind": "ingredient", "text": "3 tbsp soy sauce" },
+                { "kind": "ingredient", "text": "1 litre stock" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    let newest = saved["result"]["version_id"].as_str().unwrap().to_string();
+    (key, kitchen, branch, first, newest)
+}
+
+fn recipe_of(app: &support::TestApp, key: &str, branch: &str) -> Value {
+    let (status, recipe) = app.post_op(
+        "get_recipe",
+        Some(key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    assert_eq!(status, 200, "{recipe}");
+    recipe["result"].clone()
+}
+
+/// #354: an older Version put back is the recipe again, as a new Version on
+/// top. Within the collapse window of his own last save too, since a
+/// collapse would erase the Version he steps away from.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_older_version_put_back_is_the_recipe_again_on_top_of_the_newest() {
+    let app = support::spawn_app();
+    let (key, _, branch, first, newest) = a_recipe_with_an_older_version(&app);
+
+    let (status, put_back) = app.post_op(
+        "put_back_version",
+        Some(&key),
+        &json!({ "branch_id": branch, "version_id": first }).to_string(),
+    );
+    assert_eq!(status, 200, "{put_back}");
+    let answer = &put_back["result"];
+    assert_eq!(answer["collapsed"], json!(false), "{answer}");
+    assert_eq!(answer["copied"], json!(false));
+    assert_eq!(answer["version_id"], json!(first));
+    assert_eq!(answer["parent_version_id"], json!(newest));
+    assert_eq!(answer["sequence"], json!(3));
+
+    let recipe = recipe_of(&app, &key, &branch);
+    assert_eq!(recipe["head_version_id"], json!(first));
+    let versions = recipe["versions"].as_array().unwrap();
+    assert_eq!(versions[2]["content"]["title"], json!("Soupe"));
+    assert_eq!(versions.len(), 3, "the Thread keeps all three: {recipe}");
+    assert_eq!(versions[1]["version_id"], json!(newest));
+    assert_eq!(versions[2]["version_id"], json!(first));
+    // The Reading he corrected on the first Version came back with it.
+    assert_eq!(
+        versions[2]["readings"][0],
+        json!({ "amount": "2", "unit": "tbsp", "target": "tamari", "lineage_id": null }),
+        "{recipe}"
+    );
+
+    // The newest Version is the recipe already, and a Version of another
+    // recipe is not one of this one's.
+    for (version_id, why) in [(&first, "the newest"), (&"v_nothing".to_string(), "none")] {
+        let (status, refused) = app.post_op(
+            "put_back_version",
+            Some(&key),
+            &json!({ "branch_id": branch, "version_id": version_id }).to_string(),
+        );
+        assert_eq!(status, 400, "{why}: {refused}");
+    }
+    assert_eq!(
+        recipe_of(&app, &key, &branch)["versions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+
+    // The MCP door puts back the same way.
+    let call = json!({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": { "name": "put_back_version", "arguments": { "branch_id": branch, "version_id": newest } },
+    });
+    let (status, mcp) = app.post_mcp(&call.to_string(), Some(&key));
+    assert_eq!(status, 200, "{mcp}");
+    assert_eq!(mcp["result"]["isError"], json!(false), "{mcp}");
+    assert_eq!(
+        recipe_of(&app, &key, &branch)["versions"][3]["content"]["title"],
+        json!("Soupe d'hiver")
+    );
+}
+
+/// #354: a Language only guessed settles on a put-back, as it does on a
+/// save of the same content (#321).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_put_back_settles_a_language_that_was_only_guessed() {
+    let app = support::spawn_app();
+    let (_, key, _) = person_with_kitchen(&app, "Stéphane");
+    let mut mousse = french_mousse();
+    mousse["language"] = json!("fr");
+    let branch = shelve_recipe(&app, &key, mousse);
+    let first = recipe_of(&app, &key, &branch)["head_version_id"].clone();
+    backdate_branch_head(&app, &branch);
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch, "title": "Mousse" }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    // As a bare recipe's guess stands: the writer's own Language.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branches SET language = 'en', language_guessed = 1 WHERE id = ?1",
+                rusqlite::params![branch],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+
+    let (status, put_back) = app.post_op(
+        "put_back_version",
+        Some(&key),
+        &json!({ "branch_id": branch, "version_id": first }).to_string(),
+    );
+    assert_eq!(status, 200, "{put_back}");
+    assert_eq!(put_back["result"]["language"], json!("fr"));
+    assert_eq!(recipe_of(&app, &key, &branch)["language"], json!("fr"));
+}
+
+/// #354: a variation can start from an older Version, and forks there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_variation_starts_from_an_older_version_and_leaves_the_recipe_as_it_is() {
+    let app = support::spawn_app();
+    let (key, _, branch, first, newest) = a_recipe_with_an_older_version(&app);
+
+    let (status, started) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": branch, "name": "Comme avant", "version_id": first }).to_string(),
+    );
+    assert_eq!(status, 200, "{started}");
+    let variation = &started["result"];
+    assert_ne!(variation["branch_id"], json!(branch));
+    assert_eq!(variation["name"], json!("Comme avant"));
+    assert_eq!(variation["head_version_id"], json!(first));
+    let chain = variation["versions"].as_array().unwrap();
+    assert_eq!(chain[0]["content"]["title"], json!("Soupe"));
+    assert_eq!(chain.len(), 1, "the Thread forks at the first: {variation}");
+    assert_eq!(chain[0]["version_id"], json!(first));
+
+    assert_eq!(
+        recipe_of(&app, &key, &branch)["head_version_id"],
+        json!(newest),
+        "the recipe is as it was"
+    );
+
+    // A Version of another of his recipes is not one of this recipe's, for
+    // any of the three acts.
+    let (_, other) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "title": "Tarte" }).to_string(),
+    );
+    let elsewhere = other["result"]["head_version_id"].clone();
+    for version_id in [json!("v_nothing"), elsewhere] {
+        for (operation, mut asked) in [
+            ("start_variation", json!({ "name": "Autre" })),
+            ("put_back_version", json!({})),
+            ("keep_version_as_copy", json!({})),
+        ] {
+            asked["branch_id"] = json!(branch);
+            asked["version_id"] = version_id.clone();
+            let (status, refused) = app.post_op(operation, Some(&key), &asked.to_string());
+            assert_eq!(status, 400, "{operation} {version_id}: {refused}");
+            assert_eq!(
+                refused["error"]["message"],
+                json!("version_id is not a Version of this Branch"),
+                "{operation}"
+            );
+        }
+    }
+    assert_eq!(
+        recipe_of(&app, &key, &branch)["versions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+/// #354: somebody who sees an older Version and does not write the recipe
+/// keeps it as their own copy, and is refused the two acts of its writers at
+/// both Doors.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reader_keeps_an_older_version_as_their_own_copy_and_may_not_put_it_back() {
+    let app = support::spawn_app();
+    let (key, kitchen, branch, first, newest) = a_recipe_with_an_older_version(&app);
+    let (_, reader, _) = person_with_kitchen(&app, "Hélène");
+    ask_into_kitchen(&app, &key, &kitchen, &reader);
+
+    let refused_both_doors = |operation: &str, arguments: Value| {
+        let (status, refused) = app.post_op(operation, Some(&reader), &arguments.to_string());
+        assert_eq!(status, 401, "{operation}: {refused}");
+        let call = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": operation, "arguments": arguments },
+        });
+        let (_, mcp) = app.post_mcp(&call.to_string(), Some(&reader));
+        assert_eq!(mcp["result"]["isError"], json!(true), "{operation}: {mcp}");
+    };
+    refused_both_doors(
+        "put_back_version",
+        json!({ "branch_id": branch, "version_id": first }),
+    );
+    refused_both_doors(
+        "start_variation",
+        json!({ "branch_id": branch, "name": "Mienne", "version_id": first }),
+    );
+
+    let asked = json!({ "branch_id": branch, "version_id": first });
+    let (_, compared) = app.post_op("changed_since", Some(&reader), &asked.to_string());
+    assert_eq!(compared["result"]["writes"], json!(false), "{compared}");
+    assert_eq!(compared["result"]["keeping_needs_name"], json!(false));
+
+    // A blank name, where none is asked for, is no name.
+    let mut blank = asked.clone();
+    blank["name"] = json!("  ");
+    let (status, kept) = app.post_op("keep_version_as_copy", Some(&reader), &blank.to_string());
+    assert_eq!(status, 200, "{kept}");
+    let copy = &kept["result"];
+    assert_ne!(copy["branch_id"], json!(branch));
+    assert_eq!(copy["head_version_id"], json!(first));
+    assert_eq!(copy["writes"], json!(true), "it is hers: {copy}");
+    assert_eq!(copy["name"], Value::Null);
+    assert_eq!(
+        recipe_of(&app, &key, &branch)["head_version_id"],
+        json!(newest)
+    );
+
+    // She holds her own copy now, so a second one is a named variation, and
+    // asks for its name first. At the MCP door this time.
+    let (_, compared) = app.post_op("changed_since", Some(&reader), &asked.to_string());
+    assert_eq!(compared["result"]["keeping_needs_name"], json!(true));
+    let (status, refused) = app.post_op("keep_version_as_copy", Some(&reader), &asked.to_string());
+    assert_eq!(status, 400, "{refused}");
+    let call = json!({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {
+            "name": "keep_version_as_copy",
+            "arguments": { "branch_id": branch, "version_id": first, "name": "Celle de Stéphane" },
+        },
+    });
+    let (_, mcp) = app.post_mcp(&call.to_string(), Some(&reader));
+    assert_eq!(mcp["result"]["isError"], json!(false), "{mcp}");
+    let named = &mcp["result"]["structuredContent"];
+    assert_eq!(named["name"], json!("Celle de Stéphane"));
+    assert_eq!(named["head_version_id"], json!(first));
+
+    // A named variation of his needs no name of hers: the copy keeps its own.
+    let (_, vegetarian) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": branch, "name": "Végétarienne", "version_id": first }).to_string(),
+    );
+    let vegetarian = vegetarian["result"]["branch_id"].clone();
+    let of_it = json!({ "branch_id": vegetarian, "version_id": first });
+    let (_, compared) = app.post_op("changed_since", Some(&reader), &of_it.to_string());
+    assert_eq!(compared["result"]["keeping_needs_name"], json!(false));
+    let (status, kept) = app.post_op("keep_version_as_copy", Some(&reader), &of_it.to_string());
+    assert_eq!(status, 200, "{kept}");
+    assert_eq!(kept["result"]["name"], json!("Végétarienne"));
+
+    // Its writer has two acts of his own for this, and is told so.
+    let (status, refused) = app.post_op("keep_version_as_copy", Some(&key), &asked.to_string());
+    assert_eq!(status, 400, "{refused}");
+    assert_eq!(
+        recipe_of(&app, &key, &branch)["head_version_id"],
+        json!(newest)
+    );
+}
+
+/// #354: a Translation's older Version put back says again which Version of
+/// its source it renders, not the one its newest said.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translations_older_version_put_back_renders_what_it_rendered() {
+    let app = support::spawn_app();
+    let (_, key, _) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let first_source = recipe_of(&app, &key, &english)["head_version_id"].clone();
+    let mut input = french_mousse();
+    input["branch_id"] = json!(english);
+    input["language"] = json!("fr");
+    let (status, translated) = app.post_op("start_translation", Some(&key), &input.to_string());
+    assert_eq!(status, 200, "{translated}");
+    let french = translated["result"]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let first = translated["result"]["head_version_id"].clone();
+
+    // The source moves on, and the Translation catches up with it.
+    backdate_branch_head(&app, &english);
+    let mut moved = english_mousse();
+    moved["branch_id"] = json!(english);
+    moved["title"] = json!("Dark Chocolate Mousse");
+    let (_, saved) = app.post_op("save_recipe_version", Some(&key), &moved.to_string());
+    let second_source = saved["result"]["version_id"].clone();
+    backdate_branch_head(&app, &french);
+    let mut caught_up = french_mousse();
+    caught_up["branch_id"] = json!(french);
+    caught_up["title"] = json!("Mousse au chocolat noir");
+    caught_up["translates_version_id"] = second_source.clone();
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &caught_up.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["translates_version_id"], second_source);
+
+    let (status, put_back) = app.post_op(
+        "put_back_version",
+        Some(&key),
+        &json!({ "branch_id": french, "version_id": first }).to_string(),
+    );
+    assert_eq!(status, 200, "{put_back}");
+    assert_eq!(put_back["result"]["translates_version_id"], first_source);
+    assert_eq!(put_back["result"]["language"], json!("fr"));
+    let recipe = recipe_of(&app, &key, &french);
+    assert_eq!(recipe["versions"][2]["translates_version_id"], first_source);
+}
+
 /// ADR 0019's load-bearing claim. Select-all-delete-retype is how a line gets
 /// fixed on a phone; if it manufactured a divergence, nothing else here works.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

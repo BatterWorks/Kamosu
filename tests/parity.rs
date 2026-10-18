@@ -59,6 +59,8 @@ fn arguments_for(name: &str) -> Value {
         "answer_cookbook_join" => json!({ "join_id": "cj_parity", "yes": true }),
         "remove_cookbook_author" => json!({ "person_id": "p_parity" }),
         "start_variation" => json!({ "branch_id": "b_parity", "name": "Parity" }),
+        "put_back_version" => json!({ "branch_id": "b_parity", "version_id": "v_parity" }),
+        "keep_version_as_copy" => json!({ "branch_id": "b_parity", "version_id": "v_parity" }),
         "rename_branch" => json!({ "branch_id": "b_parity", "name": "Parity" }),
         "disable_account" | "delete_account" | "mint_recovery_link" => json!({ "name": "Parity" }),
         "set_operator" => json!({ "name": "Parity", "is_operator": true }),
@@ -156,6 +158,8 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "leave_cookbook"
             | "remove_cookbook_author"
             | "start_variation"
+            | "put_back_version"
+            | "keep_version_as_copy"
             | "rename_branch"
             | "mint_invite"
             | "list_accounts"
@@ -373,6 +377,8 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "leave_cookbook"
                 | "remove_cookbook_author"
                 | "start_variation"
+                | "put_back_version"
+                | "keep_version_as_copy"
                 | "rename_branch"
                 | "mint_invite"
                 | "list_accounts"

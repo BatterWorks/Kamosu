@@ -1550,6 +1550,15 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
     // id to pair the probe with — and so the same sweep can be run again as a
     // member, where every one of them must still answer.
     let her_recipe = a_recipe(&app, &nadia, "Soupe");
+    let her_version = {
+        let (status, read) = app.post_op(
+            "get_recipe",
+            Some(&nadia.key),
+            &json!({ "branch_id": her_recipe }).to_string(),
+        );
+        assert_eq!(status, 200, "{read}");
+        read["result"]["head_version_id"].clone()
+    };
     let her_other_recipe = a_recipe(&app, &nadia, "Tarte");
     let her_tag = a_tag(&app, &nadia, "weeknight");
     // A second Branch of the *same* Lineage, which is what `divergence` reads
@@ -1638,6 +1647,12 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
         ("add_to_shopping_list", json!({})),
         ("set_shopping_yield", json!({})),
         ("start_variation", json!({ "name": "a name" })),
+        (
+            "start_variation",
+            json!({ "name": "a name", "version_id": her_version }),
+        ),
+        ("put_back_version", json!({ "version_id": her_version })),
+        ("keep_version_as_copy", json!({ "version_id": her_version })),
         ("rename_branch", json!({ "name": "a name" })),
         ("delete_recipe", json!({})),
     ];
@@ -1931,6 +1946,12 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
     // time somebody appended a line below it.
     let her_spare = a_recipe(&app, &nadia, "Soupe de trop");
     for (operation, rest) in &by_branch {
+        // Two acts on an older Version of a recipe she writes: putting back
+        // the one it stands at, and keeping her own as a copy, are refused
+        // in words whoever asks. Their real result is `behaviour.rs`'s (#354).
+        if ["put_back_version", "keep_version_as_copy"].contains(operation) {
+            continue;
+        }
         let mut mine = rest.clone();
         mine["branch_id"] = if *operation == "delete_recipe" {
             json!(her_spare)

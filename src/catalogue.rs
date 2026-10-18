@@ -1590,16 +1590,61 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Start a variation of a recipe in your own Cookbook. It \
                       is a Branch of the recipe, unchanged, under a name you \
                       give it (\"Vegetarian\"). Changing one never changes the \
-                      other.",
+                      other. With version_id, a Version of that Branch, it \
+                      starts from that older Version instead of the newest, \
+                      and the recipe stays as it is. Only for those who write \
+                      the recipe's Cookbook.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
             session_only: false,
             job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["branch_id", "name"], "additionalProperties": false }),
+            input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "name": { "type": "string" }, "version_id": { "type": "string" } }, "required": ["branch_id", "name"], "additionalProperties": false }),
             output_schema: recipe_schema(),
             handler: crate::operations::start_variation,
+        },
+        Operation {
+            name: "put_back_version",
+            summary: "Make an older Version the recipe again. It is saved \
+                      as a new Version on top of the newest, every field as \
+                      that Version held it. It never collapses into the \
+                      Version being shaped, so the Thread keeps the one \
+                      stepped away from. The Readings that Version had come \
+                      back with it. version_id is a Version of that Branch, \
+                      and not its newest. Only for those who write the \
+                      recipe's Cookbook; anybody else may \
+                      keep_version_as_copy.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "version_id": { "type": "string" } }, "required": ["branch_id", "version_id"], "additionalProperties": false }),
+            output_schema: saved_version_schema(),
+            handler: crate::operations::put_back_version,
+        },
+        Operation {
+            name: "keep_version_as_copy",
+            summary: "Keep a Version of a recipe as your own copy. For a \
+                      recipe you do not write: the copy goes in your own \
+                      Cookbook and starts from that Version, an older one \
+                      included, and the recipe it came from is not changed. \
+                      Where your Cookbook already holds its own copy of that \
+                      recipe in that Language, a name is required and this \
+                      one is a named variation beside it; changed_since says \
+                      so as keeping_needs_name. Those who write the recipe \
+                      use put_back_version or start_variation instead.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "version_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["branch_id", "version_id"], "additionalProperties": false }),
+            output_schema: recipe_schema(),
+            handler: crate::operations::keep_version_as_copy,
         },
         Operation {
             name: "rename_branch",
@@ -3058,7 +3103,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       a line taken out since; a row only `mine` has is a line \
                       written since. The newest Version answers with every \
                       row the same and `newest` true. `writes` says whether \
-                      the caller may save onto this Branch.",
+                      the caller may save onto this Branch, and so may \
+                      put_back_version or start_variation from that Version; \
+                      anybody else may keep_version_as_copy.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -5393,10 +5440,18 @@ fn changed_since_schema() -> Value {
         "additionalProperties": false,
     });
     schema["properties"]["writes"] = json!({ "type": "boolean" });
+    schema["properties"]["keeping_needs_name"] = json!({
+        "type": "boolean",
+        "description": "Whether keep_version_as_copy needs a name here: your Cookbook already holds its own copy of this recipe in this Language.",
+    });
     schema["required"]
         .as_array_mut()
         .expect("a divergence declares what it requires")
-        .extend([json!("version"), json!("writes")]);
+        .extend([
+            json!("version"),
+            json!("writes"),
+            json!("keeping_needs_name"),
+        ]);
     schema
 }
 
