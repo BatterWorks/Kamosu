@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.3.0 - 2026-10-18
+
 ### Added
 
 - An Operator signed in directly can mint a Runner Key, for a Runner: a program beside Kamosu that will have an agent read what Kamosu cannot. Kamosu shows its Secret once. It acts as nobody, and can ask for work, keep hold of the Job it is working, report on it and nothing else. Both doors gain `mint_runner_key`, `list_runner_keys` and `revoke_runner_key` for an Operator, `runner_status`, which tells anyone signed in whether the instance has a Runner and when one was last heard from, asking for work or keeping hold of a Job, and `ask_for_work`, which answers a Runner Key alone. [#260] [#266] [#277]
