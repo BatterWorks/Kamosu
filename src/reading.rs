@@ -679,16 +679,26 @@ fn listed(list: &[&str], word: &str) -> bool {
 /// pepper` does (#163).
 pub fn read_line(line: &str) -> Option<Reading> {
     use unicode_normalization::UnicodeNormalization;
+    let opens_with_a_bracket = line.trim_start().starts_with(['(', '[', '{']);
     // An accent typed as its own character is put back on its letter, so one
     // name read from two keyboards is one spelling (#230). Only the Reading
     // is respelt: the line itself is the recipe's, and stays as written.
     let line: String = without_brackets(line).nfc().collect();
+    // A comma straight after an opening aside in brackets ends nothing, since
+    // nothing stood before it: `(white part), finely sliced Spring onion` is
+    // the aside and then the line itself (#353). Without the bracket the
+    // comma is kept, and `, salt` measures nothing and names nothing.
+    let line = if opens_with_a_bracket {
+        line.trim_start_matches(|c: char| c == ',' || c.is_whitespace())
+    } else {
+        &line
+    };
     // The slashes are stood apart only to find a restated measure. Where
     // there is none, the line is read as written, so `salt/2 tsp pepper`
     // names the Food the cook spelt and not a respaced copy of it (#182).
-    match read_split(&slashes_apart(&line)) {
+    match read_split(&slashes_apart(line)) {
         (reading, true) => reading,
-        _ => read_split(&line).0,
+        _ => read_split(line).0,
     }
 }
 
@@ -869,6 +879,7 @@ fn read_clauses(line: &str) -> (Option<Reading>, bool) {
         return (None, false);
     }
     stand_the_unit_apart(&mut tokens, 0);
+    let pack_restated = drop_the_pack_size(&mut tokens);
     // A measure written after the Food is read where a measure is always
     // read, at the start: `Pâtes orzo 200 g` as `200 g Pâtes orzo` (#207).
     // Its amount may stand against its Unit, `Pâtes orzo 200g`, and the two
@@ -941,7 +952,7 @@ fn read_clauses(line: &str) -> (Option<Reading>, bool) {
     // Where there is nothing there either, the Reading names no Food rather
     // than promoting the Unit or a describing word into one (ADR 0002).
     let mut named = &rest[unit_taken..];
-    let mut restating = false;
+    let mut restating = pack_restated;
     if reading.amount.is_some() && reading.unit.is_some() {
         while let Some(taken) = restated(named) {
             named = &named[taken..];
@@ -1730,13 +1741,21 @@ fn restated(words: &[&str]) -> Option<usize> {
     }
     let amount = amount_words(words)?;
     let after = &words[amount..];
-    (1..=after.len().min(3))
+    let unit = match closed_unit_at(after) {
+        0 if after.first().is_some_and(|word| listed(OPEN_UNITS, word)) => 1,
+        unit => unit,
+    };
+    (unit > 0).then_some(1 + amount + unit)
+}
+
+/// How many words at the start of `words` are a Unit of the closed set: the
+/// longest window of up to three it recognises, `fl oz` or `g`, and 0 where
+/// none opens them.
+fn closed_unit_at(words: &[&str]) -> usize {
+    (1..=words.len().min(3))
         .rev()
-        .find(|&take| {
-            let candidate = after[..take].join(" ");
-            units::recognise(&candidate).is_some() || (take == 1 && listed(OPEN_UNITS, after[0]))
-        })
-        .map(|take| 1 + amount + take)
+        .find(|&take| units::recognise(&words[..take].join(" ")).is_some())
+        .unwrap_or(0)
 }
 
 /// **A word cut where its number ends and a Unit of the closed set begins**,
@@ -1768,6 +1787,79 @@ fn stand_the_unit_apart(words: &mut Vec<&str>, from: usize) {
     });
     if let Some((at, number, unit)) = found {
         words.splice(at..=at, [number, unit]);
+    }
+}
+
+/// The signs a pack size is multiplied by: `2 x 400 g`, `2 × 400 g`.
+const TIMES: &[char] = &['x', 'X', '×'];
+
+/// **A pack size after the amount taken out**, so `2 x 400 g tins of
+/// tomatoes` reads as `2 tins of tomatoes` does (#353). Left in, it named a
+/// Food `400 g de tomates`, or none at all.
+///
+/// The amount stays the `2` the line wrote, and is never worked out as
+/// `800 g`: that is a number the line does not state.
+///
+/// A pack size is a sign of [`TIMES`] straight after the amount, then an
+/// amount and a Unit of the closed set. The sign may stand against either
+/// number, `2x 400g` or `2x400g`. A sign with no measure behind it is left
+/// alone, so `2x eggs` is still a name. The pack size restated after a slash
+/// goes with it, `2 x 400 g / 14 oz tins`, since left behind it read as an
+/// amount of `2 / 14` (#182), and the answer says whether one was.
+fn drop_the_pack_size<'a>(words: &mut Vec<&'a str>) -> bool {
+    let parted: Vec<&'a str> = words
+        .iter()
+        .flat_map(|word| around_the_sign(word))
+        .collect();
+    let Some(amount) = amount_words(&parted) else {
+        return false;
+    };
+    if !parted.get(amount).is_some_and(|word| is_times(word)) {
+        return false;
+    }
+    let mut size = parted[amount + 1..].to_vec();
+    stand_the_unit_apart(&mut size, 0);
+    let Some(number) = amount_words(&size) else {
+        return false;
+    };
+    let unit = closed_unit_at(&size[number..]);
+    if unit == 0 {
+        return false;
+    }
+    let mut measured = &size[number + unit..];
+    let mut restating = false;
+    while let Some(taken) = restated(measured) {
+        measured = &measured[taken..];
+        restating = true;
+    }
+    *words = parted[..amount].iter().chain(measured).copied().collect();
+    restating
+}
+
+/// Whether a word is one of the [`TIMES`] signs and nothing else.
+fn is_times(word: &str) -> bool {
+    let mut characters = word.chars();
+    matches!((characters.next(), characters.next()), (Some(sign), None) if TIMES.contains(&sign))
+}
+
+/// A word cut either side of a [`TIMES`] sign written against a number,
+/// `2x` or `x400g` or `2x400g`, and any other word left whole.
+fn around_the_sign(word: &str) -> Vec<&str> {
+    let digit = |c: Option<char>| c.is_some_and(|c| c.is_ascii_digit());
+    let sign = word.char_indices().find(|&(at, c)| {
+        let end = at + c.len_utf8();
+        TIMES.contains(&c)
+            && (digit(word[..at].chars().next_back()) || digit(word[end..].chars().next()))
+    });
+    match sign {
+        Some((at, c)) => {
+            let end = at + c.len_utf8();
+            [&word[..at], &word[at..end], &word[end..]]
+                .into_iter()
+                .filter(|part| !part.is_empty())
+                .collect()
+        }
+        None => vec![word],
     }
 }
 
@@ -2018,6 +2110,15 @@ fn split_elisions(head: &str) -> String {
 /// bellota steak burgers from the market`, is left unread by this limit on
 /// purpose, because the words alone cannot tell the aside from the name
 /// (#148).
+///
+/// **The `de` of a French or Spanish name is not counted.** Those languages
+/// write a food as two nouns joined by `de`, `lait de coco` or `huile
+/// d'olive`, where English writes two words, `coconut milk`. So `lait de coco
+/// non sucré en conserve` is the six words of `canned unsweetened coconut
+/// milk`, and not a sentence (#353). Only the name's second word is that
+/// `de`: the one in `On pourrait presque faire de l'ASMR !` still counts. A
+/// sentence of seven words that opens the same way, `Assez de sel pour
+/// relever le goût`, now reads as a Food: the words cannot tell it apart.
 const LONGEST_FOOD_NAME: usize = 6;
 
 /// The Food's name, put back together: elisions re-glued to their own word,
@@ -2026,7 +2127,11 @@ const LONGEST_FOOD_NAME: usize = 6;
 /// than guessed at" — the line still reads exactly as written.
 fn rejoin(words: &[&str]) -> Option<String> {
     use unicode_normalization::char::is_combining_mark;
-    if words.len() > LONGEST_FOOD_NAME {
+    let joins_two_nouns = words.get(1).is_some_and(|word| {
+        let elided = word.ends_with(['\'', '\u{2019}']);
+        folded(word) == if elided { "d" } else { "de" }
+    });
+    if words.len() - usize::from(joins_two_nouns) > LONGEST_FOOD_NAME {
         return None;
     }
     let name = words
@@ -2285,6 +2390,104 @@ mod tests {
         assert_eq!(
             read("cloves, roughly chopped garlic"),
             parts(None, Some("cloves"), Some("roughly chopped garlic"))
+        );
+    }
+
+    #[test]
+    fn a_pack_size_after_the_amount_is_no_part_of_the_food() {
+        // The line #353 was filed from, which read with no Food at all.
+        assert_eq!(
+            read("2 x 400 g tins of whole peeled tomatoes, drained"),
+            read("2 tins of whole peeled tomatoes")
+        );
+        assert_eq!(
+            read("2 x 400 g tins of whole peeled tomatoes, drained"),
+            parts(Some("2"), Some("tins"), Some("peeled tomatoes"))
+        );
+        // Either spelling of the sign, the size against its Unit or against
+        // the sign, and in French and Spanish too.
+        for line in [
+            "2 × 400 g de tomates",
+            "2 x 400g de tomates",
+            "2 X 400 g de tomates",
+            "2x 400 g de tomates",
+            "2x400g de tomates",
+            "2 ×400 g de tomates",
+        ] {
+            assert_eq!(
+                read(line),
+                parts(Some("2"), None, Some("tomates")),
+                "{line}"
+            );
+        }
+        assert_eq!(
+            read("2 x 400 g latas de tomate triturado"),
+            parts(Some("2"), Some("latas"), Some("tomate triturado"))
+        );
+        assert_eq!(
+            read("1 × 200 ml carton crème fraîche"),
+            read("1 carton crème fraîche")
+        );
+        // A sign with no measure behind it is still part of a name, and a pack
+        // size with nothing after it to measure leaves the amount alone.
+        assert_eq!(read("2x eggs"), parts(None, None, Some("2x eggs")));
+        assert_eq!(read("2 x 400 g"), parts(Some("2"), None, None));
+        // A pack size restated after a slash goes with it, and is never read
+        // as an amount of `2 / 14`.
+        for line in [
+            "2 x 400 g / 14 oz tins of chopped tomatoes",
+            "2 x 400g/14oz tins of chopped tomatoes",
+        ] {
+            assert_eq!(read(line), read("2 tins of chopped tomatoes"), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_word_that_only_joins_does_not_count_toward_a_long_name() {
+        // A French Translation of `500ml / 16 fl oz canned unsweetened coconut
+        // milk, well stirred`, which reads as `canned unsweetened coconut
+        // milk`: French spends a word on `de` that English does not (#353).
+        assert_eq!(
+            read("500 ml / 16 fl oz de lait de coco non sucré en conserve, bien mélangé"),
+            parts(
+                Some("500"),
+                Some("ml"),
+                Some("lait de coco non sucré en conserve")
+            )
+        );
+        assert_eq!(
+            read("500 ml de lait de coco non sucré en conserve"),
+            parts(
+                Some("500"),
+                Some("ml"),
+                Some("lait de coco non sucré en conserve")
+            )
+        );
+        // Only the `de` joining a name's two nouns goes uncounted, so seven
+        // words are still a sentence elsewhere, in French as in English. The
+        // first is a line of the real corpus.
+        assert_eq!(read("On pourrait presque faire de l'ASMR !"), None);
+        assert_eq!(read("Ajouter un peu plus de sel ensuite"), None);
+        assert_eq!(
+            read("Thick bellota steak burgers from the local market"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_line_that_opens_with_an_aside_in_brackets_reads_what_follows_it() {
+        // The bracket is gone, and the comma after it ended nothing (#353).
+        assert_eq!(
+            read("(white/lower part), finely sliced Spring onion"),
+            parts(None, None, Some("finely sliced Spring onion"))
+        );
+        assert_eq!(
+            read("(optional), 2 tbsp honey"),
+            parts(Some("2"), Some("tbsp"), Some("honey"))
+        );
+        assert_eq!(
+            read("Spring onion (white part), finely sliced"),
+            parts(None, None, Some("Spring onion"))
         );
     }
 
