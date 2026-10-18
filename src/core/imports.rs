@@ -14,6 +14,7 @@ impl Core {
         &self,
         caller: &Caller,
         mut export: crouton::Export,
+        into: Option<&str>,
         progress: Option<&JobProgress>,
     ) -> Result<Value, OpError> {
         let total = export.len();
@@ -65,7 +66,7 @@ impl Core {
                 tags: crumb.tags,
             }
         });
-        self.import_each(caller, "crouton", total, incoming, progress)
+        self.import_each(caller, "crouton", into, total, incoming, progress)
     }
 
     /// What this Person has brought in from outside, and what happened each
@@ -129,17 +130,23 @@ impl Core {
             // of text. All this needs from it is one short string, and only for
             // `import`, the one importer that does not name its source in its
             // own definition.
+            //
+            // An agent's Job is listed where it is its own Import: one reading
+            // an Original, or a recipe read again.
             let arrivals: Vec<ArrivalRow> = {
                 let mut statement = conn
-                    .prepare(
+                    .prepare(&format!(
                         "SELECT id, operation, json_extract(input, '$.source_kind'),
                                 status, result, created_at
                            FROM jobs
                           WHERE person_id = ?1
-                            AND operation IN ('import', 'import_crouton',
-                                              'import_bundle', 'import_web_link')
+                            AND (operation IN ('import', 'import_crouton',
+                                               'import_bundle', 'import_web_link')
+                                 OR (operation = '{}' AND {}))
                           ORDER BY created_at DESC",
-                    )
+                        jobs::AGENT_OPERATION,
+                        jobs::ITS_OWN_IMPORT,
+                    ))
                     .map_err(|e| OpError::internal(format!("cannot list arrivals: {e}")))?;
                 statement
                     .query_map(params![person_id], |row| {
@@ -160,6 +167,12 @@ impl Core {
 
             let mut grouped: Vec<(String, Vec<Value>)> = Vec::new();
             for row in arrivals {
+                // A page read from its own text and handed back to be checked
+                // brought nothing in (#301): saved, it is a recipe written by
+                // hand, and unsaved it is nothing.
+                if row.result.as_ref().is_some_and(|result| result.get("to_check").is_some()) {
+                    continue;
+                }
                 let Some(source_kind) = arrival_source_kind(
                     &row.operation,
                     row.declared.as_deref(),
@@ -167,12 +180,19 @@ impl Core {
                 ) else {
                     continue;
                 };
-                let summary = arrival_summary(
-                    &row.job_id,
-                    &row.status,
-                    &row.created_at,
-                    row.result.as_ref(),
-                );
+                // The agent's Job is found from its arrival, which named it
+                // in its Report, and read as it stands now: the Report was
+                // written when the Import ended and the Job has moved since.
+                let mut report = row.result;
+                if let Some(report) = report.as_mut() {
+                    report_with_agent_jobs_as_they_stand(conn, report)?;
+                }
+                let mut summary =
+                    arrival_summary(&row.job_id, &row.status, &row.created_at, report.as_ref());
+                let agent_jobs = arrival_agent_jobs(report.as_ref());
+                if !agent_jobs.is_empty() {
+                    summary["agent_jobs"] = json!(agent_jobs);
+                }
                 match grouped.iter_mut().find(|(kind, _)| *kind == source_kind) {
                     Some((_, rows)) => rows.push(summary),
                     None => grouped.push((source_kind, vec![summary])),
@@ -348,11 +368,13 @@ impl Core {
         caller: &Caller,
         source_kind: &str,
         candidates: &[Value],
+        into: Option<&str>,
         progress: Option<&JobProgress>,
     ) -> Result<Value, OpError> {
         self.import_each(
             caller,
             source_kind,
+            into,
             candidates.len(),
             candidates.iter().cloned().map(Incoming::candidate),
             progress,
@@ -375,15 +397,16 @@ impl Core {
         &self,
         caller: &Caller,
         source_kind: &str,
+        into: Option<&str>,
         total: usize,
         mut incoming: impl Iterator<Item = Incoming>,
         progress: Option<&JobProgress>,
     ) -> Result<Value, OpError> {
         let source_kind = required_text(source_kind, "source_kind")?.to_string();
-        // Always into the caller's own Cookbook (ADR 0041): there is no
-        // question of where an imported recipe goes.
+        // Into the caller's own Cookbook (ADR 0041), or the one an Operator
+        // looking after it names (#302).
         let (cookbook_id, cookbook_hand_id) = self.db().with_conn(|conn| {
-            let cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            let cookbook_id = lands_in(conn, caller, into)?;
             let hand_id = cookbook_hand(conn, &cookbook_id)?;
             Ok((cookbook_id, hand_id))
         })?;
@@ -430,7 +453,7 @@ impl Core {
                     continue;
                 }
             };
-            let shape = LandedShape::of(&candidate);
+            let mut shape = LandedShape::of(&candidate);
 
             let (lineage_id, branch_id, title) = match self.import_one(
                 caller,
@@ -446,7 +469,11 @@ impl Core {
                     branch_id,
                     title,
                     status,
+                    held,
                 }) => {
+                    if let Some(held) = &held {
+                        shape = LandedShape::of(held);
+                    }
                     arrived.push(json!({
                         "foreign_id": foreign_id, "status": status,
                         "lineage_id": lineage_id, "branch_id": branch_id, "title": title,
@@ -507,6 +534,85 @@ impl Core {
         }))
     }
 
+    /// Hand a link to an agent with nothing landed first (#349), as pasted
+    /// text is handed over (#269): a Job that waits for a Runner with no
+    /// recipe, whose agent creates it in the caller's own Cookbook under
+    /// their Hand. Kamosu never fetches the link itself, so no bare recipe
+    /// lands from the page's title. The same link sent again is not matched,
+    /// and makes a Job of its own.
+    ///
+    /// The answer is the Job's id. Its result is an Import Report from the
+    /// moment it is asked for, under the source a link imported is listed
+    /// under, read as the Job stands.
+    pub fn import_link_by_agent(
+        &self,
+        caller: &Caller,
+        link: &str,
+        into: Option<&str>,
+    ) -> Result<Value, OpError> {
+        self.ensure_has_runner()?;
+        let failed = |e| OpError::internal(format!("cannot record the agent's Job: {e}"));
+        self.db().with_conn(|conn| {
+            let cookbook_id = lands_in(conn, caller, into)?;
+            let import_id = find_or_create_import(conn, &cookbook_id, jobs::LINK_SOURCE)?;
+            // The agent's create lands where this one does, which is the
+            // Job's to say when it is not the asker's own (#302).
+            let elsewhere = (cookbook_id != cookbook_of_person(conn, &caller.person_id)?)
+                .then_some(cookbook_id.as_str());
+            // No Runner is handed a Job whose Report is not written yet.
+            let tx = conn.unchecked_transaction().map_err(failed)?;
+            let job_id = jobs::wait_for_agent_on_link_alone(&tx, caller, link, elsewhere)?;
+            jobs::set_result(
+                &tx,
+                &job_id,
+                &report_before_its_agent(&import_id, &cookbook_id, jobs::LINK_SOURCE, &job_id),
+            )?;
+            tx.commit().map_err(failed)?;
+            Ok(json!({ "job_id": job_id, "source_kind": jobs::LINK_SOURCE }))
+        })
+    }
+
+    /// Have an agent read the link one Import just landed bare (ADR 0048,
+    /// #261), and say so in that Import's Report.
+    ///
+    /// A recipe that `arrived` is the bare reading or an agent's writing,
+    /// newly made or matched. A Job is made on it unless one stands already,
+    /// which is named, or an agent has read it, when the Job that did is
+    /// named and none is made (#271). A recipe that was `offered` the bare
+    /// reading holds more than that: Kamosu read it in full once, or somebody
+    /// wrote it since. Sending that to an agent is for a Co-author to ask
+    /// (ADR 0048), so only a Job already standing on it is named. A candidate
+    /// that landed nothing has no recipe for a Job to be on.
+    pub fn hand_link_to_agent(
+        &self,
+        caller: &Caller,
+        mut report: Value,
+        link: &str,
+    ) -> Result<Value, OpError> {
+        let branch_of = |rows: &str| report[rows][0]["branch_id"].as_str().map(str::to_string);
+        let job = self.db().with_conn(|conn| {
+            if let Some(branch_id) = branch_of("arrived") {
+                let job_id = match jobs::agent_job_completed_on(conn, &branch_id)? {
+                    // A Job standing on it comes first, and `wait_for_agent`
+                    // answers that one.
+                    Some(completed) if jobs::standing_agent_job(conn, &branch_id)?.is_none() => {
+                        completed
+                    }
+                    _ => jobs::wait_for_agent(conn, caller, &branch_id, link)?,
+                };
+                return Ok(Some((job_id, branch_id)));
+            }
+            let Some(branch_id) = branch_of("offered") else {
+                return Ok(None);
+            };
+            Ok(jobs::standing_agent_job(conn, &branch_id)?.map(|job_id| (job_id, branch_id)))
+        })?;
+        if let Some((job_id, branch_id)) = job {
+            report["agent_jobs"] = json!([{ "job_id": job_id, "branch_id": branch_id }]);
+        }
+        Ok(report)
+    }
+
     /// One candidate against the ledger: unseen becomes a new Lineage,
     /// Branch and first Version, the importing Person's Hand on it
     /// (GLOSSARY.md, "Hand"; ADR 0025). Seen before and now identical is
@@ -514,7 +620,9 @@ impl Core {
     /// content as a Version — content-addressed, so this never collides with
     /// or moves anything already on the Branch — and answers `Offered`
     /// without touching `head_version_id`: the offer is never written over
-    /// the Branch on its own.
+    /// the Branch on its own. A bare candidate on a recipe an agent has
+    /// written is `Unchanged` instead (#271): what the agent wrote is the
+    /// reading of that source.
     ///
     /// Whatever the fate, the Branch is then filed under `tags`, English words
     /// in the Cookbook's own list (#128). Filing only adds, so a recipe matched
@@ -571,8 +679,7 @@ impl Core {
                         &language,
                         &version_id,
                         &content_text,
-                        &caller.person_id,
-                        caller.access_key_id.as_deref(),
+                        caller,
                     )?;
                     conn.execute(
                         "INSERT INTO import_ledger (import_id, foreign_id, lineage_id, branch_id) \
@@ -587,6 +694,7 @@ impl Core {
                         branch_id,
                         title,
                         status: "created",
+                        held: None,
                     })
                 }
                 Some((lineage_id, branch_id, head_version_id)) => {
@@ -596,6 +704,26 @@ impl Core {
                             branch_id,
                             title,
                             status: "unchanged",
+                            held: None,
+                        })
+                    } else if LandedShape::of(candidate).bare
+                        && agent_has_written(conn, &branch_id)?
+                    {
+                        // Described as the agent left it, not as the page is.
+                        let held: Value = conn
+                            .query_row(
+                                "SELECT content FROM versions WHERE id = ?1",
+                                params![head_version_id],
+                                |row| row.get::<_, String>(0),
+                            )
+                            .map(|content| serde_json::from_str(&content).unwrap_or_default())
+                            .map_err(|e| OpError::internal(format!("cannot read the recipe: {e}")))?;
+                        Ok(ImportOutcome::Landed {
+                            lineage_id,
+                            branch_id,
+                            title: held["title"].as_str().map_or(title, str::to_string),
+                            status: "unchanged",
+                            held: Some(held),
                         })
                     } else {
                         conn.execute(
@@ -857,6 +985,26 @@ fn related_candidates(
     Ok(offered)
 }
 
+/// Whether an agent has written a recipe Kamosu's bare reading of its source
+/// would otherwise be offered as a change to (#271): an agent's Job on it
+/// completed, or the last save on it was an agent's. The bare reading always
+/// differs from an agent's writing, so it is no news. A recipe a person wrote
+/// after an agent that never completed is offered as before (#261).
+fn agent_has_written(conn: &Connection, branch_id: &str) -> Result<bool, OpError> {
+    if jobs::agent_job_completed_on(conn, branch_id)?.is_some() {
+        return Ok(true);
+    }
+    conn.query_row(
+        "SELECT job_id IS NOT NULL FROM branch_versions
+          WHERE branch_id = ?1 ORDER BY sequence DESC LIMIT 1",
+        params![branch_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(Option::unwrap_or_default)
+    .map_err(|e| OpError::internal(format!("cannot read the recipe's History: {e}")))
+}
+
 /// What became of one Import candidate against the ledger.
 enum ImportOutcome {
     /// Newly made (`status: "created"`) or matched and found unchanged
@@ -866,6 +1014,10 @@ enum ImportOutcome {
         branch_id: String,
         title: String,
         status: &'static str,
+        /// The recipe as it stands, where the Report describes it rather
+        /// than the candidate: a bare reading matched to what an agent
+        /// wrote (#271).
+        held: Option<Value>,
     },
     Offered {
         lineage_id: String,
@@ -922,7 +1074,7 @@ fn arrival_source_kind(
     match operation {
         "import_crouton" => Some("crouton".to_string()),
         "import_bundle" => Some("bundle".to_string()),
-        "import_web_link" => Some("web".to_string()),
+        "import_web_link" => Some(jobs::LINK_SOURCE.to_string()),
         "import" => declared.map(str::to_string),
         _ => None,
     }
@@ -956,6 +1108,214 @@ fn arrival_summary(job_id: &str, status: &str, created_at: &str, result: Option<
         "offered": count("offered"),
         "unreadable": count("unreadable"),
     })
+}
+
+/// The agent's Jobs an arrival's Report names, each with the recipe it is on
+/// and its state now (#261): the row `list_imports` shows, cut from a Report
+/// already brought up to date.
+fn arrival_agent_jobs(report: Option<&Value>) -> Vec<Value> {
+    report
+        .and_then(|report| report.get("agent_jobs"))
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter(|row| row.get("status").is_some())
+                .map(|row| {
+                    json!({
+                        "job_id": row["job_id"], "branch_id": row["branch_id"],
+                        "status": row["status"],
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Bring an Import Report up to date with the agent's Jobs it names (#262).
+///
+/// The Report was written when the Import ended, and the agent's Job has
+/// moved since. So the Report is kept as it was written and each reading
+/// adds how those Jobs stand now. That keeps the bare recipe and the agent's
+/// work one arrival, however many Reports name the Job.
+///
+/// Each Job gains its `status`. One an agent completed says `made_by_agent`,
+/// and one whose Original was deleted says `original_gone` (#270). One whose
+/// agent said it holds no recipe says `could_not_be_read` (#276).
+/// One a Runner reported on carries the agent's own report. One that failed,
+/// whoever ended it, is also listed under `unreadable` with the reason, and
+/// the bare recipe stays under `arrived`. A Report naming no such Job is
+/// left exactly as it was.
+///
+/// A Job reading an Original is its own Import, and its Report names it with
+/// no recipe, since the agent creates one (#269). Once it has, the recipe is
+/// named and listed under `arrived` as it reads now. A recipe read again is
+/// its own Import too (#272), and its arrival is listed as it reads now.
+pub(super) fn report_with_agent_jobs_as_they_stand(
+    conn: &Connection,
+    report: &mut Value,
+) -> Result<(), OpError> {
+    let Some(named) = report.get("agent_jobs").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    let ids: Vec<String> = named
+        .iter()
+        .filter_map(|row| row["job_id"].as_str().map(str::to_string))
+        .collect();
+    let states = jobs::agent_jobs_as_they_stand(conn, &ids)?;
+
+    let mut could_not_be_read = Vec::new();
+    for state in states {
+        let Some(row) = report["agent_jobs"].as_array_mut().and_then(|rows| {
+            rows.iter_mut()
+                .find(|row| row["job_id"] == json!(state.job_id))
+        }) else {
+            continue;
+        };
+        row["status"] = json!(state.status.as_str());
+        // The recipe an agent reading an Original, or a link handed to it
+        // alone, has created since.
+        let created = match &state.branch_id {
+            Some(branch_id) if row["branch_id"].is_null() => {
+                row["branch_id"] = json!(branch_id);
+                Some(branch_id.clone())
+            }
+            _ => None,
+        };
+        if state.status == jobs::JobStatus::Completed {
+            row["made_by_agent"] = json!(true);
+        }
+        if let Some(agent_report) = state.report {
+            row["agent_report"] = agent_report;
+        }
+        if state.original_gone {
+            row["original_gone"] = json!(true);
+        }
+        if state.could_not_be_read {
+            row["could_not_be_read"] = json!(true);
+        }
+        if state.status == jobs::JobStatus::Failed {
+            could_not_be_read.push((row["branch_id"].clone(), state.error));
+        }
+        if let Some(branch_id) = created
+            && let Some(arrival) = created_by_agent(conn, &state.job_id, &branch_id)?
+            && let Some(arrived) = report["arrived"].as_array_mut()
+        {
+            arrived.push(arrival);
+        }
+    }
+
+    // A recipe read again was listed as it read when the cook asked, and is
+    // read as it reads now, the agent's work included (#272).
+    if let Some(arrived) = report["arrived"].as_array_mut() {
+        for row in arrived
+            .iter_mut()
+            .filter(|row| row["status"] == "read_again")
+        {
+            let (Some(branch_id), Some(foreign_id)) =
+                (row["branch_id"].as_str(), row["foreign_id"].as_str())
+            else {
+                continue;
+            };
+            if let Some(now) = arrival_as_it_reads(conn, branch_id, foreign_id, "read_again")? {
+                *row = now;
+            }
+        }
+    }
+
+    for (branch_id, reason) in could_not_be_read {
+        // The recipe the Job was on is listed above, bare, under the id and
+        // the name it arrived with.
+        let landed = ["arrived", "offered"]
+            .iter()
+            .filter_map(|rows| report[*rows].as_array())
+            .flatten()
+            .find(|row| row["branch_id"] == branch_id)
+            .cloned()
+            .unwrap_or(Value::Null);
+        let mut entry = json!({
+            "foreign_id": landed["foreign_id"],
+            "reason": reason.unwrap_or_else(|| "the agent's Job failed".to_string()),
+        });
+        // A Job that creates its recipe may fail before it made any.
+        if !branch_id.is_null() {
+            entry["branch_id"] = branch_id;
+        }
+        if landed["title"].is_string() {
+            entry["name"] = landed["title"].clone();
+        }
+        if let Some(unreadable) = report["unreadable"].as_array_mut() {
+            unreadable.push(entry);
+        }
+    }
+    Ok(())
+}
+
+/// The Import Report of an agent's Job that creates its recipe, before it
+/// has (#269, #349): nothing arrived yet, and the one Job named with no
+/// recipe. It is read as the Job stands from then on.
+pub(super) fn report_before_its_agent(
+    import_id: &str,
+    cookbook_id: &str,
+    source_kind: &str,
+    job_id: &str,
+) -> Value {
+    json!({
+        "import_id": import_id,
+        "cookbook_id": cookbook_id,
+        "source_kind": source_kind,
+        "arrived": [],
+        "offered": [],
+        "unreadable": [],
+        "left_out": [],
+        "related_candidates": [],
+        "agent_jobs": [{ "job_id": job_id, "branch_id": null }],
+    })
+}
+
+/// The recipe an agent created for a Job reading an Original, or a link
+/// handed to it alone, as the Report lists an arrival (#269, #349): the Job's
+/// id stands for the foreign id, since no ledger names what was handed over.
+/// None once the recipe is deleted.
+fn created_by_agent(
+    conn: &Connection,
+    job_id: &str,
+    branch_id: &str,
+) -> Result<Option<Value>, OpError> {
+    arrival_as_it_reads(conn, branch_id, job_id, "created")
+}
+
+/// A recipe as the Report lists an arrival, read as it stands now, under
+/// `foreign_id` and `status`. None where the recipe is not there.
+pub(super) fn arrival_as_it_reads(
+    conn: &Connection,
+    branch_id: &str,
+    foreign_id: &str,
+    status: &str,
+) -> Result<Option<Value>, OpError> {
+    let found: Option<(String, String)> = conn
+        .query_row(
+            "SELECT branches.lineage_id, versions.content
+               FROM branches JOIN versions ON versions.id = branches.head_version_id
+              WHERE branches.id = ?1",
+            params![branch_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the agent's recipe: {e}")))?;
+    let Some((lineage_id, content)) = found else {
+        return Ok(None);
+    };
+    let content: Value = serde_json::from_str(&content).unwrap_or_default();
+    let shape = LandedShape::of(&content);
+    Ok(Some(json!({
+        "foreign_id": foreign_id,
+        "status": status,
+        "lineage_id": lineage_id,
+        "branch_id": branch_id,
+        "title": content["title"].as_str().unwrap_or_default(),
+        "main_photo": shape.main_photo,
+        "bare": shape.bare,
+    })))
 }
 
 /// An Import id that names nothing here — and, by ADR 0040, an Import of a

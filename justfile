@@ -356,10 +356,11 @@ ui-test:
 # `--all-targets` skips a `test = false` target — so without this second pass
 # they would quietly stop compiling and nobody would find out until someone ran
 # one by hand. Type-checking them costs about two seconds, because clippy reads
-# them without linking; it was the linking that was expensive.
+# them without linking; it was the linking that was expensive. The same pass
+# lints the Runner's tests, which compile only in a `test-jobs` build (#274).
 check: _check-tokens-fresh _check-client-fresh _check-cover-fresh _check-messages ui-format-check ui-lint ui-check
     cargo fmt --check && cargo clippy --all-targets -- -D warnings
-    cargo clippy --features test-jobs {{ CORPUS_TARGETS }} -- -D warnings
+    cargo clippy --features test-jobs {{ CORPUS_TARGETS }} --test runner -- -D warnings
 
 # Every tests/*_corpus.rs and the release's library check, as clippy target
 # flags. One list, used by `check`.
@@ -591,6 +592,61 @@ docker-build: _check-tokens-fresh _check-client-fresh
 # ~2000 at once, dropping the ones refused without an error.
 podman-build: _check-tokens-fresh _check-client-fresh
     podman build --format docker --ulimit nofile=65536:65536 -t localhost/kamosu .
+
+# The Runner beside an agent in a container of its own (#315, #317). The
+# Runner is Kamosu's own image started as `kamosu runner`, because a Kamosu
+# refuses a Runner of any other version, so this builds that image from the
+# working copy, then the agent's from agent-image/.
+runner_container := "kamosu-runner"
+agent_container := "kamosu-agent"
+agent_socket_volume := "kamosu-agent-socket"
+
+agent-image: podman-build
+    podman build --format docker -t localhost/{{agent_container}} agent-image
+
+# Start both beside the dev instance, as docs/runner.md's compose file does.
+# The settings file stays outside the repository and holds KAMOSU_RUNNER_KEY
+# and the agent's settings, as docs/runner.md's tables name them: the Runner
+# is given its KAMOSU_RUNNER_ lines alone and the agent everything else. The agent's
+# container is restarted after every Job, on a read-only image with /tmp in
+# memory; the Runner three times at most, never for ever. The Runner asks the
+# dev instance at the host's LAN address, as `dev-start` prints it, and not
+# on the host's network: an agent a page has tricked should not reach what the
+# host serves on its own loopback.
+runner-start settings=(env_var("HOME") / ".config/kamosu-runner.env"):
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ -f "{{settings}}" ]] || { echo "no settings file at {{settings}}" >&2; exit 1; }
+    lan_ip="$(ip -4 addr show scope global 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)"
+    [[ -n "${lan_ip}" ]] || lan_ip="$(hostname -I | awk '{print $1}')"
+    podman rm -f {{runner_container}} {{agent_container}} >/dev/null
+    podman volume rm -f {{agent_socket_volume}} >/dev/null
+    podman volume create --opt type=tmpfs --opt device=tmpfs \
+        --opt o=size=1m,uid=1000,gid=1000,mode=0755 {{agent_socket_volume}} >/dev/null
+    podman run -d --name {{agent_container}} --restart always \
+        --read-only --tmpfs /tmp:rw,exec,mode=1777,size=4g \
+        --cap-drop all --security-opt no-new-privileges \
+        --env-file <(grep -v '^KAMOSU_RUNNER_' "{{settings}}") \
+        -v {{agent_socket_volume}}:/run/kamosu-agent \
+        localhost/{{agent_container}} >/dev/null
+    podman run -d --name {{runner_container}} --restart on-failure:3 \
+        --read-only --cap-drop all --security-opt no-new-privileges --no-healthcheck \
+        --env-file <(grep '^KAMOSU_RUNNER_' "{{settings}}") \
+        -v {{agent_socket_volume}}:/run/kamosu-agent \
+        localhost/kamosu runner --kamosu "http://${lan_ip}:{{backend_port}}" \
+        --agent-socket /run/kamosu-agent/agent.sock >/dev/null
+    echo "started: {{runner_container}} and {{agent_container}}, asking http://${lan_ip}:{{backend_port}}"
+    echo "logs:    just runner-logs"
+
+# Follow what the Runner and its agent say.
+runner-logs:
+    podman logs -f --names {{runner_container}} {{agent_container}}
+
+# Stop the Runner and its agent. A Job the Runner holds waits again once the
+# hold lapses.
+runner-stop:
+    podman rm -f --time 30 {{runner_container}} {{agent_container}} >/dev/null
+    podman volume rm -f {{agent_socket_volume}} >/dev/null
 
 # Run the image as the one-mount-one-port install: ./kamosu-data holds the truth,
 # 5266 serves the world. Ctrl-C stops it.

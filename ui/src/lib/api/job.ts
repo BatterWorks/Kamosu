@@ -55,6 +55,13 @@ const ENDED = ['completed', 'failed', 'cancelled'] as const;
  * `stopped` lets a screen that has closed stop asking: the waiting ends with
  * the last answer read, and the Job itself carries on — only the reading of it
  * stops.
+ *
+ * `answersWhenFailed` returns a failed Job instead of raising it, for the one
+ * caller that reads a failure as a result: an agent's Job that read a file is
+ * its own Import, and ends failed with a Report saying why (#276).
+ *
+ * `answersWhenCancelled` returns a cancelled Job the same way, for that same
+ * Import stopped by the cook: there is nothing wrong to say (#277).
  */
 export async function waitForJob(
 	kamosu: KamosuClient,
@@ -64,11 +71,15 @@ export async function waitForJob(
 		giveUpAfter = 120_000,
 		whileWaiting,
 		stopped,
+		answersWhenFailed,
+		answersWhenCancelled,
 	}: {
 		every?: number;
 		giveUpAfter?: number;
 		whileWaiting?: (job: GetJobOutput) => void;
 		stopped?: () => boolean;
+		answersWhenFailed?: (job: GetJobOutput) => boolean;
+		answersWhenCancelled?: (job: GetJobOutput) => boolean;
 	} = {},
 ): Promise<GetJobOutput> {
 	const until = Date.now() + giveUpAfter;
@@ -76,6 +87,8 @@ export async function waitForJob(
 		const job = await kamosu.getJob({ job_id: jobId });
 		if ((ENDED as readonly string[]).includes(job.status)) {
 			if (job.status === 'completed') return job;
+			if (job.status === 'failed' && answersWhenFailed?.(job)) return job;
+			if (job.status === 'cancelled' && answersWhenCancelled?.(job)) return job;
 			throw new Error(job.error ?? `the job ${job.status}`);
 		}
 		whileWaiting?.(job);

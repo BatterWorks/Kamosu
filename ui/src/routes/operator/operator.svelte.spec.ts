@@ -10,7 +10,7 @@
  * blank. The declaration is now `slot`, and this file asserts the word.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, fireEvent, within } from '@testing-library/svelte';
 import Operator from './+page.svelte';
 import { renderScreen } from '../../testing/render';
@@ -68,6 +68,9 @@ const quiet: Answers = {
 	list_merge_suggestions: { suggestions: [] },
 	list_foods: { foods: [flour, farine] },
 	get_public_address: { public_address: 'https://kamosu.example' },
+	list_runner_keys: { runner_keys: [] },
+	runner_status: { has_runner: false, last_asked_at: null },
+	get_house_notes: { notes: null, saved_by: null, saved_at: null },
 };
 
 /** The same instance, with one pair of Foods waiting to be looked at. */
@@ -142,6 +145,11 @@ describe("the Operator's screen", () => {
 		// text stripped first so a hidden word cannot pass for a visible one.
 		const shown = document.body.cloneNode(true) as HTMLElement;
 		for (const hidden of shown.querySelectorAll('.sr-only')) hidden.remove();
+		// The Runner's own sentences say what a Runner does with a recipe
+		// (#275). They name no recipe of anybody's, so they are not what this
+		// guards; the rest of its section, its keys' names, still is.
+		const runner = [...shown.querySelectorAll('h2')].find((h) => h.textContent === 'Runner');
+		for (const said of runner?.closest('section')?.querySelectorAll('p') ?? []) said.remove();
 		const words = (shown.textContent ?? '').toLowerCase();
 		for (const forbidden of ['recipe', 'attempt', 'kitchen']) {
 			expect(words).not.toContain(forbidden);
@@ -562,5 +570,300 @@ describe("the Operator's screen", () => {
 		expect(warning).toHaveTextContent(/can't be reissued/);
 		// The false promise this ticket corrected must not come back.
 		expect(warning.textContent ?? '').not.toMatch(/follow/i);
+	});
+});
+
+/**
+ * The Runner (#275), in the Instance room, as option 1 of 15 October 2026
+ * drew it. It is 15 Oct 2026, 10:42 in every test: "Kitchen laptop" asked a
+ * minute ago, "Old server" last asked 3 days ago.
+ */
+describe("the Operator's Runner", () => {
+	const NOW = new Date('2026-10-15T10:42:00Z');
+	const RECENT = '2026-10-15T10:41:00Z';
+	const STALE = '2026-10-12T09:15:00Z';
+
+	const key = (id: string, name: string, last_used_at: string | null, revoked = false) => ({
+		id,
+		name,
+		created_at: '2026-10-01T08:00:00Z',
+		last_used_at,
+		revoked,
+	});
+
+	const laptop = key('rk_laptop', 'Kitchen laptop', RECENT);
+	const server = key('rk_server', 'Old server', STALE);
+
+	const runner = (keys: ReturnType<typeof key>[], last_asked_at: string | null): Answers => ({
+		...quiet,
+		list_runner_keys: { runner_keys: keys },
+		runner_status: { has_runner: keys.some((k) => !k.revoked), last_asked_at },
+	});
+
+	const section = async () =>
+		(await screen.findByRole('heading', { name: 'Runner' })).closest('section') as HTMLElement;
+
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(NOW);
+	});
+	afterEach(() => vi.useRealTimers());
+
+	it('says what a Runner is, and that none has asked when there is no key', async () => {
+		renderScreen(Operator, runner([], null));
+		await openInstance();
+		const runnerSection = await section();
+
+		expect(
+			within(runnerSection).getByText(
+				/A Runner is a small program you start on a computer beside Kamosu\. It hands what Kamosu can't read by itself/,
+			),
+		).toBeInTheDocument();
+		expect(
+			await within(runnerSection).findByText('No Runner has asked for work yet.'),
+		).toBeInTheDocument();
+		expect(within(runnerSection).getByText(/Make a Runner Key below/)).toBeInTheDocument();
+		expect(within(runnerSection).getByText('No Runner Keys yet.')).toBeInTheDocument();
+	});
+
+	it('tells a key whose Runner never asked from no key at all', async () => {
+		renderScreen(Operator, runner([key('rk_laptop', 'Kitchen laptop', null)], null));
+		await openInstance();
+		const runnerSection = await section();
+
+		expect(await within(runnerSection).findByText('Never used')).toBeInTheDocument();
+		expect(
+			within(runnerSection).getByText('No Runner has asked for work yet.'),
+		).toBeInTheDocument();
+		expect(within(runnerSection).getByText(/Once one is started/)).toBeInTheDocument();
+	});
+
+	it('says how long ago a Runner asked, and each key its last use', async () => {
+		renderScreen(Operator, runner([laptop, server], RECENT));
+		await openInstance();
+		const runnerSection = await section();
+
+		expect(
+			await within(runnerSection).findByText('A Runner asked for work 1 minute ago.'),
+		).toBeInTheDocument();
+		expect(within(runnerSection).getByText(/asks every few seconds/)).toBeInTheDocument();
+		const keys = within(runnerSection).getAllByRole('list')[0];
+		const rows = within(keys).getAllByRole('listitem');
+		expect(rows.map((row) => row.textContent)).toEqual([
+			expect.stringMatching(/Kitchen laptop.*Last used 1 minute ago/),
+			expect.stringMatching(/Old server.*Last used 3 days ago/),
+		]);
+	});
+
+	it('says a Runner quiet for days may need looking at', async () => {
+		renderScreen(Operator, runner([server], STALE));
+		await openInstance();
+		const runnerSection = await section();
+
+		expect(
+			await within(runnerSection).findByText('A Runner last asked for work 3 days ago.'),
+		).toBeInTheDocument();
+		expect(within(runnerSection).getByText(/check that it's still running/)).toBeInTheDocument();
+	});
+
+	it('stops describing a working Runner once every key is revoked', async () => {
+		renderScreen(Operator, runner([key('rk_old', 'Gone', STALE, true)], RECENT));
+		await openInstance();
+		const runnerSection = await section();
+
+		expect(
+			await within(runnerSection).findByText('A Runner last asked for work 1 minute ago.'),
+		).toBeInTheDocument();
+		expect(within(runnerSection).getByText(/Make a Runner Key below/)).toBeInTheDocument();
+		expect(within(runnerSection).queryByText(/asks every few seconds/)).not.toBeInTheDocument();
+	});
+
+	it('lists no revoked key', async () => {
+		renderScreen(Operator, runner([laptop, key('rk_old', 'Gone', STALE, true)], RECENT));
+		await openInstance();
+		const runnerSection = await section();
+
+		expect(await within(runnerSection).findByText('Kitchen laptop')).toBeInTheDocument();
+		expect(within(runnerSection).queryByText('Gone')).not.toBeInTheDocument();
+	});
+
+	it('mints a named key and shows its Secret once, in a sheet', async () => {
+		const { kamosu } = renderScreen(Operator, {
+			...runner([], null),
+			mint_runner_key: { id: 'rk_new', name: 'Kitchen laptop', secret: 'kr_SECRET' },
+		});
+		await openInstance();
+		const runnerSection = await section();
+
+		await fireEvent.input(within(runnerSection).getByLabelText(/A name, to tell this Runner/), {
+			target: { value: 'Kitchen laptop' },
+		});
+		kamosu.answer('list_runner_keys', { runner_keys: [key('rk_new', 'Kitchen laptop', null)] });
+		await fireEvent.click(within(runnerSection).getByRole('button', { name: 'Make a Runner Key' }));
+
+		const sheet = await screen.findByRole('dialog', { name: 'Your Runner Key for Kitchen laptop' });
+		expect(within(sheet).getByText('kr_SECRET')).toBeInTheDocument();
+		expect(within(sheet).getByText(/won't show it again/)).toBeInTheDocument();
+		expect(kamosu.calls.find((call) => call.operation === 'mint_runner_key')?.input).toEqual({
+			name: 'Kitchen laptop',
+		});
+
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Done, I copied it' }));
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		// The list was asked again: the new key is there by name, its Secret is not.
+		expect(await within(runnerSection).findByText('Never used')).toBeInTheDocument();
+		expect(screen.queryByText('kr_SECRET')).not.toBeInTheDocument();
+	});
+
+	it('asks before revoking, and revokes that key alone', async () => {
+		const { kamosu } = renderScreen(Operator, {
+			...runner([laptop, server], RECENT),
+			revoke_runner_key: { revoked: true },
+		});
+		await openInstance();
+		const runnerSection = await section();
+
+		const row = (await within(runnerSection).findByText('Kitchen laptop')).closest(
+			'li',
+		) as HTMLElement;
+		await fireEvent.click(within(row).getByRole('button', { name: 'Revoke' }));
+		const sheet = await screen.findByRole('dialog', { name: 'Revoke Kitchen laptop?' });
+		expect(within(sheet).getByText(/cannot be undone/)).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('revoke_runner_key');
+
+		kamosu.answer('list_runner_keys', { runner_keys: [{ ...laptop, revoked: true }, server] });
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Revoke' }));
+
+		expect(kamosu.calls.find((call) => call.operation === 'revoke_runner_key')?.input).toEqual({
+			runner_key_id: 'rk_laptop',
+		});
+		await vi.waitFor(() =>
+			expect(within(runnerSection).queryByText('Kitchen laptop')).not.toBeInTheDocument(),
+		);
+		expect(within(runnerSection).getByText('Old server')).toBeInTheDocument();
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+	});
+	describe('house notes for the agent (#344)', () => {
+		const notesRow = async () =>
+			(
+				await within(await section()).findByRole('button', { name: /House notes for the agent/ })
+			).closest('li') as HTMLElement;
+
+		it('says none are written, and that the agent follows its own instructions', async () => {
+			renderScreen(Operator, runner([], null));
+			await openInstance();
+			const row = await notesRow();
+
+			expect(row.textContent).toMatch(/Nothing written yet/);
+			expect(row.textContent).toMatch(/The agent follows its image's own instructions alone\./);
+		});
+
+		it('shows the first line, and who saved them and when', async () => {
+			renderScreen(Operator, {
+				...runner([laptop], RECENT),
+				get_house_notes: {
+					notes: 'Grams, never cups.\nTag every dessert Sweet.',
+					saved_by: 'Stéphane',
+					saved_at: STALE,
+				},
+			});
+			await openInstance();
+			const row = await notesRow();
+
+			expect(row.textContent).toMatch(/Grams, never cups\./);
+			expect(row.textContent).not.toMatch(/Tag every dessert/);
+			expect(row.textContent).toMatch(/Saved by Stéphane, 3 days ago\./);
+		});
+
+		it('writes them in a sheet, with Save off until they change', async () => {
+			const saved = {
+				notes: 'Grams, never cups.',
+				saved_by: 'Stéphane',
+				saved_at: RECENT,
+			};
+			const { kamosu } = renderScreen(Operator, {
+				...runner([laptop], RECENT),
+				set_house_notes: saved,
+			});
+			await openInstance();
+			await fireEvent.click(
+				within(await notesRow()).getByRole('button', { name: /House notes for the agent/ }),
+			);
+
+			const sheet = await screen.findByRole('dialog', { name: 'House notes for the agent' });
+			expect(within(sheet).getByText(/win where the two disagree/)).toBeInTheDocument();
+			expect(within(sheet).getByText(/reads house_notes from each Job/)).toBeInTheDocument();
+			expect(
+				within(sheet).getByText(/Nothing written yet\. The agent follows/),
+			).toBeInTheDocument();
+			const save = within(sheet).getByRole('button', { name: 'Save' });
+			expect(save).toBeDisabled();
+
+			const box = within(sheet).getByRole('textbox', { name: 'House notes for the agent' });
+			await fireEvent.input(box, { target: { value: 'Grams, never cups.' } });
+			expect(save).toBeEnabled();
+			await fireEvent.click(save);
+
+			expect(kamosu.calls.find((call) => call.operation === 'set_house_notes')?.input).toEqual({
+				notes: 'Grams, never cups.',
+			});
+			// The sheet stays open and says who saved them; the row behind it
+			// says so too.
+			expect(
+				await within(sheet).findByText('Saved by Stéphane, 1 minute ago.'),
+			).toBeInTheDocument();
+			expect(save).toBeDisabled();
+			expect((await notesRow()).textContent).toMatch(/Grams, never cups\./);
+
+			await fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
+			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		});
+
+		it('takes them away when the box is saved blank', async () => {
+			const { kamosu } = renderScreen(Operator, {
+				...runner([laptop], RECENT),
+				get_house_notes: { notes: 'Grams, never cups.', saved_by: 'Stéphane', saved_at: STALE },
+				set_house_notes: { notes: null, saved_by: 'Stéphane', saved_at: RECENT },
+			});
+			await openInstance();
+			await fireEvent.click(
+				within(await notesRow()).getByRole('button', { name: /House notes for the agent/ }),
+			);
+			const sheet = await screen.findByRole('dialog', { name: 'House notes for the agent' });
+			const box = within(sheet).getByRole('textbox', { name: 'House notes for the agent' });
+			expect(box).toHaveValue('Grams, never cups.');
+
+			await fireEvent.input(box, { target: { value: '' } });
+			await fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
+
+			expect(kamosu.calls.find((call) => call.operation === 'set_house_notes')?.input).toEqual({
+				notes: '',
+			});
+			expect(
+				await within(sheet).findByText(/Nothing written yet\. The agent follows/),
+			).toBeInTheDocument();
+			expect((await notesRow()).textContent).toMatch(/Nothing written yet/);
+		});
+
+		it("shows the Core's refusal in its own words", async () => {
+			renderScreen(Operator, {
+				...runner([laptop], RECENT),
+				set_house_notes: {
+					refuse: 'bad_request',
+					message: 'the house notes are longer than 4000 characters',
+				},
+			});
+			await openInstance();
+			await fireEvent.click(
+				within(await notesRow()).getByRole('button', { name: /House notes for the agent/ }),
+			);
+			const sheet = await screen.findByRole('dialog', { name: 'House notes for the agent' });
+			await fireEvent.input(within(sheet).getByRole('textbox'), { target: { value: 'Cups.' } });
+			await fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
+
+			expect(await within(sheet).findByRole('alert')).toHaveTextContent(
+				'the house notes are longer than 4000 characters',
+			);
+		});
 	});
 });

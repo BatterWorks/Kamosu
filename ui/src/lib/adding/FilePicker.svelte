@@ -1,7 +1,9 @@
 <!--
 	The file field a Bundle (a Kamosu zip file) is chosen with, opened by a button
-	somewhere else (#93), or a recipe PDF (#176): one field per kind, since each
-	offers the phone's picker only the files it can take.
+	somewhere else (#93), a recipe PDF (#176), or a photo of a page for
+	Kamosu's AI agent (#278): one field per kind, since each offers the
+	phone's picker only the files it can take. A phone offers its camera
+	beside its photos for the last, as it does for any picture.
 
 	A file cannot be chosen from a `<button>`, and the button has to be able to
 	say offline what it is waiting for (#76) rather than fail when pressed. So
@@ -25,7 +27,7 @@
 	interface Props {
 		adding: Adding;
 		/** What it picks. A Bundle unless said otherwise. */
-		kind?: 'bundle' | 'pdf';
+		kind?: 'bundle' | 'pdf' | 'picture';
 	}
 
 	let { adding, kind = 'bundle' }: Props = $props();
@@ -40,7 +42,13 @@
 		pdf: {
 			accept: '.pdf,application/pdf',
 			label: m.plus_pdf_full,
-			take: (file: File) => adding.pdf(file),
+			// To the agent where there is one, read into a draft where not.
+			take: (file: File) => adding.pdfChosen(file),
+		},
+		picture: {
+			accept: 'image/*',
+			label: m.plus_picture_full,
+			take: (file: File) => adding.pictureChosen(file),
 		},
 	};
 	const picks = $derived(KINDS[kind]);

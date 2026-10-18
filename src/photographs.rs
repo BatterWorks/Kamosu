@@ -22,6 +22,18 @@ pub const MAX_LONG_EDGE: u32 = 2560;
 /// future upload is affected.
 const WEBP_QUALITY: f32 = 80.0;
 
+/// An Original picture's long edge (#269). An agent reads small print off it,
+/// where a Photograph is only looked at. A phone's 4032-pixel photograph of a
+/// two-page spread, 40 cm across, comes down to about 200 pixels an inch,
+/// where the small letters of 8-point print are still a dozen pixels tall.
+/// One page alone is above 300. A Photograph's 2560 would leave the spread
+/// near 160.
+pub const ORIGINAL_LONG_EDGE: u32 = 3200;
+
+/// The quality an Original picture is encoded at: above a Photograph's, since
+/// lossy blocks blur the edges of letters before they blur a dish.
+const ORIGINAL_WEBP_QUALITY: f32 = 90.0;
+
 /// The most bytes a picture may arrive as, whichever way it arrives. ADR 0033
 /// sets this number for a picture Kamosu fetches from a URL, and a picture
 /// handed to it directly is the same thing with a shorter journey, so
@@ -107,7 +119,24 @@ pub fn display_path(data_dir: &Path, hash: &str, size: DisplaySize) -> PathBuf {
 /// A Photograph's identity: the contents alone (ADR 0017), distinguished from
 /// a Version's `v_` fingerprint by its own prefix.
 pub fn hash_bytes(bytes: &[u8]) -> String {
-    format!("p_{}", hex::encode(Sha256::digest(bytes)))
+    let mut hashing = HashingBytes::default();
+    hashing.add(bytes);
+    hashing.finish()
+}
+
+/// [`hash_bytes`] of bytes that arrive a piece at a time, so a picture can be
+/// checked against its name without being held whole (#296).
+#[derive(Clone, Default)]
+pub struct HashingBytes(Sha256);
+
+impl HashingBytes {
+    pub fn add(&mut self, piece: &[u8]) {
+        self.0.update(piece);
+    }
+
+    pub fn finish(self) -> String {
+        format!("p_{}", hex::encode(self.0.finalize()))
+    }
 }
 
 /// Remake whatever arrived into the one agreed form: WebP, quality 80, at
@@ -117,6 +146,12 @@ pub fn hash_bytes(bytes: &[u8]) -> String {
 /// arbitrary-looking code, so nothing here decodes bytes it hasn't first
 /// recognised as a real picture.
 pub fn remake(bytes: &[u8]) -> Result<Vec<u8>, OpError> {
+    remake_at(bytes, MAX_LONG_EDGE, WEBP_QUALITY)
+}
+
+/// Remake at a given long edge and quality: the one path every picture
+/// handed to Kamosu is decoded through.
+fn remake_at(bytes: &[u8], long_edge: u32, quality: f32) -> Result<Vec<u8>, OpError> {
     let mut decoder = checked_decoder(bytes)?;
     // Cameras stamp rotation into Exif rather than the pixels (eight of
     // the sixty in the real export do). Reading it now and baking it in before
@@ -125,7 +160,21 @@ pub fn remake(bytes: &[u8]) -> Result<Vec<u8>, OpError> {
     let mut image = DynamicImage::from_decoder(decoder)
         .map_err(|e| OpError::bad_request(format!("cannot read this picture: {e}")))?;
     image.apply_orientation(orientation);
-    encode(&downscale(image, MAX_LONG_EDGE))
+    encode_at(&downscale(image, long_edge), quality)
+}
+
+/// Remake a picture handed to an agent as its Original (#269): checked and
+/// stripped as a Photograph is, the place it was taken above all, but kept
+/// larger and sharper so print on it stays legible. It is no Photograph and
+/// is stored as none.
+pub fn remake_original(bytes: &[u8]) -> Result<Vec<u8>, OpError> {
+    remake_at(bytes, ORIGINAL_LONG_EDGE, ORIGINAL_WEBP_QUALITY)
+}
+
+/// Whether these bytes start the way a picture Kamosu reads does. Says
+/// nothing about whether the rest of it decodes.
+pub fn looks_like_a_picture(bytes: &[u8]) -> bool {
+    image::guess_format(bytes).is_ok()
 }
 
 /// Work out one Display Copy from an already-remade Photograph. No
@@ -152,9 +201,13 @@ fn downscale(image: DynamicImage, max_long_edge: u32) -> DynamicImage {
 /// as a side effect, the GPS tag above all (ADR 0017) — there is no metadata
 /// chunk here to carry one.
 fn encode(image: &DynamicImage) -> Result<Vec<u8>, OpError> {
+    encode_at(image, WEBP_QUALITY)
+}
+
+fn encode_at(image: &DynamicImage, quality: f32) -> Result<Vec<u8>, OpError> {
     let rgb = image.to_rgb8();
     let encoder = webp::Encoder::from_rgb(rgb.as_raw(), rgb.width(), rgb.height());
-    Ok(encoder.encode(WEBP_QUALITY).to_vec())
+    Ok(encoder.encode(quality).to_vec())
 }
 
 /// Check a picture that is being kept exactly as it arrived, without remaking

@@ -26,8 +26,10 @@ export interface Landed {
 	 * `kept`: its history could not be read, so its words became a recipe of
 	 * this Person's own with no history at all (#67) — a different sentence,
 	 * because nothing was inherited.
+	 * `read_before`: a photo or a PDF handed to Kamosu's AI agent that it had
+	 * already read into this recipe (#271), so nothing new was made (#278).
 	 */
-	how: 'arrived' | 'kept';
+	how: 'arrived' | 'kept' | 'read_before';
 	status?: 'created' | 'extended' | 'unchanged';
 	/** Why its history could not be read. Only when `how` is `kept`. */
 	reason?: string;
@@ -37,8 +39,11 @@ export interface Landed {
 
 /** One arrival, waiting for the screen that shows it. */
 export interface Arrival extends Landed {
-	/** The Job, so the line can point at the whole Report. */
-	jobId: string;
+	/**
+	 * The Job, so the line can point at the whole Report. None for a file
+	 * read before, which made no Job (#278).
+	 */
+	jobId?: string;
 	/**
 	 * Where it came from, when not a file somebody chose: a Share Link imported
 	 * from its own page (#170). The line then names no file.
@@ -92,7 +97,9 @@ export function outcomeOf(report: ImportBundleOutput): Outcome {
 				branchId: subject.branch_id,
 				title: subject.title,
 				how: 'arrived',
-				status: subject.status,
+				// The Report's schema is every Import's, and `read_again` is a
+				// Co-author's ask (#272), never a Bundle's arrival.
+				status: subject.status === 'read_again' ? undefined : subject.status,
 				passengers: report.arrived
 					.filter((row) => row.branch_id !== subject.branch_id)
 					.map((row) => row.title),

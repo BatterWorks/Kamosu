@@ -1,1 +1,1 @@
-Self-hosted cookbook for the people you cook with: a web app for you, MCP for your AI agent.
+Self-hosted cookbook that keeps every version of a recipe and every cooking. MCP for your AI agent.

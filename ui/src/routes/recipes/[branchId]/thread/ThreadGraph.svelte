@@ -1,9 +1,11 @@
 <!--
 	The Thread drawn as a graph (#115, choice "G1", replacing #53's
-	side-by-side lanes). One row per Version, in date order across every
-	Branch; a dot per Version on a line down the left edge, grey while
-	several Branches share it and a colour per Branch from where it splits.
-	`graph.ts` decides the shape; this only draws it.
+	side-by-side lanes; redrawn by #250). One row per Version; a dot per
+	Version on a line down the left edge, grey while several Branches share
+	it and a colour per Branch from where it parts. Every line comes out of
+	the dot of the Version it started from, and no row says a line begins.
+	`graph.ts` decides the shape, which rows go where included; this only
+	draws it.
 
 	A Version you saved can be named or renamed in place, under its row
 	(choice "A"). Its *what changed* line is shown beside the field
@@ -23,7 +25,7 @@
 		linesBelow,
 		rowKey,
 		runsOf,
-		type GraphRow,
+		type Lane,
 		type Line,
 		type Tone,
 		type VersionRow,
@@ -41,7 +43,8 @@
 		/** Which rows said what Language this recipe is in (#106). */
 		languageSaid: Map<string, string>;
 		onOpenVersion: (version: ThreadVersion) => void;
-		onOpenAttempt: (attempt: Attempt) => void;
+		/** One badge was pressed: the cookings it stands for, oldest first. */
+		onOpenCookings: (cookings: Attempt[]) => void;
 		/** A rename landed: read the Thread again. */
 		onRenamed: () => Promise<void>;
 	}
@@ -52,7 +55,7 @@
 		attemptsByVersion,
 		languageSaid,
 		onOpenVersion,
-		onOpenAttempt,
+		onOpenCookings,
 		onRenamed,
 	}: Props = $props();
 
@@ -92,12 +95,21 @@
 	const PAD = 9;
 	/** How far down a row its dot's centre sits, in px. */
 	const DOT_Y = 17;
-	const FORK_H = 44;
 	const gutter = $derived(PAD * 2 + (graph.lanes - 1) * LANE_W);
 	const x = (lane: number) => PAD + lane * LANE_W;
 
-	/** The existing rail colours, in the order #53 handed them out. */
-	const TONES = ['var(--color-accent)', 'var(--color-support)', 'var(--color-support-2)'];
+	/**
+	 * The rail colours, in the order #53 handed them out, and the two #250
+	 * added so that five Branches are told apart. A sixth takes the first
+	 * again: every row names its Branch in words as well.
+	 */
+	const TONES = [
+		'var(--color-accent)',
+		'var(--color-support)',
+		'var(--color-support-2)',
+		'var(--color-support-3)',
+		'var(--color-support-4)',
+	];
 	const colour = (tone: Tone) =>
 		tone === 'shared' ? 'var(--color-ink-2)' : TONES[tone % TONES.length];
 
@@ -115,23 +127,19 @@
 	 * The Thread was asked for as "coloured balls, like git", and
 	 * the round dots of prototype G1 were chosen (#115).
 	 */
-	const dotStyle = (row: VersionRow, hollow = false) =>
+	const dotStyle = (row: Pick<VersionRow, 'lane' | 'tone'>, hollow = false) =>
 		`left:${x(row.lane) - 6}px;top:${DOT_Y - 6}px;width:12px;height:12px;border-radius:50%;` +
 		(hollow
 			? `background:var(--color-ground);border:2px solid ${colour(row.tone)}`
 			: `background:${colour(row.tone)};box-shadow:0 0 0 2px var(--color-ground)`);
 
-	/** A split drawn: straight lines for what passes, a curve into each continuation. */
-	function forkPaths(fork: Extract<GraphRow, { kind: 'fork' }>): { d: string; tone: Tone }[] {
-		const from = x(fork.from);
-		return [
-			...fork.passing.map((line) => ({ d: `M${x(line.lane)} 0 V ${FORK_H}`, tone: line.tone })),
-			...fork.children.map((child) => ({
-				d: `M${from} 0 C ${from} ${FORK_H * 0.6}, ${x(child.lane)} ${FORK_H * 0.4}, ${x(child.lane)} ${FORK_H}`,
-				tone: child.tone,
-			})),
-		];
-	}
+	/**
+	 * A line coming out of a row's dot (#250): a curve from the dot to the
+	 * lane it runs down, drawn in a box 100 tall that is stretched over the
+	 * part of the row below the dot.
+	 */
+	const sproutPath = (from: number, to: number) =>
+		`M${x(from)} 0 C ${x(from)} 60, ${x(to)} 40, ${x(to)} 100`;
 
 	/**
 	 * What names a Branch, or a line several still share: the name the
@@ -169,6 +177,29 @@
 	let draft = $state('');
 	let saving = $state(false);
 	let renameError = $state<string | undefined>(undefined);
+	/**
+	 * The last rating a cook gave a Version (#249). A later cooking with no
+	 * rating leaves it standing: it is the newest thing said about next time.
+	 */
+	const lastRating = (cookings: Attempt[]) =>
+		cookings.filter((cooking) => cooking.rating).at(-1)?.rating;
+
+	/**
+	 * Who else cooked a Version, in the order they first did, with a count
+	 * beside whoever cooked it more than once: `Sam ×2 · Camille`.
+	 */
+	function cooksOf(cookings: Attempt[]): string {
+		const cooks = new Map<string, { name: string; count: number }>();
+		for (const cooking of cookings) {
+			const cook = cooks.get(cooking.person_id) ?? { name: cooking.person_name, count: 0 };
+			cook.count += 1;
+			cooks.set(cooking.person_id, cook);
+		}
+		return [...cooks.values()]
+			.map((cook) => (cook.count > 1 ? `${cook.name} ×${cook.count}` : cook.name))
+			.join(' · ');
+	}
+
 	/** What the last rename did, said under the row it did it to. */
 	let lastRename = $state<{ key: string; cleared: boolean } | undefined>(undefined);
 
@@ -223,11 +254,33 @@
 	}
 </script>
 
-{#snippet gutterOf(row: VersionRow, hollow = false)}
+{#snippet gutterOf(
+	row: Pick<VersionRow, 'lane' | 'tone' | 'lines'>,
+	sprouts: Lane[],
+	hollow = false,
+)}
 	<span class="relative shrink-0" style={`width:${gutter}px`} aria-hidden="true">
 		{#each row.lines as line (line.lane)}
 			<span class="absolute" style={lineStyle(line)}></span>
 		{/each}
+		{#if sprouts.length}
+			<svg
+				class="absolute left-0"
+				style={`top:${DOT_Y}px;width:${gutter}px;height:calc(100% - ${DOT_Y}px)`}
+				viewBox={`0 0 ${gutter} 100`}
+				preserveAspectRatio="none"
+			>
+				{#each sprouts as sprout (sprout.lane)}
+					<path
+						d={sproutPath(row.lane, sprout.lane)}
+						stroke={colour(sprout.tone)}
+						stroke-width="2"
+						fill="none"
+						vector-effect="non-scaling-stroke"
+					/>
+				{/each}
+			</svg>
+		{/if}
 		<span class="absolute" style={dotStyle(row, hollow)}></span>
 	</span>
 {/snippet}
@@ -243,7 +296,7 @@
 {#snippet versionRow(row: VersionRow)}
 	{@const version = row.version}
 	<li class="flex">
-		{@render gutterOf(row)}
+		{@render gutterOf(row, row.sprouts)}
 		<div class="min-w-0 flex-1 border-b border-rule py-2 pl-2">
 			{#if editing === row.key}
 				<form
@@ -312,18 +365,42 @@
 						{/if}
 					</span>
 					<span class="block text-read text-ink-2">{whatItWas(version)}</span>
+					{#if row.adrift}
+						<!-- Nothing in this History to sit under, so the row says it (#250). -->
+						<span class="block text-read text-ink">{m.thread_translates_absent()}</span>
+					{/if}
 				</button>
-				{#if attemptsByVersion.get(version.version_id)?.length || yours(row)}
+				<!--
+					Two badges at most, however often the Version was cooked (#249):
+					the reader's own cookings as the last rating they gave, and
+					everyone else's together, by name. Each opens what it stands for.
+				-->
+				{@const cooked = attemptsByVersion.get(version.version_id) ?? []}
+				{@const mine = cooked.filter((cooking) => cooking.mine)}
+				{@const theirs = cooked.filter((cooking) => !cooking.mine)}
+				{#if cooked.length || yours(row)}
 					<div class="mt-1 flex flex-wrap items-center gap-2">
-						{#each attemptsByVersion.get(version.version_id) ?? [] as attempt (attempt.id)}
+						{#if mine.length}
+							{@const rating = lastRating(mine)}
 							<button
 								type="button"
-								class="rounded-sm border border-rule px-1 text-label text-ink-2"
-								onclick={() => onOpenAttempt(attempt)}
+								class="rounded-sm border border-accent px-1 text-label text-ink"
+								onclick={() => onOpenCookings(mine)}
 							>
-								{attempt.rating ? `🍲 ${ratingLabel(attempt.rating)}` : '🍲'}
+								{rating ? `🍲 ${ratingLabel(rating)}` : '🍲'}
 							</button>
-						{/each}
+						{/if}
+						{#if theirs.length}
+							{@const names = cooksOf(theirs)}
+							<button
+								type="button"
+								class="rounded-sm border border-dashed border-ink-2 px-1 text-label text-ink-2"
+								aria-label={m.thread_cooked_by({ names })}
+								onclick={() => onOpenCookings(theirs)}
+							>
+								{names}
+							</button>
+						{/if}
 						{#if yours(row)}
 							<button
 								type="button"
@@ -353,7 +430,7 @@
 		{#if item.kind === 'run' && !expanded.has(item.key)}
 			{@const first = item.rows[0]}
 			<li class="flex">
-				{@render gutterOf({ ...first, lines: foldedLines(item.rows) }, true)}
+				{@render gutterOf({ ...first, lines: foldedLines(item.rows) }, [], true)}
 				<button
 					type="button"
 					class="flex min-h-12 min-w-0 flex-1 items-center gap-3 border-b border-rule py-2 pl-2 text-left"
@@ -390,39 +467,22 @@
 		{:else if item.row.kind === 'version'}
 			{@render versionRow(item.row)}
 		{:else}
-			{@const fork = item.row}
-			<li class="flex bg-ground-2">
-				<svg
-					class="block shrink-0 self-stretch"
-					width={gutter}
-					viewBox={`0 0 ${gutter} ${FORK_H}`}
-					preserveAspectRatio="none"
-					style="height:auto;min-height:44px"
-					aria-hidden="true"
-				>
-					{#each forkPaths(fork) as path (path.d)}
-						<path
-							d={path.d}
-							stroke={colour(path.tone)}
-							stroke-width="2"
-							fill="none"
-							vector-effect="non-scaling-stroke"
-						/>
-					{/each}
-				</svg>
-				<div class="min-w-0 flex-1 py-2 pl-2">
-					<p class="font-display text-body text-support-2">
-						{m.thread_fork_marker({ count: fork.children.length })}
+			<!--
+				A Branch with no Version past this point (#250): its name, in its
+				colour, under the last Version it holds. Either it starts there and
+				nothing was saved on it, or it is the recipe, left as it was while a
+				variation carried on. The dot is hollow, as it is for anything on
+				this line that is not one saved Version.
+			-->
+			{@const starting = item.row}
+			<li class="flex">
+				{@render gutterOf(starting, [], true)}
+				<div class="min-w-0 flex-1 border-b border-rule py-2 pl-2">
+					<p class="text-label uppercase" style={`color:${colour(starting.tone)}`}>
+						{branchesNamed([starting.branchId])}
 					</p>
-					<p class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-label text-ink-2">
-						{#each fork.children as child (child.lane)}
-							<span>
-								<span
-									class="mr-1 inline-block h-2 w-2"
-									style={`border-radius:50%;background:${colour(child.tone)}`}
-								></span>{branchesNamed(child.branchIds)}
-							</span>
-						{/each}
+					<p class="text-read text-ink-2">
+						{starting.stopped ? m.thread_nothing_since() : m.thread_starts_here()}
 					</p>
 				</div>
 			</li>

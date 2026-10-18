@@ -25,6 +25,13 @@
 	    write the recipe. It is carried and saved exactly as a line from
 	    another Branch is: unsaved until an ordinary Version is saved.
 
+	The Version can be taken whole as well (#354, choice C of 18 October
+	2026): tiles at the foot, beside the way back and the Thread, each opening a
+	sheet that says what happens first (`UseVersion.svelte`). Whoever writes
+	the recipe puts the Version back or starts a variation from it; anybody
+	else keeps it as their own copy. A put-back drops lines carried here and
+	not saved, which the Version put back holds already.
+
 	One column at reading width on every layout, as every page with marks is
 	(#192, story 64).
 
@@ -47,11 +54,13 @@
 	import Unfolded from '../Unfolded.svelte';
 	import Annexe from '../Annexe.svelte';
 	import Carrying from '../Carrying.svelte';
-	import { nutritionText, numbering, rowKey } from '../divergence';
+	import { elsewhere, inOrder, nutritionText, numbering, rowKey, see } from '../divergence';
 	import { marking } from '../marking.svelte';
 	import { unfolding } from '../unfolding.svelte';
 	import { corrections } from '../corrections.svelte';
 	import { proseSince, sinceThen } from './older';
+	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import UseVersion, { type Act } from './UseVersion.svelte';
 
 	interface Props {
 		branchId: string;
@@ -83,6 +92,8 @@
 	/** Bumped after a save, to read the two again: the recipe has moved. */
 	let reread = $state(0);
 	let cooking = $state<'idle' | 'starting' | 'failed' | 'another'>('idle');
+	/** The act whose sheet is open, if one is. */
+	let using = $state<Act | null>(null);
 
 	$effect(() => {
 		void reread;
@@ -253,9 +264,13 @@
 	</li>
 {/snippet}
 
-{#snippet section(text: string)}
+{#snippet section(text: string, moved: string | null = null)}
 	<li class="border-b border-rule py-4 pb-1">
 		<h3 class="font-display text-label text-ink-2 uppercase">{text}</h3>
+		<!-- A heading moved word for word says where it is now, as a line does (#337). -->
+		{#if moved}
+			<p class="mt-1 text-label text-accent uppercase">{moved}</p>
+		{/if}
 	</li>
 {/snippet}
 
@@ -352,11 +367,15 @@
 		</h2>
 		<ul class="px-gutter">
 			{#if marks.showing}
-				{#each compared.ingredients as row, index (rowKey('ingredients', index))}
+				{#each inOrder(compared.ingredients, 'theirs') as { row, index } (rowKey('ingredients', index))}
 					{@const key = rowKey('ingredients', index)}
 					{@const own = row.theirs}
+					{@const moved = elsewhere(compared.ingredients, index, 'theirs')}
 					{#if row.kind === 'section'}
-						{@render section((own ?? row.mine)?.text ?? '')}
+						{@render section(
+							(own ?? row.mine)?.text ?? '',
+							moved ? words.caption(see(row, 'theirs', moved), 'theirs', undefined) : null,
+						)}
 					{:else if row.state === 'same'}
 						{@render ingredientLine(own?.text ?? '', own?.index ?? -1)}
 					{:else}
@@ -366,6 +385,7 @@
 							{row}
 							side="theirs"
 							{words}
+							{moved}
 							beneath={own
 								? (unfold.at([], own.index)?.said ?? beneath.beneathLine(own.index))
 								: ''}
@@ -397,12 +417,16 @@
 		<ol class="px-gutter">
 			{#if marks.showing}
 				{@const number = numbering()}
-				{#each compared.steps as row, index (rowKey('steps', index))}
+				{#each inOrder(compared.steps, 'theirs') as { row, index } (rowKey('steps', index))}
 					{@const key = rowKey('steps', index)}
 					{@const own = row.theirs}
 					{@const n = row.kind === 'section' ? null : number(!own)}
+					{@const moved = elsewhere(compared.steps, index, 'theirs')}
 					{#if row.kind === 'section'}
-						{@render section((own ?? row.mine)?.text ?? '')}
+						{@render section(
+							(own ?? row.mine)?.text ?? '',
+							moved ? words.caption(see(row, 'theirs', moved), 'theirs', undefined) : null,
+						)}
 					{:else if row.state === 'same' && own}
 						{@render stepLine(own.text, own.index, n, content.steps[own.index]?.photo ?? null)}
 					{:else}
@@ -410,6 +434,7 @@
 							{row}
 							side="theirs"
 							{words}
+							{moved}
 							number={n}
 							conversions={own ? (measured.steps[own.index] ?? []) : []}
 							photo={own ? (content.steps[own.index]?.photo ?? null) : null}
@@ -456,7 +481,35 @@
 		<div class="mx-gutter mt-6 grid grid-cols-2 gap-2">
 			<a href="/recipes/{branchId}" class="act-tile text-accent">{m.older_back()}</a>
 			<a href="/recipes/{branchId}/thread" class="act-tile text-accent">{m.recipe_the_thread()}</a>
+			{#snippet tile(label: string, waiting: string, act: Act)}
+				<NeedsServer
+					{label}
+					{waiting}
+					onclick={() => (using = act)}
+					shapeClass="act-tile"
+					lookClass="text-accent"
+					idleClass="text-ink-2 opacity-55"
+				/>
+			{/snippet}
+			{#if compared.writes}
+				{@render tile(m.older_put_back(), m.offline_waits_edit(), 'back')}
+				{@render tile(m.older_variation(), m.offline_waits_edit(), 'variation')}
+			{:else}
+				{@render tile(m.older_keep(), m.offline_waits_copy(), 'keep')}
+			{/if}
 		</div>
+
+		{#if using}
+			<UseVersion
+				act={using}
+				{branchId}
+				{versionId}
+				{compared}
+				{when}
+				onDone={(landed) => void navigate(`/recipes/${landed}`)}
+				onClose={() => (using = null)}
+			/>
+		{/if}
 
 		<Carrying marking={marks} {words} />
 	{/if}

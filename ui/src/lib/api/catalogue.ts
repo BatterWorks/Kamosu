@@ -53,7 +53,7 @@ export type RenamePersonOutput = {
 	name: string;
 };
 
-/** List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here. */
+/** List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook: an Operator reaches their recipes through list_cookbooks (ADR 0049), and no Attempt or Kitchen of theirs from anywhere. */
 export type ListAccountsInput = Record<string, never>;
 /** What list_accounts answers. */
 export type ListAccountsOutput = {
@@ -149,6 +149,116 @@ export type ListBackupsOutput = {
 	}[];
 };
 
+/** Mint a Runner Key, the Secret a Runner asks for work with. A Runner is the program beside Kamosu that has an agent do the Jobs Kamosu cannot. The Secret is shown once. It can ask for work and nothing else, and it acts as no Person. */
+export type MintRunnerKeyInput = {
+	name: string;
+};
+/** What mint_runner_key answers. */
+export type MintRunnerKeyOutput = {
+	id: string;
+	name: string;
+	secret: string;
+};
+
+/** List this instance's Runner Keys by name and last use. */
+export type ListRunnerKeysInput = Record<string, never>;
+/** What list_runner_keys answers. */
+export type ListRunnerKeysOutput = {
+	runner_keys: {
+		created_at: string;
+		id: string;
+		last_used_at: string | null;
+		name: string;
+		revoked: boolean;
+	}[];
+};
+
+/** End one Runner Key. The Runner holding it is refused at its next call. */
+export type RevokeRunnerKeyInput = {
+	runner_key_id: string;
+};
+/** What revoke_runner_key answers. */
+export type RevokeRunnerKeyOutput = {
+	revoked: boolean;
+};
+
+/** Read whether this instance has a Runner. Also when one was last heard from, asking for work or renewing its hold on a Job. */
+export type RunnerStatusInput = Record<string, never>;
+/** What runner_status answers. */
+export type RunnerStatusOutput = {
+	has_runner: boolean;
+	last_asked_at: string | null;
+};
+
+/** Read the agent's House Notes. They are what an Operator adds to the end of the instructions the agent follows, handed over with every Job. Null when none are written, and the agent follows its own instructions alone. Says who saved them last and when. */
+export type GetHouseNotesInput = Record<string, never>;
+/** What get_house_notes answers. */
+export type GetHouseNotesOutput = {
+	notes: string | null;
+	saved_at: string | null;
+	saved_by: string | null;
+};
+
+/** Save the agent's House Notes. They replace any there were, up to 4,000 characters. The agent reads them after its own instructions, as the Operator's, and follows them where the two disagree. A Job carries the notes as they stand when a Runner takes it. Blank text takes them away. Kamosu's own agent image follows them; another agent follows them only if it reads `house_notes` from each Job. */
+export type SetHouseNotesInput = {
+	notes: string;
+};
+/** What set_house_notes answers. */
+export type SetHouseNotesOutput = {
+	notes: string | null;
+	saved_at: string | null;
+	saved_by: string | null;
+};
+
+/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it with reason `another_version`. */
+export type AskForWorkInput = {
+	ask: string;
+	runner_version: string;
+};
+/** What ask_for_work answers. */
+export type AskForWorkOutput = {
+	job: {
+		branch_id: string | null;
+		held_until: string;
+		house_notes: string | null;
+		job_id: string;
+		job_key: string;
+		link: string | null;
+		original: {
+			address: string;
+			kind: "pasted_text" | "pdf" | "picture";
+		} | null;
+		renew_within_seconds: number;
+	} | null;
+};
+
+/** Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again. This is how a Runner learns that its Job was cancelled, and the refusal says so. */
+export type RenewHoldInput = {
+	job_id: string;
+};
+/** What renew_hold answers. */
+export type RenewHoldOutput = {
+	held_until: string;
+	renew_within_seconds: number;
+};
+
+/** Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two need `reason`, one sentence the cook reads in the Import Report. A Job reported `failed` waits to be tried again, and ends as failed once it has been tried as often as Kamosu tries one. `could_not_be_read` ends it as failed at once. `report` is the agent's own report, passed on as it wrote it. A Runner whose hold is gone is refused and told so, as is one whose Job was cancelled, and a Job it never held is answered as a Job that is not there. */
+export type ReportOnJobInput = {
+	job_id: string;
+	outcome: "completed" | "failed" | "could_not_be_read";
+	reason?: string;
+	report?: {
+		left_undone?: string[];
+		likely_duplicates?: string[];
+		unsure?: string[];
+		unused_foods?: string[];
+	};
+};
+/** What report_on_job answers. */
+export type ReportOnJobOutput = {
+	reported: boolean;
+};
+
 /** List this Person's browser Sessions by device and last use. `current` marks the Session asking, so it is never set when an Access Key asks. */
 export type ListSessionsInput = Record<string, never>;
 /** What list_sessions answers. */
@@ -174,12 +284,13 @@ export type RenameSessionOutput = {
 	name: string;
 };
 
-/** End one of your browser Sessions. */
+/** End one of your browser Sessions. `current` says whether it was the one this call was made with, as `list_sessions` marks it: a browser that ended its own is signed out. */
 export type RevokeSessionInput = {
 	session_id: string;
 };
 /** What revoke_session answers. */
 export type RevokeSessionOutput = {
+	current: boolean;
 	revoked: boolean;
 };
 
@@ -406,6 +517,26 @@ export type GetCookbookOutput = {
 	}[];
 	name: string | null;
 	recipe_count: number;
+};
+
+/** Every Cookbook and the recipes in it, for an Operator. Each comes with who writes it, and each recipe as a `branch_id` with its title. On a call saying `as_operator`, an Operator looks after any Cookbook (ADR 0049): get_recipe, get_thread, edit_recipe, save_recipe_version, delete_recipe, set_recipe_tag and set_related_recipe reach these recipes, and create_recipe, create_tag, list_tags and the Imports take a `cookbook_id` to work in one. What an Operator writes there is under their own Hand. Attempts, shopping lists and who writes a Cookbook stay their owners'. A read-only Access Key is refused. */
+export type ListCookbooksInput = Record<string, never>;
+/** What list_cookbooks answers. */
+export type ListCookbooksOutput = {
+	cookbooks: {
+		authors: {
+			name: string;
+			person_id: string;
+		}[];
+		id: string;
+		name: string | null;
+		recipes: {
+			branch_id: string;
+			language: string;
+			name: string | null;
+			title: string;
+		}[];
+	}[];
 };
 
 /** Give your Cookbook a name of its own, or clear it. An empty or null name clears it back to its Co-authors' names. Any Co-author may. */
@@ -813,6 +944,8 @@ export type RemoveCookbookAuthorOutput = {
 
 /** Create a Tag in your own Cookbook, named in one Language. A word the Cookbook already files under returns the Tag it already has rather than making a second. */
 export type CreateTagInput = {
+	as_operator?: boolean;
+	cookbook_id?: string;
 	kitchen_id?: string;
 	language: "en" | "fr" | "es";
 	name: string;
@@ -833,6 +966,7 @@ export type CreateTagOutput = {
 
 /** List every Tag your own Cookbook files by. Each is shown in the reader's Reading Language where it has a name there. With `everywhere`, every word any Cookbook you may see files by, one entry per word — what a shelf filters by. With a `kitchen_id`, the same for the Cookbooks seen in that one Kitchen of yours. */
 export type ListTagsInput = {
+	as_operator?: boolean;
 	cookbook_id?: string;
 	everywhere?: boolean;
 	kitchen_id?: string;
@@ -903,6 +1037,7 @@ export type DeleteTagOutput = {
 
 /** File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Kitchen's Tags. Mints no Version: filing is not what a recipe is. */
 export type SetRecipeTagInput = {
+	as_operator?: boolean;
 	branch_id: string;
 	carried: boolean;
 	tag_id: string;
@@ -925,6 +1060,7 @@ export type SetRecipeTagOutput = {
 
 /** Relate two Recipes, or take that link back off. One is a Recipe of your Cookbook, the other any Recipe you may see, joined by a single two-way, untyped link. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
 export type SetRelatedRecipeInput = {
+	as_operator?: boolean;
 	branch_id: string;
 	related: boolean;
 	related_branch_id?: string;
@@ -942,9 +1078,11 @@ export type SetRelatedRecipeOutput = {
 	}[];
 };
 
-/** Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. */
+/** Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. With a Job Key it creates the Job's own recipe, once, for a Job that has none yet: one reading pasted text, a PDF or a picture. */
 export type CreateRecipeInput = {
+	as_operator?: boolean;
 	cook_time_minutes?: number | null;
+	cookbook_id?: string;
 	ingredients?: {
 		kind: "section" | "ingredient";
 		text: string;
@@ -975,6 +1113,297 @@ export type CreateRecipeInput = {
 };
 /** What create_recipe answers. */
 export type CreateRecipeOutput = {
+	arrived: boolean;
+	branch_id: string;
+	cookbook: {
+		authors: {
+			name: string;
+			person_id: string;
+		}[];
+		id: string;
+		name: string | null;
+	};
+	cooked: {
+		count: number;
+		last_cooked_at: string | null;
+		ratings: {
+			at: string;
+			given_on: "newest" | "older" | "another";
+			name: string;
+			person_id: string;
+			rating: "again" | "tweak" | "no";
+			version_id: string | null;
+		}[];
+	};
+	foods_created: {
+		id: string;
+		language: string;
+		line_indexes: number[];
+		name: string;
+	}[];
+	hand_id: string;
+	head_version_id: string;
+	language: string;
+	lineage_id: string;
+	mine: boolean;
+	name: string | null;
+	origin_address: string | null;
+	related_recipes: {
+		branch_id: string | null;
+		language: string | null;
+		language_fallback: boolean;
+		lineage_id: string;
+		main_photo: string | null;
+		title: string;
+	}[];
+	tags: {
+		cookbook_id: string;
+		id: string;
+		language: string | null;
+		language_fallback: boolean;
+		name: string | null;
+		names: {
+			language: string;
+			name: string;
+		}[];
+		recipes: number;
+	}[];
+	translation: {
+		source_branch_id: string | null;
+		translates_version_id: string;
+		versions_behind: number | null;
+	} | null;
+	versions: {
+		change_note: string | null;
+		components: {
+			branch_id: string | null;
+			content: {
+				cook_time_minutes: number | null;
+				ingredients: {
+					kind: "section" | "ingredient";
+					text: string;
+				}[];
+				main_photo: string | null;
+				note: string | null;
+				nutrition: {
+					basis: "per_serving" | "per_100g";
+					calories: number;
+				} | null;
+				prep_time_minutes: number | null;
+				source: {
+					link: string | null;
+					text: string;
+				} | null;
+				steps: {
+					kind: "section" | "step";
+					photo: string | null;
+					text: string;
+				}[];
+				title: string;
+				yield: {
+					amount: string;
+					noun: string;
+				} | null;
+			} | null;
+			held: boolean;
+			lineage_id: string;
+			measured: {
+				ingredients: (string | null)[];
+				steps: ({
+					measured: string;
+					written: string;
+				}[] | null)[];
+			} | null;
+			path: number[];
+			readings: ({
+				amount: string | null;
+				lineage_id: string | null;
+				target: string | null;
+				unit: string | null;
+			} | null)[] | null;
+			said: string;
+			share: number | null;
+			stopped: boolean;
+			title: string | null;
+		}[];
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		cooking: {
+			steps: ({
+				timer_seconds: number | null;
+				uses: number[];
+			} | null)[];
+		};
+		created_at: string;
+		hand_id: string;
+		language: string | null;
+		measured: {
+			ingredients: (string | null)[];
+			steps: ({
+				measured: string;
+				written: string;
+			}[] | null)[];
+		};
+		name: string | null;
+		parent_version_id: string | null;
+		readings: ({
+			amount: string | null;
+			lineage_id: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
+		scaled_to: {
+			amount: string;
+			noun: string;
+		} | null;
+		sequence: number;
+		translates_version_id: string | null;
+		version_id: string;
+	}[];
+	writes: boolean;
+};
+
+/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped, unless another Branch, a Translation or a Bundle already holds that Version, or an agent's Job saved it. A save with a Job Key collapses into the one Version its Job started. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, or is refused once it is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write, a Kitchen-mate's or one that arrived, is a Copy: a new Branch of the same Lineage in your own Cookbook, carrying the whole chain up to the Version you changed, and the Branch you changed is left untouched. */
+export type SaveRecipeVersionInput = {
+	as_operator?: boolean;
+	branch_id: string;
+	change_note?: string;
+	cook_time_minutes?: number | null;
+	ingredients?: {
+		kind: "section" | "ingredient";
+		text: string;
+	}[];
+	kitchen_id?: string;
+	main_photo?: string | null;
+	name?: string;
+	note?: string | null;
+	nutrition?: {
+		basis: "per_serving" | "per_100g";
+		calories: number;
+	} | null;
+	prep_time_minutes?: number | null;
+	source?: {
+		link: string | null;
+		text: string;
+	} | null;
+	steps?: {
+		kind: "section" | "step";
+		photo?: string | null;
+		text: string;
+	}[];
+	title: string;
+	translates_version_id?: string;
+	yield?: {
+		amount: string;
+		noun: string;
+	} | null;
+};
+/** What save_recipe_version answers. */
+export type SaveRecipeVersionOutput = {
+	branch_id: string;
+	collapsed: boolean;
+	copied: boolean;
+	foods_created: {
+		id: string;
+		language: string;
+		line_indexes: number[];
+		name: string;
+	}[];
+	language: string;
+	language_offer: string | null;
+	parent_version_id: string | null;
+	sequence: number;
+	translates_version_id: string | null;
+	version_id: string;
+};
+
+/** Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch, a Translation or a Bundle already holds it, or an agent's Job saved it), an edit with a Job Key collapses and is refused as its save is, and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was keeps its Reading as it was, a misreading included; correct one with set_reading. */
+export type EditRecipeInput = {
+	as_operator?: boolean;
+	branch_id: string;
+	change_note?: string;
+	cook_time_minutes?: number | null;
+	ingredients?: {
+		kind: "section" | "ingredient";
+		text: string;
+	}[] | null;
+	main_photo?: string | null;
+	name?: string;
+	note?: string | null;
+	nutrition?: {
+		basis: "per_serving" | "per_100g";
+		calories: number;
+	} | null;
+	prep_time_minutes?: number | null;
+	source?: {
+		link: string | null;
+		text: string;
+	} | null;
+	steps?: {
+		kind: "section" | "step";
+		photo?: string | null;
+		text: string;
+	}[] | null;
+	title?: string;
+	translates_version_id?: string;
+	yield?: {
+		amount: string;
+		noun: string;
+	} | null;
+};
+/** What edit_recipe answers. */
+export type EditRecipeOutput = {
+	branch_id: string;
+	collapsed: boolean;
+	copied: boolean;
+	foods_created: {
+		id: string;
+		language: string;
+		line_indexes: number[];
+		name: string;
+	}[];
+	language: string;
+	language_offer: string | null;
+	parent_version_id: string | null;
+	sequence: number;
+	translates_version_id: string | null;
+	version_id: string;
+};
+
+/** Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it ("Vegetarian"). Changing one never changes the other. With version_id, a Version of that Branch, it starts from that older Version instead of the newest, and the recipe stays as it is. Only for those who write the recipe's Cookbook. */
+export type StartVariationInput = {
+	branch_id: string;
+	name: string;
+	version_id?: string;
+};
+/** What start_variation answers. */
+export type StartVariationOutput = {
 	arrived: boolean;
 	branch_id: string;
 	cookbook: {
@@ -1145,42 +1574,13 @@ export type CreateRecipeOutput = {
 	writes: boolean;
 };
 
-/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch or a Translation already holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, and is refused once that Version is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
-export type SaveRecipeVersionInput = {
+/** Make an older Version the recipe again. It is saved as a new Version on top of the newest, every field as that Version held it. It never collapses into the Version being shaped, so the Thread keeps the one stepped away from. The Readings that Version had come back with it. version_id is a Version of that Branch, and not its newest. Only for those who write the recipe's Cookbook; anybody else may keep_version_as_copy. */
+export type PutBackVersionInput = {
 	branch_id: string;
-	change_note?: string;
-	cook_time_minutes?: number | null;
-	ingredients?: {
-		kind: "section" | "ingredient";
-		text: string;
-	}[];
-	kitchen_id?: string;
-	main_photo?: string | null;
-	name?: string;
-	note?: string | null;
-	nutrition?: {
-		basis: "per_serving" | "per_100g";
-		calories: number;
-	} | null;
-	prep_time_minutes?: number | null;
-	source?: {
-		link: string | null;
-		text: string;
-	} | null;
-	steps?: {
-		kind: "section" | "step";
-		photo?: string | null;
-		text: string;
-	}[];
-	title: string;
-	translates_version_id?: string;
-	yield?: {
-		amount: string;
-		noun: string;
-	} | null;
+	version_id: string;
 };
-/** What save_recipe_version answers. */
-export type SaveRecipeVersionOutput = {
+/** What put_back_version answers. */
+export type PutBackVersionOutput = {
 	branch_id: string;
 	collapsed: boolean;
 	copied: boolean;
@@ -1192,59 +1592,14 @@ export type SaveRecipeVersionOutput = {
 	version_id: string;
 };
 
-/** Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch or a Translation already holds it), and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was, in the same place, keeps its Reading as it was, a misreading included; correct one with set_reading. */
-export type EditRecipeInput = {
+/** Keep a Version of a recipe as your own copy. For a recipe you do not write: the copy goes in your own Cookbook and starts from that Version, an older one included, and the recipe it came from is not changed. Where your Cookbook already holds its own copy of that recipe in that Language, a name is required and this one is a named variation beside it; changed_since says so as keeping_needs_name. Those who write the recipe use put_back_version or start_variation instead. */
+export type KeepVersionAsCopyInput = {
 	branch_id: string;
-	change_note?: string;
-	cook_time_minutes?: number | null;
-	ingredients?: {
-		kind: "section" | "ingredient";
-		text: string;
-	}[] | null;
-	main_photo?: string | null;
 	name?: string;
-	note?: string | null;
-	nutrition?: {
-		basis: "per_serving" | "per_100g";
-		calories: number;
-	} | null;
-	prep_time_minutes?: number | null;
-	source?: {
-		link: string | null;
-		text: string;
-	} | null;
-	steps?: {
-		kind: "section" | "step";
-		photo?: string | null;
-		text: string;
-	}[] | null;
-	title?: string;
-	translates_version_id?: string;
-	yield?: {
-		amount: string;
-		noun: string;
-	} | null;
-};
-/** What edit_recipe answers. */
-export type EditRecipeOutput = {
-	branch_id: string;
-	collapsed: boolean;
-	copied: boolean;
-	language: string;
-	language_offer: string | null;
-	parent_version_id: string | null;
-	sequence: number;
-	translates_version_id: string | null;
 	version_id: string;
 };
-
-/** Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it ("Vegetarian"). Changing one never changes the other. */
-export type StartVariationInput = {
-	branch_id: string;
-	name: string;
-};
-/** What start_variation answers. */
-export type StartVariationOutput = {
+/** What keep_version_as_copy answers. */
+export type KeepVersionAsCopyOutput = {
 	arrived: boolean;
 	branch_id: string;
 	cookbook: {
@@ -1428,6 +1783,7 @@ export type RenameBranchOutput = {
 
 /** Take one recipe off the shelf for good. It is gone from the shelf, from search and from every member of its Kitchen, and nothing brings it back. **One Branch**: a translation is an ordinary Branch, so deleting the English one leaves the French one whole, and another Kitchen's copy of the same recipe is untouched. **The cooking history stays.** Every Attempt ever made from this recipe keeps its rating, its note and its Photographs, and the Cooked diary keeps each entry under the name the recipe was known by. So does a Shopping List holding it, which says it can no longer be read rather than quietly dropping it. No Version is ever deleted, by this or by anything else. A live Share Link stops working. */
 export type DeleteRecipeInput = {
+	as_operator?: boolean;
 	branch_id: string;
 };
 /** What delete_recipe answers. */
@@ -1466,7 +1822,24 @@ export type ReadRecipePdfOutput = {
 	title: string | null;
 };
 
-/** Translate a recipe into another Language. It starts an ordinary Branch of the same Lineage in that Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author. */
+/** Have an agent make a recipe from text, a link or a file. The file is a PDF or a picture, and the recipe lands in your own Cookbook. Only on an instance with a Runner: without one it is refused with reason `no_runner`. A PDF may be a scan. Pass pasted text as `text`. Pass a web page or a video as `link`: Kamosu does not read it first, so nothing lands before the agent's recipe, and the Job is listed under the source `web`. A link sent again is never matched. Send a file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. Answers the id of a Job that waits for a Runner, as `get_job` reads it, and what it was taken as. A PDF or a picture handed over before is known by its contents: while your Job on it waits or is worked, the answer is that Job, and once its recipe exists the answer is that recipe as `branch_id` and `title`, with no Job. Pasted text is never matched. No recipe exists until the agent creates one, under your Hand. Read the Job with `get_job`: its result is the Import Report, which lists the recipe as arrived once it exists and says what the agent left undone, or why it could not be read. Cancel it with `cancel_job`. Kamosu keeps what was handed over for the agent to fetch and never shows it. */
+export type ImportByAgentInput = {
+	as_operator?: boolean;
+	cookbook_id?: string;
+	data?: string;
+	link?: string;
+	text?: string;
+	upload_id?: string;
+};
+/** What import_by_agent answers. */
+export type ImportByAgentOutput = {
+	branch_id?: string;
+	job_id?: string;
+	source_kind: "pasted_text" | "pdf" | "picture" | "web";
+	title?: string;
+};
+
+/** Translate a recipe into another Language. It is an ordinary Branch of its Lineage. Its first Version records which Version of the source it renders, and its chain starts fresh, unlike a Copy's. An agent translating calls this under the Person's Credential. Keep each Ingredient Line and section heading in the source's place, with its amount and unit: such a line takes the source line's Food, here and on a save naming a newer translates_version_id. */
 export type StartTranslationInput = {
 	branch_id: string;
 	change_note?: string;
@@ -1525,6 +1898,12 @@ export type StartTranslationOutput = {
 			version_id: string | null;
 		}[];
 	};
+	foods_created: {
+		id: string;
+		language: string;
+		line_indexes: number[];
+		name: string;
+	}[];
 	hand_id: string;
 	head_version_id: string;
 	language: string;
@@ -1673,7 +2052,7 @@ export type StartTranslationOutput = {
 	writes: boolean;
 };
 
-/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
+/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so, except to set one guessed for a recipe that held too little text to read, from the first text that says one. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
 export type SetRecipeLanguageInput = {
 	branch_id: string;
 	language: "en" | "fr" | "es" | "unknown";
@@ -1687,6 +2066,7 @@ export type SetRecipeLanguageOutput = {
 
 /** Bring already-read recipes into your own Cookbook, as a Job. They come as one batch. Matched by foreign id against this Cookbook's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
 export type ImportInput = {
+	as_operator?: boolean;
 	candidates: {
 		cook_time_minutes?: number | null;
 		foreign_id: string;
@@ -1717,17 +2097,32 @@ export type ImportInput = {
 			noun: string;
 		} | null;
 	}[];
+	cookbook_id?: string;
 	source_kind: string;
 };
 /** What import eventually produces, read back through `get_job`. */
 export type ImportOutput = {
+	agent_jobs?: {
+		agent_report?: {
+			left_undone?: string[];
+			likely_duplicates?: string[];
+			unsure?: string[];
+			unused_foods?: string[];
+		};
+		branch_id: string | null;
+		could_not_be_read?: boolean;
+		job_id: string;
+		made_by_agent?: boolean;
+		original_gone?: boolean;
+		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
+	}[];
 	arrived: {
 		bare?: boolean;
 		branch_id: string;
 		foreign_id: string;
 		lineage_id: string;
 		main_photo?: string | null;
-		status: "created" | "extended" | "unchanged";
+		status: "created" | "extended" | "unchanged" | "read_again";
 		subject?: boolean;
 		title: string;
 	}[];
@@ -1760,6 +2155,7 @@ export type ImportOutput = {
 	}[];
 	source_kind: string;
 	unreadable: {
+		branch_id?: string;
 		foreign_id: string | null;
 		kept_as?: {
 			branch_id: string;
@@ -1773,18 +2169,34 @@ export type ImportOutput = {
 
 /** Bring in a Crouton library, as a Job. It takes the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your own Cookbook through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 export type ImportCroutonInput = {
+	as_operator?: boolean;
+	cookbook_id?: string;
 	data?: string;
 	upload_id?: string;
 };
 /** What import_crouton eventually produces, read back through `get_job`. */
 export type ImportCroutonOutput = {
+	agent_jobs?: {
+		agent_report?: {
+			left_undone?: string[];
+			likely_duplicates?: string[];
+			unsure?: string[];
+			unused_foods?: string[];
+		};
+		branch_id: string | null;
+		could_not_be_read?: boolean;
+		job_id: string;
+		made_by_agent?: boolean;
+		original_gone?: boolean;
+		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
+	}[];
 	arrived: {
 		bare?: boolean;
 		branch_id: string;
 		foreign_id: string;
 		lineage_id: string;
 		main_photo?: string | null;
-		status: "created" | "extended" | "unchanged";
+		status: "created" | "extended" | "unchanged" | "read_again";
 		subject?: boolean;
 		title: string;
 	}[];
@@ -1817,6 +2229,7 @@ export type ImportCroutonOutput = {
 	}[];
 	source_kind: string;
 	unreadable: {
+		branch_id?: string;
 		foreign_id: string | null;
 		kept_as?: {
 			branch_id: string;
@@ -1834,6 +2247,11 @@ export type ListImportsInput = Record<string, never>;
 export type ListImportsOutput = {
 	imports: {
 		arrivals: {
+			agent_jobs?: {
+				branch_id: string | null;
+				job_id: string;
+				status: "queued" | "running" | "completed" | "failed" | "cancelled";
+			}[];
 			arrived: number;
 			created: number;
 			created_at: string;
@@ -1859,25 +2277,41 @@ export type ForgetImportOutput = {
 	import_id: string;
 };
 
-/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
+/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Without a Runner, a page with no recipe data is read from its own article text the way `read_pasted_recipe` reads a paste, and when that finds Ingredient Lines nothing lands: the answer is `to_check` alone, for a person to check and save, with the page as its Source (#301). Where it finds none, the page lands bare as before. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 export type ImportWebLinkInput = {
+	as_operator?: boolean;
+	cookbook_id?: string;
 	url: string;
 };
 /** What import_web_link eventually produces, read back through `get_job`. */
 export type ImportWebLinkOutput = {
-	arrived: {
+	agent_jobs?: {
+		agent_report?: {
+			left_undone?: string[];
+			likely_duplicates?: string[];
+			unsure?: string[];
+			unused_foods?: string[];
+		};
+		branch_id: string | null;
+		could_not_be_read?: boolean;
+		job_id: string;
+		made_by_agent?: boolean;
+		original_gone?: boolean;
+		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
+	}[];
+	arrived?: {
 		bare?: boolean;
 		branch_id: string;
 		foreign_id: string;
 		lineage_id: string;
 		main_photo?: string | null;
-		status: "created" | "extended" | "unchanged";
+		status: "created" | "extended" | "unchanged" | "read_again";
 		subject?: boolean;
 		title: string;
 	}[];
-	cookbook_id: string;
-	import_id: string;
-	left_out: {
+	cookbook_id?: string;
+	import_id?: string;
+	left_out?: {
 		branch_id: string;
 		count: number;
 		foreign_id: string;
@@ -1885,14 +2319,14 @@ export type ImportWebLinkOutput = {
 		title: string;
 		what: "site_icon" | "extra_photos" | "unreadable_photos";
 	}[];
-	offered: {
+	offered?: {
 		branch_id: string;
 		candidate_version_id: string;
 		foreign_id: string;
 		lineage_id: string;
 		title: string;
 	}[];
-	related_candidates: {
+	related_candidates?: {
 		recipes: {
 			branch_id: string;
 			ingredients: number;
@@ -1902,8 +2336,22 @@ export type ImportWebLinkOutput = {
 		}[];
 		shared: ("name" | "page")[];
 	}[];
-	source_kind: string;
-	unreadable: {
+	source_kind?: string;
+	to_check?: {
+		boundary: number;
+		lines: {
+			kind: "line" | "section";
+			text: string;
+		}[];
+		note: string | null;
+		source: {
+			link: string;
+			text: string;
+		};
+		title: string | null;
+	};
+	unreadable?: {
+		branch_id?: string;
 		foreign_id: string | null;
 		kept_as?: {
 			branch_id: string;
@@ -2110,6 +2558,7 @@ export type TurnOffMeaningSearchOutput = {
 
 /** Read a Recipe: its Branch and every Version, oldest first. The Branch comes as it stands, with its whole chain of Versions. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored. */
 export type GetRecipeInput = {
+	as_operator?: boolean;
 	branch_id: string;
 	wanted_yield?: {
 		amount: string;
@@ -2288,8 +2737,9 @@ export type GetRecipeOutput = {
 	writes: boolean;
 };
 
-/** Read the Thread: every Branch of one Lineage you may see. It holds every Version of every Branch of the Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. An Attempt's eaten_version_id is the Version its rating is about: the As Cooked once that was kept as a Version, otherwise the Version it started from. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
+/** Read the Thread: every Branch of one Lineage you may see. It holds every Version of every Branch of the Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. An Attempt's eaten_version_id is the Version its rating is about: the As Cooked once that was kept as a Version, otherwise the Version it started from. Its person_name is who cooked, and mine says whether that is you. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
 export type GetThreadInput = {
+	as_operator?: boolean;
 	branch_id: string;
 };
 /** What get_thread answers. */
@@ -2305,7 +2755,11 @@ export type GetThreadOutput = {
 						kind: string;
 						text: string;
 					} | null;
-					state: "same" | "changed" | "only-mine" | "only-theirs";
+					place: {
+						mine: number;
+						theirs: number;
+					};
+					state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 					theirs: {
 						index: number;
 						kind: string;
@@ -2320,7 +2774,11 @@ export type GetThreadOutput = {
 						kind: string;
 						text: string;
 					} | null;
-					state: "same" | "changed" | "only-mine" | "only-theirs";
+					place: {
+						mine: number;
+						theirs: number;
+					};
+					state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 					theirs: {
 						index: number;
 						kind: string;
@@ -2370,8 +2828,10 @@ export type GetThreadOutput = {
 		id: string;
 		last_action_at: string;
 		lineage_id: string;
+		mine: boolean;
 		note: string | null;
 		person_id: string;
+		person_name: string;
 		photographs: string[];
 		rating: "again" | "tweak" | "no" | null;
 		resumable: boolean;
@@ -2531,18 +2991,34 @@ export type MakeSharedSheetOutput = {
 
 /** Receive a Bundle into your own Cookbook, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Cookbook holds it under an id of this instance's own; one your Cookbook already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Cookbook here holding it is no part of the question: each Cookbook receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 export type ImportBundleInput = {
+	as_operator?: boolean;
+	cookbook_id?: string;
 	data?: string;
 	upload_id?: string;
 };
 /** What import_bundle eventually produces, read back through `get_job`. */
 export type ImportBundleOutput = {
+	agent_jobs?: {
+		agent_report?: {
+			left_undone?: string[];
+			likely_duplicates?: string[];
+			unsure?: string[];
+			unused_foods?: string[];
+		};
+		branch_id: string | null;
+		could_not_be_read?: boolean;
+		job_id: string;
+		made_by_agent?: boolean;
+		original_gone?: boolean;
+		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
+	}[];
 	arrived: {
 		bare?: boolean;
 		branch_id: string;
 		foreign_id: string;
 		lineage_id: string;
 		main_photo?: string | null;
-		status: "created" | "extended" | "unchanged";
+		status: "created" | "extended" | "unchanged" | "read_again";
 		subject?: boolean;
 		title: string;
 	}[];
@@ -2575,6 +3051,7 @@ export type ImportBundleOutput = {
 	}[];
 	source_kind: string;
 	unreadable: {
+		branch_id?: string;
 		foreign_id: string | null;
 		kept_as?: {
 			branch_id: string;
@@ -2775,7 +3252,7 @@ export type ReadSharedRecipeOutput = {
 	}[];
 };
 
-/** Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */
+/** Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. A Translation has no Branch Point with its source, nor with another Translation of it: its chain starts fresh, so the two share no Version and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions. */
 export type BranchPointInput = {
 	branch_a_id: string;
 	branch_b_id: string;
@@ -2785,7 +3262,7 @@ export type BranchPointOutput = {
 	version_id: string;
 };
 
-/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. */
+/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. A line both have word for word in another place is `moved`, and `place` says where each side's page draws a row. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. A Translation has no Branch Point with its source, nor with another Translation of it, and the two are in different Languages, so nothing pairs their lines and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions. */
 export type DivergenceInput = {
 	branch_id: string;
 	other_branch_id: string;
@@ -2843,7 +3320,11 @@ export type DivergenceOutput = {
 			kind: string;
 			text: string;
 		} | null;
-		state: "same" | "changed" | "only-mine" | "only-theirs";
+		place: {
+			mine: number;
+			theirs: number;
+		};
+		state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 		theirs: {
 			index: number;
 			kind: string;
@@ -2969,7 +3450,11 @@ export type DivergenceOutput = {
 			kind: string;
 			text: string;
 		} | null;
-		state: "same" | "changed" | "only-mine" | "only-theirs";
+		place: {
+			mine: number;
+			theirs: number;
+		};
+		state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 		theirs: {
 			index: number;
 			kind: string;
@@ -3088,7 +3573,7 @@ export type DivergenceOutput = {
 	};
 };
 
-/** See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch. */
+/** See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch, and so may put_back_version or start_variation from that Version; anybody else may keep_version_as_copy. */
 export type ChangedSinceInput = {
 	branch_id: string;
 	version_id: string;
@@ -3146,13 +3631,18 @@ export type ChangedSinceOutput = {
 			kind: string;
 			text: string;
 		} | null;
-		state: "same" | "changed" | "only-mine" | "only-theirs";
+		place: {
+			mine: number;
+			theirs: number;
+		};
+		state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 		theirs: {
 			index: number;
 			kind: string;
 			text: string;
 		} | null;
 	}[];
+	keeping_needs_name: boolean;
 	lineage_id: string;
 	mine: {
 		arrived: boolean;
@@ -3272,7 +3762,11 @@ export type ChangedSinceOutput = {
 			kind: string;
 			text: string;
 		} | null;
-		state: "same" | "changed" | "only-mine" | "only-theirs";
+		place: {
+			mine: number;
+			theirs: number;
+		};
+		state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 		theirs: {
 			index: number;
 			kind: string;
@@ -3402,7 +3896,7 @@ export type ChangedSinceOutput = {
 	writes: boolean;
 };
 
-/** Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
+/** Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
 export type SetReadingInput = {
 	amount?: string | null;
 	branch_id: string;
@@ -3479,7 +3973,11 @@ export type StartAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3494,7 +3992,11 @@ export type StartAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3575,7 +4077,11 @@ export type AdvanceAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3590,7 +4096,11 @@ export type AdvanceAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3669,7 +4179,11 @@ export type FinishAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3684,7 +4198,11 @@ export type FinishAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3763,7 +4281,11 @@ export type EditAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3778,7 +4300,11 @@ export type EditAttemptOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3912,7 +4438,11 @@ export type SetAsCookedOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -3927,7 +4457,11 @@ export type SetAsCookedOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -4002,7 +4536,11 @@ export type DeclinePromotionOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -4017,7 +4555,11 @@ export type DeclinePromotionOutput = {
 					kind: string;
 					text: string;
 				} | null;
-				state: "same" | "changed" | "only-mine" | "only-theirs";
+				place: {
+					mine: number;
+					theirs: number;
+				};
+				state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 				theirs: {
 					index: number;
 					kind: string;
@@ -4113,7 +4655,11 @@ export type GetCurrentAttemptOutput = {
 						kind: string;
 						text: string;
 					} | null;
-					state: "same" | "changed" | "only-mine" | "only-theirs";
+					place: {
+						mine: number;
+						theirs: number;
+					};
+					state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 					theirs: {
 						index: number;
 						kind: string;
@@ -4128,7 +4674,11 @@ export type GetCurrentAttemptOutput = {
 						kind: string;
 						text: string;
 					} | null;
-					state: "same" | "changed" | "only-mine" | "only-theirs";
+					place: {
+						mine: number;
+						theirs: number;
+					};
+					state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 					theirs: {
 						index: number;
 						kind: string;
@@ -4202,7 +4752,11 @@ export type ListAttemptsOutput = {
 						kind: string;
 						text: string;
 					} | null;
-					state: "same" | "changed" | "only-mine" | "only-theirs";
+					place: {
+						mine: number;
+						theirs: number;
+					};
+					state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 					theirs: {
 						index: number;
 						kind: string;
@@ -4217,7 +4771,11 @@ export type ListAttemptsOutput = {
 						kind: string;
 						text: string;
 					} | null;
-					state: "same" | "changed" | "only-mine" | "only-theirs";
+					place: {
+						mine: number;
+						theirs: number;
+					};
+					state: "same" | "changed" | "moved" | "only-mine" | "only-theirs";
 					theirs: {
 						index: number;
 						kind: string;
@@ -4788,7 +5346,7 @@ export type DeleteFoodOutput = {
 	deleted: boolean;
 };
 
-/** Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
+/** Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did. An agent's Job is also readable by the Co-authors of the Cookbook its recipe is in. */
 export type GetJobInput = {
 	job_id: string;
 };
@@ -4809,13 +5367,64 @@ export type GetJobOutput = {
 	updated_at: string;
 };
 
-/** Cancel a Job you asked for. It is acknowledged always, and honoured while it still waits in line. */
+/** Cancel a Job you asked for. Always acknowledged, and honoured while it waits or an agent is working on it. */
 export type CancelJobInput = {
 	job_id: string;
 };
 /** What cancel_job answers. */
 export type CancelJobOutput = {
 	cancelled: boolean;
+};
+
+/** Read which agent's Job waits or is being worked on a recipe. `job` is null when none is, and once the Job has ended. Among those who see the recipe, it names the Job to the Person who asked for it and to the Co-authors of the recipe's Cookbook, who may read it with `get_job`. Anyone else who sees the recipe is answered null. */
+export type GetRecipeJobInput = {
+	branch_id: string;
+};
+/** What get_recipe_job answers. */
+export type GetRecipeJobOutput = {
+	job: {
+		id: string;
+		status: "queued" | "running";
+		yours: boolean;
+	} | null;
+};
+
+/** Have an agent read a recipe again. A recipe an agent read from a PDF, a picture or pasted text is read from what Kamosu kept of it. Kamosu deletes that 30 days after its Job ended, and then the ask is refused with reason `needs_the_file`: ask again handing the file over, as `upload_id` or `data`, or the text as `text`. Any other recipe is read from its Source link, whichever way it arrived, and takes nothing handed over. It makes a Job that waits for a Runner. Only a Co-author of the Cookbook that holds the recipe may ask, on a Kamosu with a Runner. A recipe is read again once: after a reading that finished, or one stopped while a Runner held it, the ask is refused with reason `already_read_again`. One that failed, or was stopped while it waited, does not count. A variation is a recipe of its own, read again once too. The agent's saves become one new Version under your Hand, so the earlier one stays in the History. Where a Job already waits or is being worked on the recipe, that Job is the answer, and nothing handed over is kept. Its result is an Import Report under the source `read_again`, which says what the agent left undone or was unsure of. Ask `can_read_recipe_again` first to know what it would read, or why it would be refused. */
+export type ReadRecipeAgainInput = {
+	branch_id: string;
+	data?: string;
+	text?: string;
+	upload_id?: string;
+};
+/** What read_recipe_again answers. */
+export type ReadRecipeAgainOutput = {
+	branch_id: string;
+	job_id: string;
+};
+
+/** Say whether a recipe can be read again, and from what. This is for you, as `read_recipe_again` would answer you. `from` is `original` for a recipe an agent read from a file or pasted text, and `link` for one read from its Source link. `reason` says why not: `not_a_co_author` when you see the recipe and do not write its Cookbook, `would_start_a_copy` when your Cookbook received it and did not write it, `no_runner` when no agent would read it, `already_read_again` when it has been read again already, which a recipe is once, `needs_the_file` when what it was read from is no longer kept and has to be handed over again, and `nothing_to_read` when it came from no file and its Source has no http or https link on the internet. */
+export type CanReadRecipeAgainInput = {
+	branch_id: string;
+};
+/** What can_read_recipe_again answers. */
+export type CanReadRecipeAgainOutput = {
+	can_read_again: boolean;
+	from: "original" | "link" | null;
+	link: string | null;
+	original: "pasted_text" | "pdf" | "picture" | null;
+	reason: "not_a_co_author" | "would_start_a_copy" | "no_runner" | "already_read_again" | "needs_the_file" | "nothing_to_read" | null;
+};
+
+/** Have an agent read again a file your Job failed on. It reads what Kamosu kept of the PDF, the picture or the pasted text a Job of yours failed on before it made a recipe, so you need not find the file. Kamosu deletes that 30 days after the Job ended, and then this is refused with reason `original_gone`: hand it over again with `import_by_agent`. A Job that made a recipe, or did not fail, is refused with reason `not_failed_on_a_file`. Only on a Kamosu with a Runner. Answers as `import_by_agent` does: a new Job, or the one of yours that waits or is worked on the same file, or the recipe an agent made from it since. */
+export type ReadJobAgainInput = {
+	job_id: string;
+};
+/** What read_job_again answers. */
+export type ReadJobAgainOutput = {
+	branch_id?: string;
+	job_id?: string;
+	source_kind: "pasted_text" | "pdf" | "picture";
+	title?: string;
 };
 
 /** List the Jobs this Person has asked for, newest first. */
@@ -4920,6 +5529,60 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'operator';
 	};
+	mint_runner_key: {
+		input: MintRunnerKeyInput;
+		output: MintRunnerKeyOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	list_runner_keys: {
+		input: ListRunnerKeysInput;
+		output: ListRunnerKeysOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	revoke_runner_key: {
+		input: RevokeRunnerKeyInput;
+		output: RevokeRunnerKeyOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	runner_status: {
+		input: RunnerStatusInput;
+		output: RunnerStatusOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	get_house_notes: {
+		input: GetHouseNotesInput;
+		output: GetHouseNotesOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	set_house_notes: {
+		input: SetHouseNotesInput;
+		output: SetHouseNotesOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	ask_for_work: {
+		input: AskForWorkInput;
+		output: AskForWorkOutput;
+		kind: 'immediate';
+		permission: 'runner';
+	};
+	renew_hold: {
+		input: RenewHoldInput;
+		output: RenewHoldOutput;
+		kind: 'immediate';
+		permission: 'runner';
+	};
+	report_on_job: {
+		input: ReportOnJobInput;
+		output: ReportOnJobOutput;
+		kind: 'immediate';
+		permission: 'runner';
+	};
 	list_sessions: {
 		input: ListSessionsInput;
 		output: ListSessionsOutput;
@@ -5015,6 +5678,12 @@ export interface Operations {
 		output: GetCookbookOutput;
 		kind: 'immediate';
 		permission: 'person';
+	};
+	list_cookbooks: {
+		input: ListCookbooksInput;
+		output: ListCookbooksOutput;
+		kind: 'immediate';
+		permission: 'operator';
 	};
 	rename_cookbook: {
 		input: RenameCookbookInput;
@@ -5130,6 +5799,18 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	put_back_version: {
+		input: PutBackVersionInput;
+		output: PutBackVersionOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	keep_version_as_copy: {
+		input: KeepVersionAsCopyInput;
+		output: KeepVersionAsCopyOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	rename_branch: {
 		input: RenameBranchInput;
 		output: RenameBranchOutput;
@@ -5151,6 +5832,12 @@ export interface Operations {
 	read_recipe_pdf: {
 		input: ReadRecipePdfInput;
 		output: ReadRecipePdfOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	import_by_agent: {
+		input: ImportByAgentInput;
+		output: ImportByAgentOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -5556,6 +6243,30 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'public';
 	};
+	get_recipe_job: {
+		input: GetRecipeJobInput;
+		output: GetRecipeJobOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	read_recipe_again: {
+		input: ReadRecipeAgainInput;
+		output: ReadRecipeAgainOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	can_read_recipe_again: {
+		input: CanReadRecipeAgainInput;
+		output: CanReadRecipeAgainOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	read_job_again: {
+		input: ReadJobAgainInput;
+		output: ReadJobAgainOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	list_jobs: {
 		input: ListJobsInput;
 		output: ListJobsOutput;
@@ -5755,7 +6466,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "list_accounts",
-		"summary": "List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here.",
+		"summary": "List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook: an Operator reaches their recipes through list_cookbooks (ADR 0049), and no Attempt or Kitchen of theirs from anywhere.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -6112,6 +6823,470 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "mint_runner_key",
+		"summary": "Mint a Runner Key, the Secret a Runner asks for work with. A Runner is the program beside Kamosu that has an agent do the Jobs Kamosu cannot. The Secret is shown once. It can ask for work and nothing else, and it acts as no Person.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"id": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				},
+				"secret": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"secret"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_runner_keys",
+		"summary": "List this instance's Runner Keys by name and last use.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"runner_keys": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"last_used_at": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"name": {
+								"type": "string"
+							},
+							"revoked": {
+								"type": "boolean"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"created_at",
+							"last_used_at",
+							"revoked"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"runner_keys"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "revoke_runner_key",
+		"summary": "End one Runner Key. The Runner holding it is refused at its next call.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"runner_key_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"runner_key_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"revoked": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"revoked"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "runner_status",
+		"summary": "Read whether this instance has a Runner. Also when one was last heard from, asking for work or renewing its hold on a Job.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"has_runner": {
+					"description": "True while a Runner Key exists that is not revoked.",
+					"type": "boolean"
+				},
+				"last_asked_at": {
+					"description": "When a Runner last asked for work or renewed its hold on a Job, or null when none ever has.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"has_runner",
+				"last_asked_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "get_house_notes",
+		"summary": "Read the agent's House Notes. They are what an Operator adds to the end of the instructions the agent follows, handed over with every Job. Null when none are written, and the agent follows its own instructions alone. Says who saved them last and when.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"notes": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"saved_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"saved_by": {
+					"description": "The name of the Person who saved them last, emptying them included. Null when nobody ever has.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"notes",
+				"saved_by",
+				"saved_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_house_notes",
+		"summary": "Save the agent's House Notes. They replace any there were, up to 4,000 characters. The agent reads them after its own instructions, as the Operator's, and follows them where the two disagree. A Job carries the notes as they stand when a Runner takes it. Blank text takes them away. Kamosu's own agent image follows them; another agent follows them only if it reads `house_notes` from each Job.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"notes": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"notes"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"notes": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"saved_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"saved_by": {
+					"description": "The name of the Person who saved them last, emptying them included. Null when nobody ever has.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"notes",
+				"saved_by",
+				"saved_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "ask_for_work",
+		"summary": "Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it with reason `another_version`.",
+		"permission": "runner",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"ask": {
+					"type": "string"
+				},
+				"runner_version": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"runner_version",
+				"ask"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"job": {
+					"additionalProperties": false,
+					"properties": {
+						"branch_id": {
+							"description": "The recipe the Job is for, which landed bare. Null on a Job reading an Original, or a link handed over with nothing landed, until its agent creates the recipe with `create_recipe` and its Job Key.",
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"held_until": {
+							"description": "When the hold lapses unless `renew_hold` moves it on.",
+							"type": "string"
+						},
+						"house_notes": {
+							"description": "The instance's house notes for the agent, written by an Operator, as they stand now: read after the agent's own instructions, and followed where the two disagree. Null when none are written.",
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"job_id": {
+							"type": "string"
+						},
+						"job_key": {
+							"description": "The Job Key, shown once. The agent presents it as its Credential.",
+							"type": "string"
+						},
+						"link": {
+							"description": "What the agent is to read, when that is a page or a video. Null when it is an Original.",
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"original": {
+							"additionalProperties": false,
+							"description": "What the agent is to read, when that is not a link: pasted text, a PDF or a picture. Null when it is a link.",
+							"properties": {
+								"address": {
+									"description": "Where the agent fetches it, with a GET carrying the Job Key.",
+									"type": "string"
+								},
+								"kind": {
+									"enum": [
+										"pasted_text",
+										"pdf",
+										"picture"
+									]
+								}
+							},
+							"required": [
+								"kind",
+								"address"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						},
+						"renew_within_seconds": {
+							"description": "How long to leave before the first `renew_hold`, and between each after.",
+							"type": "number"
+						}
+					},
+					"required": [
+						"job_id",
+						"branch_id",
+						"link",
+						"original",
+						"job_key",
+						"house_notes",
+						"held_until",
+						"renew_within_seconds"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"job"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "renew_hold",
+		"summary": "Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again. This is how a Runner learns that its Job was cancelled, and the refusal says so.",
+		"permission": "runner",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"job_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"job_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"held_until": {
+					"type": "string"
+				},
+				"renew_within_seconds": {
+					"type": "number"
+				}
+			},
+			"required": [
+				"held_until",
+				"renew_within_seconds"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "report_on_job",
+		"summary": "Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two need `reason`, one sentence the cook reads in the Import Report. A Job reported `failed` waits to be tried again, and ends as failed once it has been tried as often as Kamosu tries one. `could_not_be_read` ends it as failed at once. `report` is the agent's own report, passed on as it wrote it. A Runner whose hold is gone is refused and told so, as is one whose Job was cancelled, and a Job it never held is answered as a Job that is not there.",
+		"permission": "runner",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"job_id": {
+					"type": "string"
+				},
+				"outcome": {
+					"enum": [
+						"completed",
+						"failed",
+						"could_not_be_read"
+					]
+				},
+				"reason": {
+					"type": "string"
+				},
+				"report": {
+					"additionalProperties": false,
+					"description": "The agent's own report on its work, present once a Runner has passed one on.",
+					"properties": {
+						"left_undone": {
+							"description": "What the agent did not do, a sentence each: an Ingredient Line it could not read, a Step it left out, a photo it could not fetch.",
+							"items": {
+								"type": "string"
+							},
+							"type": "array"
+						},
+						"likely_duplicates": {
+							"description": "The Branch id of each recipe already in the library that this one is likely a duplicate of. The recipe is saved all the same. Kamosu does not check the ids, so read each with `get_recipe`.",
+							"items": {
+								"type": "string"
+							},
+							"type": "array"
+						},
+						"unsure": {
+							"description": "What the agent wrote and was unsure of, a sentence each, so the cook knows where to look.",
+							"items": {
+								"type": "string"
+							},
+							"type": "array"
+						},
+						"unused_foods": {
+							"description": "The name of each Food the agent's corrections left with nothing pointing at it, for an Operator to tidy.",
+							"items": {
+								"type": "string"
+							},
+							"type": "array"
+						}
+					},
+					"type": "object"
+				}
+			},
+			"required": [
+				"job_id",
+				"outcome"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"reported": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"reported"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "list_sessions",
 		"summary": "List this Person's browser Sessions by device and last use. `current` marks the Session asking, so it is never set when an Access Key asks.",
 		"permission": "person",
@@ -6209,7 +7384,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "revoke_session",
-		"summary": "End one of your browser Sessions.",
+		"summary": "End one of your browser Sessions. `current` says whether it was the one this call was made with, as `list_sessions` marks it: a browser that ended its own is signed out.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6227,12 +7402,16 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"current": {
+					"type": "boolean"
+				},
 				"revoked": {
 					"type": "boolean"
 				}
 			},
 			"required": [
-				"revoked"
+				"revoked",
+				"current"
 			],
 			"type": "object"
 		}
@@ -7186,6 +8365,99 @@ export const CATALOGUE = [
 				"kitchens",
 				"invites",
 				"joins"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_cookbooks",
+		"summary": "Every Cookbook and the recipes in it, for an Operator. Each comes with who writes it, and each recipe as a `branch_id` with its title. On a call saying `as_operator`, an Operator looks after any Cookbook (ADR 0049): get_recipe, get_thread, edit_recipe, save_recipe_version, delete_recipe, set_recipe_tag and set_related_recipe reach these recipes, and create_recipe, create_tag, list_tags and the Imports take a `cookbook_id` to work in one. What an Operator writes there is under their own Hand. Attempts, shopping lists and who writes a Cookbook stay their owners'. A read-only Access Key is refused.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"cookbooks": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"authors": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"name": {
+											"type": "string"
+										},
+										"person_id": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"person_id",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"id": {
+								"type": "string"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"recipes": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"language": {
+											"type": "string"
+										},
+										"name": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"title": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"branch_id",
+										"title",
+										"language",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"authors",
+							"recipes"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"cookbooks"
 			],
 			"type": "object"
 		}
@@ -9124,6 +10396,14 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
+				},
 				"kitchen_id": {
 					"description": "Ignored. Everything you write lands in your own Cookbook (ADR 0041), so there is no Kitchen to name. Accepted so that a client which still sends it is not refused.",
 					"type": "string"
@@ -9212,8 +10492,12 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"cookbook_id": {
-					"description": "One Cookbook you can see: the words it files by. One you cannot see is answered as not found.",
+					"description": "One Cookbook you can see, or any for an Operator with as_operator: the words it files by. One you cannot see is answered as not found.",
 					"type": "string"
 				},
 				"everywhere": {
@@ -9503,6 +10787,10 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				},
@@ -9599,6 +10887,10 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				},
@@ -9676,18 +10968,26 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "create_recipe",
-		"summary": "Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version.",
+		"summary": "Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. With a Job Key it creates the Job's own recipe, once, for a Job that has none yet: one reading pasted text, a PDF or a picture.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"cook_time_minutes": {
 					"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
 					"type": [
 						"integer",
 						"null"
 					]
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
 				},
 				"ingredients": {
 					"items": {
@@ -9843,6 +11143,1612 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"title"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"arrived": {
+					"type": "boolean"
+				},
+				"branch_id": {
+					"type": "string"
+				},
+				"cookbook": {
+					"additionalProperties": false,
+					"properties": {
+						"authors": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"id": {
+							"type": "string"
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"id",
+						"name",
+						"authors"
+					],
+					"type": "object"
+				},
+				"cooked": {
+					"additionalProperties": false,
+					"properties": {
+						"count": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"last_cooked_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"ratings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"at": {
+										"type": "string"
+									},
+									"given_on": {
+										"description": "The Version rated: this recipe's newest, an older one, or another Branch's.",
+										"enum": [
+											"newest",
+											"older",
+											"another"
+										],
+										"type": "string"
+									},
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									},
+									"rating": {
+										"enum": [
+											"again",
+											"tweak",
+											"no"
+										],
+										"type": "string"
+									},
+									"version_id": {
+										"description": "An older Version this recipe still holds; null otherwise.",
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"person_id",
+									"name",
+									"rating",
+									"at",
+									"given_on",
+									"version_id"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						}
+					},
+					"required": [
+						"count",
+						"last_cooked_at",
+						"ratings"
+					],
+					"type": "object"
+				},
+				"foods_created": {
+					"description": "Each Food this save created: its word, and the lines read as it, as set_reading counts them. Empty when none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"language": {
+								"type": "string"
+							},
+							"line_indexes": {
+								"items": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"language",
+							"line_indexes"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"hand_id": {
+					"type": "string"
+				},
+				"head_version_id": {
+					"type": "string"
+				},
+				"language": {
+					"type": "string"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"mine": {
+					"type": "boolean"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"origin_address": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"related_recipes": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"language_fallback": {
+								"type": "boolean"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"main_photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"lineage_id",
+							"branch_id",
+							"title",
+							"main_photo",
+							"language",
+							"language_fallback"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"tags": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"cookbook_id": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"language_fallback": {
+								"type": "boolean"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"names": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"language": {
+											"type": "string"
+										},
+										"name": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"language",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"recipes": {
+								"type": "integer"
+							}
+						},
+						"required": [
+							"id",
+							"cookbook_id",
+							"name",
+							"language",
+							"names",
+							"recipes",
+							"language_fallback"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"translation": {
+					"additionalProperties": false,
+					"properties": {
+						"source_branch_id": {
+							"description": "The recipe this one translates. Null where that recipe is not on this instance — a Translation may arrive on its own, and how far behind it has fallen is then unanswerable rather than zero.",
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"translates_version_id": {
+							"description": "The Version of the source this recipe's newest Version renders.",
+							"type": "string"
+						},
+						"versions_behind": {
+							"description": "How many Versions the source has moved on since the one this translates. Zero means up to date.",
+							"type": [
+								"integer",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"translates_version_id",
+						"source_branch_id",
+						"versions_behind"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"versions": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"change_note": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"components": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"content": {
+											"additionalProperties": false,
+											"properties": {
+												"cook_time_minutes": {
+													"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+													"type": [
+														"integer",
+														"null"
+													]
+												},
+												"ingredients": {
+													"items": {
+														"additionalProperties": false,
+														"properties": {
+															"kind": {
+																"enum": [
+																	"section",
+																	"ingredient"
+																]
+															},
+															"text": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"kind",
+															"text"
+														],
+														"type": "object"
+													},
+													"type": "array"
+												},
+												"main_photo": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"note": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"nutrition": {
+													"additionalProperties": false,
+													"properties": {
+														"basis": {
+															"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+															"enum": [
+																"per_serving",
+																"per_100g"
+															]
+														},
+														"calories": {
+															"description": "Calories, zero or more.",
+															"minimum": 0,
+															"type": "number"
+														}
+													},
+													"required": [
+														"calories",
+														"basis"
+													],
+													"type": [
+														"object",
+														"null"
+													]
+												},
+												"prep_time_minutes": {
+													"description": "Whole minutes of active preparation.",
+													"type": [
+														"integer",
+														"null"
+													]
+												},
+												"source": {
+													"additionalProperties": false,
+													"properties": {
+														"link": {
+															"type": [
+																"string",
+																"null"
+															]
+														},
+														"text": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"text",
+														"link"
+													],
+													"type": [
+														"object",
+														"null"
+													]
+												},
+												"steps": {
+													"items": {
+														"additionalProperties": false,
+														"properties": {
+															"kind": {
+																"enum": [
+																	"section",
+																	"step"
+																]
+															},
+															"photo": {
+																"type": [
+																	"string",
+																	"null"
+																]
+															},
+															"text": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"kind",
+															"text",
+															"photo"
+														],
+														"type": "object"
+													},
+													"type": "array"
+												},
+												"title": {
+													"type": "string"
+												},
+												"yield": {
+													"additionalProperties": false,
+													"properties": {
+														"amount": {
+															"type": "string"
+														},
+														"noun": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"amount",
+														"noun"
+													],
+													"type": [
+														"object",
+														"null"
+													]
+												}
+											},
+											"required": [
+												"title",
+												"yield",
+												"prep_time_minutes",
+												"cook_time_minutes",
+												"note",
+												"main_photo",
+												"source",
+												"nutrition",
+												"ingredients",
+												"steps"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"held": {
+											"type": "boolean"
+										},
+										"lineage_id": {
+											"type": "string"
+										},
+										"measured": {
+											"additionalProperties": false,
+											"properties": {
+												"ingredients": {
+													"items": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"type": "array"
+												},
+												"steps": {
+													"items": {
+														"items": {
+															"additionalProperties": false,
+															"properties": {
+																"measured": {
+																	"type": "string"
+																},
+																"written": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"written",
+																"measured"
+															],
+															"type": "object"
+														},
+														"type": [
+															"array",
+															"null"
+														]
+													},
+													"type": "array"
+												}
+											},
+											"required": [
+												"ingredients",
+												"steps"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"path": {
+											"items": {
+												"type": "integer"
+											},
+											"type": "array"
+										},
+										"readings": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"amount": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"lineage_id": {
+														"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"target": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"unit": {
+														"type": [
+															"string",
+															"null"
+														]
+													}
+												},
+												"required": [
+													"amount",
+													"unit",
+													"target",
+													"lineage_id"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"type": [
+												"array",
+												"null"
+											]
+										},
+										"said": {
+											"type": "string"
+										},
+										"share": {
+											"type": [
+												"number",
+												"null"
+											]
+										},
+										"stopped": {
+											"type": "boolean"
+										},
+										"title": {
+											"type": [
+												"string",
+												"null"
+											]
+										}
+									},
+									"required": [
+										"path",
+										"lineage_id",
+										"held",
+										"stopped",
+										"branch_id",
+										"title",
+										"share",
+										"said",
+										"content",
+										"readings",
+										"measured"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"content": {
+								"additionalProperties": false,
+								"properties": {
+									"cook_time_minutes": {
+										"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"ingredients": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"section",
+														"ingredient"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"main_photo": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"note": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"nutrition": {
+										"additionalProperties": false,
+										"properties": {
+											"basis": {
+												"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+												"enum": [
+													"per_serving",
+													"per_100g"
+												]
+											},
+											"calories": {
+												"description": "Calories, zero or more.",
+												"minimum": 0,
+												"type": "number"
+											}
+										},
+										"required": [
+											"calories",
+											"basis"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"prep_time_minutes": {
+										"description": "Whole minutes of active preparation.",
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"source": {
+										"additionalProperties": false,
+										"properties": {
+											"link": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"text",
+											"link"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"steps": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"section",
+														"step"
+													]
+												},
+												"photo": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text",
+												"photo"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"title": {
+										"type": "string"
+									},
+									"yield": {
+										"additionalProperties": false,
+										"properties": {
+											"amount": {
+												"type": "string"
+											},
+											"noun": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"amount",
+											"noun"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"title",
+									"yield",
+									"prep_time_minutes",
+									"cook_time_minutes",
+									"note",
+									"main_photo",
+									"source",
+									"nutrition",
+									"ingredients",
+									"steps"
+								],
+								"type": "object"
+							},
+							"cooking": {
+								"additionalProperties": false,
+								"properties": {
+									"steps": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"timer_seconds": {
+													"minimum": 1,
+													"type": [
+														"integer",
+														"null"
+													]
+												},
+												"uses": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												}
+											},
+											"required": [
+												"uses",
+												"timer_seconds"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"type": "array"
+									}
+								},
+								"required": [
+									"steps"
+								],
+								"type": "object"
+							},
+							"created_at": {
+								"type": "string"
+							},
+							"hand_id": {
+								"type": "string"
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"measured": {
+								"additionalProperties": false,
+								"properties": {
+									"ingredients": {
+										"items": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"type": "array"
+									},
+									"steps": {
+										"items": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"measured": {
+														"type": "string"
+													},
+													"written": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"written",
+													"measured"
+												],
+												"type": "object"
+											},
+											"type": [
+												"array",
+												"null"
+											]
+										},
+										"type": "array"
+									}
+								},
+								"required": [
+									"ingredients",
+									"steps"
+								],
+								"type": "object"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"parent_version_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"readings": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"lineage_id": {
+											"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"target": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"unit": {
+											"type": [
+												"string",
+												"null"
+											]
+										}
+									},
+									"required": [
+										"amount",
+										"unit",
+										"target",
+										"lineage_id"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"type": "array"
+							},
+							"scaled_to": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"sequence": {
+								"type": "integer"
+							},
+							"translates_version_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"version_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"sequence",
+							"version_id",
+							"parent_version_id",
+							"hand_id",
+							"name",
+							"change_note",
+							"created_at",
+							"content",
+							"readings",
+							"measured",
+							"cooking",
+							"components",
+							"translates_version_id",
+							"language",
+							"scaled_to"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"writes": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"branch_id",
+				"lineage_id",
+				"cookbook",
+				"name",
+				"writes",
+				"mine",
+				"arrived",
+				"hand_id",
+				"language",
+				"origin_address",
+				"head_version_id",
+				"versions",
+				"translation",
+				"tags",
+				"related_recipes",
+				"cooked",
+				"foods_created"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "save_recipe_version",
+		"summary": "Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped, unless another Branch, a Translation or a Bundle already holds that Version, or an agent's Job saved it. A save with a Job Key collapses into the one Version its Job started. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, or is refused once it is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write, a Kitchen-mate's or one that arrived, is a Copy: a new Branch of the same Lineage in your own Cookbook, carrying the whole chain up to the Version you changed, and the Branch you changed is left untouched.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
+				"branch_id": {
+					"type": "string"
+				},
+				"change_note": {
+					"type": "string"
+				},
+				"cook_time_minutes": {
+					"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"ingredients": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"section",
+									"ingredient"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"text"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"kitchen_id": {
+					"description": "Ignored. Everything you write lands in your own Cookbook (ADR 0041), so there is no Kitchen to name. Accepted so that a client which still sends it is not refused.",
+					"type": "string"
+				},
+				"main_photo": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"name": {
+					"type": "string"
+				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"nutrition": {
+					"additionalProperties": false,
+					"properties": {
+						"basis": {
+							"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+							"enum": [
+								"per_serving",
+								"per_100g"
+							]
+						},
+						"calories": {
+							"description": "Calories, zero or more.",
+							"minimum": 0,
+							"type": "number"
+						}
+					},
+					"required": [
+						"calories",
+						"basis"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"prep_time_minutes": {
+					"description": "Whole minutes of active preparation.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"source": {
+					"additionalProperties": false,
+					"properties": {
+						"link": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"text": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"text",
+						"link"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"steps": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"section",
+									"step"
+								]
+							},
+							"photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"text"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"title": {
+					"type": "string"
+				},
+				"translates_version_id": {
+					"description": "For a Translation, the Version of the source this save now renders — how bringing a Translation up to date is said. Left out, whatever the Version being replaced pointed at is carried forward, so editing a Translation's wording never claims it has caught up.",
+					"type": "string"
+				},
+				"yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"branch_id",
+				"title"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"collapsed": {
+					"type": "boolean"
+				},
+				"copied": {
+					"description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
+					"type": "boolean"
+				},
+				"foods_created": {
+					"description": "Each Food this save created: its word, and the lines read as it, as set_reading counts them. Empty when none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"language": {
+								"type": "string"
+							},
+							"line_indexes": {
+								"items": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"language",
+							"line_indexes"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"language": {
+					"description": "The Language this recipe carries. A save changes only a guess.",
+					"type": "string"
+				},
+				"language_offer": {
+					"description": "The Language this text reads as, when that disagrees with the one the recipe carries — an offer to put to the cook, never a change. Null when they agree, when there is too little text to tell, and always when the Language is unknown.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"parent_version_id": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"sequence": {
+					"type": "integer"
+				},
+				"translates_version_id": {
+					"description": "The Version of the source this Version renders, for a Translation. Carried forward from the Version replaced unless this save named a new one; null on a recipe that translates nothing.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id",
+				"version_id",
+				"parent_version_id",
+				"sequence",
+				"collapsed",
+				"copied",
+				"language",
+				"language_offer",
+				"translates_version_id",
+				"foods_created"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "edit_recipe",
+		"summary": "Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch, a Translation or a Bundle already holds it, or an agent's Job saved it), an edit with a Job Key collapses and is refused as its save is, and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was keeps its Reading as it was, a misreading included; correct one with set_reading.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
+				"branch_id": {
+					"type": "string"
+				},
+				"change_note": {
+					"type": "string"
+				},
+				"cook_time_minutes": {
+					"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"ingredients": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"section",
+									"ingredient"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"text"
+						],
+						"type": "object"
+					},
+					"type": [
+						"array",
+						"null"
+					]
+				},
+				"main_photo": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"name": {
+					"type": "string"
+				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"nutrition": {
+					"additionalProperties": false,
+					"properties": {
+						"basis": {
+							"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+							"enum": [
+								"per_serving",
+								"per_100g"
+							]
+						},
+						"calories": {
+							"description": "Calories, zero or more.",
+							"minimum": 0,
+							"type": "number"
+						}
+					},
+					"required": [
+						"calories",
+						"basis"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"prep_time_minutes": {
+					"description": "Whole minutes of active preparation.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"source": {
+					"additionalProperties": false,
+					"properties": {
+						"link": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"text": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"text",
+						"link"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"steps": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"section",
+									"step"
+								]
+							},
+							"photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"text"
+						],
+						"type": "object"
+					},
+					"type": [
+						"array",
+						"null"
+					]
+				},
+				"title": {
+					"type": "string"
+				},
+				"translates_version_id": {
+					"description": "For a Translation, the Version of the source this save now renders — how bringing a Translation up to date is said. Left out, whatever the Version being replaced pointed at is carried forward, so editing a Translation's wording never claims it has caught up.",
+					"type": "string"
+				},
+				"yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"collapsed": {
+					"type": "boolean"
+				},
+				"copied": {
+					"description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
+					"type": "boolean"
+				},
+				"foods_created": {
+					"description": "Each Food this save created: its word, and the lines read as it, as set_reading counts them. Empty when none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"language": {
+								"type": "string"
+							},
+							"line_indexes": {
+								"items": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"language",
+							"line_indexes"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"language": {
+					"description": "The Language this recipe carries. A save changes only a guess.",
+					"type": "string"
+				},
+				"language_offer": {
+					"description": "The Language this text reads as, when that disagrees with the one the recipe carries — an offer to put to the cook, never a change. Null when they agree, when there is too little text to tell, and always when the Language is unknown.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"parent_version_id": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"sequence": {
+					"type": "integer"
+				},
+				"translates_version_id": {
+					"description": "The Version of the source this Version renders, for a Translation. Carried forward from the Version replaced unless this save named a new one; null on a recipe that translates nothing.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id",
+				"version_id",
+				"parent_version_id",
+				"sequence",
+				"collapsed",
+				"copied",
+				"language",
+				"language_offer",
+				"translates_version_id",
+				"foods_created"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "start_variation",
+		"summary": "Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it (\"Vegetarian\"). Changing one never changes the other. With version_id, a Version of that Branch, it starts from that older Version instead of the newest, and the recipe stays as it is. Only for those who write the recipe's Cookbook.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id",
+				"name"
 			],
 			"type": "object"
 		},
@@ -10851,8 +13757,8 @@ export const CATALOGUE = [
 		}
 	},
 	{
-		"name": "save_recipe_version",
-		"summary": "Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch or a Translation already holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, and is refused once that Version is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see.",
+		"name": "put_back_version",
+		"summary": "Make an older Version the recipe again. It is saved as a new Version on top of the newest, every field as that Version held it. It never collapses into the Version being shaped, so the Thread keeps the one stepped away from. The Readings that Version had come back with it. version_id is a Version of that Branch, and not its newest. Only for those who write the recipe's Cookbook; anybody else may keep_version_as_copy.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -10861,169 +13767,13 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
-				"change_note": {
+				"version_id": {
 					"type": "string"
-				},
-				"cook_time_minutes": {
-					"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
-					"type": [
-						"integer",
-						"null"
-					]
-				},
-				"ingredients": {
-					"items": {
-						"additionalProperties": false,
-						"properties": {
-							"kind": {
-								"enum": [
-									"section",
-									"ingredient"
-								]
-							},
-							"text": {
-								"type": "string"
-							}
-						},
-						"required": [
-							"kind",
-							"text"
-						],
-						"type": "object"
-					},
-					"type": "array"
-				},
-				"kitchen_id": {
-					"description": "Ignored. Everything you write lands in your own Cookbook (ADR 0041), so there is no Kitchen to name. Accepted so that a client which still sends it is not refused.",
-					"type": "string"
-				},
-				"main_photo": {
-					"type": [
-						"string",
-						"null"
-					]
-				},
-				"name": {
-					"type": "string"
-				},
-				"note": {
-					"type": [
-						"string",
-						"null"
-					]
-				},
-				"nutrition": {
-					"additionalProperties": false,
-					"properties": {
-						"basis": {
-							"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
-							"enum": [
-								"per_serving",
-								"per_100g"
-							]
-						},
-						"calories": {
-							"description": "Calories, zero or more.",
-							"minimum": 0,
-							"type": "number"
-						}
-					},
-					"required": [
-						"calories",
-						"basis"
-					],
-					"type": [
-						"object",
-						"null"
-					]
-				},
-				"prep_time_minutes": {
-					"description": "Whole minutes of active preparation.",
-					"type": [
-						"integer",
-						"null"
-					]
-				},
-				"source": {
-					"additionalProperties": false,
-					"properties": {
-						"link": {
-							"type": [
-								"string",
-								"null"
-							]
-						},
-						"text": {
-							"type": "string"
-						}
-					},
-					"required": [
-						"text",
-						"link"
-					],
-					"type": [
-						"object",
-						"null"
-					]
-				},
-				"steps": {
-					"items": {
-						"additionalProperties": false,
-						"properties": {
-							"kind": {
-								"enum": [
-									"section",
-									"step"
-								]
-							},
-							"photo": {
-								"type": [
-									"string",
-									"null"
-								]
-							},
-							"text": {
-								"type": "string"
-							}
-						},
-						"required": [
-							"kind",
-							"text"
-						],
-						"type": "object"
-					},
-					"type": "array"
-				},
-				"title": {
-					"type": "string"
-				},
-				"translates_version_id": {
-					"description": "For a Translation, the Version of the source this save now renders — how bringing a Translation up to date is said. Left out, whatever the Version being replaced pointed at is carried forward, so editing a Translation's wording never claims it has caught up.",
-					"type": "string"
-				},
-				"yield": {
-					"additionalProperties": false,
-					"properties": {
-						"amount": {
-							"type": "string"
-						},
-						"noun": {
-							"type": "string"
-						}
-					},
-					"required": [
-						"amount",
-						"noun"
-					],
-					"type": [
-						"object",
-						"null"
-					]
 				}
 			},
 			"required": [
 				"branch_id",
-				"title"
+				"version_id"
 			],
 			"type": "object"
 		},
@@ -11041,7 +13791,7 @@ export const CATALOGUE = [
 					"type": "boolean"
 				},
 				"language": {
-					"description": "The Language this recipe still carries. A save never changes it.",
+					"description": "The Language this recipe carries. A save changes only a guess.",
 					"type": "string"
 				},
 				"language_offer": {
@@ -11086,8 +13836,8 @@ export const CATALOGUE = [
 		}
 	},
 	{
-		"name": "edit_recipe",
-		"summary": "Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch or a Translation already holds it), and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was, in the same place, keeps its Reading as it was, a misreading included; correct one with set_reading.",
+		"name": "keep_version_as_copy",
+		"summary": "Keep a Version of a recipe as your own copy. For a recipe you do not write: the copy goes in your own Cookbook and starts from that Version, an older one included, and the recipe it came from is not changed. Where your Cookbook already holds its own copy of that recipe in that Language, a name is required and this one is a named variation beside it; changed_since says so as keeping_needs_name. Those who write the recipe use put_back_version or start_variation instead.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -11096,212 +13846,8 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
-				"change_note": {
-					"type": "string"
-				},
-				"cook_time_minutes": {
-					"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
-					"type": [
-						"integer",
-						"null"
-					]
-				},
-				"ingredients": {
-					"items": {
-						"additionalProperties": false,
-						"properties": {
-							"kind": {
-								"enum": [
-									"section",
-									"ingredient"
-								]
-							},
-							"text": {
-								"type": "string"
-							}
-						},
-						"required": [
-							"kind",
-							"text"
-						],
-						"type": "object"
-					},
-					"type": [
-						"array",
-						"null"
-					]
-				},
-				"main_photo": {
-					"type": [
-						"string",
-						"null"
-					]
-				},
 				"name": {
 					"type": "string"
-				},
-				"note": {
-					"type": [
-						"string",
-						"null"
-					]
-				},
-				"nutrition": {
-					"additionalProperties": false,
-					"properties": {
-						"basis": {
-							"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
-							"enum": [
-								"per_serving",
-								"per_100g"
-							]
-						},
-						"calories": {
-							"description": "Calories, zero or more.",
-							"minimum": 0,
-							"type": "number"
-						}
-					},
-					"required": [
-						"calories",
-						"basis"
-					],
-					"type": [
-						"object",
-						"null"
-					]
-				},
-				"prep_time_minutes": {
-					"description": "Whole minutes of active preparation.",
-					"type": [
-						"integer",
-						"null"
-					]
-				},
-				"source": {
-					"additionalProperties": false,
-					"properties": {
-						"link": {
-							"type": [
-								"string",
-								"null"
-							]
-						},
-						"text": {
-							"type": "string"
-						}
-					},
-					"required": [
-						"text",
-						"link"
-					],
-					"type": [
-						"object",
-						"null"
-					]
-				},
-				"steps": {
-					"items": {
-						"additionalProperties": false,
-						"properties": {
-							"kind": {
-								"enum": [
-									"section",
-									"step"
-								]
-							},
-							"photo": {
-								"type": [
-									"string",
-									"null"
-								]
-							},
-							"text": {
-								"type": "string"
-							}
-						},
-						"required": [
-							"kind",
-							"text"
-						],
-						"type": "object"
-					},
-					"type": [
-						"array",
-						"null"
-					]
-				},
-				"title": {
-					"type": "string"
-				},
-				"translates_version_id": {
-					"description": "For a Translation, the Version of the source this save now renders — how bringing a Translation up to date is said. Left out, whatever the Version being replaced pointed at is carried forward, so editing a Translation's wording never claims it has caught up.",
-					"type": "string"
-				},
-				"yield": {
-					"additionalProperties": false,
-					"properties": {
-						"amount": {
-							"type": "string"
-						},
-						"noun": {
-							"type": "string"
-						}
-					},
-					"required": [
-						"amount",
-						"noun"
-					],
-					"type": [
-						"object",
-						"null"
-					]
-				}
-			},
-			"required": [
-				"branch_id"
-			],
-			"type": "object"
-		},
-		"output_schema": {
-			"additionalProperties": false,
-			"properties": {
-				"branch_id": {
-					"type": "string"
-				},
-				"collapsed": {
-					"type": "boolean"
-				},
-				"copied": {
-					"description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
-					"type": "boolean"
-				},
-				"language": {
-					"description": "The Language this recipe still carries. A save never changes it.",
-					"type": "string"
-				},
-				"language_offer": {
-					"description": "The Language this text reads as, when that disagrees with the one the recipe carries — an offer to put to the cook, never a change. Null when they agree, when there is too little text to tell, and always when the Language is unknown.",
-					"type": [
-						"string",
-						"null"
-					]
-				},
-				"parent_version_id": {
-					"type": [
-						"string",
-						"null"
-					]
-				},
-				"sequence": {
-					"type": "integer"
-				},
-				"translates_version_id": {
-					"description": "The Version of the source this Version renders, for a Translation. Carried forward from the Version replaced unless this save named a new one; null on a recipe that translates nothing.",
-					"type": [
-						"string",
-						"null"
-					]
 				},
 				"version_id": {
 					"type": "string"
@@ -11309,36 +13855,7 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"branch_id",
-				"version_id",
-				"parent_version_id",
-				"sequence",
-				"collapsed",
-				"copied",
-				"language",
-				"language_offer",
-				"translates_version_id"
-			],
-			"type": "object"
-		}
-	},
-	{
-		"name": "start_variation",
-		"summary": "Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it (\"Vegetarian\"). Changing one never changes the other.",
-		"permission": "person",
-		"kind": "immediate",
-		"input_schema": {
-			"additionalProperties": false,
-			"properties": {
-				"branch_id": {
-					"type": "string"
-				},
-				"name": {
-					"type": "string"
-				}
-			},
-			"required": [
-				"branch_id",
-				"name"
+				"version_id"
 			],
 			"type": "object"
 		},
@@ -12398,6 +14915,10 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				}
@@ -12559,8 +15080,74 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "import_by_agent",
+		"summary": "Have an agent make a recipe from text, a link or a file. The file is a PDF or a picture, and the recipe lands in your own Cookbook. Only on an instance with a Runner: without one it is refused with reason `no_runner`. A PDF may be a scan. Pass pasted text as `text`. Pass a web page or a video as `link`: Kamosu does not read it first, so nothing lands before the agent's recipe, and the Job is listed under the source `web`. A link sent again is never matched. Send a file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. Answers the id of a Job that waits for a Runner, as `get_job` reads it, and what it was taken as. A PDF or a picture handed over before is known by its contents: while your Job on it waits or is worked, the answer is that Job, and once its recipe exists the answer is that recipe as `branch_id` and `title`, with no Job. Pasted text is never matched. No recipe exists until the agent creates one, under your Hand. Read the Job with `get_job`: its result is the Import Report, which lists the recipe as arrived once it exists and says what the agent left undone, or why it could not be read. Cancel it with `cancel_job`. Kamosu keeps what was handed over for the agent to fetch and never shows it.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
+				},
+				"data": {
+					"description": "A PDF or a picture, base64-encoded, for a Door that can send only JSON.",
+					"type": "string"
+				},
+				"link": {
+					"description": "A web page or a video with a recipe in it, as an http:// or https:// address.",
+					"type": "string"
+				},
+				"text": {
+					"description": "A recipe pasted as text.",
+					"type": "string"
+				},
+				"upload_id": {
+					"description": "The id POST /api/uploads answered for a PDF or a picture. Used once, then deleted.",
+					"type": "string"
+				}
+			},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"description": "The recipe an agent already made from the same file, when it was handed over before. No Job is made.",
+					"type": "string"
+				},
+				"job_id": {
+					"description": "The agent's Job: a new one, or yours that waits or is worked on the same file. Absent when `branch_id` is there.",
+					"type": "string"
+				},
+				"source_kind": {
+					"description": "What it was taken as, and the source the arrival is listed under in `list_imports`.",
+					"enum": [
+						"pasted_text",
+						"pdf",
+						"picture",
+						"web"
+					]
+				},
+				"title": {
+					"description": "That recipe's name now.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"source_kind"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "start_translation",
-		"summary": "Translate a recipe into another Language. It starts an ordinary Branch of the same Lineage in that Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author.",
+		"summary": "Translate a recipe into another Language. It is an ordinary Branch of its Lineage. Its first Version records which Version of the source it renders, and its chain starts fresh, unlike a Copy's. An agent translating calls this under the Person's Credential. Keep each Ingredient Line and section heading in the source's place, with its amount and unit: such a line takes the source line's Food, here and on a save naming a newer translates_version_id.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -12863,6 +15450,38 @@ export const CATALOGUE = [
 						"ratings"
 					],
 					"type": "object"
+				},
+				"foods_created": {
+					"description": "Each Food this save created: its word, and the lines read as it, as set_reading counts them. Empty when none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"language": {
+								"type": "string"
+							},
+							"line_indexes": {
+								"items": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"language",
+							"line_indexes"
+						],
+						"type": "object"
+					},
+					"type": "array"
 				},
 				"hand_id": {
 					"type": "string"
@@ -13744,14 +16363,15 @@ export const CATALOGUE = [
 				"translation",
 				"tags",
 				"related_recipes",
-				"cooked"
+				"cooked",
+				"foods_created"
 			],
 			"type": "object"
 		}
 	},
 	{
 		"name": "set_recipe_language",
-		"summary": "Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in.",
+		"summary": "Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so, except to set one guessed for a recipe that held too little text to read, from the first text that says one. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -13808,6 +16428,10 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"candidates": {
 					"items": {
 						"additionalProperties": false,
@@ -13979,6 +16603,10 @@ export const CATALOGUE = [
 					},
 					"type": "array"
 				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
+				},
 				"source_kind": {
 					"description": "Which outside source these candidates came from. One ledger is kept per Cookbook per source kind.",
 					"type": "string"
@@ -13993,6 +16621,87 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"agent_jobs": {
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it with `cancel_job`, while it waits or while it is being worked. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"agent_report": {
+								"additionalProperties": false,
+								"description": "The agent's own report on its work, present once a Runner has passed one on.",
+								"properties": {
+									"left_undone": {
+										"description": "What the agent did not do, a sentence each: an Ingredient Line it could not read, a Step it left out, a photo it could not fetch.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"likely_duplicates": {
+										"description": "The Branch id of each recipe already in the library that this one is likely a duplicate of. The recipe is saved all the same. Kamosu does not check the ids, so read each with `get_recipe`.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unsure": {
+										"description": "What the agent wrote and was unsure of, a sentence each, so the cook knows where to look.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unused_foods": {
+										"description": "The name of each Food the agent's corrections left with nothing pointing at it, for an Operator to tidy.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									}
+								},
+								"type": "object"
+							},
+							"branch_id": {
+								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`. Null while an agent reading pasted text, a PDF, a picture or a link handed to it alone has not created it yet.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"could_not_be_read": {
+								"description": "Present and true when the agent said what it was handed holds no recipe it can read. The reason under `unreadable` is then the agent's own words. A Job that failed any other way has Kamosu's reason there.",
+								"type": "boolean"
+							},
+							"job_id": {
+								"type": "string"
+							},
+							"made_by_agent": {
+								"description": "Present and true once the Job has completed: an agent made this recipe. Nothing on the recipe itself says so.",
+								"type": "boolean"
+							},
+							"original_gone": {
+								"description": "Present and true once the pasted text, PDF or picture this Job read has been deleted, which Kamosu does 30 days after the Job ended. `source_kind` still says which it was.",
+								"type": "boolean"
+							},
+							"status": {
+								"description": "`queued` is waiting for a Runner and `running` is held by one, its agent at work. A `failed` Job is also listed under `unreadable`, with the reason.",
+								"enum": [
+									"queued",
+									"running",
+									"completed",
+									"failed",
+									"cancelled"
+								]
+							}
+						},
+						"required": [
+							"job_id",
+							"branch_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"arrived": {
 					"items": {
 						"additionalProperties": false,
@@ -14020,10 +16729,12 @@ export const CATALOGUE = [
 								]
 							},
 							"status": {
+								"description": "`read_again` is a recipe already held that a Co-author asked an agent to read again.",
 								"enum": [
 									"created",
 									"extended",
-									"unchanged"
+									"unchanged",
+									"read_again"
 								]
 							},
 							"subject": {
@@ -14187,6 +16898,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"branch_id": {
+								"description": "Where an agent's Job failed on a recipe that had landed bare: that recipe. It stays, still listed under `arrived`, unless the Job failed because the recipe was deleted.",
+								"type": "string"
+							},
 							"foreign_id": {
 								"type": [
 									"string",
@@ -14252,6 +16967,14 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
+				},
 				"data": {
 					"description": "The export itself, base64-encoded — for a Door that can send only JSON.",
 					"type": "string"
@@ -14266,6 +16989,87 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"agent_jobs": {
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it with `cancel_job`, while it waits or while it is being worked. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"agent_report": {
+								"additionalProperties": false,
+								"description": "The agent's own report on its work, present once a Runner has passed one on.",
+								"properties": {
+									"left_undone": {
+										"description": "What the agent did not do, a sentence each: an Ingredient Line it could not read, a Step it left out, a photo it could not fetch.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"likely_duplicates": {
+										"description": "The Branch id of each recipe already in the library that this one is likely a duplicate of. The recipe is saved all the same. Kamosu does not check the ids, so read each with `get_recipe`.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unsure": {
+										"description": "What the agent wrote and was unsure of, a sentence each, so the cook knows where to look.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unused_foods": {
+										"description": "The name of each Food the agent's corrections left with nothing pointing at it, for an Operator to tidy.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									}
+								},
+								"type": "object"
+							},
+							"branch_id": {
+								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`. Null while an agent reading pasted text, a PDF, a picture or a link handed to it alone has not created it yet.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"could_not_be_read": {
+								"description": "Present and true when the agent said what it was handed holds no recipe it can read. The reason under `unreadable` is then the agent's own words. A Job that failed any other way has Kamosu's reason there.",
+								"type": "boolean"
+							},
+							"job_id": {
+								"type": "string"
+							},
+							"made_by_agent": {
+								"description": "Present and true once the Job has completed: an agent made this recipe. Nothing on the recipe itself says so.",
+								"type": "boolean"
+							},
+							"original_gone": {
+								"description": "Present and true once the pasted text, PDF or picture this Job read has been deleted, which Kamosu does 30 days after the Job ended. `source_kind` still says which it was.",
+								"type": "boolean"
+							},
+							"status": {
+								"description": "`queued` is waiting for a Runner and `running` is held by one, its agent at work. A `failed` Job is also listed under `unreadable`, with the reason.",
+								"enum": [
+									"queued",
+									"running",
+									"completed",
+									"failed",
+									"cancelled"
+								]
+							}
+						},
+						"required": [
+							"job_id",
+							"branch_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"arrived": {
 					"items": {
 						"additionalProperties": false,
@@ -14293,10 +17097,12 @@ export const CATALOGUE = [
 								]
 							},
 							"status": {
+								"description": "`read_again` is a recipe already held that a Co-author asked an agent to read again.",
 								"enum": [
 									"created",
 									"extended",
-									"unchanged"
+									"unchanged",
+									"read_again"
 								]
 							},
 							"subject": {
@@ -14460,6 +17266,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"branch_id": {
+								"description": "Where an agent's Job failed on a recipe that had landed bare: that recipe. It stays, still listed under `arrived`, unless the Job failed because the recipe was deleted.",
+								"type": "string"
+							},
 							"foreign_id": {
 								"type": [
 									"string",
@@ -14539,6 +17349,39 @@ export const CATALOGUE = [
 								"items": {
 									"additionalProperties": false,
 									"properties": {
+										"agent_jobs": {
+											"description": "Present when this arrival left a recipe for a Runner's agent to read: that Job and its state now. It is part of this arrival and is listed nowhere else here. `queued` is waiting for a Runner.",
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"branch_id": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"job_id": {
+														"type": "string"
+													},
+													"status": {
+														"enum": [
+															"queued",
+															"running",
+															"completed",
+															"failed",
+															"cancelled"
+														]
+													}
+												},
+												"required": [
+													"job_id",
+													"branch_id",
+													"status"
+												],
+												"type": "object"
+											},
+											"type": "array"
+										},
 										"arrived": {
 											"type": "integer"
 										},
@@ -14656,12 +17499,20 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "import_web_link",
-		"summary": "Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in.",
+		"summary": "Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Without a Runner, a page with no recipe data is read from its own article text the way `read_pasted_recipe` reads a paste, and when that finds Ingredient Lines nothing lands: the answer is `to_check` alone, for a person to check and save, with the page as its Source (#301). Where it finds none, the page lands bare as before. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
+				},
 				"url": {
 					"description": "The recipe page's address. Fetched through the guarded client; only http:// and https:// are accepted.",
 					"type": "string"
@@ -14675,6 +17526,87 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"agent_jobs": {
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it with `cancel_job`, while it waits or while it is being worked. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"agent_report": {
+								"additionalProperties": false,
+								"description": "The agent's own report on its work, present once a Runner has passed one on.",
+								"properties": {
+									"left_undone": {
+										"description": "What the agent did not do, a sentence each: an Ingredient Line it could not read, a Step it left out, a photo it could not fetch.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"likely_duplicates": {
+										"description": "The Branch id of each recipe already in the library that this one is likely a duplicate of. The recipe is saved all the same. Kamosu does not check the ids, so read each with `get_recipe`.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unsure": {
+										"description": "What the agent wrote and was unsure of, a sentence each, so the cook knows where to look.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unused_foods": {
+										"description": "The name of each Food the agent's corrections left with nothing pointing at it, for an Operator to tidy.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									}
+								},
+								"type": "object"
+							},
+							"branch_id": {
+								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`. Null while an agent reading pasted text, a PDF, a picture or a link handed to it alone has not created it yet.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"could_not_be_read": {
+								"description": "Present and true when the agent said what it was handed holds no recipe it can read. The reason under `unreadable` is then the agent's own words. A Job that failed any other way has Kamosu's reason there.",
+								"type": "boolean"
+							},
+							"job_id": {
+								"type": "string"
+							},
+							"made_by_agent": {
+								"description": "Present and true once the Job has completed: an agent made this recipe. Nothing on the recipe itself says so.",
+								"type": "boolean"
+							},
+							"original_gone": {
+								"description": "Present and true once the pasted text, PDF or picture this Job read has been deleted, which Kamosu does 30 days after the Job ended. `source_kind` still says which it was.",
+								"type": "boolean"
+							},
+							"status": {
+								"description": "`queued` is waiting for a Runner and `running` is held by one, its agent at work. A `failed` Job is also listed under `unreadable`, with the reason.",
+								"enum": [
+									"queued",
+									"running",
+									"completed",
+									"failed",
+									"cancelled"
+								]
+							}
+						},
+						"required": [
+							"job_id",
+							"branch_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"arrived": {
 					"items": {
 						"additionalProperties": false,
@@ -14702,10 +17634,12 @@ export const CATALOGUE = [
 								]
 							},
 							"status": {
+								"description": "`read_again` is a recipe already held that a Co-author asked an agent to read again.",
 								"enum": [
 									"created",
 									"extended",
-									"unchanged"
+									"unchanged",
+									"read_again"
 								]
 							},
 							"subject": {
@@ -14865,10 +17799,83 @@ export const CATALOGUE = [
 				"source_kind": {
 					"type": "string"
 				},
+				"to_check": {
+					"additionalProperties": false,
+					"description": "Present alone when the page held no recipe data and the instance has no Runner: what its article text read as, the way `read_pasted_recipe` answers, and nothing was saved. To keep it, make the recipe with this `source` as its Source.",
+					"properties": {
+						"boundary": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"lines": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"kind": {
+										"enum": [
+											"line",
+											"section"
+										]
+									},
+									"text": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"text",
+									"kind"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"note": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"source": {
+							"additionalProperties": false,
+							"properties": {
+								"link": {
+									"description": "The page's own address, after redirects.",
+									"type": "string"
+								},
+								"text": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"text",
+								"link"
+							],
+							"type": "object"
+						},
+						"title": {
+							"type": [
+								"string",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"title",
+						"lines",
+						"boundary",
+						"note",
+						"source"
+					],
+					"type": "object"
+				},
 				"unreadable": {
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"branch_id": {
+								"description": "Where an agent's Job failed on a recipe that had landed bare: that recipe. It stays, still listed under `arrived`, unless the Job failed because the recipe was deleted.",
+								"type": "string"
+							},
 							"foreign_id": {
 								"type": [
 									"string",
@@ -14913,16 +17920,7 @@ export const CATALOGUE = [
 					"type": "array"
 				}
 			},
-			"required": [
-				"import_id",
-				"cookbook_id",
-				"source_kind",
-				"arrived",
-				"offered",
-				"unreadable",
-				"left_out",
-				"related_candidates"
-			],
+			"required": [],
 			"type": "object"
 		}
 	},
@@ -15817,6 +18815,10 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				},
@@ -16852,12 +19854,16 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_thread",
-		"summary": "Read the Thread: every Branch of one Lineage you may see. It holds every Version of every Branch of the Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. An Attempt's eaten_version_id is the Version its rating is about: the As Cooked once that was kept as a Version, otherwise the Version it started from. branch_id is only the entry point — any Branch of the Lineage answers the same Thread.",
+		"summary": "Read the Thread: every Branch of one Lineage you may see. It holds every Version of every Branch of the Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. An Attempt's eaten_version_id is the Version its rating is about: the As Cooked once that was kept as a Version, otherwise the Version it started from. Its person_name is who cooked, and mine says whether that is you. branch_id is only the entry point — any Branch of the Lineage answers the same Thread.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				}
@@ -16913,10 +19919,29 @@ export const CATALOGUE = [
 																"null"
 															]
 														},
+														"place": {
+															"additionalProperties": false,
+															"properties": {
+																"mine": {
+																	"minimum": 0,
+																	"type": "integer"
+																},
+																"theirs": {
+																	"minimum": 0,
+																	"type": "integer"
+																}
+															},
+															"required": [
+																"mine",
+																"theirs"
+															],
+															"type": "object"
+														},
 														"state": {
 															"enum": [
 																"same",
 																"changed",
+																"moved",
 																"only-mine",
 																"only-theirs"
 															]
@@ -16949,6 +19974,7 @@ export const CATALOGUE = [
 														"kind",
 														"state",
 														"from_branch_point",
+														"place",
 														"mine",
 														"theirs"
 													],
@@ -16989,10 +20015,29 @@ export const CATALOGUE = [
 																"null"
 															]
 														},
+														"place": {
+															"additionalProperties": false,
+															"properties": {
+																"mine": {
+																	"minimum": 0,
+																	"type": "integer"
+																},
+																"theirs": {
+																	"minimum": 0,
+																	"type": "integer"
+																}
+															},
+															"required": [
+																"mine",
+																"theirs"
+															],
+															"type": "object"
+														},
 														"state": {
 															"enum": [
 																"same",
 																"changed",
+																"moved",
 																"only-mine",
 																"only-theirs"
 															]
@@ -17025,6 +20070,7 @@ export const CATALOGUE = [
 														"kind",
 														"state",
 														"from_branch_point",
+														"place",
 														"mine",
 														"theirs"
 													],
@@ -17266,6 +20312,9 @@ export const CATALOGUE = [
 							"lineage_id": {
 								"type": "string"
 							},
+							"mine": {
+								"type": "boolean"
+							},
 							"note": {
 								"type": [
 									"string",
@@ -17273,6 +20322,9 @@ export const CATALOGUE = [
 								]
 							},
 							"person_id": {
+								"type": "string"
+							},
+							"person_name": {
 								"type": "string"
 							},
 							"photographs": {
@@ -17323,7 +20375,9 @@ export const CATALOGUE = [
 							"last_action_at",
 							"photographs",
 							"as_cooked",
-							"eaten_version_id"
+							"eaten_version_id",
+							"mine",
+							"person_name"
 						],
 						"type": "object"
 					},
@@ -18033,6 +21087,14 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
+				},
 				"data": {
 					"description": "The Bundle's zip, base64-encoded — for a Door that can send only JSON.",
 					"type": "string"
@@ -18047,6 +21109,87 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"agent_jobs": {
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it with `cancel_job`, while it waits or while it is being worked. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"agent_report": {
+								"additionalProperties": false,
+								"description": "The agent's own report on its work, present once a Runner has passed one on.",
+								"properties": {
+									"left_undone": {
+										"description": "What the agent did not do, a sentence each: an Ingredient Line it could not read, a Step it left out, a photo it could not fetch.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"likely_duplicates": {
+										"description": "The Branch id of each recipe already in the library that this one is likely a duplicate of. The recipe is saved all the same. Kamosu does not check the ids, so read each with `get_recipe`.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unsure": {
+										"description": "What the agent wrote and was unsure of, a sentence each, so the cook knows where to look.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unused_foods": {
+										"description": "The name of each Food the agent's corrections left with nothing pointing at it, for an Operator to tidy.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									}
+								},
+								"type": "object"
+							},
+							"branch_id": {
+								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`. Null while an agent reading pasted text, a PDF, a picture or a link handed to it alone has not created it yet.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"could_not_be_read": {
+								"description": "Present and true when the agent said what it was handed holds no recipe it can read. The reason under `unreadable` is then the agent's own words. A Job that failed any other way has Kamosu's reason there.",
+								"type": "boolean"
+							},
+							"job_id": {
+								"type": "string"
+							},
+							"made_by_agent": {
+								"description": "Present and true once the Job has completed: an agent made this recipe. Nothing on the recipe itself says so.",
+								"type": "boolean"
+							},
+							"original_gone": {
+								"description": "Present and true once the pasted text, PDF or picture this Job read has been deleted, which Kamosu does 30 days after the Job ended. `source_kind` still says which it was.",
+								"type": "boolean"
+							},
+							"status": {
+								"description": "`queued` is waiting for a Runner and `running` is held by one, its agent at work. A `failed` Job is also listed under `unreadable`, with the reason.",
+								"enum": [
+									"queued",
+									"running",
+									"completed",
+									"failed",
+									"cancelled"
+								]
+							}
+						},
+						"required": [
+							"job_id",
+							"branch_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"arrived": {
 					"items": {
 						"additionalProperties": false,
@@ -18074,10 +21217,12 @@ export const CATALOGUE = [
 								]
 							},
 							"status": {
+								"description": "`read_again` is a recipe already held that a Co-author asked an agent to read again.",
 								"enum": [
 									"created",
 									"extended",
-									"unchanged"
+									"unchanged",
+									"read_again"
 								]
 							},
 							"subject": {
@@ -18241,6 +21386,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"branch_id": {
+								"description": "Where an agent's Job failed on a recipe that had landed bare: that recipe. It stays, still listed under `arrived`, unless the Job failed because the recipe was deleted.",
+								"type": "string"
+							},
 							"foreign_id": {
 								"type": [
 									"string",
@@ -19415,7 +22564,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "branch_point",
-		"summary": "Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess.",
+		"summary": "Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. A Translation has no Branch Point with its source, nor with another Translation of it: its chain starts fresh, so the two share no Version and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -19449,7 +22598,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "divergence",
-		"summary": "Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection.",
+		"summary": "Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. A line both have word for word in another place is `moved`, and `place` says where each side's page draws a row. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. A Translation has no Branch Point with its source, nor with another Translation of it, and the two are in different Languages, so nothing pairs their lines and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -19651,10 +22800,29 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"place": {
+								"additionalProperties": false,
+								"properties": {
+									"mine": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"theirs": {
+										"minimum": 0,
+										"type": "integer"
+									}
+								},
+								"required": [
+									"mine",
+									"theirs"
+								],
+								"type": "object"
+							},
 							"state": {
 								"enum": [
 									"same",
 									"changed",
+									"moved",
 									"only-mine",
 									"only-theirs"
 								]
@@ -19687,6 +22855,7 @@ export const CATALOGUE = [
 							"kind",
 							"state",
 							"from_branch_point",
+							"place",
 							"mine",
 							"theirs"
 						],
@@ -20389,10 +23558,29 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"place": {
+								"additionalProperties": false,
+								"properties": {
+									"mine": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"theirs": {
+										"minimum": 0,
+										"type": "integer"
+									}
+								},
+								"required": [
+									"mine",
+									"theirs"
+								],
+								"type": "object"
+							},
 							"state": {
 								"enum": [
 									"same",
 									"changed",
+									"moved",
 									"only-mine",
 									"only-theirs"
 								]
@@ -20425,6 +23613,7 @@ export const CATALOGUE = [
 							"kind",
 							"state",
 							"from_branch_point",
+							"place",
 							"mine",
 							"theirs"
 						],
@@ -21106,7 +24295,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "changed_since",
-		"summary": "See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch.",
+		"summary": "See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch, and so may put_back_version or start_variation from that Version; anybody else may keep_version_as_copy.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -21308,10 +24497,29 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"place": {
+								"additionalProperties": false,
+								"properties": {
+									"mine": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"theirs": {
+										"minimum": 0,
+										"type": "integer"
+									}
+								},
+								"required": [
+									"mine",
+									"theirs"
+								],
+								"type": "object"
+							},
 							"state": {
 								"enum": [
 									"same",
 									"changed",
+									"moved",
 									"only-mine",
 									"only-theirs"
 								]
@@ -21344,12 +24552,17 @@ export const CATALOGUE = [
 							"kind",
 							"state",
 							"from_branch_point",
+							"place",
 							"mine",
 							"theirs"
 						],
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"keeping_needs_name": {
+					"description": "Whether keep_version_as_copy needs a name here: your Cookbook already holds its own copy of this recipe in this Language.",
+					"type": "boolean"
 				},
 				"lineage_id": {
 					"type": "string"
@@ -22046,10 +25259,29 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"place": {
+								"additionalProperties": false,
+								"properties": {
+									"mine": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"theirs": {
+										"minimum": 0,
+										"type": "integer"
+									}
+								},
+								"required": [
+									"mine",
+									"theirs"
+								],
+								"type": "object"
+							},
 							"state": {
 								"enum": [
 									"same",
 									"changed",
+									"moved",
 									"only-mine",
 									"only-theirs"
 								]
@@ -22082,6 +25314,7 @@ export const CATALOGUE = [
 							"kind",
 							"state",
 							"from_branch_point",
+							"place",
 							"mine",
 							"theirs"
 						],
@@ -22810,14 +26043,15 @@ export const CATALOGUE = [
 				"steps",
 				"fields",
 				"version",
-				"writes"
+				"writes",
+				"keeping_needs_name"
 			],
 			"type": "object"
 		}
 	},
 	{
 		"name": "set_reading",
-		"summary": "Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line.",
+		"summary": "Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -23171,10 +26405,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -23207,6 +26460,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -23247,10 +26501,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -23283,6 +26556,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -23676,10 +26950,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -23712,6 +27005,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -23752,10 +27046,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -23788,6 +27101,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -24187,10 +27501,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -24223,6 +27556,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -24263,10 +27597,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -24299,6 +27652,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -24698,10 +28052,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -24734,6 +28107,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -24774,10 +28148,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -24810,6 +28203,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -25198,7 +28592,7 @@ export const CATALOGUE = [
 					"type": "boolean"
 				},
 				"language": {
-					"description": "The Language this recipe still carries. A save never changes it.",
+					"description": "The Language this recipe carries. A save changes only a guess.",
 					"type": "string"
 				},
 				"language_offer": {
@@ -25463,10 +28857,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -25499,6 +28912,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -25539,10 +28953,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -25575,6 +29008,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -25937,10 +29371,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -25973,6 +29426,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -26013,10 +29467,29 @@ export const CATALOGUE = [
 													"null"
 												]
 											},
+											"place": {
+												"additionalProperties": false,
+												"properties": {
+													"mine": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"theirs": {
+														"minimum": 0,
+														"type": "integer"
+													}
+												},
+												"required": [
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
 											"state": {
 												"enum": [
 													"same",
 													"changed",
+													"moved",
 													"only-mine",
 													"only-theirs"
 												]
@@ -26049,6 +29522,7 @@ export const CATALOGUE = [
 											"kind",
 											"state",
 											"from_branch_point",
+											"place",
 											"mine",
 											"theirs"
 										],
@@ -26400,7 +29874,7 @@ export const CATALOGUE = [
 					"type": "boolean"
 				},
 				"language": {
-					"description": "The Language this recipe still carries. A save never changes it.",
+					"description": "The Language this recipe carries. A save changes only a guess.",
 					"type": "string"
 				},
 				"language_offer": {
@@ -26506,10 +29980,29 @@ export const CATALOGUE = [
 															"null"
 														]
 													},
+													"place": {
+														"additionalProperties": false,
+														"properties": {
+															"mine": {
+																"minimum": 0,
+																"type": "integer"
+															},
+															"theirs": {
+																"minimum": 0,
+																"type": "integer"
+															}
+														},
+														"required": [
+															"mine",
+															"theirs"
+														],
+														"type": "object"
+													},
 													"state": {
 														"enum": [
 															"same",
 															"changed",
+															"moved",
 															"only-mine",
 															"only-theirs"
 														]
@@ -26542,6 +30035,7 @@ export const CATALOGUE = [
 													"kind",
 													"state",
 													"from_branch_point",
+													"place",
 													"mine",
 													"theirs"
 												],
@@ -26582,10 +30076,29 @@ export const CATALOGUE = [
 															"null"
 														]
 													},
+													"place": {
+														"additionalProperties": false,
+														"properties": {
+															"mine": {
+																"minimum": 0,
+																"type": "integer"
+															},
+															"theirs": {
+																"minimum": 0,
+																"type": "integer"
+															}
+														},
+														"required": [
+															"mine",
+															"theirs"
+														],
+														"type": "object"
+													},
 													"state": {
 														"enum": [
 															"same",
 															"changed",
+															"moved",
 															"only-mine",
 															"only-theirs"
 														]
@@ -26618,6 +30131,7 @@ export const CATALOGUE = [
 													"kind",
 													"state",
 													"from_branch_point",
+													"place",
 													"mine",
 													"theirs"
 												],
@@ -26982,10 +30496,29 @@ export const CATALOGUE = [
 																"null"
 															]
 														},
+														"place": {
+															"additionalProperties": false,
+															"properties": {
+																"mine": {
+																	"minimum": 0,
+																	"type": "integer"
+																},
+																"theirs": {
+																	"minimum": 0,
+																	"type": "integer"
+																}
+															},
+															"required": [
+																"mine",
+																"theirs"
+															],
+															"type": "object"
+														},
 														"state": {
 															"enum": [
 																"same",
 																"changed",
+																"moved",
 																"only-mine",
 																"only-theirs"
 															]
@@ -27018,6 +30551,7 @@ export const CATALOGUE = [
 														"kind",
 														"state",
 														"from_branch_point",
+														"place",
 														"mine",
 														"theirs"
 													],
@@ -27058,10 +30592,29 @@ export const CATALOGUE = [
 																"null"
 															]
 														},
+														"place": {
+															"additionalProperties": false,
+															"properties": {
+																"mine": {
+																	"minimum": 0,
+																	"type": "integer"
+																},
+																"theirs": {
+																	"minimum": 0,
+																	"type": "integer"
+																}
+															},
+															"required": [
+																"mine",
+																"theirs"
+															],
+															"type": "object"
+														},
 														"state": {
 															"enum": [
 																"same",
 																"changed",
+																"moved",
 																"only-mine",
 																"only-theirs"
 															]
@@ -27094,6 +30647,7 @@ export const CATALOGUE = [
 														"kind",
 														"state",
 														"from_branch_point",
+														"place",
 														"mine",
 														"theirs"
 													],
@@ -29879,7 +33433,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_job",
-		"summary": "Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did.",
+		"summary": "Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did. An agent's Job is also readable by the Co-authors of the Cookbook its recipe is in.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -29972,7 +33526,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "cancel_job",
-		"summary": "Cancel a Job you asked for. It is acknowledged always, and honoured while it still waits in line.",
+		"summary": "Cancel a Job you asked for. Always acknowledged, and honoured while it waits or an agent is working on it.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -29996,6 +33550,226 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"cancelled"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "get_recipe_job",
+		"summary": "Read which agent's Job waits or is being worked on a recipe. `job` is null when none is, and once the Job has ended. Among those who see the recipe, it names the Job to the Person who asked for it and to the Co-authors of the recipe's Cookbook, who may read it with `get_job`. Anyone else who sees the recipe is answered null.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"job": {
+					"additionalProperties": false,
+					"properties": {
+						"id": {
+							"type": "string"
+						},
+						"status": {
+							"description": "`queued` while the Job waits for a Runner, `running` while one holds it.",
+							"enum": [
+								"queued",
+								"running"
+							]
+						},
+						"yours": {
+							"description": "True when you asked for the Job, and so may cancel it.",
+							"type": "boolean"
+						}
+					},
+					"required": [
+						"id",
+						"status",
+						"yours"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"job"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "read_recipe_again",
+		"summary": "Have an agent read a recipe again. A recipe an agent read from a PDF, a picture or pasted text is read from what Kamosu kept of it. Kamosu deletes that 30 days after its Job ended, and then the ask is refused with reason `needs_the_file`: ask again handing the file over, as `upload_id` or `data`, or the text as `text`. Any other recipe is read from its Source link, whichever way it arrived, and takes nothing handed over. It makes a Job that waits for a Runner. Only a Co-author of the Cookbook that holds the recipe may ask, on a Kamosu with a Runner. A recipe is read again once: after a reading that finished, or one stopped while a Runner held it, the ask is refused with reason `already_read_again`. One that failed, or was stopped while it waited, does not count. A variation is a recipe of its own, read again once too. The agent's saves become one new Version under your Hand, so the earlier one stays in the History. Where a Job already waits or is being worked on the recipe, that Job is the answer, and nothing handed over is kept. Its result is an Import Report under the source `read_again`, which says what the agent left undone or was unsure of. Ask `can_read_recipe_again` first to know what it would read, or why it would be refused.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"data": {
+					"description": "The PDF or the picture handed over again, base64-encoded, for a Door that can send only JSON.",
+					"type": "string"
+				},
+				"text": {
+					"description": "The recipe pasted again, where it was read from pasted text Kamosu no longer keeps.",
+					"type": "string"
+				},
+				"upload_id": {
+					"description": "The id POST /api/uploads answered for the PDF or the picture handed over again. Used once, then deleted.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"job_id": {
+					"description": "The agent's Job, read with `get_job`: a new one, or the one already on the recipe.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"job_id",
+				"branch_id"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "can_read_recipe_again",
+		"summary": "Say whether a recipe can be read again, and from what. This is for you, as `read_recipe_again` would answer you. `from` is `original` for a recipe an agent read from a file or pasted text, and `link` for one read from its Source link. `reason` says why not: `not_a_co_author` when you see the recipe and do not write its Cookbook, `would_start_a_copy` when your Cookbook received it and did not write it, `no_runner` when no agent would read it, `already_read_again` when it has been read again already, which a recipe is once, `needs_the_file` when what it was read from is no longer kept and has to be handed over again, and `nothing_to_read` when it came from no file and its Source has no http or https link on the internet.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"can_read_again": {
+					"type": "boolean"
+				},
+				"from": {
+					"description": "What an agent would read: what Kamosu kept of the file or text the recipe was read from, or handed over again where that is gone, or the Source's link. Null where there is nothing to read.",
+					"enum": [
+						"original",
+						"link",
+						null
+					]
+				},
+				"link": {
+					"description": "The link in the recipe's Source. Null where it has none, or one that is no http or https address on the internet.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"original": {
+					"description": "What the recipe was read from, where an agent read it from something handed over, kept or not.",
+					"enum": [
+						"pasted_text",
+						"pdf",
+						"picture",
+						null
+					]
+				},
+				"reason": {
+					"description": "Why it cannot be read again, or null when it can.",
+					"enum": [
+						"not_a_co_author",
+						"would_start_a_copy",
+						"no_runner",
+						"already_read_again",
+						"needs_the_file",
+						"nothing_to_read",
+						null
+					]
+				}
+			},
+			"required": [
+				"can_read_again",
+				"from",
+				"link",
+				"original",
+				"reason"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "read_job_again",
+		"summary": "Have an agent read again a file your Job failed on. It reads what Kamosu kept of the PDF, the picture or the pasted text a Job of yours failed on before it made a recipe, so you need not find the file. Kamosu deletes that 30 days after the Job ended, and then this is refused with reason `original_gone`: hand it over again with `import_by_agent`. A Job that made a recipe, or did not fail, is refused with reason `not_failed_on_a_file`. Only on a Kamosu with a Runner. Answers as `import_by_agent` does: a new Job, or the one of yours that waits or is worked on the same file, or the recipe an agent made from it since.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"job_id": {
+					"description": "The Job that failed, as `get_job` reads it.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"job_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"description": "The recipe an agent made from the same file since. No Job is made.",
+					"type": "string"
+				},
+				"job_id": {
+					"description": "The agent's new Job, or yours that waits or is worked on the same file. Absent when `branch_id` is there.",
+					"type": "string"
+				},
+				"source_kind": {
+					"description": "What it was read as, and the source the arrival is listed under in `list_imports`.",
+					"enum": [
+						"pasted_text",
+						"pdf",
+						"picture"
+					]
+				},
+				"title": {
+					"description": "That recipe's name now.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"source_kind"
 			],
 			"type": "object"
 		}
@@ -30066,11 +33840,15 @@ export const READS: readonly OperationName[] = [
 	'get_person',
 	'list_accounts',
 	'list_backups',
+	'list_runner_keys',
+	'runner_status',
+	'get_house_notes',
 	'list_sessions',
 	'list_access_keys',
 	'list_kitchens',
 	'preview_leaving_kitchen',
 	'get_cookbook',
+	'list_cookbooks',
 	'read_cookbook_invite',
 	'list_tags',
 	'read_pasted_recipe',
@@ -30098,6 +33876,8 @@ export const READS: readonly OperationName[] = [
 	'list_merge_suggestions',
 	'preview_food_merge',
 	'get_job',
+	'get_recipe_job',
+	'can_read_recipe_again',
 	'list_jobs',
 ];
 
@@ -30117,6 +33897,15 @@ export const METHOD_NAMES = {
 	sweep_photographs: 'sweepPhotographs',
 	take_backup: 'takeBackup',
 	list_backups: 'listBackups',
+	mint_runner_key: 'mintRunnerKey',
+	list_runner_keys: 'listRunnerKeys',
+	revoke_runner_key: 'revokeRunnerKey',
+	runner_status: 'runnerStatus',
+	get_house_notes: 'getHouseNotes',
+	set_house_notes: 'setHouseNotes',
+	ask_for_work: 'askForWork',
+	renew_hold: 'renewHold',
+	report_on_job: 'reportOnJob',
 	list_sessions: 'listSessions',
 	rename_session: 'renameSession',
 	revoke_session: 'revokeSession',
@@ -30133,6 +33922,7 @@ export const METHOD_NAMES = {
 	delete_kitchen: 'deleteKitchen',
 	preview_leaving_kitchen: 'previewLeavingKitchen',
 	get_cookbook: 'getCookbook',
+	list_cookbooks: 'listCookbooks',
 	rename_cookbook: 'renameCookbook',
 	invite_to_cookbook: 'inviteToCookbook',
 	cancel_cookbook_invite: 'cancelCookbookInvite',
@@ -30152,10 +33942,13 @@ export const METHOD_NAMES = {
 	save_recipe_version: 'saveRecipeVersion',
 	edit_recipe: 'editRecipe',
 	start_variation: 'startVariation',
+	put_back_version: 'putBackVersion',
+	keep_version_as_copy: 'keepVersionAsCopy',
 	rename_branch: 'renameBranch',
 	delete_recipe: 'deleteRecipe',
 	read_pasted_recipe: 'readPastedRecipe',
 	read_recipe_pdf: 'readRecipePdf',
+	import_by_agent: 'importByAgent',
 	start_translation: 'startTranslation',
 	set_recipe_language: 'setRecipeLanguage',
 	import: 'import',
@@ -30223,6 +34016,10 @@ export const METHOD_NAMES = {
 	delete_food: 'deleteFood',
 	get_job: 'getJob',
 	cancel_job: 'cancelJob',
+	get_recipe_job: 'getRecipeJob',
+	read_recipe_again: 'readRecipeAgain',
+	can_read_recipe_again: 'canReadRecipeAgain',
+	read_job_again: 'readJobAgain',
 	list_jobs: 'listJobs',
 } as const;
 
@@ -30238,7 +34035,7 @@ export interface KamosuClient {
 	getPerson(input?: GetPersonInput): Promise<Answer<'get_person'>>;
 	/** Change this Person's current reminder name. Every Version they ever wrote shows the new one on this instance, since a Hand is named live and nothing is keyed on the name; no id or fingerprint moves. It is also the name they sign in with, so a name somebody else here signs in with is refused. A Bundle already sent keeps the name it left with. */
 	renamePerson(input: RenamePersonInput): Promise<Answer<'rename_person'>>;
-	/** List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here. */
+	/** List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook: an Operator reaches their recipes through list_cookbooks (ADR 0049), and no Attempt or Kitchen of theirs from anywhere. */
 	listAccounts(input?: ListAccountsInput): Promise<Answer<'list_accounts'>>;
 	/** Mint a one-use Invite link for a new Person. */
 	mintInvite(input: MintInviteInput): Promise<Answer<'mint_invite'>>;
@@ -30256,11 +34053,29 @@ export interface KamosuClient {
 	takeBackup(input?: TakeBackupInput): Promise<Answer<'take_backup'>>;
 	/** The Backups this instance holds, newest first. Each can be fetched at GET /api/backups/<name>, under the same Credential as any Operation. */
 	listBackups(input?: ListBackupsInput): Promise<Answer<'list_backups'>>;
+	/** Mint a Runner Key, the Secret a Runner asks for work with. A Runner is the program beside Kamosu that has an agent do the Jobs Kamosu cannot. The Secret is shown once. It can ask for work and nothing else, and it acts as no Person. */
+	mintRunnerKey(input: MintRunnerKeyInput): Promise<Answer<'mint_runner_key'>>;
+	/** List this instance's Runner Keys by name and last use. */
+	listRunnerKeys(input?: ListRunnerKeysInput): Promise<Answer<'list_runner_keys'>>;
+	/** End one Runner Key. The Runner holding it is refused at its next call. */
+	revokeRunnerKey(input: RevokeRunnerKeyInput): Promise<Answer<'revoke_runner_key'>>;
+	/** Read whether this instance has a Runner. Also when one was last heard from, asking for work or renewing its hold on a Job. */
+	runnerStatus(input?: RunnerStatusInput): Promise<Answer<'runner_status'>>;
+	/** Read the agent's House Notes. They are what an Operator adds to the end of the instructions the agent follows, handed over with every Job. Null when none are written, and the agent follows its own instructions alone. Says who saved them last and when. */
+	getHouseNotes(input?: GetHouseNotesInput): Promise<Answer<'get_house_notes'>>;
+	/** Save the agent's House Notes. They replace any there were, up to 4,000 characters. The agent reads them after its own instructions, as the Operator's, and follows them where the two disagree. A Job carries the notes as they stand when a Runner takes it. Blank text takes them away. Kamosu's own agent image follows them; another agent follows them only if it reads `house_notes` from each Job. */
+	setHouseNotes(input: SetHouseNotesInput): Promise<Answer<'set_house_notes'>>;
+	/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it with reason `another_version`. */
+	askForWork(input: AskForWorkInput): Promise<Answer<'ask_for_work'>>;
+	/** Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again. This is how a Runner learns that its Job was cancelled, and the refusal says so. */
+	renewHold(input: RenewHoldInput): Promise<Answer<'renew_hold'>>;
+	/** Say how the Job this Runner holds ended. For a Runner alone, with the Runner Key that took the Job. `outcome` is `completed`, or `failed` when something went wrong on the way, or `could_not_be_read` when the agent says the thing holds no recipe it can read. The last two need `reason`, one sentence the cook reads in the Import Report. A Job reported `failed` waits to be tried again, and ends as failed once it has been tried as often as Kamosu tries one. `could_not_be_read` ends it as failed at once. `report` is the agent's own report, passed on as it wrote it. A Runner whose hold is gone is refused and told so, as is one whose Job was cancelled, and a Job it never held is answered as a Job that is not there. */
+	reportOnJob(input: ReportOnJobInput): Promise<Answer<'report_on_job'>>;
 	/** List this Person's browser Sessions by device and last use. `current` marks the Session asking, so it is never set when an Access Key asks. */
 	listSessions(input?: ListSessionsInput): Promise<Answer<'list_sessions'>>;
 	/** Rename one of your browser Sessions. A Session is named for its device when it signs in; this corrects the guess or names an older one. An ended Session is not renamed. */
 	renameSession(input: RenameSessionInput): Promise<Answer<'rename_session'>>;
-	/** End one of your browser Sessions. */
+	/** End one of your browser Sessions. `current` says whether it was the one this call was made with, as `list_sessions` marks it: a browser that ended its own is signed out. */
 	revokeSession(input: RevokeSessionInput): Promise<Answer<'revoke_session'>>;
 	/** Mint an Access Key for an agent to act as you. You may make it read-only. */
 	mintAccessKey(input: MintAccessKeyInput): Promise<Answer<'mint_access_key'>>;
@@ -30288,6 +34103,8 @@ export interface KamosuClient {
 	previewLeavingKitchen(input: PreviewLeavingKitchenInput): Promise<Answer<'preview_leaving_kitchen'>>;
 	/** Read your own Cookbook. The answer is its name, who writes it, how many recipes it holds, the Kitchens that see it and the Invites still waiting. */
 	getCookbook(input?: GetCookbookInput): Promise<Answer<'get_cookbook'>>;
+	/** Every Cookbook and the recipes in it, for an Operator. Each comes with who writes it, and each recipe as a `branch_id` with its title. On a call saying `as_operator`, an Operator looks after any Cookbook (ADR 0049): get_recipe, get_thread, edit_recipe, save_recipe_version, delete_recipe, set_recipe_tag and set_related_recipe reach these recipes, and create_recipe, create_tag, list_tags and the Imports take a `cookbook_id` to work in one. What an Operator writes there is under their own Hand. Attempts, shopping lists and who writes a Cookbook stay their owners'. A read-only Access Key is refused. */
+	listCookbooks(input?: ListCookbooksInput): Promise<Answer<'list_cookbooks'>>;
 	/** Give your Cookbook a name of its own, or clear it. An empty or null name clears it back to its Co-authors' names. Any Co-author may. */
 	renameCookbook(input: RenameCookbookInput): Promise<Answer<'rename_cookbook'>>;
 	/** Mint a one-use Invite for somebody to write your Cookbook. They write it with you. When they accept, their recipes and yours become one Cookbook either of you changes. */
@@ -30318,14 +34135,18 @@ export interface KamosuClient {
 	setRecipeTag(input: SetRecipeTagInput): Promise<Answer<'set_recipe_tag'>>;
 	/** Relate two Recipes, or take that link back off. One is a Recipe of your Cookbook, the other any Recipe you may see, joined by a single two-way, untyped link. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
 	setRelatedRecipe(input: SetRelatedRecipeInput): Promise<Answer<'set_related_recipe'>>;
-	/** Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. */
+	/** Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. With a Job Key it creates the Job's own recipe, once, for a Job that has none yet: one reading pasted text, a PDF or a picture. */
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
-	/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch or a Translation already holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, and is refused once that Version is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
+	/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped, unless another Branch, a Translation or a Bundle already holds that Version, or an agent's Job saved it. A save with a Job Key collapses into the one Version its Job started. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, or is refused once it is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write, a Kitchen-mate's or one that arrived, is a Copy: a new Branch of the same Lineage in your own Cookbook, carrying the whole chain up to the Version you changed, and the Branch you changed is left untouched. */
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
-	/** Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch or a Translation already holds it), and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was, in the same place, keeps its Reading as it was, a misreading included; correct one with set_reading. */
+	/** Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch, a Translation or a Bundle already holds it, or an agent's Job saved it), an edit with a Job Key collapses and is refused as its save is, and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was keeps its Reading as it was, a misreading included; correct one with set_reading. */
 	editRecipe(input: EditRecipeInput): Promise<Answer<'edit_recipe'>>;
-	/** Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it ("Vegetarian"). Changing one never changes the other. */
+	/** Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it ("Vegetarian"). Changing one never changes the other. With version_id, a Version of that Branch, it starts from that older Version instead of the newest, and the recipe stays as it is. Only for those who write the recipe's Cookbook. */
 	startVariation(input: StartVariationInput): Promise<Answer<'start_variation'>>;
+	/** Make an older Version the recipe again. It is saved as a new Version on top of the newest, every field as that Version held it. It never collapses into the Version being shaped, so the Thread keeps the one stepped away from. The Readings that Version had come back with it. version_id is a Version of that Branch, and not its newest. Only for those who write the recipe's Cookbook; anybody else may keep_version_as_copy. */
+	putBackVersion(input: PutBackVersionInput): Promise<Answer<'put_back_version'>>;
+	/** Keep a Version of a recipe as your own copy. For a recipe you do not write: the copy goes in your own Cookbook and starts from that Version, an older one included, and the recipe it came from is not changed. Where your Cookbook already holds its own copy of that recipe in that Language, a name is required and this one is a named variation beside it; changed_since says so as keeping_needs_name. Those who write the recipe use put_back_version or start_variation instead. */
+	keepVersionAsCopy(input: KeepVersionAsCopyInput): Promise<Answer<'keep_version_as_copy'>>;
 	/** Name a recipe's Branch in your Cookbook, or clear its name. A Cookbook keeps one unnamed Branch of a recipe in each Language, so a second one needs a name. */
 	renameBranch(input: RenameBranchInput): Promise<Answer<'rename_branch'>>;
 	/** Take one recipe off the shelf for good. It is gone from the shelf, from search and from every member of its Kitchen, and nothing brings it back. **One Branch**: a translation is an ordinary Branch, so deleting the English one leaves the French one whole, and another Kitchen's copy of the same recipe is untouched. **The cooking history stays.** Every Attempt ever made from this recipe keeps its rating, its note and its Photographs, and the Cooked diary keeps each entry under the name the recipe was known by. So does a Shopping List holding it, which says it can no longer be read rather than quietly dropping it. No Version is ever deleted, by this or by anything else. A live Share Link stops working. */
@@ -30334,9 +34155,11 @@ export interface KamosuClient {
 	readPastedRecipe(input: ReadPastedRecipeInput): Promise<Answer<'read_pasted_recipe'>>;
 	/** Read a recipe PDF into title, ingredients and method. It takes one printed from a web page or a word processor, reads it the way read_pasted_recipe reads pasted text, and answers the same shape. A printed line that wrapped is joined back into one, and the first line is taken as the title. It writes nothing anywhere: what comes back is shown to whoever sent the PDF, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe. A scan or a photograph of a page holds no text and is refused with reason `pdf_has_no_text`; text is never read out of a picture. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 	readRecipePdf(input: ReadRecipePdfInput): Promise<Answer<'read_recipe_pdf'>>;
-	/** Translate a recipe into another Language. It starts an ordinary Branch of the same Lineage in that Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author. */
+	/** Have an agent make a recipe from text, a link or a file. The file is a PDF or a picture, and the recipe lands in your own Cookbook. Only on an instance with a Runner: without one it is refused with reason `no_runner`. A PDF may be a scan. Pass pasted text as `text`. Pass a web page or a video as `link`: Kamosu does not read it first, so nothing lands before the agent's recipe, and the Job is listed under the source `web`. A link sent again is never matched. Send a file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. Answers the id of a Job that waits for a Runner, as `get_job` reads it, and what it was taken as. A PDF or a picture handed over before is known by its contents: while your Job on it waits or is worked, the answer is that Job, and once its recipe exists the answer is that recipe as `branch_id` and `title`, with no Job. Pasted text is never matched. No recipe exists until the agent creates one, under your Hand. Read the Job with `get_job`: its result is the Import Report, which lists the recipe as arrived once it exists and says what the agent left undone, or why it could not be read. Cancel it with `cancel_job`. Kamosu keeps what was handed over for the agent to fetch and never shows it. */
+	importByAgent(input: ImportByAgentInput): Promise<Answer<'import_by_agent'>>;
+	/** Translate a recipe into another Language. It is an ordinary Branch of its Lineage. Its first Version records which Version of the source it renders, and its chain starts fresh, unlike a Copy's. An agent translating calls this under the Person's Credential. Keep each Ingredient Line and section heading in the source's place, with its amount and unit: such a line takes the source line's Food, here and on a save naming a newer translates_version_id. */
 	startTranslation(input: StartTranslationInput): Promise<Answer<'start_translation'>>;
-	/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
+	/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so, except to set one guessed for a recipe that held too little text to read, from the first text that says one. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
 	setRecipeLanguage(input: SetRecipeLanguageInput): Promise<Answer<'set_recipe_language'>>;
 	/** Bring already-read recipes into your own Cookbook, as a Job. They come as one batch. Matched by foreign id against this Cookbook's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
 	import(input: ImportInput): Promise<Answer<'import'>>;
@@ -30346,7 +34169,7 @@ export interface KamosuClient {
 	listImports(input?: ListImportsInput): Promise<Answer<'list_imports'>>;
 	/** Throw an Import's ledger away whole. The ledger is the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
 	forgetImport(input: ForgetImportInput): Promise<Answer<'forget_import'>>;
-	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
+	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Without a Runner, a page with no recipe data is read from its own article text the way `read_pasted_recipe` reads a paste, and when that finds Ingredient Lines nothing lands: the answer is `to_check` alone, for a person to check and save, with the page as its Source (#301). Where it finds none, the page lands bare as before. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 	importWebLink(input: ImportWebLinkInput): Promise<Answer<'import_web_link'>>;
 	/** Preview what importing a Kamosu Share Link would do. It answers before anything is written, as a Job (#170). Reaches the recipe file exactly as `import_web_link` does — this instance's own link locally, another Kamosu's at a public address through the guarded client — and answers the shared recipe's title, Source, writer, how many Versions it carries and a small picture, and whether your own Cookbook holds it already, with how many newer Versions the file carries past yours. The file is staged: pass `upload_id` to `import_bundle` to import exactly what was previewed without fetching it again. An ended link, or an address that is no Share Link, is refused. */
 	previewSharedRecipe(input: PreviewSharedRecipeInput): Promise<Answer<'preview_shared_recipe'>>;
@@ -30374,7 +34197,7 @@ export interface KamosuClient {
 	turnOffMeaningSearch(input?: TurnOffMeaningSearchInput): Promise<Answer<'turn_off_meaning_search'>>;
 	/** Read a Recipe: its Branch and every Version, oldest first. The Branch comes as it stands, with its whole chain of Versions. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored. */
 	getRecipe(input: GetRecipeInput): Promise<Answer<'get_recipe'>>;
-	/** Read the Thread: every Branch of one Lineage you may see. It holds every Version of every Branch of the Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. An Attempt's eaten_version_id is the Version its rating is about: the As Cooked once that was kept as a Version, otherwise the Version it started from. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
+	/** Read the Thread: every Branch of one Lineage you may see. It holds every Version of every Branch of the Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. An Attempt's eaten_version_id is the Version its rating is about: the As Cooked once that was kept as a Version, otherwise the Version it started from. Its person_name is who cooked, and mine says whether that is you. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
 	getThread(input: GetThreadInput): Promise<Answer<'get_thread'>>;
 	/** Turn a Recipe's Share Link on, and answer the link. One permanent, unguessable address per Recipe, never expiring, freely passed on. Asking twice for a Recipe already shared answers the link it already has rather than minting a second one, with its `url` again. The instance's public address is asked for at the first Share Link and stored once; a link is kept as a token rather than a URL, so `url` is always built against the address stored now. */
 	shareRecipe(input: ShareRecipeInput): Promise<Answer<'share_recipe'>>;
@@ -30396,13 +34219,13 @@ export interface KamosuClient {
 	importBundle(input: ImportBundleInput): Promise<Answer<'import_bundle'>>;
 	/** Read a Recipe through its Share Link token. The answer is the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */
 	readSharedRecipe(input: ReadSharedRecipeInput): Promise<Answer<'read_shared_recipe'>>;
-	/** Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */
+	/** Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. A Translation has no Branch Point with its source, nor with another Translation of it: its chain starts fresh, so the two share no Version and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions. */
 	branchPoint(input: BranchPointInput): Promise<Answer<'branch_point'>>;
-	/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. */
+	/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. A line both have word for word in another place is `moved`, and `place` says where each side's page draws a row. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. A Translation has no Branch Point with its source, nor with another Translation of it, and the two are in different Languages, so nothing pairs their lines and the call is refused. Read the link from `translation` on the Branch in `get_thread` or `get_recipe`, or from `translates_version_id` on each of the Translation's Versions. */
 	divergence(input: DivergenceInput): Promise<Answer<'divergence'>>;
-	/** See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch. */
+	/** See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch, and so may put_back_version or start_variation from that Version; anybody else may keep_version_as_copy. */
 	changedSince(input: ChangedSinceInput): Promise<Answer<'changed_since'>>;
-	/** Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
+	/** Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
 	setReading(input: SetReadingInput): Promise<Answer<'set_reading'>>;
 	/** Read every Ingredient Line nothing has read yet, as a Job. It covers every such line in the library, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it. */
 	readIngredientLines(input?: ReadIngredientLinesInput): Promise<Answer<'read_ingredient_lines'>>;
@@ -30464,10 +34287,18 @@ export interface KamosuClient {
 	mergeFood(input: MergeFoodInput): Promise<Answer<'merge_food'>>;
 	/** Delete a Food nothing points at. One a Reading on some recipe still points at is refused: what a Food knows was expensive to learn and is never discarded by an unrelated act. Readings only a deleted recipe held count for nothing and go with the Food. */
 	deleteFood(input: DeleteFoodInput): Promise<Answer<'delete_food'>>;
-	/** Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
+	/** Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did. An agent's Job is also readable by the Co-authors of the Cookbook its recipe is in. */
 	getJob(input: GetJobInput): Promise<Answer<'get_job'>>;
-	/** Cancel a Job you asked for. It is acknowledged always, and honoured while it still waits in line. */
+	/** Cancel a Job you asked for. Always acknowledged, and honoured while it waits or an agent is working on it. */
 	cancelJob(input: CancelJobInput): Promise<Answer<'cancel_job'>>;
+	/** Read which agent's Job waits or is being worked on a recipe. `job` is null when none is, and once the Job has ended. Among those who see the recipe, it names the Job to the Person who asked for it and to the Co-authors of the recipe's Cookbook, who may read it with `get_job`. Anyone else who sees the recipe is answered null. */
+	getRecipeJob(input: GetRecipeJobInput): Promise<Answer<'get_recipe_job'>>;
+	/** Have an agent read a recipe again. A recipe an agent read from a PDF, a picture or pasted text is read from what Kamosu kept of it. Kamosu deletes that 30 days after its Job ended, and then the ask is refused with reason `needs_the_file`: ask again handing the file over, as `upload_id` or `data`, or the text as `text`. Any other recipe is read from its Source link, whichever way it arrived, and takes nothing handed over. It makes a Job that waits for a Runner. Only a Co-author of the Cookbook that holds the recipe may ask, on a Kamosu with a Runner. A recipe is read again once: after a reading that finished, or one stopped while a Runner held it, the ask is refused with reason `already_read_again`. One that failed, or was stopped while it waited, does not count. A variation is a recipe of its own, read again once too. The agent's saves become one new Version under your Hand, so the earlier one stays in the History. Where a Job already waits or is being worked on the recipe, that Job is the answer, and nothing handed over is kept. Its result is an Import Report under the source `read_again`, which says what the agent left undone or was unsure of. Ask `can_read_recipe_again` first to know what it would read, or why it would be refused. */
+	readRecipeAgain(input: ReadRecipeAgainInput): Promise<Answer<'read_recipe_again'>>;
+	/** Say whether a recipe can be read again, and from what. This is for you, as `read_recipe_again` would answer you. `from` is `original` for a recipe an agent read from a file or pasted text, and `link` for one read from its Source link. `reason` says why not: `not_a_co_author` when you see the recipe and do not write its Cookbook, `would_start_a_copy` when your Cookbook received it and did not write it, `no_runner` when no agent would read it, `already_read_again` when it has been read again already, which a recipe is once, `needs_the_file` when what it was read from is no longer kept and has to be handed over again, and `nothing_to_read` when it came from no file and its Source has no http or https link on the internet. */
+	canReadRecipeAgain(input: CanReadRecipeAgainInput): Promise<Answer<'can_read_recipe_again'>>;
+	/** Have an agent read again a file your Job failed on. It reads what Kamosu kept of the PDF, the picture or the pasted text a Job of yours failed on before it made a recipe, so you need not find the file. Kamosu deletes that 30 days after the Job ended, and then this is refused with reason `original_gone`: hand it over again with `import_by_agent`. A Job that made a recipe, or did not fail, is refused with reason `not_failed_on_a_file`. Only on a Kamosu with a Runner. Answers as `import_by_agent` does: a new Job, or the one of yours that waits or is worked on the same file, or the recipe an agent made from it since. */
+	readJobAgain(input: ReadJobAgainInput): Promise<Answer<'read_job_again'>>;
 	/** List the Jobs this Person has asked for, newest first. */
 	listJobs(input?: ListJobsInput): Promise<Answer<'list_jobs'>>;
 }

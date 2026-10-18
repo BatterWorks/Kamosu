@@ -9,21 +9,22 @@ impl Core {
     /// Cookbook, and a first Version fingerprinted from its content (ADR 0004,
     /// ADR 0041). A recipe needs only a title — every other field of `input`
     /// (Yield, Prep/Cook Time, Note, Source, Ingredients, Steps) is optional
-    /// (#43). There is no question of where it goes: always into your own
-    /// Cookbook.
+    /// (#43). It goes into your own Cookbook, or into the one `into` names,
+    /// which only an Operator looking after it may name (#302).
     pub fn create_recipe(
         &self,
         caller: &Caller,
         input: &Value,
         language: Option<&str>,
+        into: Option<&str>,
     ) -> Result<Value, OpError> {
         let content = parse_recipe_content(input)?;
         let (version_id, content_text) = stored_version(&content);
         let lineage_id = format!("l_{}", hex::encode(random_bytes(8)));
         let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
 
-        self.db().with_conn(|conn| {
-            let cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+        let foods_created = self.db().with_conn(|conn| {
+            let cookbook_id = lands_in(conn, caller, into)?;
             let hand_id = cookbook_hand(conn, &cookbook_id)?;
             let language = language_for_new_branch(conn, &caller.person_id, language, &content)?;
 
@@ -36,12 +37,13 @@ impl Core {
                 &language,
                 &version_id,
                 &content_text,
-                &caller.person_id,
-                caller.access_key_id.as_deref(),
+                caller,
             )
         })?;
 
-        self.get_recipe(&caller.person_id, &branch_id, None)
+        let mut recipe = self.get_recipe(caller, &branch_id, None)?;
+        recipe["foods_created"] = foods_created_json(&foods_created);
+        Ok(recipe)
     }
 
     /// Save a new state of a Recipe onto a Branch: an ordinary edit becomes an
@@ -66,10 +68,12 @@ impl Core {
     /// legitimate is lost: an arrived Bundle and a kept Share Link both put the
     /// Branch in the receiver's own Cookbook first.
     ///
-    /// Two things about Language happen here, and neither of them writes one
-    /// (ADR 0006). The save reads the new text and, where it disagrees with
-    /// the Language the Branch carries, answers `language_offer` — a
-    /// suggestion for the cook, never a change. And `translates_version_id`
+    /// Two things about Language happen here (ADR 0006). The save reads the
+    /// new text and, where it disagrees with the Language the Branch carries,
+    /// answers `language_offer` — a suggestion for the cook, never a change.
+    /// The one Language it writes is a guess's: a Branch that took the
+    /// writer's own because its text was too short to read takes the first
+    /// Language its text says (#321). And `translates_version_id`
     /// carries forward from the Version being replaced unless this save names
     /// a new one, so editing a Translation's wording never quietly claims it
     /// has caught up with its source. Naming one works even when no word
@@ -138,20 +142,21 @@ impl Core {
         self.db().with_conn(|conn| {
             // Before anything else reads the Branch, the identical-content
             // shortcut below included: it answers with the head's Version id.
-            ensure_sees_branch(conn, branch_id, &caller.person_id)?;
-            let (lineage_id, language): (String, String) = conn
+            ensure_reaches_branch(conn, branch_id, caller)?;
+            let (lineage_id, language, language_guessed): (String, String, bool) = conn
                 .query_row(
-                    "SELECT lineage_id, language FROM branches WHERE id = ?1",
+                    "SELECT lineage_id, language, language_guessed FROM branches WHERE id = ?1",
                     params![branch_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
-            // A save is always on behalf of the caller's own Cookbook, which is
-            // where a Copy goes when it is not theirs to write.
-            let own_cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            // The Cookbook a save is made for: the caller's own, which is
+            // where a Copy goes when the Branch is not theirs to write, or the
+            // one an Operator acting as one looks after (#302).
+            let writing_for = changes_for(conn, caller, branch_id)?;
 
             #[allow(clippy::type_complexity)]
-            let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content_text, head_translates, head_name, head_change_note): (
+            let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content_text, head_translates, head_name, head_change_note, head_job_id): (
                 i64,
                 String,
                 String,
@@ -161,13 +166,15 @@ impl Core {
                 Option<String>,
                 Option<String>,
                 Option<String>,
+                Option<String>,
             ) = conn
                 .query_row(
                     "SELECT branch_versions.sequence, branch_versions.version_id, \
                             branch_versions.hand_id, branch_versions.parent_version_id, \
                             (julianday('now') - julianday(branch_versions.created_at)) * 86400.0 <= ?2, \
                             versions.content, branch_versions.translates_version_id, \
-                            branch_versions.name, branch_versions.change_note \
+                            branch_versions.name, branch_versions.change_note, \
+                            branch_versions.job_id \
                        FROM branch_versions JOIN versions ON versions.id = branch_versions.version_id \
                       WHERE branch_versions.branch_id = ?1 ORDER BY branch_versions.sequence DESC LIMIT 1",
                     params![branch_id, COLLAPSE_WINDOW_SECONDS as f64],
@@ -182,6 +189,7 @@ impl Core {
                             row.get(6)?,
                             row.get(7)?,
                             row.get(8)?,
+                            row.get(9)?,
                         ))
                     },
                 )
@@ -211,6 +219,24 @@ impl Core {
                 None => head_translates.clone(),
             };
 
+            // A Language that was only the writer's own, taken for a text too
+            // short to read, ends with the first save that gives the recipe
+            // Ingredient Lines or Steps: it takes the Language their text
+            // reads as, or keeps the guess as the cook's own where it reads as
+            // none (#321). Nobody said it, so this changes nothing anybody
+            // said. A recipe with a Translation keeps it, since a Translation
+            // is in another Language than its source (ADR 0006).
+            let fills = ["ingredients", "steps"]
+                .iter()
+                .any(|field| content[field].as_array().is_some_and(|lines| !lines.is_empty()));
+            let settles = language_guessed && fills;
+            let language = if settles && !has_translations(conn, &lineage_id, branch_id)? {
+                crate::language::detect_content(&content).map_or(language, str::to_string)
+            } else {
+                language
+            };
+            let language_guessed = language_guessed && !settles;
+
             // The Language the new text reads as, where it disagrees with the
             // one the Branch carries. Computed before the identical-content
             // shortcut below so that re-saving unchanged text still answers
@@ -218,7 +244,40 @@ impl Core {
             let offer = language_offer(&language, &content);
 
             // The half of "still being shaped" the head row answers by itself.
-            let callers_and_recent = within_window && head_hand_id == caller.person_id;
+            // A person shapes the Version they saved within the collapse
+            // window. An agent's Job shapes the one Version it wrote, however
+            // long ago, and never one that was there before it. Nobody else's
+            // save folds into a Job's Version, the asker's own included,
+            // though the Job saved it under their Hand (ADR 0048, #265).
+            let head_is_callers_to_shape = match &caller.job_id {
+                Some(job_id) => head_job_id.as_deref() == Some(job_id.as_str()),
+                None => {
+                    head_job_id.is_none() && within_window && head_hand_id == caller.person_id
+                }
+            };
+
+            // A Job leaves at most one new Version (ADR 0048, #265), so once
+            // it has saved, its next save has that Version to fold into or
+            // is refused. Somebody else's save since would be written over by
+            // a whole-recipe save. A Copy or a Translation holding the Job's
+            // Version closes it as it does anybody's, and appending instead
+            // would be a second Version. Either way the Job fails with the
+            // reason and keeps what it saved. Asked before anything is
+            // written, and of a save that changes nothing too, so that a Job
+            // is told the same thing whatever it sent.
+            if let Some(job_id) = &caller.job_id {
+                let refused = if head_is_callers_to_shape {
+                    version_has_left(conn, &lineage_id, branch_id, &head_version_id)?
+                        .then_some(crate::jobs::HELD_ELSEWHERE)
+                } else {
+                    job_has_saved_onto(conn, job_id, branch_id)?
+                        .then_some(crate::jobs::CHANGED_WHILE_IT_WORKED)
+                };
+                if let Some(reason) = refused {
+                    crate::jobs::end_where_a_write_was_refused(conn, job_id, reason)?;
+                    return Err(OpError::bad_request(reason));
+                }
+            }
 
             if version_id == head_version_id {
                 // Identical content: the fingerprint already names this state,
@@ -244,7 +303,7 @@ impl Core {
                 let names_new_source = translates_version_id != head_translates;
                 // Every refusal before the one write: one call, one outcome.
                 if (noted || names_new_source)
-                    && !cookbook_writes_branch(conn, &own_cookbook_id, branch_id)?
+                    && !cookbook_writes_branch(conn, &writing_for, branch_id)?
                 {
                     return Err(OpError::bad_request(if noted {
                         "nothing in the recipe changed, and it is not yours to change, \
@@ -261,7 +320,7 @@ impl Core {
                         &lineage_id,
                         branch_id,
                         &head_version_id,
-                        callers_and_recent,
+                        head_is_callers_to_shape,
                     )?
                 {
                     return Err(OpError::bad_request(
@@ -296,6 +355,7 @@ impl Core {
                     "language": language,
                     "language_offer": offer,
                     "translates_version_id": translates_version_id,
+                    "foods_created": [],
                 }));
             }
 
@@ -307,26 +367,41 @@ impl Core {
 
             // A Reading travels with the Version it belongs to and is never
             // recomputed (ADR 0021) — so wherever this save left a line
-            // reading exactly as it did before, its Reading carries forward
-            // onto the new Version rather than being silently lost. A line
-            // that actually changed loses its Reading, which is ADR 0002's
-            // "re-reading the edited line refreshes the Reading" — and the
-            // refresh itself happens directly below. This holds identically
-            // for a Copy's first save: it is starting exactly at this head.
-            carry_forward_readings(conn, &head_version_id, &head_content, &version_id, &content)?;
+            // reading exactly as it did before, wherever it now sits (#355),
+            // its Reading carries forward onto the new Version rather than
+            // being silently lost. A line that actually changed loses its
+            // Reading, which is ADR 0002's "re-reading the edited line
+            // refreshes the Reading" — and the refresh itself happens
+            // directly below. This holds identically for a Copy's first
+            // save: it is starting exactly at this head.
+            let kept = kept_lines(&head_content, &content);
+            carry_forward_readings(conn, &head_version_id, &version_id, &kept)?;
             // ADR 0002's other half, which the comment above used to defer:
             // a line this save actually wrote is read now (#71). A line it
             // did not write keeps whatever it had, so a Reading somebody
             // cleared on purpose stays cleared.
-            read_unread_lines(
-                conn,
-                &version_id,
-                &language,
-                &content,
-                Some(&lines_this_save_wrote(&head_content, &content)),
+            //
+            // A save bringing a Translation up to a newer source renders it
+            // afresh, so the lines it wrote take the Food of the source line
+            // in their place (#356). A plain edit is somebody changing the
+            // Translation's own words, and a line it swapped for another
+            // ingredient at the same amount would take the wrong Food.
+            let renders_anew = translates_version_id
+                .as_deref()
+                .filter(|_| translates_version_id != head_translates);
+            let foods_created = foods_created_json(
+                &read_unread_lines(
+                    conn,
+                    &version_id,
+                    &language,
+                    &content,
+                    Some(&lines_this_save_wrote(&kept)),
+                    renders_anew,
+                )
+                .foods_created,
             );
 
-            if !cookbook_writes_branch(conn, &own_cookbook_id, branch_id)? {
+            if !cookbook_writes_branch(conn, &writing_for, branch_id)? {
                 // Copy: your Cookbook did not write this Branch, so the change
                 // starts a new one of your own — the source Branch is left
                 // exactly as it was.
@@ -334,11 +409,18 @@ impl Core {
                     conn,
                     branch_id,
                     &lineage_id,
-                    &own_cookbook_id,
+                    &writing_for,
                     &caller.person_id,
                     &language,
                     &version_id,
                 )?;
+                // Settled or not, the guess stands on the Copy as this save
+                // left it (#321).
+                conn.execute(
+                    "UPDATE branches SET language_guessed = ?1 WHERE id = ?2",
+                    params![language_guessed, new_branch_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot start the Copy: {e}")))?;
 
                 conn.execute(
                     "INSERT INTO branch_versions \
@@ -369,6 +451,7 @@ impl Core {
                     "language": language,
                     "language_offer": offer,
                     "translates_version_id": translates_version_id,
+                    "foods_created": foods_created,
                 }));
             }
 
@@ -400,7 +483,7 @@ impl Core {
                 &lineage_id,
                 branch_id,
                 &head_version_id,
-                callers_and_recent,
+                head_is_callers_to_shape,
             )?;
             if collapse {
                 // A name or change note the call leaves out is the one the
@@ -426,10 +509,12 @@ impl Core {
                 )
                 .map_err(|e| OpError::internal(format!("cannot collapse Version: {e}")))?;
             } else {
+                // Which Job wrote it is kept beside which Access Key did, and
+                // is as local (#265).
                 conn.execute(
                     "INSERT INTO branch_versions \
-                     (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, translates_version_id, language) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                     (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, translates_version_id, language, job_id) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                     params![
                         branch_id,
                         head_sequence + 1,
@@ -440,14 +525,16 @@ impl Core {
                         change_note,
                         caller.access_key_id,
                         translates_version_id,
-                        language
+                        language,
+                        caller.job_id
                     ],
                 )
                 .map_err(|e| OpError::internal(format!("cannot append Version: {e}")))?;
             }
             conn.execute(
-                "UPDATE branches SET head_version_id = ?1 WHERE id = ?2",
-                params![version_id, branch_id],
+                "UPDATE branches SET head_version_id = ?1, language = ?3, language_guessed = ?4 \
+                  WHERE id = ?2",
+                params![version_id, branch_id, language, language_guessed],
             )
             .map_err(|e| OpError::internal(format!("cannot move Branch head: {e}")))?;
 
@@ -460,6 +547,108 @@ impl Core {
                 "copied": false,
                 "language": language,
                 "language_offer": offer,
+                "translates_version_id": translates_version_id,
+                "foods_created": foods_created,
+            }))
+        })
+    }
+
+    /// **Put an older Version back** (#354): it becomes the recipe again, as a
+    /// new Version on top of the newest, every field as it held it.
+    ///
+    /// It never collapses into the Version being shaped, whoever saved that
+    /// and however recently. A collapse would replace the Version the cook is
+    /// stepping away from, and the Thread keeps it.
+    ///
+    /// Nothing is read or carried: the Version is already written, and its
+    /// Readings are keyed on its id, so a Reading corrected on it comes back
+    /// corrected, and one cleared on it stays cleared. It keeps the source
+    /// Version it said it translates, and the Language is the Branch's own,
+    /// settled where it was only guessed, as a save settles it.
+    ///
+    /// Only for those who write the Branch's Cookbook. Anybody else who sees
+    /// it keeps the Version as their own copy instead.
+    pub fn put_back_version(
+        &self,
+        caller: &Caller,
+        branch_id: &str,
+        version_id: &str,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            ensure_sees_branch(conn, branch_id, &caller.person_id)?;
+            let own = cookbook_of_person(conn, &caller.person_id)?;
+            if !cookbook_writes_branch(conn, &own, branch_id)? {
+                return Err(OpError::unauthorized(
+                    "only the people who write this recipe's Cookbook may put one of its \
+                     Versions back; keep it as your own copy instead",
+                ));
+            }
+            let (_, translates_version_id) = occurrence(conn, branch_id, version_id)?;
+            #[allow(clippy::type_complexity)]
+            let (head_sequence, head_version_id, lineage_id, language, language_guessed): (
+                i64,
+                String,
+                String,
+                String,
+                bool,
+            ) = conn
+                .query_row(
+                    "SELECT branch_versions.sequence, branches.head_version_id, \
+                            branches.lineage_id, branches.language, branches.language_guessed \
+                       FROM branches JOIN branch_versions ON branch_versions.branch_id = branches.id \
+                      WHERE branches.id = ?1 ORDER BY branch_versions.sequence DESC LIMIT 1",
+                    params![branch_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                )
+                .map_err(|e| OpError::internal(format!("cannot read Branch head: {e}")))?;
+            if version_id == head_version_id {
+                return Err(OpError::bad_request(
+                    "this Version is the recipe as it stands already",
+                ));
+            }
+            let content = version_content(conn, version_id)?;
+            // A guessed Language settles as a save of the same content would
+            // settle it (#321).
+            let fills = ["ingredients", "steps"]
+                .iter()
+                .any(|field| content[field].as_array().is_some_and(|lines| !lines.is_empty()));
+            let settles = language_guessed && fills;
+            let language = if settles && !has_translations(conn, &lineage_id, branch_id)? {
+                crate::language::detect_content(&content).map_or(language, str::to_string)
+            } else {
+                language
+            };
+            conn.execute(
+                "INSERT INTO branch_versions \
+                 (branch_id, sequence, version_id, parent_version_id, hand_id, access_key_id, translates_version_id, language) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    branch_id,
+                    head_sequence + 1,
+                    version_id,
+                    head_version_id,
+                    caller.person_id,
+                    caller.access_key_id,
+                    translates_version_id,
+                    language
+                ],
+            )
+            .map_err(|e| OpError::internal(format!("cannot append Version: {e}")))?;
+            conn.execute(
+                "UPDATE branches SET head_version_id = ?1, language = ?3, \
+                        language_guessed = ?4 WHERE id = ?2",
+                params![version_id, branch_id, language, language_guessed && !settles],
+            )
+            .map_err(|e| OpError::internal(format!("cannot move Branch head: {e}")))?;
+            Ok(json!({
+                "branch_id": branch_id,
+                "version_id": version_id,
+                "parent_version_id": head_version_id,
+                "sequence": head_sequence + 1,
+                "collapsed": false,
+                "copied": false,
+                "language_offer": language_offer(&language, &content),
+                "language": language,
                 "translates_version_id": translates_version_id,
             }))
         })
@@ -565,13 +754,12 @@ impl Core {
     /// table added later that references a Branch and is not swept here fails
     /// the whole delete loudly rather than silently orphaning a row. That
     /// refusal is a safety net worth keeping.
-    pub fn delete_recipe(&self, person_id: &str, branch_id: &str) -> Result<(), OpError> {
+    pub fn delete_recipe(&self, caller: &Caller, branch_id: &str) -> Result<(), OpError> {
         self.db().with_conn(|conn| {
             // ADR 0040: a Person who may not see the recipe is answered
             // exactly as an id naming nothing is; one who sees it and does not
-            // write it is told they may not.
-            let cookbook_id = branch_cookbook(conn, branch_id)?;
-            ensure_writes(conn, &cookbook_id, person_id)?;
+            // write it is told they may not. An Operator looks after it (#302).
+            let cookbook_id = ensure_changes_branch(conn, branch_id, caller, no_such_branch)?;
 
             let transaction = conn
                 .unchecked_transaction()
@@ -657,12 +845,13 @@ impl Core {
     /// oldest first — the Thread's raw material.
     pub fn get_recipe(
         &self,
-        person_id: &str,
+        caller: &Caller,
         branch_id: &str,
         wanted: Option<&Value>,
     ) -> Result<Value, OpError> {
+        let person_id = caller.person_id.as_str();
         self.db().with_conn(|conn| {
-            let cookbook_id = ensure_sees_branch(conn, branch_id, person_id)?;
+            let cookbook_id = ensure_reaches_branch(conn, branch_id, caller)?;
             let (lineage_id, hand_id, language, origin_address, head_version_id, branch_name, arrived): (
                 String,
                 String,
@@ -800,10 +989,11 @@ impl Core {
                 "lineage_id": lineage_id,
                 // Whose recipe this is, and whether the reader writes it: a
                 // save by anybody else starts a Branch of their own (ADR 0041),
-                // which the writing screens say before the tap.
+                // which the writing screens say before the tap. An Operator
+                // looking after the Cookbook writes it as its Co-authors do.
                 "cookbook": cookbook_label(conn, &cookbook_id)?,
                 "name": branch_name,
-                "writes": cookbook_writes_branch(conn, &own_cookbook_id, branch_id)?,
+                "writes": cookbook_writes_branch(conn, &changes_for(conn, caller, branch_id)?, branch_id)?,
                 // And why not, where not (#132): in the reader's own Cookbook
                 // but sent from elsewhere, or in somebody else's Cookbook. The
                 // same two facts a Thread's Branch answers.
@@ -828,7 +1018,13 @@ impl Core {
                 // Related Recipes are shelf notes between Lineages, kept by the
                 // Cookbook with its recipes (#131, question 3). They sit beside
                 // the Thread just as Tags do, never inside a Version.
-                "related_recipes": related_recipes_of_lineage(conn, &cookbook_id, &lineage_id, person_id)?,
+                "related_recipes": related_recipes_of_lineage(
+                    conn,
+                    &cookbook_id,
+                    &lineage_id,
+                    person_id,
+                    looks_after(conn, caller)?.then_some(cookbook_id.as_str()),
+                )?,
                 // How this dish has been cooked: how many times, when last,
                 // and each Person's most recent rating by name (#59). Beside
                 // the Versions and never inside one — an Attempt is a private
@@ -846,9 +1042,23 @@ impl Core {
     /// left for the caller to read out of `parent_version_id`, or to ask
     /// `branch_point` to compute authoritatively; this never calls it, so
     /// the two stay independently testable.
-    pub fn get_thread(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
+    pub fn get_thread(&self, caller: &Caller, branch_id: &str) -> Result<Value, OpError> {
+        let person_id = caller.person_id.as_str();
         self.db().with_conn(|conn| {
-            ensure_sees_branch(conn, branch_id, person_id)?;
+            let entry_cookbook_id = ensure_reaches_branch(conn, branch_id, caller)?;
+            // An Operator looking after the Cookbook the Thread was entered
+            // from reads that Cookbook's Branches too, as its Co-authors do
+            // (#302). An Operator's Job Key reaching its Job's recipe there
+            // reads that one Branch, and nobody reads a Branch of a Cookbook
+            // they could neither see nor were let into.
+            let (looked_after, reached): (Option<String>, Option<&str>) =
+                if looks_after(conn, caller)? {
+                    (Some(entry_cookbook_id), None)
+                } else if sees_cookbook(conn, &entry_cookbook_id, person_id)? {
+                    (None, None)
+                } else {
+                    (None, Some(branch_id))
+                };
             let lineage_id: String = conn
                 .query_row(
                     "SELECT lineage_id FROM branches WHERE id = ?1",
@@ -867,14 +1077,14 @@ impl Core {
                             branches.language, branches.head_version_id, {}, \
                             branches.name, branches.arrived \
                        FROM branches \
-                      WHERE branches.lineage_id = ?1 AND {} \
+                      WHERE branches.lineage_id = ?1 AND ({} OR branches.cookbook_id = ?3 OR branches.id = ?4) \
                       ORDER BY branches.created_at ASC, branches.id ASC",
                     hand_name_sql("branches.hand_id"),
                     visible_to("branches", "?2"),
                 ))
                 .map_err(|e| OpError::internal(format!("cannot list Branches: {e}")))?;
             let rows: Vec<(Value, String)> = statement
-                .query_map(params![lineage_id, person_id], |row| {
+                .query_map(params![lineage_id, person_id, looked_after, reached], |row| {
                     let cookbook_id: String = row.get(1)?;
                     Ok((
                         json!({
@@ -973,7 +1183,9 @@ impl Core {
     /// "Branch Point") — never declared, always computed. Every valid
     /// Branch's chain is contiguous back to a first Version with no parent;
     /// a chain that is not, or two chains that never converge, is reported
-    /// as a damaged Bundle rather than answered with a guess.
+    /// as a damaged Bundle rather than answered with a guess. A Translation
+    /// is the one healthy pair with no Branch Point, and is refused as such
+    /// (`last_shared_version`).
     pub fn branch_point(
         &self,
         person_id: &str,
@@ -983,16 +1195,9 @@ impl Core {
         self.db().with_conn(|conn| {
             let chain_a = ordered_chain(conn, branch_a_id, person_id)?;
             let chain_b = ordered_chain(conn, branch_b_id, person_id)?;
-            let ancestors_a: HashSet<&str> = chain_a.iter().map(String::as_str).collect();
-            for version_id in chain_b.iter().rev() {
-                if ancestors_a.contains(version_id.as_str()) {
-                    return Ok(json!({ "version_id": version_id }));
-                }
-            }
-            Err(OpError::internal(format!(
-                "damaged Bundle: {branch_a_id} and {branch_b_id} share no Version — \
-                 their chains never converge on the same first Version"
-            )))
+            let version_id =
+                last_shared_version(conn, (branch_a_id, &chain_a), (branch_b_id, &chain_b))?;
+            Ok(json!({ "version_id": version_id }))
         })
     }
 
@@ -1008,6 +1213,9 @@ impl Core {
     /// Branch Point (ADR 0019). No id is stapled to any line, so retyping a line
     /// identically manufactures no divergence, and where the reading is
     /// uncertain Kamosu declines to pair and both lines simply stand.
+    ///
+    /// A Translation has no Branch Point with its source, so that pair is
+    /// refused (`last_shared_version`).
     ///
     /// `mine` throughout names the Branch given as `branch_id` — the one the
     /// caller is standing in. The rows themselves are symmetric: crossing over
@@ -1038,17 +1246,11 @@ impl Core {
                 ));
             }
 
-            let ancestors: HashSet<&str> = chain_mine.iter().map(String::as_str).collect();
-            let branch_point_id = chain_theirs
-                .iter()
-                .rev()
-                .find(|version_id| ancestors.contains(version_id.as_str()))
-                .ok_or_else(|| {
-                    OpError::internal(format!(
-                        "damaged Bundle: {branch_id} and {other_branch_id} share no Version — \
-                         their chains never converge on the same first Version"
-                    ))
-                })?;
+            let branch_point_id = last_shared_version(
+                conn,
+                (branch_id, &chain_mine),
+                (other_branch_id, &chain_theirs),
+            )?;
 
             two_whole_recipes(conn, person_id, branch_point_id, &mine, &theirs)
         })
@@ -1136,11 +1338,11 @@ impl Core {
             });
             // Whether the reader writes this Branch, as `get_recipe` says it:
             // only then can a line be written back into the recipe.
-            answer["writes"] = json!(cookbook_writes_branch(
-                conn,
-                &cookbook_of_person(conn, person_id)?,
-                branch_id,
-            )?);
+            let own = cookbook_of_person(conn, person_id)?;
+            answer["writes"] = json!(cookbook_writes_branch(conn, &own, branch_id)?);
+            // Whether keeping this Version as the reader's own copy asks for a
+            // name first (#354).
+            answer["keeping_needs_name"] = json!(keeping_needs_name(conn, &own, branch_id)?);
             Ok(answer)
         })
     }
@@ -1219,25 +1421,47 @@ fn two_whole_recipes(
     }))
 }
 
-/// Carry a Reading forward onto a freshly saved Version wherever the
-/// Ingredient Line it belongs to reads identically (same kind, same text)
-/// at the same position in both — the cheapest honest approximation of
-/// Pairing (ADR 0019) available before that exists. A Reading whose line
-/// moved or changed is left behind rather than guessed at.
-fn carry_forward_readings(
-    conn: &Connection,
-    old_version_id: &str,
-    old_content: &Value,
-    new_version_id: &str,
-    new_content: &Value,
-) -> Result<(), OpError> {
+/// Which Ingredient Line of the old Version each line of the new one keeps
+/// word for word (same kind, same text), wherever it now sits (#355): `None`
+/// for a line the save wrote, changed or new. The same words twice are
+/// matched in order, the first new one to the first old one, and a copy left
+/// over is a new line.
+///
+/// Position alone, which this replaced, lost the Reading of every line below
+/// an insert, the thing ADR 0019 warned of. A line whose words changed at all
+/// is not paired with what it was: it is read again (ADR 0002). That is why
+/// this is not `pairing.rs`, which lets case and spacing pass so that two
+/// pages line up for a cook comparing them. A Reading belongs to the exact
+/// words it read.
+fn kept_lines(old_content: &Value, new_content: &Value) -> Vec<Option<usize>> {
     let no_lines = Vec::new();
     let old_lines = old_content["ingredients"].as_array().unwrap_or(&no_lines);
     let new_lines = new_content["ingredients"].as_array().unwrap_or(&no_lines);
-    for (index, (old_line, new_line)) in old_lines.iter().zip(new_lines.iter()).enumerate() {
-        if old_line != new_line {
+    let mut taken = vec![false; old_lines.len()];
+    new_lines
+        .iter()
+        .map(|new_line| {
+            let old_index = (0..old_lines.len())
+                .find(|&index| !taken[index] && old_lines[index] == *new_line)?;
+            taken[old_index] = true;
+            Some(old_index)
+        })
+        .collect()
+}
+
+/// Carry a Reading forward onto a freshly saved Version for every Ingredient
+/// Line the save kept word for word, onto wherever that line now sits. A
+/// Reading whose line changed is left behind rather than guessed at.
+fn carry_forward_readings(
+    conn: &Connection,
+    old_version_id: &str,
+    new_version_id: &str,
+    kept: &[Option<usize>],
+) -> Result<(), OpError> {
+    for (new_index, old_index) in kept.iter().enumerate() {
+        let Some(old_index) = old_index else {
             continue;
-        }
+        };
         conn.execute(
             // `lineage_id` travels with the rest of the Reading, and leaving it
             // out is not a smaller bug than losing the amount: it is what makes
@@ -1249,9 +1473,14 @@ fn carry_forward_readings(
             // So does `by_hand`: a correction carried onto the next Version
             // is still a correction, and a re-read must still leave it (#166).
             "INSERT OR IGNORE INTO readings (version_id, line_index, amount, unit, target, food_id, lineage_id, by_hand) \
-             SELECT ?1, line_index, amount, unit, target, food_id, lineage_id, by_hand FROM readings \
+             SELECT ?1, ?4, amount, unit, target, food_id, lineage_id, by_hand FROM readings \
               WHERE version_id = ?2 AND line_index = ?3",
-            params![new_version_id, old_version_id, index as i64],
+            params![
+                new_version_id,
+                old_version_id,
+                *old_index as i64,
+                new_index as i64
+            ],
         )
         .map_err(|e| OpError::internal(format!("cannot carry Reading forward: {e}")))?;
     }
@@ -1260,20 +1489,11 @@ fn carry_forward_readings(
 
 /// Which Ingredient Lines this save actually wrote — the ones that changed and
 /// the ones that are new. Exactly the lines [`read_unread_lines`] may read,
-/// and the complement of the ones [`carry_forward_readings`] just carried.
-///
-/// Compared by position, which is the same approximation of Pairing
-/// `carry_forward_readings` makes and has to be: a line inserted above shifts
-/// every line below it, and both functions then treat those as written afresh
-/// — losing a carried Reading and reading a new one in the same breath. That
-/// is coherent rather than lossy, and it stops being an approximation when
-/// Pairing does.
-fn lines_this_save_wrote(old_content: &Value, new_content: &Value) -> HashSet<usize> {
-    let no_lines = Vec::new();
-    let old_lines = old_content["ingredients"].as_array().unwrap_or(&no_lines);
-    let new_lines = new_content["ingredients"].as_array().unwrap_or(&no_lines);
-    (0..new_lines.len())
-        .filter(|index| old_lines.get(*index) != new_lines.get(*index))
+/// and the complement of the ones [`carry_forward_readings`] carries, since
+/// both are read off the one [`kept_lines`].
+fn lines_this_save_wrote(kept: &[Option<usize>]) -> HashSet<usize> {
+    (0..kept.len())
+        .filter(|&index| kept[index].is_none())
         .collect()
 }
 
@@ -1649,7 +1869,8 @@ fn held_from(
 fn cooking_for_version(content: &Value, readings: &[Value], language: Option<&str>) -> Value {
     let no_lines = Vec::new();
     let step_lines = content["steps"].as_array().unwrap_or(&no_lines);
-    let uses = crate::step_uses::step_uses(step_lines, readings, language);
+    let title = content["title"].as_str().unwrap_or_default();
+    let uses = crate::step_uses::step_uses(step_lines, readings, language, title);
 
     let steps: Vec<Value> = step_lines
         .iter()
@@ -2045,6 +2266,9 @@ fn parse_step_list(value: Option<&Value>) -> Result<Value, OpError> {
 /// wrote at their own stove does not. Stripped in the Core rather than left to
 /// a screen to omit, because a second Door would omit it differently.
 ///
+/// **`mine` and `person_name` say whose cooking it is** (#249), so a screen
+/// can keep the reader's own apart and name the rest without a second read.
+///
 /// **`eaten_version_id` says which Version a cooking counts for** (#209), as
 /// `thread_attempt_schema` declares it. Worked out here, before the strip,
 /// because a Kitchen-mate's screen is never handed the As Cooked to work it
@@ -2071,6 +2295,16 @@ fn attempts_for_lineage(
         .map_err(|e| OpError::internal(format!("cannot read Attempts: {e}")))?
         .collect::<Result<Vec<Value>, _>>()
         .map_err(|e| OpError::internal(format!("cannot read Attempts: {e}")))?;
+    // Whose cooking each one is (#249), each cook asked for once.
+    let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for attempt in &rows {
+        let Some(person_id) = attempt["person_id"].as_str() else {
+            continue;
+        };
+        if !names.contains_key(person_id) {
+            names.insert(person_id.to_string(), person_name(conn, person_id)?);
+        }
+    }
     Ok(rows
         .into_iter()
         .filter_map(|mut attempt| {
@@ -2086,7 +2320,10 @@ fn attempts_for_lineage(
             let eaten = on_the_thread(&attempt["as_cooked"]["version_id"])
                 .or_else(|| on_the_thread(&attempt["version_id"]))?;
             attempt["eaten_version_id"] = eaten;
-            if attempt["person_id"] != json!(viewer_person_id) {
+            attempt["person_name"] = json!(names[attempt["person_id"].as_str()?]);
+            let mine = attempt["person_id"] == json!(viewer_person_id);
+            attempt["mine"] = json!(mine);
+            if !mine {
                 attempt["as_cooked"] = Value::Null;
             }
             Some(attempt)
@@ -2317,6 +2554,54 @@ fn ordered_chain(
     Ok(rows.into_iter().map(|(version_id, _)| version_id).collect())
 }
 
+/// The last Version two Branches share, each given as its id and its chain
+/// oldest first: the Branch Point, as `branch_point` and `divergence` both
+/// need it.
+///
+/// Two Copies of one recipe always share a first Version, so finding none is
+/// damage. A Translation is the exception, by design: its chain starts fresh
+/// (ADR 0006), so it shares no Version with the recipe it translates, nor
+/// with another Translation of it (#251). That pair is a question with no
+/// answer, and is refused as one instead of being called damaged.
+fn last_shared_version<'a>(
+    conn: &Connection,
+    (branch_a_id, chain_a): (&str, &[String]),
+    (branch_b_id, chain_b): (&str, &'a [String]),
+) -> Result<&'a str, OpError> {
+    let ancestors_a: HashSet<&str> = chain_a.iter().map(String::as_str).collect();
+    if let Some(version_id) = chain_b
+        .iter()
+        .rev()
+        .find(|version_id| ancestors_a.contains(version_id.as_str()))
+    {
+        return Ok(version_id);
+    }
+
+    let mut translations = Vec::new();
+    for branch_id in [branch_a_id, branch_b_id] {
+        if translation_source(conn, branch_id)?.is_some() {
+            translations.push(branch_id);
+        }
+    }
+    if translations.is_empty() {
+        return Err(OpError::internal(format!(
+            "damaged Bundle: {branch_a_id} and {branch_b_id} share no Version — \
+             their chains never converge on the same first Version"
+        )));
+    }
+    let who_translates = match translations[..] {
+        [one] => format!("{one} is a Translation"),
+        _ => format!("{branch_a_id} and {branch_b_id} are both Translations"),
+    };
+    Err(OpError::bad_request(format!(
+        "{who_translates}. A Translation's chain starts fresh, so it shares no Version with \
+         the recipe it translates, nor with another Translation: {branch_a_id} and \
+         {branch_b_id} have no Branch Point and nothing to lay over each other. What a \
+         Translation translates is held as translates_version_id on each of its Versions, \
+         and as translation on its Branch in the answers of get_thread and get_recipe"
+    )))
+}
+
 /// One Branch as a Divergence needs it: which Cookbook holds it and where its
 /// head is.
 pub(super) struct BranchHead {
@@ -2521,21 +2806,94 @@ fn version_is_translated(
     .map_err(|e| OpError::internal(format!("cannot look for Translations of this Version: {e}")))
 }
 
+/// Whether an agent's Job has saved a Version onto this Branch already
+/// (#265): what tells its first save, which starts its Version, from a later
+/// one that finds somebody else's Version at the head.
+fn job_has_saved_onto(conn: &Connection, job_id: &str, branch_id: &str) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS ( \
+            SELECT 1 FROM branch_versions WHERE branch_id = ?1 AND job_id = ?2 )",
+        params![branch_id, job_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot look for the Job's Version: {e}")))
+}
+
 /// Whether a Branch's head Version is still the one being shaped: the one a
 /// re-save collapses into, and the one a note-only edit writes onto (#165).
-/// `callers_and_recent` is the part the head row already answers, that the
-/// caller saved it within the collapse window. The rest is why the window
+/// `head_is_callers_to_shape` is the part the head row already answers: that the
+/// caller saved it within the collapse window, or that the agent's Job
+/// asking is the one that wrote it (#265). The rest is why the window
 /// closes early, spelled out where `save_onto_branch` collapses.
 fn version_being_shaped(
     conn: &Connection,
     lineage_id: &str,
     branch_id: &str,
     head_version_id: &str,
-    callers_and_recent: bool,
+    head_is_callers_to_shape: bool,
 ) -> Result<bool, OpError> {
-    Ok(callers_and_recent
-        && !version_is_translated(conn, lineage_id, branch_id, head_version_id)?
-        && !version_is_held_by_another_branch(conn, lineage_id, branch_id, head_version_id)?)
+    Ok(
+        head_is_callers_to_shape
+            && !version_has_left(conn, lineage_id, branch_id, head_version_id)?,
+    )
+}
+
+/// Where a Version last occurs on a Branch: its sequence there, and the source
+/// Version it said it translates. The same content can recur on one Branch,
+/// and the last time is the one the Thread shows nearest the head (#354).
+pub(super) fn occurrence(
+    conn: &Connection,
+    branch_id: &str,
+    version_id: &str,
+) -> Result<(i64, Option<String>), OpError> {
+    conn.query_row(
+        "SELECT sequence, translates_version_id FROM branch_versions \
+          WHERE branch_id = ?1 AND version_id = ?2 ORDER BY sequence DESC LIMIT 1",
+        params![branch_id, version_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read Version: {e}")))?
+    .ok_or_else(|| OpError::bad_request("version_id is not a Version of this Branch"))
+}
+
+/// Whether somebody besides this Branch holds its head Version: a
+/// Translation rendering it, another Branch naming it in its chain, or a
+/// Bundle that carried it away (#328). Any one of them closes the collapse
+/// window, since replacing the Version would pull it out from under them.
+fn version_has_left(
+    conn: &Connection,
+    lineage_id: &str,
+    branch_id: &str,
+    version_id: &str,
+) -> Result<bool, OpError> {
+    Ok(
+        version_is_translated(conn, lineage_id, branch_id, version_id)?
+            || version_is_held_by_another_branch(conn, lineage_id, branch_id, version_id)?
+            || head_was_bundled(conn, branch_id)?,
+    )
+}
+
+/// Whether a Bundle carried this Branch's head away, through the app or a
+/// Share Link (#328). The receiver holds the chain up to it, and a sender
+/// who replaced it in place could send them nothing of this recipe again:
+/// the next Bundle's chain would disagree with theirs. Asked of the head row
+/// itself, since the same Version can stand at two places in one chain, and
+/// only the head is rewritten.
+fn head_was_bundled(conn: &Connection, branch_id: &str) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS ( \
+            SELECT 1 FROM branch_versions \
+             WHERE branch_id = ?1 AND bundled = 1 \
+               AND sequence = (SELECT MAX(sequence) FROM branch_versions WHERE branch_id = ?1) )",
+        params![branch_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| {
+        OpError::internal(format!(
+            "cannot ask whether a Bundle carried this Version: {e}"
+        ))
+    })
 }
 
 /// Whether another Branch of this Lineage names this exact Version in its own
@@ -2610,8 +2968,10 @@ pub(super) fn start_copy(
         &whose_branch(conn, branch_id)?,
     )?;
     conn.execute(
-        "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, name, started_by) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        // A guessed Language is the Copy's guess too (#321). A save that
+        // settles it says so on the Copy after.
+        "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, name, started_by, language_guessed) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, (SELECT language_guessed FROM branches WHERE id = ?9))",
         params![
             new_branch_id,
             lineage_id,
@@ -2620,7 +2980,8 @@ pub(super) fn start_copy(
             language,
             head_version_id,
             name,
-            started_by
+            started_by,
+            branch_id
         ],
     )
     .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
@@ -2640,12 +3001,11 @@ pub(super) fn insert_new_lineage_and_branch(
     branch_id: &str,
     cookbook_id: &str,
     cookbook_hand_id: &str,
-    language: &str,
+    language: &NewBranchLanguage,
     version_id: &str,
     content_text: &str,
-    writer_person_id: &str,
-    access_key_id: Option<&str>,
-) -> Result<(), OpError> {
+    writer: &Caller,
+) -> Result<Vec<CreatedFood>, OpError> {
     conn.execute(
         "INSERT OR IGNORE INTO versions (id, content) VALUES (?1, ?2)",
         params![version_id, content_text],
@@ -2654,29 +3014,33 @@ pub(super) fn insert_new_lineage_and_branch(
     conn.execute("INSERT INTO lineages (id) VALUES (?1)", params![lineage_id])
         .map_err(|e| OpError::internal(format!("cannot mint Lineage: {e}")))?;
     conn.execute(
-        "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, started_by) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, started_by, language_guessed) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             branch_id,
             lineage_id,
             cookbook_id,
             cookbook_hand_id,
-            language,
+            language.language,
             version_id,
-            writer_person_id
+            writer.person_id,
+            language.guessed
         ],
     )
     .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
+    // A Job Key's create writes its Job on the first Version, as any save of
+    // its does, so the Job's later saves fold into this one (#265, #269).
     conn.execute(
         "INSERT INTO branch_versions \
-         (branch_id, sequence, version_id, parent_version_id, hand_id, access_key_id, language) \
-         VALUES (?1, 1, ?2, NULL, ?3, ?4, ?5)",
+         (branch_id, sequence, version_id, parent_version_id, hand_id, access_key_id, language, job_id) \
+         VALUES (?1, 1, ?2, NULL, ?3, ?4, ?5, ?6)",
         params![
             branch_id,
             version_id,
-            writer_person_id,
-            access_key_id,
-            language
+            writer.person_id,
+            writer.access_key_id,
+            language.language,
+            writer.job_id
         ],
     )
     .map_err(|e| OpError::internal(format!("cannot record first Version: {e}")))?;
@@ -2690,11 +3054,12 @@ pub(super) fn insert_new_lineage_and_branch(
     // recipe of the receiver's own, and those are read like any other.
     //
     // A recipe whose own content will not parse is a recipe left unread, never
-    // a failed write.
-    if let Ok(content) = serde_json::from_str::<Value>(content_text) {
-        read_unread_lines(conn, version_id, language, &content, None);
-    }
-    Ok(())
+    // a failed write. The Foods reading it created are the caller's to name
+    // (#358).
+    let Ok(content) = serde_json::from_str::<Value>(content_text) else {
+        return Ok(Vec::new());
+    };
+    Ok(read_unread_lines(conn, version_id, &language.language, &content, None, None).foods_created)
 }
 
 /// The title of one Version, which is what a recipe is called right now.

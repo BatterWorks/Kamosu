@@ -25,7 +25,7 @@
 use serde_json::Value;
 use serde_json::json;
 
-use crate::core::{Caller, Core, Invocation, OpError, Reading, RelatedSide};
+use crate::core::{Caller, Core, Invocation, OpError, Reading, RelatedSide, RunnerCaller};
 use crate::jobs;
 
 /// The instance status: the version, whether setup has happened, and the
@@ -217,7 +217,10 @@ pub fn revoke_session(
         .ok_or_else(|| OpError::bad_request("revoke_session takes { session_id }"))?;
     let caller = caller_of(invocation)?;
     core.revoke_session(&caller.person_id, session_id)?;
-    Ok(json!({ "revoked": true }))
+    // Ending the Session in hand signs the caller out; ending another leaves
+    // them signed in, and a browser keeps what it holds (#291).
+    let current = caller.session_id.as_deref() == Some(session_id);
+    Ok(json!({ "revoked": true, "current": current }))
 }
 
 pub fn mint_access_key(
@@ -275,9 +278,85 @@ pub fn get_job(core: &Core, invocation: &Invocation, input: Value) -> Result<Val
         .ok_or_else(|| OpError::bad_request("get_job takes { job_id }"))?;
 
     let record = core.job(job_id)?.ok_or_else(|| jobs::no_such_job(job_id))?;
-    jobs::ensure_reader(&record, &invocation.caller, || jobs::no_such_job(job_id))?;
+    core.ensure_reads_job(&record, &invocation.caller().cloned(), || {
+        jobs::no_such_job(job_id)
+    })?;
 
     Ok(jobs::to_value(&record))
+}
+
+/// The agent's Job standing on a recipe (#268). An Operation of its own, so
+/// reading a recipe goes on knowing nothing of Jobs (ADR 0048).
+pub fn get_recipe_job(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("get_recipe_job takes { branch_id }"))?;
+    core.recipe_job(caller_of(invocation)?, branch_id)
+}
+
+pub fn read_recipe_again(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    const USAGE: &str = "read_recipe_again takes { branch_id }, and with it { text }, the \
+                         recipe pasted again, or { upload_id } or { data }: the PDF or the \
+                         picture handed over again, sent to POST /api/uploads or \
+                         base64-encoded";
+    let caller = caller_of(invocation)?;
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(USAGE))?;
+    let handed = match input.get("text").and_then(Value::as_str) {
+        Some(_) if input.get("upload_id").is_some() || input.get("data").is_some() => {
+            return Err(OpError::bad_request(USAGE));
+        }
+        Some(text) => Some(crate::core::Handed::Text(text.to_string())),
+        None if input.get("upload_id").is_some() || input.get("data").is_some() => {
+            // Asked before the staged file is read, which uses it up.
+            core.ensure_may_hand_over_to_read_again(caller, branch_id)?;
+            Some(crate::core::Handed::File(sent_file(
+                core,
+                caller,
+                &input,
+                USAGE,
+                Some(crate::core::LARGEST_HANDED_FILE),
+            )?))
+        }
+        None => None,
+    };
+    core.read_recipe_again(caller, branch_id, handed)
+}
+
+/// Hand an agent again the kept Original of a Job that failed on it (#273).
+pub fn read_job_again(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let job_id = input
+        .get("job_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("read_job_again takes { job_id }"))?;
+    core.read_job_again(caller_of(invocation)?, job_id)
+}
+
+pub fn can_read_recipe_again(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("can_read_recipe_again takes { branch_id }"))?;
+    core.can_read_recipe_again(caller_of(invocation)?, branch_id)
 }
 
 /// List the Jobs one Person has asked for, newest first. A stranger has asked
@@ -290,9 +369,10 @@ pub fn list_jobs(core: &Core, invocation: &Invocation, _input: Value) -> Result<
     }))
 }
 
-/// Cancel a Job: the same ownership rule as reading it, and the cancellation
-/// itself lives here in the Core — the MCP door's tasks/cancel is decoration
-/// over this Operation, exactly as ADR 0001 asks of anything state-changing.
+/// Cancel a Job. The Person who asked cancels it and nobody else, which is
+/// asked apart from who may read it (#267). The cancellation itself lives
+/// here in the Core — the MCP door's tasks/cancel is decoration over this
+/// Operation, exactly as ADR 0001 asks of anything state-changing.
 pub fn cancel_job(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let job_id = input
         .get("job_id")
@@ -300,9 +380,11 @@ pub fn cancel_job(core: &Core, invocation: &Invocation, input: Value) -> Result<
         .ok_or_else(|| OpError::bad_request("cancel_job takes { job_id }"))?;
 
     let record = core.job(job_id)?.ok_or_else(|| jobs::no_such_job(job_id))?;
-    jobs::ensure_reader(&record, &invocation.caller, || jobs::no_such_job(job_id))?;
+    jobs::ensure_asker(&record, &invocation.caller().cloned(), || {
+        jobs::no_such_job(job_id)
+    })?;
 
-    let cancelled = core.cancel_job_if_queued(job_id)?;
+    let cancelled = core.cancel_job(job_id)?;
     Ok(json!({ "cancelled": cancelled }))
 }
 
@@ -461,6 +543,15 @@ pub fn get_cookbook(core: &Core, invocation: &Invocation, _input: Value) -> Resu
     core.get_cookbook(&caller.person_id)
 }
 
+pub fn list_cookbooks(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.list_cookbooks(caller)
+}
+
 pub fn rename_cookbook(
     core: &Core,
     invocation: &Invocation,
@@ -567,7 +658,7 @@ pub fn start_variation(
     invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
-    let takes = "start_variation takes { branch_id, name }";
+    let takes = "start_variation takes { branch_id, name, version_id? }";
     let branch_id = input
         .get("branch_id")
         .and_then(Value::as_str)
@@ -576,8 +667,48 @@ pub fn start_variation(
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request(takes))?;
+    let version_id = input.get("version_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
-    core.start_variation(&caller.person_id, branch_id, name)
+    core.start_variation(caller, branch_id, name, version_id)
+}
+
+/// Put an older Version of a recipe back as the recipe (#354).
+pub fn put_back_version(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "put_back_version takes { branch_id, version_id }";
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let version_id = input
+        .get("version_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.put_back_version(caller, branch_id, version_id)
+}
+
+/// Keep a Version of somebody else's recipe as your own copy (#354).
+pub fn keep_version_as_copy(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "keep_version_as_copy takes { branch_id, version_id, name? }";
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let version_id = input
+        .get("version_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let name = input.get("name").and_then(Value::as_str);
+    let caller = caller_of(invocation)?;
+    core.keep_version_as_copy(caller, branch_id, version_id, name)
 }
 
 pub fn rename_branch(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
@@ -604,7 +735,7 @@ pub fn create_tag(core: &Core, invocation: &Invocation, input: Value) -> Result<
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request(takes))?;
     let caller = caller_of(invocation)?;
-    core.create_tag(&caller.person_id, language, name)
+    core.create_tag(caller, language, name, landing(&input))
 }
 
 pub fn list_tags(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
@@ -616,7 +747,7 @@ pub fn list_tags(core: &Core, invocation: &Invocation, input: Value) -> Result<V
     let cookbook_id = input.get("cookbook_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     Ok(json!({
-        "tags": core.list_tags(&caller.person_id, everywhere, kitchen_id, cookbook_id)?
+        "tags": core.list_tags(caller, everywhere, kitchen_id, cookbook_id)?
     }))
 }
 
@@ -681,7 +812,7 @@ pub fn set_recipe_tag(
         .and_then(Value::as_bool)
         .ok_or_else(|| OpError::bad_request(takes))?;
     let caller = caller_of(invocation)?;
-    core.set_recipe_tag(&caller.person_id, branch_id, tag_id, carried)
+    core.set_recipe_tag(caller, branch_id, tag_id, carried)
 }
 
 pub fn set_related_recipe(
@@ -716,13 +847,13 @@ pub fn set_related_recipe(
         (None, None) => return Err(OpError::bad_request(takes)),
     };
     let caller = caller_of(invocation)?;
-    core.set_related_recipe(&caller.person_id, branch_id, other, related)
+    core.set_related_recipe(caller, branch_id, other, related)
 }
 
 pub fn create_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let language = input.get("language").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
-    core.create_recipe(caller, &input, language)
+    core.create_recipe(caller, &input, language, landing(&input))
 }
 
 pub fn save_recipe_version(
@@ -877,6 +1008,60 @@ pub fn read_recipe_pdf(
     Ok(pasted_answer(&paste))
 }
 
+/// The longest link handed to an agent, in bytes. A browser's address bar
+/// holds far more, but a recipe's page or video is never that long, and the
+/// link is held in a Job's row for as long as the Job is kept.
+const LONGEST_LINK: usize = 2048;
+
+/// Hand pasted text, a link, a PDF or a picture to an agent (#269, #349).
+/// The text comes as `text`, the link as `link`, and a file the two ways
+/// `read_recipe_pdf`'s does. Which a file is, is read off its bytes in the
+/// Core.
+pub fn import_by_agent(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    const USAGE: &str = "import_by_agent takes { text }, the recipe pasted, { link }, a web \
+                         page or a video, or { upload_id } or { data }: a PDF or a picture \
+                         sent to POST /api/uploads, or base64-encoded";
+    let caller = caller_of(invocation)?;
+    core.ensure_has_runner()?;
+    if let Some(link) = input.get("link").and_then(Value::as_str) {
+        if ["text", "upload_id", "data"]
+            .iter()
+            .any(|field| input.get(field).is_some())
+        {
+            return Err(OpError::bad_request(USAGE));
+        }
+        // Semantic, so here rather than in the declaration (#85): Kamosu
+        // fetches nothing, but the agent will, and the link is held to what
+        // the guarded fetch would set out to read (ADR 0033).
+        let link = link.trim();
+        if link.len() > LONGEST_LINK || !crate::web_import::is_readable_link(link) {
+            return Err(OpError::bad_request(format!(
+                "that is not a web address an agent can read: an http:// or https:// link \
+                 of at most {LONGEST_LINK} bytes, to no address on the local network"
+            )));
+        }
+        return core.import_link_by_agent(caller, link, landing(&input));
+    }
+    let handed = match input.get("text").and_then(Value::as_str) {
+        Some(_) if input.get("upload_id").is_some() || input.get("data").is_some() => {
+            return Err(OpError::bad_request(USAGE));
+        }
+        Some(text) => crate::core::Handed::Text(text.to_string()),
+        None => crate::core::Handed::File(sent_file(
+            core,
+            caller,
+            &input,
+            USAGE,
+            Some(crate::core::LARGEST_HANDED_FILE),
+        )?),
+    };
+    core.import_by_agent(caller, handed, landing(&input))
+}
+
 /// The bytes of a file sent to an Operation, the two ways a file arrives
 /// (ADR 0001, #93): `upload_id` names one already sent to `POST
 /// /api/uploads`, used once and deleted whatever the outcome, and `data`
@@ -993,7 +1178,13 @@ pub fn import(core: &Core, invocation: &Invocation, input: Value) -> Result<Valu
         .and_then(Value::as_array)
         .ok_or_else(|| OpError::bad_request("import takes { source_kind, candidates }"))?;
     let caller = caller_of(invocation)?;
-    core.import(caller, source_kind, candidates, invocation.job.as_ref())
+    core.import(
+        caller,
+        source_kind,
+        candidates,
+        landing(&input),
+        invocation.job.as_ref(),
+    )
 }
 
 /// Import a recipe straight from a web link (#70): fetch the page through the
@@ -1002,6 +1193,20 @@ pub fn import(core: &Core, invocation: &Invocation, input: Value) -> Result<Valu
 /// (`import`, #68, ADR 0025). The page's own address — after redirects — is
 /// both the ledger's foreign id and the Version's Source link, so re-running
 /// the import on the same page matches instead of doubling the library.
+///
+/// On an instance with a Runner, a link Kamosu cannot read goes to an agent
+/// (ADR 0048, #261). That is a page with no structured recipe data, a video
+/// among them, and a page that answered the fetch with a refusal. It lands
+/// as a bare recipe at once, and a Job for the agent waits on that recipe.
+/// This Import still ends here: the agent's Job is a second Job, named in
+/// the Report. Something that is no link, an address Kamosu will not dial
+/// and a host that never answered are refused as they always were.
+///
+/// On an instance without one, such a page is read from its own article
+/// text, the way a paste is (#301). Where that finds Ingredient Lines,
+/// nothing lands and no Import is written: the answer is what it read, for a
+/// person to check on the screen a paste is checked on. Where it finds none,
+/// the page lands bare as it always did.
 ///
 /// A Kamosu Share Link is not read as a web page (#169). Its page carries no
 /// JSON-LD, and flattening it would lose the recipe's History in any case: it
@@ -1030,15 +1235,47 @@ pub fn import_web_link(
             progress.report(0, None, "asking for the recipe file".to_string());
         }
         if let Some(bytes) = shared_recipe_file(core, &link)? {
-            return core.import_bundle(caller, &bytes, progress);
+            return core.import_bundle(caller, &bytes, landing(&input), progress);
         }
     }
 
     if let Some(progress) = progress {
         progress.report(0, None, "reading the page".to_string());
     }
-    let (html, effective_url) = crate::web_import::fetch_page(url)?;
-    let parsed = crate::web_import::extract_recipe(&html, &effective_url);
+    // Asked once, before the fetch, so one answer decides both what a refusal
+    // lands and whether a Job follows.
+    let has_runner = core.has_runner()?;
+    let (parsed, effective_url) = match crate::web_import::fetch_page(url)? {
+        crate::web_import::Page::Read {
+            html,
+            effective_url,
+        } => {
+            let parsed = crate::web_import::extract_recipe(&html, &effective_url);
+            // With no agent to hand it to, a page with no recipe data is
+            // read from its own text, and nothing lands until a person has
+            // checked what was made of it (#301).
+            if !has_runner
+                && !parsed.found_recipe
+                && let Some(paste) = read_page_text(&html)
+            {
+                let mut to_check = pasted_answer(&paste);
+                to_check["source"] = json!({ "text": parsed.source_text, "link": effective_url });
+                return Ok(json!({ "to_check": to_check }));
+            }
+            (parsed, effective_url)
+        }
+        // A page that refused Kamosu may let an agent in (ADR 0048), so it
+        // lands as a bare recipe for the agent to fill.
+        crate::web_import::Page::Refused { effective_url, .. } if has_runner => (
+            crate::web_import::unread_page(&effective_url),
+            effective_url,
+        ),
+        crate::web_import::Page::Refused { status, .. } => {
+            return Err(OpError::bad_request(format!(
+                "that page answered with {status}"
+            )));
+        }
+    };
 
     // A photo that failed to fetch, decode or remake never fails the recipe
     // (#45's rule for an uploaded picture, applied the same way to one
@@ -1106,7 +1343,29 @@ pub fn import_web_link(
         "steps": steps,
     });
 
-    core.import(caller, "web", &[candidate], progress)
+    let report = core.import(
+        caller,
+        crate::jobs::LINK_SOURCE,
+        &[candidate],
+        landing(&input),
+        progress,
+    )?;
+    if has_runner && !parsed.found_recipe {
+        return core.hand_link_to_agent(caller, report, &effective_url);
+    }
+    Ok(report)
+}
+
+/// A page's own article read the way a paste is (#301), or nothing where
+/// that made no recipe: no text, more text than a paste may be, or no line
+/// above the split that is an Ingredient Line rather than a heading.
+fn read_page_text(html: &str) -> Option<crate::pasting::Paste> {
+    let text = crate::page_text::main_text(html)?;
+    if text.len() > crate::pasting::LONGEST_PASTE {
+        return None;
+    }
+    let paste = crate::pasting::read_paste(&text);
+    paste.has_ingredient_lines().then_some(paste)
 }
 
 /// What importing a Share Link would do, before it does it (#170): the page
@@ -1156,7 +1415,7 @@ fn shared_recipe_file(
     match core.read_shared_recipe(&link.token) {
         Ok(_) => {
             return core
-                .shared_bundle(&link.token)
+                .shared_bundle_here(&link.token)
                 .map(|written| Some(written.bytes))
                 .map_err(|e| match e.kind {
                     // Ended: refused, as a far Kamosu's answer would be.
@@ -1300,7 +1559,7 @@ pub fn get_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("get_recipe takes { branch_id, wanted_yield? }"))?;
     let caller = caller_of(invocation)?;
-    core.get_recipe(&caller.person_id, branch_id, input.get("wanted_yield"))
+    core.get_recipe(caller, branch_id, input.get("wanted_yield"))
 }
 
 /// Receive a Bundle (#67), landed in the caller's own Cookbook as a Job
@@ -1319,7 +1578,7 @@ pub fn import_bundle(core: &Core, invocation: &Invocation, input: Value) -> Resu
     let caller = caller_of(invocation)?;
     let progress = invocation.job.as_ref();
     let bytes = sent_file(core, caller, &input, USAGE, None)?;
-    core.import_bundle(caller, &bytes, progress)
+    core.import_bundle(caller, &bytes, landing(&input), progress)
 }
 
 /// Bring in a Crouton export (#69) — the whole library as a zip of `.crumb`
@@ -1347,7 +1606,7 @@ pub fn import_crouton(
             let outcome = std::fs::File::open(&path)
                 .map_err(|e| OpError::internal(format!("cannot open the upload: {e}")))
                 .and_then(crate::crouton::Export::open)
-                .and_then(|export| core.import_crouton(caller, export, progress));
+                .and_then(|export| core.import_crouton(caller, export, landing(&input), progress));
             let _ = std::fs::remove_file(&path);
             outcome
         }
@@ -1357,7 +1616,7 @@ pub fn import_crouton(
                 .decode(data)
                 .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
             let export = crate::crouton::Export::open(std::io::Cursor::new(bytes))?;
-            core.import_crouton(caller, export, progress)
+            core.import_crouton(caller, export, landing(&input), progress)
         }
         _ => Err(OpError::bad_request(USAGE)),
     }
@@ -1445,7 +1704,7 @@ pub fn set_reading(core: &Core, invocation: &Invocation, input: Value) -> Result
     let lineage_id = input.get("lineage_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     core.set_reading(
-        &caller.person_id,
+        caller,
         branch_id,
         line_index,
         Reading {
@@ -1485,7 +1744,7 @@ pub fn get_thread(core: &Core, invocation: &Invocation, input: Value) -> Result<
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("get_thread takes { branch_id }"))?;
     let caller = caller_of(invocation)?;
-    core.get_thread(&caller.person_id, branch_id)
+    core.get_thread(caller, branch_id)
 }
 
 // ── Share Links (#65, ADR 0026, ADR 0018) ────────────────────────────────────
@@ -1803,7 +2062,7 @@ pub fn delete_recipe(core: &Core, invocation: &Invocation, input: Value) -> Resu
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("delete_recipe takes { branch_id }"))?;
     let caller = caller_of(invocation)?;
-    core.delete_recipe(&caller.person_id, branch_id)?;
+    core.delete_recipe(caller, branch_id)?;
     Ok(json!({ "deleted": true }))
 }
 
@@ -2050,8 +2309,124 @@ pub fn turn_off_meaning_search(
     core.turn_off_meaning_search()
 }
 
+pub fn mint_runner_key(
+    core: &Core,
+    _invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("mint_runner_key takes { name }"))?;
+    let key = core.mint_runner_key(name)?;
+    Ok(json!({ "id": key.id, "name": key.name, "secret": key.secret }))
+}
+
+pub fn list_runner_keys(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    Ok(json!({ "runner_keys": core.runner_keys()? }))
+}
+
+pub fn revoke_runner_key(
+    core: &Core,
+    _invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let runner_key_id = input
+        .get("runner_key_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("revoke_runner_key takes { runner_key_id }"))?;
+    core.revoke_runner_key(runner_key_id)?;
+    Ok(json!({ "revoked": true }))
+}
+
+pub fn runner_status(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.runner_status()
+}
+
+pub fn get_house_notes(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.house_notes()
+}
+
+pub fn set_house_notes(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    let notes = input
+        .get("notes")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("set_house_notes takes { notes }"))?;
+    core.set_house_notes(&caller.person_id, notes)
+}
+
+pub fn ask_for_work(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let usage = || OpError::bad_request("ask_for_work takes { runner_version, ask }");
+    let runner_version = input
+        .get("runner_version")
+        .and_then(Value::as_str)
+        .ok_or_else(usage)?;
+    let ask = input.get("ask").and_then(Value::as_str).ok_or_else(usage)?;
+    core.ask_for_work(runner_of(invocation)?, runner_version, ask)
+}
+
+pub fn renew_hold(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let job_id = input
+        .get("job_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("renew_hold takes { job_id }"))?;
+    core.renew_hold(runner_of(invocation)?, job_id)
+}
+
+pub fn report_on_job(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let usage =
+        || OpError::bad_request("report_on_job takes { job_id, outcome, reason?, report? }");
+    let job_id = input
+        .get("job_id")
+        .and_then(Value::as_str)
+        .ok_or_else(usage)?;
+    let outcome = input
+        .get("outcome")
+        .and_then(Value::as_str)
+        .and_then(jobs::AgentOutcome::named)
+        .ok_or_else(usage)?;
+    let reason = input.get("reason").and_then(Value::as_str);
+    core.report_on_job(
+        runner_of(invocation)?,
+        job_id,
+        outcome,
+        reason,
+        input.get("report"),
+    )?;
+    Ok(json!({ "reported": true }))
+}
+
+fn runner_of(invocation: &Invocation) -> Result<&RunnerCaller, OpError> {
+    invocation
+        .runner()
+        .ok_or_else(|| OpError::unauthorized("this Operation requires a Runner Key"))
+}
+
+/// The Cookbook a create or an Import names to land in, where it names one
+/// (#302). Whether the caller may is the Core's to say.
+fn landing(input: &Value) -> Option<&str> {
+    input.get("cookbook_id").and_then(Value::as_str)
+}
+
 fn caller_of(invocation: &Invocation) -> Result<&Caller, OpError> {
-    invocation.caller.as_ref().ok_or_else(|| {
+    invocation.caller().ok_or_else(|| {
         OpError::unauthorized("this Operation requires a Credential naming a Person")
     })
 }

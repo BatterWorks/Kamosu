@@ -30,13 +30,19 @@ const NO_TEXT_SENTENCE: &str = "This PDF is a scan or a photo of a page, so it h
                                 read. If it came from a website, use From a link instead, or copy \
                                 the recipe's text and use From pasted text.";
 
+/// Whether these bytes say they are a PDF: the marker in the first kilobyte,
+/// where the format allows some leading junk before it.
+pub fn looks_like_a_pdf(bytes: &[u8]) -> bool {
+    let head = &bytes[..bytes.len().min(1024)];
+    head.windows(5).any(|window| window == b"%PDF-")
+}
+
 /// **The text a PDF holds, or why it holds none.**
 pub fn text_of(bytes: &[u8]) -> Result<String, OpError> {
     // A PDF says so in its first kilobyte, where the format allows some
     // leading junk before the marker. Anything else is refused before the
     // parser sees it.
-    let head = &bytes[..bytes.len().min(1024)];
-    if !head.windows(5).any(|window| window == b"%PDF-") {
+    if !looks_like_a_pdf(bytes) {
         return Err(OpError::bad_request("that file is not a PDF"));
     }
 

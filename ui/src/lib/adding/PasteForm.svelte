@@ -8,6 +8,11 @@
 
 	Reading asks `read_pasted_recipe`, which saves nothing. What it made is
 	shown in `PasteSheet`, the sheet a PDF chosen from the + raises too (#176).
+
+	On an instance with a Runner the text goes to Kamosu's AI agent instead,
+	with no draft to sort (#278): the box says so and its button is Send. No
+	sheet asks first, since the text is already in view. Whether there is a
+	Runner is read again when the button is pressed.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
@@ -35,6 +40,11 @@
 		reading = true;
 		failed = undefined;
 		try {
+			if (await adding.readRunner()) {
+				if (text.trim() === '') failed = m.write_paste_nothing();
+				else await adding.send({ text });
+				return;
+			}
 			const answer = await readPasted(kamosu, text);
 			if (typeof answer === 'string') {
 				failed = answer;
@@ -54,20 +64,26 @@
 		read();
 	}}
 >
-	<p class="text-read text-ink-2">{m.plus_paste_hint()}</p>
+	<p class="text-read text-ink-2">
+		{adding.runner ? m.plus_agent_paste_hint() : m.plus_paste_hint()}
+	</p>
 	<textarea
 		bind:value={text}
 		rows="8"
 		aria-label={m.write_paste_label()}
 		class="block w-full rounded-sm border border-rule bg-card p-2 text-body text-ink"></textarea>
-	{#if failed}
-		<p class="text-read text-support" role="alert">{failed}</p>
+	{#if failed ?? (adding.runner ? adding.failed : undefined)}
+		<p class="text-read text-support" role="alert">{failed ?? adding.failed}</p>
 	{/if}
 	<button
 		class="min-h-12 rounded-sm bg-accent px-4 py-3 font-display text-body text-on-accent disabled:opacity-60"
 		disabled={reading || adding.working !== null}
 	>
-		{reading ? m.write_paste_reading() : m.write_paste_read()}
+		{#if adding.runner}
+			{reading ? m.send_doing() : m.send_do()}
+		{:else}
+			{reading ? m.write_paste_reading() : m.write_paste_read()}
+		{/if}
 	</button>
 </form>
 

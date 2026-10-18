@@ -144,6 +144,16 @@ pub fn router(core: Arc<Core>) -> Router {
             async move { get_sheet(core, headers, job_id).await }
         }),
     );
+    // An Original travels as its own bytes too (#269), to the one Credential
+    // that may read it: its Job's own Job Key, which the Core checks.
+    let original_core = core.clone();
+    router = router.route(
+        "/api/originals/{job_id}",
+        get(move |Path(job_id): Path<String>, headers: HeaderMap| {
+            let core = original_core.clone();
+            async move { get_original(core, headers, job_id).await }
+        }),
+    );
     for op in catalogue::OPERATIONS.iter() {
         let core = core.clone();
         router = router.route(
@@ -291,7 +301,7 @@ fn call_operation(
 fn upload_photograph(core: &Core, headers: &HeaderMap, body: &[u8]) -> Response {
     let secret = bearer_from_headers(headers);
     match core
-        .authenticate_for_write(secret.as_deref())
+        .authenticate_to_store_photograph(secret.as_deref())
         .and_then(|caller| core.upload_photograph(&caller, body))
     {
         Ok(result) => respond_to(headers, Ok(result)),
@@ -473,6 +483,34 @@ async fn get_sheet(core: Arc<Core>, headers: HeaderMap, job_id: String) -> Respo
             &headers,
             Err(OpError::internal(format!(
                 "the Sheet could not be read: {e}"
+            ))),
+        ),
+    }
+}
+
+/// `GET /api/originals/{job_id}`: what an agent's Job reads, for its Job Key.
+/// Read off the disk on the blocking pool, as a Sheet is.
+async fn get_original(core: Arc<Core>, headers: HeaderMap, job_id: String) -> Response {
+    let secret = bearer_from_headers(&headers);
+    let read =
+        tokio::task::spawn_blocking(move || core.read_original(secret.as_deref(), &job_id)).await;
+    match read {
+        Ok(Ok((kind, bytes))) => (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, kind.content_type().to_string()),
+                (header::CONTENT_LENGTH, bytes.len().to_string()),
+                // Read by an agent and never shown, so never opened in place.
+                (header::CONTENT_DISPOSITION, "attachment".to_string()),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Ok(Err(err)) => respond_to(&headers, Err(err)),
+        Err(e) => respond_to(
+            &headers,
+            Err(OpError::internal(format!(
+                "the Original could not be read: {e}"
             ))),
         ),
     }

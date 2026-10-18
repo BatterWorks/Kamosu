@@ -34,6 +34,7 @@
 	import TitleForm from '$lib/adding/TitleForm.svelte';
 	import FilePicker from '$lib/adding/FilePicker.svelte';
 	import Said from '$lib/adding/Said.svelte';
+	import ToCheck from '$lib/adding/ToCheck.svelte';
 
 	interface Props {
 		/**
@@ -92,4 +93,11 @@
 	/>
 </div>
 
-<Said {adding} />
+<!--
+	A link to a page with no recipe data, read from its own text, is checked
+	on the sheet a paste is checked on before anything is made (#301).
+-->
+<ToCheck {adding} />
+{#if !adding.fromLink}
+	<Said {adding} />
+{/if}

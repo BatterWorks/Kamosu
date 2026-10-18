@@ -904,10 +904,34 @@ fn guard_start(text: &str) -> String {
 /// built to do exactly that.
 const MOST_READ: u64 = 64 * 1024 * 1024;
 
-/// A Bundle opened: its sidecar, and every Photograph the sidecar names.
-pub struct Opened {
+/// The most one Bundle ever unpacks, counted across its sidecar, its
+/// Photographs and its notes (#296). The per-file ceiling alone is no limit:
+/// 64 MiB of zeros packs into about 65 KB, so a small zip can name thousands
+/// of such files.
+///
+/// Why 256 MB: a Photograph Kamosu makes is a WebP at most 2560 pixels on
+/// its long edge, and it barely compresses, so a Bundle unpacks to little more
+/// than its own size. Measured on a library of 66 Photographs on 14 October
+/// 2026, they averaged 0.15 MB and the largest was 0.56 MB, so this holds
+/// some 450 Photographs as large as the largest, in one recipe's file. A
+/// picture received in a Bundle is kept as it came and may be larger, up to
+/// `photographs::MAX_PICTURE_BYTES`, but a recipe made of those is not one
+/// Kamosu made. Photographs are read one at a time whatever this says, so it
+/// limits the work of unpacking, and the memory only of the notes read back
+/// from a file with no sidecar.
+const MOST_IN_ALL: u64 = 256 * 1000 * 1000;
+
+/// A Bundle opened: its sidecar, and the zip still open behind it, so each
+/// Photograph the sidecar names is read when it is wanted and never all at
+/// once (#296).
+pub struct Opened<'a> {
     pub sidecar: Value,
-    pub photographs: Vec<CarriedPhotograph>,
+    archive: Archive<'a>,
+    /// `(hash, file name)` for every Photograph the sidecar names.
+    named: Vec<(String, String)>,
+    /// How much more this Bundle may unpack before it is refused whole.
+    left: u64,
+    most: u64,
 }
 
 /// A file that could not be opened as a Bundle: why, and the words of every
@@ -918,13 +942,32 @@ pub struct Unopened {
     pub notes: Vec<(String, Value)>,
 }
 
-/// One Photograph a Bundle names, as it turned out once opened.
+/// One Photograph a Bundle names, as it turned out once read through.
 pub enum CarriedPhotograph {
-    /// The bytes are the picture the sidecar says: they hash to its id (ADR 0017).
-    Sound { hash: String, bytes: Vec<u8> },
+    /// The bytes are the picture the sidecar says: they hash to its id (ADR
+    /// 0017). `name` is the file inside the Bundle that holds them, which
+    /// [`Opened::photograph`] reads.
+    Sound { hash: String, name: String },
     /// Absent, or not that picture. `name` is the file inside the Bundle,
     /// which is what a person looking at it would recognise.
     Unusable { name: String, reason: String },
+}
+
+/// What a Photograph the sidecar names and the zip does not hold is told.
+pub const MISSING_PHOTOGRAPH: &str = "this photograph is missing from the Bundle";
+
+type Archive<'a> = zip::ZipArchive<std::io::Cursor<&'a [u8]>>;
+
+/// A Bundle that unpacks past [`MOST_IN_ALL`].
+struct TooLarge;
+
+/// What a Bundle too large to open is told, in the words of the cap it hit.
+fn too_large(most: u64) -> String {
+    format!(
+        "this file unpacks to more than {} MB, far more than one recipe's file holds, so \
+         nothing in it was opened",
+        most / (1000 * 1000)
+    )
 }
 
 /// Open a Bundle's bytes.
@@ -934,14 +977,29 @@ pub enum CarriedPhotograph {
 /// the folder ADR 0003 describes arriving with no `.kamosu/` — "imported
 /// best-effort from the notes, and says so" — so its notes are read back
 /// instead, and the caller keeps their words.
-pub fn open(bytes: &[u8]) -> Result<Opened, Unopened> {
+///
+/// Only the sidecar is unpacked here. Its Photographs wait for
+/// [`Opened::photographs`], so asking whether a file is a Bundle at all costs
+/// no picture.
+pub fn open(bytes: &[u8]) -> Result<Opened<'_>, Unopened> {
+    open_within(bytes, MOST_IN_ALL)
+}
+
+/// [`open`], refusing a Bundle that unpacks past `most`: the cap a test can
+/// set low enough to need no gigabytes.
+fn open_within(bytes: &[u8], most: u64) -> Result<Opened<'_>, Unopened> {
     let Ok(mut archive) = zip::ZipArchive::new(std::io::Cursor::new(bytes)) else {
         return Err(Unopened {
             reason: "this file is not a Bundle: it is not a zip".to_string(),
             notes: Vec::new(),
         });
     };
-    let sidecar = match read_entry(&mut archive, SIDECAR) {
+    let refused = || Unopened {
+        reason: too_large(most),
+        notes: Vec::new(),
+    };
+    let mut left = most;
+    let sidecar = match read_entry(&mut archive, SIDECAR, &mut left).map_err(|_| refused())? {
         None => Err(format!("it has no {SIDECAR}")),
         Some(text) => match serde_json::from_slice::<Value>(&text) {
             Ok(sidecar) if sidecar["branches"].is_array() => Ok(sidecar),
@@ -951,7 +1009,7 @@ pub fn open(bytes: &[u8]) -> Result<Opened, Unopened> {
     let sidecar = match sidecar {
         Ok(sidecar) => sidecar,
         Err(why) => {
-            let notes = read_notes(&mut archive);
+            let notes = read_notes(&mut archive, &mut left).map_err(|_| refused())?;
             let reason = if notes.is_empty() {
                 format!("this zip is not a Bundle: {why}, and no recipe note in it could be read")
             } else {
@@ -967,45 +1025,81 @@ pub fn open(bytes: &[u8]) -> Result<Opened, Unopened> {
         .flatten()
         .filter_map(|(hash, name)| Some((hash.clone(), name.as_str()?.to_string())))
         .collect();
-    let photographs = named
-        .into_iter()
-        .map(|(hash, name)| match read_entry(&mut archive, &name) {
-            None => CarriedPhotograph::Unusable {
-                name,
-                reason: "this photograph is missing from the Bundle".to_string(),
-            },
-            Some(bytes) if crate::photographs::hash_bytes(&bytes) == hash => {
-                CarriedPhotograph::Sound { hash, bytes }
-            }
-            Some(_) => CarriedPhotograph::Unusable {
-                name,
-                reason: "this photograph is not the picture the Bundle says it is, so it was \
-                         left out; the recipe shows no picture there"
-                    .to_string(),
-            },
-        })
-        .collect();
     Ok(Opened {
         sidecar,
-        photographs,
+        archive,
+        named,
+        left,
+        most,
     })
 }
 
+impl Opened<'_> {
+    /// What every Photograph the sidecar names turned out to be, or why the
+    /// Bundle is refused whole.
+    ///
+    /// Each one is read through and hashed a piece at a time, and kept
+    /// nowhere, so this holds no picture however many the Bundle names. All
+    /// of them are weighed before the answer is given, which is what lets a
+    /// caller store nothing from a Bundle that unpacks past the cap (#296).
+    pub fn photographs(&mut self) -> Result<Vec<CarriedPhotograph>, String> {
+        let mut carried = Vec::with_capacity(self.named.len());
+        for (hash, name) in &self.named {
+            let mut hashing = crate::photographs::HashingBytes::default();
+            let whole = inflate(&mut self.archive, name, &mut self.left, |piece| {
+                hashing.add(piece)
+            })
+            .map_err(|_| too_large(self.most))?;
+            carried.push(if !whole {
+                CarriedPhotograph::Unusable {
+                    name: name.clone(),
+                    reason: MISSING_PHOTOGRAPH.to_string(),
+                }
+            } else if hashing.finish() == *hash {
+                CarriedPhotograph::Sound {
+                    hash: hash.clone(),
+                    name: name.clone(),
+                }
+            } else {
+                CarriedPhotograph::Unusable {
+                    name: name.clone(),
+                    reason: "this photograph is not the picture the Bundle says it is, so it \
+                             was left out; the recipe shows no picture there"
+                        .to_string(),
+                }
+            });
+        }
+        Ok(carried)
+    }
+
+    /// The bytes of one Photograph [`Opened::photographs`] found sound, read
+    /// again from the zip. It was weighed there, so it is not counted twice.
+    pub fn photograph(&mut self, name: &str) -> Option<Vec<u8>> {
+        let mut weighed = u64::MAX;
+        read_entry(&mut self.archive, name, &mut weighed)
+            .ok()
+            .flatten()
+    }
+}
+
 /// Every top-level recipe note in the zip, read back into a recipe's words.
-fn read_notes(archive: &mut zip::ZipArchive<std::io::Cursor<&[u8]>>) -> Vec<(String, Value)> {
+fn read_notes(archive: &mut Archive, left: &mut u64) -> Result<Vec<(String, Value)>, TooLarge> {
     let mut names: Vec<String> = archive
         .file_names()
         .filter(|name| name.ends_with(".md") && !name.contains('/'))
         .map(str::to_string)
         .collect();
     names.sort();
-    names
-        .into_iter()
-        .filter_map(|name| {
-            let text = String::from_utf8(read_entry(archive, &name)?).ok()?;
-            Some((name, read_note(&text)?))
-        })
-        .collect()
+    let mut notes = Vec::new();
+    for name in names {
+        let Some(bytes) = read_entry(archive, &name, left)? else {
+            continue;
+        };
+        if let Some(content) = String::from_utf8(bytes).ok().as_deref().and_then(read_note) {
+            notes.push((name, content));
+        }
+    }
+    Ok(notes)
 }
 
 /// A note read back into a recipe's words: the title, the Ingredients and the
@@ -1152,14 +1246,52 @@ fn unescape(text: &str) -> String {
     out
 }
 
+/// One file of the zip held whole, charged to what the Bundle may still
+/// unpack. `None` when it is absent, unreadable or past [`MOST_READ`].
 fn read_entry(
-    archive: &mut zip::ZipArchive<std::io::Cursor<&[u8]>>,
+    archive: &mut Archive,
     name: &str,
-) -> Option<Vec<u8>> {
-    let entry = archive.by_name(name).ok()?;
+    left: &mut u64,
+) -> Result<Option<Vec<u8>>, TooLarge> {
     let mut held = Vec::new();
-    std::io::Read::read_to_end(&mut std::io::Read::take(entry, MOST_READ + 1), &mut held).ok()?;
-    (held.len() as u64 <= MOST_READ).then_some(held)
+    let whole = inflate(archive, name, left, |piece| held.extend_from_slice(piece))?;
+    Ok(whole.then_some(held))
+}
+
+/// Unpack one file of the zip a piece at a time, handing each piece on, and
+/// charge every byte unpacked to `left`, a file that broke off part-way
+/// included: unpacking is the work being limited, whatever came of it.
+/// `false` when the file is absent, unreadable or past [`MOST_READ`];
+/// `TooLarge` when it would take the Bundle past what it may unpack.
+fn inflate(
+    archive: &mut Archive,
+    name: &str,
+    left: &mut u64,
+    mut piece: impl FnMut(&[u8]),
+) -> Result<bool, TooLarge> {
+    let Ok(entry) = archive.by_name(name) else {
+        return Ok(false);
+    };
+    // One byte past the smaller limit is enough to know it was passed.
+    let mut limited = std::io::Read::take(entry, MOST_READ.min(*left).saturating_add(1));
+    let mut buffer = vec![0; 64 * 1024];
+    let mut read: u64 = 0;
+    let finished = loop {
+        match std::io::Read::read(&mut limited, &mut buffer) {
+            Ok(0) => break true,
+            Ok(n) => {
+                read += n as u64;
+                piece(&buffer[..n]);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => break false,
+        }
+    };
+    if read > *left {
+        return Err(TooLarge);
+    }
+    *left -= read;
+    Ok(finished && read <= MOST_READ)
 }
 
 /// What is wrong with a carried Branch's history, in words, or `None` when it
@@ -1222,6 +1354,86 @@ pub fn damage(record: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A zip of these files, as a stranger might write one.
+    fn zipped(files: &[(String, Vec<u8>)]) -> Vec<u8> {
+        let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, bytes) in files {
+            archive
+                .start_file(name.as_str(), zip::write::SimpleFileOptions::default())
+                .unwrap();
+            archive.write_all(bytes).unwrap();
+        }
+        archive.finish().unwrap().into_inner()
+    }
+
+    const MIB: u64 = 1024 * 1024;
+
+    /// Eight Photographs of 1 MiB, each under the per-file ceiling and each
+    /// hashing to the name the sidecar gives it (#296).
+    fn eight_photographs() -> Vec<u8> {
+        let mut files = Vec::new();
+        let mut named = serde_json::Map::new();
+        for n in 0..8u8 {
+            let mut bytes = vec![0u8; MIB as usize];
+            bytes[0] = n;
+            let name = format!("photographs/{n}.webp");
+            named.insert(crate::photographs::hash_bytes(&bytes), json!(name));
+            files.push((name, bytes));
+        }
+        let sidecar = json!({ "branches": [], "photographs": named });
+        files.push((SIDECAR.to_string(), serde_json::to_vec(&sidecar).unwrap()));
+        zipped(&files)
+    }
+
+    #[test]
+    fn photographs_that_together_pass_the_cap_refuse_the_bundle_whole() {
+        let bytes = eight_photographs();
+        let Ok(mut opened) = open_within(&bytes, 4 * MIB) else {
+            panic!("opening reads the sidecar alone, and unpacks no picture");
+        };
+        let refused = opened.photographs().err().expect("8 MiB is past 4");
+        assert!(refused.contains("unpacks to more than 4 MB"), "{refused}");
+
+        let Ok(mut opened) = open_within(&bytes, 16 * MIB) else {
+            panic!("under the cap it opens");
+        };
+        let carried = opened.photographs().expect("8 MiB is under 16");
+        assert_eq!(carried.len(), 8);
+        for photograph in carried {
+            let CarriedPhotograph::Sound { hash, name } = photograph else {
+                panic!("every picture is the one the sidecar names");
+            };
+            let held = opened.photograph(&name).expect("read again when wanted");
+            assert_eq!(crate::photographs::hash_bytes(&held), hash);
+        }
+    }
+
+    #[test]
+    fn notes_that_together_pass_the_cap_refuse_the_file_whole() {
+        let files: Vec<(String, Vec<u8>)> = (0..8)
+            .map(|n| {
+                let mut note = format!("# Soup {n}\n\n").into_bytes();
+                note.resize(MIB as usize, b' ');
+                (format!("Soup {n}.md"), note)
+            })
+            .collect();
+        let bytes = zipped(&files);
+        let Err(refused) = open_within(&bytes, 4 * MIB) else {
+            panic!("a zip with no sidecar does not open as a Bundle");
+        };
+        assert!(refused.notes.is_empty(), "no note is kept from it");
+        assert!(
+            refused.reason.contains("unpacks to more than 4 MB"),
+            "{}",
+            refused.reason
+        );
+
+        let Err(read_back) = open_within(&bytes, 16 * MIB) else {
+            panic!("a zip with no sidecar does not open as a Bundle");
+        };
+        assert_eq!(read_back.notes.len(), 8, "{}", read_back.reason);
+    }
 
     #[test]
     fn a_title_becomes_a_name_every_file_system_takes() {

@@ -1655,6 +1655,242 @@ pub const MIGRATIONS: &[Migration] = &[
         then: Some(carry_hand_readings_forward),
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 42,
+        description: "Runner Keys: a Secret that acts as no Person (#260)",
+        sql: r#"
+        -- A Runner Key: the Secret an Operator mints for a Runner (ADR 0048).
+        -- It belongs to the instance and names no Person, which is why it has
+        -- a table of its own and no person_id. Stored hashed, shown once at
+        -- minting, revoked and never on a clock (ADR 0031).
+        -- `last_used_at` is any call the Key was presented on, as for every
+        -- Secret. `last_asked_at` is the last time it asked for work, which is
+        -- what tells a quiet day from a Runner that has stopped.
+        CREATE TABLE runner_keys (
+            id            TEXT PRIMARY KEY,
+            secret_hash   TEXT NOT NULL UNIQUE,
+            name          TEXT NOT NULL,
+            revoked       INTEGER NOT NULL DEFAULT 0,
+            created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            last_used_at  TEXT,
+            last_asked_at TEXT
+        );
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 43,
+        description: "an agent's Job: one that waits for a Runner (#261)",
+        sql: r#"
+        -- What makes a Job an agent's (ADR 0048): Kamosu does not do the work,
+        -- so the Job sits in neither lane and a restart leaves it as it was.
+        -- A row here is the whole of that mark, and every other fact about
+        -- the Job is in `jobs` as for any Job.
+        -- `branch_id` is the recipe the Job is for. It is kept after the
+        -- recipe is deleted, so it is no foreign key.
+        -- `link` is the page the agent reads.
+        CREATE TABLE agent_jobs (
+            job_id    TEXT PRIMARY KEY REFERENCES jobs(id),
+            branch_id TEXT NOT NULL,
+            link      TEXT NOT NULL
+        );
+        CREATE INDEX agent_jobs_by_branch ON agent_jobs(branch_id);
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 44,
+        description: "an agent's Job: which Runner holds it and how it ended (#262)",
+        sql: r#"
+        -- `held_by` is the Runner Key that took the Job. A Job is held while
+        -- it is running and this names a Key: one Runner at a time, and a
+        -- Runner one Job at a time. It stays after the Job ends, as the
+        -- record of who did the work.
+        -- `outcome` is how the Runner said the Job ended: 'completed',
+        -- 'failed' when something went wrong on the way, or
+        -- 'could_not_be_read' when the agent says the thing holds no recipe.
+        -- Both of the last two end the Job as failed in `jobs`, and this is
+        -- what tells them apart. It is null on a Job that ended some other
+        -- way, such as its recipe being deleted.
+        -- `report` is the agent's own report as JSON: what it left undone,
+        -- what it was unsure of, likely duplicates and the Foods its
+        -- corrections left unused.
+        ALTER TABLE agent_jobs ADD COLUMN held_by TEXT;
+        ALTER TABLE agent_jobs ADD COLUMN outcome TEXT;
+        ALTER TABLE agent_jobs ADD COLUMN report  TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 45,
+        description: "an agent's Job: its Job Key (#263)",
+        sql: r#"
+        -- `job_key_hash` is the hash of the Job Key handed to the Runner with
+        -- the Job (ADR 0048). The Secret itself is shown once and stored
+        -- nowhere (ADR 0031). It names the Person who asked for the Job only
+        -- while the Job is running, so it is spent when the Job ends, however
+        -- it ends, with nothing to clear. It is null until a Runner takes the
+        -- Job, and a Runner taking the Job again replaces it.
+        ALTER TABLE agent_jobs ADD COLUMN job_key_hash TEXT;
+        CREATE UNIQUE INDEX agent_jobs_by_job_key ON agent_jobs(job_key_hash)
+            WHERE job_key_hash IS NOT NULL;
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 46,
+        description: "which agent's Job wrote a Version (#265)",
+        sql: r#"
+        -- `job_id` is the agent's Job whose Job Key saved this row, and null
+        -- on every row a Session or an Access Key saved. It is what lets a
+        -- Job's saves shape one Version and keeps anybody else's save out of
+        -- it (ADR 0048). Local only, as `access_key_id` is: it is no part of
+        -- the recipe, so it is in no fingerprint and no Bundle. The Job may
+        -- since have been forgotten, so it is no foreign key.
+        ALTER TABLE branch_versions ADD COLUMN job_id TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 47,
+        description: "an agent's Job: the hold's deadline, its tries, and a Job Key for each ask (#266)",
+        sql: r#"
+        -- `held_until` is the deadline of the hold on a Job that is being
+        -- worked. The Runner renews it, and a Job whose deadline has passed
+        -- goes back to waiting. It is null on a Job nobody holds. A Job held
+        -- when this migration runs was taken by a Runner that renews nothing,
+        -- so its deadline is now.
+        -- `tries` counts the times the Job was taken and did not finish: the
+        -- hold lapsed, or the Runner reported it failed. A Job that reaches
+        -- the limit ends as failed.
+        ALTER TABLE agent_jobs ADD COLUMN held_until TEXT;
+        ALTER TABLE agent_jobs ADD COLUMN tries INTEGER NOT NULL DEFAULT 0;
+        UPDATE agent_jobs SET held_until = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+         WHERE job_id IN (SELECT id FROM jobs WHERE status = 'running');
+
+        -- A Job Key, hashed: one for each ask that was handed the Job. A Job
+        -- can have several, because the Job Key of a hold that lapsed is not
+        -- spent by the clock (ADR 0031) and the next Runner is handed its
+        -- own. Each names the Person who asked for the Job until the Job
+        -- ends, so all of them are spent then with nothing to clear.
+        -- `runner_key_id` is the Runner Key it was handed to, and `ask` is
+        -- that ask's mark: the same ask sent again replaces its Job Key, and
+        -- revoking a Runner Key takes its Job Keys with it.
+        CREATE TABLE job_keys (
+            secret_hash   TEXT PRIMARY KEY,
+            job_id        TEXT NOT NULL REFERENCES jobs(id),
+            runner_key_id TEXT NOT NULL,
+            ask           TEXT NOT NULL
+        );
+        CREATE INDEX job_keys_by_job ON job_keys(job_id);
+        INSERT INTO job_keys (secret_hash, job_id, runner_key_id, ask)
+            SELECT job_key_hash, job_id, held_by, '' FROM agent_jobs
+             WHERE job_key_hash IS NOT NULL AND held_by IS NOT NULL;
+        DROP INDEX agent_jobs_by_job_key;
+        ALTER TABLE agent_jobs DROP COLUMN job_key_hash;
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 48,
+        description: "an agent's Job that reads an Original and creates its recipe (#269)",
+        sql: r#"
+        -- An agent's Job may read an Original rather than a link: pasted
+        -- text, a PDF or a picture, kept as a file under the data directory
+        -- and never in this database (ADR 0048). Such a Job waits with no
+        -- recipe, since the agent creates it.
+        -- `branch_id` is null until the Job's recipe exists, and is set once.
+        -- `link` is null on a Job that reads an Original.
+        -- `original` is what kind of Original the Job reads: 'pasted_text',
+        -- 'pdf' or 'picture'. Null on a Job that reads a link. The file
+        -- itself is named by the Job's id.
+        -- SQLite cannot drop a NOT NULL, so the table is made again.
+        CREATE TABLE agent_jobs_48 (
+            job_id     TEXT PRIMARY KEY REFERENCES jobs(id),
+            branch_id  TEXT,
+            link       TEXT,
+            held_by    TEXT,
+            outcome    TEXT,
+            report     TEXT,
+            held_until TEXT,
+            tries      INTEGER NOT NULL DEFAULT 0,
+            original   TEXT,
+            CHECK ((link IS NULL) <> (original IS NULL))
+        );
+        INSERT INTO agent_jobs_48
+               (job_id, branch_id, link, held_by, outcome, report, held_until, tries)
+        SELECT job_id, branch_id, link, held_by, outcome, report, held_until, tries
+          FROM agent_jobs;
+        DROP TABLE agent_jobs;
+        ALTER TABLE agent_jobs_48 RENAME TO agent_jobs;
+        CREATE INDEX agent_jobs_by_branch ON agent_jobs(branch_id);
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 49,
+        description: "when a Job's Original was deleted (#270)",
+        sql: r#"
+        -- An Original is deleted 30 days after its Job ended (ADR 0048).
+        -- `original_deleted_at` is when, null while the file is kept. The
+        -- row keeps `original`, so Kamosu still knows what the Job read.
+        ALTER TABLE agent_jobs ADD COLUMN original_deleted_at TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 50,
+        description: "a file handed to an agent is known again by its contents (#271)",
+        sql: r#"
+        -- `original_digest` is the SHA-256 of a PDF or a picture as it was
+        -- handed over, in hex. It is the foreign id the Import's ledger
+        -- names the recipe by once the agent has created it, and it finds a
+        -- Job that still waits on the same file. Null on pasted text, which
+        -- is not matched, and on a Job that reads a link.
+        ALTER TABLE agent_jobs ADD COLUMN original_digest TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 51,
+        description: "a Language guessed for a bare recipe is set by the first text that says one (#321)",
+        sql: r#"
+        -- 1 while the Branch's Language is the writer's own, taken because
+        -- its text was too short to read one out of and nobody stated one.
+        -- The first save whose text says a Language sets it and clears this.
+        -- Every Branch already here counts as stated: nothing recorded which
+        -- of them were guesses.
+        ALTER TABLE branches ADD COLUMN language_guessed INTEGER NOT NULL DEFAULT 0;
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 52,
+        description: "a Version a Bundle carried is no longer being shaped (#328)",
+        sql: r#"
+        -- 1 once a Bundle has carried this row's Version away as its
+        -- Branch's head, through the app or a Share Link. A save after that
+        -- starts a new Version rather than collapsing into the one that
+        -- left, whose chain the receiver now holds. Every row already here
+        -- counts as never carried: nothing recorded an export.
+        ALTER TABLE branch_versions ADD COLUMN bundled INTEGER NOT NULL DEFAULT 0;
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 53,
+        description: "the agent's house notes, an Operator's own (#344)",
+        sql: r#"
+        -- What an Operator adds to the end of the agent's instructions,
+        -- handed over with each Job. Null until one writes some, and again
+        -- once they are emptied. Who saved them last and when stay set
+        -- after emptying, which is when they were taken away.
+        ALTER TABLE instance_setup ADD COLUMN agent_house_notes TEXT;
+        ALTER TABLE instance_setup ADD COLUMN house_notes_saved_by TEXT REFERENCES people(id);
+        ALTER TABLE instance_setup ADD COLUMN house_notes_saved_at TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

@@ -3,9 +3,11 @@
 	title in a field of its own, the split drawn by `PasteCheck`, and "Make
 	this recipe".
 
-	Two things raise it: text pasted into the + (`PasteForm`), and a PDF chosen
+	Three things raise it: text pasted into the + (`PasteForm`), a PDF chosen
 	from it (#176), which `read_recipe_pdf` answers in the very shape a paste
-	gets. Neither saves anything until "Make this recipe" makes the recipe from
+	gets, and a link to a page with no recipe data on an instance with no
+	Runner (#301), read from the page's own text and carrying the page as its
+	Source. Neither saves anything until "Make this recipe" makes the recipe from
 	its title and opens its writing screen with the lines filled in and unsaved.
 
 	A recipe needs a title (#6), and a paste that carried none must be given
@@ -14,6 +16,7 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
 	import type { ReadPastedRecipeOutput } from '$lib/api/catalogue';
+	import type { PageReading } from '$lib/pasted.svelte';
 	import PasteCheck from '$lib/PasteCheck.svelte';
 	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { drafted } from '$lib/pasted.svelte';
@@ -22,14 +25,19 @@
 	interface Props {
 		adding: Adding;
 		/** What the reader made of it. */
-		pasted: ReadPastedRecipeOutput;
+		pasted: ReadPastedRecipeOutput | PageReading;
 		/** The line over the sheet: which source this came from. */
 		heading: string;
+		/**
+		 * What to say under it before anything else, or nothing. A link says
+		 * why a check is asked of somebody who expected a recipe (#301).
+		 */
+		why?: string;
 		/** Back to where it was raised from, making nothing. */
 		onback: () => void;
 	}
 
-	let { adding, pasted, heading, onback }: Props = $props();
+	let { adding, pasted, heading, why, onback }: Props = $props();
 
 	const uid = $props.id();
 
@@ -55,6 +63,9 @@
 	}}
 >
 	<p id="{uid}-called" class="text-label text-ink-2 uppercase">{heading}</p>
+	{#if why}
+		<p class="mt-2 text-read text-ink">{why}</p>
+	{/if}
 	<label class="mt-3 block">
 		<span class="block text-label text-ink-2 uppercase">{m.write_title_label()}</span>
 		<input

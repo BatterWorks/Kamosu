@@ -116,7 +116,7 @@
 </script>
 
 <script lang="ts">
-	import { aDate } from '$lib/dates';
+	import { aDate, aTime } from '$lib/dates';
 	// What the page is made of. The screen keeps its own state — the recipe it
 	// is reading, the Thread around it, the Divergence, how much it is read at,
 	// and what the last save did — and composes the rest. Each concern that
@@ -184,7 +184,16 @@
 	import { useFiles } from '$lib/api/files';
 	import { same, toSearch, type Wanted } from '$lib/how-much';
 	import { takePaste, type PastedDraft } from '$lib/pasted.svelte';
-	import { nutritionText, numbering, rowKey } from './divergence';
+	import {
+		between,
+		elsewhere,
+		inOrder,
+		nutritionText,
+		numbering,
+		rowKey,
+		see,
+		type Row,
+	} from './divergence';
 	import { sheet } from './sheet.svelte';
 	import { onThePhone } from './on-the-phone.svelte';
 	import { unfolding } from './unfolding.svelte';
@@ -193,6 +202,9 @@
 	import { myPictures } from './my-pictures.svelte';
 	import { languageFamily } from './language-family';
 	import { sharingAChain } from './sharing-a-chain';
+	import AgentWork from '$lib/agent/AgentWork.svelte';
+	import ReadAgain from './ReadAgain.svelte';
+	import type { GetJobOutput, GetRecipeJobOutput } from '$lib/api/catalogue';
 
 	interface Props {
 		branchId: string;
@@ -312,7 +324,18 @@
 	 * it could be read (#83).
 	 */
 	let wrote = $state<
-		| { collapsed: boolean; copied: boolean; named: boolean; language_offer: string | null }
+		| {
+				collapsed: boolean;
+				copied: boolean;
+				named: boolean;
+				language_offer: string | null;
+				/**
+				 * The save stayed on a recipe the cook cannot change, on the
+				 * Version it already stood on: nothing changed, so the Core
+				 * made no Copy (#329).
+				 */
+				nothingToCopy: boolean;
+		  }
 		| undefined
 	>(undefined);
 
@@ -373,6 +396,7 @@
 	 */
 	function afterSave(landed: {
 		branch_id: string;
+		version_id: string;
 		collapsed: boolean;
 		copied: boolean;
 		named: boolean;
@@ -401,7 +425,15 @@
 			follow(landed.branch_id);
 			return;
 		}
-		wrote = landed;
+		// A save on a recipe the cook cannot change that answers the Version
+		// the page already held made nothing: the Core starts no Copy for
+		// content the recipe already holds (ADR 0041), so "Saved." would be
+		// untrue (#329). Both halves are asked, since `writes` alone can be
+		// out of date and the Version alone says nothing about a Copy.
+		wrote = {
+			...landed,
+			nothingToCopy: recipe?.writes === false && landed.version_id === recipe.head_version_id,
+		};
 		reread += 1;
 	}
 
@@ -604,6 +636,66 @@
 	const otherKitchen = $derived(divergence ? branchPlainName(divergence.theirs) : '');
 
 	const content = $derived(here?.content ?? recipe?.versions.at(-1)?.content);
+
+	// ---- an agent's Job on it (#277) --------------------------------------
+	//
+	// Read with the recipe, and again each time the recipe is: an agent's Job
+	// waits, is read and ends without this page doing anything. The tracker
+	// reads the Job itself while it shows, and says when it ends, which reads
+	// the recipe again so the page is the recipe as it now is. A Job that
+	// ended stays named here until another recipe opens, so a tracker that was
+	// just stopped goes on saying so; it draws nothing for a Job that ended
+	// any other way.
+
+	let agentJob = $state<GetRecipeJobOutput['job']>(null);
+	let agentJobFor: string | undefined;
+	$effect(() => {
+		void reread;
+		const asked = branchId;
+		let current = true;
+		// Another recipe opened: the last one's Job is not this one's.
+		if (agentJobFor !== asked) agentJob = null;
+		kamosu
+			.getRecipeJob({ branch_id: asked })
+			.then((read) => {
+				if (!current) return;
+				if (read.job || agentJobFor !== asked) agentJob = read.job;
+				agentJobFor = asked;
+			})
+			.catch((error: unknown) => {
+				if (!(error instanceof OperationError)) throw error;
+				// Out of reach: say nothing about a Job rather than something old.
+				if (current) agentJob = null;
+			});
+		return () => {
+			current = false;
+		};
+	});
+
+	/**
+	 * A reading again that ended while the page watched it, with when (#279):
+	 * the line above Cook this that leads to its Import Report. Gone when
+	 * another recipe opens; afterwards the Report is under Brought in.
+	 */
+	let readAgainEnded = $state<{ jobId: string; at: string } | null>(null);
+	let readAgainFor: string | undefined;
+	$effect(() => {
+		if (readAgainFor !== branchId) readAgainEnded = null;
+		readAgainFor = branchId;
+	});
+	/** The Job named above once it has ended: it stays named, and stands no more. */
+	let endedJob = $state<string | undefined>(undefined);
+	const jobStands = $derived(agentJob !== null && agentJob.id !== endedJob);
+	function agentEnded(
+		jobId: string,
+		status: GetJobOutput['status'],
+		readingAgain: boolean,
+		at: string,
+	) {
+		endedJob = jobId;
+		if (status === 'completed' && readingAgain) readAgainEnded = { jobId, at };
+		reread += 1;
+	}
 	const readings = $derived(here?.readings ?? recipe?.versions.at(-1)?.readings ?? []);
 	/**
 	 * The one subordinate line the Core worked out for THIS reader — scaling and
@@ -742,6 +834,7 @@
 					...content,
 					title: pastedDraft.title ?? content.title,
 					note: pastedDraft.note ?? content.note,
+					source: pastedDraft.source ?? content.source,
 					ingredients: pastedDraft.ingredients,
 					steps: pastedDraft.steps.map((step) => ({ ...step, photo: null })),
 				}
@@ -875,6 +968,28 @@
 			already In Progress is handed back rather than doubled — so there is
 			nothing here to press twice by mistake.
 		-->
+			{#if agentJob}
+				{@const jobId = agentJob.id}
+				{#key jobId}
+					<AgentWork
+						{jobId}
+						mine={agentJob.yours}
+						ended={(status, readingAgain, at) => agentEnded(jobId, status, readingAgain, at)}
+					/>
+				{/key}
+			{/if}
+			{#if readAgainEnded}
+				<p
+					class="mx-gutter mt-4 border-l-3 border-accent bg-card px-3 py-2 text-read"
+					role="status"
+				>
+					{m.read_again_done({ time: aTime(readAgainEnded.at) })}
+					<a href="/imports/{readAgainEnded.jobId}" class="text-accent underline"
+						>{m.read_again_done_link()}</a
+					>
+				</p>
+			{/if}
+
 			<a
 				href="/cook/{branchId}{toSearch(pageScaledTo)}"
 				class="mx-gutter mt-4 flex min-h-12 items-center justify-center rounded-sm bg-accent px-4 text-center font-display text-body font-semibold text-on-accent"
@@ -1021,6 +1136,27 @@
 				{/if}
 			{/snippet}
 
+			<!-- A heading read against another recipe. One moved word for word says
+			     where the other has it, as a line does (#337). -->
+			{#snippet dividedSection(
+				row: Row,
+				line: { text: string } | null,
+				moved: ReturnType<typeof elsewhere>,
+			)}
+				<li class="border-b border-rule py-4 pb-1">
+					<h3 class="font-display text-label text-ink-2 uppercase">{line?.text}</h3>
+					{#if moved}
+						<p class="mt-1 text-label text-accent uppercase">
+							{between(otherKitchen).caption(
+								see(row, divergent.side, moved),
+								divergent.side,
+								undefined,
+							)}
+						</p>
+					{/if}
+				</li>
+			{/snippet}
+
 			<!--
 			TWO COLUMNS WHERE THE WINDOW IS ROOMY (#198, ADR 0044): the Ingredients
 			on the left in two fifths, the Method on the right in three, and the
@@ -1060,15 +1196,12 @@
 						{/if}
 						<ul class="px-gutter">
 							{#if divergent.showing && divergence}
-								{#each divergence.ingredients as row, index (rowKey('ingredients', index))}
+								{#each inOrder(divergence.ingredients, divergent.side) as { row, index } (rowKey('ingredients', index))}
 									{@const key = rowKey('ingredients', index)}
 									{@const own = divergent.side === 'mine' ? row.mine : row.theirs}
+									{@const moved = elsewhere(divergence.ingredients, index, divergent.side)}
 									{#if row.kind === 'section'}
-										<li class="border-b border-rule py-4 pb-1">
-											<h3 class="font-display text-label text-ink-2 uppercase">
-												{(own ?? row.mine ?? row.theirs)?.text}
-											</h3>
-										</li>
+										{@render dividedSection(row, own ?? row.mine ?? row.theirs, moved)}
 									{:else if row.state === 'same'}
 										{@render ingredientLine(own?.text ?? '', own?.index ?? -1)}
 									{:else}
@@ -1085,6 +1218,7 @@
 											{row}
 											side={divergent.side}
 											{otherKitchen}
+											{moved}
 											beneath={marked?.said ?? (own ? fixes.beneathLine(own.index) : '')}
 											open={divergent.isOpen(key)}
 											taken={divergent.taken.get(key)}
@@ -1154,16 +1288,14 @@
 					<ol class="px-gutter">
 						{#if divergent.showing && divergence}
 							{@const number = numbering()}
-							{#each divergence.steps as row, index (rowKey('steps', index))}
+							{#each inOrder(divergence.steps, divergent.side) as { row, index } (rowKey('steps', index))}
 								{@const key = rowKey('steps', index)}
 								{@const own = divergent.side === 'mine' ? row.mine : row.theirs}
-								{@const n = number(!own)}
+								<!-- A heading takes no number, as on the page unmarked. -->
+								{@const n = row.kind === 'section' ? null : number(!own)}
+								{@const moved = elsewhere(divergence.steps, index, divergent.side)}
 								{#if row.kind === 'section'}
-									<li class="border-b border-rule py-4 pb-1">
-										<h3 class="font-display text-label text-ink-2 uppercase">
-											{(own ?? row.mine ?? row.theirs)?.text}
-										</h3>
-									</li>
+									{@render dividedSection(row, own ?? row.mine ?? row.theirs, moved)}
 								{:else if row.state === 'same'}
 									<li class="flex gap-3 border-b border-rule py-3">
 										<span class="w-6 shrink-0 font-display text-line font-semibold text-accent"
@@ -1179,6 +1311,7 @@
 										{row}
 										side={divergent.side}
 										{otherKitchen}
+										{moved}
 										number={n}
 										conversions={own ? (measured.steps[own.index] ?? []) : []}
 										photo={own ? (content.steps[own.index]?.photo ?? null) : null}
@@ -1275,6 +1408,10 @@
 							? m.write_saved_varied({ name: copiedInto.varied })
 							: m.write_saved_copied()}
 					</p>
+				{:else if wrote?.nothingToCopy}
+					<p class="mx-gutter mt-4 text-read text-accent" role="status">
+						{m.write_saved_nothing_to_copy()}
+					</p>
 				{:else if wrote}
 					<p class="mx-gutter mt-4 text-read text-accent" role="status">
 						{m.write_saved()}{#if wrote.collapsed}&nbsp;{m.write_saved_collapsed()}{/if}
@@ -1337,6 +1474,26 @@
 						{attempts}
 						versions={recipe.versions}
 						promoted={() => (reread += 1)}
+					/>
+				{/if}
+
+				<!--
+			Reading the recipe again (#279): a panel of its own above the acts,
+			drawn by `ReadAgain.svelte` only where the server says this Person
+			may have it read again, and not while an agent's Job stands on it,
+			which the card above Cook this already says.
+		-->
+				{#if recipe && !jobStands}
+					<ReadAgain
+						{branchId}
+						asOf={reread}
+						asked={(id) => {
+							readAgainEnded = null;
+							// The answer may be a Job a Co-author asked for a moment
+							// earlier, so whose it is comes from the read that follows.
+							agentJob = { id, status: 'queued', yours: false };
+							reread += 1;
+						}}
 					/>
 				{/if}
 

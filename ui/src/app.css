@@ -85,6 +85,11 @@
   --color-on-accent: #f4efe3;   /* text on indigo */
   --color-support: #b8474b;     /* beni, safflower — language badges, alerts */
   --color-support-2: #7d8b5c;   /* matcha — a reading that points at a component */
+  /* The History's fourth and fifth line colours (#250). Each sits in a wide
+     gap between the three hues above (indigo 222°, beni 358°, matcha 78°), at
+     their muted strength: 195° and 290°. */
+  --color-support-3: #3a7488;   /* a teal blue: the fourth Branch in the History */
+  --color-support-4: #774d80;   /* a plum: the fifth Branch in the History */
 
   /* The cooking screen turns indigo: standing at the stove is another room. */
   --color-cook-ground: #131c33;

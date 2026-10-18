@@ -167,7 +167,7 @@ test('a version field inside another Cargo.toml table is not the package version
 });
 
 test('renders every item unticked', () => {
-	assert.equal(CHECKLIST_ITEMS.length, 8);
+	assert.equal(CHECKLIST_ITEMS.length, 9);
 	assert.equal(renderChecklist(), CHECKLIST_ITEMS.map((item) => `- [ ] ${item}`).join('\n'));
 });
 
@@ -190,7 +190,7 @@ test('reads ticks, and reports edited or deleted items as missing', () => {
 	assert.deepEqual(parsed.missing, [CHECKLIST_ITEMS[3], CHECKLIST_ITEMS[7]]);
 	assert.deepEqual(
 		parsed.items.map((item) => item.checked),
-		[true, true, false, false, false, false],
+		[true, true, false, false, false, false, false],
 	);
 });
 

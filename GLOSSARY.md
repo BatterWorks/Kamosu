@@ -53,7 +53,7 @@ How Kamosu says who wrote something: a name together with a permanent id, minted
 _Avoid_: Author id, account id, signature, public key, handle, attribution, fingerprint (that names a Version)
 
 **Copy**:
-A new Branch of a recipe, started in your own Cookbook, forking at a Version and carrying the whole chain behind it. It happens when you change a recipe your Cookbook did not write, when you start a second Branch of one of your own on purpose, and when a Cookbook leaves a Kitchen and you keep one of its recipes you cooked. It starts only from a Branch one of your Kitchens already holds, which is where a received Bundle or a kept Share Link puts it; a change to any other is refused as though it were not here. Merely reading a recipe never starts one: a **Bundle** arriving puts the sender's Branch in your Cookbook under their id, and only changing it makes one of your own. What one recipe becoming two looks like inside a single instance, identical in every respect to receiving a Bundle from another server.
+A new Branch of a recipe, started in your own Cookbook, forking at a Version and carrying the whole chain behind it. It happens when you change a recipe your Cookbook did not write, when you start a second Branch of one of your own on purpose, when a Cookbook leaves a Kitchen and you keep one of its recipes you cooked, and when you keep an older **Version** of a recipe you do not write as your own, which forks at that Version. It starts only from a Branch one of your Kitchens already holds, which is where a received Bundle or a kept Share Link puts it; a change to any other is refused as though it were not here. Merely reading a recipe never starts one: a **Bundle** arriving puts the sender's Branch in your Cookbook under their id, and only changing it makes one of your own. What one recipe becoming two looks like inside a single instance, identical in every respect to receiving a Bundle from another server.
 _Avoid_: Duplicate, fork, clone, save, import
 
 **Share Link**:
@@ -65,21 +65,29 @@ A one-use link that turns a stranger into a Person, adds a Person to a Kitchen, 
 _Avoid_: Signup, registration, join code, magic link
 
 **Access Key**:
-A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the two sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account.
+A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account.
 _Avoid_: API key, token, secret, password, Credential
 
+**Runner Key**:
+A **Secret** an Operator mints for a **Runner**. It can ask for a **Job**, keep hold of it and report how it ended, and nothing else. It never acts as a Person and it cannot touch a recipe (ADR 0048).
+_Avoid_: Agent key, API key, token, service account, Access Key
+
+**Job Key**:
+A **Secret** that comes with one **Job** a **Runner** takes, for the agent that does it. It acts as the Person who asked for that Job, under their Hand and only on the recipe the Job is for, and it is spent when the Job ends. It can delete nothing, touch no other recipe and reach no account (ADR 0048).
+_Avoid_: Job token, session, Runner Key, Access Key
+
 **Operator**:
-A Person who also administers the instance: seeing who holds an account, minting Invites, raising a Person to Operator and standing one down, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, changing the instance's public address, merging Foods and deleting one nothing points at, sweeping Photographs nothing points at, deleting a Kitchen nobody is left in, and taking and fetching a **Backup**. Nothing beyond that list — no Operator can read another Person's recipes or Attempts, and seeing who holds an account is a list of names and nothing about what they cook. More than one is allowed and the last cannot be demoted, disabled or deleted, because an instance with nobody to administer it can never appoint anybody. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
+A Person who also administers the instance: seeing who holds an account, minting Invites, raising a Person to Operator and standing one down, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, changing the instance's public address, merging Foods and deleting one nothing points at, sweeping Photographs nothing points at, deleting a Kitchen nobody is left in, taking and fetching a **Backup**, minting and revoking **Runner Keys**, writing the **House Notes**, and looking after any **Cookbook**: reading, changing, creating and deleting its recipes, and their Tags and Related Recipes, under the Operator's own **Hand**, on a call that says so (ADR 0049). Otherwise an Operator is a Person like any other. Nothing beyond that list. No Operator reaches another Person's Attempts or shopping list, and seeing who holds an account is a list of names and nothing about what they cook. More than one is allowed and the last cannot be demoted, disabled or deleted, because an instance with nobody to administer it can never appoint anybody. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
 _Avoid_: Admin, root, superuser, owner, host
 
 ### Doing and permission
 
 **Credential**:
-What a request presents to prove who is acting — always as a Person. It comes from one of two places: a Person logging in, or an Access Key they minted. Every Door resolves one before the Core runs anything, so the same permissions apply whether a person or an agent is asking. Obtaining a Credential is not an Operation.
+What a request presents to prove who is acting. It comes from one of four places. A Person logging in and an Access Key they minted both act as that Person. A **Job Key** acts as the Person who asked for its Job. A **Runner Key** acts as no Person, and can only take Jobs, keep hold of them and report on them. Every Door resolves one before the Core runs anything, so the same permissions apply whether a person or an agent is asking. Obtaining a Credential is not an Operation.
 _Avoid_: Token, session, auth, API key, login
 
 **Secret**:
-A long random string where holding it *is* the permission — a **Share Link** token, an **Access Key**, an **Invite**, a recovery link, a **Session**. All are 256 bits of randomness, revocable one at a time, and **never on a clock**. All but the Share Link are stored hashed, shown once at minting, and known afterwards only by a name and when they were last used. A Share Link keeps its Secret readable, so its address can be shown again for as long as it lives: it grants reading one recipe, which whoever holds the database already has (ADR 0031, as amended by #171). A Secret ends in one of exactly two ways — it is *spent*, as an Invite and a recovery link are on first use, or it is *revoked*. A password is not a Secret: it is short, chosen by a person, never stored, and the only thing in Kamosu that is throttled.
+A long random string where holding it *is* the permission — a **Share Link** token, an **Access Key**, a **Runner Key**, a **Job Key**, an **Invite**, a recovery link, a **Session**. All are 256 bits of randomness, revocable one at a time, and **never on a clock**. All but the Share Link are stored hashed, shown once at minting, and known afterwards only by a name and when they were last used. A Share Link keeps its Secret readable, so its address can be shown again for as long as it lives: it grants reading one recipe, which whoever holds the database already has (ADR 0031, as amended by #171). A Secret ends in one of exactly two ways — it is *spent*, as an Invite and a recovery link are on first use and a Job Key is when its Job ends, or it is *revoked*. A password is not a Secret: it is short, chosen by a person, never stored, and the only thing in Kamosu that is throttled.
 _Avoid_: Token, key, credential, nonce, bearer token
 
 **Session**:
@@ -91,18 +99,38 @@ An Operation that answers within a single request.
 _Avoid_: Sync operation
 
 **Job**:
-An Operation too slow to answer within a single request — importing a library, fetching a recipe from a website, producing a **Sheet**. Asking for one returns a job id at once; its progress is then read through ordinary Operations.
+An Operation too slow to answer within a single request — importing a library, fetching a recipe from a website, producing a **Sheet**. Asking for one returns a job id at once; its progress is then read through ordinary Operations. Kamosu does most Jobs itself, and one that needs an agent waits for a **Runner**. A Job for an agent is *held* by the one Runner working it, for two minutes at a time, and the Runner renews the hold while its agent works. A hold that lapses sends the Job back to waiting, and the third time a Job is taken and does not finish, it fails.
 _Avoid_: Task, background job, async operation, queue item
+
+**Runner**:
+A program beside Kamosu that takes the **Jobs** meant for an agent and has an agent do each one. Kamosu ships it, and every release also publishes an **Agent** to run beside it. Whoever runs the Runner chooses that Agent or one of their own, and the provider and model it uses. It asks Kamosu for work and Kamosu never calls it, so an instance with no Runner is complete and simply reads less (ADR 0048).
+_Avoid_: Worker, companion, sidecar, bot, AI import, scraper
+
+**Agent**:
+What a **Runner** hands a **Job** to: a program that reads a source with a model and writes the recipe through the MCP Door with the Job's **Job Key**. The screens call it *Kamosu's AI agent*, whichever agent the Runner was given. What it saves is under the **Hand** of the Person who asked. An agent holding an **Access Key** at the MCP Door is a caller like any other, and not this (ADR 0048).
+_Avoid_: Bot, assistant, model, AI import
+
+**House Notes**:
+What an **Operator** adds to the end of the agent's instructions for every **Job** on the instance, such as *grams, never cups*. Each Job carries them as they stand when a **Runner** takes it, and the agent follows them where they disagree with its own instructions. Only an Operator reads or writes them, and a **Job Key** reaches neither. They are the one part of an agent's instructions Kamosu holds: the rest belongs to whoever runs the Runner (ADR 0048, as amended by #344).
+_Avoid_: Custom prompt, system prompt, agent settings, house rules
 
 ### Getting recipes in and out
 
 **Import**:
-Bringing recipes into Kamosu from elsewhere — another app's export, a web page, or a **Bundle**. An Operation like any other, available at both Doors, and held in the **Cookbook** of the Person who asked for it. What it produces is an ordinary Recipe: nothing about where it came from is kept on it, no line is marked as one Kamosu had to write rather than read, and the **Hand** on its first **Version** is that Person's, where it came from being a matter for its **Source**. The Import itself remembers what it made — the id a recipe had in the place it came from, against the **Lineage** it became — so importing the same file again matches what is already there instead of shelving it twice. That memory belongs to the Import and never to the recipe, so it is in no fingerprint and no Bundle, and it can be thrown away whole once the place it names is gone.
+Bringing recipes into Kamosu from elsewhere — another app's export, a web page, or a **Bundle**. Where that takes reading Kamosu cannot do itself, such as a picture, a video or a page with no recipe data, it is a **Job** for a **Runner**. An Operation like any other, available at both Doors, and held in the **Cookbook** of the Person who asked for it. What it produces is an ordinary Recipe: nothing about where it came from is kept on it, no line is marked as one Kamosu had to write rather than read, and the **Hand** on its first **Version** is that Person's, where it came from being a matter for its **Source**. The Import itself remembers what it made — the id a recipe had in the place it came from, against the **Lineage** it became — so importing the same file again matches what is already there instead of shelving it twice. That memory belongs to the Import and never to the recipe, so it is in no fingerprint and no Bundle, and it can be thrown away whole once the place it names is gone.
 _Avoid_: Migration, sync, ingest
 
 **Import Report**:
-What an **Import** made, as a person reads it — and it does not go away when the screen does. It says what arrived, including which recipes came as a bare name and a link; what is waiting for a tap, which is where a recipe the Import has seen before and found changed is offered rather than written over, and where **Related Recipe** candidates sharing a **Source** are ticked; and what could not be read at all, named with the reason, a damaged **Bundle** among them. It is read through ordinary Operations, so an agent asking how an import went is answered from the same place.
+What an **Import** made, as a person reads it — and it does not go away when the screen does. It says what arrived, including which recipes came as a bare name and a link; what is waiting for a tap, which is where a recipe the Import has seen before and found changed is offered rather than written over, and where **Related Recipe** candidates sharing a **Source** are ticked; and what could not be read at all, named with the reason, a damaged **Bundle** among them. It is read through ordinary Operations, so an agent asking how an import went is answered from the same place. Where an agent made a recipe, the Report says so, with what the agent left undone or was unsure of.
 _Avoid_: Log, error list, summary, receipt, job output
+
+**Original**:
+What an agent's **Job** reads when that is not a link: a PDF, a picture or pasted text. It is kept for 30 days so the recipe can be read again, and it is never part of the recipe. It is read and never shown, which is what sets it apart from a **Photograph**.
+_Avoid_: Attachment, upload, source file, scan
+
+**Read Again**:
+A Co-author asking for an **Agent** to read a recipe a second time, from its **Original** or from its **Source**'s link. What the agent saves is one new **Version** under the asker's **Hand**, with the one before it kept in the History. A recipe is read again once. Not to be confused with an Operator having the library's **Readings** read again, which reads Ingredient Lines and makes no Version (ADR 0048, as amended by #279).
+_Avoid_: Re-import, refresh, rescan, retry
 
 **Export**:
 Producing recipes in a form usable outside Kamosu — a **Bundle**, or a **Sheet**. An Operation like any other.
@@ -241,7 +269,7 @@ A recipe's identity in the world. One id, minted once when the recipe is created
 _Avoid_: Recipe id, UUID, slug, canonical id, family
 
 **Version**:
-One saved state of a recipe, named by a fingerprint of what a person wrote and chose **alone** — the words and the Photographs, never the **Reading** over a line, and never who wrote it, when, what it is called, or what they said about it — which is what lets two holders of the identical state hold the same Version without having communicated. **A field holding nothing is no part of it** — an empty slot and one that did not exist yet are the same thing, so a field added to a recipe in a later release moves the id of nothing already written. It records the Version it came from, the **Hand** of the Person who wrote it, and optionally a name and a line saying what changed and why. Every save makes one; none is ever rewritten, deleted, or withheld from a share — a share always carries the complete chain back to the first Version, names and *what changed* lines included, and nobody holding a Version may remove it, its author and its recipients alike. Its **name** is the one thing about it that can be changed later — a label a person puts on a moment. Its *what changed* line is frozen once written but is no more part of its identity than its name is, so one Version may reach two people carrying two different notes. On the instance where it was written it also records which Access Key wrote it, if any; that is for its author to read and never travels.
+One saved state of a recipe, named by a fingerprint of what a person wrote and chose **alone** — the words and the Photographs, never the **Reading** over a line, and never who wrote it, when, what it is called, or what they said about it — which is what lets two holders of the identical state hold the same Version without having communicated. **A field holding nothing is no part of it** — an empty slot and one that did not exist yet are the same thing, so a field added to a recipe in a later release moves the id of nothing already written. It records the Version it came from, the **Hand** of the Person who wrote it, and optionally a name and a line saying what changed and why. Every save makes one; none is ever rewritten, deleted, or withheld from a share — a share always carries the complete chain back to the first Version, names and *what changed* lines included, and nobody holding a Version may remove it, its author and its recipients alike. Its **name** is the one thing about it that can be changed later — a label a person puts on a moment. Its *what changed* line is frozen once written but is no more part of its identity than its name is, so one Version may reach two people carrying two different notes. On the instance where it was written it also records which Access Key wrote it, if any, and which agent's **Job**, if one did; that is for its author to read and never travels.
 _Avoid_: Revision, snapshot, commit, edit, history entry
 
 **Branch**:
@@ -249,7 +277,7 @@ One holder's line of Versions within a Lineage, carrying a Language. What a pers
 _Avoid_: Copy, fork, variant, clone
 
 **Variation**:
-A second **Branch** of one of your own recipes, started beside it on purpose, named, and kept in your own **Cookbook**; the first stays exactly as it was. The one kind of **Copy** you make of a recipe you already write, and only its Cookbook's Co-authors may start one. It may start with no change at all.
+A second **Branch** of one of your own recipes, started beside it on purpose, named, and kept in your own **Cookbook**; the first stays exactly as it was. The one kind of **Copy** you make of a recipe you already write, and only its Cookbook's Co-authors may start one. It may start with no change at all, and from an older **Version** of the recipe as well as from the newest.
 _Avoid_: Variant, fork, alternate version
 
 **Travelling id**:
@@ -273,17 +301,17 @@ The whole of a Lineage on one screen: its Versions oldest to newest, forking at 
 _Avoid_: History, log, timeline, changelog, graph
 
 **Ghost**:
-A line one Branch has and the other has not, shown on the recipe that has not got it — struck through, in the position it occupies in the recipe that really has it, labelled with whose it is. A line the other person removed and a line the other person added are the same thing seen from opposite sides, so one Ghost serves both and every difference is visible from either Branch.
+A line one Branch has and the other has not, shown on the recipe that has not got it — struck through, under the line it follows in the recipe that really has it, counting only lines that sit in the same place in both, and labelled with whose it is. A line the other person removed and a line the other person added are the same thing seen from opposite sides, so one Ghost serves both and every difference is visible from either Branch.
 _Avoid_: Diff, deletion, phantom, missing line
 
 **Pairing**:
-Kamosu deciding that a line of one Branch and a line of the other are the same line, changed — worked out by reading them against the **Branch Point**, never by any name a line carries, because a line carries none. Only lines somebody actually edited need one; anything neither side touched is identical on both sides already. Where the reading is uncertain Kamosu declines to pair and shows both lines, one of them as a **Ghost**, and it never labels a Pairing as a guess: both texts are on screen in full, which is better evidence than a badge about them. It reaches the whole recipe, not only the two lists — Sections and Notes pair as lines do, single values such as the title or the Yield are simply the same or not, and a Photograph is exact because it is known by its own contents. Tags are left out, being how a Cookbook files a recipe rather than anything about the dish.
+Kamosu deciding that a line of one Branch and a line of the other are the same line, changed or moved — worked out by reading them against the **Branch Point**, never by any name a line carries, because a line carries none. Only lines somebody actually edited need one; anything neither side touched is identical on both sides already. A line moved word for word stays paired and is drawn in each recipe's own order, saying where the other has it; a line both moved and reworded is an uncertain reading. Where the reading is uncertain Kamosu declines to pair and shows both lines, one of them as a **Ghost**, and it never labels a Pairing as a guess: both texts are on screen in full, which is better evidence than a badge about them. It reaches the whole recipe, not only the two lists — Sections and Notes pair as lines do, single values such as the title or the Yield are simply the same or not, and a Photograph is exact because it is known by its own contents. Tags are left out, being how a Cookbook files a recipe rather than anything about the dish.
 _Avoid_: Diff, match, alignment, correlation, line id, key
 
 ### Language and measures
 
 **Language**:
-The language a Branch is written in. Detected from the recipe's own text when it is saved — set when there is none, offered when it disagrees with one already there, never changed silently — and always correctable. It may be **Unknown**, which is a permanent and unremarkable state for a recipe that is honestly more than one language: it shows to every reader and can neither be a Translation nor have one. Changing it makes a Version.
+The language a Branch is written in. Detected from the recipe's own text when it is saved — set when there is none, offered when it disagrees with one already there, never changed silently — and always correctable. A recipe that arrives as too little text to read takes its writer's Reading Language as a guess, and the first save that gives it Ingredient Lines or Steps sets the Language its text reads as, since nobody said the guess. It may be **Unknown**, which is a permanent and unremarkable state for a recipe that is honestly more than one language: it shows to every reader and can neither be a Translation nor have one. Changing it makes a Version.
 _Avoid_: Locale, i18n, language code
 
 **Translation**:

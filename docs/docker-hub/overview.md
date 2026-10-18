@@ -2,9 +2,11 @@
 
 # Kamosu
 
-**A self-hosted cookbook for the people you cook with. Everyone keeps their own recipes, a Kitchen lets you cook from each other's, and your AI agent can do everything you can.**
+**A self-hosted cookbook that keeps every version of your recipes. Nothing you change is ever lost, everyone you cook with keeps their own recipes, and your AI agent can do everything you can.**
 
-Kamosu keeps your recipes, every change ever made to them, each time someone cooked one and how it went, and the shopping list for the dishes you picked this week. Each person writes in their own Cookbook. Put the people you cook with in a Kitchen, your household, your parents, a group of friends, and each of you can open, cook and record how it went for everyone else's recipes, while only the person who wrote a recipe can change it.
+Kamosu keeps your recipes and every change ever made to them. Every save is a new version, so you can open an older one, cook from it, or see line by line what has changed since. It keeps each time someone cooked a recipe and how it went, with what they did differently that day, and a change that earned its place becomes the recipe's next version.
+
+Each person writes in their own Cookbook. Put the people you cook with in a Kitchen, your household, your parents, a group of friends, and each of you can open, cook and record how it went for everyone else's recipes, while only the person who wrote a recipe can change it. Change someone else's, and you get your own version of it, side by side with theirs.
 
 Everything you can do in the web app, an agent can do over MCP (the Model Context Protocol), because both are built from the same list of operations. Kamosu runs on a machine you own, in one container with one folder and one port, and it sends your data nowhere.
 
@@ -14,10 +16,10 @@ Everything you can do in the web app, an agent can do over MCP (the Model Contex
 
 | | |
 | --- | --- |
-| ![Home: recipe shelves for recently added and most cooked](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/home-shelves.png) | ![A recipe page with its photo and servings](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/recipe.png) |
-| **Home**: shelves worked out from what you cook | **A recipe**, with its whole history behind it |
-| ![Cooking mode on one step, with its ingredients to tick off](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/cooking.png) | ![A shopping list worked out from three chosen recipes](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/shopping.png) |
-| **Cooking mode**: one step and what it uses | **Shopping**, added up from the recipes you chose |
+| ![Home: recipe shelves for recently added and most cooked](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/home-shelves.png) | ![A recipe's History: Mum's original, your two versions with what changed under each, a French translation, and how each cooking went](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/history.png) |
+| **Home**: shelves worked out from what you cook | **History**: every version of a recipe, and how each cooking went |
+| ![Cooking mode on one step, with its ingredients to tick off](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/cooking.png) | ![A cooking in the diary: more garlic, basil added and a reworded step, each above the line it replaced, and a button to keep them as a new version](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/cooked-changed.png) |
+| **Cooking mode**: one step and what it uses | **Cooked**: what you changed at the stove, to keep as a new version |
 
 - **Source and full README:** https://github.com/BatterWorks/Kamosu
 - **Changelog:** https://github.com/BatterWorks/Kamosu/blob/main/CHANGELOG.md
@@ -32,7 +34,7 @@ Everything you can do in the web app, an agent can do over MCP (the Model Contex
 - **Scaling and conversions.** Cook for 3 instead of 6 and every amount follows, with metric or US measures beside the amounts as written.
 - **A shopping list worked out from recipes.** Pick dishes and how many you are cooking for. Flour from three recipes becomes one row.
 - **Search by words, or by meaning.** Turn on Meaning Search and "that thing with aubergines" finds a recipe that never says aubergine.
-- **Bring your recipes in.** A web page, a pasted recipe or a recipe PDF, a Crouton export, or a recipe from another Kamosu.
+- **Bring your recipes in.** A web page, a pasted recipe or a recipe PDF, a Crouton export, or a recipe from another Kamosu. With a Runner, also a photo of a cookbook page, a scanned PDF or a cooking video.
 - **Share with anyone.** A Share Link shows one recipe to whoever holds it, no account needed, with a printable PDF.
 - **Agents are first-class.** Each person creates their own Access Keys, read-only or not, and connects Claude Code, Codex, Hermes or any MCP client to `/mcp`.
 - **In English, French and Spanish.** Each person picks the language they read in.
@@ -96,9 +98,11 @@ Kamosu serves plain HTTP and never handles a certificate. Put your own reverse p
 
 In Kamosu, open **Settings**, then **Account**, and create an Access Key. Tick **Read-only** if the agent only needs to look things up. Point any MCP client at `https://your-kamosu/mcp` with the key as a bearer token. The [GitHub README](https://github.com/BatterWorks/Kamosu#connecting-an-agent) has the exact configuration for Claude Code, Codex and Hermes.
 
+The image also holds the Runner, `/app/kamosu runner`: a program you run beside an agent of your choosing, which hands it what Kamosu cannot read itself, such as a photo of a cookbook page. The image holds no agent: the one Kamosu builds is published as [`battermanz/kamosu-agent`](https://hub.docker.com/r/battermanz/kamosu-agent), under the same version tags. The [Runner guide](https://github.com/BatterWorks/Kamosu/blob/main/docs/runner.md) says how to set one up.
+
 ## Your data
 
-Everything Kamosu owns lives in the one folder mounted at `/data`: the database, the photographs, the Backups, and the search model if you turn Meaning Search on.
+Everything Kamosu owns lives in the one folder mounted at `/data`: the database, the photographs, the Backups, a file handed to an agent (kept until 30 days after its Job, and in no Backup), and the search model if you turn Meaning Search on.
 
 - **Backups.** Kamosu takes its own and keeps three under `/data/backups`, one replaced every day, one every week and one every month. It never sends a Backup anywhere, so copy that folder off the machine.
 - **Upgrading.** Pull the new image and restart. Kamosu copies the database to a Snapshot before it migrates, and migrations only go forward. Pin a version tag to choose when you upgrade.

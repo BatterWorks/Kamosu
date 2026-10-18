@@ -32,18 +32,22 @@ impl Core {
     /// never linked, because there is no recipe to point at.
     pub fn set_related_recipe(
         &self,
-        person_id: &str,
+        caller: &Caller,
         branch_id: &str,
         other: RelatedSide<'_>,
         related: bool,
     ) -> Result<Value, OpError> {
+        let person_id = caller.person_id.as_str();
         self.db().with_conn(|conn| {
             let no_such_recipe = || OpError::not_found("no such Recipe on this shelf");
             let no_such_related = || OpError::not_found("no such related Recipe on this shelf");
 
             let (cookbook_id, lineage_id, title) =
                 recipe_shelf_identity(conn, branch_id)?.ok_or_else(no_such_recipe)?;
-            ensure_writes_or_absent(conn, &cookbook_id, person_id, no_such_recipe)?;
+            ensure_changes_branch(conn, branch_id, caller, no_such_recipe)?;
+            // The Cookbook an Operator acting as one looks after, whose other
+            // recipes they relate this one to and read back (#302).
+            let looked_after = looks_after(conn, caller)?.then(|| cookbook_id.clone());
 
             // The far end's Lineage, and its title where the caller may still
             // see it. A title is only ever written on the way in, so the one
@@ -54,8 +58,18 @@ impl Core {
                         recipe_shelf_identity(conn, related_branch_id)?
                             .ok_or_else(no_such_related)?;
                     // Any Recipe the caller may see, in whichever Cookbook; one
-                    // they may not is not here at all (ADR 0040).
-                    ensure_sees_or_absent(conn, &related_cookbook_id, person_id, no_such_related)?;
+                    // they may not is not here at all (ADR 0040). An Operator
+                    // acting as one adds the recipes of the Cookbook they look
+                    // after, and only those, so that its Co-authors never read
+                    // a title they could not see (#302).
+                    if looked_after.as_deref() != Some(related_cookbook_id.as_str()) {
+                        ensure_sees_or_absent(
+                            conn,
+                            &related_cookbook_id,
+                            person_id,
+                            no_such_related,
+                        )?;
+                    }
                     (related_lineage_id, Some(related_title))
                 }
                 RelatedSide::Lineage(related_lineage_id) => {
@@ -73,6 +87,7 @@ impl Core {
                     let on_shelf = related_branch_on_shelf(
                         conn,
                         person_id,
+                        looked_after.as_deref(),
                         related_lineage_id,
                         &reading_language,
                     )?;
@@ -115,7 +130,13 @@ impl Core {
                 .map_err(|e| OpError::internal(format!("cannot remove Related Recipe: {e}")))?;
             }
             Ok(json!({
-                "related_recipes": related_recipes_of_lineage(conn, &cookbook_id, &lineage_id, person_id)?
+                "related_recipes": related_recipes_of_lineage(
+                    conn,
+                    &cookbook_id,
+                    &lineage_id,
+                    person_id,
+                    looked_after.as_deref(),
+                )?
             }))
         })
     }
@@ -159,9 +180,13 @@ struct RelatedBranch {
 /// One function because there are two questions with one answer — whether a
 /// link still points at something, and whether something can be pointed at —
 /// and when they were two functions they promptly disagreed about Language.
+///
+/// `looked_after` is a Cookbook an Operator acting as one reaches beyond what
+/// they see (#302): its Branches count as on their shelf here.
 fn related_branch_on_shelf(
     conn: &rusqlite::Connection,
     person_id: &str,
+    looked_after: Option<&str>,
     lineage_id: &str,
     reading_language: &str,
 ) -> Result<Option<RelatedBranch>, OpError> {
@@ -170,13 +195,13 @@ fn related_branch_on_shelf(
             "SELECT branches.id, json_extract(versions.content, '$.title'), \
                     json_extract(versions.content, '$.main_photo'), branches.language \
              FROM branches JOIN versions ON versions.id = branches.head_version_id \
-             WHERE {} AND branches.lineage_id = ?2 \
+             WHERE ({} OR branches.cookbook_id = ?4) AND branches.lineage_id = ?2 \
              ORDER BY branches.language = ?3 DESC, {} \
              LIMIT 1",
             visible_to("branches", "?1"),
             own_first("branches", "?1"),
         ),
-        params![person_id, lineage_id, reading_language],
+        params![person_id, lineage_id, reading_language, looked_after],
         |row| {
             Ok(RelatedBranch {
                 branch_id: row.get(0)?,
@@ -198,6 +223,7 @@ pub(super) fn related_recipes_of_lineage(
     cookbook_id: &str,
     lineage_id: &str,
     person_id: &str,
+    looked_after: Option<&str>,
 ) -> Result<Vec<Value>, OpError> {
     // Which Branch a related recipe names is the shelf's question, answered the
     // shelf's way: the one written in the reader's own Language, and where the
@@ -227,8 +253,13 @@ pub(super) fn related_recipes_of_lineage(
     links
         .into_iter()
         .map(|(related_lineage_id, remembered_title)| {
-            let present =
-                related_branch_on_shelf(conn, person_id, &related_lineage_id, &reading_language)?;
+            let present = related_branch_on_shelf(
+                conn,
+                person_id,
+                looked_after,
+                &related_lineage_id,
+                &reading_language,
+            )?;
             // A Lineage that has left the shelf keeps its remembered name and
             // gives up everything that pointed at a recipe: no Branch to open,
             // no picture, and no Language to mark, because there is no recipe

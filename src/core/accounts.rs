@@ -595,6 +595,7 @@ impl Core {
                 conn.execute("UPDATE sessions SET revoked = 1 WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 conn.execute("UPDATE access_keys SET revoked = 1 WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 if deleted {
+                    jobs::end_for_deleted_asker(conn, &person_id)?;
                     forget_cookbook_of(conn, &person_id)?;
                 } else {
                     // A disabled account is no longer asked about a waiting

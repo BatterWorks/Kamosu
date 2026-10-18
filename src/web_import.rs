@@ -50,11 +50,10 @@ const MAX_REDIRECTS: usize = 5;
 pub struct ParsedRecipe {
     pub title: String,
     /// Whether a Recipe node was actually found, as opposed to the
-    /// no-structured-data fallback (title and Source alone, ADR 0025). Read
-    /// by no production caller — `import_web_link` treats both cases the
-    /// same, landing whatever was found — but kept so the fallback path
-    /// itself is directly assertable in tests, rather than inferred from
-    /// every other field happening to be empty.
+    /// no-structured-data fallback (title and Source alone, ADR 0025).
+    /// `import_web_link` lands whatever was found either way, and on an
+    /// instance with a Runner a page where none was found goes to an agent
+    /// (ADR 0048).
     pub found_recipe: bool,
     pub yield_amount_noun: Option<(String, String)>,
     pub prep_time_minutes: Option<i64>,
@@ -86,25 +85,44 @@ pub enum StepEntry {
 /// importer reports what it found, never an error for a bare-name recipe.
 pub fn extract_recipe(html: &str, page_url: &str) -> ParsedRecipe {
     let document = Html::parse_document(html);
-    let hostname = Url::parse(page_url)
-        .ok()
-        .and_then(|u| u.host_str().map(str::to_string))
-        .unwrap_or_else(|| page_url.to_string());
+    let hostname = hostname_of(page_url);
 
     match find_recipe_node(&document) {
         Some(node) => from_recipe_node(&node, &hostname),
-        None => ParsedRecipe {
-            title: page_title(&document).unwrap_or_else(|| page_url.to_string()),
-            found_recipe: false,
-            yield_amount_noun: None,
-            prep_time_minutes: None,
-            cook_time_minutes: None,
-            ingredients: Vec::new(),
-            steps: Vec::new(),
-            source_text: hostname,
-            image_url: None,
-            nutrition_calories: None,
-        },
+        None => bare(
+            page_title(&document).unwrap_or_else(|| page_url.to_string()),
+            hostname,
+        ),
+    }
+}
+
+/// A page Kamosu could not read at all, as the recipe it lands as: its own
+/// address for a name, and its Source. For a page that refused the fetch
+/// (ADR 0048), where there is no HTML to find a title in.
+pub fn unread_page(page_url: &str) -> ParsedRecipe {
+    bare(page_url.to_string(), hostname_of(page_url))
+}
+
+fn hostname_of(page_url: &str) -> String {
+    Url::parse(page_url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string))
+        .unwrap_or_else(|| page_url.to_string())
+}
+
+/// The no-structured-data fallback: a title and a Source alone (ADR 0025).
+fn bare(title: String, source_text: String) -> ParsedRecipe {
+    ParsedRecipe {
+        title,
+        found_recipe: false,
+        yield_amount_noun: None,
+        prep_time_minutes: None,
+        cook_time_minutes: None,
+        ingredients: Vec::new(),
+        steps: Vec::new(),
+        source_text,
+        image_url: None,
+        nutrition_calories: None,
     }
 }
 
@@ -435,6 +453,15 @@ fn guarded_client(acl: &Acl) -> Result<reqwest::Client, OpError> {
         .map_err(|e| OpError::internal(format!("cannot build the guarded HTTP client: {e}")))
 }
 
+/// Whether `link` is one this guarded fetch would set out to read: http or
+/// https, with no address on the local network written into it (ADR 0033).
+/// A name is not looked up here, so one that leads to such an address passes.
+/// Asked of a link an agent is handed without Kamosu fetching it first, as a
+/// recipe read again is (#272).
+pub fn is_readable_link(link: &str) -> bool {
+    parse_fetchable_url(link).is_ok_and(|url| guarded_acl().validate_url(&url).is_ok())
+}
+
 fn parse_fetchable_url(url: &str) -> Result<Url, OpError> {
     let parsed = Url::parse(url).map_err(|_| OpError::bad_request("that is not a valid URL"))?;
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
@@ -542,13 +569,56 @@ fn guarded_get(url: &str, noun: &str, cap: usize) -> Result<(Vec<u8>, String), O
     Ok((answered.body?, answered.effective_url))
 }
 
+/// What a page answered when it was asked for.
+pub enum Page {
+    /// Its HTML, and the address it actually ended up at once redirects are
+    /// followed. That address is the import ledger's foreign id, so a
+    /// re-import of the same page matches (#68).
+    Read { html: String, effective_url: String },
+    /// The page answered, and what it answered was a refusal: a status that
+    /// is no success and does not say the page is missing. This is the page's
+    /// own doing, where an `Err` of [`fetch_page`] is a link with nothing
+    /// behind it for anybody. An agent fetching from elsewhere may be let in
+    /// where Kamosu was not (ADR 0048).
+    Refused {
+        effective_url: String,
+        status: reqwest::StatusCode,
+    },
+}
+
 /// Fetch a page's HTML, bound to public addresses at the dialled address and
-/// at every redirect (ADR 0033). Answers the HTML and the address it actually
-/// ended up at once redirects are followed — the effective URL, used as the
-/// import ledger's foreign id so a re-import of the same page matches (#68).
-pub fn fetch_page(url: &str) -> Result<(String, String), OpError> {
-    let (bytes, effective_url) = guarded_get(url, "that page", MAX_HTML_BYTES)?;
-    Ok((String::from_utf8_lossy(&bytes).into_owned(), effective_url))
+/// at every redirect (ADR 0033).
+///
+/// An `Err` is something that is no link, an address Kamosu will not dial, a
+/// host that never answered, a page that could not be read whole, or a page
+/// its site says is not there (404, 410): a mistyped link is refused, and
+/// lands no recipe for an agent to fail on.
+pub fn fetch_page(url: &str) -> Result<Page, OpError> {
+    let answered = guarded_answer(
+        url,
+        "that page",
+        Duration::from_secs(FETCH_TIMEOUT_SECS),
+        |status| status.is_success().then_some(MAX_HTML_BYTES),
+    )?;
+    if matches!(
+        answered.status,
+        reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE
+    ) {
+        return Err(OpError::bad_request(format!(
+            "that page answered with {}",
+            answered.status
+        )));
+    }
+    if !answered.status.is_success() {
+        return Ok(Page::Refused {
+            effective_url: answered.effective_url,
+            status: answered.status,
+        });
+    }
+    Ok(Page::Read {
+        html: String::from_utf8_lossy(&answered.body?).into_owned(),
+        effective_url: answered.effective_url,
+    })
 }
 
 /// Fetch a candidate photo's bytes, under the same guard as the page itself.

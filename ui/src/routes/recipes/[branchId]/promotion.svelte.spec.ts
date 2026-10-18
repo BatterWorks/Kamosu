@@ -29,6 +29,7 @@ const AGAINST = {
 			kind: 'ingredient',
 			state: 'changed' as const,
 			from_branch_point: true,
+			place: { mine: 0, theirs: 0 },
 			mine: line('ingredient', '1 cup panko', 0),
 			theirs: line('ingredient', '2 cups panko', 0),
 		},
@@ -36,6 +37,7 @@ const AGAINST = {
 			kind: 'ingredient',
 			state: 'same' as const,
 			from_branch_point: true,
+			place: { mine: 1, theirs: 1 },
 			mine: line('ingredient', 'a pinch of salt', 1),
 			theirs: line('ingredient', 'a pinch of salt', 1),
 		},
@@ -43,6 +45,7 @@ const AGAINST = {
 			kind: 'ingredient',
 			state: 'only-mine' as const,
 			from_branch_point: true,
+			place: { mine: 2, theirs: 2 },
 			mine: line('ingredient', '800 ml water', 2),
 			theirs: null,
 		},
@@ -50,6 +53,7 @@ const AGAINST = {
 			kind: 'ingredient',
 			state: 'only-theirs' as const,
 			from_branch_point: false,
+			place: { mine: 3, theirs: 3 },
 			mine: null,
 			theirs: line('ingredient', '1 bay leaf', 2),
 		},
@@ -59,6 +63,7 @@ const AGAINST = {
 			kind: 'step',
 			state: 'same' as const,
 			from_branch_point: true,
+			place: { mine: 0, theirs: 0 },
 			mine: line('step', 'Coat the chicken in panko.', 0),
 			theirs: line('step', 'Coat the chicken in panko.', 0),
 		},
@@ -102,10 +107,15 @@ const cooking = (): DeclinePromotionOutput => ({
 	},
 });
 
-/** The same cooking on the Thread, which also says which Version it counts for (#209). */
+/**
+ * The same cooking on the Thread, which also says which Version it counts
+ * for (#209) and whose it is (#249).
+ */
 const attempt = (over: Partial<Attempt> = {}): Attempt => ({
 	...cooking(),
 	eaten_version_id: 'v_1',
+	person_name: 'Stéphane',
+	mine: true,
 	...over,
 });
 

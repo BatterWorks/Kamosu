@@ -180,6 +180,10 @@ just dev-status # each half running? since when? build-cache size
 just dev-logs   # follow .dev/kamosu.log and .dev/vite.log together
 just dev-stop   # stops both process groups
 just docker-build && just docker-run   # the one-mount-one-port install, as a stranger runs it
+just agent-image    # Kamosu's image from this tree, for the Runner, then the agent's image (#315, #317)
+just runner-start   # both beside the dev instance, settings from ~/.config/kamosu-runner.env
+just runner-logs    # follow the Runner and its agent
+just runner-stop    # stop both; a Job the Runner held waits again once the hold lapses
 ```
 
 **Looking at the dev instance has recipes of its own** (#216), so no ticket
@@ -228,6 +232,10 @@ One behaviour test runs `sqlite3` as the other process that opens the database
 beside a running Kamosu, and reads `/proc/self/fdinfo` (#130, #215). The
 SQLite Kamosu bundles hides the fault that test looks for, and an older one
 does not.
+
+**It needs `python3` on the path too.** The Runner's tests start the real
+program as a Runner, and its agent command there is a short Python stand-in
+that writes a recipe with the Job Key it was handed (#274).
 
 `dev-clean` deletes `target/` to reclaim build cache; the next build is a full
 rebuild. Dev state lives in gitignored `.dev/`.
@@ -352,14 +360,31 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     whose recipes (ADR 0041)
   cookbooks.rs      Cookbooks: who may change a recipe, joining and
                     separating two, variations, and the may-see and
-                    may-change checks every area calls (ADR 0041, #131)
+                    may-change checks every area calls, an Operator
+                    acting as one on a call that says `as_operator`
+                    among them (ADR 0041, ADR 0049, #131, #302)
   recipes.rs        creating, saving, reading a recipe; threads and divergence;
                     unfolding components; `parse_recipe_content`
   tags.rs           Tags, and putting one on a recipe
   related.rs        Related Recipes (#105)
+  runners.rs        Runner Keys, a Runner taking a Job, renewing its hold and
+                    reporting how it ended, the Job Key that comes with one
+                    and the one recipe its writes are held to, who reads an
+                    agent's Job, whether the instance has a Runner, and the
+                    House Notes every Job carries to its agent (ADR
+                    0048, #260, #262, #263, #264, #266, #268, #344)
   shelves.rs        the home shelves, and the shelf entry every list shows
   translation.rs    translation and a Branch's Language
+  reading_again.rs  a Co-author asking for an agent to read a recipe again
+                    from its kept Original, a file handed over again, or
+                    its Source's link, and whether one can (#272, #273)
   readings.rs       Ingredient Lines, Readings, Foods and Food merges
+  originals.rs      pasted text, a PDF or a picture handed to an agent,
+                    kept under originals/ for its Job's Job Key alone and
+                    in no Backup, and deleted 30 days after its Job ended.
+                    The same file handed over again is known by its
+                    contents, and a Job that failed on one is asked
+                    again from it (#269, #270, #271, #273)
   cooking.rs        Attempts and promotion
   keeping_photographs.rs
                     storing, reading and sweeping Photographs
@@ -383,6 +408,14 @@ src/crouton.rs      reading a Crouton export into import candidates: lines rebui
 src/db.rs           the SQLite file under /data — WAL on, migrations forward-only
 src/entities.rs     the HTML entities importers undo in text that was never HTML
 src/jobs.rs         slow work: two lanes (one for strangers, ADR 0032), progress, results
+                    and an agent's Job, which waits for a Runner in neither lane
+                    and is running while one holds it, with a Job Key minted
+                    each time a Runner takes it. The hold has a deadline, and
+                    a Job is tried a fixed number of times. It is cancelled
+                    waiting or held. One reading an Original waits with no
+                    recipe until its agent creates one, unless it reads a
+                    recipe again (ADR 0048, #261, #262, #263, #266, #267,
+                    #269, #273)
 src/language.rs     a Branch's Language, read off the recipe's own text (ADR 0006)
 src/meaning.rs      Meaning Search: the model Kamosu does not ship, and the
                     index it builds from the recipes (ADR 0029)
@@ -397,6 +430,15 @@ src/step_uses.rs    which Ingredient Lines a Step uses, by the short names
                     recipes call them after the list (#184). A short name
                     holds the name's main word, which sits at the end the
                     Branch's Language puts it (#212)
+src/page_text.rs    the text of a page's own article, found as a reader
+                    would and written out as a browser copies it, for a
+                    link with no recipe data on an instance with no
+                    Runner (#301)
+src/runner.rs       the Runner: `kamosu runner`, which asks one Kamosu for
+                    Jobs and starts an agent command in a fresh folder for
+                    each, or hands each to an agent at a Unix socket. Its
+                    client is its own, apart from the guarded one (ADR 0033,
+                    ADR 0048, #274, #317)
 src/pdf.rs          the text out of a recipe PDF, for the paste reader; a
                     scan holds none and is refused (#176)
 src/web_door.rs     Axum router generated by walking the Catalogue
@@ -410,6 +452,10 @@ src/design_tokens.rs embeds and serves the generated stylesheet, fonts and icons
 src/interface.rs    embeds and serves the built Svelte app; owns the fallback
 tests/parity.rs     both Doors materialise every Operation — drift breaks the build
 tests/behaviour.rs  behaviour through real Doors against a real database file
+tests/runner.rs     the real program started as a Runner beside a test
+                    Kamosu, with a stand-in for the agent: a command, or
+                    one at a Unix socket started again after each Job as
+                    its container is (#274, #317)
 tests/*_corpus.rs   the same, against the real 86-recipe Crouton export —
                     #[ignore]d, since samples/crouton/ is personal and gitignored:
                     run with `cargo test --test <name> -- --ignored`.
@@ -426,6 +472,13 @@ ui/                 the Svelte app; ui/src/app.css is the design tokens' source
 ui/tools/           the dev tools `just` runs against the dev instance: sign in,
                     photograph screens, capture and serve a prototype (#216).
                     The two release commands live here too (ADR 0047)
+agent-image/        the agent beside a Runner, in an Alpine image of its own,
+                    which every release publishes as battermanz/kamosu-agent
+                    and builds again only when this folder changed:
+                    opencode, the tools a Job needs, the instructions it
+                    follows, and the program that takes one Job from the
+                    Runner through a socket and ends (#315, #317, #345,
+                    docs/runner.md)
 docs/releasing.md   the release runbook
 docs/docker-hub/    the Docker Hub page of the image: its overview and its one-line
                     description, published by a release and never edited on
@@ -445,6 +498,25 @@ Catalogue and both Doors grow it in the same commit.
   as REST destroys the parity guarantee; don't.
 - **A permission check written inside a Door is a bug.** Authorisation happens
   once, in the Core, keyed on the Credential. Doors only carry the Secret.
+- **What a Job Key may call is the `job_key` mark on each declaration, and that
+  mark is a security boundary** (ADR 0048). A new Operation is `JobKey::Never`.
+  Marking one for a Job Key takes a decision of the ADR's weight, and
+  `the_job_keys_list_is_these_operations` in `tests/behaviour.rs` fails until
+  the name is added there on purpose.
+- **A Job Key's write is held to its Job's recipe in `Core::execute`, never in
+  the Operation** (#264). The mark says which: `WritesItsRecipe` names the
+  recipe in `branch_id`, and any other recipe answers as one that is not
+  there. `CreatesItsRecipe` creates the recipe of a Job that has none, once,
+  and the Core makes it the Job's own (#269). Where the asker's own change
+  would start a Copy, the write is refused and the Job fails. No Operation
+  decides what a Job may reach. A Job Key may use two routes outside the
+  Catalogue: `POST /api/photographs`, by the mark on `upload_photograph`, and
+  `GET /api/originals/<job_id>` for its own Job's Original.
+- **A save knows which Job is writing, and that is all any Operation knows of
+  Jobs** (#265). `save_onto_branch` writes it on the Version's row beside the
+  Access Key, folds a Job's saves into the one Version that Job wrote, and
+  refuses a save that would leave a second, failing the Job. This is about
+  how many Versions a Job leaves, never about what it may reach.
 - The MCP door speaks revision `2026-07-28`, stateless, no handshake.
 
 ## Changing what a recipe holds

@@ -20,6 +20,11 @@ pub enum Permission {
     Person,
     /// A resolved Person who administers this instance.
     Operator,
+    /// A Runner, presenting its Runner Key and acting as no Person (ADR 0048).
+    /// The one level a Person never reaches, an Operator included: an
+    /// Operation declared with it is the Runner's own. A Runner Key in turn
+    /// reaches no other level, `Public` included.
+    Runner,
 }
 
 /// Whether an Operation answers within a request or is too slow to.
@@ -56,6 +61,63 @@ pub enum JobLane {
     AlwaysSingle,
 }
 
+/// What a Job Key may do with an Operation (ADR 0048). A Job Key acts as the
+/// Person who asked for its Job, on the Operations marked for it here and on
+/// no other, whatever their permission.
+///
+/// **This mark is the security boundary of a Job Key.** An agent holding one
+/// reads strangers' text with nobody watching, so moving an Operation off
+/// `Never` is a decision of the ADR's weight. `the_job_keys_list_is_these_operations`
+/// in `tests/behaviour.rs` holds the list by name and fails until it is
+/// changed on purpose.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobKey {
+    /// Refused, and answered as an Operation that does not exist.
+    Never,
+    /// Reads the library as the asker sees it. Never an Operation that is a
+    /// Job: Kamosu would do it later as its asker, with a Person's whole reach.
+    ///
+    /// An Operation marked with this answers a Job Key exactly what it
+    /// answers the asker, because no Operation learns about Jobs. So a recipe
+    /// and its Thread come with what they carry for any reader: the Readings
+    /// of each Ingredient Line, the Attempts hanging off the Thread, and the
+    /// names of the people who wrote and cooked. The Operations that read
+    /// Attempts, Kitchens and accounts on their own stay `Never`.
+    Reads,
+    /// Writes the one recipe the Job is for (#264). The Operation names the
+    /// recipe in `branch_id`, and the Core compares that with the Job's own
+    /// before the Operation runs: any other recipe is answered as one that
+    /// is not there. Where the asker's own change would start a Copy, the
+    /// write is refused and the Job fails. Never an Operation that is a Job,
+    /// for the reason `Reads` gives.
+    ///
+    /// Past that the Operation does what it does for the asker, since none
+    /// learns about Jobs. So `set_recipe_tag` takes a Tag off the Job's
+    /// recipe as readily as it puts one on, and a save writes whatever the
+    /// asker could write there. One input is not the Job's to send:
+    /// `translates_version_id`, which makes a save a Translation's.
+    WritesItsRecipe,
+    /// Corrects a Reading of the Job's recipe (#264): held as
+    /// `WritesItsRecipe` is, and to one thing more. A Reading belongs to a
+    /// Version, and a Version is its content's fingerprint, so two recipes
+    /// that read word for word alike hold one Version and its Readings
+    /// between them. While another recipe holds the newest Version of the
+    /// Job's, correcting its Reading would correct that recipe's too, and is
+    /// refused.
+    CorrectsItsReadings,
+    /// Stores a Photograph, which belongs to no recipe until a save names
+    /// it (#264). Refused, and the Job failed, where the asker's own change
+    /// to the Job's recipe would start a Copy: such a Job writes nothing
+    /// more.
+    StoresPhotographs,
+    /// Creates the Job's recipe (#269), for a Job that has none yet: one
+    /// reading an Original, whose agent writes the recipe from nothing. The
+    /// Core refuses it once the Job has a recipe, and makes the recipe it
+    /// creates the Job's own, so a Job creates one at most. It lands in the
+    /// asker's own Cookbook under their Hand, as anything they create does.
+    CreatesItsRecipe,
+}
+
 /// One thing Kamosu can be asked to do, defined exactly once.
 pub struct Operation {
     /// The Operation's name, used verbatim by both Doors (`/api/op/<name>`,
@@ -78,6 +140,9 @@ pub struct Operation {
     /// Key can mint no Key, change no password and mint no Invite, so a leaked
     /// Key cannot become an account (ADR 0031).
     pub session_only: bool,
+    /// Whether a Job Key may call this Operation. Enforced by the Core, and
+    /// the MCP door lists a Job Key no Operation marked `Never`.
+    pub job_key: JobKey,
     /// Which lane carries this Operation's Job. Meaningless on an Immediate
     /// Operation, but declared on every entry so nothing here reads as an
     /// oversight rather than a choice.
@@ -177,6 +242,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -198,6 +264,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "reading_language": { "enum": ["en", "fr", "es"] }, "reading_measures": { "enum": ["us", "metric", "as_written"] } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
             // The same two enums the input takes, and the same two the getter
@@ -217,6 +284,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             // Declared as the same two enums `set_reading_preferences` accepts,
@@ -236,6 +304,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({ "type": "object", "properties": { "person_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["person_id", "name"], "additionalProperties": false }),
@@ -254,6 +323,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
@@ -263,10 +333,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             name: "list_accounts",
             summary: "List who holds an account on this instance. Each comes \
                       with their name, whether they administer it, and whether \
-                      the account is disabled. Nothing about what they cook — \
-                      the Operator administers and does not read (ADR 0007), \
-                      so no recipe, Attempt, Cookbook or Kitchen of theirs is \
-                      reachable from here.",
+                      the account is disabled. Nothing about what they cook: \
+                      an Operator reaches their recipes through \
+                      list_cookbooks (ADR 0049), and no Attempt or Kitchen of \
+                      theirs from anywhere.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: false,
@@ -274,6 +344,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             // accounts is something a person does signed in, never something a
             // borrowed Access Key does on their behalf (ADR 0007).
             session_only: true,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -309,6 +380,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: true,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "is_operator": { "type": "boolean", "default": false } }, "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "link": { "type": "string" } }, "required": ["link"], "additionalProperties": false }),
@@ -321,6 +393,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: true,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "disabled": { "type": "boolean" } }, "required": ["disabled"], "additionalProperties": false }),
@@ -336,6 +409,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: true,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "deleted": { "type": "boolean" } }, "required": ["deleted"], "additionalProperties": false }),
@@ -349,6 +423,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: true,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "link": { "type": "string"} }, "required": ["link"], "additionalProperties": false }),
@@ -364,6 +439,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: true,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -394,6 +470,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({ "type": "object", "properties": { "referenced": { "type": "integer" }, "newly_unreferenced": { "type": "integer" }, "back_in_use": { "type": "integer" }, "swept": { "type": "integer" }, "swept_photograph_ids": { "type": "array", "items": { "type": "string" } } }, "required": ["referenced", "newly_unreferenced", "back_in_use", "swept", "swept_photograph_ids"], "additionalProperties": false }),
@@ -413,6 +490,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Job,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({ "type": "object", "properties": { "taken": { "type": "array", "items": { "type": "string" } }, "backups": backups_schema() }, "required": ["taken", "backups"], "additionalProperties": false }),
@@ -425,10 +503,353 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({ "type": "object", "properties": { "backups": backups_schema() }, "required": ["backups"], "additionalProperties": false }),
             handler: crate::operations::list_backups,
+        },
+        Operation {
+            name: "mint_runner_key",
+            summary: "Mint a Runner Key, the Secret a Runner asks for work with. \
+                      A Runner is the program beside Kamosu that has an agent \
+                      do the Jobs Kamosu cannot. The Secret is shown once. It \
+                      can ask for work and nothing else, and it acts as no \
+                      Person.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: true,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "name": { "type": "string" } },
+                "required": ["name"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "secret": { "type": "string" },
+                },
+                "required": ["id", "name", "secret"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::mint_runner_key,
+        },
+        Operation {
+            name: "list_runner_keys",
+            summary: "List this instance's Runner Keys by name and last use.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "runner_keys": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string" },
+                                "name": { "type": "string" },
+                                "created_at": { "type": "string" },
+                                "last_used_at": { "type": ["string", "null"] },
+                                "revoked": { "type": "boolean" },
+                            },
+                            "required": ["id", "name", "created_at", "last_used_at", "revoked"],
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "required": ["runner_keys"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_runner_keys,
+        },
+        Operation {
+            name: "revoke_runner_key",
+            summary: "End one Runner Key. The Runner holding it is refused at \
+                      its next call.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "runner_key_id": { "type": "string" } }, "required": ["runner_key_id"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" } }, "required": ["revoked"], "additionalProperties": false }),
+            handler: crate::operations::revoke_runner_key,
+        },
+        Operation {
+            name: "runner_status",
+            summary: "Read whether this instance has a Runner. Also when one \
+                      was last heard from, asking for work or renewing its \
+                      hold on a Job.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "has_runner": {
+                        "type": "boolean",
+                        "description": "True while a Runner Key exists that is not revoked.",
+                    },
+                    "last_asked_at": {
+                        "type": ["string", "null"],
+                        "description": "When a Runner last asked for work or renewed its hold on a Job, or null when none ever has.",
+                    },
+                },
+                "required": ["has_runner", "last_asked_at"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::runner_status,
+        },
+        Operation {
+            name: "get_house_notes",
+            summary: "Read the agent's House Notes. They are what an \
+                      Operator adds to the end of the instructions the agent \
+                      follows, handed over with every Job. Null when none are written, and \
+                      the agent follows its own instructions alone. Says who \
+                      saved them last and when.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: house_notes_output(),
+            handler: crate::operations::get_house_notes,
+        },
+        Operation {
+            name: "set_house_notes",
+            summary: "Save the agent's House Notes. They replace any there \
+                      were, up to 4,000 characters. The agent reads them \
+                      after its own instructions, as the Operator's, and \
+                      follows them where the two disagree. A Job carries the \
+                      notes as they stand when a Runner takes it. Blank \
+                      text takes them away. Kamosu's own agent image follows \
+                      them; another agent follows them only if it reads \
+                      `house_notes` from each Job.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "notes": { "type": "string" } },
+                "required": ["notes"],
+                "additionalProperties": false,
+            }),
+            output_schema: house_notes_output(),
+            handler: crate::operations::set_house_notes,
+        },
+        Operation {
+            name: "ask_for_work",
+            summary: "Ask for a Job to do. For a Runner alone, with its \
+                      Runner Key. Answers the oldest Job that waits for an \
+                      agent: `link` or `original` is what to read and \
+                      `branch_id` is the recipe it is for, null until the \
+                      agent creates it with `create_recipe`. The Job is \
+                      running from then on, \
+                      held by this Runner Key and no other, until \
+                      `report_on_job` says how it ended or `held_until` \
+                      passes. Call `renew_hold` every \
+                      `renew_within_seconds` to move that deadline on: a \
+                      Job whose deadline passed waits again and goes to the \
+                      next Runner that asks. A Runner holds one Job at a \
+                      time, so asking again while holding one answers that \
+                      same Job. `ask` is a mark the Runner makes up for \
+                      each new ask, such as a random id, and sends again \
+                      unchanged when it repeats an ask whose reply never \
+                      arrived. `job_key` is the Job Key, for the agent: a \
+                      Secret that reads the library as the Person who asked \
+                      for the Job and writes the Job's one recipe under \
+                      their Hand, until the Job ends. It is shown here and \
+                      never again. An ask repeated under the same mark is \
+                      handed a new one in place of the one that was lost, \
+                      and an ask under a new mark is handed one more and \
+                      spends none. `job` is null when nothing is waiting. \
+                      `runner_version` is the Runner's own version, and a \
+                      Kamosu of another version refuses it with reason \
+                      `another_version`.",
+            permission: Permission::Runner,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "runner_version": { "type": "string" },
+                    "ask": { "type": "string" },
+                },
+                "required": ["runner_version", "ask"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "job": {
+                        "type": ["object", "null"],
+                        "properties": {
+                            "job_id": { "type": "string" },
+                            "branch_id": {
+                                "type": ["string", "null"],
+                                "description": "The recipe the Job is for, which landed bare. \
+                                                 Null on a Job reading an Original, or a link \
+                                                 handed over with nothing landed, until its \
+                                                 agent creates the recipe with `create_recipe` \
+                                                 and its Job Key.",
+                            },
+                            "link": {
+                                "type": ["string", "null"],
+                                "description": "What the agent is to read, when that is a \
+                                                 page or a video. Null when it is an Original.",
+                            },
+                            "original": {
+                                "type": ["object", "null"],
+                                "description": "What the agent is to read, when that is not \
+                                                 a link: pasted text, a PDF or a picture. \
+                                                 Null when it is a link.",
+                                "properties": {
+                                    "kind": { "enum": ["pasted_text", "pdf", "picture"] },
+                                    "address": {
+                                        "type": "string",
+                                        "description": "Where the agent fetches it, with a \
+                                                         GET carrying the Job Key.",
+                                    },
+                                },
+                                "required": ["kind", "address"],
+                                "additionalProperties": false,
+                            },
+                            "job_key": {
+                                "type": "string",
+                                "description": "The Job Key, shown once. The agent presents it \
+                                                 as its Credential.",
+                            },
+                            "house_notes": {
+                                "type": ["string", "null"],
+                                "description": "The instance's house notes for the agent, \
+                                                 written by an Operator, as they stand now: \
+                                                 read after the agent's own instructions, and \
+                                                 followed where the two disagree. Null when \
+                                                 none are written.",
+                            },
+                            "held_until": {
+                                "type": "string",
+                                "description": "When the hold lapses unless `renew_hold` \
+                                                 moves it on.",
+                            },
+                            "renew_within_seconds": {
+                                "type": "number",
+                                "description": "How long to leave before the first \
+                                                 `renew_hold`, and between each after.",
+                            },
+                        },
+                        "required": [
+                            "job_id", "branch_id", "link", "original", "job_key",
+                            "house_notes", "held_until", "renew_within_seconds",
+                        ],
+                        "additionalProperties": false,
+                    },
+                },
+                "required": ["job"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::ask_for_work,
+        },
+        Operation {
+            name: "renew_hold",
+            summary: "Keep hold of the Job this Runner is working. For a \
+                      Runner alone, with the Runner Key that took the Job. \
+                      Moves the hold's deadline on and answers the new one \
+                      in `held_until`. Call it again within \
+                      `renew_within_seconds`, for as long as the agent \
+                      works. Refused once the hold is gone, because the \
+                      deadline passed or the Job ended: stop the agent \
+                      then, and ask for work again. This is how a Runner \
+                      learns that its Job was cancelled, and the refusal \
+                      says so.",
+            permission: Permission::Runner,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "job_id": { "type": "string" } },
+                "required": ["job_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "held_until": { "type": "string" },
+                    "renew_within_seconds": { "type": "number" },
+                },
+                "required": ["held_until", "renew_within_seconds"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::renew_hold,
+        },
+        Operation {
+            name: "report_on_job",
+            summary: "Say how the Job this Runner holds ended. For a Runner \
+                      alone, with the Runner Key that took the Job. `outcome` \
+                      is `completed`, or `failed` when something went wrong \
+                      on the way, or `could_not_be_read` when the agent says \
+                      the thing holds no recipe it can read. The last two \
+                      need `reason`, one sentence the cook reads in the \
+                      Import Report. A Job reported `failed` waits to be \
+                      tried again, and ends as failed once it has been \
+                      tried as often as Kamosu tries one. `could_not_be_read` ends \
+                      it as failed at once. `report` is the agent's own \
+                      report, passed on as it wrote it. A Runner whose hold \
+                      is gone is refused and told so, as is one whose Job \
+                      was cancelled, and a Job it never held is answered \
+                      as a Job that is not there.",
+            permission: Permission::Runner,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "job_id": { "type": "string" },
+                    "outcome": { "enum": ["completed", "failed", "could_not_be_read"] },
+                    "reason": { "type": "string" },
+                    "report": agent_report_schema(),
+                },
+                "required": ["job_id", "outcome"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "reported": { "type": "boolean" } },
+                "required": ["reported"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::report_on_job,
         },
         Operation {
             name: "list_sessions",
@@ -439,6 +860,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({ "type": "object", "properties": { "sessions": { "type": "array", "items": { "type": "object", "properties": { "id": {"type":"string"}, "name": {"type":"string"}, "created_at": {"type":"string"}, "last_used_at": {"type":["string","null"]}, "revoked": {"type":"boolean"}, "current": {"type":"boolean"} }, "required":["id","name","created_at","last_used_at","revoked","current"], "additionalProperties": false } } }, "required":["sessions"], "additionalProperties": false }),
@@ -453,6 +875,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "session_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["session_id", "name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" } }, "required": ["id", "name"], "additionalProperties": false }),
@@ -460,14 +883,17 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "revoke_session",
-            summary: "End one of your browser Sessions.",
+            summary: "End one of your browser Sessions. `current` says whether it \
+                      was the one this call was made with, as `list_sessions` \
+                      marks it: a browser that ended its own is signed out.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"], "additionalProperties": false }),
-            output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" } }, "required": ["revoked"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" }, "current": { "type": "boolean" } }, "required": ["revoked", "current"], "additionalProperties": false }),
             handler: crate::operations::revoke_session,
         },
         Operation {
@@ -478,6 +904,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: true,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -508,6 +935,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -542,6 +970,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "access_key_id": { "type": "string" } }, "required": ["access_key_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" } }, "required": ["revoked"], "additionalProperties": false }),
@@ -556,6 +985,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             output_schema: kitchen_schema(),
@@ -568,6 +998,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -585,6 +1016,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["kitchen_id", "name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
@@ -599,6 +1031,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "nickname": { "type": ["string", "null"] } }, "required": ["kitchen_id", "nickname"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "nickname": { "type": ["string", "null"] } }, "required": ["nickname"], "additionalProperties": false }),
@@ -612,6 +1045,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" }, "secret": { "type": "string" } }, "required": ["invite_id", "secret"], "additionalProperties": false }),
@@ -625,6 +1059,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "secret": { "type": "string" } }, "required": ["secret"], "additionalProperties": false }),
             output_schema: kitchen_schema(),
@@ -641,6 +1076,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "person_id": { "type": "string" } }, "required": ["kitchen_id", "person_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "removed": { "type": "boolean" } }, "required": ["removed"], "additionalProperties": false }),
@@ -655,6 +1091,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "deleted": { "type": "boolean" } }, "required": ["deleted"], "additionalProperties": false }),
@@ -670,6 +1107,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "person_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "they_keep": { "type": "integer" }, "you_keep": { "type": "integer" } }, "required": ["they_keep", "you_keep"], "additionalProperties": false }),
@@ -684,10 +1122,68 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: cookbook_schema(),
             handler: crate::operations::get_cookbook,
+        },
+        Operation {
+            name: "list_cookbooks",
+            summary: "Every Cookbook and the recipes in it, for an Operator. \
+                      Each comes with who writes it, and each recipe as a \
+                      `branch_id` with its title. On a call saying \
+                      `as_operator`, an Operator looks after any Cookbook \
+                      (ADR 0049): get_recipe, get_thread, edit_recipe, \
+                      save_recipe_version, delete_recipe, set_recipe_tag and \
+                      set_related_recipe reach these recipes, and \
+                      create_recipe, create_tag, list_tags and the Imports \
+                      take a `cookbook_id` to work in one. What an Operator \
+                      writes there is under their own Hand. Attempts, \
+                      shopping lists and who writes a Cookbook stay their \
+                      owners'. A read-only Access Key is refused.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "cookbooks": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string" },
+                                "name": { "type": ["string", "null"] },
+                                "authors": { "type": "array", "items": person_ref_schema() },
+                                "recipes": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "branch_id": { "type": "string" },
+                                            "title": { "type": "string" },
+                                            "language": { "type": "string" },
+                                            "name": { "type": ["string", "null"] },
+                                        },
+                                        "required": ["branch_id", "title", "language", "name"],
+                                        "additionalProperties": false,
+                                    },
+                                },
+                            },
+                            "required": ["id", "name", "authors", "recipes"],
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "required": ["cookbooks"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_cookbooks,
         },
         Operation {
             name: "rename_cookbook",
@@ -698,6 +1194,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": ["string", "null"] } }, "required": ["name"], "additionalProperties": false }),
             output_schema: cookbook_schema(),
@@ -713,6 +1210,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" }, "secret": { "type": "string" } }, "required": ["invite_id", "secret"], "additionalProperties": false }),
@@ -725,6 +1223,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" } }, "required": ["invite_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "ended": { "type": "boolean" } }, "required": ["ended"], "additionalProperties": false }),
@@ -739,6 +1238,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "secret": { "type": "string" } }, "required": ["secret"], "additionalProperties": false }),
             output_schema: json!({
@@ -780,6 +1280,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "secret": { "type": "string" } }, "required": ["secret"], "additionalProperties": false }),
             output_schema: cookbook_schema(),
@@ -796,6 +1297,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "join_id": { "type": "string" }, "yes": { "type": "boolean" } }, "required": ["join_id", "yes"], "additionalProperties": false }),
             output_schema: cookbook_schema(),
@@ -811,6 +1313,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: cookbook_schema(),
@@ -825,6 +1328,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "person_id": { "type": "string" } }, "required": ["person_id"], "additionalProperties": false }),
             output_schema: cookbook_schema(),
@@ -839,8 +1343,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" }, "kitchen_id": ignored_kitchen_id() }, "required": ["language", "name"], "additionalProperties": false }),
+            input_schema: json!({ "type": "object", "properties": { "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" }, "kitchen_id": ignored_kitchen_id(), "cookbook_id": landing_cookbook_id() }, "required": ["language", "name"], "additionalProperties": false }),
             output_schema: tag_schema(),
             handler: crate::operations::create_tag,
         },
@@ -856,8 +1361,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Reads,
             job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "everywhere": { "type": "boolean" }, "kitchen_id": { "type": "string", "description": "One of your Kitchens: every word its Cookbooks file by, one entry per word." }, "cookbook_id": { "type": "string", "description": "One Cookbook you can see: the words it files by. One you cannot see is answered as not found." } }, "additionalProperties": false }),
+            input_schema: json!({ "type": "object", "properties": { "everywhere": { "type": "boolean" }, "kitchen_id": { "type": "string", "description": "One of your Kitchens: every word its Cookbooks file by, one entry per word." }, "cookbook_id": { "type": "string", "description": "One Cookbook you can see, or any for an Operator with as_operator: the words it files by. One you cannot see is answered as not found." } }, "additionalProperties": false }),
             output_schema: json!({
                 "type": "object",
                 "properties": { "tags": { "type": "array", "items": tag_schema() } },
@@ -875,6 +1381,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "tag_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" } }, "required": ["tag_id", "language", "name"], "additionalProperties": false }),
             output_schema: tag_schema(),
@@ -889,6 +1396,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "keep_tag_id": { "type": "string" }, "merge_tag_id": { "type": "string" } }, "required": ["keep_tag_id", "merge_tag_id"], "additionalProperties": false }),
             output_schema: tag_schema(),
@@ -903,6 +1411,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "tag_id": { "type": "string" } }, "required": ["tag_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "deleted": { "type": "boolean" } }, "required": ["deleted"], "additionalProperties": false }),
@@ -917,6 +1426,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::WritesItsRecipe,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "tag_id": { "type": "string" }, "carried": { "type": "boolean" } }, "required": ["branch_id", "tag_id", "carried"], "additionalProperties": false }),
             output_schema: json!({
@@ -941,6 +1451,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -979,14 +1490,18 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "create_recipe",
             summary: "Create a Recipe; a title is all it needs. It makes a \
-                      Lineage, a Branch in this Kitchen, and a first Version.",
+                      Lineage, a Branch in this Kitchen, and a first Version. \
+                      With a Job Key it creates the Job's own recipe, once, \
+                      for a Job that has none yet: one reading pasted text, \
+                      a PDF or a picture.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::CreatesItsRecipe,
             job_lane: JobLane::ByCaller,
             input_schema: create_recipe_input_schema(),
-            output_schema: recipe_schema(),
+            output_schema: with_foods_created(recipe_schema()),
             handler: crate::operations::create_recipe,
         },
         Operation {
@@ -998,30 +1513,35 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       every field left out is erased. For a partial change use \
                       edit_recipe instead. A re-save by the same Hand within \
                       60 minutes of the last one collapses into the Version \
-                      already being shaped rather than starting a new one, \
-                      unless another Branch or a Translation already holds \
-                      that Version. A collapsed save keeps the name and \
+                      already being shaped, \
+                      unless another Branch, a Translation or a Bundle \
+                      already holds that Version, or an agent's Job saved \
+                      it. A save \
+                      with a Job Key collapses into the one Version its Job \
+                      started. Once that Job has saved, \
+                      its next save is refused, failing the Job, if anyone \
+                      else saved the recipe or holds that Version. A collapsed save keeps the name and \
                       change_note the Version already has unless it sends new \
                       ones. A save that changes nothing but sends a new name \
                       or change_note writes them onto the Version being \
-                      shaped, and is refused once that Version is no longer \
-                      being shaped. A save that changes nothing but names a \
+                      shaped, or is refused once it is no longer being \
+                      shaped. A save that \
+                      changes nothing but names a \
                       new translates_version_id moves the newest Version's \
                       pointer to it, at any time, and writes no Version. \
-                      Changing a recipe your Cookbook did not write — a \
-                      Kitchen-mate's, or one that arrived — is a Copy: it \
-                      starts a new Branch of the same Lineage in your own \
-                      Cookbook, starting at the Version you changed and \
-                      carrying the whole chain behind it — the Branch you \
-                      changed is left untouched. The Branch must be one you \
-                      may see.",
+                      Changing a recipe your Cookbook did not write, a \
+                      Kitchen-mate's or one that arrived, is a Copy: a new \
+                      Branch of the same Lineage in your own Cookbook, \
+                      carrying the whole chain up to the Version you \
+                      changed, and the Branch you changed is left untouched.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::WritesItsRecipe,
             job_lane: JobLane::ByCaller,
             input_schema: save_recipe_version_input_schema(),
-            output_schema: saved_version_schema(),
+            output_schema: with_foods_created(saved_version_schema()),
             handler: crate::operations::save_recipe_version,
         },
         Operation {
@@ -1038,7 +1558,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       exactly save_recipe_version: the result is saved as the \
                       recipe's new state, a re-edit by the same Hand within 60 \
                       minutes collapses into the Version being shaped (unless \
-                      another Branch or a Translation already holds it), and \
+                      another Branch, a Translation or a Bundle already holds \
+                      it, or an agent's Job saved it), an edit with a Job Key \
+                      collapses \
+                      and is refused as its save is, and \
                       changing a recipe your Cookbook did not write is a Copy. \
                       A collapsed edit keeps the name and change_note the \
                       Version already has unless it sends new ones, and an \
@@ -1048,16 +1571,16 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       nothing but names a new translates_version_id moves the \
                       newest Version's pointer to it, at any time, and writes \
                       no Version. An Ingredient Line the edit leaves word for \
-                      word as it was, in the same place, keeps its Reading as \
-                      it was, a misreading included; correct one with \
-                      set_reading.",
+                      word as it was keeps its Reading as it was, a \
+                      misreading included; correct one with set_reading.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::WritesItsRecipe,
             job_lane: JobLane::ByCaller,
             input_schema: edit_recipe_input_schema(),
-            output_schema: saved_version_schema(),
+            output_schema: with_foods_created(saved_version_schema()),
             handler: crate::operations::edit_recipe,
         },
         Operation {
@@ -1065,15 +1588,61 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Start a variation of a recipe in your own Cookbook. It \
                       is a Branch of the recipe, unchanged, under a name you \
                       give it (\"Vegetarian\"). Changing one never changes the \
-                      other.",
+                      other. With version_id, a Version of that Branch, it \
+                      starts from that older Version instead of the newest, \
+                      and the recipe stays as it is. Only for those who write \
+                      the recipe's Cookbook.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["branch_id", "name"], "additionalProperties": false }),
+            input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "name": { "type": "string" }, "version_id": { "type": "string" } }, "required": ["branch_id", "name"], "additionalProperties": false }),
             output_schema: recipe_schema(),
             handler: crate::operations::start_variation,
+        },
+        Operation {
+            name: "put_back_version",
+            summary: "Make an older Version the recipe again. It is saved \
+                      as a new Version on top of the newest, every field as \
+                      that Version held it. It never collapses into the \
+                      Version being shaped, so the Thread keeps the one \
+                      stepped away from. The Readings that Version had come \
+                      back with it. version_id is a Version of that Branch, \
+                      and not its newest. Only for those who write the \
+                      recipe's Cookbook; anybody else may \
+                      keep_version_as_copy.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "version_id": { "type": "string" } }, "required": ["branch_id", "version_id"], "additionalProperties": false }),
+            output_schema: saved_version_schema(),
+            handler: crate::operations::put_back_version,
+        },
+        Operation {
+            name: "keep_version_as_copy",
+            summary: "Keep a Version of a recipe as your own copy. For a \
+                      recipe you do not write: the copy goes in your own \
+                      Cookbook and starts from that Version, an older one \
+                      included, and the recipe it came from is not changed. \
+                      Where your Cookbook already holds its own copy of that \
+                      recipe in that Language, a name is required and this \
+                      one is a named variation beside it; changed_since says \
+                      so as keeping_needs_name. Those who write the recipe \
+                      use put_back_version or start_variation instead.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "version_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["branch_id", "version_id"], "additionalProperties": false }),
+            output_schema: recipe_schema(),
+            handler: crate::operations::keep_version_as_copy,
         },
         Operation {
             name: "rename_branch",
@@ -1084,6 +1653,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "name": { "type": ["string", "null"] } }, "required": ["branch_id", "name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "name": { "type": ["string", "null"] } }, "required": ["branch_id", "name"], "additionalProperties": false }),
@@ -1109,6 +1679,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -1144,6 +1715,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -1174,6 +1746,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -1195,25 +1768,113 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::read_recipe_pdf,
         },
         Operation {
-            name: "start_translation",
-            summary: "Translate a recipe into another Language. It starts an \
-                      ordinary Branch of the same Lineage in that Language, \
-                      whose first Version records which Version of the source \
-                      it renders. There is no Translation object — what this \
-                      makes is a Branch, and every Operation from here on is \
-                      the ordinary one. Its chain starts fresh rather than \
-                      carrying the source's, which is what separates it from a \
-                      Copy: different words rendering the same dish, with a \
-                      history of their own. An agent translating calls this \
-                      under the Person's own Credential and is a scribe, not \
-                      an author.",
+            name: "import_by_agent",
+            summary: "Have an agent make a recipe from text, a link or a \
+                      file. The file is a PDF or a picture, and the recipe \
+                      lands in your own Cookbook. Only on an \
+                      instance with a Runner: without one it is refused with \
+                      reason `no_runner`. A PDF may be a scan. Pass pasted \
+                      text as `text`. Pass a web page or a video as `link`: \
+                      Kamosu does not read it first, so nothing lands before \
+                      the agent's recipe, and the Job is listed under the \
+                      source `web`. A link sent again is never matched. \
+                      Send a file to POST /api/uploads and \
+                      pass the `upload_id` it answers, or pass it \
+                      base64-encoded as `data`. Answers the id of a Job that \
+                      waits for a Runner, as `get_job` reads it, and what it \
+                      was taken as. A PDF or a picture handed over before is \
+                      known by its contents: while your Job on it waits or is \
+                      worked, the answer is that Job, and once its recipe \
+                      exists the answer is that recipe as `branch_id` and \
+                      `title`, with no Job. Pasted text is never matched. No \
+                      recipe exists until the agent creates \
+                      one, under your Hand. Read the Job with `get_job`: its \
+                      result is the Import Report, which lists the recipe as \
+                      arrived once it exists and says what the agent left \
+                      undone, or why it could not be read. Cancel it with \
+                      `cancel_job`. Kamosu keeps what was handed over for the \
+                      agent to fetch and never shows it.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "cookbook_id": landing_cookbook_id(),
+                    "text": {
+                        "type": "string",
+                        "description": "A recipe pasted as text.",
+                    },
+                    "link": {
+                        "type": "string",
+                        "description": "A web page or a video with a recipe in it, \
+                                         as an http:// or https:// address.",
+                    },
+                    "upload_id": {
+                        "type": "string",
+                        "description": "The id POST /api/uploads answered for a PDF \
+                                         or a picture. Used once, then deleted.",
+                    },
+                    "data": {
+                        "type": "string",
+                        "description": "A PDF or a picture, base64-encoded, for a Door \
+                                         that can send only JSON.",
+                    },
+                },
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "The agent's Job: a new one, or yours that \
+                                         waits or is worked on the same file. \
+                                         Absent when `branch_id` is there.",
+                    },
+                    "source_kind": {
+                        "enum": ["pasted_text", "pdf", "picture", "web"],
+                        "description": "What it was taken as, and the source the \
+                                         arrival is listed under in `list_imports`.",
+                    },
+                    "branch_id": {
+                        "type": "string",
+                        "description": "The recipe an agent already made from the \
+                                         same file, when it was handed over before. \
+                                         No Job is made.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "That recipe's name now.",
+                    },
+                },
+                "required": ["source_kind"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::import_by_agent,
+        },
+        Operation {
+            name: "start_translation",
+            summary: "Translate a recipe into another Language. It is an \
+                      ordinary Branch of its Lineage. Its first Version \
+                      records which Version of the source it renders, and its \
+                      chain starts fresh, unlike a Copy's. An agent translating \
+                      calls this under the Person's Credential. Keep each \
+                      Ingredient Line and section heading in the source's \
+                      place, with its amount and unit: such a line takes the \
+                      source line's Food, here and on a save naming a newer \
+                      translates_version_id.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: start_translation_input_schema(),
-            output_schema: recipe_schema(),
+            output_schema: with_foods_created(recipe_schema()),
             handler: crate::operations::start_translation,
         },
         Operation {
@@ -1221,7 +1882,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Say what Language a recipe is written in. The only thing \
                       that acts on a save's language offer — Kamosu detects and \
                       offers, and never changes a Language without the cook \
-                      saying so. Changing it makes a Version, so the change \
+                      saying so, except to set one guessed for a recipe that \
+                      held too little text to read, from the first text that \
+                      says one. Changing it makes a Version, so the change \
                       leaves a trace in the recipe's own history. Setting it to \
                       `unknown` says the recipe is honestly more than one \
                       Language: from then on it is offered nothing, marked \
@@ -1230,6 +1893,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -1269,6 +1933,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Job,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: import_input_schema(),
             output_schema: import_report_schema(),
@@ -1290,10 +1955,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Job,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": {
+                    "cookbook_id": landing_cookbook_id(),
                     "upload_id": {
                         "type": "string",
                         "description": "The id POST /api/uploads answered for the \
@@ -1327,6 +1994,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -1381,6 +2049,26 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                                             },
                                             "offered": { "type": "integer" },
                                             "unreadable": { "type": "integer" },
+                                            "agent_jobs": {
+                                                "type": "array",
+                                                "description": "Present when this arrival left \
+                                                                 a recipe for a Runner's agent \
+                                                                 to read: that Job and its \
+                                                                 state now. It is part of this \
+                                                                 arrival and is listed nowhere \
+                                                                 else here. `queued` is waiting \
+                                                                 for a Runner.",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "job_id": { "type": "string" },
+                                                        "branch_id": { "type": ["string", "null"] },
+                                                        "status": { "enum": ["queued", "running", "completed", "failed", "cancelled"] },
+                                                    },
+                                                    "required": ["job_id", "branch_id", "status"],
+                                                    "additionalProperties": false,
+                                                },
+                                            },
                                         },
                                         "required": ["job_id", "status", "created_at", "arrived", "created", "offered", "unreadable"],
                                         "additionalProperties": false,
@@ -1409,6 +2097,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -1442,7 +2131,17 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       whole as the recipe file it serves, exactly as \
                       `import_bundle` receives one, with every Version and its \
                       original Source; an ended link is refused and lands \
-                      nothing (#169). Fetching is bound to public \
+                      nothing (#169). While the instance has a Runner, a \
+                      page with no recipe data, or one that refused the \
+                      fetch, lands as a bare recipe and `agent_jobs` names \
+                      the Job waiting for an agent to read it. Without a \
+                      Runner, a page with no recipe data is read from its \
+                      own article text the way `read_pasted_recipe` reads a \
+                      paste, and when that finds Ingredient Lines nothing \
+                      lands: the answer is `to_check` alone, for a person to \
+                      check and save, with the page as its Source (#301). \
+                      Where it finds none, the page lands bare as before. \
+                      Fetching is bound to public \
                       addresses at the dialled address and at every redirect \
                       (ADR 0033), and — because a page's own text can tell an \
                       agent to fetch another URL — always takes the single \
@@ -1452,10 +2151,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Job,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::AlwaysSingle,
             input_schema: json!({
                 "type": "object",
                 "properties": {
+                    "cookbook_id": landing_cookbook_id(),
                     "url": {
                         "type": "string",
                         "description": "The recipe page's address. Fetched \
@@ -1466,7 +2167,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "required": ["url"],
                 "additionalProperties": false,
             }),
-            output_schema: import_report_schema(),
+            output_schema: web_link_answer_schema(),
             handler: crate::operations::import_web_link,
         },
         Operation {
@@ -1491,6 +2192,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             // import has any use for.
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             // The same lane `import_web_link` takes, for the same reason: the
             // address is somebody else's, and a page can ask for another.
             job_lane: JobLane::AlwaysSingle,
@@ -1588,6 +2290,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -1618,6 +2321,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::StoresPhotographs,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -1652,6 +2356,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Reads,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -1710,6 +2415,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -1771,6 +2477,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             // library by the act of reading one.
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -1802,6 +2509,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: meaning_status_schema(),
@@ -1824,6 +2532,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             // (ADR 0029, ADR 0031). A read-only Key still cannot: accepting is
             // a write, so no new guard was needed for that half.
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -1843,6 +2552,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -1865,6 +2575,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Job,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             // The ordinary rule: an Operator's own lane. The risk here is size,
             // not the fetch — the address is a constant in this binary, not
             // anything a recipe could talk Kamosu into dialling (ADR 0033).
@@ -1896,6 +2607,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Job,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -1917,6 +2629,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -1941,6 +2654,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Reads,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -1962,13 +2676,15 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       with every Attempt hanging off it. An Attempt's \
                       eaten_version_id is the Version its rating is about: the \
                       As Cooked once that was kept as a Version, otherwise the \
-                      Version it started from. branch_id is only the \
+                      Version it started from. Its person_name is who cooked, \
+                      and mine says whether that is you. branch_id is only the \
                       entry point — any Branch of the Lineage answers the same \
                       Thread.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Reads,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -1999,6 +2715,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2030,6 +2747,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2051,6 +2769,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2072,6 +2791,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -2099,6 +2819,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2130,6 +2851,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2178,6 +2900,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Job,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2206,6 +2929,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Job,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2238,6 +2962,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Job,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             // Two ways in, the pair `import_crouton` already takes (#69, #93):
             // one recipe carrying photographs is megabytes, and base64 inside a
@@ -2245,6 +2970,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: json!({
                 "type": "object",
                 "properties": {
+                    "cookbook_id": landing_cookbook_id(),
                     "upload_id": {
                         "type": "string",
                         "description": "The id POST /api/uploads answered for the \
@@ -2275,6 +3001,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2291,11 +3018,18 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       walking both chains back until they meet: never \
                       declared, always computed. A chain that does not \
                       converge on a shared first Version answers a \
-                      damaged-Bundle error rather than a guess.",
+                      damaged-Bundle error rather than a guess. A Translation \
+                      has no Branch Point with its source, nor with another \
+                      Translation of it: its chain starts fresh, so the two \
+                      share no Version and the call is refused. Read the \
+                      link from `translation` on the Branch in `get_thread` \
+                      or `get_recipe`, or from `translates_version_id` on \
+                      each of the Translation's Versions.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Reads,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2320,14 +3054,23 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       lets a screen show two whole recipes with a switch \
                       between them rather than a difference (ADR 0014). Every \
                       row carries both sides' own words; a line only one side \
-                      has is a Ghost. Which line is which is read against the \
-                      Branch Point, never by an id stapled to a line (ADR \
+                      has is a Ghost. A line both have word for word in \
+                      another place is `moved`, and `place` says where each \
+                      side's page draws a row. Which line is which is read \
+                      against the Branch Point, never by an id stapled to a line (ADR \
                       0019), and an uncertain reading declines to pair rather \
-                      than claiming a connection.",
+                      than claiming a connection. A Translation has no Branch \
+                      Point with its source, nor with another Translation of \
+                      it, and the two are in different Languages, so nothing \
+                      pairs their lines and the call is refused. Read the \
+                      link from `translation` on the Branch in `get_thread` \
+                      or `get_recipe`, or from `translates_version_id` on \
+                      each of the Translation's Versions.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Reads,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2356,11 +3099,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       a line taken out since; a row only `mine` has is a line \
                       written since. The newest Version answers with every \
                       row the same and `newest` true. `writes` says whether \
-                      the caller may save onto this Branch.",
+                      the caller may save onto this Branch, and so may \
+                      put_back_version or start_variation from that Version; \
+                      anybody else may keep_version_as_copy.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Reads,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2391,14 +3137,15 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       0008); never both, and a Lineage this instance does not \
                       hold is accepted, because a Component goes on naming its \
                       recipe when the recipe is gone. A save carries the \
-                      Reading of each line left word for word as it was, in \
-                      the same place, onto the new Version and never reads \
-                      that line again, so this is how to correct a misreading \
-                      without rewording the line.",
+                      Reading of each line left word for word as it was onto \
+                      the new Version and never reads that line again, so \
+                      this is how to correct a misreading without rewording \
+                      the line.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::CorrectsItsReadings,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2450,6 +3197,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Job,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -2480,6 +3228,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Job,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -2540,6 +3289,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2571,6 +3321,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2601,6 +3352,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2635,6 +3387,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2669,6 +3422,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2699,6 +3453,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2742,6 +3497,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: set_as_cooked_input_schema(),
             output_schema: attempt_schema(),
@@ -2758,6 +3514,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2788,6 +3545,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2816,6 +3574,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2845,6 +3604,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -2880,6 +3640,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: shopping_list_schema(),
@@ -2903,6 +3664,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2928,6 +3690,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2957,6 +3720,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -2981,6 +3745,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -3017,6 +3782,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -3038,6 +3804,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -3058,6 +3825,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -3083,6 +3851,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -3104,6 +3873,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Reads,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -3122,6 +3892,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Reads,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "food_id": { "type": "string" } }, "required": ["food_id"], "additionalProperties": false }),
             output_schema: food_schema(),
@@ -3141,6 +3912,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -3164,6 +3936,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -3187,6 +3960,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -3211,6 +3985,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -3239,6 +4014,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -3265,6 +4041,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "food_id": { "type": "string" } }, "required": ["food_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "deleted": { "type": "boolean" } }, "required": ["deleted"], "additionalProperties": false }),
@@ -3276,11 +4053,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             name: "get_job",
             summary: "Read one Job's state, progress, and result or failure. A \
                       failure carries the reason it failed. Readable by the \
-                      Person who asked, or by anyone when no Person did.",
+                      Person who asked, or by anyone when no Person did. An \
+                      agent's Job is also readable by the Co-authors of the \
+                      Cookbook its recipe is in.",
             permission: Permission::Public,
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -3293,12 +4073,13 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "cancel_job",
-            summary: "Cancel a Job you asked for. It is acknowledged always, \
-                      and honoured while it still waits in line.",
+            summary: "Cancel a Job you asked for. Always acknowledged, and \
+                      honoured while it waits or an agent is working on it.",
             permission: Permission::Public,
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
@@ -3317,12 +4098,259 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::cancel_job,
         },
         Operation {
+            name: "get_recipe_job",
+            summary: "Read which agent's Job waits or is being worked on a \
+                      recipe. `job` is null when none is, and once the Job \
+                      has ended. Among those who see the recipe, it names \
+                      the Job to the Person who asked for it and to the \
+                      Co-authors of the recipe's Cookbook, who may read it \
+                      with `get_job`. Anyone else who sees the recipe is \
+                      answered null.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "job": {
+                        "type": ["object", "null"],
+                        "properties": {
+                            "id": { "type": "string" },
+                            "status": {
+                                "enum": ["queued", "running"],
+                                "description": "`queued` while the Job waits for a Runner, `running` while one holds it.",
+                            },
+                            "yours": {
+                                "type": "boolean",
+                                "description": "True when you asked for the Job, and so may cancel it.",
+                            },
+                        },
+                        "required": ["id", "status", "yours"],
+                        "additionalProperties": false,
+                    },
+                },
+                "required": ["job"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::get_recipe_job,
+        },
+        Operation {
+            name: "read_recipe_again",
+            summary: "Have an agent read a recipe again. A recipe an agent \
+                      read from a PDF, a picture or pasted text is read from \
+                      what Kamosu kept of it. Kamosu deletes that 30 days \
+                      after its Job ended, and then the ask is refused with \
+                      reason `needs_the_file`: ask again handing the file over, \
+                      as `upload_id` or `data`, or the text as `text`. Any \
+                      other recipe is read from its Source link, whichever way \
+                      it arrived, and takes nothing handed over. It makes a \
+                      Job that waits for a Runner. Only a Co-author of the \
+                      Cookbook that holds the recipe may ask, on a Kamosu with \
+                      a Runner. A recipe is read again once: after a reading \
+                      that finished, or one stopped while a Runner held it, the \
+                      ask is refused with reason `already_read_again`. One that \
+                      failed, or was stopped while it waited, does not count. \
+                      A variation is a recipe of its own, read again once too. \
+                      The agent's saves become one new Version under \
+                      your Hand, so the earlier one stays in the History. Where \
+                      a Job already waits or is being worked on the recipe, \
+                      that Job is the answer, and nothing handed over is kept. \
+                      Its result is an Import Report \
+                      under the source `read_again`, which says what the agent \
+                      left undone or was unsure of. Ask `can_read_recipe_again` \
+                      first to know what it would read, or why it would be \
+                      refused.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "text": {
+                        "type": "string",
+                        "description": "The recipe pasted again, where it was read \
+                                         from pasted text Kamosu no longer keeps.",
+                    },
+                    "upload_id": {
+                        "type": "string",
+                        "description": "The id POST /api/uploads answered for the PDF \
+                                         or the picture handed over again. Used once, \
+                                         then deleted.",
+                    },
+                    "data": {
+                        "type": "string",
+                        "description": "The PDF or the picture handed over again, \
+                                         base64-encoded, for a Door that can send only \
+                                         JSON.",
+                    },
+                },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "The agent's Job, read with `get_job`: a new \
+                                         one, or the one already on the recipe.",
+                    },
+                    "branch_id": { "type": "string" },
+                },
+                "required": ["job_id", "branch_id"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::read_recipe_again,
+        },
+        Operation {
+            name: "can_read_recipe_again",
+            summary: "Say whether a recipe can be read again, and from what. \
+                      This is for you, as `read_recipe_again` would answer \
+                      you. `from` is `original` for a recipe an agent read \
+                      from a file or pasted text, and `link` for one read \
+                      from its Source link. `reason` says why not: \
+                      `not_a_co_author` when you see the recipe and do not \
+                      write its Cookbook, `would_start_a_copy` when your \
+                      Cookbook received it and did not write it, `no_runner` \
+                      when no agent would read it, `already_read_again` when \
+                      it has been read again already, which a recipe is once, \
+                      `needs_the_file` when what \
+                      it was read from is no longer kept and has to be handed \
+                      over again, and `nothing_to_read` when it came from no \
+                      file and its Source has no http or https link on the \
+                      internet.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "can_read_again": { "type": "boolean" },
+                    "from": {
+                        "enum": ["original", "link", null],
+                        "description": "What an agent would read: what Kamosu kept \
+                                         of the file or text the recipe was read \
+                                         from, or handed over again where that is \
+                                         gone, or the Source's link. Null where \
+                                         there is nothing to read.",
+                    },
+                    "link": {
+                        "type": ["string", "null"],
+                        "description": "The link in the recipe's Source. Null where \
+                                         it has none, or one that is no http or https \
+                                         address on the internet.",
+                    },
+                    "original": {
+                        "enum": ["pasted_text", "pdf", "picture", null],
+                        "description": "What the recipe was read from, where an agent \
+                                         read it from something handed over, kept or \
+                                         not.",
+                    },
+                    "reason": {
+                        "enum": [
+                            "not_a_co_author", "would_start_a_copy", "no_runner",
+                            "already_read_again", "needs_the_file", "nothing_to_read",
+                            null
+                        ],
+                        "description": "Why it cannot be read again, or null when \
+                                         it can.",
+                    },
+                },
+                "required": ["can_read_again", "from", "link", "original", "reason"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::can_read_recipe_again,
+        },
+        Operation {
+            name: "read_job_again",
+            summary: "Have an agent read again a file your Job failed on. It \
+                      reads what Kamosu kept of the PDF, the picture or the \
+                      pasted text a Job of yours failed on before it made a \
+                      recipe, so you need not find the file. Kamosu deletes \
+                      that 30 days after the Job ended, \
+                      and then this is refused with reason `original_gone`: \
+                      hand it over again with `import_by_agent`. A Job that \
+                      made a recipe, or did not fail, is refused with reason \
+                      `not_failed_on_a_file`. Only on a Kamosu with a Runner. \
+                      Answers as `import_by_agent` does: a new Job, or the one \
+                      of yours that waits or is worked on the same file, or \
+                      the recipe an agent made from it since.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "The Job that failed, as `get_job` reads it.",
+                    },
+                },
+                "required": ["job_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "The agent's new Job, or yours that waits or \
+                                         is worked on the same file. Absent when \
+                                         `branch_id` is there.",
+                    },
+                    "source_kind": {
+                        "enum": ["pasted_text", "pdf", "picture"],
+                        "description": "What it was read as, and the source the \
+                                         arrival is listed under in `list_imports`.",
+                    },
+                    "branch_id": {
+                        "type": "string",
+                        "description": "The recipe an agent made from the same file \
+                                         since. No Job is made.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "That recipe's name now.",
+                    },
+                },
+                "required": ["source_kind"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::read_job_again,
+        },
+        Operation {
             name: "list_jobs",
             summary: "List the Jobs this Person has asked for, newest first.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
@@ -3349,6 +4377,13 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::list_jobs,
         },
     ];
+    // The Operations an Operator may ask to act as one on (#302, ADR 0049),
+    // each declaring `as_operator` beside its own input.
+    for op in operations.iter_mut() {
+        if AS_OPERATOR.contains(&op.name) {
+            op.input_schema["properties"]["as_operator"] = as_operator();
+        }
+    }
     // The demonstration Job exists only where tests can drive it end-to-end
     // through real Doors. Production instances ship no synthetic Operations;
     // their first Jobs arrive with Import, Sheet rendering and Meaning Search.
@@ -3363,6 +4398,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         kind: Kind::Job,
         write: true,
         session_only: false,
+        job_key: JobKey::Never,
         job_lane: JobLane::ByCaller,
         input_schema: json!({
             "type": "object",
@@ -3955,7 +4991,7 @@ fn saved_version_schema() -> Value {
             },
             "language": {
                 "type": "string",
-                "description": "The Language this recipe still carries. A save never changes it.",
+                "description": "The Language this recipe carries. A save changes only a guess.",
             },
             "language_offer": {
                 "type": ["string", "null"],
@@ -3972,6 +5008,31 @@ fn saved_version_schema() -> Value {
         ],
         "additionalProperties": false,
     })
+}
+
+/// A save's answer, naming as well the Foods reading its lines created (#358),
+/// so an agent can repoint a line and delete a stray Food in the same turn.
+fn with_foods_created(mut answer: Value) -> Value {
+    answer["properties"]["foods_created"] = json!({
+        "type": "array",
+        "description": "Each Food this save created: its word, and the lines read as it, as set_reading counts them. Empty when none.",
+        "items": {
+            "type": "object",
+            "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "language": { "type": "string" },
+                "line_indexes": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+            },
+            "required": ["id", "name", "language", "line_indexes"],
+            "additionalProperties": false,
+        },
+    });
+    answer["required"]
+        .as_array_mut()
+        .expect("an answer's schema lists what it requires")
+        .push(json!("foods_created"));
+    answer
 }
 
 /// How a recipe has been cooked, as the recipe screen shows it (#59).
@@ -4246,16 +5307,30 @@ fn divergence_row_schema() -> Value {
             // the other. There is deliberately no confidence value anywhere:
             // an uncertain reading declines to pair, and shows as two
             // unjoined rows rather than one row wearing a hedge (ADR 0019).
-            "state": { "enum": ["same", "changed", "only-mine", "only-theirs"] },
+            // moved: both sides have it word for word, in places the rest of
+            // the two lists do not agree on (#337).
+            "state": { "enum": ["same", "changed", "moved", "only-mine", "only-theirs"] },
             // Whether this line was already at the Branch Point. It separates
             // "they took this out" from "they never had it" — the same Ghost,
             // a different sentence, and only the first can be carried across
             // as a removal.
             "from_branch_point": { "type": "boolean" },
+            // Where this row is drawn on each side's page: its own lines in
+            // its own order, the other side's Ghosts slotted in. The rows come
+            // in `mine`'s order (#337).
+            "place": {
+                "type": "object",
+                "properties": {
+                    "mine": { "type": "integer", "minimum": 0 },
+                    "theirs": { "type": "integer", "minimum": 0 },
+                },
+                "required": ["mine", "theirs"],
+                "additionalProperties": false,
+            },
             "mine": divergence_line_schema(),
             "theirs": divergence_line_schema(),
         },
-        "required": ["kind", "state", "from_branch_point", "mine", "theirs"],
+        "required": ["kind", "state", "from_branch_point", "place", "mine", "theirs"],
         "additionalProperties": false,
     })
 }
@@ -4386,10 +5461,18 @@ fn changed_since_schema() -> Value {
         "additionalProperties": false,
     });
     schema["properties"]["writes"] = json!({ "type": "boolean" });
+    schema["properties"]["keeping_needs_name"] = json!({
+        "type": "boolean",
+        "description": "Whether keep_version_as_copy needs a name here: your Cookbook already holds its own copy of this recipe in this Language.",
+    });
     schema["required"]
         .as_array_mut()
         .expect("a divergence declares what it requires")
-        .extend([json!("version"), json!("writes")]);
+        .extend([
+            json!("version"),
+            json!("writes"),
+            json!("keeping_needs_name"),
+        ]);
     schema
 }
 
@@ -4451,12 +5534,56 @@ fn ignored_kitchen_id() -> Value {
     })
 }
 
+/// The Operations that take `as_operator`: a recipe and its Tags read or
+/// changed wherever it is, and a create or an Import landing in any Cookbook
+/// (#302, ADR 0049).
+pub const AS_OPERATOR: [&str; 15] = [
+    "create_recipe",
+    "create_tag",
+    "delete_recipe",
+    "edit_recipe",
+    "get_recipe",
+    "get_thread",
+    "import",
+    "import_bundle",
+    "import_by_agent",
+    "import_crouton",
+    "import_web_link",
+    "list_tags",
+    "save_recipe_version",
+    "set_recipe_tag",
+    "set_related_recipe",
+];
+
+fn as_operator() -> Value {
+    json!({
+        "type": "boolean",
+        "description": "Operator only: act as the Operator on this call, \
+                         reaching a recipe or Cookbook you could not reach \
+                         as yourself, and changing it where it is, under \
+                         your own Hand. Refused to anybody else.",
+    })
+}
+
+/// The Cookbook a create or an Import lands in, where it is not the caller's
+/// own (#302).
+fn landing_cookbook_id() -> Value {
+    json!({
+        "type": "string",
+        "description": "Operator only, with as_operator: the Cookbook to put \
+                         it in, as list_cookbooks names it. Left out, it lands \
+                         in your own. A Cookbook not your own is otherwise \
+                         answered as not found.",
+    })
+}
+
 /// `create_recipe`'s input: a Kitchen and a title are all a Recipe ever
 /// needs — every other field of the recipe's content is optional here.
 fn create_recipe_input_schema() -> Value {
     let mut properties = recipe_content_input_properties();
     let map = properties.as_object_mut().expect("object schema");
     map.insert("kitchen_id".to_string(), ignored_kitchen_id());
+    map.insert("cookbook_id".to_string(), landing_cookbook_id());
     map.insert(
         "language".to_string(),
         json!({
@@ -4613,6 +5740,7 @@ fn import_input_schema() -> Value {
                                  from. One ledger is kept per Cookbook per \
                                  source kind.",
             },
+            "cookbook_id": landing_cookbook_id(),
             "candidates": {
                 "type": "array",
                 "items": {
@@ -4671,6 +5799,40 @@ fn pasted_recipe_schema() -> Value {
     })
 }
 
+/// What `import_web_link` answers (#301): the Import Report, or, where the
+/// page was read from its own text and nothing landed, `to_check` alone. A
+/// declaration says one shape, so the Report's fields are all optional here
+/// and the description says which of the two came back.
+fn web_link_answer_schema() -> Value {
+    let mut schema = import_report_schema();
+    let mut to_check = pasted_recipe_schema();
+    to_check["description"] = json!(
+        "Present alone when the page held no recipe data and the instance has no \
+         Runner: what its article text read as, the way `read_pasted_recipe` \
+         answers, and nothing was saved. To keep it, make the recipe with this \
+         `source` as its Source."
+    );
+    to_check["properties"]["source"] = json!({
+        "type": "object",
+        "properties": {
+            "text": { "type": "string" },
+            "link": {
+                "type": "string",
+                "description": "The page's own address, after redirects.",
+            },
+        },
+        "required": ["text", "link"],
+        "additionalProperties": false,
+    });
+    to_check["required"]
+        .as_array_mut()
+        .expect("the paste schema lists what it requires")
+        .push(json!("source"));
+    schema["properties"]["to_check"] = to_check;
+    schema["required"] = json!([]);
+    schema
+}
+
 /// Every importer's eventual result: the Import Report, a ledger read by a
 /// person rather than an error log (ADR 0025, GLOSSARY.md "Import Report").
 /// Every candidate lands in exactly one bucket — `arrived` covers a recipe
@@ -4701,7 +5863,11 @@ fn import_report_schema() -> Value {
                                              Bundle, the Branch id it travels under, which \
                                              is the sender's.",
                         },
-                        "status": { "enum": ["created", "extended", "unchanged"] },
+                        "status": {
+                            "enum": ["created", "extended", "unchanged", "read_again"],
+                            "description": "`read_again` is a recipe already held that \
+                                             a Co-author asked an agent to read again.",
+                        },
                         "lineage_id": { "type": "string" },
                         "branch_id": {
                             "type": "string",
@@ -4778,6 +5944,13 @@ fn import_report_schema() -> Value {
                             "required": ["lineage_id", "branch_id", "title"],
                             "additionalProperties": false,
                         },
+                        "branch_id": {
+                            "type": "string",
+                            "description": "Where an agent's Job failed on a recipe \
+                                             that had landed bare: that recipe. It stays, \
+                                             still listed under `arrived`, unless the Job \
+                                             failed because the recipe was deleted.",
+                        },
                     },
                     "required": ["foreign_id", "reason"],
                     "additionalProperties": false,
@@ -4808,6 +5981,66 @@ fn import_report_schema() -> Value {
                         },
                     },
                     "required": ["foreign_id", "branch_id", "title", "what", "count"],
+                    "additionalProperties": false,
+                },
+            },
+            "agent_jobs": {
+                "type": "array",
+                "description": "Present when a Runner's agent is to read what Kamosu could \
+                                 not: the Job on each such recipe, which is a second Job \
+                                 after this Import, done by that agent and not by Kamosu. \
+                                 It is read here as it stands now, so this part of the \
+                                 Report changes after the Import has ended. The bare \
+                                 recipe and the agent's work on it are one arrival. Read \
+                                 the Job itself with `get_job`, where its operation is \
+                                 `read_by_agent`, and cancel it with `cancel_job`, \
+                                 while it waits or while it is being worked. A recipe \
+                                 has one such Job at a time, so the \
+                                 same link imported again while it stands names the same Job.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "job_id": { "type": "string" },
+                        "branch_id": {
+                            "type": ["string", "null"],
+                            "description": "The recipe the agent is to write, which is \
+                                             listed under `arrived` or `offered`. Null \
+                                             while an agent reading pasted text, a PDF, \
+                                             a picture or a link handed to it alone has \
+                                             not created it yet.",
+                        },
+                        "status": {
+                            "enum": ["queued", "running", "completed", "failed", "cancelled"],
+                            "description": "`queued` is waiting for a Runner and `running` \
+                                             is held by one, its agent at work. A `failed` \
+                                             Job is also listed under `unreadable`, with \
+                                             the reason.",
+                        },
+                        "made_by_agent": {
+                            "type": "boolean",
+                            "description": "Present and true once the Job has completed: \
+                                             an agent made this recipe. Nothing on the \
+                                             recipe itself says so.",
+                        },
+                        "agent_report": agent_report_schema(),
+                        "original_gone": {
+                            "type": "boolean",
+                            "description": "Present and true once the pasted text, PDF or \
+                                             picture this Job read has been deleted, \
+                                             which Kamosu does 30 days after the Job \
+                                             ended. `source_kind` still says which it \
+                                             was.",
+                        },
+                        "could_not_be_read": {
+                            "type": "boolean",
+                            "description": "Present and true when the agent said what it \
+                                             was handed holds no recipe it can read. The \
+                                             reason under `unreadable` is then the \
+                                             agent's own words. A Job that failed any \
+                                             other way has Kamosu's reason there.",
+                        },
+                    },
+                    "required": ["job_id", "branch_id"],
                     "additionalProperties": false,
                 },
             },
@@ -4849,6 +6082,50 @@ fn import_report_schema() -> Value {
             "import_id", "cookbook_id", "source_kind", "arrived", "offered", "unreadable",
             "left_out", "related_candidates"
         ],
+        "additionalProperties": false,
+    })
+}
+
+/// An agent's own report on a Job (ADR 0048, #262): what a Runner passes on
+/// with `report_on_job`, and what the Import Report shows of it. Kamosu keeps
+/// it as written and acts on none of it. A list the agent leaves out is kept
+/// empty, and Kamosu refuses a list of more than 100 entries and an entry of
+/// more than 2,000 characters.
+fn agent_report_schema() -> Value {
+    json!({
+        "type": "object",
+        "description": "The agent's own report on its work, present once a Runner has \
+                         passed one on.",
+        "properties": {
+            "left_undone": {
+                "type": "array",
+                "description": "What the agent did not do, a sentence each: an \
+                                 Ingredient Line it could not read, a Step it left \
+                                 out, a photo it could not fetch.",
+                "items": { "type": "string" },
+            },
+            "unsure": {
+                "type": "array",
+                "description": "What the agent wrote and was unsure of, a sentence \
+                                 each, so the cook knows where to look.",
+                "items": { "type": "string" },
+            },
+            "likely_duplicates": {
+                "type": "array",
+                "description": "The Branch id of each recipe already in the library \
+                                 that this one is likely a duplicate of. The recipe \
+                                 is saved all the same. Kamosu does not check the \
+                                 ids, so read each with `get_recipe`.",
+                "items": { "type": "string" },
+            },
+            "unused_foods": {
+                "type": "array",
+                "description": "The name of each Food the agent's corrections left \
+                                 with nothing pointing at it, for an Operator to \
+                                 tidy.",
+                "items": { "type": "string" },
+            },
+        },
         "additionalProperties": false,
     })
 }
@@ -5451,8 +6728,9 @@ fn as_cooked_schema() -> Value {
             // adds or drops a line, which they may.
             //
             // `same` where the line was left alone, `changed` where it was
-            // rewritten, `only-mine` where the cook dropped it and
-            // `only-theirs` where they added one.
+            // rewritten, `moved` where it was put elsewhere word for word,
+            // `only-mine` where the cook dropped it and `only-theirs` where
+            // they added one.
             "against": {
                 "type": "object",
                 "properties": {
@@ -5525,19 +6803,31 @@ fn attempt_or_null_schema() -> Value {
 /// `version_id`. It is served for every cook, a Kitchen-mate whose As Cooked
 /// is withheld included, and it only ever names a Version already on the
 /// Thread.
+///
+/// `mine` and `person_name` say whose cooking it is (#249). The History keeps
+/// the reader's own cookings of a Version apart from everyone else's and names
+/// whose those are, and an Attempt alone says only `person_id`. `mine` is
+/// said the way a Thread's Branch says it, so a screen is told and does not
+/// work it out.
 fn thread_attempt_schema() -> Value {
-    attempt_schema_with("eaten_version_id", json!({ "type": "string" }))
+    attempt_schema_with(&[
+        ("eaten_version_id", json!({ "type": "string" })),
+        ("mine", json!({ "type": "boolean" })),
+        ("person_name", json!({ "type": "string" })),
+    ])
 }
 
-/// `attempt_schema` with one more required field. How the Thread and the
-/// diary each grow their own Attempt from the one declared shape.
-fn attempt_schema_with(field: &str, declared: Value) -> Value {
+/// `attempt_schema` with more required fields. How the Thread and the diary
+/// each grow their own Attempt from the one declared shape.
+fn attempt_schema_with(fields: &[(&str, Value)]) -> Value {
     let mut schema = attempt_schema();
-    schema["properties"][field] = declared;
-    schema["required"]
-        .as_array_mut()
-        .expect("attempt_schema declares its required fields as an array")
-        .push(json!(field));
+    for (field, declared) in fields {
+        schema["properties"][*field] = declared.clone();
+        schema["required"]
+            .as_array_mut()
+            .expect("attempt_schema declares its required fields as an array")
+            .push(json!(field));
+    }
     schema
 }
 
@@ -5554,7 +6844,7 @@ fn attempt_schema_with(field: &str, declared: Value) -> Value {
 /// still offered is In Progress, not finished and no longer offered is a
 /// cooking somebody walked away from — which happened all the same (ADR 0010).
 fn diary_entry_schema() -> Value {
-    let mut schema = attempt_schema_with(
+    let mut schema = attempt_schema_with(&[(
         "recipe",
         json!({
             "type": "object",
@@ -5576,7 +6866,7 @@ fn diary_entry_schema() -> Value {
             "required": ["branch_id", "title", "written_yield"],
             "additionalProperties": false,
         }),
-    );
+    )]);
     // This cooking's changes not yet kept, as where keeping them as a Version
     // would land (#210), so the diary can offer it on the entry. **Null** where there is nothing to
     // keep: the cooking followed the recipe, the recipe has left the shelf,
@@ -5873,6 +7163,24 @@ fn empty_input() -> Value {
     })
 }
 
+/// The agent's house notes as both Operations on them answer (#344).
+fn house_notes_output() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "notes": { "type": ["string", "null"] },
+            "saved_by": {
+                "type": ["string", "null"],
+                "description": "The name of the Person who saved them last, emptying \
+                                 them included. Null when nobody ever has.",
+            },
+            "saved_at": { "type": ["string", "null"] },
+        },
+        "required": ["notes", "saved_by", "saved_at"],
+        "additionalProperties": false,
+    })
+}
+
 /// One Backup as both Operations that mention one describe it, declared once
 /// so `take_backup` and `list_backups` cannot drift into two shapes for the
 /// same thing (#78).
@@ -5917,6 +7225,7 @@ pub fn declarations() -> Value {
                         Permission::Public => "public",
                         Permission::Person => "person",
                         Permission::Operator => "operator",
+                        Permission::Runner => "runner",
                     },
                     "kind": match op.kind {
                         Kind::Immediate => "immediate",
@@ -5953,6 +7262,9 @@ mod tests {
         for name in ["save_recipe_version", "edit_recipe"] {
             let summary = find(name).expect("declared").summary;
             assert!(summary.contains(&window), "{name} says {window}: {summary}");
+            // What the window is not for: an agent's Job, whose Job Key reads
+            // these words too (#265).
+            assert!(summary.contains("Job Key"), "{name}: {summary}");
         }
     }
 
@@ -5982,6 +7294,17 @@ mod tests {
         );
     }
 
+    /// A Job Kamosu does itself is carried by a worker that knows who asked as
+    /// a Person or as nobody (`jobs.rs`), so it could not carry a Runner's.
+    #[test]
+    fn a_runners_own_operation_answers_at_once() {
+        for op in OPERATIONS.iter() {
+            if op.permission == Permission::Runner {
+                assert_eq!(op.kind, Kind::Immediate, "{} is declared a Job", op.name);
+            }
+        }
+    }
+
     #[test]
     fn declarations_carry_every_operation_verbatim() {
         let declared = declarations();
@@ -5996,7 +7319,7 @@ mod tests {
         // generator reads them, and a number would be a silent renumbering.
         assert!(list.iter().all(|e| matches!(
             e["permission"].as_str(),
-            Some("public" | "person" | "operator")
+            Some("public" | "person" | "operator" | "runner")
         )));
         assert!(
             list.iter()

@@ -9,11 +9,17 @@ impl Core {
     /// Translations, every Component it needs as a Passenger, and every
     /// Photograph any of their Versions shows.
     ///
-    /// Nothing is written anywhere, and nothing about who can see the
-    /// Passengers changes: they travel because the recipe needs them (ADR
-    /// 0008), and exporting is a read of the library, not a change to it.
+    /// Nothing about who can see the Passengers changes: they travel because
+    /// the recipe needs them (ADR 0008). The one thing written is that each
+    /// carried Branch's head has left (#328), so the next save starts a
+    /// Version rather than collapsing into the one the receiver holds.
     pub fn bundle(&self, person_id: &str, branch_id: &str) -> Result<bundles::Written, OpError> {
-        let (mut contents, hashes) = self.gather_bundle(person_id, branch_id)?;
+        let (mut contents, hashes) = self.db().with_conn(|conn| {
+            let cookbook_id = ensure_sees_branch(conn, branch_id, person_id)?;
+            let gathered = bundle_contents(conn, branch_id, &cookbook_id)?;
+            mark_heads_carried(conn, &gathered.0)?;
+            Ok(gathered)
+        })?;
         self.fill_photographs(&mut contents, hashes);
         bundles::write(&contents)
     }
@@ -99,6 +105,18 @@ impl Core {
     /// every Translation and every Passenger whichever page you asked from, so
     /// reading a share in French and taking the file is the same file.
     pub fn shared_bundle(&self, token: &str) -> Result<bundles::Written, OpError> {
+        self.shared_bundle_marking(token, true)
+    }
+
+    /// The same Bundle, for a preview or an import on the instance that
+    /// shared it (#170). Nothing leaves: the receiver's Branch is written
+    /// here, beside the sender's, and holds the Version that way. Marking
+    /// the head as carried would close the hour on a preview nobody took.
+    pub fn shared_bundle_here(&self, token: &str) -> Result<bundles::Written, OpError> {
+        self.shared_bundle_marking(token, false)
+    }
+
+    fn shared_bundle_marking(&self, token: &str, mark: bool) -> Result<bundles::Written, OpError> {
         let shared = self.read_shared_recipe(token)?;
         if shared["ended"].as_bool().unwrap_or(false) {
             return Err(OpError::not_found(
@@ -111,7 +129,11 @@ impl Core {
             .to_string();
         let (mut contents, hashes) = self.db().with_conn(|conn| {
             let cookbook_id = branch_cookbook(conn, &branch_id)?;
-            bundle_contents(conn, &branch_id, &cookbook_id)
+            let gathered = bundle_contents(conn, &branch_id, &cookbook_id)?;
+            if mark {
+                mark_heads_carried(conn, &gathered.0)?;
+            }
+            Ok(gathered)
         })?;
 
         let data_dir = self.data_dir();
@@ -180,10 +202,11 @@ impl Core {
         &self,
         caller: &Caller,
         bytes: &[u8],
+        into: Option<&str>,
         progress: Option<&JobProgress>,
     ) -> Result<Value, OpError> {
         let (cookbook_id, import_id) = self.db().with_conn(|conn| {
-            let cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            let cookbook_id = lands_in(conn, caller, into)?;
             let import_id = find_or_create_import(conn, &cookbook_id, "bundle")?;
             Ok((cookbook_id, import_id))
         })?;
@@ -202,7 +225,7 @@ impl Core {
             })
         };
 
-        let opened = match bundles::open(bytes) {
+        let mut opened = match bundles::open(bytes) {
             Ok(opened) => opened,
             Err(unopened) if unopened.notes.is_empty() => {
                 unreadable.push(json!({ "foreign_id": Value::Null, "reason": unopened.reason }));
@@ -234,12 +257,30 @@ impl Core {
             }
         };
 
+        // Every Photograph is weighed before any is stored, so a Bundle that
+        // unpacks past the cap leaves nothing behind (#296).
+        let carried = match opened.photographs() {
+            Ok(carried) => carried,
+            Err(reason) => {
+                unreadable.push(json!({ "foreign_id": Value::Null, "reason": reason }));
+                return Ok(report(arrived, unreadable));
+            }
+        };
+
         // The Photographs first, and off the database lock: each is a file.
         // Stored exactly as they arrived, since a Photograph from another
-        // instance is already made (ADR 0017).
-        for photograph in opened.photographs {
+        // instance is already made (ADR 0017), and one at a time, so only
+        // one picture's bytes are held at once.
+        for photograph in carried {
             match photograph {
-                bundles::CarriedPhotograph::Sound { hash, bytes } => {
+                bundles::CarriedPhotograph::Sound { hash, name } => {
+                    let Some(bytes) = opened.photograph(&name) else {
+                        unreadable.push(json!({
+                            "foreign_id": name,
+                            "reason": bundles::MISSING_PHOTOGRAPH,
+                        }));
+                        continue;
+                    };
                     // Two different failures, kept apart on purpose. A picture
                     // that is not one, or that claims a size Kamosu will not
                     // open, is left out and named: losing a picture costs a
@@ -306,6 +347,7 @@ impl Core {
             Ok(held_before)
         })?;
 
+        let mut food_matches = FoodMatches::default();
         for (done, record) in records.iter().enumerate() {
             // Reported between Branches and never under the lock: a Job's
             // progress is itself written to the database.
@@ -322,7 +364,14 @@ impl Core {
                     .unchecked_transaction()
                     .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
                 let fate = match bundles::damage(record) {
-                    None => place_carried_branch(conn, &cookbook_id, caller, record, &held_before)?,
+                    None => place_carried_branch(
+                        conn,
+                        &cookbook_id,
+                        caller,
+                        record,
+                        &held_before,
+                        &mut food_matches,
+                    )?,
                     Some(damage) => {
                         let language = record["language"].as_str();
                         let words = bundles::head(record).map(|version| &version["content"]);
@@ -392,14 +441,21 @@ impl Core {
         bytes: &[u8],
         shared_by: Option<&str>,
     ) -> Result<Value, OpError> {
-        let opened = bundles::open(bytes).map_err(|unopened| {
+        let cannot_read = |reason: &str| {
             OpError::bad_request(format!(
-                "this link did not hand over a recipe Kamosu can read: {}",
-                unopened.reason
+                "this link did not hand over a recipe Kamosu can read: {reason}"
             ))
-        })?;
-        let subjects = subjects_of(&opened.sidecar);
-        let records = opened.sidecar["branches"]
+        };
+        let mut opened = bundles::open(bytes).map_err(|unopened| cannot_read(&unopened.reason))?;
+        // Weighed whole, as `import_bundle` will weigh it, so a file that
+        // import would refuse is refused here, before anything is staged.
+        let carried = opened
+            .photographs()
+            .map_err(|reason| cannot_read(&reason))?;
+        // Taken out of the opened Bundle, which stays open to read the picture.
+        let sidecar = std::mem::take(&mut opened.sidecar);
+        let subjects = subjects_of(&sidecar);
+        let records = sidecar["branches"]
             .as_array()
             .map(Vec::as_slice)
             .unwrap_or_default();
@@ -423,21 +479,18 @@ impl Core {
             (text, link) => json!({ "text": text, "link": link }),
         };
         let photo = content["main_photo"].as_str().and_then(|wanted| {
-            opened
-                .photographs
-                .iter()
-                .find_map(|photograph| match photograph {
-                    bundles::CarriedPhotograph::Sound { hash, bytes } if hash == wanted => {
-                        photographs::check(bytes).ok()?;
-                        let small = photographs::display_copy(bytes, PREVIEW_PICTURE_EDGE).ok()?;
-                        use base64::Engine;
-                        Some(format!(
-                            "data:image/webp;base64,{}",
-                            base64::engine::general_purpose::STANDARD.encode(small)
-                        ))
-                    }
-                    _ => None,
-                })
+            let name = carried.iter().find_map(|photograph| match photograph {
+                bundles::CarriedPhotograph::Sound { hash, name } if hash == wanted => Some(name),
+                _ => None,
+            })?;
+            let bytes = opened.photograph(name)?;
+            photographs::check(&bytes).ok()?;
+            let small = photographs::display_copy(&bytes, PREVIEW_PICTURE_EDGE).ok()?;
+            use base64::Engine;
+            Some(format!(
+                "data:image/webp;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(small)
+            ))
         });
 
         let held = match self.db().with_conn(|conn| {
@@ -765,6 +818,28 @@ fn bundle_contents(
         missing_photographs: Vec::new(),
     };
     Ok((contents, hashes))
+}
+
+/// Say that a Bundle carried away the head of every Branch it holds (#328).
+///
+/// A collapse replaces the head in place, which is right only while nobody
+/// else has it. Once a receiver holds that Version, replacing it would make
+/// the sender's next Bundle disagree with their chain from that Version on,
+/// and they could receive no Bundle of the recipe again. Marked in the same
+/// lock as the gathering, so no save slips between what was read and what is
+/// marked. A Bundle whose zip then fails to build has marked one Version too
+/// many, which costs an extra Version and nothing else.
+fn mark_heads_carried(conn: &Connection, contents: &bundles::Contents) -> Result<(), OpError> {
+    for carried in &contents.branches {
+        conn.execute(
+            "UPDATE branch_versions SET bundled = 1 \
+              WHERE branch_id = ?1 \
+                AND sequence = (SELECT MAX(sequence) FROM branch_versions WHERE branch_id = ?1)",
+            params![carried.local_id],
+        )
+        .map_err(|e| OpError::internal(format!("cannot mark what a Bundle carried: {e}")))?;
+    }
+    Ok(())
 }
 
 /// One Branch as a Bundle's sidecar records it: its ids, its Language, the
@@ -1131,6 +1206,7 @@ fn place_carried_branch(
     caller: &Caller,
     record: &Value,
     held_before: &HashSet<String>,
+    food_matches: &mut FoodMatches,
 ) -> Result<Fate, OpError> {
     let travelling_id = record["branch_id"].as_str().unwrap_or_default();
     let lineage_id = record["lineage_id"].as_str().unwrap_or_default();
@@ -1212,7 +1288,7 @@ fn place_carried_branch(
                 ],
             )
             .map_err(|e| OpError::internal(format!("cannot place Branch: {e}")))?;
-            write_carried_versions(conn, &branch_id, &versions, held_before)?;
+            write_carried_versions(conn, &branch_id, &versions, held_before, food_matches)?;
             file_carried_tags(conn, cookbook_id, &branch_id, record)?;
             remember_arrived_hands(conn, record)?;
             return Ok(placed("created", &branch_id));
@@ -1224,9 +1300,17 @@ fn place_carried_branch(
         Verdict::Extends { held } => held,
     };
 
-    write_carried_versions(conn, &branch_id, &versions[held..], held_before)?;
+    write_carried_versions(
+        conn,
+        &branch_id,
+        &versions[held..],
+        held_before,
+        food_matches,
+    )?;
     conn.execute(
-        "UPDATE branches SET head_version_id = ?1, language = ?2, \
+        // The Language a Bundle carries is the sender's, never a guess here
+        // (#321).
+        "UPDATE branches SET head_version_id = ?1, language = ?2, language_guessed = 0, \
                 origin_address = COALESCE(?3, origin_address) \
           WHERE id = ?4",
         params![head_version_id, language, origin_address, branch_id],
@@ -1251,6 +1335,7 @@ fn write_carried_versions(
     branch_id: &str,
     versions: &[Value],
     held_before: &HashSet<String>,
+    food_matches: &mut FoodMatches,
 ) -> Result<(), OpError> {
     for version in versions {
         let version_id = version["version_id"].as_str().unwrap_or_default();
@@ -1289,7 +1374,7 @@ fn write_carried_versions(
         )
         .map_err(|e| OpError::internal(format!("cannot place a carried Version: {e}")))?;
         if !held_before.contains(version_id) {
-            write_carried_readings(conn, version_id, version)?;
+            write_carried_readings(conn, version_id, version, food_matches)?;
         }
     }
     Ok(())
@@ -1299,11 +1384,13 @@ fn write_carried_versions(
 /// recomputed (ADR 0021) — a line the sender had no Reading for stays unread
 /// here too. A Food arrives as its names and goes through the one Food Match
 /// every door uses (ADR 0022), with every name it carried at once: that is the
-/// one place two names can hit two Foods, and doubt then makes a third.
+/// one place two names can hit two Foods, and doubt then makes a third. The
+/// import makes it once, however many Versions carry the line (#292).
 fn write_carried_readings(
     conn: &Connection,
     version_id: &str,
     version: &Value,
+    food_matches: &mut FoodMatches,
 ) -> Result<(), OpError> {
     let lines = version["content"]["ingredients"]
         .as_array()
@@ -1351,7 +1438,7 @@ fn write_carried_readings(
             })
             .collect();
         let food_id = match (lineage_id, names.is_empty()) {
-            (None, false) => Some(resolve_food_for_names(conn, &names, None)?),
+            (None, false) => Some(food_matches.resolve(conn, &names)?),
             _ => None,
         };
         if amount.is_none() && unit.is_none() && target.is_none() && lineage_id.is_none() {
@@ -1485,8 +1572,7 @@ fn keep_words_as_new_recipe(
         &language,
         &version_id,
         &content_text,
-        &caller.person_id,
-        caller.access_key_id.as_deref(),
+        caller,
     )?;
     Ok(Fate::Kept {
         reason: said(&named),

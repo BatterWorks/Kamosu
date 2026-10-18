@@ -47,6 +47,13 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// that never moves.
 	get_job: 'never',
 	list_jobs: 'never',
+	// Whether an agent's Job stands on a recipe (#268). It waits, is taken
+	// and ends without this phone doing anything, so a kept answer would name
+	// a Job that ended an hour ago.
+	get_recipe_job: 'never',
+	// Whether a recipe can be read again (#272). It turns on a Runner Key
+	// minted or revoked, and on who writes the Cookbook now, all elsewhere.
+	can_read_recipe_again: 'never',
 	// A whole recipe as a zip, asked for once to be saved somewhere else.
 	export_bundle: 'never',
 	// Where the cook is. With two devices, the last one moved on is where the
@@ -96,7 +103,39 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// ended, here or on another device, would hand out one that no longer opens.
 	get_share_link: 'server-first',
 	list_backups: 'server-first',
+	// Whether there is a Runner and when one last asked for work, and the
+	// Runner Keys an Operator manages (#260). What a screen shows about a
+	// Runner is read from the server each time (#258): a kept answer would
+	// say a Runner is there after its Key was revoked, or silent while it works.
+	runner_status: 'never',
+	list_runner_keys: 'never',
+	// The agent's house notes (#344) are edited in the box that shows them,
+	// and a kept answer from before a save on another device would put the
+	// old notes back over the new ones at the next Save.
+	get_house_notes: 'server-first',
 };
+
+/**
+ * Writes that change no recipe, each with the few reads it does change (#291).
+ * Every other kept read stays phone-first after one; those few are refreshed
+ * behind the next time they are asked, however young. Any write not listed
+ * makes the next read of anything ask the server first.
+ *
+ * Opening a recipe tells the server so, for Home's *recently opened*, and it
+ * happens on every recipe opened. Counted as a write, it sent every kept read
+ * after it to the server first, and a slow server then gave none.
+ */
+const CHANGES_NO_RECIPE: Partial<Record<OperationName, readonly OperationName[]>> = {
+	note_recipe_opened: ['home_shelves'],
+};
+
+/**
+ * The reads a write that changes no recipe changes, or `undefined` for any
+ * other write.
+ */
+export function readsChangedBy(operation: string): readonly OperationName[] | undefined {
+	return CHANGES_NO_RECIPE[operation as OperationName];
+}
 
 const READ_SET = new Set<string>(READS);
 

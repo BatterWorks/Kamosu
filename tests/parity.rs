@@ -36,6 +36,13 @@ fn arguments_for(name: &str) -> Value {
         "rename_session" => json!({ "session_id": "s_parity", "name": "Parity" }),
         "mint_access_key" => json!({ "name": "parity key" }),
         "revoke_access_key" => json!({ "access_key_id": "ak_parity" }),
+        "mint_runner_key" => json!({ "name": "parity Runner" }),
+        "revoke_runner_key" => json!({ "runner_key_id": "rk_parity" }),
+        "ask_for_work" => {
+            json!({ "runner_version": env!("CARGO_PKG_VERSION"), "ask": "the one ask" })
+        }
+        "renew_hold" => json!({ "job_id": "parity-no-such-job" }),
+        "report_on_job" => json!({ "job_id": "parity-no-such-job", "outcome": "completed" }),
         "create_kitchen" => json!({ "name": "Parity Kitchen" }),
         "rename_kitchen" => json!({ "kitchen_id": "k_parity", "name": "Parity Kitchen" }),
         "set_kitchen_nickname" => json!({ "kitchen_id": "k_parity", "nickname": "Parity" }),
@@ -52,6 +59,8 @@ fn arguments_for(name: &str) -> Value {
         "answer_cookbook_join" => json!({ "join_id": "cj_parity", "yes": true }),
         "remove_cookbook_author" => json!({ "person_id": "p_parity" }),
         "start_variation" => json!({ "branch_id": "b_parity", "name": "Parity" }),
+        "put_back_version" => json!({ "branch_id": "b_parity", "version_id": "v_parity" }),
+        "keep_version_as_copy" => json!({ "branch_id": "b_parity", "version_id": "v_parity" }),
         "rename_branch" => json!({ "branch_id": "b_parity", "name": "Parity" }),
         "disable_account" | "delete_account" | "mint_recovery_link" => json!({ "name": "Parity" }),
         "set_operator" => json!({ "name": "Parity", "is_operator": true }),
@@ -60,12 +69,15 @@ fn arguments_for(name: &str) -> Value {
         "edit_recipe" => json!({ "branch_id": "b_parity", "title": "Parity Recipe" }),
         "read_pasted_recipe" => json!({ "text": "Parity Recipe\n\n1 tsp salt\nStir it in." }),
         "read_recipe_pdf" => json!({ "upload_id": "u_parity" }),
+        "import_by_agent" => json!({ "text": "Parity Recipe\n\n1 tsp salt\nStir it in." }),
         "start_translation" => {
             json!({ "branch_id": "b_parity", "language": "fr", "title": "Recette Parité" })
         }
         "set_recipe_language" => json!({ "branch_id": "b_parity", "language": "fr" }),
         "rename_version" => json!({ "branch_id": "b_parity", "sequence": 1, "name": "Parity" }),
         "get_recipe" | "delete_recipe" => json!({ "branch_id": "b_parity" }),
+        "read_recipe_again" | "can_read_recipe_again" => json!({ "branch_id": "b_parity" }),
+        "read_job_again" => json!({ "job_id": "j_parity" }),
         "export_bundle" | "make_sheet" => json!({ "branch_id": "b_parity" }),
         "import_bundle" => json!({ "data": "" }),
         "import_crouton" => json!({ "upload_id": "u_parity" }),
@@ -121,6 +133,12 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "mint_access_key"
             | "list_access_keys"
             | "revoke_access_key"
+            | "mint_runner_key"
+            | "list_runner_keys"
+            | "revoke_runner_key"
+            | "runner_status"
+            | "get_house_notes"
+            | "set_house_notes"
             | "create_kitchen"
             | "list_kitchens"
             | "rename_kitchen"
@@ -140,9 +158,12 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "leave_cookbook"
             | "remove_cookbook_author"
             | "start_variation"
+            | "put_back_version"
+            | "keep_version_as_copy"
             | "rename_branch"
             | "mint_invite"
             | "list_accounts"
+            | "list_cookbooks"
             | "set_operator"
             | "disable_account"
             | "delete_account"
@@ -155,6 +176,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "edit_recipe"
             | "read_pasted_recipe"
             | "read_recipe_pdf"
+            | "import_by_agent"
             | "start_translation"
             | "set_recipe_language"
             | "import"
@@ -169,6 +191,10 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "home_shelves"
             | "note_recipe_opened"
             | "get_recipe"
+            | "get_recipe_job"
+            | "read_recipe_again"
+            | "can_read_recipe_again"
+            | "read_job_again"
             | "export_bundle"
             | "make_sheet"
             | "get_thread"
@@ -230,6 +256,10 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             // is not found, which is the routing this check is after.
             "read_shared_recipe" => (r#"{"token":"parity-no-such-token"}"#, 404),
             "make_shared_sheet" => (r#"{"token":"parity-no-such-token"}"#, 200),
+            // The Runner's own: it routes, and refuses whoever holds no Runner Key.
+            "ask_for_work" => (r#"{"runner_version":"parity","ask":"parity"}"#, 401),
+            "renew_hold" => (r#"{"job_id":"parity"}"#, 401),
+            "report_on_job" => (r#"{"job_id":"parity","outcome":"completed"}"#, 401),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -262,17 +292,20 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
         .collect();
     served.sort_unstable();
 
-    let mut expected: Vec<&str> = catalogue::OPERATIONS.iter().map(|op| op.name).collect();
+    // The Runner's own Operations are listed to a Runner Key and to nobody
+    // else (ADR 0048), so a caller with no Credential is listed the rest.
+    let mut expected = listed_to_a_person();
     expected.sort_unstable();
 
     assert_eq!(
         served, expected,
-        "the MCP door's tool list is not exactly the Catalogue"
+        "the MCP door's tool list is not exactly the Catalogue, less the Runner's own Operations"
     );
 
-    // And each one answers when called. Job Operations answer a CreateTaskResult,
-    // which is followed through tasks/get to its end before being called good.
-    for name in expected {
+    // And each one answers when called, the Runner's own included: unlisted is
+    // not unrouted. Job Operations answer a CreateTaskResult, which is followed
+    // through tasks/get to its end before being called good.
+    for name in catalogue::OPERATIONS.iter().map(|op| op.name) {
         let arguments = arguments_for(name);
         let payload = json!({
             "jsonrpc": "2.0",
@@ -316,6 +349,15 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "mint_access_key"
                 | "list_access_keys"
                 | "revoke_access_key"
+                | "mint_runner_key"
+                | "list_runner_keys"
+                | "revoke_runner_key"
+                | "runner_status"
+                | "get_house_notes"
+                | "set_house_notes"
+                | "ask_for_work"
+                | "renew_hold"
+                | "report_on_job"
                 | "create_kitchen"
                 | "list_kitchens"
                 | "rename_kitchen"
@@ -335,9 +377,12 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "leave_cookbook"
                 | "remove_cookbook_author"
                 | "start_variation"
+                | "put_back_version"
+                | "keep_version_as_copy"
                 | "rename_branch"
                 | "mint_invite"
                 | "list_accounts"
+                | "list_cookbooks"
                 | "set_operator"
                 | "disable_account"
                 | "delete_account"
@@ -350,6 +395,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "edit_recipe"
                 | "read_pasted_recipe"
                 | "read_recipe_pdf"
+                | "import_by_agent"
                 | "start_translation"
                 | "set_recipe_language"
                 | "import"
@@ -364,6 +410,10 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "home_shelves"
                 | "note_recipe_opened"
                 | "get_recipe"
+                | "get_recipe_job"
+                | "read_recipe_again"
+                | "can_read_recipe_again"
+                | "read_job_again"
                 | "export_bundle"
                 | "make_sheet"
                 | "get_thread"
@@ -668,7 +718,9 @@ async fn a_read_only_access_keys_mcp_tool_list_carries_exactly_the_reads() {
 
     let mut expected_reads: Vec<&str> = catalogue::OPERATIONS
         .iter()
-        .filter(|op| !op.write)
+        .filter(|op| {
+            !op.write && !op.session_only && op.permission != catalogue::Permission::Runner
+        })
         .map(|op| op.name)
         .collect();
     expected_reads.sort_unstable();
@@ -676,10 +728,11 @@ async fn a_read_only_access_keys_mcp_tool_list_carries_exactly_the_reads() {
     assert_eq!(
         served, expected_reads,
         "a read-only Access Key's MCP tool list must be exactly the Catalogue's \
-         non-writing Operations — nothing more, nothing less"
+         non-writing Operations an Access Key may call — nothing more, nothing less"
     );
 
-    // A full-power Key's list is untouched: every Operation, writes included.
+    // A full-power Key's list is every Operation a Person may be listed, writes
+    // included, but those no Access Key may call (#347).
     let (_, full_listing) = app.post_mcp(
         r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
         Some(&full_key),
@@ -691,9 +744,63 @@ async fn a_read_only_access_keys_mcp_tool_list_carries_exactly_the_reads() {
         .map(|t| t["name"].as_str().expect("tool name"))
         .collect();
     full_served.sort_unstable();
-    let mut every_operation: Vec<&str> = catalogue::OPERATIONS.iter().map(|op| op.name).collect();
+    let mut every_operation: Vec<&str> = listed_to_a_person()
+        .into_iter()
+        .filter(|name| !catalogue::find(name).expect("declared").session_only)
+        .collect();
     every_operation.sort_unstable();
     assert_eq!(full_served, every_operation);
+}
+
+/// Every Operation but the Runner's own: what the MCP door lists to a Person,
+/// and to a caller with no Credential.
+fn listed_to_a_person() -> Vec<&'static str> {
+    catalogue::OPERATIONS
+        .iter()
+        .filter(|op| op.permission != catalogue::Permission::Runner)
+        .map(|op| op.name)
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_runner_keys_mcp_tool_list_carries_exactly_the_runners_operations() {
+    let app = support::spawn_app();
+    let key = app.core.mint_runner_key("the kitchen's Runner").unwrap();
+
+    let (_, listing) = app.post_mcp(
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+        Some(&key.secret),
+    );
+    let served: Vec<&str> = listing["result"]["tools"]
+        .as_array()
+        .expect("tools list")
+        .iter()
+        .map(|t| t["name"].as_str().expect("tool name"))
+        .collect();
+    // Named here, not read off the Catalogue: the list a Runner Key is shown
+    // is the list of what it can do, and it grows by a decision.
+    assert_eq!(served, ["ask_for_work", "renew_hold", "report_on_job"]);
+
+    // Being listed against is not being used.
+    let keys = app.core.runner_keys().unwrap();
+    assert_eq!(keys[0]["last_used_at"], Value::Null, "{}", keys[0]);
+
+    // A revoked Runner Key is nobody again, and is listed as nobody is.
+    app.core.revoke_runner_key(&key.id).unwrap();
+    let (_, listing) = app.post_mcp(
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+        Some(&key.secret),
+    );
+    let mut served: Vec<&str> = listing["result"]["tools"]
+        .as_array()
+        .expect("tools list")
+        .iter()
+        .map(|t| t["name"].as_str().expect("tool name"))
+        .collect();
+    served.sort_unstable();
+    let mut expected = listed_to_a_person();
+    expected.sort_unstable();
+    assert_eq!(served, expected);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

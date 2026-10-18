@@ -336,6 +336,7 @@ describe('Home', () => {
 				tags: [],
 				related_recipes: [],
 				cooked: { count: 0, last_cooked_at: null, ratings: [] },
+				foods_created: [],
 			},
 		});
 

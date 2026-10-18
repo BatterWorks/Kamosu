@@ -324,6 +324,65 @@ fn every_secret(app: &support::TestApp, key: &str) -> Vec<Secret> {
         table: "access_keys",
     });
 
+    // A Runner Key, minted by the Operator logged in directly (ADR 0048).
+    let (status, minted) = app.post_op(
+        "mint_runner_key",
+        Some(&session),
+        &json!({ "name": "the kitchen's Runner" }).to_string(),
+    );
+    assert_eq!(status, 200, "{minted}");
+    secrets.push(Secret {
+        what: "a Runner Key",
+        raw: minted["result"]["secret"]
+            .as_str()
+            .expect("a Secret")
+            .into(),
+        table: "runner_keys",
+    });
+
+    // A Job Key, which comes with the Job a Runner takes: a link Kamosu
+    // cannot read, kept for an agent.
+    #[cfg(feature = "test-jobs")]
+    kamosu::web_import::allow_loopback_fetches_for_tests();
+    let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+    std_listener.set_nonblocking(true).unwrap();
+    let listener = tokio::net::TcpListener::from_std(std_listener).expect("async listener");
+    let page = format!("http://{}/post", listener.local_addr().expect("local addr"));
+    tokio::spawn(async move {
+        let router = axum::Router::new().route(
+            "/post",
+            axum::routing::get(|| async {
+                axum::response::Html(
+                    "<html><head><title>A post</title></head><body>No recipe.</body></html>",
+                )
+            }),
+        );
+        axum::serve(listener, router).await.expect("page server");
+    });
+    let (status, asked) = app.post_op(
+        "import_web_link",
+        Some(key),
+        &json!({ "url": page }).to_string(),
+    );
+    assert_eq!(status, 200, "{asked}");
+    support::wait_terminal(app, Some(key), asked["result"]["job_id"].as_str().unwrap());
+    let runner = secrets.last().expect("the Runner Key").raw.clone();
+    let (status, handed) = app.post_op(
+        "ask_for_work",
+        Some(&runner),
+        &json!({ "runner_version": env!("CARGO_PKG_VERSION"), "ask": "the ask that took it" })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{handed}");
+    secrets.push(Secret {
+        what: "a Job Key",
+        raw: handed["result"]["job"]["job_key"]
+            .as_str()
+            .expect("a Job Key")
+            .into(),
+        table: "job_keys",
+    });
+
     // An Invite for a new Person, and a recovery link for an existing one.
     // Both are account links, and both are spent on first use.
     for (what, operation, input) in [
@@ -502,7 +561,7 @@ async fn every_secret_is_256_bits_and_all_but_a_share_link_hashed_at_rest() {
     // what stops this file quietly becoming a partial sweep.
     let carrying = tables_holding_a_secret(&app);
     assert!(
-        carrying.len() >= 5,
+        carrying.len() >= 6,
         "expected every kind of Secret to be found, got {carrying:?}"
     );
     for table in &carrying {
@@ -574,9 +633,42 @@ async fn a_secret_still_works_a_year_after_it_was_made() {
         "a year-old Cookbook Invite stopped working: {read}"
     );
 
-    // The two that are Credentials in their own right still open the door.
+    // The hold on the Job is a year past its deadline too. That is a clock,
+    // so it sends the Job back to waiting and spends no Job Key.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE agent_jobs SET held_until = \
+                 strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 year') WHERE held_until IS NOT NULL",
+                [],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("the hold moved");
+    app.core
+        .release_lapsed_holds()
+        .expect("lapsed holds released");
+
+    // The four that are Credentials in their own right still open the door.
     for secret in &secrets {
         match secret.what {
+            "a Job Key" => assert_eq!(
+                app.post_op("search_recipes", Some(&secret.raw), "{}").0,
+                200,
+                "a Job Key stopped working because a year passed"
+            ),
+            "a Runner Key" => assert_eq!(
+                app.post_op(
+                    "ask_for_work",
+                    Some(&secret.raw),
+                    &json!({ "runner_version": env!("CARGO_PKG_VERSION"), "ask": "the one ask" })
+                        .to_string(),
+                )
+                .0,
+                200,
+                "a Runner Key stopped working because a year passed"
+            ),
             "a Session" | "an Access Key" => assert_eq!(
                 app.post_op("list_jobs", Some(&secret.raw), "{}").0,
                 200,
@@ -615,6 +707,7 @@ async fn a_secret_is_never_read_back_in_a_listing() {
     for (operation, input) in [
         ("list_access_keys", json!({})),
         ("list_sessions", json!({})),
+        ("list_runner_keys", json!({})),
         ("get_cookbook", json!({})),
     ] {
         let (status, listed) = app.post_op(operation, Some(&key), &input.to_string());
@@ -1457,6 +1550,15 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
     // id to pair the probe with — and so the same sweep can be run again as a
     // member, where every one of them must still answer.
     let her_recipe = a_recipe(&app, &nadia, "Soupe");
+    let her_version = {
+        let (status, read) = app.post_op(
+            "get_recipe",
+            Some(&nadia.key),
+            &json!({ "branch_id": her_recipe }).to_string(),
+        );
+        assert_eq!(status, 200, "{read}");
+        read["result"]["head_version_id"].clone()
+    };
     let her_other_recipe = a_recipe(&app, &nadia, "Tarte");
     let her_tag = a_tag(&app, &nadia, "weeknight");
     // A second Branch of the *same* Lineage, which is what `divergence` reads
@@ -1514,6 +1616,7 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
             }),
         ),
         ("get_recipe", json!({})),
+        ("get_recipe_job", json!({})),
         ("get_thread", json!({})),
         ("note_recipe_opened", json!({})),
         ("rename_version", json!({ "sequence": 1, "name": "a name" })),
@@ -1544,6 +1647,12 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
         ("add_to_shopping_list", json!({})),
         ("set_shopping_yield", json!({})),
         ("start_variation", json!({ "name": "a name" })),
+        (
+            "start_variation",
+            json!({ "name": "a name", "version_id": her_version }),
+        ),
+        ("put_back_version", json!({ "version_id": her_version })),
+        ("keep_version_as_copy", json!({ "version_id": her_version })),
         ("rename_branch", json!({ "name": "a name" })),
         ("delete_recipe", json!({})),
     ];
@@ -1837,6 +1946,12 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
     // time somebody appended a line below it.
     let her_spare = a_recipe(&app, &nadia, "Soupe de trop");
     for (operation, rest) in &by_branch {
+        // Two acts on an older Version of a recipe she writes: putting back
+        // the one it stands at, and keeping her own as a copy, are refused
+        // in words whoever asks. Their real result is `behaviour.rs`'s (#354).
+        if ["put_back_version", "keep_version_as_copy"].contains(operation) {
+            continue;
+        }
         let mut mine = rest.clone();
         mine["branch_id"] = if *operation == "delete_recipe" {
             json!(her_spare)

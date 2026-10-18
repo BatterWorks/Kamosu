@@ -1,14 +1,20 @@
 /**
  * The Thread's shape (GLOSSARY.md, "Thread"): every Branch's own chain, oldest
- * first, split into a shared trunk and the Branches that continue past it —
- * recursively, so a Branch forking off another Branch (a Copy of a Copy, or
- * a Translation of a Copy) reads the same way a fork off the original trunk
+ * first, split into a shared trunk and the Branches that continue past it,
+ * recursively, so a Copy of a Copy reads the same way a Copy of the original
  * does.
  *
- * A Version id is never trusted to be unique across Branches — two Branches
- * that reach identical content hold the same id (ADR 0004) — so a fork is
+ * A Version id is never trusted to be unique across Branches: two Branches
+ * that reach identical content hold the same id (ADR 0004). So a split is
  * found by comparing each Branch's own chain position by position within the
  * group being split, never by id alone.
+ *
+ * **A Translation is not found this way** (#250). Its chain starts fresh
+ * (ADR 0006), so it shares no Version with the recipe it translates and lands
+ * in a group of its own, with an empty trunk above it. What ties it to the
+ * recipe is `translates_version_id` on each of its Versions, which `graph.ts`
+ * reads. A Copy of a Translation does share that Translation's chain, and
+ * splits from it here like any other Copy.
  */
 
 import type { GetThreadOutput } from '$lib/api/catalogue';
@@ -22,6 +28,21 @@ export interface ForkGroup {
 	/** Where the group splits: each child holds the Branches that keep this
 	 *  particular continuation, and its own further shape past this point. */
 	children: { branchIds: string[]; group: ForkGroup }[];
+	/**
+	 * The Branches that hold the trunk and nothing past it, beside one that
+	 * does (#250): a variation nothing was saved on yet, or a recipe that
+	 * arrived and was never edited. Never the oldest Branch of the group,
+	 * which is the recipe itself: see `stopped`. Where every Branch of the
+	 * group stops at the same Version, the oldest is the recipe and the rest
+	 * are these.
+	 */
+	unchanged: string[];
+	/**
+	 * The Branch the trunk was written on, where it holds nothing past the
+	 * trunk and another Branch does (#250): a recipe left as it was while a
+	 * variation of it went on changing.
+	 */
+	stopped?: string;
 }
 
 /** Every Branch's own chain, oldest first — the raw material `buildGroup` splits. */
@@ -51,22 +72,27 @@ export function buildGroup(
 
 	const trunk = chains.get(branchIds[0])?.slice(fromIndex, depth) ?? [];
 
+	const ended = branchIds.filter((id) => (chains.get(id)?.length ?? 0) <= depth);
+	const carrying = branchIds.filter((id) => !ended.includes(id));
+	// The oldest Branch of a group is the one its shared Versions were written
+	// on. Stopping there while another carries on is not starting there.
+	const stopped = carrying.length && ended.includes(branchIds[0]) ? branchIds[0] : undefined;
+	const unchanged = carrying.length ? ended.filter((id) => id !== stopped) : ended.slice(1);
+
 	const groups = new Map<string, string[]>();
-	for (const id of branchIds) {
-		// A Branch that has nothing past `depth` gets its own unique key, so it
-		// is never mistaken for sharing a continuation with another Branch that
-		// also happens to end here.
-		const key = chains.get(id)?.[depth]?.version_id ?? `__end_${id}`;
+	for (const id of carrying) {
+		const key = chains.get(id)![depth].version_id;
 		const list = groups.get(key) ?? [];
 		list.push(id);
 		groups.set(key, list);
 	}
 
-	const children = [...groups.values()]
-		.filter((ids) => !(ids.length === 1 && (chains.get(ids[0])?.length ?? 0) <= depth))
-		.map((ids) => ({ branchIds: ids, group: buildGroup(ids, chains, depth) }));
+	const children = [...groups.values()].map((ids) => ({
+		branchIds: ids,
+		group: buildGroup(ids, chains, depth),
+	}));
 
-	return { trunk, children };
+	return { trunk, children, unchanged, stopped };
 }
 
 /**
@@ -84,10 +110,14 @@ export function buildGroup(
  * an occurrence is answered per occurrence precisely so this is answerable, so
  * the comparison is against the previous occurrence ON THE SAME BRANCH rather
  * than against the Branch's Language now, which is only ever the latest one.
+ *
+ * Only an occurrence of the same Version says a Language. A save that changed
+ * the words and moved the Language with them settled a guess (#321), and
+ * reads as the save it was.
  */
 export function languageSaidAt(versions: ThreadVersion[]): Map<string, string> {
 	const said = new Map<string, string>();
-	const carried = new Map<string, string | null>();
+	const carried = new Map<string, { language: string | null; version_id: string }>();
 	// Oldest first per Branch, which is the order a Thread is read in.
 	const inOrder = [...versions].sort(
 		(a, b) => a.branch_id.localeCompare(b.branch_id) || a.sequence - b.sequence,
@@ -97,10 +127,15 @@ export function languageSaidAt(versions: ThreadVersion[]): Map<string, string> {
 		// The first occurrence on a Branch states a Language rather than
 		// changing one: a recipe has always been in some Language, and saying
 		// so of its first Version would mark every recipe ever written.
-		if (before !== undefined && version.language !== null && version.language !== before) {
+		if (
+			before !== undefined &&
+			before.version_id === version.version_id &&
+			version.language !== null &&
+			version.language !== before.language
+		) {
 			said.set(`${version.branch_id}:${version.sequence}`, version.language);
 		}
-		carried.set(version.branch_id, version.language);
+		carried.set(version.branch_id, { language: version.language, version_id: version.version_id });
 	}
 	return said;
 }

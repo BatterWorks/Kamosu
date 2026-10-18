@@ -21,6 +21,7 @@
 		carriedInPlace,
 		type Row,
 		type Side,
+		type Elsewhere,
 		type Taken,
 		type Words,
 	} from './divergence';
@@ -40,6 +41,8 @@
 		words?: Words;
 		/** A Step's number, or null for a Ghost step — it is not a step of this recipe. */
 		number?: number | null;
+		/** Where the other recipe has this line, when it is the same line moved (#337). */
+		moved?: Elsewhere | null;
 		/**
 		 * The one subordinate line under this row, already written out — the
 		 * converted amount where there is one, what Kamosu read where there is
@@ -78,6 +81,7 @@
 		otherKitchen = '',
 		words = undefined,
 		number = undefined,
+		moved = null,
 		beneath = '',
 		conversions = [],
 		open,
@@ -88,7 +92,7 @@
 		photo = null,
 	}: Props = $props();
 
-	const seen = $derived(see(row, side));
+	const seen = $derived(see(row, side, moved));
 	const isStep = $derived(row.kind === 'step');
 
 	// A line you have carried across is written into YOUR recipe at once and

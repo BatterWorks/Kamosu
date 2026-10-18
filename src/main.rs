@@ -38,6 +38,26 @@ enum Command {
     /// Mint a one-use recovery link for a named Person. This never reads, prints,
     /// or sets a password; the link holder chooses their own.
     Recover { name: String },
+    /// Run beside an agent: ask the Kamosu at `--kamosu` for Jobs and hand
+    /// each, with its Job Key, to the agent command given after `--`, in a
+    /// fresh folder, or to the agent listening at `--agent-socket`. Either
+    /// flag may be left to KAMOSU_RUNNER_INSTANCE or KAMOSU_RUNNER_AGENT_SOCKET,
+    /// and the Runner Key is read from KAMOSU_RUNNER_KEY. Listens on no port and opens no
+    /// database.
+    Runner {
+        /// Kamosu's address, such as https://recipes.kamosu.example. Read
+        /// from KAMOSU_RUNNER_INSTANCE when left out.
+        #[arg(long)]
+        kamosu: Option<String>,
+        /// The Unix socket an agent in a container of its own listens on, in
+        /// place of an agent command (#317). Read from
+        /// KAMOSU_RUNNER_AGENT_SOCKET when left out.
+        #[arg(long, conflicts_with = "command")]
+        agent_socket: Option<std::path::PathBuf>,
+        /// The agent command and its arguments, after `--`.
+        #[arg(last = true)]
+        command: Vec<String>,
+    },
 }
 
 fn main() {
@@ -61,6 +81,15 @@ fn main() {
             std::process::exit(health_check(addr));
         }
         Command::Recover { name } => recover(&config, &name),
+        Command::Runner {
+            kamosu,
+            agent_socket,
+            command,
+        } => std::process::exit(kamosu::runner::run(kamosu::runner::Told {
+            kamosu,
+            agent_socket,
+            command,
+        })),
     }
 }
 

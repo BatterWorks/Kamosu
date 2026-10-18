@@ -371,19 +371,26 @@ fn server_instructions() -> String {
         format!(
             "- A save by the same Hand on the same Branch within {window_minutes} \
              minutes of the previous one collapses into the Version being shaped \
-             rather than starting a new one, unless another Branch or a \
-             Translation already holds that Version. Its answer says \
-             collapsed: true when it did."
+             rather than starting a new one, unless another Branch, a \
+             Translation or a Bundle already holds that Version, or an agent's \
+             Job saved it. Its answer says collapsed: true when it did."
         ),
-        // #165: a collapse overwrites the Version's name and change note with
-        // whatever this save sends. Goes when that issue is fixed.
-        "- A collapsed save keeps only the name and change_note it sends, so \
-         send them again or the ones already there are erased."
+        // #265: what the line above is for a Job Key, which reads these
+        // words too.
+        "- With a Job Key, every save of the Job collapses into the one \
+         Version the Job started, however long after, and never into a \
+         Version from before the Job. Once the Job has saved, a save by \
+         anyone else, or another Branch or a Translation holding that \
+         Version, has the Job's next save refused, and the Job fails."
+            .to_string(),
+        // #165 is fixed, and this said the opposite until #265 found it.
+        "- A collapsed save keeps the name and change_note the Version \
+         already has unless it sends new ones."
             .to_string(),
         // #166: nothing re-reads an unchanged line. Goes when that issue is
         // fixed.
         "- A new Version keeps the Reading of each Ingredient Line left word \
-         for word as it was, in the same place, a misreading included; \
+         for word as it was, a misreading included; \
          set_reading is how to correct one."
             .to_string(),
     ]
@@ -447,17 +454,16 @@ fn left_out_line(count: usize) -> String {
 }
 
 /// The listing itself is not an Operation and carries no permission check, but
-/// a read-only Access Key's writes are still absent from it (ADR 0031): the
-/// filter walks the Catalogue exactly as `Core::execute` refuses them, so the
-/// two can never disagree about which Operations that count as.
+/// a read-only Access Key's writes are still absent from it (ADR 0031), and a
+/// Runner Key is shown the Runner's own Operations and no other (ADR 0048),
+/// as a Job Key is shown the ones marked for it.
+/// The Core says which, from the same declarations `Core::execute` refuses
+/// by, so the two can never disagree about which Operations those are.
 fn tools_list(core: &Core, headers: &HeaderMap) -> Value {
     let secret = web_door::bearer_from_headers(headers);
-    let read_only = secret
-        .as_deref()
-        .is_some_and(|secret| core.is_read_only_credential(secret));
-    let tools: Vec<Value> = catalogue::OPERATIONS
-        .iter()
-        .filter(|op| !(read_only && op.write))
+    let tools: Vec<Value> = core
+        .operations_listed_to(secret.as_deref())
+        .into_iter()
         .map(|op| {
             // A Job's description says what to call after asking. The answer's
             // own text cannot: Claude Code shows a model only the structured
@@ -474,7 +480,8 @@ fn tools_list(core: &Core, headers: &HeaderMap) -> Value {
         "resultType": "complete",
         "tools": tools,
         "ttlMs": LISTING_TTL_MS,
-        // What a read-only Access Key is shown differs from the rest.
+        // What a read-only Access Key, a Runner Key or a Job Key is shown
+        // differs from the rest.
         "cacheScope": "private",
     })
 }
@@ -518,6 +525,12 @@ fn tools_call(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Resul
             }
             catalogue::Kind::Job | catalogue::Kind::Immediate => Ok(call_tool_result(result)),
         },
+        // The Catalogue holds this name, and the Core answers as if it did
+        // not: a Job Key calling outside its list (ADR 0048). Said here the
+        // way a name the Catalogue never held is said above.
+        Err(err) if err.kind == ErrorKind::UnknownOperation => {
+            Err(json_rpc_error(-32602, format!("no tool named '{name}'")))
+        }
         Err(err) => Ok(json!({
             "resultType": "complete",
             "content": [{ "type": "text", "text": err.to_sentence() }],
@@ -597,7 +610,8 @@ fn tasks_update(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Res
 }
 
 /// `tasks/cancel`: signal intent to cancel. Acknowledged either way; honoured
-/// while the work still waits in line, cooperative once a worker carries it.
+/// while the work still waits in line, and for an agent's Job while a Runner
+/// holds it too (#267). One of Kamosu's own that a worker carries runs on.
 /// Decoration over the ordinary `cancel_job` Operation — the Catalogue owns
 /// cancellation, this only translates it.
 fn tasks_cancel(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Result<Value, Value> {
@@ -621,11 +635,15 @@ fn tasks_cancel(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Res
             // A Job that is not the caller's arrives as a not-found from the
             // Core (ADR 0040), so this Door does not collapse it. An
             // `Unauthorized` reaching here is about the Credential itself and
-            // says so, rather than being dressed up as a missing task.
-            ErrorKind::BadRequest | ErrorKind::NotFound => Err(json_rpc_error(
-                -32602,
-                format!("Failed to cancel task: no such Job '{task_id}'"),
-            )),
+            // says so, rather than being dressed up as a missing task. A Job
+            // Key is answered as if the Operation were not there, which for
+            // a task is a Job that is not there.
+            ErrorKind::BadRequest | ErrorKind::NotFound | ErrorKind::UnknownOperation => {
+                Err(json_rpc_error(
+                    -32602,
+                    format!("Failed to cancel task: no such Job '{task_id}'"),
+                ))
+            }
             _ => Err(json_rpc_error(-32603, err.to_sentence())),
         },
     }
@@ -644,10 +662,12 @@ fn read_job_for_task(core: &Core, headers: &HeaderMap, task_id: &str) -> Result<
     match core.execute(secret.as_deref(), "get_job", json!({ "job_id": task_id })) {
         Ok(job) => Ok(job),
         Err(err) => match err.kind {
-            ErrorKind::BadRequest | ErrorKind::NotFound => Err(json_rpc_error(
-                -32602,
-                format!("Failed to retrieve task: no such Job '{task_id}'"),
-            )),
+            ErrorKind::BadRequest | ErrorKind::NotFound | ErrorKind::UnknownOperation => {
+                Err(json_rpc_error(
+                    -32602,
+                    format!("Failed to retrieve task: no such Job '{task_id}'"),
+                ))
+            }
             _ => Err(json_rpc_error(-32603, err.to_sentence())),
         },
     }

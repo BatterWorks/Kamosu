@@ -12,6 +12,7 @@
  */
 
 import { aDate } from '$lib/dates';
+import { m } from '$lib/paraglide/messages';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import { tick, type ComponentProps } from 'svelte';
@@ -19,7 +20,7 @@ import userEvent from '@testing-library/user-event';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import { realFiles } from '$lib/api/files';
 import { OperationError } from '$lib/api/client';
-import type { GetRecipeOutput } from '$lib/api/catalogue';
+import type { DivergenceOutput, GetRecipeOutput } from '$lib/api/catalogue';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
 import { went } from '../../../testing/navigation';
 import { outlivingTheWait, withTheClockFaked } from '../../../testing/jobs';
@@ -133,6 +134,7 @@ function divergence() {
 				kind: 'ingredient',
 				state: 'changed' as const,
 				from_branch_point: true,
+				place: { mine: 0, theirs: 0 },
 				mine: line('1 cup potato starch (or corn starch)', 0),
 				theirs: line('¾ cup potato starch', 0),
 			},
@@ -140,6 +142,7 @@ function divergence() {
 				kind: 'ingredient',
 				state: 'same' as const,
 				from_branch_point: true,
+				place: { mine: 1, theirs: 1 },
 				mine: line('¼ cup honey', 1),
 				theirs: line('¼ cup honey', 1),
 			},
@@ -149,6 +152,7 @@ function divergence() {
 				kind: 'ingredient',
 				state: 'only-mine' as const,
 				from_branch_point: true,
+				place: { mine: 2, theirs: 2 },
 				mine: line('¼ cup brown sugar', 2),
 				theirs: null,
 			},
@@ -157,6 +161,7 @@ function divergence() {
 				kind: 'ingredient',
 				state: 'only-mine' as const,
 				from_branch_point: false,
+				place: { mine: 3, theirs: 3 },
 				mine: line('1 Tbsp rice vinegar', 3),
 				theirs: null,
 			},
@@ -166,6 +171,7 @@ function divergence() {
 				kind: 'ingredient',
 				state: 'only-theirs' as const,
 				from_branch_point: false,
+				place: { mine: 4, theirs: 4 },
 				mine: null,
 				theirs: line('1 tsp gochugaru', 2),
 			},
@@ -175,6 +181,7 @@ function divergence() {
 				kind: 'step',
 				state: 'only-mine' as const,
 				from_branch_point: true,
+				place: { mine: 0, theirs: 0 },
 				mine: step('Deep fry at 190 C until crisp.', 0),
 				theirs: null,
 			},
@@ -182,6 +189,7 @@ function divergence() {
 				kind: 'step',
 				state: 'only-theirs' as const,
 				from_branch_point: true,
+				place: { mine: 1, theirs: 1 },
 				mine: null,
 				theirs: step('Air fry at 200 C for 18 minutes.', 0),
 			},
@@ -189,6 +197,7 @@ function divergence() {
 				kind: 'step',
 				state: 'only-theirs' as const,
 				from_branch_point: false,
+				place: { mine: 2, theirs: 2 },
 				mine: null,
 				theirs: step('Let it sit 5 minutes before saucing.', 1),
 			},
@@ -355,15 +364,29 @@ function onTheirs(extra: Answers = {}) {
 	return forked({ get_recipe: marcsRecipe(), ...extra });
 }
 
+/** Nothing to read again: no Runner, unless a test says otherwise (#279). */
+const NOT_READ_AGAIN = {
+	can_read_again: false,
+	from: null,
+	link: null,
+	original: null,
+	reason: 'no_runner' as const,
+};
+
 function renderRecipe(
 	answers: Answers = forked(),
 	branchId = 'mine',
 	/** The phone it is on, and how it fetches a Sheet to share (#149). */
-	on: Pick<ComponentProps<typeof RecipeTestHarness>, 'device' | 'files'> = {},
+	on: Pick<ComponentProps<typeof RecipeTestHarness>, 'device' | 'files' | 'upload'> = {},
 ) {
 	// Your own cookings, read for their pictures (#110). Nobody here has
 	// cooked anything unless a test says so.
-	const kamosu = standIn({ list_attempts: { attempts: [] }, ...answers });
+	const kamosu = standIn({
+		list_attempts: { attempts: [] },
+		get_recipe_job: { job: null },
+		can_read_recipe_again: NOT_READ_AGAIN,
+		...answers,
+	});
 	const { rerender } = render(RecipeTestHarness, {
 		props: { client: kamosu.client, branchId, ...on },
 	});
@@ -384,6 +407,7 @@ const SAVED_ONTO_MINE = {
 		language: 'en',
 		language_offer: null,
 		translates_version_id: null,
+		foods_created: [],
 	},
 } as Answers;
 
@@ -643,6 +667,107 @@ describe('a Divergence', () => {
 		expect(input.change_note).toBe('Took ¾ cup potato starch from Chez Marc.');
 	});
 
+	it('draws a Step he moved where he put it, says where yours has it, and saves yours in your order (#337)', async () => {
+		const [a, b, c] = ['Marinate the chicken.', 'Coat it in starch.', 'Make the sauce.'];
+		const answers = onTheirs(SAVED_ONTO_MINE);
+		const d = (answers as Record<string, unknown>).divergence as DivergenceOutput;
+		d.mine.content.steps = [a, b, c].map((text) => ({ kind: 'step' as const, text, photo: null }));
+		d.theirs.content.steps = [c, a, b].map((text) => ({
+			kind: 'step' as const,
+			text,
+			photo: null,
+		}));
+		d.steps = [
+			{
+				kind: 'step',
+				state: 'same' as const,
+				from_branch_point: true,
+				place: { mine: 0, theirs: 1 },
+				mine: step(a, 0),
+				theirs: step(a, 1),
+			},
+			{
+				kind: 'step',
+				state: 'same' as const,
+				from_branch_point: true,
+				place: { mine: 1, theirs: 2 },
+				mine: step(b, 1),
+				theirs: step(b, 2),
+			},
+			{
+				kind: 'step',
+				state: 'moved' as const,
+				from_branch_point: true,
+				place: { mine: 2, theirs: 0 },
+				mine: step(c, 2),
+				theirs: step(c, 0),
+			},
+		];
+		const { kamosu } = renderRecipe(answers, 'theirs');
+		await compared();
+
+		// His page reads his order, with the moved Step his first.
+		const method = (await screen.findByText(c)).closest('ol') as HTMLElement;
+		const order = [a, b, c].sort(
+			(x, y) => method.textContent!.indexOf(x) - method.textContent!.indexOf(y),
+		);
+		expect(order).toEqual([c, a, b]);
+		const moved = screen.getByText(c).closest('li') as HTMLElement;
+		expect(moved).toHaveTextContent('yours has this as step 3');
+		expect(moved).toHaveTextContent(/^1/);
+
+		// The same words: there is nothing to carry.
+		await fireEvent.click(screen.getByText(c));
+		expect(
+			screen.getByText(
+				'The words are the same in both. Only the place differs: yours has this as step 3.',
+			),
+		).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /Write this into mine/i })).toBeNull();
+
+		// Carrying another line across leaves your own Steps in your order.
+		await fireEvent.click(await screen.findByText('¾ cup potato starch'));
+		await fireEvent.click(screen.getByRole('button', { name: /Write this into mine/i }));
+		await fireEvent.click(screen.getByRole('button', { name: /Save a Version/i }));
+		await fireEvent.click(
+			screen.getAllByRole('button', { name: /^Save a Version$/i }).at(-1) as HTMLElement,
+		);
+		const saved = kamosu.calls.find((call) => call.operation === 'save_recipe_version');
+		expect((saved?.input as { steps: { text: string }[] }).steps.map((s) => s.text)).toEqual([
+			a,
+			b,
+			c,
+		]);
+	});
+
+	it('says an Ingredient Line he moved is higher up or lower down in yours (#337)', async () => {
+		const answers = onTheirs();
+		const d = (answers as Record<string, unknown>).divergence as DivergenceOutput;
+		// His honey sits above his starch; yours sits below yours.
+		d.theirs.content.ingredients = [
+			THEIR_INGREDIENTS[1],
+			THEIR_INGREDIENTS[0],
+			THEIR_INGREDIENTS[2],
+		];
+		d.ingredients[0].place = { mine: 0, theirs: 1 };
+		d.ingredients[0].theirs = line('¾ cup potato starch', 1);
+		d.ingredients[1] = {
+			...d.ingredients[1],
+			state: 'moved' as const,
+			place: { mine: 1, theirs: 0 },
+			theirs: line('¼ cup honey', 0),
+		};
+		renderRecipe(answers, 'theirs');
+		await compared();
+
+		const honey = (await screen.findByText('¼ cup honey')).closest('li') as HTMLElement;
+		expect(honey).toHaveTextContent('lower down in yours');
+		const list = honey.closest('ul') as HTMLElement;
+		expect(list.textContent!.indexOf('¼ cup honey')).toBeLessThan(
+			list.textContent!.indexOf('¾ cup potato starch'),
+		);
+	});
+
 	it('takes a line out of yours as he did, from his page', async () => {
 		const { kamosu } = renderRecipe(onTheirs(SAVED_ONTO_MINE), 'theirs');
 		await compared();
@@ -837,7 +962,12 @@ describe('a Divergence', () => {
 	it('shows your own recipe, unmarked, once you walk back to it from his', async () => {
 		// The screen is reused from one recipe to the next rather than remade,
 		// so walking along the strip must not carry his page's comparison onto yours.
-		const kamosu = standIn({ list_attempts: { attempts: [] }, ...onTheirs() });
+		const kamosu = standIn({
+			list_attempts: { attempts: [] },
+			get_recipe_job: { job: null },
+			can_read_recipe_again: NOT_READ_AGAIN,
+			...onTheirs(),
+		});
 		const { rerender } = render(RecipeTestHarness, {
 			props: { client: kamosu.client, branchId: 'theirs' },
 		});
@@ -1843,6 +1973,7 @@ describe('the recipe screen', () => {
 				language: 'en',
 				language_offer: null,
 				translates_version_id: null,
+				foods_created: [],
 			},
 			// Walking to a second Branch makes the page ask whether the two have
 			// diverged. Nothing here is about a Divergence, so it answers that
@@ -1900,6 +2031,7 @@ describe('the recipe screen', () => {
 		holdPaste('mine', {
 			title: 'Korean Fried Chicken',
 			note: 'Best eaten the day it is fried.',
+			source: null,
 			ingredients: [
 				{ kind: 'section', text: 'Brine' },
 				{ kind: 'ingredient', text: '1 lemon' },
@@ -1918,10 +2050,29 @@ describe('the recipe screen', () => {
 		expect(takePaste('mine')).toBeUndefined();
 	});
 
+	// #301: a page with no recipe data, read from its own text, brings its
+	// page along as the Source the recipe is saved with.
+	it('fills the Source of a recipe made from a page read as text', async () => {
+		holdPaste('mine', {
+			title: 'Vietnamese Beef Curry',
+			note: null,
+			source: { text: 'blog.example', link: 'https://blog.example/cari-bo.html' },
+			ingredients: [{ kind: 'ingredient', text: '2 tbsp grated fresh ginger' }],
+			steps: [{ kind: 'step', text: 'Simmer for an hour.' }],
+		});
+		renderRecipe(solo({ ingredients: [], steps: [], source: null }));
+
+		expect(
+			await screen.findByDisplayValue('https://blog.example/cari-bo.html'),
+		).toBeInTheDocument();
+		expect(screen.getByDisplayValue('blog.example')).toBeInTheDocument();
+	});
+
 	it('leaves a paste held for another recipe where it is', async () => {
 		const draft = {
 			title: 'Not this one',
 			note: null,
+			source: null,
 			ingredients: [{ kind: 'ingredient' as const, text: 'a stray line' }],
 			steps: [],
 		};
@@ -2802,6 +2953,7 @@ const savedReading = (language_offer: string | null, extra: Record<string, unkno
 			language: 'en',
 			language_offer,
 			translates_version_id: null,
+			foods_created: [],
 			...extra,
 		},
 	}) as Answers;
@@ -2870,6 +3022,74 @@ describe('a recipe that has a Translation', () => {
 
 		expect(await screen.findByRole('link', { name: 'Also in French.' })).toBeInTheDocument();
 		expect(screen.queryByText(/other versions of this recipe|too many/i)).not.toBeInTheDocument();
+	});
+});
+
+describe('a Copy started from a draft that changed nothing (#329)', () => {
+	it('says no copy was made, never that it saved', async () => {
+		// The Core makes no Copy of content the head already holds: merely
+		// reading a recipe you cannot change must never start one (ADR 0041).
+		// It answers the Branch that was open, with `copied: false`.
+		renderRecipe(
+			onTheirs({
+				save_recipe_version: {
+					branch_id: 'theirs',
+					version_id: 'v_theirs',
+					parent_version_id: null,
+					sequence: 1,
+					collapsed: false,
+					copied: false,
+					language: 'en',
+					language_offer: null,
+					translates_version_id: null,
+					foods_created: [],
+				},
+			}),
+			'theirs',
+		);
+		await compared();
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		const act = /Start my own copy/;
+		await fireEvent.click((await screen.findAllByRole('button', { name: act }))[0] as HTMLElement);
+		const inSheet = await screen.findAllByRole('button', { name: act });
+		await fireEvent.click(inSheet[inSheet.length - 1] as HTMLElement);
+
+		expect(await screen.findByText('Nothing changed, so no copy was made.')).toBeInTheDocument();
+		expect(screen.queryByText(/^Saved\./)).not.toBeInTheDocument();
+	});
+
+	it('still says Saved where the save wrote a Version the page did not hold', async () => {
+		// The page can hold `writes: false` after the cook was made a Co-author
+		// elsewhere: the Core then writes onto the recipe itself. Only a save
+		// that answers the Version already there changed nothing.
+		renderRecipe(
+			onTheirs({
+				save_recipe_version: {
+					branch_id: 'theirs',
+					version_id: 'v_after',
+					parent_version_id: 'v_theirs',
+					sequence: 2,
+					collapsed: false,
+					copied: false,
+					language: 'en',
+					language_offer: null,
+					translates_version_id: null,
+					foods_created: [],
+				},
+			}),
+			'theirs',
+		);
+		await compared();
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		const act = /Start my own copy/;
+		await fireEvent.click((await screen.findAllByRole('button', { name: act }))[0] as HTMLElement);
+		const inSheet = await screen.findAllByRole('button', { name: act });
+		await fireEvent.click(inSheet[inSheet.length - 1] as HTMLElement);
+
+		expect(await screen.findByText('Saved.')).toBeInTheDocument();
+		expect(screen.queryByText('Nothing changed, so no copy was made.')).not.toBeInTheDocument();
 	});
 });
 
@@ -3170,6 +3390,332 @@ describe('the Source line', () => {
 			expect(document.querySelector('a[href^="javascript"]')).toBeNull();
 		});
 	}
+});
+
+/**
+ * An agent's Job on the recipe (#277), option B as chosen on 2026-10-15: the
+ * tracking line above "Cook this", and nothing on the recipe greyed out.
+ */
+describe("an agent's Job on the recipe", () => {
+	const HEARD = { has_runner: true, last_asked_at: new Date().toISOString() };
+	const agentJob = (status: 'queued' | 'running' | 'completed') => ({
+		id: 'j_agent',
+		operation: 'read_by_agent',
+		status,
+		progress: { done: null, total: null, message: null },
+		result: null,
+		error: null,
+		errorCode: null,
+		created_at: '2026-10-15T11:10:00.000Z',
+		updated_at: '2026-10-15T11:14:00.000Z',
+	});
+	const bare = () => {
+		const recipe = forked().get_recipe as GetRecipeOutput;
+		const version = recipe.versions[0]!;
+		return {
+			...recipe,
+			versions: [{ ...version, content: { ...version.content, ingredients: [], steps: [] } }],
+		};
+	};
+
+	it('draws the tracking line above Cook this for the cook who asked, and leaves Cook this', async () => {
+		renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				get_recipe: bare(),
+				get_recipe_job: { job: { id: 'j_agent', status: 'queued', yours: true } },
+				get_job: agentJob('queued'),
+				runner_status: HEARD,
+			}),
+		);
+
+		const leave = await screen.findByText(m.agent_leave());
+		expect(screen.getByRole('button', { name: m.agent_stop() })).toBeInTheDocument();
+		const cook = screen.getByRole('link', { name: m.recipe_cook_this() });
+		expect(leave.compareDocumentPosition(cook) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
+	it('tells a Co-author an agent is reading the recipe again, and offers no stopping', async () => {
+		renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				get_recipe_job: { job: { id: 'j_agent', status: 'running', yours: false } },
+				get_job: { ...agentJob('running'), result: { source_kind: 'read_again' } },
+				runner_status: HEARD,
+			}),
+		);
+
+		expect(await screen.findByText(m.agent_updating())).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: m.agent_stop() })).toBeNull();
+	});
+
+	it('reads the recipe again once the Job has ended, and the line goes', async () => {
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				get_recipe: bare(),
+				get_recipe_job: { job: { id: 'j_agent', status: 'running', yours: true } },
+				get_job: agentJob('running'),
+				runner_status: HEARD,
+			}),
+		);
+		await screen.findByText(m.agent_leave());
+		const readsBefore = kamosu.calls.filter((call) => call.operation === 'get_recipe').length;
+
+		kamosu.answer('get_recipe_job', { job: null });
+		kamosu.answer('get_job', agentJob('completed'));
+
+		await vi.waitFor(
+			() =>
+				expect(
+					kamosu.calls.filter((call) => call.operation === 'get_recipe').length,
+				).toBeGreaterThan(readsBefore),
+			{ timeout: 5000 },
+		);
+		expect(screen.queryByText(m.agent_leave())).toBeNull();
+	});
+
+	it('draws no line on a recipe with no Job on it', async () => {
+		const { kamosu } = renderRecipe(forked(ON_THE_SIDE));
+
+		await screen.findByRole('link', { name: m.recipe_cook_this() });
+		// Once the page has been told there is no Job, and has drawn what it was told.
+		await vi.waitFor(() =>
+			expect(kamosu.calls.some((call) => call.operation === 'get_recipe_job')).toBe(true),
+		);
+		await new Promise((wake) => setTimeout(wake, 20));
+		expect(screen.queryByRole('region', { name: m.agent_steps() })).toBeNull();
+	});
+});
+
+describe('reading the recipe again (#279)', () => {
+	const FROM_THE_LINK = {
+		can_read_again: true,
+		from: 'link' as const,
+		link: 'https://www.mykoreankitchen.com/korean-fried-chicken/',
+		original: null,
+		reason: null,
+	};
+	const PHOTO_GONE = {
+		can_read_again: false,
+		from: 'original' as const,
+		link: null,
+		original: 'picture' as const,
+		reason: 'needs_the_file' as const,
+	};
+	const TEXT_GONE = { ...PHOTO_GONE, original: 'pasted_text' as const };
+	const HEARD = { has_runner: true, last_asked_at: new Date().toISOString() };
+	const WAITING = {
+		id: 'j_again',
+		operation: 'read_by_agent',
+		status: 'queued' as const,
+		progress: { done: null, total: null, message: null },
+		result: { source_kind: 'read_again' },
+		error: null,
+		errorCode: null,
+		created_at: new Date().toISOString(),
+		updated_at: new Date().toISOString(),
+	};
+
+	afterEach(() => {
+		Reflect.deleteProperty(navigator, 'onLine');
+	});
+
+	it('offers it above the acts, asks once, and the page then says the agent is on it', async () => {
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				can_read_recipe_again: FROM_THE_LINK,
+				read_recipe_again: { job_id: 'j_again', branch_id: 'mine' },
+				get_job: WAITING,
+				runner_status: HEARD,
+			}),
+		);
+
+		const panel = await screen.findByRole('region', { name: m.read_again_heading() });
+		expect(panel).toHaveTextContent(
+			m.read_again_lede_link({ site: 'mykoreankitchen.com' }) + ' ' + m.read_again_keeps(),
+		);
+		// Above the grid of the other acts.
+		const edit = screen.getByRole('button', { name: m.write_edit() });
+		expect(panel.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		// The first press asks, saying what it costs; nothing is sent yet.
+		expect(panel).toHaveTextContent(m.read_again_cost());
+		expect(kamosu.calls.some((call) => call.operation === 'read_recipe_again')).toBe(false);
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_no() }));
+		expect(panel).not.toHaveTextContent(m.read_again_cost());
+
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		await vi.waitFor(() =>
+			expect(kamosu.calls.find((call) => call.operation === 'read_recipe_again')?.input).toEqual({
+				branch_id: 'mine',
+			}),
+		);
+		// The card above Cook this takes over, and the panel goes while it stands.
+		expect(await screen.findByRole('region', { name: m.agent_steps() })).toBeInTheDocument();
+		expect(screen.queryByRole('region', { name: m.read_again_heading() })).toBeNull();
+	});
+
+	it('offers no stopping when the answer is a reading a Co-author asked for a moment before', async () => {
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				can_read_recipe_again: FROM_THE_LINK,
+				read_recipe_again: { job_id: 'j_theirs', branch_id: 'mine' },
+				get_job: { ...WAITING, id: 'j_theirs' },
+				runner_status: HEARD,
+			}),
+		);
+		const panel = await screen.findByRole('region', { name: m.read_again_heading() });
+		// Marc asked while this page stood open; the page has not read it yet.
+		kamosu.answer('get_recipe_job', { job: { id: 'j_theirs', status: 'queued', yours: false } });
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+
+		expect(await screen.findByRole('region', { name: m.agent_steps() })).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(
+				kamosu.calls.filter((call) => call.operation === 'get_recipe_job').length,
+			).toBeGreaterThan(1),
+		);
+		await new Promise((wake) => setTimeout(wake, 20));
+		expect(screen.queryByRole('button', { name: m.agent_stop() })).toBeNull();
+	});
+
+	it('offers stopping once the page has read that the reading is yours', async () => {
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				can_read_recipe_again: FROM_THE_LINK,
+				read_recipe_again: { job_id: 'j_again', branch_id: 'mine' },
+				get_job: WAITING,
+				runner_status: HEARD,
+			}),
+		);
+		const panel = await screen.findByRole('region', { name: m.read_again_heading() });
+		kamosu.answer('get_recipe_job', { job: { id: 'j_again', status: 'queued', yours: true } });
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		expect(await screen.findByRole('button', { name: m.agent_stop() })).toBeInTheDocument();
+	});
+
+	it.each([
+		['someone who sees it through a Kitchen', 'not_a_co_author'],
+		['an instance with no Runner', 'no_runner'],
+		['a recipe received and never changed', 'would_start_a_copy'],
+		['a recipe with nothing to read again', 'nothing_to_read'],
+		['a recipe read again already', 'already_read_again'],
+	] as const)('offers nothing to %s', async (_, reason) => {
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				can_read_recipe_again: { ...FROM_THE_LINK, can_read_again: false, reason },
+			}),
+		);
+		await screen.findByRole('link', { name: m.recipe_cook_this() });
+		await vi.waitFor(() =>
+			expect(kamosu.calls.some((call) => call.operation === 'can_read_recipe_again')).toBe(true),
+		);
+		await new Promise((wake) => setTimeout(wake, 20));
+		expect(screen.queryByRole('region', { name: m.read_again_heading() })).toBeNull();
+	});
+
+	it('asks for the photo again once Kamosu has deleted it, shows it, and sends it', async () => {
+		const upload = vi.fn(async () => 'up_1');
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				can_read_recipe_again: PHOTO_GONE,
+				read_recipe_again: { job_id: 'j_again', branch_id: 'mine' },
+				get_job: WAITING,
+				runner_status: HEARD,
+			}),
+			'mine',
+			{ upload },
+		);
+		const panel = await screen.findByRole('region', { name: m.read_again_heading() });
+		expect(panel).toHaveTextContent(m.read_again_lede_picture());
+
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		expect(panel).toHaveTextContent(m.read_again_gone_picture());
+		expect(
+			within(panel).getByRole('button', { name: m.read_again_choose_picture() }),
+		).toBeInTheDocument();
+
+		const photo = new File(['jpeg'], 'IMG_2210.jpg', { type: 'image/jpeg' });
+		await userEvent.upload(screen.getByLabelText(m.read_again_choose_picture()), photo);
+		expect(await within(panel).findByText('IMG_2210.jpg')).toBeInTheDocument();
+		expect(within(panel).getByRole('img', { name: m.send_photo_alt() })).toBeInTheDocument();
+
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_send() }));
+		await vi.waitFor(() =>
+			expect(kamosu.calls.find((call) => call.operation === 'read_recipe_again')?.input).toEqual({
+				branch_id: 'mine',
+				upload_id: 'up_1',
+			}),
+		);
+		expect(upload).toHaveBeenCalledWith(photo);
+	});
+
+	it('takes the text pasted again once Kamosu has deleted it', async () => {
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				can_read_recipe_again: TEXT_GONE,
+				read_recipe_again: { job_id: 'j_again', branch_id: 'mine' },
+				get_job: WAITING,
+				runner_status: HEARD,
+			}),
+		);
+		const panel = await screen.findByRole('region', { name: m.read_again_heading() });
+		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
+		const send = within(panel).getByRole('button', { name: m.read_again_send() });
+		expect(send).toBeDisabled();
+
+		await fireEvent.input(within(panel).getByLabelText(m.read_again_paste_label()), {
+			target: { value: 'Biscuit de Savoie\n6 œufs' },
+		});
+		await fireEvent.click(send);
+		await vi.waitFor(() =>
+			expect(kamosu.calls.find((call) => call.operation === 'read_recipe_again')?.input).toEqual({
+				branch_id: 'mine',
+				text: 'Biscuit de Savoie\n6 œufs',
+			}),
+		);
+	});
+
+	it('says offline that reading again waits for the server', async () => {
+		renderRecipe(forked({ ...ON_THE_SIDE, can_read_recipe_again: FROM_THE_LINK }));
+		const panel = await screen.findByRole('region', { name: m.read_again_heading() });
+		Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+		window.dispatchEvent(new Event('offline'));
+		await tick();
+		expect(within(panel).getByRole('button', { name: m.read_again_waits() })).toBeDisabled();
+	});
+
+	it('leads to the Report once the reading has ended, while the page watched it', async () => {
+		const { kamosu } = renderRecipe(
+			forked({
+				...ON_THE_SIDE,
+				get_recipe_job: { job: { id: 'j_again', status: 'running', yours: true } },
+				get_job: { ...WAITING, status: 'running' },
+				runner_status: HEARD,
+			}),
+		);
+		await screen.findByText(m.agent_updating());
+		kamosu.answer('get_recipe_job', { job: null });
+		kamosu.answer('get_job', { ...WAITING, status: 'completed' });
+
+		const link = await screen.findByRole(
+			'link',
+			{ name: m.read_again_done_link() },
+			{ timeout: 5000 },
+		);
+		expect(link).toHaveAttribute('href', '/imports/j_again');
+	});
 });
 
 describe('two columns where the window is roomy (#198)', () => {

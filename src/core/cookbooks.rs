@@ -6,6 +6,9 @@
 //! **May change** is a Co-author. Everything that decides who reads or writes
 //! a recipe comes through here, which is ADR 0040's rule kept in one place: a
 //! Branch the caller may not see is answered exactly as one that is not here.
+//! An Operator **looks after** every Cookbook's recipes beyond both, on a call
+//! that says `as_operator` (#302, ADR 0049), and the one rule saying so is
+//! here too.
 
 use super::*;
 
@@ -15,6 +18,60 @@ impl Core {
         self.db().with_conn(|conn| {
             let cookbook_id = cookbook_of_person(conn, person_id)?;
             cookbook_summary(conn, &cookbook_id, Some(person_id))
+        })
+    }
+
+    /// Every Cookbook on the instance and the recipes in it, for an Operator
+    /// looking after them (#302, ADR 0049): the way to name one, or one of its
+    /// recipes, to the Operations that reach it. Each recipe is a Branch, as
+    /// the shelf names it, with its title as it stands now.
+    pub fn list_cookbooks(&self, caller: &Caller) -> Result<Value, OpError> {
+        // Listing is itself an Operator's act, so it asks no `as_operator`.
+        // The Catalogue lets no Job Key or Runner Key near it, and a
+        // read-only Key gains nothing here either (ADR 0049).
+        if caller.read_only {
+            return Err(OpError::unauthorized(
+                "a read-only Access Key does not look after other Cookbooks",
+            ));
+        }
+        let failed = |e: rusqlite::Error| OpError::internal(format!("cannot list Cookbooks: {e}"));
+        self.db().with_conn(|conn| {
+            let ids: Vec<String> = conn
+                .prepare("SELECT id FROM cookbooks ORDER BY created_at, id")
+                .map_err(failed)?
+                .query_map([], |row| row.get(0))
+                .map_err(failed)?
+                .collect::<Result<_, _>>()
+                .map_err(failed)?;
+            let mut recipes = conn
+                .prepare(
+                    "SELECT branches.id, json_extract(versions.content, '$.title'), \
+                            branches.language, branches.name \
+                       FROM branches JOIN versions ON versions.id = branches.head_version_id \
+                      WHERE branches.cookbook_id = ?1 \
+                      ORDER BY json_extract(versions.content, '$.title') COLLATE NOCASE, \
+                               branches.id",
+                )
+                .map_err(failed)?;
+            let mut cookbooks = Vec::new();
+            for id in ids {
+                let mut cookbook = cookbook_label(conn, &id)?;
+                let held: Vec<Value> = recipes
+                    .query_map(params![id], |row| {
+                        Ok(json!({
+                            "branch_id": row.get::<_, String>(0)?,
+                            "title": row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                            "language": row.get::<_, String>(2)?,
+                            "name": row.get::<_, Option<String>>(3)?,
+                        }))
+                    })
+                    .map_err(failed)?
+                    .collect::<Result<_, _>>()
+                    .map_err(failed)?;
+                cookbook["recipes"] = json!(held);
+                cookbooks.push(cookbook);
+            }
+            Ok(json!({ "cookbooks": cookbooks }))
         })
     }
 
@@ -258,12 +315,17 @@ impl Core {
     /// under a name they give it (ADR 0041): "Vegetarian" beside the one they
     /// already have. The name is required, because nothing else tells the two
     /// apart.
+    ///
+    /// It starts from the recipe as it stands, or from an older Version of it
+    /// where `version_id` names one (#354), and forks in the Thread there.
     pub fn start_variation(
         &self,
-        person_id: &str,
+        caller: &Caller,
         branch_id: &str,
         name: &str,
+        version_id: Option<&str>,
     ) -> Result<Value, OpError> {
+        let person_id = caller.person_id.as_str();
         let name = required_text(name, "name")?.to_string();
         let new_branch_id = self.db().with_conn(|conn| {
             ensure_sees_branch(conn, branch_id, person_id)?;
@@ -277,9 +339,65 @@ impl Core {
                      it; saving a change to it starts your own copy instead",
                 ));
             }
-            copy_branch_into(conn, branch_id, &own, person_id, Some(&name))
+            let at = match version_id {
+                Some(version_id) => Some(occurrence(conn, branch_id, version_id)?.0),
+                None => None,
+            };
+            copy_branch_at(conn, branch_id, at, &own, person_id, Some(&name))
         })?;
-        self.get_recipe(person_id, &new_branch_id, None)
+        self.get_recipe(caller, &new_branch_id, None)
+    }
+
+    /// **Keep a Version of somebody else's recipe as your own copy** (#354):
+    /// a Branch of it in your own Cookbook whose head is that Version, an
+    /// older one included. The Branch it came from is not touched.
+    ///
+    /// For whoever sees the recipe and does not write it. Its writers put a
+    /// Version back or start a variation from it instead.
+    ///
+    /// Your Cookbook keeps one Branch of its own of a recipe in a Language
+    /// without a name, so where it already holds one this needs a `name`,
+    /// and the copy is a named variation beside it. `changed_since` says
+    /// beforehand whether it will (`keeping_needs_name`).
+    pub fn keep_version_as_copy(
+        &self,
+        caller: &Caller,
+        branch_id: &str,
+        version_id: &str,
+        name: Option<&str>,
+    ) -> Result<Value, OpError> {
+        let person_id = caller.person_id.as_str();
+        // A blank name is no name, here where one may be left out.
+        let name = name.map(str::trim).filter(|name| !name.is_empty());
+        let new_branch_id = self.db().with_conn(|conn| {
+            ensure_sees_branch(conn, branch_id, person_id)?;
+            let (at, _) = occurrence(conn, branch_id, version_id)?;
+            let own = cookbook_of_person(conn, person_id)?;
+            if cookbook_writes_branch(conn, &own, branch_id)? {
+                return Err(OpError::bad_request(
+                    "this recipe is yours to write already; put the Version back or start a \
+                     variation from it instead",
+                ));
+            }
+            if name.is_none() && keeping_needs_name(conn, &own, branch_id)? {
+                return Err(OpError::bad_request(
+                    "your Cookbook already holds its own copy of this recipe in this \
+                     Language, so this one needs a name",
+                ));
+            }
+            // The newest Version kept is the recipe kept, as any other Copy
+            // of it is: a sent one stays the sender's to send again.
+            let newest = branch_head(conn, branch_id)?.head_version_id == version_id;
+            copy_branch_at(
+                conn,
+                branch_id,
+                (!newest).then_some(at),
+                &own,
+                person_id,
+                name,
+            )
+        })?;
+        self.get_recipe(caller, &new_branch_id, None)
     }
 
     /// Name a Branch of the caller's Cookbook, or clear its name. A Cookbook
@@ -412,6 +530,24 @@ pub(super) fn writes_in(
     .map_err(|e| OpError::internal(format!("cannot check who writes this Cookbook: {e}")))
 }
 
+/// Whether a Person is a Co-author of the Cookbook a Branch is in. A Branch
+/// that is not there has no Co-author.
+pub(super) fn writes_cookbook_of_branch(
+    conn: &Connection,
+    branch_id: &str,
+    person_id: &str,
+) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM branches
+                          JOIN cookbook_authors
+                            ON cookbook_authors.cookbook_id = branches.cookbook_id
+                         WHERE branches.id = ?1 AND cookbook_authors.person_id = ?2)",
+        params![branch_id, person_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot check who writes this recipe: {e}")))
+}
+
 /// **May change**: only a Co-author. Somebody who may not even see the
 /// Cookbook is answered as though it were not here (ADR 0040); somebody who
 /// sees it and does not write it is told so, since they already know it is
@@ -440,6 +576,169 @@ pub(super) fn ensure_writes_or_absent(
             "only the people who write this recipe's Cookbook may change it",
         ))
     }
+}
+
+// ── An Operator looking after a Cookbook ─────────────────────────────────────
+//
+// An Operator reaches every Cookbook's recipes and their Tags, through the
+// ordinary Operations and under their own Hand, on a call that says
+// `as_operator` (#302, ADR 0049). Without it an Operator is a Person like any
+// other: their shelf, their search, their Copies. Only the recipe Operations
+// ask the checks below, so Attempts, shopping lists and who writes a Cookbook
+// stay their owner's, and no list asks them.
+
+/// **Looks after** every Cookbook: an Operator acting themselves who asked to
+/// on this call. `Core::execute` refuses `as_operator` to anybody else, a Job
+/// Key and a read-only Key included (ADR 0049). Asked again of the account as
+/// it stands now, so that a Job Kamosu carries later for an Operator since
+/// stood down reaches nothing.
+pub(super) fn looks_after(conn: &Connection, caller: &Caller) -> Result<bool, OpError> {
+    if !caller.as_operator || caller.job_id.is_some() || caller.read_only {
+        return Ok(false);
+    }
+    conn.query_row(
+        "SELECT is_operator FROM people WHERE id = ?1",
+        params![caller.person_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read who administers: {e}")))
+    .map(|is_operator| is_operator.unwrap_or(false))
+}
+
+/// The recipe a Job Key reaches beyond what its asker sees: its own Job's,
+/// where an Operator acting as one asked for the Job, while they are one
+/// (`present` reads the account as it stands). Their Import may have put it in
+/// somebody else's Cookbook. No other Job Key reaches anything beyond sight.
+fn job_recipe_beyond_sight(conn: &Connection, caller: &Caller) -> Result<Option<String>, OpError> {
+    let Some(job_id) = &caller.job_id else {
+        return Ok(None);
+    };
+    if !caller.is_operator || !crate::jobs::asked_as_operator(conn, job_id)? {
+        return Ok(None);
+    }
+    // A Job that created its recipe this very call has not been given it
+    // yet, and is found by the first Version it wrote.
+    Ok(match crate::jobs::standing_recipe_of(conn, job_id)? {
+        Some(None) => crate::jobs::recipe_created_by(conn, job_id)?,
+        standing => standing.flatten(),
+    })
+}
+
+/// Whether a caller reaches a Branch beyond the Cookbooks they see: an
+/// Operator acting as one, or a Job Key on its own recipe as
+/// [`job_recipe_beyond_sight`] says.
+fn reaches_beyond_sight(
+    conn: &Connection,
+    caller: &Caller,
+    branch_id: &str,
+) -> Result<bool, OpError> {
+    if caller.job_id.is_some() {
+        return Ok(job_recipe_beyond_sight(conn, caller)?.as_deref() == Some(branch_id));
+    }
+    looks_after(conn, caller)
+}
+
+/// [`ensure_sees_branch`], for a caller who may look after the Cookbook
+/// holding it. Answers the Branch's Cookbook.
+pub(super) fn ensure_reaches_branch(
+    conn: &Connection,
+    branch_id: &str,
+    caller: &Caller,
+) -> Result<String, OpError> {
+    let cookbook_id = branch_cookbook(conn, branch_id)?;
+    if !reaches_beyond_sight(conn, caller, branch_id)? {
+        ensure_sees_or_absent(conn, &cookbook_id, &caller.person_id, no_such_branch)?;
+    }
+    Ok(cookbook_id)
+}
+
+/// The Cookbook a caller's change to a Branch is made for: the one holding it
+/// where they reach it beyond what they see, their own otherwise. Where it
+/// does not write the Branch, the change is a Copy into it (ADR 0041).
+pub(super) fn changes_for(
+    conn: &Connection,
+    caller: &Caller,
+    branch_id: &str,
+) -> Result<String, OpError> {
+    if reaches_beyond_sight(conn, caller, branch_id)? {
+        branch_cookbook(conn, branch_id)
+    } else {
+        cookbook_of_person(conn, &caller.person_id)
+    }
+}
+
+/// **May change** a Branch, for a caller who may reach it beyond what they
+/// see: [`ensure_writes_or_absent`] on the Cookbook holding it otherwise.
+/// Answers that Cookbook.
+pub(super) fn ensure_changes_branch(
+    conn: &Connection,
+    branch_id: &str,
+    caller: &Caller,
+    absent: impl FnOnce() -> OpError,
+) -> Result<String, OpError> {
+    let cookbook_id = branch_cookbook(conn, branch_id)?;
+    if !reaches_beyond_sight(conn, caller, branch_id)? {
+        ensure_writes_or_absent(conn, &cookbook_id, &caller.person_id, absent)?;
+    }
+    Ok(cookbook_id)
+}
+
+/// [`ensure_sees_or_absent`], for a caller who may look after the Cookbook,
+/// or a Job Key whose recipe it holds.
+pub(super) fn ensure_reaches_or_absent(
+    conn: &Connection,
+    cookbook_id: &str,
+    caller: &Caller,
+    absent: impl FnOnce() -> OpError,
+) -> Result<(), OpError> {
+    if looks_after(conn, caller)? && cookbook_exists(conn, cookbook_id)? {
+        return Ok(());
+    }
+    // A Job Key reaches the Cookbook holding its recipe, to read its Tags.
+    if let Some(its_recipe) = job_recipe_beyond_sight(conn, caller)?
+        && branch_cookbook(conn, &its_recipe)? == cookbook_id
+    {
+        return Ok(());
+    }
+    ensure_sees_or_absent(conn, cookbook_id, &caller.person_id, absent)
+}
+
+/// **Where a create or an Import lands**: the caller's own Cookbook, or the
+/// one `named`, which only somebody looking after every Cookbook names
+/// (#302). Anybody else naming one that is not their own is answered as
+/// though it were not there (ADR 0040). A Job Key names none: its create
+/// lands where an Operator asked for its Job to land, while they are one,
+/// and in its asker's own Cookbook otherwise.
+pub(super) fn lands_in(
+    conn: &Connection,
+    caller: &Caller,
+    named: Option<&str>,
+) -> Result<String, OpError> {
+    let own = cookbook_of_person(conn, &caller.person_id)?;
+    if let Some(job_id) = &caller.job_id {
+        return Ok(match crate::jobs::cookbook_asked_for(conn, job_id)? {
+            Some(asked) if caller.is_operator && named.is_none() => asked,
+            _ => own,
+        });
+    }
+    match named {
+        None => Ok(own),
+        Some(named) if named == own => Ok(own),
+        Some(named) if looks_after(conn, caller)? && cookbook_exists(conn, named)? => {
+            Ok(named.to_string())
+        }
+        Some(_) => Err(no_such_cookbook()),
+    }
+}
+
+fn cookbook_exists(conn: &Connection, cookbook_id: &str) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM cookbooks WHERE id = ?1)",
+        params![cookbook_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot read Cookbook: {e}")))
 }
 
 /// Whether a Cookbook writes a Branch: holds it, and did not merely receive
@@ -1050,6 +1349,25 @@ fn holds_own_branch(
     .map_err(|e| OpError::internal(format!("cannot read Branches: {e}")))
 }
 
+/// Whether a copy of `branch_id` kept in `cookbook_id` needs a name of its
+/// own (#354): the Cookbook already holds a Branch of its own of that recipe
+/// in that Language, and the Branch is not a named variation, whose copy
+/// keeps its name.
+pub(super) fn keeping_needs_name(
+    conn: &Connection,
+    cookbook_id: &str,
+    branch_id: &str,
+) -> Result<bool, OpError> {
+    let (lineage_id, language, name): (String, String, Option<String>) = conn
+        .query_row(
+            "SELECT lineage_id, language, name FROM branches WHERE id = ?1",
+            params![branch_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
+    Ok(name.is_none() && holds_own_branch(conn, cookbook_id, &lineage_id, &language)?)
+}
+
 /// The name a Branch arriving in `cookbook_id` needs, if any: none when the
 /// Cookbook holds no Branch of its own of that recipe in that Language yet,
 /// and otherwise `fallback` — whose it was — so the two can be told apart.
@@ -1111,15 +1429,27 @@ pub(super) fn cookbook_display_name(
 
 /// Put the whole chain behind `from` onto the new Branch `onto`, row for row:
 /// every Version with its Hand, name, note and date, which is what makes a
-/// Copy carry its history rather than start one. Shared by every way a Branch
-/// is copied, so the chain cannot be carried two ways.
+/// Copy carry its history rather than start one. Which agent's Job wrote a
+/// Version comes too, so nobody's save folds into that Version on the Copy
+/// either (#265). Shared by every way a Branch is copied, so the chain cannot
+/// be carried two ways.
 pub(super) fn carry_chain(conn: &Connection, from: &str, onto: &str) -> Result<(), OpError> {
+    carry_chain_to(conn, from, onto, None)
+}
+
+/// [`carry_chain`], stopping at the row `up_to` where one is given.
+fn carry_chain_to(
+    conn: &Connection,
+    from: &str,
+    onto: &str,
+    up_to: Option<i64>,
+) -> Result<(), OpError> {
     conn.execute(
         "INSERT INTO branch_versions \
-         (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at, translates_version_id, language) \
-         SELECT ?1, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at, translates_version_id, language \
-           FROM branch_versions WHERE branch_id = ?2",
-        params![onto, from],
+         (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at, translates_version_id, language, job_id) \
+         SELECT ?1, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at, translates_version_id, language, job_id \
+           FROM branch_versions WHERE branch_id = ?2 AND (?3 IS NULL OR sequence <= ?3)",
+        params![onto, from, up_to],
     )
     .map_err(|e| OpError::internal(format!("cannot carry the chain onto the new Branch: {e}")))?;
     Ok(())
@@ -1140,6 +1470,20 @@ pub(super) fn carry_chain(conn: &Connection, from: &str, onto: &str) -> Result<(
 pub(super) fn copy_branch_into(
     conn: &Connection,
     source: &str,
+    cookbook_id: &str,
+    started_by: &str,
+    name: Option<&str>,
+) -> Result<String, OpError> {
+    copy_branch_at(conn, source, None, cookbook_id, started_by, name)
+}
+
+/// [`copy_branch_into`], where the copy may start at an older Version of
+/// `source` (#354): `at` is a sequence on it, and the chain is carried up to
+/// that row and no further, so the Thread forks there.
+pub(super) fn copy_branch_at(
+    conn: &Connection,
+    source: &str,
+    at: Option<i64>,
     cookbook_id: &str,
     started_by: &str,
     name: Option<&str>,
@@ -1177,6 +1521,16 @@ pub(super) fn copy_branch_into(
         name: source_name,
         ..
     } = source_row;
+    let head = match at {
+        Some(sequence) => conn
+            .query_row(
+                "SELECT version_id FROM branch_versions WHERE branch_id = ?1 AND sequence = ?2",
+                params![source, sequence],
+                |row| row.get(0),
+            )
+            .map_err(|e| OpError::internal(format!("cannot read Version: {e}")))?,
+        None => head,
+    };
     let new_branch_id = format!("b_{}", hex::encode(random_bytes(8)));
     // A variation keeps the name it was given wherever it goes; an unnamed
     // Branch is named after the Cookbook it came from only where the
@@ -1192,7 +1546,9 @@ pub(super) fn copy_branch_into(
         )?,
     };
     // The sender's Branch, received again: one per Cookbook under their id.
-    let keeps_travelling = arrived && {
+    // A copy from an older Version of it is a recipe of the receiver's own,
+    // since the sender's next Bundle continues the newest one (#354).
+    let keeps_travelling = at.is_none() && arrived && {
         let taken: bool = conn
             .query_row(
                 "SELECT EXISTS (SELECT 1 FROM branches \
@@ -1209,10 +1565,12 @@ pub(super) fn copy_branch_into(
         cookbook_hand(conn, cookbook_id)?
     };
     conn.execute(
+        // A guessed Language is the copy's guess too (#321).
         "INSERT INTO branches \
          (id, travelling_id, lineage_id, cookbook_id, hand_id, language, origin_address, \
-          head_version_id, name, started_by, arrived) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+          head_version_id, name, started_by, arrived, language_guessed) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, \
+                 (SELECT language_guessed FROM branches WHERE id = ?12))",
         params![
             new_branch_id,
             keeps_travelling.then_some(&travelling),
@@ -1225,10 +1583,11 @@ pub(super) fn copy_branch_into(
             name,
             started_by,
             keeps_travelling as i64,
+            source,
         ],
     )
     .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
-    carry_chain(conn, source, &new_branch_id)?;
+    carry_chain_to(conn, source, &new_branch_id, at)?;
     refile_tags(conn, source, &new_branch_id, cookbook_id)?;
     Ok(new_branch_id)
 }
@@ -1284,6 +1643,8 @@ fn refile_tags(conn: &Connection, from: &str, to: &str, cookbook_id: &str) -> Re
 /// nothing else (#120): what `delete_recipe` does once it has decided who
 /// keeps a copy.
 pub(super) fn delete_branch_rows(conn: &Connection, branch_id: &str) -> Result<(), OpError> {
+    // An agent's Job on the recipe has nothing left to write (#261).
+    jobs::end_for_deleted_recipe(conn, branch_id)?;
     for statement in [
         "DELETE FROM branch_versions WHERE branch_id = ?1",
         "DELETE FROM branch_tags WHERE branch_id = ?1",
@@ -1857,6 +2218,7 @@ fn fold_branch(conn: &Connection, drop: &str, keep: &str, into: &str) -> Result<
         params![drop, keep],
     )
     .map_err(|e| OpError::internal(format!("cannot move the import ledger: {e}")))?;
+    jobs::move_to_kept_recipe(conn, drop, keep)?;
     delete_branch_rows(conn, drop)
 }
 
@@ -1901,6 +2263,7 @@ fn move_imports(conn: &Connection, from: &str, into: &str) -> Result<(), OpError
                     params![import_id],
                 )
                 .map_err(|e| OpError::internal(format!("cannot move the import ledger: {e}")))?;
+                jobs::move_to_kept_import(conn, &import_id, &there, into)?;
                 conn.execute("DELETE FROM imports WHERE id = ?1", params![import_id])
                     .map_err(|e| OpError::internal(format!("cannot move Import: {e}")))?;
             }

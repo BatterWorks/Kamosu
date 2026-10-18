@@ -6,7 +6,8 @@ use super::*;
 impl Core {
     /// Create a Tag in the caller's own Cookbook, named in one Language. Tags
     /// belong to the Cookbook, with its recipes (#131, question 3), so any of
-    /// its Co-authors may and nobody else does.
+    /// its Co-authors may and nobody else does, but for an Operator looking
+    /// after the Cookbook `into` names (#302).
     ///
     /// A word already used in that Cookbook and Language does not make a second
     /// Tag: the one already there is returned, which is what keeps *dessert*
@@ -14,15 +15,17 @@ impl Core {
     /// agreed, not collided.
     pub fn create_tag(
         &self,
-        person_id: &str,
+        caller: &Caller,
         language: &str,
         name: &str,
+        into: Option<&str>,
     ) -> Result<Value, OpError> {
+        let person_id = caller.person_id.as_str();
         let language = supported_language(language)?;
         let name = required_text(name, "name")?.to_string();
         let tag_id = format!("t_{}", hex::encode(random_bytes(8)));
         self.db().with_conn(|conn| {
-            let cookbook_id = cookbook_of_person(conn, person_id)?;
+            let cookbook_id = lands_in(conn, caller, into)?;
             if let Some(existing) = tag_id_for_word(conn, &cookbook_id, language, &name)? {
                 return tag_summary(conn, &existing, person_id);
             }
@@ -59,15 +62,16 @@ impl Core {
     /// filter matches the word across Cookbooks (#131, answer 3).
     pub fn list_tags(
         &self,
-        person_id: &str,
+        caller: &Caller,
         everywhere: bool,
         kitchen_id: Option<&str>,
         cookbook_id: Option<&str>,
     ) -> Result<Vec<Value>, OpError> {
+        let person_id = caller.person_id.as_str();
         self.db().with_conn(|conn| {
             let own = cookbook_of_person(conn, person_id)?;
             if let Some(cookbook_id) = cookbook_id {
-                ensure_sees_or_absent(conn, cookbook_id, person_id, no_such_cookbook)?;
+                ensure_reaches_or_absent(conn, cookbook_id, caller, no_such_cookbook)?;
             }
             if let Some(kitchen_id) = kitchen_id {
                 ensure_member(conn, kitchen_id, person_id)?;
@@ -262,14 +266,14 @@ impl Core {
     /// not put your recipe under a word of theirs.
     pub fn set_recipe_tag(
         &self,
-        person_id: &str,
+        caller: &Caller,
         branch_id: &str,
         tag_id: &str,
         carried: bool,
     ) -> Result<Value, OpError> {
+        let person_id = caller.person_id.as_str();
         self.db().with_conn(|conn| {
-            let branch_cookbook = branch_cookbook(conn, branch_id)?;
-            ensure_writes(conn, &branch_cookbook, person_id)?;
+            let branch_cookbook = ensure_changes_branch(conn, branch_id, caller, no_such_branch)?;
 
             // A Tag belongs to one Cookbook, so a recipe can only be filed
             // under its own Cookbook's words. Reaching across is a request for

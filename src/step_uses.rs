@@ -9,7 +9,7 @@
 //! long as it holds a word a cook would call the food by
 //! ([`reading::names_nothing_alone`] is the rest) and the name's main word,
 //! the thing the Food is (#212): *vinegar* stands for *rice vinegar*, and
-//! *rice* does not. Three rules then keep that looseness from linking what
+//! *rice* does not. Four rules then keep that looseness from linking what
 //! the Step never adds:
 //!
 //! - **The longer mention wins.** *The vegetable oil* is one mention of the
@@ -23,7 +23,16 @@
 //!   on #184.
 //! - **What comes after *until* is not going in.** *Steam until most of the
 //!   water has evaporated* adds no water, so a mention after *until*,
-//!   *jusqu'à* or *hasta* counts for nothing up to the next comma or full stop.
+//!   *jusqu'à* or *hasta* counts for nothing up to the next comma or full
+//!   stop, or the next thing to do: *until soft and add the garlic* adds the
+//!   garlic (#294).
+//! - **A word the title holds names the dish.** *Ladle the curry* in a
+//!   *Vietnamese beef curry* serves the dish, not the curry powder, so a part
+//!   of a name that the recipe's title also holds links nothing. The whole
+//!   name still does: *add the garlic* in *Garlic bread* adds the garlic. The
+//!   price, chosen on #357, is *add the lemon* in a *Lemon tart* no longer
+//!   linking the lemon zest; a missing link leaves the line on screen, where a
+//!   wrong one puts curry powder in the serving Step.
 //!
 //! Whole words only, as always: *rice* is never found in *price*, nor *ail* in
 //! half the French language. One trailing `s` on a word is forgiven, so a line
@@ -48,6 +57,64 @@ const UNTIL: &[&str] = &["until", "till", "jusqu", "hasta"];
 /// What ends such a clause: a comma, the end of a sentence, or anything that
 /// sets words apart as firmly as one.
 const CLAUSE_ENDS: &[char] = &[',', '.', ';', ':', '!', '?', '(', ')', '\n'];
+
+/// The words that end an [`UNTIL`] clause where no mark does, since what
+/// follows is the next thing to do: *whisk until pale then fold in the
+/// flour* (#294).
+/// Spanish *después* is left out, since *después de* is *after*.
+const THEN: &[&str] = &["then", "puis", "luego"];
+
+/// The things a cook does that end an [`UNTIL`] clause after *and*, *et* or
+/// *y*: *cook until soft and add the garlic*. *And* alone does not, since it
+/// joins two foods inside the condition as often, as in *until the butter and
+/// sugar are pale*, and nor does a word as often a noun, as *top* is in *until
+/// the bottom and top are crisp* (#294).
+const NEXT_ACTIONS: &[&str] = &[
+    "add",
+    "fold",
+    "stir",
+    "pour",
+    "mix",
+    "whisk",
+    "beat",
+    "toss",
+    "sprinkle",
+    "scatter",
+    "drizzle",
+    "season",
+    "combine",
+    "transfer",
+    "place",
+    "put",
+    "serve",
+    "ajoutez",
+    "ajouter",
+    "incorporez",
+    "versez",
+    "mélangez",
+    "saupoudrez",
+    "parsemez",
+    "salez",
+    "servez",
+    "añade",
+    "añadir",
+    "agrega",
+    "agregar",
+    "incorpora",
+    "vierte",
+    "mezcla",
+    "espolvorea",
+    "sirve",
+];
+
+/// What joins the condition to one of the [`NEXT_ACTIONS`].
+const AND: &[&str] = &["and", "et", "y"];
+
+/// Whether a folded word is one of `list`, which is written with its accents.
+fn one_of(list: &[&str], word: &str) -> bool {
+    let word = folded_for_search(word);
+    list.iter().any(|listed| folded_for_search(listed) == word)
+}
 
 /// One word of folded text, and whether it sits in an *until* clause.
 struct Word {
@@ -116,7 +183,12 @@ fn words_of(text: &str) -> Vec<Word> {
     let mut marked = Vec::with_capacity(words.len());
     let mut until_in: Option<usize> = None;
     for (at, (text, clause)) in words.iter().enumerate() {
-        if until_in.is_some_and(|open| open != *clause) {
+        let next_action = one_of(THEN, text)
+            || (one_of(AND, text)
+                && words
+                    .get(at + 1)
+                    .is_some_and(|(next, _)| one_of(NEXT_ACTIONS, next)));
+        if until_in.is_some_and(|open| open != *clause) || next_action {
             until_in = None;
         }
         if until_in.is_none() && UNTIL.contains(&text.as_str()) {
@@ -350,13 +422,19 @@ fn mentions_of(line: &Line, step: &[Word]) -> Vec<Mention> {
 
 /// **Which Ingredient Lines each Step uses**: one slot per row of `steps`,
 /// `None` on a row that is not a Step, and otherwise the lines' indices in
-/// order. `readings` is one slot per Ingredient Line, a Reading or null, and
-/// `language` is the Branch's, which says where a name's main word sits.
+/// order. `readings` is one slot per Ingredient Line, a Reading or null,
+/// `language` is the Branch's, which says where a name's main word sits, and
+/// `title` is the recipe's, whose words name the dish.
 pub fn step_uses(
     steps: &[Value],
     readings: &[Value],
     language: Option<&str>,
+    title: &str,
 ) -> Vec<Option<Vec<usize>>> {
+    let dish: Vec<String> = split_words(title, &[])
+        .into_iter()
+        .map(|(word, _)| word)
+        .collect();
     let lines: Vec<Line> = readings
         .iter()
         .enumerate()
@@ -383,26 +461,48 @@ pub fn step_uses(
                 return None;
             }
             let text = row["text"].as_str()?;
-            let uses = uses_of(&words_of(text), &lines, &used_before);
+            let uses = uses_of(&words_of(text), &lines, &dish, &used_before);
             used_before.extend(&uses);
             Some(uses)
         })
         .collect()
 }
 
-/// The lines one Step uses, given the lines earlier Steps already used.
-fn uses_of(step: &[Word], lines: &[Line], used_before: &[usize]) -> Vec<usize> {
+/// Whether the title's words hold `words` as a run, one trailing `s`
+/// forgiven. An accent [`folded_word`] kept counts, so a title's *de* is not
+/// a Step's *dés* (#230).
+fn names_the_dish(words: &[Word], dish: &[String]) -> bool {
+    dish.windows(words.len()).any(|there| {
+        there
+            .iter()
+            .zip(words)
+            .all(|(dish, word)| same_to_the_accent(&word.text, dish))
+    })
+}
+
+/// The lines one Step uses, given the words of the recipe's title and the
+/// lines earlier Steps already used.
+fn uses_of(step: &[Word], lines: &[Line], dish: &[String], used_before: &[usize]) -> Vec<usize> {
     let mentions: Vec<Mention> = lines
         .iter()
         .flat_map(|line| mentions_of(line, step))
         .filter(|mention| !step[mention.start].until)
         .collect();
-    let kept = mentions.iter().filter(|mention| {
-        mention.whole
-            || !mentions.iter().any(|other| {
-                other.line != mention.line && mention.overlaps(other) && mention.beaten_by(other)
-            })
-    });
+    // A part naming the dish still claims its words from a shorter mention it
+    // overlaps, and only then links nothing itself.
+    let kept = mentions
+        .iter()
+        .filter(|mention| {
+            mention.whole
+                || !mentions.iter().any(|other| {
+                    other.line != mention.line
+                        && mention.overlaps(other)
+                        && mention.beaten_by(other)
+                })
+        })
+        .filter(|mention| {
+            mention.whole || !names_the_dish(&step[mention.start..][..mention.len], dish)
+        });
 
     let mut named: Vec<usize> = kept.map(|mention| mention.line).collect();
     named.sort_unstable();
@@ -441,8 +541,22 @@ mod tests {
         uses_in(None, steps, targets)
     }
 
+    /// The title every test but the dish's own is given: it holds none of
+    /// their words, so it takes no mention away (#357).
+    const NO_DISH: &str = "Untitled";
+
     /// The same, on a Branch written in `language`.
     fn uses_in(
+        language: Option<&str>,
+        steps: &[&str],
+        targets: &[&str],
+    ) -> Vec<Option<Vec<usize>>> {
+        uses_titled(NO_DISH, language, steps, targets)
+    }
+
+    /// The same, on a recipe called `title`.
+    fn uses_titled(
+        title: &str,
         language: Option<&str>,
         steps: &[&str],
         targets: &[&str],
@@ -464,7 +578,7 @@ mod tests {
                 }
             })
             .collect();
-        step_uses(&steps, &readings, language)
+        step_uses(&steps, &readings, language, title)
     }
 
     fn step(indices: &[usize]) -> Option<Vec<usize>> {
@@ -849,6 +963,58 @@ mod tests {
     }
 
     #[test]
+    fn an_until_clause_ends_at_the_next_thing_the_cook_does() {
+        assert_eq!(
+            uses(
+                &[
+                    "Whisk the eggs until pale then fold in the flour and the sugar.",
+                    "Cook the onions until soft and add the garlic.",
+                    "Beat until the butter and sugar are pale.",
+                ],
+                &["egg", "flour", "sugar", "onion", "garlic", "butter"]
+            ),
+            [step(&[0, 1, 2]), step(&[3, 4]), step(&[])],
+            "*and* alone stays inside the condition: the butter and sugar \
+             are what should look pale, not what goes in"
+        );
+        assert_eq!(
+            uses(
+                &[
+                    "Fouettez jusqu'à ce que le beurre et le sucre blanchissent puis ajoutez la farine.",
+                    "Cuisez jusqu'à ce que l'oignon soit tendre et ajoutez l'ail.",
+                    "Bate hasta que la mantequilla y el azúcar blanqueen y añade la harina.",
+                    "Cocina hasta que esté dorado, luego agrega el ajo.",
+                    "Cocina hasta que esté dorado luego agrega el ajo.",
+                ],
+                &[
+                    "beurre",
+                    "sucre",
+                    "farine",
+                    "oignon",
+                    "ail",
+                    "mantequilla",
+                    "azúcar",
+                    "harina",
+                    "ajo"
+                ]
+            ),
+            [step(&[2]), step(&[4]), step(&[7]), step(&[8]), step(&[8])],
+        );
+        assert_eq!(
+            uses(
+                &[
+                    "Cook until the bottom and top of the tortilla are crisp.",
+                    "Hierve hasta que se evapore después de añadir el vino.",
+                ],
+                &["tortilla", "vino"]
+            ),
+            [step(&[]), step(&[])],
+            "*top* after *and* is part of the condition, and *después de* is \
+             *after*, not *then*"
+        );
+    }
+
+    #[test]
     fn a_describing_word_alone_links_nothing() {
         assert_eq!(
             uses(
@@ -946,6 +1112,135 @@ mod tests {
             ),
             [step(&[0]), step(&[1, 2])],
         );
+    }
+
+    /// A recipe's title, its Language, one Step, its Readings, and the lines
+    /// that Step links.
+    type Titled<'a> = (&'a str, &'a str, &'a str, &'a [&'a str], &'a [usize]);
+
+    /// The rows of #357: a part of an ingredient's name that the title also
+    /// holds names the dish, and a part the title does not hold still links.
+    #[test]
+    fn a_step_naming_the_dish_by_a_word_of_its_title_links_nothing() {
+        let rows: &[Titled] = &[
+            (
+                "Vietnamese beef curry",
+                "en",
+                "Ladle the curry into a soup tureen and serve immediately.",
+                &["beef", "curry powder", "coconut milk"],
+                &[],
+            ),
+            (
+                "Curry de bœuf vietnamien",
+                "fr",
+                "Versez le curry dans une soupière et servez aussitôt.",
+                &["bœuf", "curry en poudre"],
+                &[],
+            ),
+            (
+                "Chocolate cake",
+                "en",
+                "Sift in the cocoa.",
+                &["cocoa powder", "sugar"],
+                &[0],
+            ),
+            (
+                "Gâteau au chocolat",
+                "fr",
+                "Ajoutez le cacao.",
+                &["cacao en poudre"],
+                &[0],
+            ),
+            (
+                "Thai red curry",
+                "en",
+                "Ladle the curry into bowls.",
+                &["red curry paste", "coconut milk"],
+                &[],
+            ),
+            (
+                "Hot cocoa",
+                "en",
+                "Pour the cocoa into mugs.",
+                &["cocoa powder", "milk"],
+                &[],
+            ),
+        ];
+        for (title, language, text, targets, linked) in rows {
+            assert_eq!(
+                uses_titled(title, Some(language), &[text], targets),
+                [step(linked)],
+                "{text:?} in {title:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_ingredients_whole_name_links_in_a_dish_named_after_it() {
+        assert_eq!(
+            uses_titled(
+                "Vietnamese beef curry",
+                Some("en"),
+                &["Add the curry powder and stir for a minute."],
+                &["beef", "curry powder", "coconut milk"],
+            ),
+            [step(&[1])],
+        );
+        assert_eq!(
+            uses_titled(
+                "Garlic bread",
+                Some("en"),
+                &["Add the garlic to the butter."],
+                &["garlic", "butter"],
+            ),
+            [step(&[0, 1])],
+        );
+    }
+
+    /// A title's word is compared as the Step's mention was found: *de* in
+    /// the title is not *les dés* in the Step, as *the* is no tea (#230).
+    #[test]
+    fn a_title_word_an_accent_sets_apart_is_another_word() {
+        assert_eq!(
+            uses_titled(
+                "Salade de pâtes au jambon",
+                Some("fr"),
+                &["Ajoutez les dés et le miel."],
+                &["dés de jambon", "miel"],
+            ),
+            [step(&[0, 1])],
+        );
+    }
+
+    /// A part of a name the title holds still claims its words from a
+    /// shorter part of another name it overlaps: the dish is named, so
+    /// nothing is.
+    #[test]
+    fn a_mention_naming_the_dish_still_beats_a_shorter_one_it_overlaps() {
+        assert_eq!(
+            uses_titled(
+                "Thai red curry",
+                Some("en"),
+                &["Stir in the Thai red curry leaves."],
+                &["Thai red curry paste", "fresh curry leaves"],
+            ),
+            [step(&[])],
+        );
+    }
+
+    #[test]
+    fn an_empty_title_takes_no_mention_away() {
+        for title in ["", "   "] {
+            assert_eq!(
+                uses_titled(
+                    title,
+                    Some("en"),
+                    &["Ladle the curry into bowls."],
+                    &["curry powder"],
+                ),
+                [step(&[0])],
+            );
+        }
     }
 
     #[test]
@@ -1153,6 +1448,14 @@ mod tests {
                     "Cover and leave it alone.",
                 ],
                 &["", "chicken", "panko", "water", "", ""],
+                &[],
+            ),
+            (
+                &[
+                    "Whisk the eggs until pale then fold in the flour and the sugar.",
+                    "Cook the onions until soft and add the garlic.",
+                ],
+                &["egg", "flour", "sugar", "onion", "garlic"],
                 &[],
             ),
             (

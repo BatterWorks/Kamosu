@@ -35,4 +35,4 @@ This is done with **`reqwest-ssrf-guard`** (MIT, one file, 1,132 lines, dependen
 - **A recipe page hosted on your own network cannot be imported.** Opening it in a browser and pasting still works; Bundle and file imports are untouched.
 - **Some sites will refuse `Kamosu/1.0`.** Accepted as the price of not pretending to be a browser.
 - **`reqwest-ssrf-guard` is a security dependency and is pinned**, with its resolver *and* its redirect policy installed together — its own documentation warns that installing one without the other leaves a gap.
-- **Every outbound fetch goes through the one guarded client.** A second HTTP client built anywhere in the codebase is a hole, which makes this a rule the build must enforce rather than remember.
+- **Every outbound fetch goes through the one guarded client.** A second HTTP client built anywhere in the codebase is a hole, which makes this a rule the build must enforce rather than remember. The one exception is the **Runner** of [ADR 0048](./0048-an-agent-beside-kamosu-reads-what-kamosu-cannot.md), which speaks only to the Kamosu address its Operator gave it and never to an address a stranger chose.

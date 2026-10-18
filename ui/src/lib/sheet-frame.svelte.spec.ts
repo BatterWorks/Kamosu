@@ -213,14 +213,18 @@ describe('every sheet in Kamosu', () => {
 			'ComponentPicker.svelte',
 			'Confirm.svelte',
 			'Cooking.svelte',
+			'HouseNotes.svelte',
 			'LanguageSheet.svelte',
 			'PasteSheet.svelte',
 			'PhotoToRecipe.svelte',
 			'RelatedSheet.svelte',
 			'RenameSheet.svelte',
+			'RunnerKeySecret.svelte',
+			'SendSheet.svelte',
 			'StepPhoto.svelte',
 			'TagSheet.svelte',
 			'Thread.svelte',
+			'UseVersion.svelte',
 			'Writing.svelte',
 		]);
 	});

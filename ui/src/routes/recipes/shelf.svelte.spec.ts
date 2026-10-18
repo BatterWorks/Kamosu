@@ -12,8 +12,8 @@
  * this screen and nowhere else.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, fireEvent } from '@testing-library/svelte';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import Recipes from './+page.svelte';
 import { standIn, type StandIn } from '$lib/api/stand-in';
 import { renderScreen } from '../../testing/render';
@@ -30,6 +30,7 @@ import {
 import { went } from '../../testing/navigation';
 import { carrying } from '../../testing/drops';
 import { takePaste } from '$lib/pasted.svelte';
+import { forgetArrival, theArrival } from '$lib/arrival.svelte';
 
 const kitchen = kitchenAnswer('k_home', {
 	name: 'Maison',
@@ -280,6 +281,7 @@ describe('the recipes screen', () => {
 				tags: [],
 				related_recipes: [],
 				cooked: { count: 0, last_cooked_at: null, ratings: [] },
+				foods_created: [],
 			},
 		});
 
@@ -322,6 +324,7 @@ describe('the recipes screen', () => {
 				tags: [],
 				related_recipes: [],
 				cooked: { count: 0, last_cooked_at: null, ratings: [] },
+				foods_created: [],
 			},
 		});
 		await fireEvent.click(
@@ -930,8 +933,12 @@ describe('the + for every new recipe (#174)', () => {
 		Reflect.deleteProperty(navigator, 'onLine');
 	});
 
-	/** A full shelf that already holds a chicken curry, which is the whole case. */
+	/**
+	 * A full shelf that already holds a chicken curry, which is the whole case,
+	 * on an instance with no Runner, as most are (#278).
+	 */
 	const fullShelf = {
+		runner_status: { has_runner: false, last_asked_at: null },
 		list_tags: { tags: [] },
 		list_kitchens: { kitchens: [kitchen] },
 		meaning_search_status: meaningOff(),
@@ -962,13 +969,15 @@ describe('the + for every new recipe (#174)', () => {
 		tags: [],
 		related_recipes: [],
 		cooked: { count: 0, last_cooked_at: null, ratings: [] },
+		foods_created: [],
 	};
 
 	async function openThePlus() {
 		const plus = await screen.findByRole('button', { name: 'Add a recipe' });
 		expect(plus).toHaveAttribute('aria-expanded', 'false');
 		await fireEvent.click(plus);
-		expect(plus).toHaveAttribute('aria-expanded', 'true');
+		// It asks whether there is a Runner first (#278).
+		await vi.waitFor(() => expect(plus).toHaveAttribute('aria-expanded', 'true'));
 		return plus;
 	}
 
@@ -990,6 +999,12 @@ describe('the + for every new recipe (#174)', () => {
 				name: /From pasted text.*Kamosu sorts it into title, ingredients and method/,
 			}),
 		).toBeInTheDocument();
+		// With no Runner there is no photo or video to offer, and nothing is grouped (#278, #349).
+		expect(
+			screen.queryByRole('button', { name: /From a photo of a page/ }),
+		).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /From a video/ })).not.toBeInTheDocument();
+		expect(screen.queryByText(/Kamosu's AI agent/)).not.toBeInTheDocument();
 		// The quiet row #93 put above the shelf is gone, replaced by this.
 		expect(screen.queryByText('Add a recipe from a link')).not.toBeInTheDocument();
 	});
@@ -1064,6 +1079,7 @@ describe('the + for every new recipe (#174)', () => {
 		expect(takePaste('b_new')).toEqual({
 			title: 'Lemon drizzle loaf',
 			note: null,
+			source: null,
 			ingredients: [
 				{ kind: 'ingredient', text: '225g butter, softened' },
 				{ kind: 'ingredient', text: '4 eggs' },
@@ -1172,6 +1188,98 @@ describe('the + for every new recipe (#174)', () => {
 		expect(kamosu.calls.find((call) => call.operation === 'import_web_link')?.input).toEqual({
 			url: 'https://example.test/chicken-curry',
 		});
+	});
+
+	/** A blog post with no recipe data, as an instance with no Runner reads it (#301). */
+	const READ_FROM_THE_PAGE = {
+		title: 'Vietnamese Beef Curry (Cari Bo)',
+		lines: [
+			{ kind: 'section' as const, text: 'Ingredients' },
+			{ kind: 'line' as const, text: '2 tbsp grated fresh ginger' },
+			{ kind: 'line' as const, text: '4 tbsp fish sauce' },
+			{ kind: 'section' as const, text: 'Method :' },
+			{ kind: 'line' as const, text: 'Simmer the beef for an hour.' },
+		],
+		boundary: 3,
+		note: 'Cari Bo\nMy mum makes this once a month.',
+		source: { text: 'blog.example', link: 'https://blog.example/cari-bo.html' },
+	};
+
+	/** `import_web_link` answering what it read, having landed nothing. */
+	const readNotLanded = {
+		import_web_link: { job_id: 'j_1' },
+		get_job: {
+			id: 'j_1',
+			operation: 'import_web_link',
+			status: 'completed' as const,
+			progress: {},
+			error: null,
+			errorCode: null,
+			created_at: '2026-10-14T10:00:00.000Z',
+			updated_at: '2026-10-14T10:00:01.000Z',
+			result: { to_check: READ_FROM_THE_PAGE },
+		},
+	};
+
+	// #301: with no Runner, a page with no recipe data comes back read from
+	// its own text, and is checked on the sheet a paste is checked on.
+	it('checks a page read from its own text on the paste sheet, and keeps the page as its Source', async () => {
+		const { kamosu } = renderScreen(Recipes, {
+			...fullShelf,
+			...readNotLanded,
+			create_recipe: made,
+		});
+
+		await openThePlus();
+		await fireEvent.click(screen.getByRole('button', { name: /From a link/ }));
+		const field = screen.getByLabelText(/web address/);
+		await fireEvent.input(field, { target: { value: 'https://blog.example/cari-bo.html' } });
+		await fireEvent.submit(field.closest('form')!);
+
+		const sheet = await screen.findByRole('dialog', { name: 'From a link' });
+		expect(screen.getByLabelText('Title')).toHaveValue('Vietnamese Beef Curry (Cari Bo)');
+		// Why a check is asked, said before anything else (the choice on #301).
+		expect(sheet).toHaveTextContent(
+			"Kamosu found no recipe on this page, so it read the page's own text.",
+		);
+		expect(sheet).toHaveTextContent('2 ingredients and 1 steps.');
+		expect(sheet).toHaveTextContent('My mum makes this once a month.');
+		expect(went).not.toHaveBeenCalled();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Make this recipe' }));
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_new'));
+		expect(kamosu.calls.some((call) => call.operation === 'save_recipe_version')).toBe(false);
+		expect(takePaste('b_new')).toMatchObject({
+			title: 'Vietnamese Beef Curry (Cari Bo)',
+			source: { text: 'blog.example', link: 'https://blog.example/cari-bo.html' },
+			ingredients: [
+				{ kind: 'section', text: 'Ingredients' },
+				{ kind: 'ingredient', text: '2 tbsp grated fresh ginger' },
+				{ kind: 'ingredient', text: '4 tbsp fish sauce' },
+			],
+		});
+	});
+
+	it('checks a page read from its own text where a search found nothing, too', async () => {
+		renderScreen(Recipes, {
+			list_tags: { tags: [] },
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: 'cari bo', closest: false, recipes: [] },
+			...readNotLanded,
+		});
+
+		await fireEvent.click(await screen.findByRole('button', { name: /Import from a link/ }));
+		const field = screen.getByLabelText(/web address/);
+		await fireEvent.input(field, { target: { value: 'https://blog.example/cari-bo.html' } });
+		await fireEvent.submit(field.closest('form')!);
+
+		const sheet = await screen.findByRole('dialog', { name: 'From a link' });
+		expect(sheet).toHaveTextContent('Kamosu found no recipe on this page');
+		expect(screen.getByLabelText('Title')).toHaveValue('Vietnamese Beef Curry (Cari Bo)');
+		await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+		expect(screen.queryByRole('dialog')).toBeNull();
+		expect(went).not.toHaveBeenCalled();
 	});
 
 	it('opens the phone’s own picker for a Kamosu zip file, and brings the file in', async () => {
@@ -1289,6 +1397,7 @@ describe('the + for every new recipe (#174)', () => {
 		expect(takePaste('b_new')).toEqual({
 			title: 'Biscuit de Savoie',
 			note: BISCUIT.note,
+			source: null,
 			ingredients: [
 				{ kind: 'section', text: 'Ingrédients :' },
 				{ kind: 'ingredient', text: 'Trois gros œufs' },
@@ -1367,6 +1476,339 @@ describe('the + for every new recipe (#174)', () => {
 		).toBeDisabled();
 	});
 
+	describe("with Kamosu's AI agent (#278)", () => {
+		const withAgent = {
+			...fullShelf,
+			runner_status: { has_runner: true, last_asked_at: '2026-10-15T12:00:00.000Z' },
+		};
+		/** What `import_by_agent` answers for a new Job. */
+		const sentAs = (source_kind: 'picture' | 'pdf' | 'pasted_text' | 'web') => ({
+			job_id: 'j_agent',
+			source_kind,
+		});
+		const aPhoto = () => new File(['jpeg bytes'], 'IMG_4182.jpg', { type: 'image/jpeg' });
+		/**
+		 * A PDF whose objects are in plain text: two pages, the second edited
+		 * and saved again, so written twice, as an edited PDF is.
+		 */
+		const aScan = () =>
+			new File(
+				[
+					'%PDF-1.4\n1 0 obj << /Type /Pages /Count 2 >> endobj\n' +
+						'2 0 obj << /Type /Page >> endobj\n3 0 obj << /Type/Page >> endobj\n' +
+						'%%EOF\n3 0 obj << /Type /Page /Rotate 90 >> endobj\n%%EOF',
+				],
+				'tarts.pdf',
+				{ type: 'application/pdf' },
+			);
+
+		beforeEach(() => {
+			URL.createObjectURL = vi.fn(() => 'blob:the-photo');
+			URL.revokeObjectURL = vi.fn();
+		});
+
+		/** The + drawn on an instance with a Runner, with an uploader. */
+		function shelfWithAgent(answers: object = {}) {
+			const upload = vi.fn(async () => 'u_handed');
+			const kamosu = standIn({ ...withAgent, ...answers });
+			render(ShelfTestHarness, { props: { client: kamosu.client, upload } });
+			return { upload, kamosu };
+		}
+
+		async function pick(row: RegExp, label: string, file: File) {
+			await openThePlus();
+			await fireEvent.click(screen.getByRole('button', { name: row }));
+			await fireEvent.change(screen.getByLabelText(label), { target: { files: [file] } });
+		}
+
+		it("groups what Kamosu's AI agent reads under the quick ways, asking each time it opens", async () => {
+			const { kamosu } = shelfWithAgent();
+			await screen.findByText('Chicken katsu curry');
+
+			const plus = await openThePlus();
+			const list = document.getElementById(plus.getAttribute('aria-controls')!)!;
+			const rows = [...list.querySelectorAll('button')].map(
+				(button) => button.querySelector('.font-display')?.textContent,
+			);
+			expect(rows).toEqual([
+				'From a link',
+				'From a Kamosu zip file',
+				'Write it yourself',
+				'From a photo of a page',
+				'From a PDF',
+				'From pasted text',
+				'From a video',
+			]);
+			// The heading sits between the two groups, saying it takes minutes.
+			const heading = screen.getByText("Kamosu's AI agent makes the recipe · a few minutes");
+			expect(
+				heading.compareDocumentPosition(screen.getByRole('button', { name: /Write it yourself/ })),
+			).toBe(Node.DOCUMENT_POSITION_PRECEDING);
+			expect(
+				heading.compareDocumentPosition(
+					screen.getByRole('button', { name: /From a photo of a page/ }),
+				),
+			).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+			expect(
+				screen.getByRole('button', { name: /From a PDF.*Printed, saved or scanned/ }),
+			).toBeInTheDocument();
+
+			// Read from the server every time, never kept (#278).
+			await fireEvent.click(plus);
+			await openThePlus();
+			expect(kamosu.calls.filter((call) => call.operation === 'runner_status')).toHaveLength(2);
+		});
+
+		it('shows a chosen photo once, and sends it to the agent and opens its Import', async () => {
+			const { upload, kamosu } = shelfWithAgent({ import_by_agent: sentAs('picture') });
+			const photo = aPhoto();
+
+			await pick(/From a photo of a page/, "Send a photo of a page to Kamosu's AI agent", photo);
+			expect(screen.getByLabelText("Send a photo of a page to Kamosu's AI agent")).toHaveAttribute(
+				'accept',
+				'image/*',
+			);
+			const sheet = await screen.findByRole('dialog', {
+				name: "Send this photo to Kamosu's AI agent?",
+			});
+			expect(screen.getByRole('img', { name: 'The photo you chose' })).toHaveAttribute(
+				'src',
+				'blob:the-photo',
+			);
+			expect(sheet).toHaveTextContent('IMG_4182.jpg');
+			expect(sheet).toHaveTextContent(
+				"Kamosu's AI agent makes the recipe and puts it in your Cookbook. That usually takes a few minutes, and you can leave meanwhile.",
+			);
+			// Nothing is sent before Send.
+			expect(upload).not.toHaveBeenCalled();
+
+			await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+			await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/imports/j_agent'));
+			expect(upload).toHaveBeenCalledWith(photo);
+			expect(kamosu.calls.find((call) => call.operation === 'import_by_agent')?.input).toEqual({
+				upload_id: 'u_handed',
+			});
+			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		});
+
+		it('sends nothing when Back is pressed on the sheet', async () => {
+			const { upload, kamosu } = shelfWithAgent();
+			await pick(/From a photo of a page/, "Send a photo of a page to Kamosu's AI agent", aPhoto());
+			await screen.findByRole('dialog');
+
+			await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+			expect(upload).not.toHaveBeenCalled();
+			expect(kamosu.calls.some((call) => call.operation === 'import_by_agent')).toBe(false);
+			expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:the-photo');
+		});
+
+		it('sends a PDF, a scan included, to the agent rather than reading it into a draft', async () => {
+			const { kamosu } = shelfWithAgent({ import_by_agent: sentAs('pdf') });
+
+			await pick(/From a PDF/, 'Add a recipe from a PDF', aScan());
+			const sheet = await screen.findByRole('dialog', {
+				name: "Send this PDF to Kamosu's AI agent?",
+			});
+			expect(sheet).toHaveTextContent('tarts.pdf');
+			await vi.waitFor(() => expect(sheet).toHaveTextContent('2 pages'));
+
+			await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+			await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/imports/j_agent'));
+			expect(kamosu.calls.some((call) => call.operation === 'read_recipe_pdf')).toBe(false);
+		});
+
+		it('sends pasted text to the agent with no draft to sort', async () => {
+			const { kamosu } = shelfWithAgent({ import_by_agent: sentAs('pasted_text') });
+
+			await openThePlus();
+			await fireEvent.click(screen.getByRole('button', { name: /From pasted text/ }));
+			expect(
+				screen.getByText(
+					"Copy the whole recipe from anywhere. Kamosu's AI agent makes the recipe from it, and it arrives in a few minutes.",
+				),
+			).toBeInTheDocument();
+			const field = screen.getByLabelText('The recipe, pasted as text');
+			await fireEvent.input(field, { target: { value: 'Lemon drizzle loaf\n225g butter…' } });
+			await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+			await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/imports/j_agent'));
+			expect(kamosu.calls.find((call) => call.operation === 'import_by_agent')?.input).toEqual({
+				text: 'Lemon drizzle loaf\n225g butter…',
+			});
+			expect(kamosu.calls.some((call) => call.operation === 'read_pasted_recipe')).toBe(false);
+			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		});
+
+		it("sends a video's link straight to the agent, reading nothing first (#349)", async () => {
+			const { kamosu } = shelfWithAgent({ import_by_agent: sentAs('web') });
+
+			await openThePlus();
+			await fireEvent.click(
+				screen.getByRole('button', {
+					name: /From a video.*A cooking video on YouTube, Instagram or TikTok/,
+				}),
+			);
+			expect(
+				screen.getByText(
+					"Paste the video's link. Kamosu's AI agent makes the recipe from it, and it arrives in a few minutes.",
+				),
+			).toBeInTheDocument();
+			const field = screen.getByLabelText("The video's web address");
+			await fireEvent.input(field, {
+				target: { value: ' https://www.youtube.com/watch?v=tarte ' },
+			});
+			await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+			await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/imports/j_agent'));
+			expect(kamosu.calls.find((call) => call.operation === 'import_by_agent')?.input).toEqual({
+				link: 'https://www.youtube.com/watch?v=tarte',
+			});
+			expect(kamosu.calls.some((call) => call.operation === 'import_web_link')).toBe(false);
+		});
+
+		it('says under the video field why the agent was refused, and keeps the link there', async () => {
+			shelfWithAgent({
+				import_by_agent: {
+					refuse: 'refused',
+					message: 'this Kamosu has no Runner',
+					reason: 'no_runner',
+				},
+			});
+			await openThePlus();
+			await fireEvent.click(screen.getByRole('button', { name: /From a video/ }));
+			const field = screen.getByLabelText("The video's web address");
+			await fireEvent.input(field, { target: { value: 'https://www.youtube.com/watch?v=tarte' } });
+			await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+			await vi.waitFor(() =>
+				expect(screen.getByRole('alert')).toHaveTextContent('this Kamosu has no Runner'),
+			);
+			expect(screen.getAllByRole('alert')).toHaveLength(1);
+			expect(field).toHaveValue('https://www.youtube.com/watch?v=tarte');
+			expect(went).not.toHaveBeenCalledWith(expect.stringMatching(/^\/imports\//));
+		});
+
+		it('opens the recipe a photo was already read into, saying so, and makes nothing', async () => {
+			shelfWithAgent({
+				import_by_agent: { source_kind: 'picture', branch_id: 'b_read', title: 'Tarte au citron' },
+			});
+			await pick(/From a photo of a page/, "Send a photo of a page to Kamosu's AI agent", aPhoto());
+			await screen.findByRole('dialog');
+			await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+			await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_read'));
+			expect(theArrival()).toMatchObject({
+				branchId: 'b_read',
+				title: 'Tarte au citron',
+				how: 'read_before',
+			});
+			expect(theArrival()?.jobId).toBeUndefined();
+			forgetArrival();
+		});
+
+		it('says on the sheet why the agent was refused, and keeps the photo there', async () => {
+			shelfWithAgent({
+				import_by_agent: {
+					refuse: 'refused',
+					message: 'this Kamosu has no Runner',
+					reason: 'no_runner',
+				},
+			});
+			await pick(/From a photo of a page/, "Send a photo of a page to Kamosu's AI agent", aPhoto());
+			const sheet = await screen.findByRole('dialog');
+			await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+			await vi.waitFor(() =>
+				expect(within(sheet).getByRole('alert')).toHaveTextContent('this Kamosu has no Runner'),
+			);
+			expect(went).not.toHaveBeenCalledWith(expect.stringMatching(/^\/imports\//));
+		});
+
+		it('puts away what the last act said when a new source is chosen', async () => {
+			shelfWithAgent();
+			await screen.findByText('Chicken katsu curry');
+			const dataTransfer = carrying({
+				files: [new File(['x'], 'sheet.xlsx', { type: 'application/vnd.ms-excel' })],
+			});
+			await fireEvent.dragEnter(document.body, { dataTransfer });
+			await fireEvent.drop(document.body, { dataTransfer });
+			expect(await screen.findByRole('alert')).toHaveTextContent(/didn't go anywhere/);
+
+			await openThePlus();
+			await fireEvent.click(screen.getByRole('button', { name: /From pasted text/ }));
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+		});
+
+		it("says offline that each of the agent's three waits for the server", async () => {
+			shelfWithAgent();
+			const plus = await openThePlus();
+			await fireEvent.click(plus);
+			Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+			window.dispatchEvent(new Event('offline'));
+
+			await openThePlus();
+			for (const words of [
+				'Sending a photo waits for the server',
+				'Sending a PDF waits for the server',
+				'Sending pasted text waits for the server',
+			]) {
+				expect(screen.getByRole('button', { name: words })).toBeDisabled();
+			}
+		});
+
+		describe('dropped on Recipes', () => {
+			it('says a photo held over it goes to the agent, and shows it once before it does', async () => {
+				const { kamosu } = shelfWithAgent({ import_by_agent: sentAs('picture') });
+				await screen.findByText('Chicken katsu curry');
+				const dataTransfer = carrying({ files: [aPhoto()] });
+
+				await fireEvent.dragEnter(document.body, { dataTransfer });
+				expect(
+					await screen.findByText("Drop to send this photo to Kamosu's AI agent"),
+				).toBeInTheDocument();
+				expect(
+					screen.getByText(
+						'You see it once more before it goes. The recipe arrives in a few minutes.',
+					),
+				).toBeInTheDocument();
+				await fireEvent.drop(document.body, { dataTransfer });
+
+				await screen.findByRole('dialog', { name: "Send this photo to Kamosu's AI agent?" });
+				expect(kamosu.calls.some((call) => call.operation === 'import_by_agent')).toBe(false);
+			});
+
+			it('sends a dropped PDF to the agent rather than reading it', async () => {
+				const { kamosu } = shelfWithAgent();
+				await screen.findByText('Chicken katsu curry');
+				const dataTransfer = carrying({ files: [aScan()] });
+
+				await fireEvent.dragEnter(document.body, { dataTransfer });
+				expect(
+					await screen.findByText("Drop to send this PDF to Kamosu's AI agent"),
+				).toBeInTheDocument();
+				await fireEvent.drop(document.body, { dataTransfer });
+
+				await screen.findByRole('dialog', { name: "Send this PDF to Kamosu's AI agent?" });
+				expect(kamosu.calls.some((call) => call.operation === 'read_recipe_pdf')).toBe(false);
+			});
+
+			it('names a photo among what Recipes takes when something else is held over it', async () => {
+				shelfWithAgent();
+				await screen.findByText('Chicken katsu curry');
+				const dataTransfer = carrying({
+					files: [new File(['x'], 'sheet.xlsx', { type: 'application/vnd.ms-excel' })],
+				});
+				await fireEvent.dragEnter(document.body, { dataTransfer });
+				expect(
+					await screen.findByText(
+						'Recipes takes a photo of a page, a PDF, a Kamosu zip file, or a link to a web page.',
+					),
+				).toBeInTheDocument();
+			});
+		});
+	});
+
 	describe('dropping a recipe onto Recipes (#204)', () => {
 		const aPdf = () => new File(['%PDF-1.4'], 'biscuit.pdf', { type: 'application/pdf' });
 
@@ -1389,7 +1831,9 @@ describe('the + for every new recipe (#174)', () => {
 			const kamosu = standIn({ ...fullShelf, ...answers });
 			render(ShelfTestHarness, { props: { client: kamosu.client, upload } });
 			await screen.findByText('Chicken katsu curry');
-			const asked = () => kamosu.calls.map((call) => call.operation);
+			// Asking whether there is a Runner starts nothing (#278).
+			const asked = () =>
+				kamosu.calls.map((call) => call.operation).filter((name) => name !== 'runner_status');
 			return { upload, kamosu, started: asked().length, asked };
 		}
 

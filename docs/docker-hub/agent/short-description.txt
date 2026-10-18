@@ -1,0 +1,1 @@
+The agent a Kamosu Runner hands its Jobs to: opencode and the tools to read a recipe, any provider.
