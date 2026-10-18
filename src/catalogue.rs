@@ -1862,18 +1862,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Translate a recipe into another Language. It starts an \
                       ordinary Branch of the same Lineage in that Language, \
                       whose first Version records which Version of the source \
-                      it renders. There is no Translation object — what this \
-                      makes is a Branch, and every Operation from here on is \
-                      the ordinary one. Its chain starts fresh rather than \
+                      it renders. Its chain starts fresh rather than \
                       carrying the source's, which is what separates it from a \
-                      Copy: different words rendering the same dish, with a \
-                      history of their own. An agent translating calls this \
-                      under the Person's own Credential and is a scribe, not \
-                      an author. Keep every Ingredient Line and section \
-                      heading in the source's place, with its amount and \
-                      unit: a line that keeps both reads as the Food of the \
-                      source line there, and so does each line written by a \
-                      save naming a newer translates_version_id.",
+                      Copy. An agent translating calls this under the \
+                      Person's own Credential and is a scribe, not an author. \
+                      Keep each Ingredient Line and section heading in the \
+                      source's place, with its amount and unit: such a line \
+                      takes the source line's Food, here and on a save naming \
+                      a newer translates_version_id.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
