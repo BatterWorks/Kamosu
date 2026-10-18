@@ -3302,6 +3302,171 @@ async fn a_read_line_creates_its_food_by_the_ordinary_rules() {
     );
 }
 
+/// **A save names the Foods it created** (#358), and the lines of its Version
+/// that read as each, so an agent can repoint a stray and delete it in the
+/// same turn. A Food the save only found is not one of them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_save_names_the_foods_it_created_and_the_lines_read_as_each() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let food_id_named = |name: &str| -> String {
+        let (status, listed) = app.post_op("list_foods", Some(&key), "{}");
+        assert_eq!(status, 200, "{listed}");
+        listed["result"]["foods"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|food| food["name"] == name)
+            .unwrap_or_else(|| panic!("a Food named {name}: {listed}"))["id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Crêpes",
+            "language": "en",
+            "ingredients": [
+                { "kind": "ingredient", "text": "200 g flour" },
+                { "kind": "section", "text": "To serve" },
+                { "kind": "ingredient", "text": "1 tbsp zzz-sugar" },
+                { "kind": "ingredient", "text": "1 tsp zzz-sugar" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let flour = food_id_named("flour");
+    let sugar = food_id_named("zzz-sugar");
+    assert_eq!(
+        created["result"]["foods_created"],
+        json!([
+            { "id": flour, "name": "flour", "language": "en", "line_indexes": [0] },
+            { "id": sugar, "name": "zzz-sugar", "language": "en", "line_indexes": [2, 3] },
+        ]),
+        "each new word once, with every line read as it: {created}"
+    );
+
+    // An edit whose new lines find Foods already there created none.
+    backdate_branch_head(&app, &branch_id);
+    let (status, edited) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "ingredients": [
+                { "kind": "ingredient", "text": "250 g flour" },
+                { "kind": "ingredient", "text": "2 tbsp zzz-sugar" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+    assert_eq!(edited["result"]["collapsed"], false, "{edited}");
+    assert_eq!(edited["result"]["foods_created"], json!([]), "{edited}");
+
+    // Within the collapse window, a second edit lists what it created, not
+    // what the Version it folded into had.
+    let (status, first) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "ingredients": [
+                { "kind": "ingredient", "text": "250 g flour" },
+                { "kind": "ingredient", "text": "1 pinch zzz-salt" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{first}");
+    let salt = food_id_named("zzz-salt");
+    assert_eq!(
+        first["result"]["foods_created"],
+        json!([{ "id": salt, "name": "zzz-salt", "language": "en", "line_indexes": [1] }]),
+        "{first}"
+    );
+    let (status, second) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "title": "Crêpes",
+            "ingredients": [
+                { "kind": "ingredient", "text": "250 g flour" },
+                { "kind": "ingredient", "text": "1 pinch zzz-salt" },
+                { "kind": "ingredient", "text": "1 zzz-lemon" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{second}");
+    assert_eq!(second["result"]["collapsed"], true, "{second}");
+    let lemon = food_id_named("zzz-lemon");
+    assert_eq!(
+        second["result"]["foods_created"],
+        json!([{ "id": lemon, "name": "zzz-lemon", "language": "en", "line_indexes": [2] }]),
+        "{second}"
+    );
+
+    // A save that only moves lines, and one that changes nothing, answer an
+    // empty list. That a move reads no line is #355's to hold, in
+    // removing_and_reordering_lines_keeps_each_reading_and_creates_no_food.
+    let reordered = json!({
+        "branch_id": branch_id,
+        "ingredients": [
+            { "kind": "ingredient", "text": "1 zzz-lemon" },
+            { "kind": "ingredient", "text": "250 g flour" },
+            { "kind": "ingredient", "text": "1 pinch zzz-salt" },
+        ],
+    })
+    .to_string();
+    for what in ["moved", "unchanged"] {
+        let (status, saved) = app.post_op("edit_recipe", Some(&key), &reordered);
+        assert_eq!(status, 200, "{saved}");
+        assert_eq!(
+            saved["result"]["foods_created"],
+            json!([]),
+            "{what}: {saved}"
+        );
+    }
+
+    // A Translation's line that renders a source line takes its Food, and
+    // only a word of its own is a Food it created.
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "language": "fr",
+            "title": "Crêpes",
+            "ingredients": [
+                { "kind": "ingredient", "text": "1 zzz-citron" },
+                { "kind": "ingredient", "text": "250 g de farine" },
+                { "kind": "ingredient", "text": "2 c. à soupe de zzz-miel" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+    let created: Vec<(&str, &Value)> = translated["result"]["foods_created"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|food| (food["name"].as_str().unwrap(), &food["line_indexes"]))
+        .collect();
+    assert_eq!(
+        created,
+        [("zzz-miel", &json!([2]))],
+        "the two lines measuring what their source lines do took their Foods: {translated}"
+    );
+    assert_eq!(translated["result"]["foods_created"][0]["language"], "fr");
+}
+
 /// **A line Kamosu cannot read never fails the save**, and a recipe made
 /// entirely of such lines is an ordinary recipe (#71, ADR 0002).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -27457,6 +27622,10 @@ async fn every_version_a_door_writes_fingerprints_to_its_own_id() {
         &json!({ "attempt_id": attempt_id, "branch_id": branch_id }).to_string(),
     );
     assert_eq!(status, 200, "{promoted}");
+    assert!(
+        promoted["result"].get("foods_created").is_none(),
+        "a promotion answers as its own Operation declares, without a save's Foods (#358): {promoted}"
+    );
 
     // A recipe arriving from somewhere else entirely.
     let arrived = import_and_wait(

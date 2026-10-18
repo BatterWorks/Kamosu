@@ -407,6 +407,7 @@ const SAVED_ONTO_MINE = {
 		language: 'en',
 		language_offer: null,
 		translates_version_id: null,
+		foods_created: [],
 	},
 } as Answers;
 
@@ -1972,6 +1973,7 @@ describe('the recipe screen', () => {
 				language: 'en',
 				language_offer: null,
 				translates_version_id: null,
+				foods_created: [],
 			},
 			// Walking to a second Branch makes the page ask whether the two have
 			// diverged. Nothing here is about a Divergence, so it answers that
@@ -2951,6 +2953,7 @@ const savedReading = (language_offer: string | null, extra: Record<string, unkno
 			language: 'en',
 			language_offer,
 			translates_version_id: null,
+			foods_created: [],
 			...extra,
 		},
 	}) as Answers;
@@ -3039,6 +3042,7 @@ describe('a Copy started from a draft that changed nothing (#329)', () => {
 					language: 'en',
 					language_offer: null,
 					translates_version_id: null,
+					foods_created: [],
 				},
 			}),
 			'theirs',
@@ -3071,6 +3075,7 @@ describe('a Copy started from a draft that changed nothing (#329)', () => {
 					language: 'en',
 					language_offer: null,
 					translates_version_id: null,
+					foods_created: [],
 				},
 			}),
 			'theirs',

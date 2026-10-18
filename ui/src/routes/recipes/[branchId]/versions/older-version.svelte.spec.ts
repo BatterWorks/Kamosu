@@ -369,7 +369,7 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 				theirs: step(coat, 0),
 			},
 		];
-		renderOlder({ changed_since: answer, save_recipe_version: SAVED });
+		renderOlder({ changed_since: answer, save_recipe_version: { ...SAVED, foods_created: [] } });
 
 		const moved = (await screen.findByText(fry)).closest('li')!;
 		expect(moved).toHaveTextContent('step 1 in the recipe now');
@@ -400,7 +400,10 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 			mine: null,
 			theirs: step('Rest it.', 2),
 		});
-		const { kamosu } = renderOlder({ changed_since: answer, save_recipe_version: SAVED });
+		const { kamosu } = renderOlder({
+			changed_since: answer,
+			save_recipe_version: { ...SAVED, foods_created: [] },
+		});
 		await fireEvent.click(await screen.findByText('Rest it.'));
 		await fireEvent.click(
 			screen.getByRole('button', { name: 'Put this line back into the recipe' }),
@@ -418,7 +421,7 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 	});
 
 	it('writes a line back into the recipe as an ordinary Version, once it is saved', async () => {
-		const { kamosu } = renderOlder({ save_recipe_version: SAVED });
+		const { kamosu } = renderOlder({ save_recipe_version: { ...SAVED, foods_created: [] } });
 		await screen.findByText('¾ cup potato starch');
 
 		// The starch as it was, the vinegar back, the sesame oil out, and the

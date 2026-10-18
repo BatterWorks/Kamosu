@@ -471,6 +471,7 @@ impl Core {
             change_note,
             None,
         )
+        .map(promotion_answer)
     }
 
     /// Write this cooking's **As Cooked**: the complete recipe state the cook
@@ -725,6 +726,7 @@ impl Core {
             change_note,
             None,
         )
+        .map(promotion_answer)
     }
 
     /// Read the caller's own In Progress Attempt for a Lineage, if any —
@@ -1385,4 +1387,14 @@ fn version_field_len(conn: &Connection, version_id: &str, field: &str) -> Result
 /// belongs to somebody else.
 fn no_such_attempt() -> OpError {
     OpError::not_found("no such Attempt")
+}
+
+/// A promotion answers the save it made, as `saved_version_schema` declares
+/// it: which Foods the save created is `save_recipe_version`'s to say, not a
+/// promotion's (#358).
+fn promotion_answer(mut saved: Value) -> Value {
+    if let Some(fields) = saved.as_object_mut() {
+        fields.remove("foods_created");
+    }
+    saved
 }

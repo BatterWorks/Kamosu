@@ -281,6 +281,7 @@ describe('the recipes screen', () => {
 				tags: [],
 				related_recipes: [],
 				cooked: { count: 0, last_cooked_at: null, ratings: [] },
+				foods_created: [],
 			},
 		});
 
@@ -323,6 +324,7 @@ describe('the recipes screen', () => {
 				tags: [],
 				related_recipes: [],
 				cooked: { count: 0, last_cooked_at: null, ratings: [] },
+				foods_created: [],
 			},
 		});
 		await fireEvent.click(
@@ -967,6 +969,7 @@ describe('the + for every new recipe (#174)', () => {
 		tags: [],
 		related_recipes: [],
 		cooked: { count: 0, last_cooked_at: null, ratings: [] },
+		foods_created: [],
 	};
 
 	async function openThePlus() {
