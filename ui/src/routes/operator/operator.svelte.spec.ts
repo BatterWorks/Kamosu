@@ -70,6 +70,7 @@ const quiet: Answers = {
 	get_public_address: { public_address: 'https://kamosu.example' },
 	list_runner_keys: { runner_keys: [] },
 	runner_status: { has_runner: false, last_asked_at: null },
+	get_house_notes: { notes: null, saved_by: null, saved_at: null },
 };
 
 /** The same instance, with one pair of Foods waiting to be looked at. */
@@ -646,7 +647,8 @@ describe("the Operator's Runner", () => {
 			await within(runnerSection).findByText('A Runner asked for work 1 minute ago.'),
 		).toBeInTheDocument();
 		expect(within(runnerSection).getByText(/asks every few seconds/)).toBeInTheDocument();
-		const rows = within(runnerSection).getAllByRole('listitem');
+		const keys = within(runnerSection).getAllByRole('list')[0];
+		const rows = within(keys).getAllByRole('listitem');
 		expect(rows.map((row) => row.textContent)).toEqual([
 			expect.stringMatching(/Kitchen laptop.*Last used 1 minute ago/),
 			expect.stringMatching(/Old server.*Last used 3 days ago/),
@@ -740,5 +742,128 @@ describe("the Operator's Runner", () => {
 		);
 		expect(within(runnerSection).getByText('Old server')).toBeInTheDocument();
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+	});
+	describe('house notes for the agent (#344)', () => {
+		const notesRow = async () =>
+			(
+				await within(await section()).findByRole('button', { name: /House notes for the agent/ })
+			).closest('li') as HTMLElement;
+
+		it('says none are written, and that the agent follows its own instructions', async () => {
+			renderScreen(Operator, runner([], null));
+			await openInstance();
+			const row = await notesRow();
+
+			expect(row.textContent).toMatch(/Nothing written yet/);
+			expect(row.textContent).toMatch(/The agent follows its image's own instructions alone\./);
+		});
+
+		it('shows the first line, and who saved them and when', async () => {
+			renderScreen(Operator, {
+				...runner([laptop], RECENT),
+				get_house_notes: {
+					notes: 'Grams, never cups.\nTag every dessert Sweet.',
+					saved_by: 'Stéphane',
+					saved_at: STALE,
+				},
+			});
+			await openInstance();
+			const row = await notesRow();
+
+			expect(row.textContent).toMatch(/Grams, never cups\./);
+			expect(row.textContent).not.toMatch(/Tag every dessert/);
+			expect(row.textContent).toMatch(/Saved by Stéphane, 3 days ago\./);
+		});
+
+		it('writes them in a sheet, with Save off until they change', async () => {
+			const saved = {
+				notes: 'Grams, never cups.',
+				saved_by: 'Stéphane',
+				saved_at: RECENT,
+			};
+			const { kamosu } = renderScreen(Operator, {
+				...runner([laptop], RECENT),
+				set_house_notes: saved,
+			});
+			await openInstance();
+			await fireEvent.click(
+				within(await notesRow()).getByRole('button', { name: /House notes for the agent/ }),
+			);
+
+			const sheet = await screen.findByRole('dialog', { name: 'House notes for the agent' });
+			expect(within(sheet).getByText(/win where the two disagree/)).toBeInTheDocument();
+			expect(within(sheet).getByText(/reads house_notes from each Job/)).toBeInTheDocument();
+			expect(
+				within(sheet).getByText(/Nothing written yet\. The agent follows/),
+			).toBeInTheDocument();
+			const save = within(sheet).getByRole('button', { name: 'Save' });
+			expect(save).toBeDisabled();
+
+			const box = within(sheet).getByRole('textbox', { name: 'House notes for the agent' });
+			await fireEvent.input(box, { target: { value: 'Grams, never cups.' } });
+			expect(save).toBeEnabled();
+			await fireEvent.click(save);
+
+			expect(kamosu.calls.find((call) => call.operation === 'set_house_notes')?.input).toEqual({
+				notes: 'Grams, never cups.',
+			});
+			// The sheet stays open and says who saved them; the row behind it
+			// says so too.
+			expect(
+				await within(sheet).findByText('Saved by Stéphane, 1 minute ago.'),
+			).toBeInTheDocument();
+			expect(save).toBeDisabled();
+			expect((await notesRow()).textContent).toMatch(/Grams, never cups\./);
+
+			await fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
+			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		});
+
+		it('takes them away when the box is saved blank', async () => {
+			const { kamosu } = renderScreen(Operator, {
+				...runner([laptop], RECENT),
+				get_house_notes: { notes: 'Grams, never cups.', saved_by: 'Stéphane', saved_at: STALE },
+				set_house_notes: { notes: null, saved_by: 'Stéphane', saved_at: RECENT },
+			});
+			await openInstance();
+			await fireEvent.click(
+				within(await notesRow()).getByRole('button', { name: /House notes for the agent/ }),
+			);
+			const sheet = await screen.findByRole('dialog', { name: 'House notes for the agent' });
+			const box = within(sheet).getByRole('textbox', { name: 'House notes for the agent' });
+			expect(box).toHaveValue('Grams, never cups.');
+
+			await fireEvent.input(box, { target: { value: '' } });
+			await fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
+
+			expect(kamosu.calls.find((call) => call.operation === 'set_house_notes')?.input).toEqual({
+				notes: '',
+			});
+			expect(
+				await within(sheet).findByText(/Nothing written yet\. The agent follows/),
+			).toBeInTheDocument();
+			expect((await notesRow()).textContent).toMatch(/Nothing written yet/);
+		});
+
+		it("shows the Core's refusal in its own words", async () => {
+			renderScreen(Operator, {
+				...runner([laptop], RECENT),
+				set_house_notes: {
+					refuse: 'bad_request',
+					message: 'the house notes are longer than 4000 characters',
+				},
+			});
+			await openInstance();
+			await fireEvent.click(
+				within(await notesRow()).getByRole('button', { name: /House notes for the agent/ }),
+			);
+			const sheet = await screen.findByRole('dialog', { name: 'House notes for the agent' });
+			await fireEvent.input(within(sheet).getByRole('textbox'), { target: { value: 'Cups.' } });
+			await fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
+
+			expect(await within(sheet).findByRole('alert')).toHaveTextContent(
+				'the house notes are longer than 4000 characters',
+			);
+		});
 	});
 });

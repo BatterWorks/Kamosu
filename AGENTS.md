@@ -370,8 +370,9 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   runners.rs        Runner Keys, a Runner taking a Job, renewing its hold and
                     reporting how it ended, the Job Key that comes with one
                     and the one recipe its writes are held to, who reads an
-                    agent's Job, and whether the instance has a Runner (ADR
-                    0048, #260, #262, #263, #264, #266, #268)
+                    agent's Job, whether the instance has a Runner, and the
+                    House Notes every Job carries to its agent (ADR
+                    0048, #260, #262, #263, #264, #266, #268, #344)
   shelves.rs        the home shelves, and the shelf entry every list shows
   translation.rs    translation and a Branch's Language
   reading_again.rs  a Co-author asking for an agent to read a recipe again

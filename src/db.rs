@@ -1877,6 +1877,20 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 53,
+        description: "the agent's house notes, an Operator's own (#344)",
+        sql: r#"
+        -- What an Operator adds to the end of the agent's instructions,
+        -- handed over with each Job. Null until one writes some, and again
+        -- once they are emptied. Who saved them last and when stay set
+        -- after emptying, which is when they were taken away.
+        ALTER TABLE instance_setup ADD COLUMN agent_house_notes TEXT;
+        ALTER TABLE instance_setup ADD COLUMN house_notes_saved_by TEXT REFERENCES people(id);
+        ALTER TABLE instance_setup ADD COLUMN house_notes_saved_at TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

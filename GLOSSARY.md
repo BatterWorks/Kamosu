@@ -106,6 +106,10 @@ _Avoid_: Task, background job, async operation, queue item
 A program beside Kamosu that takes the **Jobs** meant for an agent and has an agent do each one. Kamosu ships it, and whoever runs it supplies the agent. It asks Kamosu for work and Kamosu never calls it, so an instance with no Runner is complete and simply reads less (ADR 0048).
 _Avoid_: Worker, companion, sidecar, bot, AI import, scraper
 
+**House Notes**:
+What an **Operator** adds to the end of the agent's instructions for every **Job** on the instance, such as *grams, never cups*. Each Job carries them as they stand when a **Runner** takes it, and the agent follows them where they disagree with its own instructions. Only an Operator reads or writes them, and a **Job Key** reaches neither. They are the one part of an agent's instructions Kamosu holds: the rest belongs to whoever runs the Runner (ADR 0048, as amended by #344).
+_Avoid_: Custom prompt, system prompt, agent settings, house rules
+
 ### Getting recipes in and out
 
 **Import**:

@@ -279,9 +279,10 @@ impl Core {
                 ),
             ));
         }
-        let work = self.db().with_conn(|conn| {
+        let (work, house_notes) = self.db().with_conn(|conn| {
             heard_from(conn, &runner.runner_key_id)?;
-            jobs::take_for_runner(conn, &runner.runner_key_id, ask, self.hold())
+            let work = jobs::take_for_runner(conn, &runner.runner_key_id, ask, self.hold())?;
+            Ok((work, current_house_notes(conn)?))
         })?;
         Ok(json!({
             "job": work.map(|work| json!({
@@ -293,6 +294,7 @@ impl Core {
                 "branch_id": work.branch_id,
                 "link": work.link,
                 "job_key": work.job_key,
+                "house_notes": house_notes,
                 "held_until": work.held_until,
                 "renew_within_seconds": self.renew_within_seconds(),
             })),
@@ -457,6 +459,75 @@ impl Core {
             .map_err(|e| OpError::internal(format!("cannot read the Runner's state: {e}")))
         })
     }
+
+    /// The agent's house notes, with who saved them last and when (#344).
+    /// The name is the one that Person goes by now.
+    pub fn house_notes(&self) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let found = conn
+                .query_row(
+                    "SELECT agent_house_notes, people.name, house_notes_saved_at
+                       FROM instance_setup
+                       LEFT JOIN people ON people.id = instance_setup.house_notes_saved_by
+                      WHERE singleton = 1",
+                    [],
+                    |row| {
+                        Ok(json!({
+                            "notes": row.get::<_, Option<String>>(0)?,
+                            "saved_by": row.get::<_, Option<String>>(1)?,
+                            "saved_at": row.get::<_, Option<String>>(2)?,
+                        }))
+                    },
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read the house notes: {e}")))?;
+            Ok(found
+                .unwrap_or_else(|| json!({ "notes": null, "saved_by": null, "saved_at": null })))
+        })
+    }
+
+    /// Save the agent's house notes, in place of any there were. Text that
+    /// is only blank takes them away, and the agent follows its own
+    /// instructions alone again.
+    pub fn set_house_notes(&self, person_id: &str, notes: &str) -> Result<Value, OpError> {
+        let notes = notes.trim();
+        if notes.chars().count() > HOUSE_NOTES_CHARS {
+            return Err(OpError::bad_request(format!(
+                "the house notes are longer than {HOUSE_NOTES_CHARS} characters"
+            )));
+        }
+        let notes = (!notes.is_empty()).then_some(notes);
+        self.db().with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO instance_setup
+                        (singleton, agent_house_notes, house_notes_saved_by, house_notes_saved_at)
+                 VALUES (1, ?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                 ON CONFLICT(singleton) DO UPDATE SET
+                        agent_house_notes = excluded.agent_house_notes,
+                        house_notes_saved_by = excluded.house_notes_saved_by,
+                        house_notes_saved_at = excluded.house_notes_saved_at",
+                params![notes, person_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot save the house notes: {e}")))
+        })?;
+        self.house_notes()
+    }
+}
+
+/// The longest the agent's house notes may be: a page of house rules,
+/// where the instructions they add to run to some three hundred lines.
+pub const HOUSE_NOTES_CHARS: usize = 4000;
+
+/// The house notes as a Job carries them, read when a Runner takes it.
+fn current_house_notes(conn: &Connection) -> Result<Option<String>, OpError> {
+    conn.query_row(
+        "SELECT agent_house_notes FROM instance_setup WHERE singleton = 1",
+        [],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(Option::flatten)
+    .map_err(|e| OpError::internal(format!("cannot read the house notes: {e}")))
 }
 
 /// Record that a Runner was heard from, which `runner_status` reads.

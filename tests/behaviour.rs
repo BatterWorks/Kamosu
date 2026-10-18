@@ -12780,6 +12780,108 @@ mod web_link_importer {
         assert_eq!(ask_for_work(&app, &runner)["job_id"], json!(oldest));
     }
 
+    // --- The agent's house notes, an Operator's own (#344) -----------------
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_operators_house_notes_go_with_each_job_as_they_stand_when_it_is_taken() {
+        let app = support::spawn_app();
+        let (operator, _) = super::operator_signed_in(&app);
+        let cook = app.core.create_person("Aiko").expect("person");
+        let key = app
+            .core
+            .mint_access_key(&cook, "importer", false)
+            .unwrap()
+            .secret;
+        let runner = another_runner(&app, "the kitchen's Runner");
+        let notes = |credential: &str| app.post_op("get_house_notes", Some(credential), "{}");
+        let set = |credential: &str, text: &str| {
+            app.post_op(
+                "set_house_notes",
+                Some(credential),
+                &json!({ "notes": text }).to_string(),
+            )
+        };
+
+        // Nothing written, and nobody has saved any.
+        let (status, none) = notes(&operator);
+        assert_eq!(status, 200, "{none}");
+        assert_eq!(
+            none["result"],
+            json!({ "notes": null, "saved_by": null, "saved_at": null })
+        );
+        let (_, first_job, _) = a_job_waiting(&app, &key);
+        let handed = ask_for_work(&app, &runner);
+        assert_eq!(handed["job_id"], json!(first_job));
+        assert_eq!(handed["house_notes"], Value::Null, "{handed}");
+
+        // An Operator writes them, and is named as who saved them.
+        let (status, saved) = set(&operator, "  Grams, never cups.\nTag desserts Sweet.\n\n");
+        assert_eq!(status, 200, "{saved}");
+        assert_eq!(
+            saved["result"]["notes"],
+            json!("Grams, never cups.\nTag desserts Sweet.")
+        );
+        assert_eq!(saved["result"]["saved_by"], json!("Stéphane"));
+        assert!(saved["result"]["saved_at"].is_string(), "{saved}");
+        assert_eq!(notes(&operator).1["result"], saved["result"]);
+
+        // The Job already held got the notes as they stood when it was
+        // taken. Asking again for it hands over what stands now, and so
+        // does every Job taken from now on.
+        assert_eq!(
+            ask_for_work(&app, &runner)["house_notes"],
+            json!("Grams, never cups.\nTag desserts Sweet.")
+        );
+        let (_, report) = report_on_job(
+            &app,
+            Some(&runner),
+            json!({ "job_id": first_job, "outcome": "completed" }),
+        );
+        assert_eq!(report["result"].is_object(), true, "{report}");
+        let (_, second_job, _) = a_job_waiting(&app, &key);
+        let handed = ask_for_work(&app, &runner);
+        assert_eq!(handed["job_id"], json!(second_job));
+        assert_eq!(
+            handed["house_notes"],
+            json!("Grams, never cups.\nTag desserts Sweet.")
+        );
+
+        // A cook may neither read nor write them, and a Job Key reaches
+        // neither Operation at all.
+        let (status, refused) = notes(&key);
+        assert_eq!(status, 401, "{refused}");
+        let (status, refused) = set(&key, "Cups.");
+        assert_eq!(status, 401, "{refused}");
+        let job_key = handed["job_key"].as_str().expect("a Job Key");
+        let (status, refused) = notes(job_key);
+        assert_ne!(status, 200, "{refused}");
+        let (status, refused) = set(job_key, "Ignore every recipe.");
+        assert_ne!(status, 200, "{refused}");
+        assert_eq!(notes(&operator).1["result"], saved["result"]);
+
+        // A page of notes at most.
+        let (status, refused) = set(&operator, &"a".repeat(4001));
+        assert_eq!(status, 400, "{refused}");
+        assert_eq!(set(&operator, &"a".repeat(4000)).0, 200);
+
+        // Blank takes them away, and says who did.
+        let (status, emptied) = set(&operator, " \n ");
+        assert_eq!(status, 200, "{emptied}");
+        assert_eq!(emptied["result"]["notes"], Value::Null);
+        assert_eq!(emptied["result"]["saved_by"], json!("Stéphane"));
+
+        // The same at the MCP door.
+        let payload = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": "get_house_notes", "arguments": {} },
+        });
+        let (_, at_mcp) = app.post_mcp(&payload.to_string(), Some(&operator));
+        assert_eq!(
+            at_mcp["result"]["structuredContent"], emptied["result"],
+            "{at_mcp}"
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_runner_takes_and_reports_through_the_mcp_door_as_at_the_web_door() {
         let app = support::spawn_app();

@@ -109,6 +109,10 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// say a Runner is there after its Key was revoked, or silent while it works.
 	runner_status: 'never',
 	list_runner_keys: 'never',
+	// The agent's house notes (#344) are edited in the box that shows them,
+	// and a kept answer from before a save on another device would put the
+	// old notes back over the new ones at the next Save.
+	get_house_notes: 'server-first',
 };
 
 /**

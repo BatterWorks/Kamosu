@@ -190,6 +190,26 @@ export type RunnerStatusOutput = {
 	last_asked_at: string | null;
 };
 
+/** Read the agent's House Notes. They are what an Operator adds to the end of the instructions the agent follows, handed over with every Job. Null when none are written, and the agent follows its own instructions alone. Says who saved them last and when. */
+export type GetHouseNotesInput = Record<string, never>;
+/** What get_house_notes answers. */
+export type GetHouseNotesOutput = {
+	notes: string | null;
+	saved_at: string | null;
+	saved_by: string | null;
+};
+
+/** Save the agent's House Notes. They replace any there were, up to 4,000 characters. The agent reads them after its own instructions, as the Operator's, and follows them where the two disagree. A Job carries the notes as they stand when a Runner takes it. Blank text takes them away. Kamosu's own agent image follows them; another agent follows them only if it reads `house_notes` from each Job. */
+export type SetHouseNotesInput = {
+	notes: string;
+};
+/** What set_house_notes answers. */
+export type SetHouseNotesOutput = {
+	notes: string | null;
+	saved_at: string | null;
+	saved_by: string | null;
+};
+
 /** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it with reason `another_version`. */
 export type AskForWorkInput = {
 	ask: string;
@@ -200,6 +220,7 @@ export type AskForWorkOutput = {
 	job: {
 		branch_id: string | null;
 		held_until: string;
+		house_notes: string | null;
 		job_id: string;
 		job_key: string;
 		link: string | null;
@@ -5310,6 +5331,18 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	get_house_notes: {
+		input: GetHouseNotesInput;
+		output: GetHouseNotesOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	set_house_notes: {
+		input: SetHouseNotesInput;
+		output: SetHouseNotesOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
 	ask_for_work: {
 		input: AskForWorkInput;
 		output: AskForWorkOutput;
@@ -6710,6 +6743,95 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "get_house_notes",
+		"summary": "Read the agent's House Notes. They are what an Operator adds to the end of the instructions the agent follows, handed over with every Job. Null when none are written, and the agent follows its own instructions alone. Says who saved them last and when.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"notes": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"saved_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"saved_by": {
+					"description": "The name of the Person who saved them last, emptying them included. Null when nobody ever has.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"notes",
+				"saved_by",
+				"saved_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_house_notes",
+		"summary": "Save the agent's House Notes. They replace any there were, up to 4,000 characters. The agent reads them after its own instructions, as the Operator's, and follows them where the two disagree. A Job carries the notes as they stand when a Runner takes it. Blank text takes them away. Kamosu's own agent image follows them; another agent follows them only if it reads `house_notes` from each Job.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"notes": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"notes"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"notes": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"saved_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"saved_by": {
+					"description": "The name of the Person who saved them last, emptying them included. Null when nobody ever has.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"notes",
+				"saved_by",
+				"saved_at"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "ask_for_work",
 		"summary": "Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it with reason `another_version`.",
 		"permission": "runner",
@@ -6746,6 +6868,13 @@ export const CATALOGUE = [
 						"held_until": {
 							"description": "When the hold lapses unless `renew_hold` moves it on.",
 							"type": "string"
+						},
+						"house_notes": {
+							"description": "The instance's house notes for the agent, written by an Operator, as they stand now: read after the agent's own instructions, and followed where the two disagree. Null when none are written.",
+							"type": [
+								"string",
+								"null"
+							]
 						},
 						"job_id": {
 							"type": "string"
@@ -6797,6 +6926,7 @@ export const CATALOGUE = [
 						"link",
 						"original",
 						"job_key",
+						"house_notes",
 						"held_until",
 						"renew_within_seconds"
 					],
@@ -32231,6 +32361,7 @@ export const READS: readonly OperationName[] = [
 	'list_backups',
 	'list_runner_keys',
 	'runner_status',
+	'get_house_notes',
 	'list_sessions',
 	'list_access_keys',
 	'list_kitchens',
@@ -32289,6 +32420,8 @@ export const METHOD_NAMES = {
 	list_runner_keys: 'listRunnerKeys',
 	revoke_runner_key: 'revokeRunnerKey',
 	runner_status: 'runnerStatus',
+	get_house_notes: 'getHouseNotes',
+	set_house_notes: 'setHouseNotes',
 	ask_for_work: 'askForWork',
 	renew_hold: 'renewHold',
 	report_on_job: 'reportOnJob',
@@ -32445,6 +32578,10 @@ export interface KamosuClient {
 	revokeRunnerKey(input: RevokeRunnerKeyInput): Promise<Answer<'revoke_runner_key'>>;
 	/** Read whether this instance has a Runner. Also when one was last heard from, asking for work or renewing its hold on a Job. */
 	runnerStatus(input?: RunnerStatusInput): Promise<Answer<'runner_status'>>;
+	/** Read the agent's House Notes. They are what an Operator adds to the end of the instructions the agent follows, handed over with every Job. Null when none are written, and the agent follows its own instructions alone. Says who saved them last and when. */
+	getHouseNotes(input?: GetHouseNotesInput): Promise<Answer<'get_house_notes'>>;
+	/** Save the agent's House Notes. They replace any there were, up to 4,000 characters. The agent reads them after its own instructions, as the Operator's, and follows them where the two disagree. A Job carries the notes as they stand when a Runner takes it. Blank text takes them away. Kamosu's own agent image follows them; another agent follows them only if it reads `house_notes` from each Job. */
+	setHouseNotes(input: SetHouseNotesInput): Promise<Answer<'set_house_notes'>>;
 	/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it with reason `another_version`. */
 	askForWork(input: AskForWorkInput): Promise<Answer<'ask_for_work'>>;
 	/** Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again. This is how a Runner learns that its Job was cancelled, and the refusal says so. */

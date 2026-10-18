@@ -36,12 +36,15 @@
 	import Section from '$lib/shell/Section.svelte';
 	import Confirm from '$lib/Confirm.svelte';
 	import RunnerKeySecret from '$lib/operator/RunnerKeySecret.svelte';
+	import HouseNotes from '$lib/operator/HouseNotes.svelte';
+	import { firstLine, savedLine } from '$lib/operator/house-notes';
 	import { asksWhetherAdministering } from '$lib/operator/administering';
 	import type {
 		ListAccountsOutput,
 		ListBackupsOutput,
 		ListMergeSuggestionsOutput,
 		ListFoodsOutput,
+		GetHouseNotesOutput,
 		ListRunnerKeysOutput,
 		PreviewFoodMergeOutput,
 		RereadIngredientLinesOutput,
@@ -90,6 +93,7 @@
 	let address = $state<string | null>(null);
 	let runnerKeys = $state<RunnerKey[]>([]);
 	let runnerStatus = $state<RunnerStatusOutput | undefined>(undefined);
+	let houseNotes = $state<GetHouseNotesOutput | undefined>(undefined);
 
 	/**
 	 * How many unused Foods are listed at once. A library can carry hundreds,
@@ -139,6 +143,9 @@
 				address = (await kamosu.getPublicAddress({})).public_address;
 			}),
 			quietly(loadRunner),
+			quietly(async () => {
+				houseNotes = await kamosu.getHouseNotes({});
+			}),
 		]);
 	}
 
@@ -184,6 +191,7 @@
 		| { kind: 'sweep' }
 		| { kind: 'revoke-runner-key'; key: RunnerKey }
 		| { kind: 'runner-secret'; name: string; secret: string }
+		| { kind: 'house-notes'; notes: GetHouseNotesOutput }
 		| { kind: 'merge'; preview: PreviewFoodMergeOutput };
 
 	let asking = $state<Asking | undefined>(undefined);
@@ -989,6 +997,43 @@
 							</button>
 						</form>
 					</div>
+					{#if houseNotes}
+						{@const notes = houseNotes}
+						<!-- The agent's house notes (#344, option B of 18 October 2026):
+						     one row saying whether there are any and when they changed,
+						     which opens the sheet that writes them. -->
+						<ul class="mt-3 overflow-hidden rounded-sm border border-rule bg-card">
+							<li>
+								<button
+									type="button"
+									onclick={() => (asking = { kind: 'house-notes', notes })}
+									class="flex w-full items-center gap-3 p-3 text-left"
+								>
+									<span class="min-w-0 flex-1">
+										<span class="block text-body text-ink">{m.operator_notes_heading()}</span>
+										<span class="block truncate text-read text-ink-2">
+											{notes.notes ? firstLine(notes.notes) : m.operator_notes_none_row()}
+										</span>
+										<span class="block text-read text-ink-2">
+											{notes.notes ? savedLine(notes) : m.operator_notes_none_more()}
+										</span>
+									</span>
+									<svg
+										viewBox="0 0 24 24"
+										aria-hidden="true"
+										class="h-4 w-4 shrink-0 text-ink-2"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="1.75"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<path d="m9 5 7 7-7 7" />
+									</svg>
+								</button>
+							</li>
+						</ul>
+					{/if}
 				</Section>
 
 				<Section heading={m.operator_address_heading()}>
@@ -1067,6 +1112,15 @@
 				<p class="text-read text-ink-2">{m.operator_merge_cup_weight()}</p>
 			{/if}
 		</Confirm>
+	{:else if asking.kind === 'house-notes'}
+		<HouseNotes
+			notes={asking.notes}
+			onsaved={(saved) => {
+				houseNotes = saved;
+				asking = { kind: 'house-notes', notes: saved };
+			}}
+			ondone={close}
+		/>
 	{:else if asking.kind === 'runner-secret'}
 		<RunnerKeySecret name={asking.name} secret={asking.secret} ondone={close} />
 	{:else if asking.kind === 'revoke-runner-key'}
