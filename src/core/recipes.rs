@@ -1861,7 +1861,8 @@ fn held_from(
 fn cooking_for_version(content: &Value, readings: &[Value], language: Option<&str>) -> Value {
     let no_lines = Vec::new();
     let step_lines = content["steps"].as_array().unwrap_or(&no_lines);
-    let uses = crate::step_uses::step_uses(step_lines, readings, language);
+    let title = content["title"].as_str().unwrap_or_default();
+    let uses = crate::step_uses::step_uses(step_lines, readings, language, title);
 
     let steps: Vec<Value> = step_lines
         .iter()

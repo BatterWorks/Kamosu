@@ -52,6 +52,7 @@
 - An Ingredient Line moved without rewording keeps its Reading when the recipe is saved, a correction made with `set_reading` included, wherever the line now sits. Adding, removing or reordering a line used to read every line below it again, which lost their corrections and could name new Foods after the misreads. A Reading already lost stays as it is. [#355]
 - "Start my own copy" pressed on a recipe in someone else's Cookbook with nothing changed says "Nothing changed, so no copy was made." It used to say "Saved.", though no copy is made of a recipe left as it was. [#329]
 - The MCP door no longer lists to an Access Key the eight tools an Access Key is always refused: `mint_access_key`, `mint_runner_key`, `mint_invite`, `mint_recovery_link`, `set_operator`, `disable_account`, `delete_account` and `list_accounts`. An agent used to be shown them, and was refused each time it tried one, as it still is. A Session is listed them as before. [#347]
+- A Step that serves the dish no longer links an ingredient named after it. "Ladle the curry into a soup tureen" in a Vietnamese beef curry used to link the curry powder, because "curry" is part of that ingredient's name and the title also holds it. A Step naming an ingredient in full still links it, as "add the curry powder" does, and so does a short name the title does not hold, such as "the cocoa" in a chocolate cake. A short name the title holds now links nothing even where it means the ingredient: "add the lemon" in a lemon tart no longer links the lemon zest. [#357]
 
 [#249]: https://github.com/BatterWorks/Kamosu/issues/249
 [#250]: https://github.com/BatterWorks/Kamosu/issues/250
@@ -105,6 +106,7 @@
 [#354]: https://github.com/BatterWorks/Kamosu/issues/354
 [#355]: https://github.com/BatterWorks/Kamosu/issues/355
 [#356]: https://github.com/BatterWorks/Kamosu/issues/356
+[#357]: https://github.com/BatterWorks/Kamosu/issues/357
 
 ## v0.2.0 - 2026-10-12
 
