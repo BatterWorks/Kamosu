@@ -1135,6 +1135,12 @@ export type CreateRecipeOutput = {
 			version_id: string | null;
 		}[];
 	};
+	foods_created: {
+		id: string;
+		language: string;
+		line_indexes: number[];
+		name: string;
+	}[];
 	hand_id: string;
 	head_version_id: string;
 	language: string;
@@ -1283,7 +1289,7 @@ export type CreateRecipeOutput = {
 	writes: boolean;
 };
 
-/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch, a Translation or a Bundle already holds that Version, or an agent's Job saved it. Every save with a Job Key collapses into the one Version its Job started, never an earlier one. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, and is refused once that Version is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
+/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped, unless another Branch, a Translation or a Bundle already holds that Version, or an agent's Job saved it. A save with a Job Key collapses into the one Version its Job started. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, or is refused once it is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write, a Kitchen-mate's or one that arrived, is a Copy: a new Branch of the same Lineage in your own Cookbook, carrying the whole chain up to the Version you changed, and the Branch you changed is left untouched. */
 export type SaveRecipeVersionInput = {
 	as_operator?: boolean;
 	branch_id: string;
@@ -1323,6 +1329,12 @@ export type SaveRecipeVersionOutput = {
 	branch_id: string;
 	collapsed: boolean;
 	copied: boolean;
+	foods_created: {
+		id: string;
+		language: string;
+		line_indexes: number[];
+		name: string;
+	}[];
 	language: string;
 	language_offer: string | null;
 	parent_version_id: string | null;
@@ -1370,6 +1382,12 @@ export type EditRecipeOutput = {
 	branch_id: string;
 	collapsed: boolean;
 	copied: boolean;
+	foods_created: {
+		id: string;
+		language: string;
+		line_indexes: number[];
+		name: string;
+	}[];
 	language: string;
 	language_offer: string | null;
 	parent_version_id: string | null;
@@ -1821,7 +1839,7 @@ export type ImportByAgentOutput = {
 	title?: string;
 };
 
-/** Translate a recipe into another Language. It starts an ordinary Branch of the same Lineage in that Language, whose first Version records which Version of the source it renders. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy. An agent translating calls this under the Person's own Credential and is a scribe, not an author. Keep each Ingredient Line and section heading in the source's place, with its amount and unit: such a line takes the source line's Food, here and on a save naming a newer translates_version_id. */
+/** Translate a recipe into another Language. It is an ordinary Branch of its Lineage. Its first Version records which Version of the source it renders, and its chain starts fresh, unlike a Copy's. An agent translating calls this under the Person's Credential. Keep each Ingredient Line and section heading in the source's place, with its amount and unit: such a line takes the source line's Food, here and on a save naming a newer translates_version_id. */
 export type StartTranslationInput = {
 	branch_id: string;
 	change_note?: string;
@@ -1880,6 +1898,12 @@ export type StartTranslationOutput = {
 			version_id: string | null;
 		}[];
 	};
+	foods_created: {
+		id: string;
+		language: string;
+		line_indexes: number[];
+		name: string;
+	}[];
 	hand_id: string;
 	head_version_id: string;
 	language: string;
@@ -11241,6 +11265,38 @@ export const CATALOGUE = [
 					],
 					"type": "object"
 				},
+				"foods_created": {
+					"description": "Each Food this save created: its word, and the lines read as it, as set_reading counts them. Empty when none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"language": {
+								"type": "string"
+							},
+							"line_indexes": {
+								"items": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"language",
+							"line_indexes"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"hand_id": {
 					"type": "string"
 				},
@@ -12121,14 +12177,15 @@ export const CATALOGUE = [
 				"translation",
 				"tags",
 				"related_recipes",
-				"cooked"
+				"cooked",
+				"foods_created"
 			],
 			"type": "object"
 		}
 	},
 	{
 		"name": "save_recipe_version",
-		"summary": "Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch, a Translation or a Bundle already holds that Version, or an agent's Job saved it. Every save with a Job Key collapses into the one Version its Job started, never an earlier one. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, and is refused once that Version is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see.",
+		"summary": "Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped, unless another Branch, a Translation or a Bundle already holds that Version, or an agent's Job saved it. A save with a Job Key collapses into the one Version its Job started. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, or is refused once it is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write, a Kitchen-mate's or one that arrived, is a Copy: a new Branch of the same Lineage in your own Cookbook, carrying the whole chain up to the Version you changed, and the Branch you changed is left untouched.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -12320,6 +12377,38 @@ export const CATALOGUE = [
 					"description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
 					"type": "boolean"
 				},
+				"foods_created": {
+					"description": "Each Food this save created: its word, and the lines read as it, as set_reading counts them. Empty when none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"language": {
+								"type": "string"
+							},
+							"line_indexes": {
+								"items": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"language",
+							"line_indexes"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"language": {
 					"description": "The Language this recipe carries. A save changes only a guess.",
 					"type": "string"
@@ -12360,7 +12449,8 @@ export const CATALOGUE = [
 				"copied",
 				"language",
 				"language_offer",
-				"translates_version_id"
+				"translates_version_id",
+				"foods_created"
 			],
 			"type": "object"
 		}
@@ -12560,6 +12650,38 @@ export const CATALOGUE = [
 					"description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
 					"type": "boolean"
 				},
+				"foods_created": {
+					"description": "Each Food this save created: its word, and the lines read as it, as set_reading counts them. Empty when none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"language": {
+								"type": "string"
+							},
+							"line_indexes": {
+								"items": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"language",
+							"line_indexes"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"language": {
 					"description": "The Language this recipe carries. A save changes only a guess.",
 					"type": "string"
@@ -12600,7 +12722,8 @@ export const CATALOGUE = [
 				"copied",
 				"language",
 				"language_offer",
-				"translates_version_id"
+				"translates_version_id",
+				"foods_created"
 			],
 			"type": "object"
 		}
@@ -15024,7 +15147,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "start_translation",
-		"summary": "Translate a recipe into another Language. It starts an ordinary Branch of the same Lineage in that Language, whose first Version records which Version of the source it renders. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy. An agent translating calls this under the Person's own Credential and is a scribe, not an author. Keep each Ingredient Line and section heading in the source's place, with its amount and unit: such a line takes the source line's Food, here and on a save naming a newer translates_version_id.",
+		"summary": "Translate a recipe into another Language. It is an ordinary Branch of its Lineage. Its first Version records which Version of the source it renders, and its chain starts fresh, unlike a Copy's. An agent translating calls this under the Person's Credential. Keep each Ingredient Line and section heading in the source's place, with its amount and unit: such a line takes the source line's Food, here and on a save naming a newer translates_version_id.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -15327,6 +15450,38 @@ export const CATALOGUE = [
 						"ratings"
 					],
 					"type": "object"
+				},
+				"foods_created": {
+					"description": "Each Food this save created: its word, and the lines read as it, as set_reading counts them. Empty when none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"language": {
+								"type": "string"
+							},
+							"line_indexes": {
+								"items": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"language",
+							"line_indexes"
+						],
+						"type": "object"
+					},
+					"type": "array"
 				},
 				"hand_id": {
 					"type": "string"
@@ -16208,7 +16363,8 @@ export const CATALOGUE = [
 				"translation",
 				"tags",
 				"related_recipes",
-				"cooked"
+				"cooked",
+				"foods_created"
 			],
 			"type": "object"
 		}
@@ -33981,7 +34137,7 @@ export interface KamosuClient {
 	setRelatedRecipe(input: SetRelatedRecipeInput): Promise<Answer<'set_related_recipe'>>;
 	/** Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. With a Job Key it creates the Job's own recipe, once, for a Job that has none yet: one reading pasted text, a PDF or a picture. */
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
-	/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch, a Translation or a Bundle already holds that Version, or an agent's Job saved it. Every save with a Job Key collapses into the one Version its Job started, never an earlier one. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, and is refused once that Version is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
+	/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped, unless another Branch, a Translation or a Bundle already holds that Version, or an agent's Job saved it. A save with a Job Key collapses into the one Version its Job started. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, or is refused once it is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write, a Kitchen-mate's or one that arrived, is a Copy: a new Branch of the same Lineage in your own Cookbook, carrying the whole chain up to the Version you changed, and the Branch you changed is left untouched. */
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
 	/** Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch, a Translation or a Bundle already holds it, or an agent's Job saved it), an edit with a Job Key collapses and is refused as its save is, and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was keeps its Reading as it was, a misreading included; correct one with set_reading. */
 	editRecipe(input: EditRecipeInput): Promise<Answer<'edit_recipe'>>;
@@ -34001,7 +34157,7 @@ export interface KamosuClient {
 	readRecipePdf(input: ReadRecipePdfInput): Promise<Answer<'read_recipe_pdf'>>;
 	/** Have an agent make a recipe from text, a link or a file. The file is a PDF or a picture, and the recipe lands in your own Cookbook. Only on an instance with a Runner: without one it is refused with reason `no_runner`. A PDF may be a scan. Pass pasted text as `text`. Pass a web page or a video as `link`: Kamosu does not read it first, so nothing lands before the agent's recipe, and the Job is listed under the source `web`. A link sent again is never matched. Send a file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. Answers the id of a Job that waits for a Runner, as `get_job` reads it, and what it was taken as. A PDF or a picture handed over before is known by its contents: while your Job on it waits or is worked, the answer is that Job, and once its recipe exists the answer is that recipe as `branch_id` and `title`, with no Job. Pasted text is never matched. No recipe exists until the agent creates one, under your Hand. Read the Job with `get_job`: its result is the Import Report, which lists the recipe as arrived once it exists and says what the agent left undone, or why it could not be read. Cancel it with `cancel_job`. Kamosu keeps what was handed over for the agent to fetch and never shows it. */
 	importByAgent(input: ImportByAgentInput): Promise<Answer<'import_by_agent'>>;
-	/** Translate a recipe into another Language. It starts an ordinary Branch of the same Lineage in that Language, whose first Version records which Version of the source it renders. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy. An agent translating calls this under the Person's own Credential and is a scribe, not an author. Keep each Ingredient Line and section heading in the source's place, with its amount and unit: such a line takes the source line's Food, here and on a save naming a newer translates_version_id. */
+	/** Translate a recipe into another Language. It is an ordinary Branch of its Lineage. Its first Version records which Version of the source it renders, and its chain starts fresh, unlike a Copy's. An agent translating calls this under the Person's Credential. Keep each Ingredient Line and section heading in the source's place, with its amount and unit: such a line takes the source line's Food, here and on a save naming a newer translates_version_id. */
 	startTranslation(input: StartTranslationInput): Promise<Answer<'start_translation'>>;
 	/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so, except to set one guessed for a recipe that held too little text to read, from the first text that says one. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
 	setRecipeLanguage(input: SetRecipeLanguageInput): Promise<Answer<'set_recipe_language'>>;

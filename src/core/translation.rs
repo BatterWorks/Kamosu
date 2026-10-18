@@ -45,7 +45,7 @@ impl Core {
         let (version_id, content_text) = stored_version(&content);
         let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
 
-        self.db().with_conn(|conn| {
+        let foods_created = self.db().with_conn(|conn| {
             ensure_sees_branch(conn, source_branch_id, &caller.person_id)?;
             let (lineage_id, source_language, source_head): (String, String, String) = conn
                 .query_row(
@@ -145,11 +145,15 @@ impl Core {
             // (#172). No later save would: it carries an unchanged line's
             // Reading forward, and here there is none to carry. A line paired
             // with the one it renders takes that line's Food (#356).
-            read_unread_lines(conn, &version_id, &language, &content, None, Some(&translates));
-            Ok(())
+            Ok(
+                read_unread_lines(conn, &version_id, &language, &content, None, Some(&translates))
+                    .foods_created,
+            )
         })?;
 
-        self.get_recipe(caller, &branch_id, None)
+        let mut recipe = self.get_recipe(caller, &branch_id, None)?;
+        recipe["foods_created"] = foods_created_json(&foods_created);
+        Ok(recipe)
     }
 
     /// Say what Language a recipe is written in — the *never changed without

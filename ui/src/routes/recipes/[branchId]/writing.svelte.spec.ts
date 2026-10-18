@@ -64,6 +64,7 @@ const SAVED = {
 		language: 'en',
 		language_offer: null,
 		translates_version_id: null,
+		foods_created: [],
 	},
 } as Answers;
 
@@ -196,6 +197,7 @@ const READ_BACK = {
 const TRANSLATED = {
 	start_translation: {
 		...(READ_BACK.get_recipe as Record<string, unknown>),
+		...({ foods_created: [] } as Record<string, unknown>),
 		branch_id: 'b_fr',
 		language: 'fr',
 		translation: {
@@ -837,6 +839,7 @@ describe('writing a recipe', () => {
 				language: 'en',
 				language_offer: null,
 				translates_version_id: null,
+				foods_created: [],
 			},
 		} as Answers);
 
@@ -871,6 +874,7 @@ describe('writing a recipe', () => {
 					language: 'en',
 					language_offer: null,
 					translates_version_id: null,
+					foods_created: [],
 				},
 			} as Answers,
 			false,
@@ -1678,6 +1682,7 @@ describe('the Language offer a save answers', () => {
 				language: 'en',
 				language_offer: 'fr',
 				translates_version_id: null,
+				foods_created: [],
 			},
 		} as Answers);
 

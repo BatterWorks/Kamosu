@@ -21,6 +21,7 @@
 - An Operator can add House Notes to the instructions Kamosu's AI agent follows, such as "grams, never cups", without a terminal. In the Runner section of the Operator screen, a row shows the first line and who saved them last and when, and opens a sheet to write them, up to 4,000 characters. Every Job carries them as they stand when a Runner takes it, in a new `ask_for_work` field, `house_notes`, and the published agent puts them after its own instructions and follows them where the two disagree. Its own instructions still change with each release, under the notes. An agent of your own follows them only if it reads that field. Both doors gain `get_house_notes` and `set_house_notes` for an Operator. Nobody else reads them, and a Job Key reaches neither. [#344]
 - An Operator can open, change, create and delete the recipes in anyone's Cookbook, and their Tags and Related Recipes, to help tidy a library. Until now an Operator could not reach anybody else's recipes at all. It is asked for one call at a time, with `as_operator`, at either door: without it an Operator is a cook like any other, and the screens never ask for it. What an Operator changes this way shows under their own name in the recipe's History, and is never a copy of their own. Cooking diaries and shopping lists stay their owners' alone. `list_cookbooks` names every Cookbook and its recipes, and `create_recipe`, `create_tag`, `list_tags` and the Imports take a `cookbook_id`. A read-only Access Key, a Runner Key and a Job Key cannot act as the Operator. [#302]
 - An older Version opened from a recipe's History can be taken whole. Whoever writes the recipe can put it back, which makes the recipe what it was then as a new Version on top, with its corrected Readings, and keeps the Version stepped away from in the History, even one saved a minute ago. They can also start a named variation from it, leaving the recipe as it is. Anyone else who sees the recipe can keep that Version as their own copy, and names it where they already have one. Until now an older Version could only be carried back line by line. Both doors gain `put_back_version` and `keep_version_as_copy`, `start_variation` takes a `version_id`, and `changed_since` says in a new field, `keeping_needs_name`, whether keeping needs a name. [#354]
+- `create_recipe`, `save_recipe_version`, `edit_recipe` and `start_translation` answer `foods_created`: each Food the save created reading a line whose word no Food answered to, with its id, the word, its Language and the lines read as it. It is empty when the save created none. Until now finding one meant comparing `list_foods` before and after the save. [#358]
 
 ### Changed
 
@@ -107,6 +108,7 @@
 [#355]: https://github.com/BatterWorks/Kamosu/issues/355
 [#356]: https://github.com/BatterWorks/Kamosu/issues/356
 [#357]: https://github.com/BatterWorks/Kamosu/issues/357
+[#358]: https://github.com/BatterWorks/Kamosu/issues/358
 
 ## v0.2.0 - 2026-10-12
 

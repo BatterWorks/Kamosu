@@ -1501,7 +1501,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             job_key: JobKey::CreatesItsRecipe,
             job_lane: JobLane::ByCaller,
             input_schema: create_recipe_input_schema(),
-            output_schema: recipe_schema(),
+            output_schema: with_foods_created(recipe_schema()),
             handler: crate::operations::create_recipe,
         },
         Operation {
@@ -1513,28 +1513,27 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       every field left out is erased. For a partial change use \
                       edit_recipe instead. A re-save by the same Hand within \
                       60 minutes of the last one collapses into the Version \
-                      already being shaped rather than starting a new one, \
+                      already being shaped, \
                       unless another Branch, a Translation or a Bundle \
                       already holds that Version, or an agent's Job saved \
-                      it. Every save \
+                      it. A save \
                       with a Job Key collapses into the one Version its Job \
-                      started, never an earlier one. Once that Job has saved, \
+                      started. Once that Job has saved, \
                       its next save is refused, failing the Job, if anyone \
                       else saved the recipe or holds that Version. A collapsed save keeps the name and \
                       change_note the Version already has unless it sends new \
                       ones. A save that changes nothing but sends a new name \
                       or change_note writes them onto the Version being \
-                      shaped, and is refused once that Version is no longer \
-                      being shaped. A save that changes nothing but names a \
+                      shaped, or is refused once it is no longer being \
+                      shaped. A save that \
+                      changes nothing but names a \
                       new translates_version_id moves the newest Version's \
                       pointer to it, at any time, and writes no Version. \
-                      Changing a recipe your Cookbook did not write — a \
-                      Kitchen-mate's, or one that arrived — is a Copy: it \
-                      starts a new Branch of the same Lineage in your own \
-                      Cookbook, starting at the Version you changed and \
-                      carrying the whole chain behind it — the Branch you \
-                      changed is left untouched. The Branch must be one you \
-                      may see.",
+                      Changing a recipe your Cookbook did not write, a \
+                      Kitchen-mate's or one that arrived, is a Copy: a new \
+                      Branch of the same Lineage in your own Cookbook, \
+                      carrying the whole chain up to the Version you \
+                      changed, and the Branch you changed is left untouched.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -1542,7 +1541,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             job_key: JobKey::WritesItsRecipe,
             job_lane: JobLane::ByCaller,
             input_schema: save_recipe_version_input_schema(),
-            output_schema: saved_version_schema(),
+            output_schema: with_foods_created(saved_version_schema()),
             handler: crate::operations::save_recipe_version,
         },
         Operation {
@@ -1581,7 +1580,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             job_key: JobKey::WritesItsRecipe,
             job_lane: JobLane::ByCaller,
             input_schema: edit_recipe_input_schema(),
-            output_schema: saved_version_schema(),
+            output_schema: with_foods_created(saved_version_schema()),
             handler: crate::operations::edit_recipe,
         },
         Operation {
@@ -1859,17 +1858,15 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "start_translation",
-            summary: "Translate a recipe into another Language. It starts an \
-                      ordinary Branch of the same Lineage in that Language, \
-                      whose first Version records which Version of the source \
-                      it renders. Its chain starts fresh rather than \
-                      carrying the source's, which is what separates it from a \
-                      Copy. An agent translating calls this under the \
-                      Person's own Credential and is a scribe, not an author. \
-                      Keep each Ingredient Line and section heading in the \
-                      source's place, with its amount and unit: such a line \
-                      takes the source line's Food, here and on a save naming \
-                      a newer translates_version_id.",
+            summary: "Translate a recipe into another Language. It is an \
+                      ordinary Branch of its Lineage. Its first Version \
+                      records which Version of the source it renders, and its \
+                      chain starts fresh, unlike a Copy's. An agent translating \
+                      calls this under the Person's Credential. Keep each \
+                      Ingredient Line and section heading in the source's \
+                      place, with its amount and unit: such a line takes the \
+                      source line's Food, here and on a save naming a newer \
+                      translates_version_id.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -1877,7 +1874,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             job_key: JobKey::Never,
             job_lane: JobLane::ByCaller,
             input_schema: start_translation_input_schema(),
-            output_schema: recipe_schema(),
+            output_schema: with_foods_created(recipe_schema()),
             handler: crate::operations::start_translation,
         },
         Operation {
@@ -5011,6 +5008,31 @@ fn saved_version_schema() -> Value {
         ],
         "additionalProperties": false,
     })
+}
+
+/// A save's answer, naming as well the Foods reading its lines created (#358),
+/// so an agent can repoint a line and delete a stray Food in the same turn.
+fn with_foods_created(mut answer: Value) -> Value {
+    answer["properties"]["foods_created"] = json!({
+        "type": "array",
+        "description": "Each Food this save created: its word, and the lines read as it, as set_reading counts them. Empty when none.",
+        "items": {
+            "type": "object",
+            "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "language": { "type": "string" },
+                "line_indexes": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+            },
+            "required": ["id", "name", "language", "line_indexes"],
+            "additionalProperties": false,
+        },
+    });
+    answer["required"]
+        .as_array_mut()
+        .expect("an answer's schema lists what it requires")
+        .push(json!("foods_created"));
+    answer
 }
 
 /// How a recipe has been cooked, as the recipe screen shows it (#59).

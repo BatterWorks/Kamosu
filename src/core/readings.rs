@@ -92,14 +92,7 @@ impl Core {
                 continue;
             };
             read += self.db().with_conn(|conn| {
-                Ok(read_unread_lines(
-                    conn,
-                    &version_id,
-                    &language,
-                    &content,
-                    None,
-                    None,
-                ))
+                Ok(read_unread_lines(conn, &version_id, &language, &content, None, None).written)
             })?;
         }
         Ok(json!({ "read": read }))
@@ -1200,6 +1193,9 @@ fn reread_version(conn: &Connection, version: &HeldVersion) -> Result<Reread, Op
 /// Translation's own Language like any other first Version's. `renders`
 /// names the source Version a Translation renders, and a line matched with
 /// one of that Version's takes its Food ([`RenderedFoods`], #356).
+///
+/// It answers how many Readings it wrote and which Foods it created on the
+/// way, so a save can name them to whoever saved (#358).
 pub(super) fn read_unread_lines(
     conn: &Connection,
     version_id: &str,
@@ -1207,11 +1203,11 @@ pub(super) fn read_unread_lines(
     content: &Value,
     lines: Option<&HashSet<usize>>,
     renders: Option<&str>,
-) -> u64 {
+) -> LinesRead {
     let no_lines = Vec::new();
     let ingredients = content["ingredients"].as_array().unwrap_or(&no_lines);
     let rendered = renders.and_then(|source| RenderedFoods::of(conn, source, ingredients));
-    let mut written = 0;
+    let mut read = LinesRead::default();
     for (index, line) in ingredients.iter().enumerate() {
         if lines.is_some_and(|allowed| !allowed.contains(&index)) {
             continue;
@@ -1247,8 +1243,20 @@ pub(super) fn read_unread_lines(
             .target
             .as_deref()
             .map(|word| match &taken {
-                Some(food_id) => Ok(food_id.clone()),
-                None => resolve_food_for_word(conn, language, word, None),
+                Some(food_id) => Ok::<_, OpError>(food_id.clone()),
+                None => {
+                    let (food_id, created) =
+                        resolve_or_create_food(conn, &[(language, word)], None)?;
+                    if created {
+                        read.foods_created.push(CreatedFood {
+                            food_id: food_id.clone(),
+                            name: word.to_string(),
+                            language: language.to_string(),
+                            line_indexes: Vec::new(),
+                        });
+                    }
+                    Ok(food_id)
+                }
             })
             .transpose()
         {
@@ -1268,7 +1276,18 @@ pub(super) fn read_unread_lines(
                 food_id
             ],
         ) {
-            Ok(inserted) => written += inserted as u64,
+            Ok(inserted) => {
+                read.written += inserted as u64;
+                // A second line naming a word this save just created finds
+                // that Food, and is one more line read as it.
+                if let Some(created) = read
+                    .foods_created
+                    .iter_mut()
+                    .find(|created| inserted > 0 && Some(&created.food_id) == food_id.as_ref())
+                {
+                    created.line_indexes.push(index);
+                }
+            }
             Err(error) => tracing::warn!(
                 target: "kamosu::reading",
                 %error, version_id, index,
@@ -1276,7 +1295,39 @@ pub(super) fn read_unread_lines(
             ),
         }
     }
-    written
+    read
+}
+
+/// What [`read_unread_lines`] did: how many Readings it wrote, and the Foods
+/// it created on the way, in the order it created them (#358).
+#[derive(Default)]
+pub(super) struct LinesRead {
+    pub(super) written: u64,
+    pub(super) foods_created: Vec<CreatedFood>,
+}
+
+/// A Food a save created: the word and Language it was created from, and the
+/// lines of the saved Version whose Readings point at it (#358).
+pub(super) struct CreatedFood {
+    food_id: String,
+    name: String,
+    language: String,
+    line_indexes: Vec<usize>,
+}
+
+/// The `foods_created` a save answers, from what reading its lines created.
+pub(super) fn foods_created_json(foods: &[CreatedFood]) -> Value {
+    foods
+        .iter()
+        .map(|food| {
+            json!({
+                "id": food.food_id,
+                "name": food.name,
+                "language": food.language,
+                "line_indexes": food.line_indexes,
+            })
+        })
+        .collect()
 }
 
 /// **The Food each line of a Translation may take from the source line it
@@ -1847,6 +1898,16 @@ fn resolve_food_for_names(
     names: &[(&str, &str)],
     exclude: Option<(&str, i64)>,
 ) -> Result<String, OpError> {
+    resolve_or_create_food(conn, names, exclude).map(|(food_id, _)| food_id)
+}
+
+/// [`resolve_food_for_names`], saying too whether the Food is one it created
+/// just now: none answered, or doubt made a third (#358).
+fn resolve_or_create_food(
+    conn: &Connection,
+    names: &[(&str, &str)],
+    exclude: Option<(&str, i64)>,
+) -> Result<(String, bool), OpError> {
     assert!(
         !names.is_empty(),
         "a Food always arrives known by at least one name"
@@ -1876,11 +1937,11 @@ fn resolve_food_for_names(
         // A lone word asserts nothing about which Food is meant — welding
         // two Foods together on that alone is the very weld ADR 0022
         // refuses. Go with whichever the most Readings already point at.
-        return busiest_food(conn, &hits, exclude);
+        return Ok((busiest_food(conn, &hits, exclude)?, false));
     }
 
     match hits.len() {
-        0 => create_food(conn, names),
+        0 => Ok((create_food(conn, names)?, true)),
         1 => {
             // The surviving Food learns every arriving name that matches
             // nothing at all on the instance (ADR 0022). With a single hit,
@@ -1892,7 +1953,7 @@ fn resolve_food_for_names(
             for (language, word) in names {
                 add_food_name(conn, &food_id, language, word)?;
             }
-            Ok(food_id)
+            Ok((food_id, false))
         }
         _ => {
             // Doubt makes a new Food, never a merge (ADR 0022): a third Food
@@ -1931,7 +1992,7 @@ fn resolve_food_for_names(
                     record_merge_suggestion(conn, one, other, "arrived_as_one", names)?;
                 }
             }
-            Ok(third)
+            Ok((third, true))
         }
     }
 }

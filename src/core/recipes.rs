@@ -23,7 +23,7 @@ impl Core {
         let lineage_id = format!("l_{}", hex::encode(random_bytes(8)));
         let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
 
-        self.db().with_conn(|conn| {
+        let foods_created = self.db().with_conn(|conn| {
             let cookbook_id = lands_in(conn, caller, into)?;
             let hand_id = cookbook_hand(conn, &cookbook_id)?;
             let language = language_for_new_branch(conn, &caller.person_id, language, &content)?;
@@ -41,7 +41,9 @@ impl Core {
             )
         })?;
 
-        self.get_recipe(caller, &branch_id, None)
+        let mut recipe = self.get_recipe(caller, &branch_id, None)?;
+        recipe["foods_created"] = foods_created_json(&foods_created);
+        Ok(recipe)
     }
 
     /// Save a new state of a Recipe onto a Branch: an ordinary edit becomes an
@@ -353,6 +355,7 @@ impl Core {
                     "language": language,
                     "language_offer": offer,
                     "translates_version_id": translates_version_id,
+                    "foods_created": [],
                 }));
             }
 
@@ -386,13 +389,16 @@ impl Core {
             let renders_anew = translates_version_id
                 .as_deref()
                 .filter(|_| translates_version_id != head_translates);
-            read_unread_lines(
-                conn,
-                &version_id,
-                &language,
-                &content,
-                Some(&lines_this_save_wrote(&kept)),
-                renders_anew,
+            let foods_created = foods_created_json(
+                &read_unread_lines(
+                    conn,
+                    &version_id,
+                    &language,
+                    &content,
+                    Some(&lines_this_save_wrote(&kept)),
+                    renders_anew,
+                )
+                .foods_created,
             );
 
             if !cookbook_writes_branch(conn, &writing_for, branch_id)? {
@@ -445,6 +451,7 @@ impl Core {
                     "language": language,
                     "language_offer": offer,
                     "translates_version_id": translates_version_id,
+                    "foods_created": foods_created,
                 }));
             }
 
@@ -541,6 +548,7 @@ impl Core {
                 "language": language,
                 "language_offer": offer,
                 "translates_version_id": translates_version_id,
+                "foods_created": foods_created,
             }))
         })
     }
@@ -2997,7 +3005,7 @@ pub(super) fn insert_new_lineage_and_branch(
     version_id: &str,
     content_text: &str,
     writer: &Caller,
-) -> Result<(), OpError> {
+) -> Result<Vec<CreatedFood>, OpError> {
     conn.execute(
         "INSERT OR IGNORE INTO versions (id, content) VALUES (?1, ?2)",
         params![version_id, content_text],
@@ -3046,11 +3054,12 @@ pub(super) fn insert_new_lineage_and_branch(
     // recipe of the receiver's own, and those are read like any other.
     //
     // A recipe whose own content will not parse is a recipe left unread, never
-    // a failed write.
-    if let Ok(content) = serde_json::from_str::<Value>(content_text) {
-        read_unread_lines(conn, version_id, &language.language, &content, None, None);
-    }
-    Ok(())
+    // a failed write. The Foods reading it created are the caller's to name
+    // (#358).
+    let Ok(content) = serde_json::from_str::<Value>(content_text) else {
+        return Ok(Vec::new());
+    };
+    Ok(read_unread_lines(conn, version_id, &language.language, &content, None, None).foods_created)
 }
 
 /// The title of one Version, which is what a recipe is called right now.
