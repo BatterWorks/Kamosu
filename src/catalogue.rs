@@ -618,6 +618,48 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::runner_status,
         },
         Operation {
+            name: "get_house_notes",
+            summary: "Read the agent's House Notes. They are what an \
+                      Operator adds to the end of the instructions the agent \
+                      follows, handed over with every Job. Null when none are written, and \
+                      the agent follows its own instructions alone. Says who \
+                      saved them last and when.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: house_notes_output(),
+            handler: crate::operations::get_house_notes,
+        },
+        Operation {
+            name: "set_house_notes",
+            summary: "Save the agent's House Notes. They replace any there \
+                      were, up to 4,000 characters. The agent reads them \
+                      after its own instructions, as the Operator's, and \
+                      follows them where the two disagree. A Job carries the \
+                      notes as they stand when a Runner takes it. Blank \
+                      text takes them away. Kamosu's own agent image follows \
+                      them; another agent follows them only if it reads \
+                      `house_notes` from each Job.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "notes": { "type": "string" } },
+                "required": ["notes"],
+                "additionalProperties": false,
+            }),
+            output_schema: house_notes_output(),
+            handler: crate::operations::set_house_notes,
+        },
+        Operation {
             name: "ask_for_work",
             summary: "Ask for a Job to do. For a Runner alone, with its \
                       Runner Key. Answers the oldest Job that waits for an \
@@ -702,6 +744,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                                 "description": "The Job Key, shown once. The agent presents it \
                                                  as its Credential.",
                             },
+                            "house_notes": {
+                                "type": ["string", "null"],
+                                "description": "The instance's house notes for the agent, \
+                                                 written by an Operator, as they stand now: \
+                                                 read after the agent's own instructions, and \
+                                                 followed where the two disagree. Null when \
+                                                 none are written.",
+                            },
                             "held_until": {
                                 "type": "string",
                                 "description": "When the hold lapses unless `renew_hold` \
@@ -715,7 +765,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                         },
                         "required": [
                             "job_id", "branch_id", "link", "original", "job_key",
-                            "held_until", "renew_within_seconds",
+                            "house_notes", "held_until", "renew_within_seconds",
                         ],
                         "additionalProperties": false,
                     },
@@ -7033,6 +7083,24 @@ fn empty_input() -> Value {
     json!({
         "type": "object",
         "properties": {},
+        "additionalProperties": false,
+    })
+}
+
+/// The agent's house notes as both Operations on them answer (#344).
+fn house_notes_output() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "notes": { "type": ["string", "null"] },
+            "saved_by": {
+                "type": ["string", "null"],
+                "description": "The name of the Person who saved them last, emptying \
+                                 them included. Null when nobody ever has.",
+            },
+            "saved_at": { "type": ["string", "null"] },
+        },
+        "required": ["notes", "saved_by", "saved_at"],
         "additionalProperties": false,
     })
 }

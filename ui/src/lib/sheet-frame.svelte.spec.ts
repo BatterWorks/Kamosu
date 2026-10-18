@@ -213,6 +213,7 @@ describe('every sheet in Kamosu', () => {
 			'ComponentPicker.svelte',
 			'Confirm.svelte',
 			'Cooking.svelte',
+			'HouseNotes.svelte',
 			'LanguageSheet.svelte',
 			'PasteSheet.svelte',
 			'PhotoToRecipe.svelte',

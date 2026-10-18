@@ -273,8 +273,9 @@ published, so a new version of Kamosu may bring nothing new to download here.
   poppler for turning a PDF's pages into pictures, on Alpine.
 - **The instructions** are `agent-image/instructions.md`, in the image as
   `/opt/kamosu-agent/instructions.md`: one recipe, read alone, for each kind
-  of Job. To change them, mount your own copy over that file, as
-  [Your own instructions](#your-own-instructions) shows.
+  of Job. To add rules of your own, write [House Notes](#house-notes) in Kamosu.
+  To change the instructions themselves, mount your own copy over that file,
+  as [Your own instructions](#your-own-instructions) shows.
 
 **The Runner and the agent run in two containers.** The Runner is Kamosu's
 own image, which holds one program, no shell and no root, started as `kamosu
@@ -454,6 +455,21 @@ better instructions, which your copy does not follow until you bring the
 changes into it. When you upgrade, compare `agent-image/instructions.md`
 between the two versions.
 
+### House Notes
+
+For a change of one rule, such as "grams, never cups" or "put the Tag
+Sweet on every dessert", there is no file to mount. An Operator writes **House
+Notes** on the Operator screen, in the Runner section, or with
+`set_house_notes` at either Door. Every Job carries them as `house_notes`, and
+the published image adds them to the end of its instructions, under a heading
+saying they are the Operator's and win where the two disagree. They sit on top
+of a file mounted as above just the same, and a new version of the image
+brings its improved instructions with your notes still on top.
+
+An agent of your own follows them only if it reads `house_notes` from
+`job.json` and gives them to its model. Only an Operator can read or write
+them, and a Job Key reaches neither.
+
 ## Where to run it
 
 Anywhere that reaches Kamosu's address: the same machine, another one at home,
@@ -512,7 +528,8 @@ there with:
     "branch_id": "b_…",
     "link": "https://…",
     "original": null,
-    "job_key": "…"
+    "job_key": "…",
+    "house_notes": null
   }
 }
 ```
@@ -528,6 +545,10 @@ there with:
   with the Job Key.
 - `branch_id` is the recipe the Job is for. It is null when the Job reads an
   Original and no recipe exists yet: the agent creates it with `create_recipe`.
+- `house_notes` is what the instance's Operator added to the agent's
+  instructions, as it stands when the Runner took the Job, or null when there
+  is none. The agent reads it after its own instructions, as the Operator's,
+  and follows it where the two disagree. See [House Notes](#house-notes).
 
 Kamosu may add fields to `job` later. The Runner passes them on unread.
 

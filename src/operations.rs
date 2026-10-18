@@ -2311,6 +2311,27 @@ pub fn runner_status(
     core.runner_status()
 }
 
+pub fn get_house_notes(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.house_notes()
+}
+
+pub fn set_house_notes(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    let notes = input
+        .get("notes")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("set_house_notes takes { notes }"))?;
+    core.set_house_notes(&caller.person_id, notes)
+}
+
 pub fn ask_for_work(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let usage = || OpError::bad_request("ask_for_work takes { runner_version, ask }");
     let runner_version = input
