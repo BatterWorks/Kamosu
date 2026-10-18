@@ -25,6 +25,13 @@
 	    write the recipe. It is carried and saved exactly as a line from
 	    another Branch is: unsaved until an ordinary Version is saved.
 
+	The Version can be taken whole as well (#354, choice C of 18 October
+	2026): tiles at the foot, beside the way back and the Thread, each opening a
+	sheet that says what happens first (`UseVersion.svelte`). Whoever writes
+	the recipe puts the Version back or starts a variation from it; anybody
+	else keeps it as their own copy. A put-back drops lines carried here and
+	not saved, which the Version put back holds already.
+
 	One column at reading width on every layout, as every page with marks is
 	(#192, story 64).
 
@@ -52,6 +59,8 @@
 	import { unfolding } from '../unfolding.svelte';
 	import { corrections } from '../corrections.svelte';
 	import { proseSince, sinceThen } from './older';
+	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import UseVersion, { type Act } from './UseVersion.svelte';
 
 	interface Props {
 		branchId: string;
@@ -83,6 +92,8 @@
 	/** Bumped after a save, to read the two again: the recipe has moved. */
 	let reread = $state(0);
 	let cooking = $state<'idle' | 'starting' | 'failed' | 'another'>('idle');
+	/** The act whose sheet is open, if one is. */
+	let using = $state<Act | null>(null);
 
 	$effect(() => {
 		void reread;
@@ -470,7 +481,35 @@
 		<div class="mx-gutter mt-6 grid grid-cols-2 gap-2">
 			<a href="/recipes/{branchId}" class="act-tile text-accent">{m.older_back()}</a>
 			<a href="/recipes/{branchId}/thread" class="act-tile text-accent">{m.recipe_the_thread()}</a>
+			{#snippet tile(label: string, waiting: string, act: Act)}
+				<NeedsServer
+					{label}
+					{waiting}
+					onclick={() => (using = act)}
+					shapeClass="act-tile"
+					lookClass="text-accent"
+					idleClass="text-ink-2 opacity-55"
+				/>
+			{/snippet}
+			{#if compared.writes}
+				{@render tile(m.older_put_back(), m.offline_waits_edit(), 'back')}
+				{@render tile(m.older_variation(), m.offline_waits_edit(), 'variation')}
+			{:else}
+				{@render tile(m.older_keep(), m.offline_waits_copy(), 'keep')}
+			{/if}
 		</div>
+
+		{#if using}
+			<UseVersion
+				act={using}
+				{branchId}
+				{versionId}
+				{compared}
+				{when}
+				onDone={(landed) => void navigate(`/recipes/${landed}`)}
+				onClose={() => (using = null)}
+			/>
+		{/if}
 
 		<Carrying marking={marks} {words} />
 	{/if}

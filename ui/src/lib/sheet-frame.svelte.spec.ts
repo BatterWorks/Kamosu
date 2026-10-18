@@ -224,6 +224,7 @@ describe('every sheet in Kamosu', () => {
 			'StepPhoto.svelte',
 			'TagSheet.svelte',
 			'Thread.svelte',
+			'UseVersion.svelte',
 			'Writing.svelte',
 		]);
 	});
