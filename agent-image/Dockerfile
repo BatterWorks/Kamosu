@@ -71,7 +71,7 @@ FROM docker.io/library/alpine:3.24
 # the image with last time's packages. A new date reruns this step, which
 # upgrades what the base image holds and installs the rest at Alpine's
 # current versions.
-RUN : "Rebuilt for Alpine's fixes as of 2026-10-17" \
+RUN : "Rebuilt for Alpine's fixes as of 2026-10-18" \
     && apk upgrade --no-cache \
     && apk add --no-cache \
         ca-certificates curl deno ffmpeg libstdc++ poppler-utils python3

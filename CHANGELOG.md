@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.3.0 - 2026-10-18
+
 ### Added
 
 - An Operator signed in directly can mint a Runner Key, for a Runner: a program beside Kamosu that will have an agent read what Kamosu cannot. Kamosu shows its Secret once. It acts as nobody, and can ask for work, keep hold of the Job it is working, report on it and nothing else. Both doors gain `mint_runner_key`, `list_runner_keys` and `revoke_runner_key` for an Operator, `runner_status`, which tells anyone signed in whether the instance has a Runner and when one was last heard from, asking for work or keeping hold of a Job, and `ask_for_work`, which answers a Runner Key alone. [#260] [#266] [#277]
@@ -54,6 +56,7 @@
 - "Start my own copy" pressed on a recipe in someone else's Cookbook with nothing changed says "Nothing changed, so no copy was made." It used to say "Saved.", though no copy is made of a recipe left as it was. [#329]
 - The MCP door no longer lists to an Access Key the eight tools an Access Key is always refused: `mint_access_key`, `mint_runner_key`, `mint_invite`, `mint_recovery_link`, `set_operator`, `disable_account`, `delete_account` and `list_accounts`. An agent used to be shown them, and was refused each time it tried one, as it still is. A Session is listed them as before. [#347]
 - A Step that serves the dish no longer links an ingredient named after it. "Ladle the curry into a soup tureen" in a Vietnamese beef curry used to link the curry powder, because "curry" is part of that ingredient's name and the title also holds it. A Step naming an ingredient in full still links it, as "add the curry powder" does, and so does a short name the title does not hold, such as "the cocoa" in a chocolate cake. A short name the title holds now links nothing even where it means the ingredient: "add the chicken" in a roast chicken no longer links the chicken thighs, nor "add the lemon" in a lemon tart the lemon zest. [#357]
+- The library Kamosu makes its outgoing HTTPS connections with is past four published flaws, RUSTSEC-2026-0346 to RUSTSEC-2026-0349, in how it logs a resumed session, handles a refused Encrypted Client Hello, decompresses a certificate and agrees a key exchange. [#366]
 
 [#249]: https://github.com/BatterWorks/Kamosu/issues/249
 [#250]: https://github.com/BatterWorks/Kamosu/issues/250
@@ -109,6 +112,7 @@
 [#356]: https://github.com/BatterWorks/Kamosu/issues/356
 [#357]: https://github.com/BatterWorks/Kamosu/issues/357
 [#358]: https://github.com/BatterWorks/Kamosu/issues/358
+[#366]: https://github.com/BatterWorks/Kamosu/pull/366
 
 ## v0.2.0 - 2026-10-12
 

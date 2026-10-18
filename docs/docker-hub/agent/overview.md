@@ -2,7 +2,7 @@
 
 **The agent a [Kamosu](https://hub.docker.com/r/battermanz/kamosu) Runner hands its Jobs to. It reads a recipe Kamosu cannot read itself, such as a photo of a cookbook page, a scanned PDF, a page with no recipe data or a cooking video, and writes it into your library.**
 
-You do not need this image to run Kamosu. Kamosu reads a recipe page's own data, a pasted recipe and a recipe PDF on its own. This image is for the rest, and it needs a model from a provider of your choosing.
+You do not need this image to run Kamosu. Kamosu reads a recipe page's own data, a pasted recipe and a recipe PDF on its own, and without a Runner it reads a page with no recipe data from the page's text. This image is for the rest, reads those better, and needs a model from a provider of your choosing.
 
 - **Source:** https://github.com/BatterWorks/Kamosu/tree/main/agent-image
 - **Setup guide:** https://github.com/BatterWorks/Kamosu/blob/main/docs/runner.md
@@ -83,6 +83,8 @@ An Operator makes the key in Kamosu: **Settings**, then **Administer this instan
 An agent given `KAMOSU_RUNNER_KEY`, or started without `KAMOSU_AGENT_MODEL`, says so in its log, waits a minute and exits.
 
 ## Your own instructions
+
+To add rules of your own without replacing the instructions, an Operator writes House Notes in Kamosu, in the Runner section of the **Instance** tab. Every Job carries them, and the agent reads them after its own instructions and follows them where the two disagree.
 
 The instructions are one file in the image, `/opt/kamosu-agent/instructions.md`. To change them, copy [the file of your version](https://github.com/BatterWorks/Kamosu/blob/main/agent-image/instructions.md), edit it, and mount your copy over it, read-only. It must be readable by the agent's user, uid 1000:
 

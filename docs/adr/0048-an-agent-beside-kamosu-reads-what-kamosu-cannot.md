@@ -31,7 +31,7 @@ The survey behind this is in [`docs/research/ai-recipe-import-in-other-apps.md`]
 
 - **An instance has a Runner when it has a Runner Key that is not revoked.** Without one, nothing changes.
 - **A page that yields a structured recipe is read by Kamosu, as before.** It goes to the agent only when a Co-author asks for it to be read again.
-- **A link Kamosu cannot read lands as a bare recipe, and a Job for the agent follows.** That covers a page with no structured data, a video, and a page whose fetch was refused, which today lands nothing at all.
+- **A link Kamosu cannot read lands as a bare recipe, and a Job for the agent follows.** That covers a page with no structured data, a video, and a page whose fetch was refused, which today lands nothing at all. _(Amended by [#349](https://github.com/BatterWorks/Kamosu/issues/349): **a video's link sent from the + list, or as `link` in `import_by_agent`, goes to the agent unread**, and no bare recipe lands before the agent's. A video's link given as an ordinary link still lands bare first.)_
 - **Pasted text, a PDF and a picture go to the agent.** The recipe appears when the Job is done.
 
 ### Reading again
@@ -50,7 +50,7 @@ The survey behind this is in [`docs/research/ai-recipe-import-in-other-apps.md`]
 
 - **An ordinary recipe, saved at once.** There is no approval step. The Import Report says an agent made it, and lists what the agent left undone or was unsure of.
 - **One good recipe, checked against its source and corrected.** A likely duplicate is saved and flagged, not blocked. The recipe stays in the language of its source.
-- **A Job that keeps failing stops and says so.** Kamosu sets no other limit on who may ask or how often. When no Runner has asked for work lately, Kamosu says so, and a Job can be cancelled whether it is waiting or being worked.
+- **A Job that keeps failing stops and says so.** Kamosu sets no other limit on who may ask or how often. When no Runner has asked for work lately, Kamosu says so, and a Job can be cancelled whether it is waiting or being worked. _(Amended by [#279](https://github.com/BatterWorks/Kamosu/issues/279): **a recipe is read again once.** After a reading that finished, or one stopped while a Runner held it, `read_recipe_again` refuses with reason `already_read_again`. One that failed, or was stopped while it waited, gives the turn back, and a variation has a reading of its own.)_
 
 ## Why
 
@@ -82,8 +82,8 @@ The survey behind this is in [`docs/research/ai-recipe-import-in-other-apps.md`]
 - **Two new kinds of caller exist.** Until now every Credential named a Person from the start. The glossary's entries for Credential, Access Key and Secret change with this record.
 - **The Job Key's list is the security boundary.** Adding to it is a decision of this weight, never a convenience.
 - **The Runner speaks to one address, the Kamosu its Operator named.** That is a second place the program makes a request from, beside the guarded client of [ADR 0033](./0033-kamosu-assumes-the-proxy-did-nothing-but-carry-the-bytes.md), which is for addresses a stranger can point Kamosu at. The Runner's never is one, and it is often a private address.
-- **One agent process per Job, in a fresh folder, inside the Runner's own container.** Vendor guidance prefers a fresh container per task. The Job Key's reach is what makes the lighter arrangement acceptable, and giving the Runner control of the container engine would cost more than it buys.
+- **One agent process per Job, in a fresh folder, inside the Runner's own container.** Vendor guidance prefers a fresh container per task. The Job Key's reach is what makes the lighter arrangement acceptable, and giving the Runner control of the container engine would cost more than it buys. _(Amended by [#317](https://github.com/BatterWorks/Kamosu/issues/317): **a Runner can instead hand each Job to an agent in a container of its own**, through a Unix socket in a volume the two share. That container is read-only, takes one Job and starts afresh for the next, so the Runner Key is in another container altogether. The Runner still has no control of the container engine. The published agent image works this way.)_
 - **Kamosu cannot see what a Job cost.** The model's bill belongs to whoever runs the Runner, and so does any limit on it.
 - **Stray Foods stay until someone tidies them.** An agent that corrects a Reading can leave the Food it replaced with nothing pointing at it.
 - **Instructions written for an agent with a person present have to learn to work alone.** Where they would stop and ask, the agent leaves the thing undone and says so in the Import Report.
-- **Two things are not measured yet:** what an agent's Job costs and how long it takes, and whether the video sites answer the machine a given Runner is on.
+- **Two things are not measured yet:** what an agent's Job costs and how long it takes, and whether the video sites answer the machine a given Runner is on. _(Amended by [#318](https://github.com/BatterWorks/Kamosu/issues/318) and [#325](https://github.com/BatterWorks/Kamosu/issues/325): the first is measured. The agent's log gives each Job's time and cost, and `docs/runner.md`, under "Time, tries and cost", records both across six model settings.)_

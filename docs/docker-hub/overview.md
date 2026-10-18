@@ -34,7 +34,7 @@ Everything you can do in the web app, an agent can do over MCP (the Model Contex
 - **Scaling and conversions.** Cook for 3 instead of 6 and every amount follows, with metric or US measures beside the amounts as written.
 - **A shopping list worked out from recipes.** Pick dishes and how many you are cooking for. Flour from three recipes becomes one row.
 - **Search by words, or by meaning.** Turn on Meaning Search and "that thing with aubergines" finds a recipe that never says aubergine.
-- **Bring your recipes in.** A web page, a pasted recipe or a recipe PDF, a Crouton export, or a recipe from another Kamosu.
+- **Bring your recipes in.** A web page, a pasted recipe or a recipe PDF, a Crouton export, or a recipe from another Kamosu. With a Runner, also a photo of a cookbook page, a scanned PDF or a cooking video.
 - **Share with anyone.** A Share Link shows one recipe to whoever holds it, no account needed, with a printable PDF.
 - **Agents are first-class.** Each person creates their own Access Keys, read-only or not, and connects Claude Code, Codex, Hermes or any MCP client to `/mcp`.
 - **In English, French and Spanish.** Each person picks the language they read in.
@@ -102,7 +102,7 @@ The image also holds the Runner, `/app/kamosu runner`: a program you run beside 
 
 ## Your data
 
-Everything Kamosu owns lives in the one folder mounted at `/data`: the database, the photographs, the Backups, and the search model if you turn Meaning Search on.
+Everything Kamosu owns lives in the one folder mounted at `/data`: the database, the photographs, the Backups, a file handed to an agent (kept until 30 days after its Job, and in no Backup), and the search model if you turn Meaning Search on.
 
 - **Backups.** Kamosu takes its own and keeps three under `/data/backups`, one replaced every day, one every week and one every month. It never sends a Backup anywhere, so copy that folder off the machine.
 - **Upgrading.** Pull the new image and restart. Kamosu copies the database to a Snapshot before it migrates, and migrations only go forward. Pin a version tag to choose when you upgrade.
