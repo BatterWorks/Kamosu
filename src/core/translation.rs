@@ -143,8 +143,9 @@ impl Core {
             // The input is the recipe as it now reads in the new Language, so
             // its lines are read here, in that Language, as a new recipe's are
             // (#172). No later save would: it carries an unchanged line's
-            // Reading forward, and here there is none to carry.
-            read_unread_lines(conn, &version_id, &language, &content, None);
+            // Reading forward, and here there is none to carry. A line paired
+            // with the one it renders takes that line's Food (#356).
+            read_unread_lines(conn, &version_id, &language, &content, None, Some(&translates));
             Ok(())
         })?;
 

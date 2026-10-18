@@ -1869,7 +1869,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       Copy: different words rendering the same dish, with a \
                       history of their own. An agent translating calls this \
                       under the Person's own Credential and is a scribe, not \
-                      an author.",
+                      an author. Keep every Ingredient Line and section \
+                      heading in the source's place, with its amount and \
+                      unit: a line that keeps both reads as the Food of the \
+                      source line there, and so does each line written by a \
+                      save naming a newer translates_version_id.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,

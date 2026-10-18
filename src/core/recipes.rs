@@ -377,12 +377,22 @@ impl Core {
             // a line this save actually wrote is read now (#71). A line it
             // did not write keeps whatever it had, so a Reading somebody
             // cleared on purpose stays cleared.
+            //
+            // A save bringing a Translation up to a newer source renders it
+            // afresh, so the lines it wrote take the Food of the source line
+            // in their place (#356). A plain edit is somebody changing the
+            // Translation's own words, and a line it swapped for another
+            // ingredient at the same amount would take the wrong Food.
+            let renders_anew = translates_version_id
+                .as_deref()
+                .filter(|_| translates_version_id != head_translates);
             read_unread_lines(
                 conn,
                 &version_id,
                 &language,
                 &content,
                 Some(&lines_this_save_wrote(&kept)),
+                renders_anew,
             );
 
             if !cookbook_writes_branch(conn, &writing_for, branch_id)? {
@@ -3037,7 +3047,7 @@ pub(super) fn insert_new_lineage_and_branch(
     // A recipe whose own content will not parse is a recipe left unread, never
     // a failed write.
     if let Ok(content) = serde_json::from_str::<Value>(content_text) {
-        read_unread_lines(conn, version_id, &language.language, &content, None);
+        read_unread_lines(conn, version_id, &language.language, &content, None, None);
     }
     Ok(())
 }
