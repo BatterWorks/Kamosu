@@ -468,14 +468,15 @@ pub fn step_uses(
         .collect()
 }
 
-/// Whether the title's words hold `words` as a run, compared as a Step's
-/// words are compared with a name's.
+/// Whether the title's words hold `words` as a run, one trailing `s`
+/// forgiven. An accent [`folded_word`] kept counts, so a title's *de* is not
+/// a Step's *dés* (#230).
 fn names_the_dish(words: &[Word], dish: &[String]) -> bool {
     dish.windows(words.len()).any(|there| {
         there
             .iter()
             .zip(words)
-            .all(|(dish, word)| same_word(&word.text, dish))
+            .all(|(dish, word)| same_to_the_accent(&word.text, dish))
     })
 }
 
@@ -486,16 +487,22 @@ fn uses_of(step: &[Word], lines: &[Line], dish: &[String], used_before: &[usize]
         .iter()
         .flat_map(|line| mentions_of(line, step))
         .filter(|mention| !step[mention.start].until)
+        .collect();
+    // A part naming the dish still claims its words from a shorter mention it
+    // overlaps, and only then links nothing itself.
+    let kept = mentions
+        .iter()
+        .filter(|mention| {
+            mention.whole
+                || !mentions.iter().any(|other| {
+                    other.line != mention.line
+                        && mention.overlaps(other)
+                        && mention.beaten_by(other)
+                })
+        })
         .filter(|mention| {
             mention.whole || !names_the_dish(&step[mention.start..][..mention.len], dish)
-        })
-        .collect();
-    let kept = mentions.iter().filter(|mention| {
-        mention.whole
-            || !mentions.iter().any(|other| {
-                other.line != mention.line && mention.overlaps(other) && mention.beaten_by(other)
-            })
-    });
+        });
 
     let mut named: Vec<usize> = kept.map(|mention| mention.line).collect();
     named.sort_unstable();
@@ -1187,6 +1194,37 @@ mod tests {
                 &["garlic", "butter"],
             ),
             [step(&[0, 1])],
+        );
+    }
+
+    /// A title's word is compared as the Step's mention was found: *de* in
+    /// the title is not *les dés* in the Step, as *the* is no tea (#230).
+    #[test]
+    fn a_title_word_an_accent_sets_apart_is_another_word() {
+        assert_eq!(
+            uses_titled(
+                "Salade de pâtes au jambon",
+                Some("fr"),
+                &["Ajoutez les dés et le miel."],
+                &["dés de jambon", "miel"],
+            ),
+            [step(&[0, 1])],
+        );
+    }
+
+    /// A part of a name the title holds still claims its words from a
+    /// shorter part of another name it overlaps: the dish is named, so
+    /// nothing is.
+    #[test]
+    fn a_mention_naming_the_dish_still_beats_a_shorter_one_it_overlaps() {
+        assert_eq!(
+            uses_titled(
+                "Thai red curry",
+                Some("en"),
+                &["Stir in the Thai red curry leaves."],
+                &["Thai red curry paste", "fresh curry leaves"],
+            ),
+            [step(&[])],
         );
     }
 
