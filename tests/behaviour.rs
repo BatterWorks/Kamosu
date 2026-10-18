@@ -22420,7 +22420,8 @@ async fn a_step_names_a_food_as_a_whole_word_and_never_as_a_fragment() {
 /// A Step links a Food by the main word of its name, and which end of the
 /// name that sits at is the Branch's Language (#212): the last word in
 /// English, the first in French. *Steamed rice* is no mention of the rice
-/// vinegar in either.
+/// vinegar in either. The title holds neither Food, since a word it holds
+/// names the dish (#357).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_step_links_a_food_by_its_main_word_in_the_language_of_the_branch() {
     let app = support::spawn_app();
@@ -22428,7 +22429,7 @@ async fn a_step_links_a_food_by_its_main_word_in_the_language_of_the_branch() {
     let recipes = [
         (
             "en",
-            "Char siu chicken",
+            "Char siu",
             ["1½ lb chicken thighs", "2 tbsp rice vinegar"],
             ["chicken thighs", "rice vinegar"],
             [
@@ -22438,7 +22439,7 @@ async fn a_step_links_a_food_by_its_main_word_in_the_language_of_the_branch() {
         ),
         (
             "fr",
-            "Poulet char siu",
+            "Char siu",
             [
                 "700 g de hauts de cuisse de poulet",
                 "2 c. à s. de vinaigre de riz",
@@ -22500,6 +22501,54 @@ async fn a_step_links_a_food_by_its_main_word_in_the_language_of_the_branch() {
             "{language}: the vinegar is the rice vinegar"
         );
     }
+}
+
+/// A Step naming the dish by a word of the recipe's title links nothing,
+/// though that word is part of an ingredient's name, and the ingredient named
+/// in full still links (#357).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_step_naming_the_dish_by_its_title_links_no_ingredient() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Vietnamese beef curry",
+            "ingredients": [
+                { "kind": "ingredient", "text": "3 tbsp curry powder, preferably Madras" },
+            ],
+            "steps": [
+                { "kind": "step", "text": "Add the curry powder and stir for a minute." },
+                { "kind": "step", "text": "Ladle the curry into a soup tureen and serve immediately." },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let (status, read) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "line_index": 0, "target": "curry powder" }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+
+    let (_, fetched) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let head = fetched["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(head["cooking"]["steps"][0]["uses"], json!([0]));
+    assert_eq!(
+        head["cooking"]["steps"][1]["uses"],
+        json!([]),
+        "the curry ladled out is the dish, not the curry powder"
+    );
 }
 
 /// A duration is read out of the Step's own text and stored nowhere — and a
