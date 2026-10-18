@@ -98,6 +98,7 @@ impl Core {
                     &language,
                     &content,
                     None,
+                    None,
                 ))
             })?;
         }
@@ -1196,16 +1197,20 @@ fn reread_version(conn: &Connection, version: &HeldVersion) -> Result<Reread, Op
 ///
 /// `start_translation` calls it too (#172). Its input is the translated
 /// recipe, never the source's words, so its lines are read in the
-/// Translation's own Language like any other first Version's.
+/// Translation's own Language like any other first Version's. `renders`
+/// names the source Version a Translation renders, and a line matched with
+/// one of that Version's takes its Food ([`RenderedFoods`], #356).
 pub(super) fn read_unread_lines(
     conn: &Connection,
     version_id: &str,
     language: &str,
     content: &Value,
     lines: Option<&HashSet<usize>>,
+    renders: Option<&str>,
 ) -> u64 {
     let no_lines = Vec::new();
     let ingredients = content["ingredients"].as_array().unwrap_or(&no_lines);
+    let rendered = renders.and_then(|source| RenderedFoods::of(conn, source, ingredients));
     let mut written = 0;
     for (index, line) in ingredients.iter().enumerate() {
         if lines.is_some_and(|allowed| !allowed.contains(&index)) {
@@ -1235,10 +1240,16 @@ pub(super) fn read_unread_lines(
         let Some(reading) = crate::reading::read_line(text) else {
             continue;
         };
+        let taken = rendered
+            .as_ref()
+            .and_then(|rendered| rendered.food_for(index, &reading));
         let food_id = match reading
             .target
             .as_deref()
-            .map(|word| resolve_food_for_word(conn, language, word, None))
+            .map(|word| match &taken {
+                Some(food_id) => Ok(food_id.clone()),
+                None => resolve_food_for_word(conn, language, word, None),
+            })
             .transpose()
         {
             Ok(food_id) => food_id,
@@ -1266,6 +1277,118 @@ pub(super) fn read_unread_lines(
         }
     }
     written
+}
+
+/// **The Food each line of a Translation may take from the source line it
+/// renders** (#356), so a hand correction on the source crosses the Language
+/// and a line finds the staple its source line found.
+///
+/// Lines carry no ids, and the Pairing a divergence reads goes by the words
+/// (ADR 0019), which differ in every line of a Translation. So a line is
+/// matched with the source line in its place, and only where that cannot
+/// mislead (ADR 0050):
+///
+/// - both lists have the same shape, each section heading and each Ingredient
+///   Line in the same place, or no line is matched at all;
+/// - the two lines read the same amount and the same Unit: `2 tbsp` and
+///   `2 c. à soupe` agree, `2 cups` and `250 g` do not. A line with no amount
+///   has nothing to agree on, and a unit outside the closed set cannot be
+///   known to be another, so both decline.
+///
+/// Only the Food is taken. The Reading stays the line's own words, and no
+/// Food learns a name from them, so a wrong match misreads one line and
+/// nothing else in the library. A source line read as a Component, or read
+/// as nothing, passes nothing on. Where a match declines, the line is read on
+/// its own words like any other.
+struct RenderedFoods(Vec<Option<SourceLine>>);
+
+/// One source line as the reader reads it afresh, and the Food its Reading
+/// points at.
+struct SourceLine {
+    read: crate::reading::Reading,
+    food_id: String,
+}
+
+impl RenderedFoods {
+    /// Each source line in the source's order, or nothing where the two lists
+    /// are not the same shape.
+    fn of(conn: &Connection, source_version_id: &str, ingredients: &[Value]) -> Option<Self> {
+        let source = version_content(conn, source_version_id).ok()?;
+        let source_lines = source["ingredients"].as_array()?;
+        let same_shape = source_lines.len() == ingredients.len()
+            && source_lines
+                .iter()
+                .zip(ingredients)
+                .all(|(theirs, mine)| theirs["kind"] == mine["kind"]);
+        if !same_shape {
+            return None;
+        }
+        let foods = source_foods(conn, source_version_id)
+            .inspect_err(|error| {
+                tracing::warn!(
+                    target: "kamosu::reading",
+                    %error, source_version_id,
+                    "a Translation's lines were read without their source's Foods"
+                )
+            })
+            .ok()?;
+        Some(Self(
+            source_lines
+                .iter()
+                .enumerate()
+                .map(|(index, line)| {
+                    let food_id = foods.get(&(index as i64))?.clone();
+                    // The source line read afresh, not its Reading: a hand
+                    // correction says which Food, and the amounts are
+                    // compared as the reader writes both of them.
+                    let read = crate::reading::read_line(line["text"].as_str()?)?;
+                    Some(SourceLine { read, food_id })
+                })
+                .collect(),
+        ))
+    }
+
+    /// The Food the line at `index`, read as `reading`, takes from the source
+    /// line in its place, or nothing.
+    fn food_for(&self, index: usize, reading: &crate::reading::Reading) -> Option<String> {
+        let source = self.0.get(index)?.as_ref()?;
+        same_measure(&source.read, reading).then(|| source.food_id.clone())
+    }
+}
+
+/// The Food of each of a Version's lines that points at one, by line.
+fn source_foods(
+    conn: &Connection,
+    version_id: &str,
+) -> Result<HashMap<i64, String>, rusqlite::Error> {
+    conn.prepare_cached(
+        "SELECT line_index, food_id FROM readings \
+          WHERE version_id = ?1 AND food_id IS NOT NULL AND lineage_id IS NULL",
+    )?
+    .query_map(params![version_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+    .collect()
+}
+
+/// Whether two lines read the same amount of the same Unit, the test a
+/// Translation's line meets before it takes its source line's Food (#356).
+fn same_measure(theirs: &crate::reading::Reading, mine: &crate::reading::Reading) -> bool {
+    use crate::units::{fold, parse_amount, recognise};
+    let amount = match (theirs.amount.as_deref(), mine.amount.as_deref()) {
+        (Some(theirs), Some(mine)) => match (parse_amount(theirs), parse_amount(mine)) {
+            (Some(theirs), Some(mine)) => (theirs - mine).abs() < 1e-9,
+            (None, None) => fold(theirs) == fold(mine),
+            _ => false,
+        },
+        _ => false,
+    };
+    let unit = match (theirs.unit.as_deref(), mine.unit.as_deref()) {
+        (None, None) => true,
+        (Some(theirs), Some(mine)) => {
+            matches!((recognise(theirs), recognise(mine)), (Some(theirs), Some(mine)) if theirs.id == mine.id)
+        }
+        _ => false,
+    };
+    amount && unit
 }
 
 /// Every Reading recorded against one Version, laid out as one slot per

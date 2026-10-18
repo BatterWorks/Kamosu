@@ -28,6 +28,7 @@
 - Pasted text or a PDF with an `Ingredients` heading (`Ingrédients`, `Ingredientes`) reads nothing above it as an Ingredient Line. The short line just above the heading is the title, past a bare web address and never a line saying how many it serves or who wrote it, and everything else above it goes to the note word for word. A blog post's photo caption, chatter and credit link used to land among the ingredients. [#301]
 - In the History, a line comes out of the dot of the Version it started from, and the band saying "Splits into 2 Branches here" is gone. A Translation sits directly under the Version it translates, whenever it was written, where it used to leave the top of the page as if the recipe had split before its first Version. [#250]
 - In the History, a Version shows two badges at most, however often it was cooked: yours, as the pot and the last rating you gave it, and everyone else's together, by name. Each opens the cookings it stands for, your older ratings among them. It used to show one badge per cooking, so a Version rated "Again" three times read "Again" three times. `get_thread` says who cooked each Attempt in two new fields, `person_name` and `mine`. [#249]
+- A Translation's Ingredient Line reads as the Food of the line it translates when it is made, and when a save brings it up to a newer Version of its source, so `2 c. à soupe de gingembre frais râpé` under `2 tbsp grated fresh ginger` is *ginger*, a correction made by hand on the recipe included. The two lists must have the same shape, and the two lines the same amount and unit. The line keeps its own words. Before, every line of a Translation was read on its own words and made a Food of its own beside its source line's. [#356]
 
 ### Fixed
 
@@ -103,6 +104,7 @@
 [#353]: https://github.com/BatterWorks/Kamosu/issues/353
 [#354]: https://github.com/BatterWorks/Kamosu/issues/354
 [#355]: https://github.com/BatterWorks/Kamosu/issues/355
+[#356]: https://github.com/BatterWorks/Kamosu/issues/356
 
 ## v0.2.0 - 2026-10-12
 

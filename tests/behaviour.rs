@@ -18765,6 +18765,315 @@ async fn a_translation_reads_its_own_lines_in_its_own_language() {
     assert_eq!(poulet["language"], json!("fr"), "{listed}");
 }
 
+/// How many Foods the instance holds.
+fn food_count(app: &support::TestApp, key: &str) -> usize {
+    let (_, listed) = app.post_op("list_foods", Some(key), "{}");
+    listed["result"]["foods"].as_array().unwrap().len()
+}
+
+/// How many Foods answer to `name` in `language`.
+fn foods_answering(app: &support::TestApp, key: &str, language: &str, name: &str) -> usize {
+    let (_, listed) = app.post_op("list_foods", Some(key), "{}");
+    listed["result"]["foods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|food| {
+            food["names"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|held| held["language"] == json!(language) && held["name"] == json!(name))
+        })
+        .count()
+}
+
+/// How many Readings point at the one Food answering to `name` in
+/// `language`.
+fn readings_of(app: &support::TestApp, key: &str, language: &str, name: &str) -> i64 {
+    let food = food_named(app, key, language, name);
+    let (_, fetched) = app.post_op(
+        "get_food",
+        Some(key),
+        &json!({ "food_id": food }).to_string(),
+    );
+    fetched["result"]["reading_count"]
+        .as_i64()
+        .unwrap_or_else(|| panic!("{fetched}"))
+}
+
+/// **A Translation's line takes the Food of the line it renders** (#356,
+/// ADR 0050): the lines sit in the same place on both pages and read the
+/// same amount and unit. The Reading is still the Translation's own words,
+/// and no Food learns a name from them. A correction made by hand on the
+/// source crosses over with it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translations_line_takes_the_food_of_the_line_it_renders() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Vietnamese beef curry",
+            "language": "en",
+            "ingredients": [
+                { "kind": "section", "text": "For the curry" },
+                { "kind": "ingredient", "text": "900g / 2 lb stewing beef, cut into 4 cm pieces" },
+                { "kind": "ingredient", "text": "2 tbsp grated fresh ginger" },
+                { "kind": "ingredient", "text": "3 fresh red chilies, finely chopped" },
+                { "kind": "ingredient", "text": "1/2 tsp ground black pepper" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let english = created["result"]["branch_id"].as_str().unwrap().to_string();
+    for (line_index, target) in [
+        (1, "beef"),
+        (2, "ginger"),
+        (3, "Red chilli"),
+        (4, "black pepper"),
+    ] {
+        let (status, set) = app.post_op(
+            "set_reading",
+            Some(&key),
+            &json!({ "branch_id": english, "line_index": line_index, "target": target })
+                .to_string(),
+        );
+        assert_eq!(status, 200, "{set}");
+    }
+    let foods_before = food_count(&app, &key);
+
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({
+            "branch_id": english,
+            "language": "fr",
+            "title": "Curry de bœuf vietnamien",
+            "ingredients": [
+                { "kind": "section", "text": "Pour le curry" },
+                { "kind": "ingredient", "text": "900 g / 2 lb de bœuf à braiser, coupé en morceaux de 4 cm" },
+                { "kind": "ingredient", "text": "2 c. à soupe de gingembre frais râpé" },
+                { "kind": "ingredient", "text": "3 piments rouges frais, finement hachés" },
+                { "kind": "ingredient", "text": "1/2 c. à café de poivre noir moulu" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+    assert_eq!(
+        food_count(&app, &key),
+        foods_before,
+        "no line of the Translation minted a Food"
+    );
+
+    let readings = translated["result"]["versions"][0]["readings"].clone();
+    assert_eq!(readings[1]["amount"], json!("900"), "{readings}");
+    assert_eq!(
+        readings[2]["unit"],
+        json!("c. à soupe"),
+        "its own words: {readings}"
+    );
+    for (line_index, english_name, french_words) in [
+        (1, "beef", "bœuf à braiser"),
+        (2, "ginger", "gingembre frais râpé"),
+        (3, "Red chilli", "piments rouges frais"),
+        (4, "black pepper", "poivre noir moulu"),
+    ] {
+        assert_eq!(
+            readings[line_index]["target"],
+            json!(french_words),
+            "the Reading is the Translation's own words: {readings}"
+        );
+        assert_eq!(
+            readings_of(&app, &key, "en", english_name),
+            2,
+            "{french_words} reads as the Food its source line reads as"
+        );
+        assert_eq!(
+            foods_answering(&app, &key, "fr", french_words),
+            0,
+            "no Food learnt {french_words} as a name"
+        );
+    }
+}
+
+/// **A Translation takes no Food it cannot be sure of** (#356, ADR 0050). A
+/// line whose amount or unit differs from the source line in its place, or
+/// that has no amount to agree on, is read on its own words. One that agrees
+/// takes the source line's Food even where its words answer to another.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translation_takes_no_food_from_a_line_it_cannot_be_sure_it_renders() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    read_a_word(&app, &key, "fr", "sucre");
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Shortbread",
+            "language": "en",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 cups flour" },
+                { "kind": "ingredient", "text": "100 g sugar" },
+                { "kind": "ingredient", "text": "1 tsp salt" },
+                { "kind": "ingredient", "text": "Pepper" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let english = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({
+            "branch_id": english,
+            "language": "fr",
+            "title": "Sablés",
+            "ingredients": [
+                { "kind": "ingredient", "text": "250 g de farine" },
+                { "kind": "ingredient", "text": "100 g de sucre" },
+                { "kind": "ingredient", "text": "1 c. à café de sel" },
+                { "kind": "ingredient", "text": "Poivre" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+
+    assert_eq!(
+        readings_of(&app, &key, "en", "flour"),
+        1,
+        "2 cups is not 250 g, so the line is read on its own words"
+    );
+    assert_eq!(readings_of(&app, &key, "fr", "farine"), 1);
+    assert_eq!(
+        readings_of(&app, &key, "en", "Pepper"),
+        1,
+        "two lines with no amount have nothing to agree on"
+    );
+    assert_eq!(readings_of(&app, &key, "fr", "Poivre"), 1);
+    assert_eq!(
+        readings_of(&app, &key, "en", "salt"),
+        2,
+        "1 tsp and 1 c. à café agree"
+    );
+    assert_eq!(
+        readings_of(&app, &key, "en", "sugar"),
+        2,
+        "100 g and 100 g agree, whatever else sucre answers to"
+    );
+    assert_eq!(
+        readings_of(&app, &key, "fr", "sucre"),
+        1,
+        "the other Food is left as it was, and nothing is welded"
+    );
+}
+
+/// **A save bringing a Translation up to a newer source takes the Foods of
+/// the lines it renders, and a plain edit does not** (#356, ADR 0050). An
+/// edit is the Translation's own words changing, and an ingredient swapped
+/// at the same amount would otherwise take the wrong Food.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_a_save_that_renders_a_newer_source_takes_its_foods() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Shortbread",
+            "language": "en",
+            "ingredients": [
+                { "kind": "ingredient", "text": "250 g flour" },
+                { "kind": "ingredient", "text": "1 tsp salt" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let english = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({
+            "branch_id": english,
+            "language": "fr",
+            "title": "Sablés",
+            "ingredients": [
+                { "kind": "ingredient", "text": "250 g de farine" },
+                { "kind": "ingredient", "text": "du sel" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+    let french = translated["result"]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(readings_of(&app, &key, "en", "salt"), 1);
+
+    let (status, edited) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": french,
+            "ingredients": [
+                { "kind": "ingredient", "text": "250 g de farine" },
+                { "kind": "ingredient", "text": "1 c. à café de sucre" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+    assert_eq!(
+        readings_of(&app, &key, "en", "salt"),
+        1,
+        "salt swapped for sugar by hand does not read as salt"
+    );
+    assert_eq!(readings_of(&app, &key, "fr", "sucre"), 1);
+
+    backdate_branch_head(&app, &english);
+    let (status, moved) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": english, "title": "Butter shortbread" }).to_string(),
+    );
+    assert_eq!(status, 200, "{moved}");
+    let newer = moved["result"]["version_id"].as_str().unwrap();
+    backdate_branch_head(&app, &french);
+    let (status, caught_up) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": french,
+            "translates_version_id": newer,
+            "title": "Sablés au beurre",
+            "ingredients": [
+                { "kind": "ingredient", "text": "250 g de farine" },
+                { "kind": "ingredient", "text": "1 c. à café de sel fin" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{caught_up}");
+    assert_eq!(
+        head_readings(&app, &key, &french)[1]["target"],
+        json!("sel fin"),
+        "{caught_up}"
+    );
+    assert_eq!(
+        readings_of(&app, &key, "en", "salt"),
+        3,
+        "both English Versions, and the line the catching-up save wrote"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn how_far_behind_a_translation_has_fallen_is_exact_and_moves_as_the_source_moves() {
     let app = support::spawn_app();
