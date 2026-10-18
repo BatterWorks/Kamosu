@@ -1572,9 +1572,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       nothing but names a new translates_version_id moves the \
                       newest Version's pointer to it, at any time, and writes \
                       no Version. An Ingredient Line the edit leaves word for \
-                      word as it was, in the same place, keeps its Reading as \
-                      it was, a misreading included; correct one with \
-                      set_reading.",
+                      word as it was keeps its Reading as it was, a \
+                      misreading included; correct one with set_reading.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -3141,10 +3140,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       0008); never both, and a Lineage this instance does not \
                       hold is accepted, because a Component goes on naming its \
                       recipe when the recipe is gone. A save carries the \
-                      Reading of each line left word for word as it was, in \
-                      the same place, onto the new Version and never reads \
-                      that line again, so this is how to correct a misreading \
-                      without rewording the line.",
+                      Reading of each line left word for word as it was onto \
+                      the new Version and never reads that line again, so \
+                      this is how to correct a misreading without rewording \
+                      the line.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,

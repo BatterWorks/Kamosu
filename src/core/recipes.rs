@@ -364,13 +364,15 @@ impl Core {
 
             // A Reading travels with the Version it belongs to and is never
             // recomputed (ADR 0021) — so wherever this save left a line
-            // reading exactly as it did before, its Reading carries forward
-            // onto the new Version rather than being silently lost. A line
-            // that actually changed loses its Reading, which is ADR 0002's
-            // "re-reading the edited line refreshes the Reading" — and the
-            // refresh itself happens directly below. This holds identically
-            // for a Copy's first save: it is starting exactly at this head.
-            carry_forward_readings(conn, &head_version_id, &head_content, &version_id, &content)?;
+            // reading exactly as it did before, wherever it now sits (#355),
+            // its Reading carries forward onto the new Version rather than
+            // being silently lost. A line that actually changed loses its
+            // Reading, which is ADR 0002's "re-reading the edited line
+            // refreshes the Reading" — and the refresh itself happens
+            // directly below. This holds identically for a Copy's first
+            // save: it is starting exactly at this head.
+            let kept = kept_lines(&head_content, &content);
+            carry_forward_readings(conn, &head_version_id, &version_id, &kept)?;
             // ADR 0002's other half, which the comment above used to defer:
             // a line this save actually wrote is read now (#71). A line it
             // did not write keeps whatever it had, so a Reading somebody
@@ -380,7 +382,7 @@ impl Core {
                 &version_id,
                 &language,
                 &content,
-                Some(&lines_this_save_wrote(&head_content, &content)),
+                Some(&lines_this_save_wrote(&kept)),
             );
 
             if !cookbook_writes_branch(conn, &writing_for, branch_id)? {
@@ -1401,25 +1403,47 @@ fn two_whole_recipes(
     }))
 }
 
-/// Carry a Reading forward onto a freshly saved Version wherever the
-/// Ingredient Line it belongs to reads identically (same kind, same text)
-/// at the same position in both — the cheapest honest approximation of
-/// Pairing (ADR 0019) available before that exists. A Reading whose line
-/// moved or changed is left behind rather than guessed at.
-fn carry_forward_readings(
-    conn: &Connection,
-    old_version_id: &str,
-    old_content: &Value,
-    new_version_id: &str,
-    new_content: &Value,
-) -> Result<(), OpError> {
+/// Which Ingredient Line of the old Version each line of the new one keeps
+/// word for word (same kind, same text), wherever it now sits (#355): `None`
+/// for a line the save wrote, changed or new. The same words twice are
+/// matched in order, the first new one to the first old one, and a copy left
+/// over is a new line.
+///
+/// Position alone, which this replaced, lost the Reading of every line below
+/// an insert, the thing ADR 0019 warned of. A line whose words changed at all
+/// is not paired with what it was: it is read again (ADR 0002). That is why
+/// this is not `pairing.rs`, which lets case and spacing pass so that two
+/// pages line up for a cook comparing them. A Reading belongs to the exact
+/// words it read.
+fn kept_lines(old_content: &Value, new_content: &Value) -> Vec<Option<usize>> {
     let no_lines = Vec::new();
     let old_lines = old_content["ingredients"].as_array().unwrap_or(&no_lines);
     let new_lines = new_content["ingredients"].as_array().unwrap_or(&no_lines);
-    for (index, (old_line, new_line)) in old_lines.iter().zip(new_lines.iter()).enumerate() {
-        if old_line != new_line {
+    let mut taken = vec![false; old_lines.len()];
+    new_lines
+        .iter()
+        .map(|new_line| {
+            let old_index = (0..old_lines.len())
+                .find(|&index| !taken[index] && old_lines[index] == *new_line)?;
+            taken[old_index] = true;
+            Some(old_index)
+        })
+        .collect()
+}
+
+/// Carry a Reading forward onto a freshly saved Version for every Ingredient
+/// Line the save kept word for word, onto wherever that line now sits. A
+/// Reading whose line changed is left behind rather than guessed at.
+fn carry_forward_readings(
+    conn: &Connection,
+    old_version_id: &str,
+    new_version_id: &str,
+    kept: &[Option<usize>],
+) -> Result<(), OpError> {
+    for (new_index, old_index) in kept.iter().enumerate() {
+        let Some(old_index) = old_index else {
             continue;
-        }
+        };
         conn.execute(
             // `lineage_id` travels with the rest of the Reading, and leaving it
             // out is not a smaller bug than losing the amount: it is what makes
@@ -1431,9 +1455,14 @@ fn carry_forward_readings(
             // So does `by_hand`: a correction carried onto the next Version
             // is still a correction, and a re-read must still leave it (#166).
             "INSERT OR IGNORE INTO readings (version_id, line_index, amount, unit, target, food_id, lineage_id, by_hand) \
-             SELECT ?1, line_index, amount, unit, target, food_id, lineage_id, by_hand FROM readings \
+             SELECT ?1, ?4, amount, unit, target, food_id, lineage_id, by_hand FROM readings \
               WHERE version_id = ?2 AND line_index = ?3",
-            params![new_version_id, old_version_id, index as i64],
+            params![
+                new_version_id,
+                old_version_id,
+                *old_index as i64,
+                new_index as i64
+            ],
         )
         .map_err(|e| OpError::internal(format!("cannot carry Reading forward: {e}")))?;
     }
@@ -1442,20 +1471,11 @@ fn carry_forward_readings(
 
 /// Which Ingredient Lines this save actually wrote — the ones that changed and
 /// the ones that are new. Exactly the lines [`read_unread_lines`] may read,
-/// and the complement of the ones [`carry_forward_readings`] just carried.
-///
-/// Compared by position, which is the same approximation of Pairing
-/// `carry_forward_readings` makes and has to be: a line inserted above shifts
-/// every line below it, and both functions then treat those as written afresh
-/// — losing a carried Reading and reading a new one in the same breath. That
-/// is coherent rather than lossy, and it stops being an approximation when
-/// Pairing does.
-fn lines_this_save_wrote(old_content: &Value, new_content: &Value) -> HashSet<usize> {
-    let no_lines = Vec::new();
-    let old_lines = old_content["ingredients"].as_array().unwrap_or(&no_lines);
-    let new_lines = new_content["ingredients"].as_array().unwrap_or(&no_lines);
-    (0..new_lines.len())
-        .filter(|index| old_lines.get(*index) != new_lines.get(*index))
+/// and the complement of the ones [`carry_forward_readings`] carries, since
+/// both are read off the one [`kept_lines`].
+fn lines_this_save_wrote(kept: &[Option<usize>]) -> HashSet<usize> {
+    (0..kept.len())
+        .filter(|&index| kept[index].is_none())
         .collect()
 }
 
