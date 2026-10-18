@@ -105,6 +105,17 @@ ignore = [
   # to do: neither has released a version that has.
   { id = "RUSTSEC-2026-0206", reason = "unmaintained `rustybuzz`, via typst; shapes text in Kamosu's own bundled fonts only; no reported bug, no Typst release without it" },
   { id = "RUSTSEC-2026-0192", reason = "unmaintained `ttf-parser`, via typst and pdf-extract -> lopdf; reads Kamosu's own bundled fonts for a Sheet, and lopdf calls it only when writing a PDF; no reported bug, no release of either without it" },
+
+  # Reached, but not where the bug is. Kamosu opens a stranger's zip, a Bundle
+  # or a Crouton export, with `ZipArchive::new` and reads each entry's bytes by
+  # name into memory. All three advisories are in `extract`, which writes an
+  # archive's entries out as files, links and permissions, and no code that
+  # ships calls it. One behaviour test does, on a Backup Kamosu itself just
+  # wrote, into a fresh temporary folder. The fix is zip 9, a major release,
+  # taken deliberately as its own piece of work.
+  { id = "RUSTSEC-2026-0367", reason = "zip `extract` keeps SUID/SGID bits; Kamosu reads entries into memory and never calls `extract` outside a test on its own Backup" },
+  { id = "RUSTSEC-2026-0368", reason = "zip `extract` applies permissions through symlinks; same reasoning as RUSTSEC-2026-0367" },
+  { id = "RUSTSEC-2026-0369", reason = "zip `extract` creates symlinks pointing outside the folder; same reasoning as RUSTSEC-2026-0367" },
 ]
 
 # The interface's tree has no file of its own for this, so what `npm audit`

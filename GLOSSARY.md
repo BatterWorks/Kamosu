@@ -77,7 +77,7 @@ A **Secret** that comes with one **Job** a **Runner** takes, for the agent that 
 _Avoid_: Job token, session, Runner Key, Access Key
 
 **Operator**:
-A Person who also administers the instance: seeing who holds an account, minting Invites, raising a Person to Operator and standing one down, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, changing the instance's public address, merging Foods and deleting one nothing points at, sweeping Photographs nothing points at, deleting a Kitchen nobody is left in, taking and fetching a **Backup**, and looking after any **Cookbook**: reading, changing, creating and deleting its recipes, and their Tags, under the Operator's own **Hand**, on a call that says so (ADR 0049). Otherwise an Operator is a Person like any other. Nothing beyond that list. No Operator reaches another Person's Attempts or shopping list, and seeing who holds an account is a list of names and nothing about what they cook. More than one is allowed and the last cannot be demoted, disabled or deleted, because an instance with nobody to administer it can never appoint anybody. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
+A Person who also administers the instance: seeing who holds an account, minting Invites, raising a Person to Operator and standing one down, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, changing the instance's public address, merging Foods and deleting one nothing points at, sweeping Photographs nothing points at, deleting a Kitchen nobody is left in, taking and fetching a **Backup**, minting and revoking **Runner Keys**, writing the **House Notes**, and looking after any **Cookbook**: reading, changing, creating and deleting its recipes, and their Tags and Related Recipes, under the Operator's own **Hand**, on a call that says so (ADR 0049). Otherwise an Operator is a Person like any other. Nothing beyond that list. No Operator reaches another Person's Attempts or shopping list, and seeing who holds an account is a list of names and nothing about what they cook. More than one is allowed and the last cannot be demoted, disabled or deleted, because an instance with nobody to administer it can never appoint anybody. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
 _Avoid_: Admin, root, superuser, owner, host
 
 ### Doing and permission
@@ -99,12 +99,16 @@ An Operation that answers within a single request.
 _Avoid_: Sync operation
 
 **Job**:
-An Operation too slow to answer within a single request — importing a library, fetching a recipe from a website, producing a **Sheet**. Asking for one returns a job id at once; its progress is then read through ordinary Operations. Kamosu does most Jobs itself, and one that needs an agent waits for a **Runner**.
+An Operation too slow to answer within a single request — importing a library, fetching a recipe from a website, producing a **Sheet**. Asking for one returns a job id at once; its progress is then read through ordinary Operations. Kamosu does most Jobs itself, and one that needs an agent waits for a **Runner**. A Job for an agent is *held* by the one Runner working it, for two minutes at a time, and the Runner renews the hold while its agent works. A hold that lapses sends the Job back to waiting, and the third time a Job is taken and does not finish, it fails.
 _Avoid_: Task, background job, async operation, queue item
 
 **Runner**:
-A program beside Kamosu that takes the **Jobs** meant for an agent and has an agent do each one. Kamosu ships it, and whoever runs it supplies the agent. It asks Kamosu for work and Kamosu never calls it, so an instance with no Runner is complete and simply reads less (ADR 0048).
+A program beside Kamosu that takes the **Jobs** meant for an agent and has an agent do each one. Kamosu ships it, and every release also publishes an **Agent** to run beside it. Whoever runs the Runner chooses that Agent or one of their own, and the provider and model it uses. It asks Kamosu for work and Kamosu never calls it, so an instance with no Runner is complete and simply reads less (ADR 0048).
 _Avoid_: Worker, companion, sidecar, bot, AI import, scraper
+
+**Agent**:
+What a **Runner** hands a **Job** to: a program that reads a source with a model and writes the recipe through the MCP Door with the Job's **Job Key**. The screens call it *Kamosu's AI agent*, whichever agent the Runner was given. What it saves is under the **Hand** of the Person who asked. An agent holding an **Access Key** at the MCP Door is a caller like any other, and not this (ADR 0048).
+_Avoid_: Bot, assistant, model, AI import
 
 **House Notes**:
 What an **Operator** adds to the end of the agent's instructions for every **Job** on the instance, such as *grams, never cups*. Each Job carries them as they stand when a **Runner** takes it, and the agent follows them where they disagree with its own instructions. Only an Operator reads or writes them, and a **Job Key** reaches neither. They are the one part of an agent's instructions Kamosu holds: the rest belongs to whoever runs the Runner (ADR 0048, as amended by #344).
@@ -123,6 +127,10 @@ _Avoid_: Log, error list, summary, receipt, job output
 **Original**:
 What an agent's **Job** reads when that is not a link: a PDF, a picture or pasted text. It is kept for 30 days so the recipe can be read again, and it is never part of the recipe. It is read and never shown, which is what sets it apart from a **Photograph**.
 _Avoid_: Attachment, upload, source file, scan
+
+**Read Again**:
+A Co-author asking for an **Agent** to read a recipe a second time, from its **Original** or from its **Source**'s link. What the agent saves is one new **Version** under the asker's **Hand**, with the one before it kept in the History. A recipe is read again once. Not to be confused with an Operator having the library's **Readings** read again, which reads Ingredient Lines and makes no Version (ADR 0048, as amended by #279).
+_Avoid_: Re-import, refresh, rescan, retry
 
 **Export**:
 Producing recipes in a form usable outside Kamosu — a **Bundle**, or a **Sheet**. An Operation like any other.

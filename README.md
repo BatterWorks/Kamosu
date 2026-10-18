@@ -104,6 +104,8 @@ port, and it sends your data nowhere.
 - **A recipe keeps its whole history.** Every save is a new version and none is
   ever lost. Start a variation beside the original, or a translation into
   another language, and Kamosu shows how two versions differ line by line.
+  Put an older version back on top, start a variation from it, or keep it as
+  your own copy.
 - **A diary of what you cooked.** Each cooking is an Attempt: dated, rated,
   with photos, notes, and what you actually did if it differed from the
   recipe. Promote a change into the recipe when it earned its place.
@@ -116,9 +118,11 @@ port, and it sends your data nowhere.
 - **Search by words, or by meaning.** Word search works from the first minute.
   Turn on Meaning Search and "that thing with aubergines" finds a recipe that
   never says aubergine. See [Meaning Search](#meaning-search).
-- **Bring your recipes in.** A web page (from its schema.org recipe data), a
-  pasted recipe or a recipe PDF, a Crouton export, or a recipe from another
-  Kamosu. On a computer, drop the file or the link onto Recipes. Importing the
+- **Bring your recipes in.** A web page (from its schema.org recipe data, or
+  its own text where it has none), a pasted recipe or a recipe PDF, a Crouton
+  export, or a recipe from another Kamosu. With a
+  [Runner](#a-runner-an-agent-that-reads-what-kamosu-cannot), also a photo of
+  a cookbook page, a scanned PDF or a cooking video. On a computer, drop the file or the link onto Recipes. Importing the
   same thing twice matches what is already there instead of doubling it.
 - **Share with anyone.** A Share Link shows one recipe to whoever holds it, no
   account needed, with a printable PDF and a file another Kamosu can import
@@ -178,7 +182,7 @@ It is not:
   figure you typed. Kamosu never calculates nutrition from ingredients.
 - **A public recipe site.** There is no signup. Every account starts from an
   invite, and nothing is visible to strangers unless you share a link.
-- **Finished.** This is 0.2.0. It is used in one kitchen, and nobody else has
+- **Finished.** This is 0.3.0. It is used in one kitchen, and nobody else has
   run it yet.
 
 ## Quick start
@@ -310,9 +314,10 @@ instructions by that text. A read-only key limits what that can cost.
 
 ## A Runner: an agent that reads what Kamosu cannot
 
-Kamosu reads a web page's recipe data itself and calls no model. A photo of a
-cookbook page, a scanned PDF, a video or a page with no recipe data needs one,
-and pasted text reads better with one. A Runner is a small program that runs beside Kamosu, asks it
+Kamosu reads a web page's recipe data itself and calls no model, and without a
+Runner it reads a page with no recipe data from the page's own text. A photo of
+a cookbook page, a scanned PDF or a video needs a model, and pasted text or a
+page with no recipe data reads better with one. A Runner is a small program that runs beside Kamosu, asks it
 for that work, and hands each piece to an agent you choose, which saves the
 recipe into the Cookbook of whoever sent it. It opens no port, and the agent
 it starts can write that one recipe and nothing else.
@@ -326,6 +331,10 @@ Either way, you choose the model's provider and pay for the model.
 
 An instance without a Runner is complete. It reads what it reads, and nothing
 in it waits for one. [docs/runner.md](docs/runner.md) says how to set one up.
+
+An Operator makes the Runner's key under **Settings**, **Administer this
+instance**, on the **Instance** tab. House Notes go there too, rules such as
+"grams, never cups" that every Job's agent follows.
 
 ## Meaning Search
 
@@ -348,7 +357,8 @@ cannot be rebuilt.
 ## Your data
 
 Everything Kamosu owns lives in the one folder mounted at `/data`: the SQLite
-database, the photographs, the Backups, and the search model if you turn
+database, the photographs, the Backups, a file handed to an agent (kept until
+30 days after its Job, and in no Backup), and the search model if you turn
 Meaning Search on. **The database is the truth.** Losing it loses every
 account, recipe history and shopping list.
 
@@ -452,5 +462,6 @@ Kamosu uses.
 ## License
 
 Kamosu is licensed under the [GNU Affero General Public License v3.0
-only](LICENSE). Bundled fonts and the optional search model are covered in
+only](LICENSE). Bundled fonts, the programs in the agent image and the
+optional search model are covered in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
