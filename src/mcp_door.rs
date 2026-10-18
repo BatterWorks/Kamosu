@@ -390,7 +390,7 @@ fn server_instructions() -> String {
         // #166: nothing re-reads an unchanged line. Goes when that issue is
         // fixed.
         "- A new Version keeps the Reading of each Ingredient Line left word \
-         for word as it was, in the same place, a misreading included; \
+         for word as it was, a misreading included; \
          set_reading is how to correct one."
             .to_string(),
     ]

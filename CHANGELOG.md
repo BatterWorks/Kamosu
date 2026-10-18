@@ -48,6 +48,7 @@
 - An Ingredient Line from an old American recipe card reads a lone `c` after an amount as a cup and `#` as a pound, as `t` and `T` already read as spoons: `3/4 c brown sugar` is three quarters of a cup of brown sugar. It used to name a Food "c brown sugar", and an import with no agent kept it. A French `c. à` is still a spoon, and `180 C` in a Step is still an oven. Foods already made this way stay until an Operator merges or deletes them. [#326]
 - Three more shapes of Ingredient Line read with a Food. A pack size after the amount, `2 x 400 g tins of whole peeled tomatoes`, reads as two tins of peeled tomatoes; it used to read with no Food, or with `400 g` inside the Food's name. A long French name, `lait de coco non sucré en conserve`, reads whole; it used to be taken for a sentence and named no Food. A line that opens with an aside in brackets, `(white part), finely sliced spring onion`, reads what follows the bracket; it used to read as nothing at all. A Reading already stored stays as it is. [#353]
 - A save within the hour after a recipe was exported, as a file or through a Share Link, starts a new Version. It used to fold into the Version the file had carried, and every later file of that recipe was then refused by whoever had received the first, as disagreeing with the recipe they held. `save_recipe_version` and `edit_recipe` answer `collapsed: false` for it, and a name or change note sent alone for the Version that left is refused, as it is once the hour is over. [#328]
+- An Ingredient Line moved without rewording keeps its Reading when the recipe is saved, a correction made with `set_reading` included, wherever the line now sits. Adding, removing or reordering a line used to read every line below it again, which lost their corrections and could name new Foods after the misreads. A Reading already lost stays as it is. [#355]
 - "Start my own copy" pressed on a recipe in someone else's Cookbook with nothing changed says "Nothing changed, so no copy was made." It used to say "Saved.", though no copy is made of a recipe left as it was. [#329]
 - The MCP door no longer lists to an Access Key the eight tools an Access Key is always refused: `mint_access_key`, `mint_runner_key`, `mint_invite`, `mint_recovery_link`, `set_operator`, `disable_account`, `delete_account` and `list_accounts`. An agent used to be shown them, and was refused each time it tried one, as it still is. A Session is listed them as before. [#347]
 
@@ -101,6 +102,7 @@
 [#349]: https://github.com/BatterWorks/Kamosu/issues/349
 [#353]: https://github.com/BatterWorks/Kamosu/issues/353
 [#354]: https://github.com/BatterWorks/Kamosu/issues/354
+[#355]: https://github.com/BatterWorks/Kamosu/issues/355
 
 ## v0.2.0 - 2026-10-12
 

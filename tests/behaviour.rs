@@ -2883,6 +2883,311 @@ async fn saving_a_new_version_carries_a_reading_forward_for_every_unchanged_line
     );
 }
 
+// --- A line that only moved keeps its Reading (issue #355) ------------------
+
+/// Whether the Reading of one line of a Branch's head Version was set by a
+/// person. No Door shows it, and it is what a re-read must leave alone.
+fn head_by_hand(app: &support::TestApp, branch_id: &str, line_index: i64) -> bool {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT by_hand FROM readings \
+                  WHERE version_id = (SELECT head_version_id FROM branches WHERE id = ?1) \
+                    AND line_index = ?2",
+                rusqlite::params![branch_id, line_index],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("a Reading on that line")
+}
+
+/// The names of every Food the caller can see, in the order they are listed.
+fn food_names(app: &support::TestApp, key: &str) -> Vec<String> {
+    let (status, listed) = app.post_op("list_foods", Some(key), "{}");
+    assert_eq!(status, 200, "{listed}");
+    listed["result"]["foods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|food| food["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// The Readings of a Branch's head Version, as `get_recipe` answers them.
+fn head_readings(app: &support::TestApp, key: &str, branch_id: &str) -> Value {
+    let (status, fetched) = app.post_op(
+        "get_recipe",
+        Some(key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{fetched}");
+    fetched["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()["readings"]
+        .clone()
+}
+
+/// **A line pushed down by an insert keeps its Reading** (#355), a correction
+/// included. The reproduction from the live instance: "Salt and pepper" split
+/// in two, and the two lines below it sent word for word. Read again, the broth
+/// line read as *beef* and the Tabasco line as *for serving Tabasco*, both
+/// corrections were lost and the misreads made Foods.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_line_pushed_down_by_an_insert_keeps_its_reading_and_its_correction() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let broth = "1½ cups beef, mushroom or vegetable broth";
+    let tabasco = "for serving Tabasco";
+
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Mushroom bourguignon",
+            "ingredients": [
+                { "kind": "ingredient", "text": "Salt and pepper" },
+                { "kind": "ingredient", "text": broth },
+                { "kind": "ingredient", "text": tabasco },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    for (line_index, amount, unit, target) in [
+        (1, Some("1½"), Some("cups"), "vegetable broth"),
+        (2, None, None, "Tabasco"),
+    ] {
+        let (status, set) = app.post_op(
+            "set_reading",
+            Some(&key),
+            &json!({
+                "branch_id": branch_id, "line_index": line_index,
+                "amount": amount, "unit": unit, "target": target,
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{set}");
+    }
+    // Creating the recipe read every line once, so its misreads are Foods
+    // already. What matters is what the edit adds.
+    let foods_before = food_names(&app, &key);
+
+    backdate_branch_head(&app, &branch_id);
+    let (status, edited) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "ingredients": [
+                { "kind": "ingredient", "text": "Salt" },
+                { "kind": "ingredient", "text": "Pepper" },
+                { "kind": "ingredient", "text": broth },
+                { "kind": "ingredient", "text": tabasco },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+    assert_eq!(edited["result"]["collapsed"], false, "{edited}");
+
+    let readings = head_readings(&app, &key, &branch_id);
+    assert_eq!(
+        readings[2],
+        json!({ "amount": "1½", "unit": "cups", "target": "vegetable broth", "lineage_id": null }),
+        "the broth line moved down one and kept the Reading set on it: {readings}"
+    );
+    assert_eq!(
+        readings[3],
+        json!({ "amount": null, "unit": null, "target": "Tabasco", "lineage_id": null }),
+        "and so did the Tabasco line: {readings}"
+    );
+    assert!(
+        head_by_hand(&app, &branch_id, 2) && head_by_hand(&app, &branch_id, 3),
+        "both are still corrections, which a re-read leaves alone"
+    );
+    let mut foods_after = food_names(&app, &key);
+    foods_after.retain(|name| !foods_before.contains(name));
+    foods_after.sort();
+    assert_eq!(
+        foods_after,
+        ["Pepper", "Salt"],
+        "only the two new lines were read, so they are the only Foods the edit made"
+    );
+}
+
+/// **Removing and reordering lines moves every Reading with its line** (#355),
+/// a Component's pointer included, and creates no Food.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn removing_and_reordering_lines_keeps_each_reading_and_creates_no_food() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let (_dough_branch, dough_lineage) = recipe_with(
+        &app,
+        &key,
+        "Pizza Dough",
+        Some(("1", "kg")),
+        json!([{ "kind": "ingredient", "text": "600 g flour" }]),
+        json!([{ "kind": "step", "text": "Knead." }]),
+    );
+    let (pizza_branch, _) = recipe_with(
+        &app,
+        &key,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([
+            { "kind": "ingredient", "text": "1 tbsp olive oil" },
+            { "kind": "ingredient", "text": "500 g pizza dough" },
+            { "kind": "ingredient", "text": "250 g mozzarella" },
+            { "kind": "ingredient", "text": "for serving Fresh basil" },
+        ]),
+        json!([{ "kind": "step", "text": "Stretch and bake." }]),
+    );
+    make_component(
+        &app,
+        &key,
+        &pizza_branch,
+        1,
+        Some("500"),
+        Some("g"),
+        &dough_lineage,
+    );
+    let (status, set) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": pizza_branch, "line_index": 3,
+            "amount": null, "unit": null, "target": "basil",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+    let before = head_readings(&app, &key, &pizza_branch);
+    let foods_before = food_names(&app, &key);
+
+    // The oil line goes, the basil line moves to the top, and the dough
+    // moves below the mozzarella.
+    backdate_branch_head(&app, &pizza_branch);
+    let (status, edited) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": pizza_branch,
+            "ingredients": [
+                { "kind": "ingredient", "text": "for serving Fresh basil" },
+                { "kind": "ingredient", "text": "250 g mozzarella" },
+                { "kind": "ingredient", "text": "500 g pizza dough" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+
+    let after = head_readings(&app, &key, &pizza_branch);
+    assert_eq!(
+        after,
+        json!([before[3], before[2], before[1]]),
+        "each line took its own Reading to where it now sits: {after}"
+    );
+    assert!(head_by_hand(&app, &pizza_branch, 0) && head_by_hand(&app, &pizza_branch, 2));
+    assert!(!head_by_hand(&app, &pizza_branch, 1));
+    let components = components_of(&app, &key, &pizza_branch);
+    assert_eq!(components.len(), 1, "{components:?}");
+    assert_eq!(components[0]["title"], json!("Pizza Dough"));
+    assert_eq!(
+        components[0]["path"],
+        json!([2]),
+        "the dough is still a Component, on the line it moved to"
+    );
+    assert_eq!(
+        food_names(&app, &key),
+        foods_before,
+        "a save that only moved lines read none of them, so it made no Food"
+    );
+}
+
+/// **Two lines with the same words keep their own Readings, matched in
+/// order** (#355), and a line whose words changed only in case is a line the
+/// save wrote, so it is read again (ADR 0002).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_same_words_twice_are_matched_in_order_and_a_changed_line_is_read_again() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Galette",
+            "ingredients": [
+                { "kind": "section", "text": "Dough" },
+                { "kind": "ingredient", "text": "Salt" },
+                { "kind": "ingredient", "text": "200 g flour" },
+                { "kind": "section", "text": "Topping" },
+                { "kind": "ingredient", "text": "Salt" },
+                { "kind": "ingredient", "text": "2 apples" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    for (line_index, target) in [(1, "sea salt"), (4, "fleur de sel"), (5, "Granny Smith")] {
+        let (status, set) = app.post_op(
+            "set_reading",
+            Some(&key),
+            &json!({
+                "branch_id": branch_id, "line_index": line_index,
+                "amount": if line_index == 5 { Some("2") } else { None },
+                "unit": null, "target": target,
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{set}");
+    }
+
+    // The flour moves to the top, so the first Salt moves down one. The
+    // apples line changes only in case and moves above the second Salt, so
+    // that moves down one too.
+    backdate_branch_head(&app, &branch_id);
+    let (status, edited) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "ingredients": [
+                { "kind": "ingredient", "text": "200 g flour" },
+                { "kind": "section", "text": "Dough" },
+                { "kind": "ingredient", "text": "Salt" },
+                { "kind": "section", "text": "Topping" },
+                { "kind": "ingredient", "text": "2 Apples" },
+                { "kind": "ingredient", "text": "Salt" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+
+    let readings = head_readings(&app, &key, &branch_id);
+    assert_eq!(
+        readings[2]["target"], "sea salt",
+        "the first Salt took the first one's Reading: {readings}"
+    );
+    assert_eq!(
+        readings[5]["target"], "fleur de sel",
+        "and the second the second's: {readings}"
+    );
+    assert_ne!(
+        readings[4]["target"], "Granny Smith",
+        "the apples line changed, so its correction was left behind and it was read again: {readings}"
+    );
+    assert_eq!(readings[4]["amount"], "2", "{readings}");
+}
+
 // --- Reading Ingredient Lines (issue #71, ADR 0036) --------------------------
 
 /// **Reading a line is Kamosu's reading and nothing more** (ADR 0021): it
