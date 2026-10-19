@@ -616,7 +616,10 @@ agent-image: podman-build
 # with /tmp in memory; the Runner three times at most, never for ever. The
 # agent lives in the fence's network, which reaches the internet and the dev
 # instance's port alone, never the host or the LAN. The Runner asks the dev
-# instance at the host's LAN address, as `dev-start` prints it.
+# instance at the host's LAN address, as `dev-start` prints it. The fence and
+# the Runner name slirp4netns as their network: Podman 5 defaults to pasta,
+# which copies the host's address into the container, so that address would
+# reach the container itself and refuse the connection.
 #
 # KAMOSU_RUNNER_AS=<user> starts the three in that user's rootless Podman
 # instead of yours (#381). A page can trick the agent, and that user holds
@@ -686,7 +689,7 @@ runner-start settings=(env_var("HOME") / ".config/kamosu-runner.env"): _check-ru
     {{runner_podman}} volume create --opt type=tmpfs --opt device=tmpfs \
         --opt o=size=1m,uid=65532,gid=65532,mode=0755 {{relay_socket_volume}} >/dev/null
     {{runner_podman}} run -d --name {{fence_container}} --restart always --user 0:0 \
-        --read-only --cap-drop all --cap-add NET_ADMIN,SETUID,SETGID \
+        --network slirp4netns --read-only --cap-drop all --cap-add NET_ADMIN,SETUID,SETGID \
         --security-opt no-new-privileges "${fence_limits[@]}" \
         -e KAMOSU_AGENT_FENCE_ALLOW="${lan_ip}:{{backend_port}}" \
         --entrypoint /opt/kamosu-agent/fence localhost/{{agent_container}} >/dev/null
@@ -699,7 +702,7 @@ runner-start settings=(env_var("HOME") / ".config/kamosu-runner.env"): _check-ru
         -v {{relay_socket_volume}}:/run/kamosu-relay \
         localhost/{{agent_container}} >/dev/null
     {{runner_podman}} run -d --name {{runner_container}} --restart on-failure:3 \
-        --read-only --cap-drop all --security-opt no-new-privileges --no-healthcheck \
+        --network slirp4netns --read-only --cap-drop all --security-opt no-new-privileges --no-healthcheck \
         "${runner_limits[@]}" "${runner_env[@]}" "${relay[@]}" \
         -v {{agent_socket_volume}}:/run/kamosu-agent \
         -v {{relay_socket_volume}}:/run/kamosu-relay \
