@@ -619,18 +619,20 @@ agent-image: podman-build
 # instance at the host's LAN address, as `dev-start` prints it.
 #
 # KAMOSU_RUNNER_AS=<user> starts the three in that user's rootless Podman
-# instead of yours (#381), so an agent a page tricks is nowhere near your keys
-# or your sudo. Making that user, with no login, no sudo and its own Podman
-# socket, is the host's business. The recipes reach its Podman through that
-# socket with sudo, never a `sudo -u` session, whose OOM score the containers
-# would inherit and their health checks then fail to set. runner-start copies
-# both images you built into its store, hands it the settings as 0600 files
-# in its own ~/.config/kamosu-runner/, and caps each container's memory and
-# CPU. Unset, the recipes work in your own Podman as they always have.
+# instead of yours (#381). A page can trick the agent, and that user holds
+# none of your keys and has no sudo. Making the user, with no login, no sudo
+# and its own Podman socket, is the host's business. The recipes reach its
+# Podman through that socket with sudo, never through a `sudo -u` session.
+# Containers started from a session take its OOM score, and their health
+# checks then fail to set their own. runner-start copies both images you
+# built into the user's store, hands it the settings as 0600 files in its
+# ~/.config/kamosu-runner/, and caps each container's memory and CPU. Unset,
+# the recipes work in your own Podman as they always have. They never look
+# in that user's, so run runner-stop before you unset it.
 runner_as := env_var_or_default("KAMOSU_RUNNER_AS", "")
 runner_podman := if runner_as == "" { "podman" } else { "sudo podman --url unix:///run/user/$(id -u '" + runner_as + "')/podman/podman.sock" }
 
-runner-start settings=(env_var("HOME") / ".config/kamosu-runner.env"): _runner-as
+runner-start settings=(env_var("HOME") / ".config/kamosu-runner.env"): _check-runner-as
     #!/usr/bin/env bash
     set -euo pipefail
     [[ -f "{{settings}}" ]] || { echo "no settings file at {{settings}}" >&2; exit 1; }
@@ -654,19 +656,26 @@ runner-start settings=(env_var("HOME") / ".config/kamosu-runner.env"): _runner-a
         as="{{runner_as}}"
         home="$(getent passwd "$as" | cut -d: -f6)"
         group="$(id -gn "$as")"
-        sudo install -d -o "$as" -g "$group" -m 0700 "$home/.config" "$home/.config/kamosu-runner"
-        grep -v '^KAMOSU_RUNNER_' "{{settings}}" \
-            | sudo install -o "$as" -g "$group" -m 0600 /dev/stdin "$home/.config/kamosu-runner/agent.env"
+        dir="$home/.config/kamosu-runner"
+        sudo install -d -o "$as" -g "$group" -m 0700 "$home/.config" "$dir"
+        { grep -v '^KAMOSU_RUNNER_' "{{settings}}" || true; } \
+            | sudo install -o "$as" -g "$group" -m 0600 /dev/stdin "$dir/agent.env"
         { grep '^KAMOSU_RUNNER_' "{{settings}}" || true; } \
-            | sudo install -o "$as" -g "$group" -m 0600 /dev/stdin "$home/.config/kamosu-runner/runner.env"
-        agent_env=(--env-file "$home/.config/kamosu-runner/agent.env")
-        runner_env=(--env-file "$home/.config/kamosu-runner/runner.env")
+            | sudo install -o "$as" -g "$group" -m 0600 /dev/stdin "$dir/runner.env"
+        agent_env=(--env-file "$dir/agent.env")
+        runner_env=(--env-file "$dir/runner.env")
         # The agent's in-memory /tmp counts against its cap, as in
-        # docs/runner.md's compose file.
-        fence_limits=(--memory 128m --cpus 0.25)
-        agent_limits=(--memory 5g --cpus 1)
-        runner_limits=(--memory 256m --cpus 0.5)
+        # docs/runner.md's compose file. --memory-swap equal to --memory
+        # allows no swap, which Podman would otherwise grant the same again.
+        fence_limits=(--memory 128m --memory-swap 128m --cpus 0.25)
+        agent_limits=(--memory 5g --memory-swap 5g --cpus 1)
+        runner_limits=(--memory 256m --memory-swap 256m --cpus 0.5)
         podman save -m localhost/kamosu localhost/{{agent_container}} | {{runner_podman}} load >/dev/null
+        # Three you started in your own Podman would ask for the same Jobs,
+        # with your keys in reach.
+        podman rm -f --time 30 {{runner_container}} {{agent_container}} >/dev/null
+        podman rm -f {{fence_container}} >/dev/null
+        podman volume rm -f {{agent_socket_volume}} {{relay_socket_volume}} >/dev/null
     fi
     # The agent lives in the fence's network, so it goes first.
     {{runner_podman}} rm -f {{runner_container}} {{agent_container}} >/dev/null
@@ -702,13 +711,15 @@ runner-start settings=(env_var("HOME") / ".config/kamosu-runner.env"): _runner-a
     echo "logs:    just runner-logs"
 
 # Follow what the Runner and its agent say.
-runner-logs: _runner-as
+runner-logs: _check-runner-as
     #!/usr/bin/env bash
     set -euo pipefail
     if [[ -z "{{runner_as}}" ]]; then
         exec podman logs -f --names {{runner_container}} {{agent_container}} {{fence_container}}
     fi
-    # Podman over a socket follows one container at a time.
+    # Podman over a socket follows one container at a time. Background jobs
+    # ignore Ctrl-C, so leaving takes the followers down with it.
+    trap 'pkill -P $$ 2>/dev/null || true' EXIT
     for c in {{runner_container}} {{agent_container}} {{fence_container}}; do
         {{runner_podman}} logs -f "$c" 2>&1 | sed -u "s/^/$c /" &
     done
@@ -716,14 +727,14 @@ runner-logs: _runner-as
 
 # Stop the Runner and its agent. A Job the Runner holds waits again once the
 # hold lapses.
-runner-stop: _runner-as
+runner-stop: _check-runner-as
     {{runner_podman}} rm -f --time 30 {{runner_container}} {{agent_container}} >/dev/null
     {{runner_podman}} rm -f {{fence_container}} >/dev/null
     {{runner_podman}} volume rm -f {{agent_socket_volume}} {{relay_socket_volume}} >/dev/null
 
-# Stops a runner recipe whose KAMOSU_RUNNER_AS names no user, or one with no
-# Podman socket, before it asks a socket that is not there.
-_runner-as:
+# Internal: stop a runner recipe whose KAMOSU_RUNNER_AS names no user, or a
+# user with no Podman socket, before it asks a socket that is not there.
+_check-runner-as:
     #!/usr/bin/env bash
     set -euo pipefail
     [[ -n "{{runner_as}}" ]] || exit 0

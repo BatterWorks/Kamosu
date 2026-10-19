@@ -184,6 +184,7 @@ just agent-image    # Kamosu's image from this tree, for the Runner, then the ag
 just runner-start   # both beside the dev instance, settings from ~/.config/kamosu-runner.env
 just runner-logs    # follow the Runner and its agent
 just runner-stop    # stop both; a Job the Runner held waits again once the hold lapses
+KAMOSU_RUNNER_AS=<user> just runner-start   # the same three in that user's rootless Podman, capped (#381)
 ```
 
 **Looking at the dev instance has recipes of its own** (#216), so no ticket
