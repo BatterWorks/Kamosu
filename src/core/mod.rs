@@ -350,6 +350,8 @@ pub struct Core {
     passwords: accounts::Passwords,
     /// Passkey exchanges begun and not yet finished (#370).
     ceremonies: passkeys::Ceremonies,
+    /// The PDFs being read now, each in a program of its own (#373).
+    pdf_readers: crate::pdf::Readers,
     /// How long a Runner's hold on a Job lasts unless renewed, in
     /// milliseconds: `jobs::HOLD`, until a test shortens it (#266).
     hold_millis: AtomicU64,
@@ -385,6 +387,7 @@ impl Core {
             meaning,
             passwords: accounts::Passwords::default(),
             ceremonies: Default::default(),
+            pdf_readers: Default::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             job_key_creates: Default::default(),
             public_address: Default::default(),
@@ -408,6 +411,7 @@ impl Core {
             meaning,
             passwords: accounts::Passwords::default(),
             ceremonies: Default::default(),
+            pdf_readers: Default::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             job_key_creates: Default::default(),
             public_address: Default::default(),
@@ -427,6 +431,11 @@ impl Core {
     /// Meaning Search as this instance holds it.
     pub fn meaning(&self) -> Arc<crate::meaning::MeaningSearch> {
         self.meaning.clone()
+    }
+
+    /// What reads a PDF someone sent, no more than a few at once (#373).
+    pub fn pdf_readers(&self) -> &crate::pdf::Readers {
+        &self.pdf_readers
     }
 
     /// The database, shared. An Arc clone keeps Job progress reporting able to

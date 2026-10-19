@@ -58,6 +58,11 @@ enum Command {
         #[arg(last = true)]
         command: Vec<String>,
     },
+    /// Read the PDF on standard input and write its text to standard output.
+    /// Kamosu starts this itself to read a PDF apart from everything else
+    /// (#373); it is no command for a person.
+    #[command(hide = true)]
+    ReadPdf,
 }
 
 fn main() {
@@ -81,6 +86,7 @@ fn main() {
             std::process::exit(health_check(addr));
         }
         Command::Recover { name } => recover(&config, &name),
+        Command::ReadPdf => std::process::exit(kamosu::pdf::read_here()),
         Command::Runner {
             kamosu,
             agent_socket,

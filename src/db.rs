@@ -1930,6 +1930,20 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 56,
+        description: "a count of wrong passwords is forgotten after an hour (#373)",
+        sql: r#"
+        -- When a name last had a wrong password. A count whose last miss is
+        -- an hour old is deleted, whether or not anyone holds the name, so
+        -- made-up names tried by a stranger are not kept for good. A count
+        -- kept from before this starts its hour now.
+        ALTER TABLE login_failures ADD COLUMN last_failed_at TEXT;
+        UPDATE login_failures SET last_failed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now');
+        CREATE INDEX login_failures_by_age ON login_failures(last_failed_at);
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

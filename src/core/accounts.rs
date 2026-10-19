@@ -6,6 +6,7 @@ use std::sync::{Condvar, LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use super::*;
+use crate::slow_work::off_the_request_workers;
 
 /// The answer to minting an Access Key: the raw Secret, shown once and never
 /// stored, alongside what the Key is known by afterwards.
@@ -491,11 +492,24 @@ impl Core {
     /// Count one more wrong password for this name, and answer how many there
     /// have been since its last right one. A correct password deletes the
     /// count (ADR 0031).
+    ///
+    /// A count whose last miss is [`FORGOTTEN_AFTER`] old is deleted first,
+    /// so guesses at made-up names cannot grow the table without end (#373).
+    /// It is every name alike, because forgetting made-up names alone would
+    /// say which are real; ADR 0031 says why that costs nothing.
     fn record_login_failure(&self, name: &str) -> Result<i64, OpError> {
         self.db().with_conn(|conn| {
+            conn.execute(
+                "DELETE FROM login_failures \
+                  WHERE last_failed_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?1)",
+                params![format!("-{} seconds", FORGOTTEN_AFTER.as_secs())],
+            )
+            .map_err(|e| OpError::internal(format!("cannot forget old login failures: {e}")))?;
             conn.query_row(
-                "INSERT INTO login_failures(name, consecutive_failures) VALUES (?1, 1) \
-                 ON CONFLICT(name) DO UPDATE SET consecutive_failures = consecutive_failures + 1 \
+                "INSERT INTO login_failures(name, consecutive_failures, last_failed_at) \
+                 VALUES (?1, 1, strftime('%Y-%m-%dT%H:%M:%fZ','now')) \
+                 ON CONFLICT(name) DO UPDATE SET consecutive_failures = consecutive_failures + 1, \
+                 last_failed_at = excluded.last_failed_at \
                  RETURNING consecutive_failures",
                 params![name],
                 |row| row.get(0),
@@ -1017,6 +1031,13 @@ const PASSWORD_LINE: usize = 32;
 /// The longest a name waits after its wrong passwords, per ADR 0031.
 const LONGEST_WAIT: Duration = Duration::from_secs(30);
 
+/// How long after its last wrong password a name's count is kept (#373). A
+/// person who mistyped and comes back within it waits as their misses
+/// earned; past it they start again. Guesses are checked two at a time and
+/// take about a tenth of a second each, so this keeps at most some seventy
+/// thousand short rows.
+const FORGOTTEN_AFTER: Duration = Duration::from_secs(60 * 60);
+
 /// Password state that is not in the database: whose login tries are waiting
 /// or being checked right now, and the few threads allowed to hash or check a
 /// password.
@@ -1139,20 +1160,6 @@ impl Drop for Turn<'_> {
         if let Some(gate) = names.get_mut(&self.name) {
             gate.checking = false;
         }
-    }
-}
-
-/// Run password work from inside an Operation without holding a request
-/// worker (#370). The `/auth/…` routes move it to the blocking pool before the
-/// Core is called; an Operation is answered on the worker that took it, so it
-/// tells the runtime this worker is busy and its other requests go elsewhere.
-/// Outside a runtime that can do that (a test, the terminal) it simply runs.
-fn off_the_request_workers<T>(work: impl FnOnce() -> T) -> T {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
-            tokio::task::block_in_place(work)
-        }
-        _ => work(),
     }
 }
 
@@ -1372,6 +1379,72 @@ mod tests {
         assert_eq!(refused.message, "that name and password do not match");
         // And the stand-in never lets anyone in, whatever they type.
         core.log_in("nobody at all", "", "x").unwrap_err();
+    }
+
+    /// A count of wrong passwords is forgotten an hour after its last miss
+    /// (#373), for a name nobody holds as for one somebody does: a crowd of
+    /// made-up names cannot grow the table without end, and when a count is
+    /// forgotten says nothing about who has an account here (ADR 0031).
+    #[test]
+    fn a_count_of_misses_is_forgotten_an_hour_after_the_last_for_every_name_alike() {
+        let (_dir, core) = a_core();
+        core.create_first_person("cook", PASSWORD, "laptop")
+            .unwrap();
+        let counts = |core: &Core| -> Vec<(String, i64)> {
+            core.db()
+                .with_conn(|conn| {
+                    let mut rows = conn
+                        .prepare(
+                            "SELECT name, consecutive_failures FROM login_failures ORDER BY name",
+                        )
+                        .unwrap();
+                    Ok(rows
+                        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                        .unwrap()
+                        .map(Result::unwrap)
+                        .collect())
+                })
+                .unwrap()
+        };
+        let age = |core: &Core, name: &str, minutes: i64| {
+            core.db()
+                .with_conn(|conn| {
+                    conn.execute(
+                        "UPDATE login_failures SET last_failed_at = \
+                         strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?2) WHERE name = ?1",
+                        params![name, format!("-{minutes} minutes")],
+                    )
+                    .map_err(|e| OpError::internal(e.to_string()))
+                })
+                .unwrap();
+        };
+        core.log_in("cook", "not the password", "x").unwrap_err();
+        core.log_in("nobody here", "not the password", "x")
+            .unwrap_err();
+        assert_eq!(
+            counts(&core),
+            [("cook".to_string(), 1), ("nobody here".to_string(), 1)]
+        );
+
+        // Within the hour a count stands, whoever's name it is.
+        age(&core, "cook", 59);
+        age(&core, "nobody here", 59);
+        core.log_in("a third name", "not the password", "x")
+            .unwrap_err();
+        assert_eq!(counts(&core).len(), 3);
+
+        // Past it, both are gone at the next miss of any name.
+        age(&core, "cook", 61);
+        age(&core, "nobody here", 61);
+        core.log_in("a fourth name", "not the password", "x")
+            .unwrap_err();
+        assert_eq!(
+            counts(&core),
+            [
+                ("a fourth name".to_string(), 1),
+                ("a third name".to_string(), 1)
+            ]
+        );
     }
 
     /// The minimum is for a password being set. One set before it existed
