@@ -358,7 +358,12 @@ describe('Home', () => {
 		renderScreen(Page, {
 			get_cookbook: ALONE,
 			home_shelves: { refuse: 'unauthorized' },
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+			},
 		});
 
 		expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();

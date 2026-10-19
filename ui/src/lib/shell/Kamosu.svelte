@@ -36,7 +36,11 @@
 
 	let {
 		client,
-		auth = { authenticate: async () => {} },
+		auth = {
+			authenticate: async () => {},
+			signInWithPasskey: async () => 'declined',
+			readyPasskey: () => {},
+		},
 		upload = async () => {
 			throw new Error('this test sent a file without giving an uploader');
 		},

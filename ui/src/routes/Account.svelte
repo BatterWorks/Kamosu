@@ -17,7 +17,8 @@
 	import { useAuth } from '$lib/auth';
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
-	import { deviceName } from '$lib/device-name';
+	import { thisDeviceName } from '$lib/device-name';
+	import { passkeysWorkHere } from '$lib/passkeys';
 	import { heardWhetherSignedIn, signingIn } from '$lib/shell/signing-in.svelte';
 	import type { Snippet } from 'svelte';
 
@@ -68,6 +69,8 @@
 	let setupComplete = $state<boolean | undefined>(undefined);
 	/** The shortest password Kamosu accepts where one is set, as it says (#138). */
 	let passwordMinimum = $state(0);
+	/** Where a passkey signs in, if this instance offers passkeys at all (#370). */
+	let passkeyOrigin = $state<string | null>(null);
 	/**
 	 * Whether this screen has given up learning the instance's state. Three
 	 * states, not two: still asking, answered, and asking failed. Collapsing the
@@ -120,6 +123,18 @@
 	});
 	/** Every form but login sets a password, and says how long it must be. */
 	const settingAPassword = $derived(mode !== 'login');
+	/**
+	 * A passkey is offered at login, and only at the address it signs in at:
+	 * Kamosu opened at its LAN address, or with no https:// name, keeps the
+	 * form as it was (#370, choice A).
+	 */
+	const offerPasskey = $derived(mode === 'login' && passkeysWorkHere(passkeyOrigin));
+	// A challenge waits for the press, so the press opens the device at once.
+	$effect(() => {
+		if (offerPasskey) auth.readyPasskey();
+	});
+	/** Why the last passkey did not sign in, said under its button. */
+	let passkeyRefused = $state<string | undefined>(undefined);
 
 	/** Which ask is the current one, so a slow answer to an abandoned one is dropped. */
 	let latestAsk = 0;
@@ -146,6 +161,7 @@
 				if (mine === latestAsk) {
 					setupComplete = status.setup_complete;
 					passwordMinimum = status.password_minimum;
+					passkeyOrigin = status.passkey_origin;
 				}
 				return;
 			} catch (error) {
@@ -196,9 +212,7 @@
 				password,
 				// Named for the device it is on, so the Sessions list in Settings
 				// can tell your phone from your laptop (#114).
-				session_name:
-					deviceName(navigator.userAgent, navigator.maxTouchPoints) ??
-					m.account_session_unknown_device(),
+				session_name: thisDeviceName(),
 				link: invite ?? recovery,
 			});
 			if (mode === 'first-person' || mode === 'invite') setupComplete = true;
@@ -216,6 +230,31 @@
 				password = '';
 				passwordAgain = '';
 			}
+		}
+	}
+
+	async function signInWithPasskey() {
+		failed = undefined;
+		passkeyRefused = undefined;
+		busy = true;
+		try {
+			// The device's own prompt was closed: that is an answer, not a fault.
+			const outcome = await auth.signInWithPasskey(thisDeviceName());
+			// Ready for another press, whatever this one did.
+			auth.readyPasskey();
+			if (outcome === 'declined') return;
+			heardWhetherSignedIn(true);
+			onSignedIn?.();
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			passkeyRefused =
+				error.reason === 'start_again'
+					? m.account_passkey_start_again()
+					: error.kind === 'unauthorized'
+						? m.account_passkey_refused()
+						: error.message;
+		} finally {
+			busy = false;
 		}
 	}
 </script>
@@ -296,6 +335,26 @@
 				{words.submit}
 			</button>
 		</form>
+		{#if offerPasskey}
+			<!-- Beside the password, never instead of it (#370, choice A). -->
+			<div class="mt-gutter mb-4 flex items-center gap-3 text-read text-ink-2">
+				<span class="flex-1 border-t border-rule"></span>
+				{m.account_passkey_or()}
+				<span class="flex-1 border-t border-rule"></span>
+			</div>
+			<button
+				type="button"
+				class="min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium text-accent disabled:opacity-60"
+				disabled={busy}
+				onclick={signInWithPasskey}
+			>
+				{m.account_passkey_sign_in()}
+			</button>
+			<p class="mt-2 text-read text-ink-2">{m.account_passkey_hint()}</p>
+			{#if passkeyRefused}
+				<p class="mt-3 text-body text-support" role="alert">{passkeyRefused}</p>
+			{/if}
+		{/if}
 		<!-- For somebody who reached the sign-in form without knowing what
 		     Kamosu is (#158): the story, at an address of its own. -->
 		{#if framing}

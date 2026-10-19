@@ -375,7 +375,7 @@ impl Core {
         Ok(())
     }
 
-    fn mint_session(&self, person_id: &str, name: &str) -> Result<Session, OpError> {
+    pub(super) fn mint_session(&self, person_id: &str, name: &str) -> Result<Session, OpError> {
         let secret = generate_secret();
         let id = format!("s_{}", hex::encode(random_bytes(8)));
         self.db().with_conn(|conn| {
@@ -387,6 +387,105 @@ impl Core {
             Ok(())
         })?;
         Ok(Session { id, secret })
+    }
+
+    /// Check a signed-in Person's own password before what only they may do
+    /// with it: changing it, or adding a passkey (#370). A wrong one counts
+    /// against their name exactly as at sign-in, so an unlocked phone left
+    /// on the table guesses no faster here than at the door.
+    pub(super) fn check_own_password(
+        &self,
+        person_id: &str,
+        password: &str,
+    ) -> Result<(), OpError> {
+        let (name, hash): (String, Option<String>) = self.db().with_conn(|conn| {
+            conn.query_row(
+                "SELECT name, password_hash FROM people WHERE id = ?1 AND disabled = 0 AND deleted = 0",
+                params![person_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| OpError::internal(format!("cannot read this Person: {e}")))
+        })?;
+        let turn = self.passwords.take_turn(&name)?;
+        let verified = off_the_request_workers(|| {
+            self.passwords
+                .work
+                .verify(what_counts(password), hash.as_deref())
+        })?;
+        if !verified {
+            turn.missed(self.record_login_failure(&name)?);
+            return Err(OpError::refused_because(
+                "wrong_password",
+                "that is not your current password",
+            ));
+        }
+        self.db().with_conn(|conn| {
+            conn.execute("DELETE FROM login_failures WHERE name = ?1", params![name])
+                .map_err(|e| OpError::internal(format!("cannot clear login throttle: {e}")))?;
+            Ok(())
+        })?;
+        turn.matched();
+        Ok(())
+    }
+
+    /// A signed-in Person changes their own password (#370), under the rules
+    /// of a new one. They choose whether their other Sessions end with it, and
+    /// whether their Access Keys do; the Session asking stays signed in, and
+    /// their passkeys are left alone.
+    pub fn change_password(
+        &self,
+        caller: &Caller,
+        current: &str,
+        new: &str,
+        sign_out_other_devices: bool,
+        end_access_keys: bool,
+    ) -> Result<Value, OpError> {
+        let new = new_password(new)?;
+        self.check_own_password(&caller.person_id, current)?;
+        let password_hash = off_the_request_workers(|| self.passwords.work.hash(new))?;
+        let (ended_sessions, ended_access_keys) = self.db().with_conn(|conn| {
+            conn.execute_batch("BEGIN IMMEDIATE")
+                .map_err(|e| OpError::internal(e.to_string()))?;
+            let result = (|| -> Result<(usize, usize), OpError> {
+                conn.execute(
+                    "UPDATE people SET password_hash = ?1 WHERE id = ?2",
+                    params![password_hash, caller.person_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot change the password: {e}")))?;
+                let ended_sessions = if sign_out_other_devices {
+                    conn.execute(
+                        "UPDATE sessions SET revoked = 1 \
+                          WHERE person_id = ?1 AND revoked = 0 AND id IS NOT ?2",
+                        params![caller.person_id, caller.session_id],
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot end Sessions: {e}")))?
+                } else {
+                    0
+                };
+                let ended_access_keys = if end_access_keys {
+                    conn.execute(
+                        "UPDATE access_keys SET revoked = 1 WHERE person_id = ?1 AND revoked = 0",
+                        params![caller.person_id],
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot end Access Keys: {e}")))?
+                } else {
+                    0
+                };
+                Ok((ended_sessions, ended_access_keys))
+            })();
+            match result {
+                Ok(ended) => {
+                    conn.execute_batch("COMMIT")
+                        .map_err(|e| OpError::internal(e.to_string()))?;
+                    Ok(ended)
+                }
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    Err(e)
+                }
+            }
+        })?;
+        Ok(json!({ "ended_sessions": ended_sessions, "ended_access_keys": ended_access_keys }))
     }
 
     /// Count one more wrong password for this name, and answer how many there
@@ -643,7 +742,10 @@ impl Core {
                     .map_err(|e| OpError::internal(format!("cannot end account: {e}")))?;
                 conn.execute("UPDATE sessions SET revoked = 1 WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 conn.execute("UPDATE access_keys SET revoked = 1 WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
+                // A deleted account's passkeys are forgotten; a disabled one
+                // keeps them, and they sign in again once it is enabled (#370).
                 if deleted {
+                    conn.execute("DELETE FROM passkeys WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                     jobs::end_for_deleted_asker(conn, &person_id)?;
                     forget_cookbook_of(conn, &person_id)?;
                 } else {
@@ -1037,6 +1139,20 @@ impl Drop for Turn<'_> {
         if let Some(gate) = names.get_mut(&self.name) {
             gate.checking = false;
         }
+    }
+}
+
+/// Run password work from inside an Operation without holding a request
+/// worker (#370). The `/auth/…` routes move it to the blocking pool before the
+/// Core is called; an Operation is answered on the worker that took it, so it
+/// tells the runtime this worker is busy and its other requests go elsewhere.
+/// Outside a runtime that can do that (a test, the terminal) it simply runs.
+fn off_the_request_workers<T>(work: impl FnOnce() -> T) -> T {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(work)
+        }
+        _ => work(),
     }
 }
 

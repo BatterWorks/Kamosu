@@ -251,6 +251,12 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "shopping_list_as_text"
             | "empty_shopping_list"
             | "add_loose_item"
+            | "list_passkeys"
+            | "rename_passkey"
+            | "remove_passkey"
+            | "start_adding_passkey"
+            | "finish_adding_passkey"
+            | "change_password"
             | "remove_loose_item" => ("{}", 401),
             // Public, and answered on the token alone: a token nobody minted
             // is not found, which is the routing this check is after.
@@ -471,6 +477,12 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "shopping_list_as_text"
                 | "empty_shopping_list"
                 | "add_loose_item"
+                | "list_passkeys"
+                | "rename_passkey"
+                | "remove_passkey"
+                | "start_adding_passkey"
+                | "finish_adding_passkey"
+                | "change_password"
                 | "remove_loose_item"
         ) {
             // Asked without what they need — a real id or a Credential — they

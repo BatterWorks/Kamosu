@@ -237,7 +237,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "instance_status",
             summary: "Read this Kamosu's version and whether setup has \
-                      happened. Also the shortest password it accepts.",
+                      happened. Also the shortest password it accepts, and \
+                      the address a passkey signs in at, if any.",
             permission: Permission::Public,
             kind: Kind::Immediate,
             write: false,
@@ -251,8 +252,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     "version": { "type": "string" },
                     "setup_complete": { "type": "boolean" },
                     "password_minimum": { "type": "integer", "minimum": 1 },
+                    "passkey_origin": { "type": ["string", "null"] },
                 },
-                "required": ["version", "setup_complete", "password_minimum"],
+                "required": ["version", "setup_complete", "password_minimum", "passkey_origin"],
                 "additionalProperties": false,
             }),
             handler: crate::operations::instance_status,
@@ -981,6 +983,127 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: json!({ "type": "object", "properties": { "access_key_id": { "type": "string" } }, "required": ["access_key_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" } }, "required": ["revoked"], "additionalProperties": false }),
             handler: crate::operations::revoke_access_key,
+        },
+        Operation {
+            name: "list_passkeys",
+            summary: "List your passkeys. Each says when it was added and last \
+                      used, and whether it works at this instance's address. \
+                      Also whether this instance offers passkeys at all, and \
+                      if not, why.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "public_address": { "type": ["string", "null"] },
+                    "available": { "type": "boolean" },
+                    "unavailable_because": { "enum": ["no_public_address", "not_https", "ip_address", null] },
+                    "origin": { "type": ["string", "null"] },
+                    "passkeys": { "type": "array", "items": passkey_schema() },
+                },
+                "required": ["public_address", "available", "unavailable_because", "origin", "passkeys"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_passkeys,
+        },
+        Operation {
+            name: "rename_passkey",
+            summary: "Rename one of your passkeys.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "passkey_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["passkey_id", "name"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
+            handler: crate::operations::rename_passkey,
+        },
+        Operation {
+            name: "remove_passkey",
+            summary: "Remove one of your passkeys. It no longer signs in here; \
+                      the device keeps it until it is deleted there.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "passkey_id": { "type": "string" } }, "required": ["passkey_id"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "removed": { "type": "boolean" } }, "required": ["removed"], "additionalProperties": false }),
+            handler: crate::operations::remove_passkey,
+        },
+        Operation {
+            name: "start_adding_passkey",
+            summary: "Begin adding a passkey, with your password. Answers the \
+                      options a browser hands its device.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: true,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "password": { "type": "string" } }, "required": ["password"], "additionalProperties": false }),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "ceremony_id": { "type": "string" }, "options": { "type": "object" } },
+                "required": ["ceremony_id", "options"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::start_adding_passkey,
+        },
+        Operation {
+            name: "finish_adding_passkey",
+            summary: "Finish adding a passkey the device made. The credential \
+                      is the JSON text a browser writes of it, and the name is \
+                      the one it is listed under.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: true,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "ceremony_id": { "type": "string" }, "credential": { "type": "string" }, "name": { "type": "string" } }, "required": ["ceremony_id", "credential", "name"], "additionalProperties": false }),
+            output_schema: passkey_schema(),
+            handler: crate::operations::finish_adding_passkey,
+        },
+        Operation {
+            name: "change_password",
+            summary: "Change your password, with the current one. You choose \
+                      whether your other Sessions end with it, and whether \
+                      your Access Keys do. Your passkeys keep working.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: true,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "current_password": { "type": "string" },
+                    "new_password": { "type": "string" },
+                    "sign_out_other_devices": { "type": "boolean" },
+                    "end_access_keys": { "type": "boolean" },
+                },
+                "required": ["current_password", "new_password", "sign_out_other_devices", "end_access_keys"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "ended_sessions": { "type": "integer", "minimum": 0 },
+                    "ended_access_keys": { "type": "integer", "minimum": 0 },
+                },
+                "required": ["ended_sessions", "ended_access_keys"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::change_password,
         },
         Operation {
             name: "create_kitchen",
@@ -2792,7 +2915,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       is where it currently says it is reachable from outside, \
                       or nothing if it has never been asked. The Operator's \
                       half of `set_public_address`: changing an address you \
-                      cannot see is a guess.",
+                      cannot see is a guess. Also how many passkeys work at \
+                      it, which a new address would leave unable to sign in.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: false,
@@ -2802,8 +2926,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: empty_input(),
             output_schema: json!({
                 "type": "object",
-                "properties": { "public_address": { "type": ["string", "null"] } },
-                "required": ["public_address"],
+                "properties": {
+                    "public_address": { "type": ["string", "null"] },
+                    "passkeys": { "type": "integer", "minimum": 0 },
+                },
+                "required": ["public_address", "passkeys"],
                 "additionalProperties": false,
             }),
             handler: crate::operations::get_public_address,
@@ -2820,7 +2947,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       `get_share_link` answers it, is built against the new \
                       address, so the owner can send the one that opens now. A \
                       link minted before Kamosu kept its address has none to \
-                      show.",
+                      show. A passkey works only at the address it was made \
+                      at: `get_public_address` says how many work at the \
+                      current one and would stop at a new one.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: true,
@@ -7157,6 +7286,25 @@ fn reread_reading_schema() -> Value {
             "target": { "type": ["string", "null"] },
         },
         "required": ["amount", "unit", "target"],
+        "additionalProperties": false,
+    })
+}
+
+/// One passkey as its owner's list shows it (#370). `made_for` is the address
+/// it was made at, and `works_here` whether that is the address passkeys work
+/// at now.
+fn passkey_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "made_for": { "type": "string" },
+            "works_here": { "type": "boolean" },
+            "created_at": { "type": "string" },
+            "last_used_at": { "type": ["string", "null"] },
+        },
+        "required": ["id", "name", "made_for", "works_here", "created_at", "last_used_at"],
         "additionalProperties": false,
     })
 }

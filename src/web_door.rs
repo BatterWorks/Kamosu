@@ -32,6 +32,8 @@ pub fn router(core: Arc<Core>) -> Router {
     let login_core = core.clone();
     let invite_core = core.clone();
     let recovery_core = core.clone();
+    let passkey_start_core = core.clone();
+    let passkey_finish_core = core.clone();
     // Credential minting is deliberately outside the Catalogue: it precedes
     // every Operation, then the cookie becomes the Credential the Door carries.
     // Whoever signs in has no Credential yet, so every one of these is read as
@@ -67,6 +69,22 @@ pub fn router(core: Arc<Core>) -> Router {
                 with_a_password(recovery_core.clone(), move |core| {
                     authenticate_recovery(core, body)
                 })
+            }),
+        )
+        // A passkey signs in with no password, so neither route waits on
+        // password work (#370). The challenge is kept by the Core between them.
+        .route(
+            "/auth/passkey/start",
+            post(move || {
+                let core = passkey_start_core.clone();
+                async move { respond(core.start_passkey_sign_in()) }
+            }),
+        )
+        .route(
+            "/auth/passkey/finish",
+            post(move |body: Option<Json<Value>>| {
+                let core = passkey_finish_core.clone();
+                async move { respond(authenticate_passkey(&core, body)) }
             }),
         )
         .route_layer(middleware::from_fn_with_state(
@@ -349,6 +367,24 @@ fn authenticate_recovery(core: &Core, body: Option<Json<Value>>) -> Result<Value
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("recovery takes { link, password, session_name }"))?;
     core.redeem_recovery(link, password, session_name)
+}
+
+fn authenticate_passkey(core: &Core, body: Option<Json<Value>>) -> Result<Value, OpError> {
+    const TAKES: &str = "a passkey sign-in takes { ceremony_id, credential, session_name }";
+    let input = body.map(|Json(value)| value).unwrap_or_default();
+    let ceremony_id = input
+        .get("ceremony_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(TAKES))?;
+    let credential = input
+        .get("credential")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(TAKES))?;
+    let session_name = input
+        .get("session_name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(TAKES))?;
+    core.finish_passkey_sign_in(ceremony_id, credential, session_name)
 }
 
 fn call_operation(

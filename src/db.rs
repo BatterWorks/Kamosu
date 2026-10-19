@@ -1906,6 +1906,30 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 55,
+        description: "passkeys (#370)",
+        sql: r#"
+        -- A Person's passkeys. `rp_id` is the public address's host when the
+        -- passkey was made: it works there and nowhere else, so a passkey
+        -- outlives a change of address and works again if the address comes
+        -- back. `passkey` is what the WebAuthn library keeps of it, the
+        -- public key and its counter, as JSON. Nothing in it is a secret.
+        CREATE TABLE passkeys (
+            id            TEXT PRIMARY KEY,
+            person_id     TEXT NOT NULL REFERENCES people(id),
+            name          TEXT NOT NULL,
+            rp_id         TEXT NOT NULL,
+            credential_id BLOB NOT NULL,
+            passkey       TEXT NOT NULL,
+            created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            last_used_at  TEXT,
+            UNIQUE (rp_id, credential_id)
+        );
+        CREATE INDEX passkeys_of_a_person ON passkeys(person_id);
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

@@ -26,7 +26,12 @@
 	let { pathname, room, holds }: Props = $props();
 
 	const kamosu = standIn({
-		instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+		instance_status: {
+			version: '0.1.0',
+			setup_complete: true,
+			password_minimum: 15,
+			passkey_origin: null,
+		},
 		list_tags: { tags: [] },
 		list_kitchens: { kitchens: [] },
 		meaning_search_status: {

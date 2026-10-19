@@ -8,10 +8,11 @@
 
 import type { JobAsk } from './job';
 
-/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts. */
+/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, and the address a passkey signs in at, if any. */
 export type InstanceStatusInput = Record<string, never>;
 /** What instance_status answers. */
 export type InstanceStatusOutput = {
+	passkey_origin: string | null;
 	password_minimum: number;
 	setup_complete: boolean;
 	version: string;
@@ -331,6 +332,82 @@ export type RevokeAccessKeyInput = {
 /** What revoke_access_key answers. */
 export type RevokeAccessKeyOutput = {
 	revoked: boolean;
+};
+
+/** List your passkeys. Each says when it was added and last used, and whether it works at this instance's address. Also whether this instance offers passkeys at all, and if not, why. */
+export type ListPasskeysInput = Record<string, never>;
+/** What list_passkeys answers. */
+export type ListPasskeysOutput = {
+	available: boolean;
+	origin: string | null;
+	passkeys: {
+		created_at: string;
+		id: string;
+		last_used_at: string | null;
+		made_for: string;
+		name: string;
+		works_here: boolean;
+	}[];
+	public_address: string | null;
+	unavailable_because: "no_public_address" | "not_https" | "ip_address" | null;
+};
+
+/** Rename one of your passkeys. */
+export type RenamePasskeyInput = {
+	name: string;
+	passkey_id: string;
+};
+/** What rename_passkey answers. */
+export type RenamePasskeyOutput = {
+	name: string;
+};
+
+/** Remove one of your passkeys. It no longer signs in here; the device keeps it until it is deleted there. */
+export type RemovePasskeyInput = {
+	passkey_id: string;
+};
+/** What remove_passkey answers. */
+export type RemovePasskeyOutput = {
+	removed: boolean;
+};
+
+/** Begin adding a passkey, with your password. Answers the options a browser hands its device. */
+export type StartAddingPasskeyInput = {
+	password: string;
+};
+/** What start_adding_passkey answers. */
+export type StartAddingPasskeyOutput = {
+	ceremony_id: string;
+	options: Record<string, never>;
+};
+
+/** Finish adding a passkey the device made. The credential is the JSON text a browser writes of it, and the name is the one it is listed under. */
+export type FinishAddingPasskeyInput = {
+	ceremony_id: string;
+	credential: string;
+	name: string;
+};
+/** What finish_adding_passkey answers. */
+export type FinishAddingPasskeyOutput = {
+	created_at: string;
+	id: string;
+	last_used_at: string | null;
+	made_for: string;
+	name: string;
+	works_here: boolean;
+};
+
+/** Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working. */
+export type ChangePasswordInput = {
+	current_password: string;
+	end_access_keys: boolean;
+	new_password: string;
+	sign_out_other_devices: boolean;
+};
+/** What change_password answers. */
+export type ChangePasswordOutput = {
+	ended_access_keys: number;
+	ended_sessions: number;
 };
 
 /** Create a Kitchen, with its creator as its first member. A Kitchen is a group of People who see and cook from each other's Cookbooks. */
@@ -2923,14 +3000,15 @@ export type GetShareLinkOutput = {
 	url: string | null;
 };
 
-/** Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. */
+/** Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. Also how many passkeys work at it, which a new address would leave unable to sign in. */
 export type GetPublicAddressInput = Record<string, never>;
 /** What get_public_address answers. */
 export type GetPublicAddressOutput = {
+	passkeys: number;
 	public_address: string | null;
 };
 
-/** Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. */
+/** Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. A passkey works only at the address it was made at: `get_public_address` says how many work at the current one and would stop at a new one. */
 export type SetPublicAddressInput = {
 	public_address: string;
 };
@@ -5622,6 +5700,42 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	list_passkeys: {
+		input: ListPasskeysInput;
+		output: ListPasskeysOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	rename_passkey: {
+		input: RenamePasskeyInput;
+		output: RenamePasskeyOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	remove_passkey: {
+		input: RemovePasskeyInput;
+		output: RemovePasskeyOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	start_adding_passkey: {
+		input: StartAddingPasskeyInput;
+		output: StartAddingPasskeyOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	finish_adding_passkey: {
+		input: FinishAddingPasskeyInput;
+		output: FinishAddingPasskeyOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	change_password: {
+		input: ChangePasswordInput;
+		output: ChangePasswordOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	create_kitchen: {
 		input: CreateKitchenInput;
 		output: CreateKitchenOutput;
@@ -6291,7 +6405,7 @@ export type Answer<N extends OperationName> =
 export const CATALOGUE = [
 	{
 		"name": "instance_status",
-		"summary": "Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts.",
+		"summary": "Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, and the address a passkey signs in at, if any.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -6302,6 +6416,12 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"passkey_origin": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
 				"password_minimum": {
 					"minimum": 1,
 					"type": "integer"
@@ -6316,7 +6436,8 @@ export const CATALOGUE = [
 			"required": [
 				"version",
 				"setup_complete",
-				"password_minimum"
+				"password_minimum",
+				"passkey_origin"
 			],
 			"type": "object"
 		}
@@ -7561,6 +7682,298 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"revoked"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_passkeys",
+		"summary": "List your passkeys. Each says when it was added and last used, and whether it works at this instance's address. Also whether this instance offers passkeys at all, and if not, why.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"available": {
+					"type": "boolean"
+				},
+				"origin": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"passkeys": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"last_used_at": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"made_for": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							},
+							"works_here": {
+								"type": "boolean"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"made_for",
+							"works_here",
+							"created_at",
+							"last_used_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"public_address": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"unavailable_because": {
+					"enum": [
+						"no_public_address",
+						"not_https",
+						"ip_address",
+						null
+					]
+				}
+			},
+			"required": [
+				"public_address",
+				"available",
+				"unavailable_because",
+				"origin",
+				"passkeys"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "rename_passkey",
+		"summary": "Rename one of your passkeys.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"passkey_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"passkey_id",
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "remove_passkey",
+		"summary": "Remove one of your passkeys. It no longer signs in here; the device keeps it until it is deleted there.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"passkey_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"passkey_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"removed": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"removed"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "start_adding_passkey",
+		"summary": "Begin adding a passkey, with your password. Answers the options a browser hands its device.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"password": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"password"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"ceremony_id": {
+					"type": "string"
+				},
+				"options": {
+					"type": "object"
+				}
+			},
+			"required": [
+				"ceremony_id",
+				"options"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "finish_adding_passkey",
+		"summary": "Finish adding a passkey the device made. The credential is the JSON text a browser writes of it, and the name is the one it is listed under.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"ceremony_id": {
+					"type": "string"
+				},
+				"credential": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"ceremony_id",
+				"credential",
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"created_at": {
+					"type": "string"
+				},
+				"id": {
+					"type": "string"
+				},
+				"last_used_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"made_for": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				},
+				"works_here": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"made_for",
+				"works_here",
+				"created_at",
+				"last_used_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "change_password",
+		"summary": "Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"current_password": {
+					"type": "string"
+				},
+				"end_access_keys": {
+					"type": "boolean"
+				},
+				"new_password": {
+					"type": "string"
+				},
+				"sign_out_other_devices": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"current_password",
+				"new_password",
+				"sign_out_other_devices",
+				"end_access_keys"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"ended_access_keys": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"ended_sessions": {
+					"minimum": 0,
+					"type": "integer"
+				}
+			},
+			"required": [
+				"ended_sessions",
+				"ended_access_keys"
 			],
 			"type": "object"
 		}
@@ -20816,7 +21229,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_public_address",
-		"summary": "Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess.",
+		"summary": "Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. Also how many passkeys work at it, which a new address would leave unable to sign in.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -20827,6 +21240,10 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"passkeys": {
+					"minimum": 0,
+					"type": "integer"
+				},
 				"public_address": {
 					"type": [
 						"string",
@@ -20835,14 +21252,15 @@ export const CATALOGUE = [
 				}
 			},
 			"required": [
-				"public_address"
+				"public_address",
+				"passkeys"
 			],
 			"type": "object"
 		}
 	},
 	{
 		"name": "set_public_address",
-		"summary": "Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show.",
+		"summary": "Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. A passkey works only at the address it was made at: `get_public_address` says how many work at the current one and would stop at a new one.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -33860,6 +34278,7 @@ export const READS: readonly OperationName[] = [
 	'get_house_notes',
 	'list_sessions',
 	'list_access_keys',
+	'list_passkeys',
 	'list_kitchens',
 	'preview_leaving_kitchen',
 	'get_cookbook',
@@ -33927,6 +34346,12 @@ export const METHOD_NAMES = {
 	mint_access_key: 'mintAccessKey',
 	list_access_keys: 'listAccessKeys',
 	revoke_access_key: 'revokeAccessKey',
+	list_passkeys: 'listPasskeys',
+	rename_passkey: 'renamePasskey',
+	remove_passkey: 'removePasskey',
+	start_adding_passkey: 'startAddingPasskey',
+	finish_adding_passkey: 'finishAddingPasskey',
+	change_password: 'changePassword',
 	create_kitchen: 'createKitchen',
 	list_kitchens: 'listKitchens',
 	rename_kitchen: 'renameKitchen',
@@ -34040,7 +34465,7 @@ export const METHOD_NAMES = {
 
 /** The typed client: one method per Operation, named as the Catalogue names it. */
 export interface KamosuClient {
-	/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts. */
+	/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, and the address a passkey signs in at, if any. */
 	instanceStatus(input?: InstanceStatusInput): Promise<Answer<'instance_status'>>;
 	/** Set the Language and measures this Person reads in. */
 	setReadingPreferences(input: SetReadingPreferencesInput): Promise<Answer<'set_reading_preferences'>>;
@@ -34098,6 +34523,18 @@ export interface KamosuClient {
 	listAccessKeys(input?: ListAccessKeysInput): Promise<Answer<'list_access_keys'>>;
 	/** End one of your Access Keys. */
 	revokeAccessKey(input: RevokeAccessKeyInput): Promise<Answer<'revoke_access_key'>>;
+	/** List your passkeys. Each says when it was added and last used, and whether it works at this instance's address. Also whether this instance offers passkeys at all, and if not, why. */
+	listPasskeys(input?: ListPasskeysInput): Promise<Answer<'list_passkeys'>>;
+	/** Rename one of your passkeys. */
+	renamePasskey(input: RenamePasskeyInput): Promise<Answer<'rename_passkey'>>;
+	/** Remove one of your passkeys. It no longer signs in here; the device keeps it until it is deleted there. */
+	removePasskey(input: RemovePasskeyInput): Promise<Answer<'remove_passkey'>>;
+	/** Begin adding a passkey, with your password. Answers the options a browser hands its device. */
+	startAddingPasskey(input: StartAddingPasskeyInput): Promise<Answer<'start_adding_passkey'>>;
+	/** Finish adding a passkey the device made. The credential is the JSON text a browser writes of it, and the name is the one it is listed under. */
+	finishAddingPasskey(input: FinishAddingPasskeyInput): Promise<Answer<'finish_adding_passkey'>>;
+	/** Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working. */
+	changePassword(input: ChangePasswordInput): Promise<Answer<'change_password'>>;
 	/** Create a Kitchen, with its creator as its first member. A Kitchen is a group of People who see and cook from each other's Cookbooks. */
 	createKitchen(input: CreateKitchenInput): Promise<Answer<'create_kitchen'>>;
 	/** List every Kitchen this Person cooks in. */
@@ -34220,9 +34657,9 @@ export interface KamosuClient {
 	endShareLink(input: EndShareLinkInput): Promise<Answer<'end_share_link'>>;
 	/** Whether a Recipe is shared, by whom, and at what address. A live link answers its `url` for as long as it lives, to send again. A link minted before Kamosu kept its address answers none: ending it and sharing again mints one that does. */
 	getShareLink(input: GetShareLinkInput): Promise<Answer<'get_share_link'>>;
-	/** Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. */
+	/** Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. Also how many passkeys work at it, which a new address would leave unable to sign in. */
 	getPublicAddress(input?: GetPublicAddressInput): Promise<Answer<'get_public_address'>>;
-	/** Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. */
+	/** Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. A passkey works only at the address it was made at: `get_public_address` says how many work at the current one and would stop at a new one. */
 	setPublicAddress(input: SetPublicAddressInput): Promise<Answer<'set_public_address'>>;
 	/** Write a Bundle of one recipe. A Bundle is a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed. */
 	exportBundle(input: ExportBundleInput): Promise<Answer<'export_bundle'>>;

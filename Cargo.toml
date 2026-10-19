@@ -133,6 +133,12 @@ libc = "0.2.190"
 # each to its current patch release.
 hyper = { version = "1.12.0", features = ["server", "http1"] }
 hyper-util = { version = "0.1.21", features = ["server", "server-graceful", "http1", "tokio", "service"] }
+# Passkeys (#370, ADR 0051). Held at the 0.6 prerelease, exactly: the stable
+# 0.5 links OpenSSL, which the distroless image does not carry, and 0.6 does
+# the same work on RustCrypto. Move to 0.6 stable when it ships.
+# `conditional-ui` is the feature that holds the sign-in that asks for no name
+# (discoverable credentials); Kamosu asks from a button, not as autofill.
+webauthn-rs = { version = "=0.6.1-dev", features = ["conditional-ui"] }
 
 [features]
 # Adds `probe_job`, a demonstration Job Operation, so the behaviour suite can
@@ -142,6 +148,11 @@ hyper-util = { version = "0.1.21", features = ["server", "server-graceful", "htt
 test-jobs = []
 
 [dev-dependencies]
+# The test phone in tests/passkeys.rs signs with ES256. Written by hand on
+# p256 rather than taken from a passkey client library: the one that would do
+# it turns on serde_json's `preserve_order` for the whole build, and the tests
+# would then run Kamosu with its JSON in another order than it ships with.
+p256 = { version = "0.14.0", features = ["ecdsa"] }
 tempfile = "3.27.0"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time"] }
 
