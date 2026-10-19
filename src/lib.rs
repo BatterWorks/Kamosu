@@ -7,6 +7,7 @@
 //! has to remember. Authorisation is checked once, in [`core`], beneath both Doors;
 //! a permission check written inside a Door is a bug.
 
+pub mod admission;
 pub mod backups;
 pub mod browser_policy;
 pub mod bundles;
@@ -65,15 +66,26 @@ use std::sync::Arc;
 /// assemble the app differently. A test that served a different arrangement
 /// from the one shipped would be testing something nobody runs.
 pub fn app(core: Arc<core::Core>) -> axum::Router {
-    let core_for_shares = core.clone();
-    web_door::router(core.clone())
-        .merge(mcp_door::router(core))
+    app_within(core, admission::Limits::KAMOSU)
+}
+
+/// The same app held to other numbers, for a test that would otherwise wait
+/// out a deadline of minutes. The arrangement is the one `app` serves.
+pub fn app_within(core: Arc<core::Core>, limits: admission::Limits) -> axum::Router {
+    let app = web_door::router(core.clone())
+        .merge(mcp_door::router(core.clone()))
         .merge(design_tokens::router())
-        .merge(share_page::router(core_for_shares))
-        .merge(interface::router())
-        // Over everything merged above, the fallback included: no answer
-        // leaves without the browser safety headers (#139).
-        .layer(axum::middleware::map_response(browser_policy::stamp))
+        .merge(share_page::router(core.clone()))
+        .merge(interface::router());
+    // A stranger's body read small, the whole-request deadline and the cap on
+    // requests at once (#368).
+    admission::hold(app, core.clone(), limits)
+        // Over everything above, the fallback and a busy answer included: no
+        // answer leaves without the browser safety headers (#139).
+        .layer(axum::middleware::from_fn_with_state(
+            core,
+            browser_policy::stamp,
+        ))
 }
 
 /// The MCP revision this build speaks: stateless, no handshake.

@@ -18,7 +18,9 @@
 //! watching slow work is never a feature of one Door alone.
 //!
 //! It answers no web page: a request carrying an `Origin` header is refused
-//! before anything else about it is read (#145).
+//! before anything else about it is read (#145). A request with no Credential,
+//! or one naming nobody, has had its body read as a stranger's, small and
+//! soon, before it reaches this door (`admission::meet`, #368).
 
 use std::sync::Arc;
 
@@ -44,6 +46,16 @@ pub fn router(core: Arc<Core>) -> Router {
             post(handle).layer(middleware::from_fn(refuse_any_origin)),
         )
         .with_state(core)
+}
+
+/// A refusal made before this door read the request (#368): a stranger's body
+/// too large or too slow. Nothing of the request was read, so it names no id.
+pub fn refusal_before_reading(status: StatusCode, sentence: &str) -> Response {
+    send_error(
+        status,
+        None,
+        json_rpc_error(-32600, format!("Invalid Request: {sentence}")),
+    )
 }
 
 /// The revision requires every server to validate `Origin` against DNS

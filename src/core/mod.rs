@@ -259,6 +259,14 @@ pub struct RunnerCaller {
     pub runner_key_id: String,
 }
 
+/// What a Secret came to before a request's body was read (#368): no Secret
+/// at all, or one that names somebody. One that names nobody is refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Knock {
+    Stranger,
+    Somebody,
+}
+
 /// Who is asking for an Operation: nobody Kamosu knows, a Person, or a Runner.
 /// Exactly one of the three, which is what keeps a Runner from ever standing
 /// where a Person or a stranger is expected.
@@ -344,6 +352,13 @@ pub struct Core {
     /// that the Job has none to the moment the new one is made its own, so
     /// that two creates at once cannot both find it has none.
     job_key_creates: std::sync::Mutex<()>,
+    /// The public address as last read from the database, or nothing until
+    /// it is first asked for (#368). Every answer asks, to know whether it
+    /// came over HTTPS and which `Origin` is the instance's own, and taking
+    /// the database lock for each picture and script would put a page load
+    /// behind whatever write holds it. Forgotten whenever the address is
+    /// stored, so the next ask reads it again.
+    public_address: std::sync::RwLock<Option<Option<String>>>,
     /// The seed Home shuffles *never cooked* by, once a test has pinned one
     /// (#151). Compiled only under `test-jobs`: a real instance draws a fresh
     /// seed each time Home is asked for, and carries nothing to pin it with.
@@ -366,6 +381,7 @@ impl Core {
             passwords: accounts::Passwords::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             job_key_creates: Default::default(),
+            public_address: Default::default(),
             #[cfg(feature = "test-jobs")]
             shelf_seed: Default::default(),
         }
@@ -387,6 +403,7 @@ impl Core {
             passwords: accounts::Passwords::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             job_key_creates: Default::default(),
+            public_address: Default::default(),
             #[cfg(feature = "test-jobs")]
             shelf_seed: Default::default(),
         };
@@ -660,6 +677,26 @@ impl Core {
             .optional()
             .map_err(|e| OpError::internal(format!("cannot resolve Credential: {e}")))
         })
+    }
+
+    /// Whether a Secret names anyone, asked by a Door before it reads a
+    /// request's body (#368): somebody gets a body of the size the Door allows
+    /// its members, a stranger a small one, and a Secret that names nobody is
+    /// answered at once, with the refusal `execute` would give. Nothing is
+    /// recorded as used here; the call that follows does that.
+    pub fn knock(&self, secret: Option<&str>) -> Result<Knock, OpError> {
+        let Some(secret) = secret.filter(|secret| !secret.is_empty()) else {
+            return Ok(Knock::Stranger);
+        };
+        let hash = hash_secret(secret);
+        if self.lookup_credential(&hash)?.is_some()
+            || self.lookup_runner_key(&hash)?.is_some()
+            || self.lookup_job_key(&hash)?.is_some()
+        {
+            Ok(Knock::Somebody)
+        } else {
+            Err(OpError::credential_names_nobody())
+        }
     }
 
     /// Resolve a raw Secret to the Person it acts as, for everything that is

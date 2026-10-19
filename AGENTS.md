@@ -346,6 +346,10 @@ a function**, so a misspelt key is a build error; messages live in
 
 ```
 build.rs            refuses a release build that would ship no interface
+src/admission.rs    what a request must meet before a Door reads it: the
+                    accept loop and its header deadline, the whole-request
+                    deadline, the cap on requests at once, a stranger's
+                    small body, and which Origin is the instance's own (#368)
 src/backups.rs      a Backup: one archive of the database and the
                     Photographs, three kept at three distances (ADR 0039)
 src/bundles.rs      a Bundle: one recipe's worth of Vault, written as a zip of

@@ -945,6 +945,10 @@ export class Outbox implements Keeping {
 				// A Session that has ended cannot send anything; what it wrote
 				// waits for it rather than being thrown away one write at a time.
 				if (error instanceof OperationError && error.kind === 'unauthorized') return true;
+				// Neither can a server answering as many requests as it takes
+				// (#368): it would have taken the write a moment later, so the
+				// write waits for that moment rather than being thrown away.
+				if (error instanceof OperationError && error.kind === 'busy') return true;
 				console.warn(`Kamosu refused ${next.operation} written offline`, error);
 			}
 			await this.#exclusive(() => this.#sent(next, answer));

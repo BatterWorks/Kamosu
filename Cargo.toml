@@ -126,6 +126,13 @@ pdf-extract = "0.12.1"
 # stops the whole group with kill(2), so that what the agent started stops
 # with it. Neither the standard library nor tokio sends a signal to a group.
 libc = "0.2.190"
+# Kamosu runs its own accept loop over hyper rather than `axum::serve` (#368),
+# because `axum::serve` gives hyper no timer and so no header-read timeout: a
+# stranger could hold a connection open for as long as they liked. Both are
+# already in the tree through axum, so this adds no crate; `cargo add` moved
+# each to its current patch release.
+hyper = { version = "1.12.0", features = ["server", "http1"] }
+hyper-util = { version = "0.1.21", features = ["server", "server-graceful", "http1", "tokio", "service"] }
 
 [features]
 # Adds `probe_job`, a demonstration Job Operation, so the behaviour suite can

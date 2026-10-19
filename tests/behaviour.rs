@@ -966,6 +966,12 @@ fn assert_lasting_session_cookie(set_cookie: &str) {
             "the Session cookie must carry {attribute}: {set_cookie}"
         );
     }
+    // A browser takes a `__Host-` cookie only for the whole of one host, with
+    // no Domain, so a sibling subdomain can neither set nor shadow it (#368).
+    assert!(
+        set_cookie.starts_with("__Host-kamosu_session=") && !set_cookie.contains("Domain"),
+        "the Session cookie is this host's alone: {set_cookie}"
+    );
 }
 
 /// A Session that has ended takes its cookie with it (#91).
@@ -986,7 +992,7 @@ async fn an_ended_session_takes_its_cookie_with_it() {
         .expect("Session id")
         .to_string();
     let secret = support::session_cookie_secret(&signed_in);
-    let cookie = format!("kamosu_session={secret}");
+    let cookie = format!("__Host-kamosu_session={secret}");
 
     // While the Session lives, the cookie is a Credential like any other and
     // nothing about it is taken back — it is only renewed (#137).
@@ -1016,7 +1022,7 @@ async fn an_ended_session_takes_its_cookie_with_it() {
     assert_eq!(expired.len(), 1, "exactly one Set-Cookie: {headers:?}");
     let expired = expired[0];
     assert!(
-        expired.starts_with("kamosu_session=;"),
+        expired.starts_with("__Host-kamosu_session=;"),
         "the cookie is emptied: {expired}"
     );
     assert!(expired.contains("Max-Age=0"), "and expired: {expired}");
@@ -1090,7 +1096,7 @@ async fn a_session_cookie_lasts_and_renews_on_use() {
     );
     assert_lasting_session_cookie(set[0]);
     let secret = support::session_cookie_secret(&signed_in);
-    let cookie = format!("kamosu_session={secret}");
+    let cookie = format!("__Host-kamosu_session={secret}");
 
     // Used through the cookie alone, the answer sets the same Secret again with
     // a fresh lifetime.
@@ -1147,7 +1153,7 @@ async fn a_refused_bearer_token_leaves_a_living_session_cookie_alone() {
     let signed_in = app.post_auth_response("/auth/first-person", &create.to_string());
     assert_eq!(signed_in.status, 200, "{}", signed_in.text());
     let cookie = format!(
-        "kamosu_session={}",
+        "__Host-kamosu_session={}",
         support::session_cookie_secret(&signed_in)
     );
 
@@ -1196,7 +1202,10 @@ async fn a_disabled_or_deleted_persons_browser_is_let_go_of_too() {
             .to_string(),
         );
         assert_eq!(joined.status, 200, "{}", joined.text());
-        let cookie = format!("kamosu_session={}", support::session_cookie_secret(&joined));
+        let cookie = format!(
+            "__Host-kamosu_session={}",
+            support::session_cookie_secret(&joined)
+        );
 
         let (status, ended) = app.post_op(
             ending,
@@ -1211,7 +1220,7 @@ async fn a_disabled_or_deleted_persons_browser_is_let_go_of_too() {
         let expired = set_cookies(&headers);
         assert_eq!(expired.len(), 1, "{who} after {ending}: {headers:?}");
         assert!(
-            expired[0].starts_with("kamosu_session=;") && expired[0].contains("Max-Age=0"),
+            expired[0].starts_with("__Host-kamosu_session=;") && expired[0].contains("Max-Age=0"),
             "{who} after {ending}: {}",
             expired[0]
         );

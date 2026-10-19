@@ -92,7 +92,7 @@ Open Kamosu on port 5266 and create the first account. **The first person to ope
 
 ## Put HTTPS in front of it
 
-Kamosu serves plain HTTP and never handles a certificate. Put your own reverse proxy (Caddy, Traefik, nginx) in front of it. Without HTTPS you cannot stay signed in from another device, and offline cooking does not work. To try it on the machine that runs it, `http://localhost:5266` is enough.
+Kamosu serves plain HTTP and never handles a certificate. Put your own reverse proxy (Caddy, Traefik, nginx) in front of it, passing the `Host` header on as the browser sent it (nginx needs `proxy_set_header Host $host;`). Without HTTPS you cannot stay signed in from another device, and offline cooking does not work. To try it on the machine that runs it, `http://localhost:5266` is enough.
 
 ## Connecting an agent
 

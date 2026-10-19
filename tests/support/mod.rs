@@ -42,21 +42,37 @@ pub fn spawn_app() -> TestApp {
 /// used where the test builds the database's *prior* state first, as the
 /// migration tests do.
 pub fn spawn_app_in(data_dir: &std::path::Path) -> TestApp {
+    spawn_app_within(data_dir, kamosu::admission::Limits::KAMOSU)
+}
+
+/// Start a real Kamosu held to shorter limits than a running instance's, for
+/// a test of a deadline it would otherwise wait minutes for (#368).
+#[allow(dead_code)]
+pub fn spawn_app_held_to(limits: kamosu::admission::Limits) -> TestApp {
+    let dir = tempfile::tempdir().expect("temp dir");
+    spawn_app_within(dir.path(), limits).hold_dir(dir)
+}
+
+fn spawn_app_within(data_dir: &std::path::Path, limits: kamosu::admission::Limits) -> TestApp {
     let db = Arc::new(db::Db::open(data_dir).expect("database"));
-    // Literally the application the binary serves — `kamosu::app` is the only
-    // place it is assembled, so a test can never drive an arrangement nobody
-    // runs. A Core with its Job lanes started sits underneath it.
+    // Literally the application the binary serves — `kamosu::app_within` is
+    // where it is assembled, and served by the same accept loop, so a test can
+    // never drive an arrangement nobody runs. A Core with its Job lanes
+    // started sits underneath it.
     let core = Core::start(db);
-    let app = kamosu::app(core.clone());
+    let app = kamosu::app_within(core.clone(), limits);
 
     let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
     std_listener.set_nonblocking(true).unwrap();
     let listener = tokio::net::TcpListener::from_std(std_listener).expect("async listener");
     let addr = listener.local_addr().expect("local addr");
 
-    tokio::spawn(async move {
-        axum::serve(listener, app).await.expect("server");
-    });
+    tokio::spawn(kamosu::admission::serve(
+        listener,
+        app,
+        limits.header,
+        std::future::pending(),
+    ));
 
     TestApp {
         addr,
@@ -298,7 +314,7 @@ impl TestApp {
 }
 
 /// The Session Secret a browser would keep from one answer: the value of the
-/// `kamosu_session` cookie the Door set, with its attributes stripped off.
+/// `__Host-kamosu_session` cookie the Door set, with its attributes stripped off.
 ///
 /// Every test that signs in through `/auth/…` and then acts as that browser
 /// needs this, so it lives here rather than being written out again in each.
@@ -309,7 +325,7 @@ pub fn session_cookie_secret(reply: &http_min::Response) -> String {
         .iter()
         .find(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
         .and_then(|(_, value)| value.split(';').next())
-        .and_then(|pair| pair.strip_prefix("kamosu_session="))
+        .and_then(|pair| pair.strip_prefix("__Host-kamosu_session="))
         .expect("an HttpOnly Session cookie")
         .to_string()
 }

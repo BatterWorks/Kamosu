@@ -19,7 +19,9 @@ not a company with a response time.
 
 - **Put Kamosu behind a reverse proxy that terminates HTTPS.** Kamosu speaks
   plain HTTP and never handles a certificate. Sign-in cookies only travel over
-  HTTPS, so without one nobody can stay signed in.
+  HTTPS, so without one nobody can stay signed in. The proxy must pass the
+  `Host` header on as the browser sent it, or Kamosu cannot tell its own pages
+  from another site's; nginx needs `proxy_set_header Host $host;`.
 - **Set it up yourself, straight after the first start.** Until the first
   Person exists, whoever reaches the setup page becomes the Operator. See
   "A web page opened on your network before you set up a new instance" below.
@@ -121,8 +123,31 @@ network.
 Uploaded pictures are checked by their header before anything decodes them. SVG
 is refused, being a document that can carry script rather than a picture.
 
+A stranger cannot make Kamosu hold much memory, or hold your requests up for
+long, without a proxy's help. A request with no credential carries at most 64
+KB, and one whose credential names nobody is answered before its body is read.
+A connection gets 20 seconds to send its headers, a stranger's body 30 seconds,
+and any request ten minutes, except an upload streamed to disk under its own 2
+GB cap. At most 64 strangers' bodies are read at once, apart from everyone
+else's requests, so a crowd of slow strangers delays only other strangers. Past
+256 requests at once, Kamosu answers busy rather than queueing them. One gap
+remains: an answer is not given up on when the far end stops reading it, so a
+client can keep a connection open by never reading what it asked for.
+
+A page on another site cannot act as you, even one on a sibling subdomain of
+your own domain that the browser counts as the same site. A request that
+changes something is refused when it comes from a page on another address, and
+an Operation sent without a JSON content type is refused rather than run with
+no input. The sign-in cookie is a `__Host-` cookie, so a sibling subdomain can
+neither set it nor shadow it.
+
 Every answer tells the browser to run only Kamosu's own scripts, to refuse to
 show Kamosu inside another site's frame, and to pass none of a link's address,
-a Share Link's secret included, to the site it leads to.
+a Share Link's secret included, to the site it leads to. It also denies what
+Kamosu never asks for, such as the microphone and location, keeps Kamosu's
+pages out of reach of a window another site opened, and lets no other site
+load Kamosu's answers, except what a Share Link hands to anyone. An answer
+sent to an `https://` public address tells the browser to use only HTTPS there
+for a year.
 
 `tests/defences.rs` asserts all of the above against a running instance.

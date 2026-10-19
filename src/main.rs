@@ -120,10 +120,13 @@ fn serve(config: Config) {
             config.data_dir.display()
         );
 
-        axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal())
-            .await
-            .expect("server error");
+        kamosu::admission::serve(
+            listener,
+            app,
+            kamosu::admission::Limits::KAMOSU.header,
+            shutdown_signal(),
+        )
+        .await;
     });
 }
 

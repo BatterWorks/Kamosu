@@ -59,9 +59,11 @@ describe('a Session label', () => {
 
 describe('signing in', () => {
 	it('takes the Secret from the Session cookie and no other', () => {
-		const lines = ['other=1; Path=/', 'kamosu_session=abc123; Path=/; HttpOnly; Secure'];
+		const lines = ['other=1; Path=/', '__Host-kamosu_session=abc123; Path=/; HttpOnly; Secure'];
 		expect(secretFrom(lines)).toBe('abc123');
 		expect(secretFrom(['other=1'])).toBeNull();
+		// The name it had before #368, which no Kamosu sets any longer.
+		expect(secretFrom(['kamosu_session=abc123; Path=/'])).toBeNull();
 	});
 });
 
