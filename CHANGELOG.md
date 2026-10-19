@@ -7,6 +7,7 @@
 - Every browser is signed out once and signs in again. The sign-in cookie is now `__Host-kamosu_session`, which a page on another subdomain of the same domain can neither set nor replace, and the old `kamosu_session` is no longer read. [#368]
 - A proxy in front of Kamosu must pass the `Host` header on unchanged, as Caddy and Traefik do by default and nginx does with `proxy_set_header Host $host;`, or the public address must be set. Otherwise every request a browser makes to change something is refused as coming from another site. Kamosu also speaks HTTP/1.1 only, so a proxy told to speak HTTP/2 to it in the clear must speak HTTP/1.1 instead. [#368]
 - The model provider's key moves from the agent beside a Runner to the Runner. Put it in the Runner's settings as `KAMOSU_RUNNER_MODEL_KEY`, with the provider's API address as `KAMOSU_RUNNER_MODEL_ADDRESS`, and take `KAMOSU_AGENT_API_KEY`, or the provider's own variable, out of the agent's. Beside the published agent image, the Runner also needs `KAMOSU_RUNNER_MODEL_SOCKET` and a second socket volume shared with the agent, and the agent belongs behind the new fence, as the Compose file in `docs/runner.md` shows. Until the key moves, the agent works as before, and the Runner's log and the agent's say to move it. [#372]
+- Every Access Key an Operator already holds still acts as Operator. Revoke any whose agent does not look after the instance, and mint it again as an ordinary key. `list_access_keys` says which keys act as Operator. [#369]
 
 ### Added
 
@@ -15,15 +16,21 @@
 
 ### Changed
 
+- An Access Key an Operator mints acts as an ordinary Person unless it is minted as an Operator key, with `operator: true` on `mint_access_key`, which only an Operator signed in can do. Before, every key an Operator minted carried all of an Operator's powers, so any agent an Operator handed a key to could rewrite the House Notes every later Job reads. `mint_access_key` and `list_access_keys` answer which keys are Operator keys, in a new field, `operator`. An Operator key stops acting as Operator once its Person stops being one, and stays an ordinary key if they become Operator again. [#369]
+- In Settings, an Operator creating an Access Key chooses whether it acts as them as a cook, which is the default, or as Operator too, and choosing Operator says what that hands an agent. A Person who is no Operator sees no choice. The key list marks an Operator key "Acts as Operator". [#369]
+- A form that sets a password, on the first start, an Invite or a recovery link, asks for it twice, and says so when the two differ. [#369]
 - An Operation sent without `Content-Type: application/json` is refused. It used to run with an empty input. A request to an Operation, a sign-in or an upload that comes from a page on another address is refused too, where only `SameSite` kept one out, which a page on a sibling subdomain gets past. Agents, curl and the Runner send no `Origin` and are answered as before. [#368]
 - Every answer also tells the browser to deny what Kamosu never asks for, such as the microphone and location, to keep its pages out of reach of windows another site opened, and to let no other site load its answers, except what a Share Link hands to anyone. An answer sent to an `https://` public address also tells the browser to come back only over HTTPS for a year. [#368]
 
 ### Fixed
 
+- Setting a new password with a recovery link signs out every device and ends every Access Key the account held, so whoever had the old password is shut out. Before, they all kept working. The recovery page says so before the password is set, and the answer says how many in `ended_sessions` and `ended_access_keys`. [#369]
+- A read-only Access Key can no longer fetch a Backup, which holds every password and Secret hash on the instance. [#369]
 - A request with no Credential carries at most 64 KB, and is refused before its body is read when it says it carries more. Before, anyone could make Kamosu hold 40 MB per request in memory. A Credential that names nobody is answered before its body is read at all. A member's request keeps the 40 MB a phone's photograph needs. [#368]
 - Kamosu lets go of a slow sender: a connection that takes more than 20 seconds to send a request's headers, or sits idle that long between two, a request with no Credential whose body takes more than 30 seconds, and any request that takes more than ten minutes, a staged upload excepted. Past 256 requests at once it answers busy, where it used to take on as many as arrived, and it reads at most 64 strangers' bodies at once, apart from everyone else's requests, so slow strangers hold up only other strangers. Before, a stranger could hold connections open for as long as they liked. [#368]
 
 [#368]: https://github.com/BatterWorks/Kamosu/issues/368
+[#369]: https://github.com/BatterWorks/Kamosu/issues/369
 [#372]: https://github.com/BatterWorks/Kamosu/issues/372
 
 ## v0.3.0 - 2026-10-18

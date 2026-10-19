@@ -294,20 +294,22 @@ export type RevokeSessionOutput = {
 	revoked: boolean;
 };
 
-/** Mint an Access Key for an agent to act as you. You may make it read-only. */
+/** Mint an Access Key for an agent to act as you. You may make it read-only. An Operator may make it an Operator key, which acts as an Operator too; any other key acts as an ordinary Person. */
 export type MintAccessKeyInput = {
 	name: string;
+	operator?: boolean;
 	read_only?: boolean;
 };
 /** What mint_access_key answers. */
 export type MintAccessKeyOutput = {
 	id: string;
 	name: string;
+	operator: boolean;
 	read_only: boolean;
 	secret: string;
 };
 
-/** List this Person's Access Keys by name and last use. */
+/** List this Person's Access Keys by name and last use. Each says whether it acts as an Operator. */
 export type ListAccessKeysInput = Record<string, never>;
 /** What list_access_keys answers. */
 export type ListAccessKeysOutput = {
@@ -316,6 +318,7 @@ export type ListAccessKeysOutput = {
 		id: string;
 		last_used_at: string | null;
 		name: string;
+		operator: boolean;
 		read_only: boolean;
 		revoked: boolean;
 	}[];
@@ -7418,7 +7421,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "mint_access_key",
-		"summary": "Mint an Access Key for an agent to act as you. You may make it read-only.",
+		"summary": "Mint an Access Key for an agent to act as you. You may make it read-only. An Operator may make it an Operator key, which acts as an Operator too; any other key acts as an ordinary Person.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -7426,6 +7429,10 @@ export const CATALOGUE = [
 			"properties": {
 				"name": {
 					"type": "string"
+				},
+				"operator": {
+					"default": false,
+					"type": "boolean"
 				},
 				"read_only": {
 					"default": false,
@@ -7446,6 +7453,9 @@ export const CATALOGUE = [
 				"name": {
 					"type": "string"
 				},
+				"operator": {
+					"type": "boolean"
+				},
 				"read_only": {
 					"type": "boolean"
 				},
@@ -7457,6 +7467,7 @@ export const CATALOGUE = [
 				"id",
 				"name",
 				"read_only",
+				"operator",
 				"secret"
 			],
 			"type": "object"
@@ -7464,7 +7475,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "list_access_keys",
-		"summary": "List this Person's Access Keys by name and last use.",
+		"summary": "List this Person's Access Keys by name and last use. Each says whether it acts as an Operator.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -7494,6 +7505,9 @@ export const CATALOGUE = [
 							"name": {
 								"type": "string"
 							},
+							"operator": {
+								"type": "boolean"
+							},
 							"read_only": {
 								"type": "boolean"
 							},
@@ -7505,6 +7519,7 @@ export const CATALOGUE = [
 							"id",
 							"name",
 							"read_only",
+							"operator",
 							"created_at",
 							"last_used_at",
 							"revoked"
@@ -34077,9 +34092,9 @@ export interface KamosuClient {
 	renameSession(input: RenameSessionInput): Promise<Answer<'rename_session'>>;
 	/** End one of your browser Sessions. `current` says whether it was the one this call was made with, as `list_sessions` marks it: a browser that ended its own is signed out. */
 	revokeSession(input: RevokeSessionInput): Promise<Answer<'revoke_session'>>;
-	/** Mint an Access Key for an agent to act as you. You may make it read-only. */
+	/** Mint an Access Key for an agent to act as you. You may make it read-only. An Operator may make it an Operator key, which acts as an Operator too; any other key acts as an ordinary Person. */
 	mintAccessKey(input: MintAccessKeyInput): Promise<Answer<'mint_access_key'>>;
-	/** List this Person's Access Keys by name and last use. */
+	/** List this Person's Access Keys by name and last use. Each says whether it acts as an Operator. */
 	listAccessKeys(input?: ListAccessKeysInput): Promise<Answer<'list_access_keys'>>;
 	/** End one of your Access Keys. */
 	revokeAccessKey(input: RevokeAccessKeyInput): Promise<Answer<'revoke_access_key'>>;

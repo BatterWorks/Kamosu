@@ -899,7 +899,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "mint_access_key",
             summary: "Mint an Access Key for an agent to act as you. You may \
-                      make it read-only.",
+                      make it read-only. An Operator may make it an Operator \
+                      key, which acts as an Operator too; any other key acts \
+                      as an ordinary Person.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -911,6 +913,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "properties": {
                     "name": { "type": "string" },
                     "read_only": { "type": "boolean", "default": false },
+                    "operator": { "type": "boolean", "default": false },
                 },
                 "required": ["name"],
                 "additionalProperties": false,
@@ -921,16 +924,18 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     "id": { "type": "string" },
                     "name": { "type": "string" },
                     "read_only": { "type": "boolean" },
+                    "operator": { "type": "boolean" },
                     "secret": { "type": "string" },
                 },
-                "required": ["id", "name", "read_only", "secret"],
+                "required": ["id", "name", "read_only", "operator", "secret"],
                 "additionalProperties": false,
             }),
             handler: crate::operations::mint_access_key,
         },
         Operation {
             name: "list_access_keys",
-            summary: "List this Person's Access Keys by name and last use.",
+            summary: "List this Person's Access Keys by name and last use. \
+                      Each says whether it acts as an Operator.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -949,11 +954,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                                 "id": { "type": "string" },
                                 "name": { "type": "string" },
                                 "read_only": { "type": "boolean" },
+                                "operator": { "type": "boolean" },
                                 "created_at": { "type": "string" },
                                 "last_used_at": { "type": ["string", "null"] },
                                 "revoked": { "type": "boolean" },
                             },
-                            "required": ["id", "name", "read_only", "created_at", "last_used_at", "revoked"],
+                            "required": ["id", "name", "read_only", "operator", "created_at", "last_used_at", "revoked"],
                             "additionalProperties": false,
                         },
                     },

@@ -14,33 +14,63 @@ pub struct AccessKey {
     pub secret: String,
     pub name: String,
     pub read_only: bool,
+    /// Whether the Key acts as an Operator: an Operator key (#369).
+    pub operator: bool,
 }
 
 impl Core {
-    /// Mint an Access Key for a Person. Plumbing beneath both Doors and the
-    /// terminal — obtaining a Credential is not an Operation. The raw Secret is
-    /// returned once and stored only as its hash.
+    /// Mint an Access Key for a Person, one that acts as an ordinary Person
+    /// whoever they are. Plumbing beneath both Doors and the terminal —
+    /// obtaining a Credential is not an Operation. The raw Secret is returned
+    /// once and stored only as its hash.
     pub fn mint_access_key(
         &self,
         person_id: &str,
         key_name: &str,
         read_only: bool,
     ) -> Result<AccessKey, OpError> {
+        self.mint_key(person_id, key_name, read_only, false)
+    }
+
+    /// Mint an Operator key: an Access Key that carries its Person's powers as
+    /// an Operator for as long as they are one (#369). Refused for a Person who
+    /// is not an Operator now.
+    pub fn mint_operator_key(
+        &self,
+        person_id: &str,
+        key_name: &str,
+        read_only: bool,
+    ) -> Result<AccessKey, OpError> {
+        self.mint_key(person_id, key_name, read_only, true)
+    }
+
+    fn mint_key(
+        &self,
+        person_id: &str,
+        key_name: &str,
+        read_only: bool,
+        operator: bool,
+    ) -> Result<AccessKey, OpError> {
         let key_name = required_text(key_name, "name")?.to_string();
         let secret = generate_secret();
         let hash = hash_secret(&secret);
         let id = format!("ak_{}", hex::encode(random_bytes(8)));
         self.db().with_conn(|conn| {
-            let exists: bool = conn
-                .query_row("SELECT COUNT(*) FROM people WHERE id = ?1", params![person_id], |r| r.get(0))
-                .map(|n: i64| n > 0)
+            let is_operator: Option<bool> = conn
+                .query_row("SELECT is_operator FROM people WHERE id = ?1", params![person_id], |r| r.get(0))
+                .optional()
                 .map_err(|e| OpError::internal(e.to_string()))?;
-            if !exists {
+            let Some(is_operator) = is_operator else {
                 return Err(OpError::bad_request(format!("no Person '{person_id}'")));
+            };
+            if operator && !is_operator {
+                return Err(OpError::unauthorized(
+                    "only an Operator can mint an Operator key",
+                ));
             }
             conn.execute(
-                "INSERT INTO access_keys (id, secret_hash, person_id, name, read_only) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![id, hash, person_id, key_name, read_only as i64],
+                "INSERT INTO access_keys (id, secret_hash, person_id, name, read_only, acts_as_operator) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![id, hash, person_id, key_name, read_only as i64, operator as i64],
             )
             .map_err(|e| OpError::internal(format!("cannot mint access key: {e}")))?;
             Ok(())
@@ -50,6 +80,7 @@ impl Core {
             secret,
             name: key_name,
             read_only,
+            operator,
         })
     }
 
@@ -59,11 +90,12 @@ impl Core {
     pub fn access_keys_of(&self, person_id: &str) -> Result<Vec<Value>, OpError> {
         self.db().with_conn(|conn| {
             let mut statement = conn.prepare(
-                "SELECT id, name, read_only, created_at, last_used_at, revoked FROM access_keys WHERE person_id = ?1 ORDER BY created_at DESC",
+                "SELECT id, name, read_only, created_at, last_used_at, revoked, acts_as_operator FROM access_keys WHERE person_id = ?1 ORDER BY created_at DESC",
             ).map_err(|e| OpError::internal(format!("cannot list Access Keys: {e}")))?;
             statement.query_map(params![person_id], |row| Ok(json!({
                 "id": row.get::<_, String>(0)?, "name": row.get::<_, String>(1)?,
                 "read_only": row.get::<_, i64>(2)? != 0,
+                "operator": row.get::<_, i64>(6)? != 0,
                 "created_at": row.get::<_, String>(3)?, "last_used_at": row.get::<_, Option<String>>(4)?,
                 "revoked": row.get::<_, i64>(5)? != 0,
             }))).map_err(|e| OpError::internal(format!("cannot read Access Keys: {e}")))?
@@ -479,19 +511,25 @@ impl Core {
             id: format!("s_{}", hex::encode(random_bytes(8))),
             secret: generate_secret(),
         };
-        self.db().with_conn(|conn| {
+        let (ended_sessions, ended_access_keys) = self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| OpError::internal(e.to_string()))?;
-            let result = (|| -> Result<(), OpError> {
+            let result = (|| -> Result<(usize, usize), OpError> {
                 let person_id: Option<String> = conn.query_row("SELECT people.id FROM account_links JOIN people ON people.id=account_links.person_id WHERE secret_hash=?1 AND kind='recovery' AND spent=0 AND revoked=0 AND disabled=0 AND deleted=0", params![hash_secret(secret)], |r| r.get(0)).optional().map_err(|e| OpError::internal(e.to_string()))?;
                 let person_id=person_id.ok_or_else(|| OpError::unauthorized("this recovery link has already been spent or revoked"))?;
                 conn.execute("UPDATE account_links SET spent=1 WHERE secret_hash=?1 AND spent=0",params![hash_secret(secret)]).map_err(|e| OpError::internal(e.to_string()))?;
                 conn.execute("UPDATE people SET password_hash=?1 WHERE id=?2",params![password_hash,person_id]).map_err(|e| OpError::internal(e.to_string()))?;
+                // Whoever took the old password stays signed in no longer, in a
+                // browser or through a key (#369).
+                let ended_sessions = conn.execute("UPDATE sessions SET revoked=1 WHERE person_id=?1 AND revoked=0",params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
+                let ended_access_keys = conn.execute("UPDATE access_keys SET revoked=1 WHERE person_id=?1 AND revoked=0",params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 conn.execute("INSERT INTO sessions (id,secret_hash,person_id,name) VALUES (?1,?2,?3,?4)",params![session.id,hash_secret(&session.secret),person_id,session_name]).map_err(|e| OpError::internal(e.to_string()))?;
-                Ok(())
+                Ok((ended_sessions, ended_access_keys))
             })();
-            match result { Ok(()) => conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string())), Err(e) => { let _=conn.execute_batch("ROLLBACK"); Err(e) } }
+            match result { Ok(ended) => { conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string()))?; Ok(ended) }, Err(e) => { let _=conn.execute_batch("ROLLBACK"); Err(e) } }
         })?;
-        Ok(json!({"session_id":session.id,"_session_secret":session.secret}))
+        Ok(
+            json!({"session_id":session.id,"_session_secret":session.secret,"ended_sessions":ended_sessions,"ended_access_keys":ended_access_keys}),
+        )
     }
 
     /// Who holds an account here (#103). Names only, with the two facts an
@@ -551,6 +589,17 @@ impl Core {
                     params![is_operator as i64, person_id],
                 )
                 .map_err(|e| OpError::internal(format!("cannot change who administers: {e}")))?;
+                // An Operator key acts as one no longer, and stays an ordinary
+                // key if they are made Operator again (#369).
+                if !is_operator {
+                    conn.execute(
+                        "UPDATE access_keys SET acts_as_operator = 0 WHERE person_id = ?1",
+                        params![person_id],
+                    )
+                    .map_err(|e| {
+                        OpError::internal(format!("cannot end their Operator keys: {e}"))
+                    })?;
+                }
                 Ok(json!({ "name": name, "is_operator": is_operator }))
             })();
             match result {

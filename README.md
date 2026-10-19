@@ -312,6 +312,11 @@ cannot create another key, change your password or invite a new account.
 Revoke it from the same screen whenever you like; keys never expire on their
 own.
 
+An Operator's key acts as an ordinary cook unless it is made an Operator key
+when it is created. Only an Operator key can do what an Operator does, such as
+changing the House Notes every agent reads or taking a Backup. Give one only to
+an agent that looks after the instance.
+
 An agent that reads a web page or someone else's recipe can be given
 instructions by that text. A read-only key limits what that can cost.
 

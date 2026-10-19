@@ -228,20 +228,31 @@ pub fn mint_access_key(
     invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
-    let name = input
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("mint_access_key takes { name, read_only? }"))?;
+    let name = input.get("name").and_then(Value::as_str).ok_or_else(|| {
+        OpError::bad_request("mint_access_key takes { name, read_only?, operator? }")
+    })?;
     let read_only = input
         .get("read_only")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let operator = input
+        .get("operator")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let caller = caller_of(invocation)?;
-    let key = core.mint_access_key(&caller.person_id, name, read_only)?;
+    // `mint_access_key` is declared `session_only`, so the caller here is a
+    // Session. The Core refuses an Operator key to anybody not an Operator
+    // (#369).
+    let key = if operator {
+        core.mint_operator_key(&caller.person_id, name, read_only)?
+    } else {
+        core.mint_access_key(&caller.person_id, name, read_only)?
+    };
     Ok(json!({
         "id": key.id,
         "name": key.name,
         "read_only": key.read_only,
+        "operator": key.operator,
         "secret": key.secret,
     }))
 }
@@ -512,7 +523,7 @@ pub fn delete_kitchen(
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("delete_kitchen takes { kitchen_id }"))?;
     let caller = caller_of(invocation)?;
-    core.delete_kitchen(&caller.person_id, kitchen_id)?;
+    core.delete_kitchen(caller, kitchen_id)?;
     Ok(json!({ "deleted": true }))
 }
 
