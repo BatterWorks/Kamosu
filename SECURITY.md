@@ -88,6 +88,14 @@ A read-only Key limits what that costs. Nothing prevents it. Every other recipe
 app has a human sitting between the page and the action, and by design this one
 does not, so mint Keys accordingly.
 
+The agent beside a Runner reads such text with nobody watching, and holds a
+Job Key for one Job. A page that tricks it can have it write that Job's one
+recipe wrong, send away what the Job Key reads, the library as the person who
+asked sees it, until the Job ends, and spend on the model for the length of
+the Job. It does not hold the model provider's key, which stays with the
+Runner, and the fence in `docs/runner.md` keeps its container off your own
+network. Set a spending limit at your provider all the same.
+
 **Kamosu has not been audited by anyone.** It is a recipe app written for one
 household and shared.
 
