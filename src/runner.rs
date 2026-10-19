@@ -1,19 +1,23 @@
 //! The Runner (ADR 0048, #274): Kamosu's own program started in another mode,
 //! `kamosu runner`, beside an agent that reads what Kamosu cannot.
 //!
-//! It asks one Kamosu for work and is never called: it opens every connection
-//! itself and listens on no port. For each Job it makes a fresh folder, writes
+//! It asks one Kamosu for work and Kamosu never calls it: it opens every
+//! connection to Kamosu itself. For each Job it makes a fresh folder, writes
 //! down there what the Job is and its Job Key, and starts the agent command in
 //! it. While the command runs it renews its hold. When the command ends it
 //! reports how, with the report the agent left in the folder, and removes the
 //! folder. It knows nothing of the kinds of Job: what Kamosu says about one
 //! is passed on as Kamosu said it.
 //!
-//! It opens no database and needs no data directory. Its one Secret is the
-//! Runner Key, taken from the environment and kept out of the agent's reach:
-//! it is in no file of the folder, not in the command's environment, and
-//! blanked in the Runner's own, so an agent a page has tricked holds a key to
-//! its one Job and nothing more.
+//! It opens no database and needs no data directory. Its Secrets are the
+//! Runner Key and, when it is given one, the model provider's key, both taken
+//! from the environment and kept out of the agent's reach: they are in no file
+//! of the folder, not in the command's environment, and blanked in the
+//! Runner's own, so an agent a page has tricked holds a key to its one Job and
+//! nothing more. With the provider's key the Runner relays the agent's model
+//! requests for the length of each Job (`model_relay.rs`, #372), and that
+//! relay is the one thing it listens on: a port on the loopback, or a socket
+//! for an agent in a container of its own.
 //!
 //! What the agent is handed and what it leaves are a contract with whoever
 //! writes an agent's instructions, set down on #274:
@@ -21,7 +25,10 @@
 //! - `job.json`, written before the command starts: `kamosu` is the address
 //!   the Runner was given, `mcp` is Kamosu's MCP door there, and `job` is the
 //!   Job as `ask_for_work` answered it, `job_key` included, less the two
-//!   fields about the Runner's own hold.
+//!   fields about the Runner's own hold. `model_relay`, there only when the
+//!   Runner holds the provider's key, is where the agent sends its model
+//!   requests, as `address` or `socket`, the stand-in `key` it sends, and
+//!   the `provider` address the relay sends them on to.
 //! - `report.json`, left by the agent: `outcome` is `completed`,
 //!   `could_not_be_read` or `failed`, `reason` is one sentence for the last
 //!   two, and `report` is the agent's own report as `report_on_job` takes it.
@@ -53,6 +60,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tokio::process::Command;
 use url::Url;
+
+use crate::model_relay::{
+    MODEL_ADDRESS_VAR, MODEL_KEY_VAR, MODEL_SOCKET_VAR, Place, Provider, Relay,
+};
 
 /// The environment variable the Runner Key is read from. Never a command-line
 /// argument: every process on the machine can read another's arguments.
@@ -218,6 +229,59 @@ fn settings(told: Told) -> Result<(String, Agent), String> {
     Ok((kamosu, agent))
 }
 
+/// The provider's key and address, and where the relay opens for `agent`, or
+/// None when the Runner was given no key. Read before the key is blanked.
+fn model_settings(agent: &Agent) -> Result<Option<(Url, String, Place)>, String> {
+    let key = setting(MODEL_KEY_VAR);
+    let address = setting(MODEL_ADDRESS_VAR);
+    let socket = setting(MODEL_SOCKET_VAR).map(PathBuf::from);
+    let (key, address) = match (key, address) {
+        (None, None) => {
+            return match socket {
+                Some(_) => Err(format!(
+                    "{MODEL_SOCKET_VAR} says where to open the model relay, and no \
+                     {MODEL_KEY_VAR} is given. Give the model's key and address too, or \
+                     leave the socket out."
+                )),
+                None => Ok(None),
+            };
+        }
+        (Some(_), None) => {
+            return Err(format!(
+                "{MODEL_KEY_VAR} holds the model's key, and {MODEL_ADDRESS_VAR} names no \
+                 address to send it to. Give the provider's address, such as \
+                 https://openrouter.ai/api/v1."
+            ));
+        }
+        (None, Some(_)) => {
+            return Err(format!(
+                "{MODEL_ADDRESS_VAR} names the model's provider, and {MODEL_KEY_VAR} holds no \
+                 key for it. Give both, or neither."
+            ));
+        }
+        (Some(key), Some(address)) => (key, address),
+    };
+    let address = crate::model_relay::provider_address(&address)?;
+    let place = match (agent, socket) {
+        (Agent::Command(_), None) => Place::Loopback,
+        (Agent::Socket(_), Some(socket)) => Place::Socket(socket),
+        (Agent::Command(_), Some(_)) => {
+            return Err(format!(
+                "{MODEL_SOCKET_VAR} is for an agent at a socket. An agent command reaches the \
+                 relay on the loopback: leave it out."
+            ));
+        }
+        (Agent::Socket(_), None) => {
+            return Err(format!(
+                "An agent at a socket reaches the model relay through a socket of the \
+                 Runner's: name it in {MODEL_SOCKET_VAR}, in a folder the agent's container \
+                 can open, such as /run/kamosu-relay/model.sock."
+            ));
+        }
+    };
+    Ok(Some((address, key, place)))
+}
+
 /// Run the Runner until it is stopped, or until Kamosu refuses it in a way
 /// asking again cannot mend. Answers the exit code.
 pub fn run(told: Told) -> i32 {
@@ -246,14 +310,24 @@ pub fn run(told: Told) -> i32 {
             return 2;
         }
     };
+    let model = match model_settings(&agent) {
+        Ok(model) => model,
+        Err(why) => {
+            eprintln!("{why}");
+            return 2;
+        }
+    };
     scrub_from_environment(RUNNER_KEY_VAR);
+    scrub_from_environment(MODEL_KEY_VAR);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .expect("tokio runtime");
     runtime.block_on(async move {
-        let runner = Runner::new(kamosu, runner_key, agent, Pace::of_this_build());
+        let relay =
+            model.map(|(address, key, place)| (Arc::new(Provider::new(address, key)), place));
+        let runner = Runner::new(kamosu, runner_key, agent, relay, Pace::of_this_build());
         tokio::select! {
             code = runner.run() => code,
             _ = stop_signal() => {
@@ -391,11 +465,20 @@ struct Runner {
     /// which would refuse the private address a Runner is often given, and
     /// nothing outside this file can reach it.
     client: reqwest::Client,
+    /// The model's provider and where each Job's relay opens, when the
+    /// Runner holds the provider's key.
+    relay: Option<(Arc<Provider>, Place)>,
     working: Arc<Mutex<Option<Working>>>,
 }
 
 impl Runner {
-    fn new(kamosu: Url, runner_key: String, agent: Agent, pace: Pace) -> Runner {
+    fn new(
+        kamosu: Url,
+        runner_key: String,
+        agent: Agent,
+        relay: Option<(Arc<Provider>, Place)>,
+        pace: Pace,
+    ) -> Runner {
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
@@ -408,6 +491,7 @@ impl Runner {
             agent,
             pace,
             client,
+            relay,
             working: Arc::new(Mutex::new(None)),
         }
     }
@@ -419,6 +503,19 @@ impl Runner {
             "Kamosu Runner {version} asking {} for work.",
             self.kamosu.as_str()
         );
+        match &self.relay {
+            Some((provider, _)) => eprintln!(
+                "Relaying the agent's model requests to {}, with the key the Runner holds.",
+                provider.address()
+            ),
+            None => eprintln!(
+                "The Runner holds no model key, so the agent holds its provider's key \
+                 itself, where a page that tricks it can have it sent away. Move the key to \
+                 the Runner, in {MODEL_KEY_VAR} with {MODEL_ADDRESS_VAR}, and take it out of \
+                 the agent's settings: see docs/runner.md. A provider that needs more than \
+                 a key cannot be relayed."
+            ),
+        }
         let mut ask = fresh_mark();
         let mut away = Away::default();
         // The call an agent at a socket waits on. A Job is asked for only
@@ -503,11 +600,24 @@ impl Runner {
             return;
         };
         eprintln!("Working Job {job_id}.");
+        // Open for this Job alone, and closed before it is reported, with
+        // every request the agent still has open.
+        let relay = match &self.relay {
+            None => None,
+            Some((provider, place)) => match Relay::open(provider.clone(), place).await {
+                Ok(relay) => Some(relay),
+                Err(e) => {
+                    let reason = format!("the Runner could not open the model relay: {e}");
+                    return self.report(job_id, Report::Failed(reason)).await;
+                }
+            },
+        };
+        let handed = handed_job(&self.kamosu, job, relay.as_ref().map(Relay::handed));
         let report = match (call, &self.agent) {
-            (Some(call), _) => self.hand_over_by_socket(job_id, job, call).await,
+            (Some(call), _) => self.hand_over_by_socket(job_id, job, &handed, call).await,
             (None, Agent::Command(command)) => match fresh_folder() {
                 Ok(folder) => {
-                    let report = self.hand_over(job_id, job, command, &folder).await;
+                    let report = self.hand_over(job_id, job, &handed, command, &folder).await;
                     remove_folder(&folder);
                     report
                 }
@@ -519,6 +629,7 @@ impl Runner {
                 "the Runner had no agent to hand the Job to".to_string(),
             )),
         };
+        drop(relay);
         if let Some(report) = report {
             self.report(job_id, report).await;
         }
@@ -531,10 +642,11 @@ impl Runner {
         &self,
         job_id: &str,
         job: &Value,
+        handed: &Value,
         command: &[String],
         folder: &Path,
     ) -> Option<Report> {
-        if let Err(e) = write_job_file(folder, &self.kamosu, job) {
+        if let Err(e) = write_job_file(folder, handed) {
             return Some(Report::Failed(format!(
                 "the Runner could not write the Job down for the agent: {e}"
             )));
@@ -543,6 +655,7 @@ impl Runner {
             .args(&command[1..])
             .current_dir(folder)
             .env_remove(RUNNER_KEY_VAR)
+            .env_remove(MODEL_KEY_VAR)
             .stdin(std::process::Stdio::null())
             // Its own process group, so that stopping it stops everything
             // it started.
@@ -600,9 +713,10 @@ impl Runner {
         &self,
         job_id: &str,
         job: &Value,
+        handed: &Value,
         mut call: AgentCall,
     ) -> Option<Report> {
-        let mut sent = serde_json::to_vec(&handed_job(&self.kamosu, job)).expect("JSON");
+        let mut sent = serde_json::to_vec(handed).expect("JSON");
         sent.push(b'\n');
         let written =
             tokio::time::timeout(self.pace.call_timeout, call.stream.write_all(&sent)).await;
@@ -1010,23 +1124,27 @@ fn fresh_folder() -> std::io::Result<PathBuf> {
 }
 
 /// Write down what the Job is for the agent command.
-fn write_job_file(folder: &Path, kamosu: &Url, job: &Value) -> std::io::Result<()> {
-    let text = serde_json::to_string_pretty(&handed_job(kamosu, job)).expect("JSON");
+fn write_job_file(folder: &Path, handed: &Value) -> std::io::Result<()> {
+    let text = serde_json::to_string_pretty(handed).expect("JSON");
     std::fs::write(folder.join(JOB_FILE), text)
 }
 
 /// What `job.json` holds, which an agent at a socket is sent as one line.
-fn handed_job(kamosu: &Url, job: &Value) -> Value {
+fn handed_job(kamosu: &Url, job: &Value, model_relay: Option<Value>) -> Value {
     let mut job = job.clone();
     if let Some(job) = job.as_object_mut() {
         job.remove("held_until");
         job.remove("renew_within_seconds");
     }
-    json!({
+    let mut handed = json!({
         "kamosu": kamosu.as_str(),
         "mcp": kamosu.join("mcp").expect("the MCP door's address").as_str(),
         "job": job,
-    })
+    });
+    if let Some(model_relay) = model_relay {
+        handed["model_relay"] = model_relay;
+    }
+    handed
 }
 
 fn remove_folder(folder: &Path) {
@@ -1071,7 +1189,7 @@ fn spoken(duration: Duration) -> String {
 
 /// A connection error in a sentence, with its cause: reqwest's own words for
 /// one stop at "error sending request".
-fn plain_error(error: &reqwest::Error) -> String {
+pub(crate) fn plain_error(error: &reqwest::Error) -> String {
     use std::error::Error;
     let mut words = error.to_string();
     let mut cause = error.source();

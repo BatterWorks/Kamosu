@@ -6,6 +6,12 @@
 
 - Every browser is signed out once and signs in again. The sign-in cookie is now `__Host-kamosu_session`, which a page on another subdomain of the same domain can neither set nor replace, and the old `kamosu_session` is no longer read. [#368]
 - A proxy in front of Kamosu must pass the `Host` header on unchanged, as Caddy and Traefik do by default and nginx does with `proxy_set_header Host $host;`, or the public address must be set. Otherwise every request a browser makes to change something is refused as coming from another site. Kamosu also speaks HTTP/1.1 only, so a proxy told to speak HTTP/2 to it in the clear must speak HTTP/1.1 instead. [#368]
+- The model provider's key moves from the agent beside a Runner to the Runner. Put it in the Runner's settings as `KAMOSU_RUNNER_MODEL_KEY`, with the provider's API address as `KAMOSU_RUNNER_MODEL_ADDRESS`, and take `KAMOSU_AGENT_API_KEY`, or the provider's own variable, out of the agent's. Beside the published agent image, the Runner also needs `KAMOSU_RUNNER_MODEL_SOCKET` and a second socket volume shared with the agent, and the agent belongs behind the new fence, as the Compose file in `docs/runner.md` shows. Until the key moves, the agent works as before, and the Runner's log and the agent's say to move it. [#372]
+
+### Added
+
+- A Runner given the model provider's key relays its agent's model requests, so the agent never holds the key and a page that tricks it has none to send away. For each Job it opens a relay for that Job's agent alone, on the loopback for an agent command or at a socket for an agent in a container of its own, and hands the agent its address and a stand-in key in `job.json`, as `model_relay`. The relay puts the real key where the agent put the stand-in, in `Authorization`, `x-api-key` or `x-goog-api-key`, sends the request to the one address the Runner was given, under the same path, and streams the answer back. It refuses any other key, and closes when the Job ends. The published agent image sends opencode through it. [#372]
+- The published agent image can be started as a fence, `/opt/kamosu-agent/fence`, whose network the agent's container shares. It lets the agent reach the internet and Kamosu's address, refuses the host, the LAN and every other private address, and keeps no root and no capability once its rules are set. [#372]
 
 ### Changed
 
@@ -18,6 +24,7 @@
 - Kamosu lets go of a slow sender: a connection that takes more than 20 seconds to send a request's headers, or sits idle that long between two, a request with no Credential whose body takes more than 30 seconds, and any request that takes more than ten minutes, a staged upload excepted. Past 256 requests at once it answers busy, where it used to take on as many as arrived, and it reads at most 64 strangers' bodies at once, apart from everyone else's requests, so slow strangers hold up only other strangers. Before, a stranger could hold connections open for as long as they liked. [#368]
 
 [#368]: https://github.com/BatterWorks/Kamosu/issues/368
+[#372]: https://github.com/BatterWorks/Kamosu/issues/372
 
 ## v0.3.0 - 2026-10-18
 

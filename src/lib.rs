@@ -28,6 +28,7 @@ pub mod jobs;
 pub mod language;
 pub mod mcp_door;
 pub mod meaning;
+pub mod model_relay;
 pub mod operations;
 pub mod page_text;
 pub mod pairing;

@@ -599,7 +599,9 @@ podman-build: _check-tokens-fresh _check-client-fresh
 # working copy, then the agent's from agent-image/.
 runner_container := "kamosu-runner"
 agent_container := "kamosu-agent"
+fence_container := "kamosu-agent-fence"
 agent_socket_volume := "kamosu-agent-socket"
+relay_socket_volume := "kamosu-relay-socket"
 
 agent-image: podman-build
     podman build --format docker -t localhost/{{agent_container}} agent-image
@@ -607,46 +609,65 @@ agent-image: podman-build
 # Start both beside the dev instance, as docs/runner.md's compose file does.
 # The settings file stays outside the repository and holds KAMOSU_RUNNER_KEY
 # and the agent's settings, as docs/runner.md's tables name them: the Runner
-# is given its KAMOSU_RUNNER_ lines alone and the agent everything else. The agent's
-# container is restarted after every Job, on a read-only image with /tmp in
-# memory; the Runner three times at most, never for ever. The Runner asks the
-# dev instance at the host's LAN address, as `dev-start` prints it, and not
-# on the host's network: an agent a page has tricked should not reach what the
-# host serves on its own loopback.
+# is given its KAMOSU_RUNNER_ lines alone and the agent everything else. A
+# KAMOSU_RUNNER_MODEL_KEY there, with KAMOSU_RUNNER_MODEL_ADDRESS, has the
+# Runner relay the agent's model requests through a socket of its own (#372).
+# The agent's container is restarted after every Job, on a read-only image
+# with /tmp in memory; the Runner three times at most, never for ever. The
+# agent lives in the fence's network, which reaches the internet and the dev
+# instance's port alone, never the host or the LAN. The Runner asks the dev
+# instance at the host's LAN address, as `dev-start` prints it.
 runner-start settings=(env_var("HOME") / ".config/kamosu-runner.env"):
     #!/usr/bin/env bash
     set -euo pipefail
     [[ -f "{{settings}}" ]] || { echo "no settings file at {{settings}}" >&2; exit 1; }
     lan_ip="$(ip -4 addr show scope global 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)"
     [[ -n "${lan_ip}" ]] || lan_ip="$(hostname -I | awk '{print $1}')"
+    relay=()
+    if grep -q '^KAMOSU_RUNNER_MODEL_KEY=.' "{{settings}}"; then
+        relay=(-e KAMOSU_RUNNER_MODEL_SOCKET=/run/kamosu-relay/model.sock)
+    fi
+    # The agent lives in the fence's network, so it goes first.
     podman rm -f {{runner_container}} {{agent_container}} >/dev/null
-    podman volume rm -f {{agent_socket_volume}} >/dev/null
+    podman rm -f {{fence_container}} >/dev/null
+    podman volume rm -f {{agent_socket_volume}} {{relay_socket_volume}} >/dev/null
     podman volume create --opt type=tmpfs --opt device=tmpfs \
         --opt o=size=1m,uid=1000,gid=1000,mode=0755 {{agent_socket_volume}} >/dev/null
+    podman volume create --opt type=tmpfs --opt device=tmpfs \
+        --opt o=size=1m,uid=65532,gid=65532,mode=0755 {{relay_socket_volume}} >/dev/null
+    podman run -d --name {{fence_container}} --restart always --user 0:0 \
+        --read-only --cap-drop all --cap-add NET_ADMIN,SETUID,SETGID \
+        --security-opt no-new-privileges \
+        -e KAMOSU_AGENT_FENCE_ALLOW="${lan_ip}:{{backend_port}}" \
+        --entrypoint /opt/kamosu-agent/fence localhost/{{agent_container}} >/dev/null
     podman run -d --name {{agent_container}} --restart always \
+        --network container:{{fence_container}} \
         --read-only --tmpfs /tmp:rw,exec,mode=1777,size=4g \
         --cap-drop all --security-opt no-new-privileges \
         --env-file <(grep -v '^KAMOSU_RUNNER_' "{{settings}}") \
         -v {{agent_socket_volume}}:/run/kamosu-agent \
+        -v {{relay_socket_volume}}:/run/kamosu-relay \
         localhost/{{agent_container}} >/dev/null
     podman run -d --name {{runner_container}} --restart on-failure:3 \
         --read-only --cap-drop all --security-opt no-new-privileges --no-healthcheck \
-        --env-file <(grep '^KAMOSU_RUNNER_' "{{settings}}") \
+        --env-file <(grep '^KAMOSU_RUNNER_' "{{settings}}") "${relay[@]}" \
         -v {{agent_socket_volume}}:/run/kamosu-agent \
+        -v {{relay_socket_volume}}:/run/kamosu-relay \
         localhost/kamosu runner --kamosu "http://${lan_ip}:{{backend_port}}" \
         --agent-socket /run/kamosu-agent/agent.sock >/dev/null
-    echo "started: {{runner_container}} and {{agent_container}}, asking http://${lan_ip}:{{backend_port}}"
+    echo "started: {{runner_container}}, {{agent_container}} and {{fence_container}}, asking http://${lan_ip}:{{backend_port}}"
     echo "logs:    just runner-logs"
 
 # Follow what the Runner and its agent say.
 runner-logs:
-    podman logs -f --names {{runner_container}} {{agent_container}}
+    podman logs -f --names {{runner_container}} {{agent_container}} {{fence_container}}
 
 # Stop the Runner and its agent. A Job the Runner holds waits again once the
 # hold lapses.
 runner-stop:
     podman rm -f --time 30 {{runner_container}} {{agent_container}} >/dev/null
-    podman volume rm -f {{agent_socket_volume}} >/dev/null
+    podman rm -f {{fence_container}} >/dev/null
+    podman volume rm -f {{agent_socket_volume}} {{relay_socket_volume}} >/dev/null
 
 # Run the image as the one-mount-one-port install: ./kamosu-data holds the truth,
 # 5266 serves the world. Ctrl-C stops it.
