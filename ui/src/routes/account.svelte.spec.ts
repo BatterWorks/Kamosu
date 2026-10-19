@@ -186,12 +186,35 @@ describe('the account screen', () => {
 			expect(screen.queryByText('At least 15 characters.')).not.toBeInTheDocument();
 		});
 
+		it('refuses two passwords that differ in words, without asking Kamosu', async () => {
+			const authenticate = vi.fn<AuthClient['authenticate']>(async () => {});
+			signInWith(false, authenticate);
+
+			await user.type(await screen.findByLabelText('Name'), 'Stéphane');
+			await user.type(screen.getByLabelText('Password'), 'a password long enough');
+			await user.type(screen.getByLabelText('Password again'), 'a pasword long enough');
+			await user.click(screen.getByRole('button', { name: 'Create my account' }));
+
+			expect(screen.getByRole('alert')).toHaveTextContent("The two passwords aren't the same.");
+			expect(authenticate).not.toHaveBeenCalled();
+		});
+
+		it('asks for the password once to sign in', async () => {
+			signInWith(
+				true,
+				vi.fn<AuthClient['authenticate']>(async () => {}),
+			);
+			await screen.findByLabelText('Password');
+			expect(screen.queryByLabelText('Password again')).not.toBeInTheDocument();
+		});
+
 		it('refuses a password that is too short in words, without asking Kamosu', async () => {
 			const authenticate = vi.fn<AuthClient['authenticate']>(async () => {});
 			signInWith(false, authenticate);
 
 			await user.type(await screen.findByLabelText('Name'), 'Stéphane');
 			await user.type(screen.getByLabelText('Password'), 'fourteen chars');
+			await user.type(screen.getByLabelText('Password again'), 'fourteen chars');
 			await user.click(screen.getByRole('button', { name: 'Create my account' }));
 
 			expect(screen.getByRole('alert')).toHaveTextContent(
@@ -274,6 +297,7 @@ describe('the account screen', () => {
 			expect(await screen.findByRole('heading', { name: 'Join Kamosu' })).toBeInTheDocument();
 			await user.type(screen.getByLabelText('Name'), 'Camille');
 			await user.type(screen.getByLabelText('Password'), 'a password long enough');
+			await user.type(screen.getByLabelText('Password again'), 'a password long enough');
 			await user.click(screen.getByRole('button', { name: 'Create my account' }));
 
 			// The whole path, prefix and all: the Core strips `/invite/` itself.
@@ -298,6 +322,7 @@ describe('the account screen', () => {
 			// The link already says whose password this is.
 			expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
 			await user.type(screen.getByLabelText('Password'), 'a new password, long enough');
+			await user.type(screen.getByLabelText('Password again'), 'a new password, long enough');
 			await user.click(screen.getByRole('button', { name: 'Set new password' }));
 
 			expect(authenticate).toHaveBeenCalledWith(
@@ -328,6 +353,7 @@ describe('the account screen', () => {
 
 			await user.type(await screen.findByLabelText('Name'), 'Camille');
 			await user.type(screen.getByLabelText('Password'), 'a password long enough');
+			await user.type(screen.getByLabelText('Password again'), 'a password long enough');
 			await user.click(screen.getByRole('button', { name: 'Create my account' }));
 
 			expect(await screen.findByRole('alert')).toHaveTextContent(

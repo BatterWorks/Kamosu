@@ -1891,6 +1891,21 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 54,
+        description: "an Access Key acts as Operator only when minted to (#369)",
+        sql: r#"
+        -- Until now every Access Key an Operator minted carried the Operator's
+        -- powers. From here a key carries them only when it was minted as an
+        -- Operator key, and loses them for good when its Person stops being an
+        -- Operator. A key minted before this keeps what it could do, so every
+        -- live key of a Person who is an Operator today is an Operator key.
+        ALTER TABLE access_keys ADD COLUMN acts_as_operator INTEGER NOT NULL DEFAULT 0;
+        UPDATE access_keys SET acts_as_operator = 1
+         WHERE person_id IN (SELECT id FROM people WHERE is_operator = 1);
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.
@@ -2213,6 +2228,56 @@ fn write_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **Migration 54 keeps every key an Operator already holds acting as one**
+    /// (#369): nothing an Operator set up before the upgrade stops working,
+    /// and a key of anybody else never becomes an Operator key.
+    #[test]
+    fn migration_54_makes_an_operators_existing_keys_operator_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let before_54 = MIGRATIONS
+            .iter()
+            .position(|m| m.version == 54)
+            .expect("migration 54");
+        {
+            let old = Db::open_with_migrations(dir.path(), &MIGRATIONS[..before_54]).unwrap();
+            old.with_conn(|conn| {
+                conn.execute_batch(
+                    r#"
+                    INSERT INTO people (id, name, is_operator) VALUES
+                      ('p_operator', 'Stéphane', 1), ('p_person', 'Marie', 0);
+                    INSERT INTO access_keys (id, secret_hash, person_id, name, read_only) VALUES
+                      ('ak_1', 'h1', 'p_operator', 'agent', 0),
+                      ('ak_2', 'h2', 'p_operator', 'reader', 1),
+                      ('ak_3', 'h3', 'p_person', 'agent', 0);
+                    "#,
+                )
+                .map_err(|e| OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        }
+        let db = Db::open(dir.path()).unwrap();
+        let marked: Vec<(String, bool)> = db
+            .with_conn(|conn| {
+                let mut statement = conn
+                    .prepare("SELECT id, acts_as_operator FROM access_keys ORDER BY id")
+                    .unwrap();
+                Ok(statement
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .unwrap()
+                    .collect::<Result<_, _>>()
+                    .unwrap())
+            })
+            .unwrap();
+        assert_eq!(
+            marked,
+            [
+                ("ak_1".to_string(), true),
+                ("ak_2".to_string(), true),
+                ("ak_3".to_string(), false),
+            ]
+        );
+    }
 
     /// **Migration 41 guesses which Readings a person set** (#166): a
     /// Component, a Reading changed more than a second after its Version, and

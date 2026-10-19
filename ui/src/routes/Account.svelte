@@ -77,6 +77,8 @@
 	let stalled = $state(false);
 	let name = $state('');
 	let password = $state('');
+	/** The password typed a second time, wherever one is set, so a slip is caught here. */
+	let passwordAgain = $state('');
 	let failed = $state<string | undefined>(undefined);
 	/**
 	 * Seconds until this name may be tried again, counted down in the line
@@ -183,6 +185,10 @@
 			failed = m.account_password_too_short({ count: passwordMinimum });
 			return;
 		}
+		if (settingAPassword && password !== passwordAgain) {
+			failed = m.account_password_mismatch();
+			return;
+		}
 		busy = true;
 		try {
 			await auth.authenticate(mode, {
@@ -206,7 +212,10 @@
 			busy = false;
 			// A try refused for its wait was never checked, so what was typed
 			// is kept for when the wait is over (#138).
-			if (waiting === 0) password = '';
+			if (waiting === 0) {
+				password = '';
+				passwordAgain = '';
+			}
 		}
 	}
 </script>
@@ -263,6 +272,18 @@
 					</p>
 				{/if}
 			</div>
+			{#if settingAPassword}
+				<label class="grid gap-1 text-body text-ink">
+					{m.account_password_again()}
+					<input
+						class="min-h-12 w-full rounded-sm border border-rule bg-card px-3"
+						type="password"
+						bind:value={passwordAgain}
+						required
+						autocomplete="new-password"
+					/>
+				</label>
+			{/if}
 			{#if waiting > 0}
 				<p class="text-body text-accent" role="alert">{m.account_wait({ seconds: waiting })}</p>
 			{:else if failed}

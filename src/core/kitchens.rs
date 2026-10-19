@@ -204,26 +204,18 @@ impl Core {
     }
 
     /// The Operator's one power over a Kitchen: deleting one nobody is left in.
-    pub fn delete_kitchen(&self, caller_person_id: &str, kitchen_id: &str) -> Result<(), OpError> {
+    /// Asked of the Credential, not the account, so an Operator's ordinary
+    /// Access Key is refused as anybody's is (#369).
+    pub fn delete_kitchen(&self, caller: &Caller, kitchen_id: &str) -> Result<(), OpError> {
+        if !caller.is_operator {
+            return Err(OpError::unauthorized(
+                "only an Operator may delete a Kitchen",
+            ));
+        }
         self.db().with_conn(|conn| {
             let transaction = conn
                 .unchecked_transaction()
                 .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
-            let is_operator: bool = conn
-                .query_row(
-                    "SELECT is_operator FROM people WHERE id = ?1",
-                    params![caller_person_id],
-                    |row| row.get::<_, i64>(0),
-                )
-                .optional()
-                .map_err(|e| OpError::internal(format!("cannot check Operator status: {e}")))?
-                .map(|v| v != 0)
-                .unwrap_or(false);
-            if !is_operator {
-                return Err(OpError::unauthorized(
-                    "only an Operator may delete a Kitchen",
-                ));
-            }
             let exists: bool = conn
                 .query_row(
                     "SELECT COUNT(*) FROM kitchens WHERE id = ?1",

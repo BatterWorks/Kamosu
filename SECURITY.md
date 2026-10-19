@@ -27,6 +27,9 @@ not a company with a response time.
   "A web page opened on your network before you set up a new instance" below.
 - **Mint read-only Access Keys for agents that do not need to write.** An agent
   reads text other people wrote, and that text can carry instructions.
+- **Make an Operator key only for an agent that looks after the instance.** An
+  Operator's other keys act as an ordinary cook's, so an agent tricked by what
+  it reads cannot rewrite the House Notes every later agent follows.
 - **Back up `/data`.** Kamosu keeps three Backups under `/data/backups` and
   never sends one anywhere. Getting them off the machine is your job.
 

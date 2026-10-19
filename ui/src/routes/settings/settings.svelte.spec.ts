@@ -230,6 +230,7 @@ describe('the settings screen', () => {
 						id: 'ak_1',
 						name: 'my agent',
 						read_only: true,
+						operator: false,
 						created_at: '2026-01-01T00:00:00Z',
 						last_used_at: null,
 						revoked: false,
@@ -290,6 +291,7 @@ describe('the settings screen', () => {
 				id: 'ak_new',
 				name: 'a new agent',
 				read_only: false,
+				operator: false,
 				secret: 'the-one-time-secret',
 			},
 			list_kitchens: { kitchens: [] },
@@ -316,6 +318,87 @@ describe('the settings screen', () => {
 		expect(screen.getByRole('button', { name: 'Create Access Key' })).toBeInTheDocument();
 	});
 
+	it('offers an Operator, and nobody else, a key that acts as Operator, and warns when it is chosen (#369)', async () => {
+		const { kamosu } = renderScreen(Account, {
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			list_sessions: { sessions: [] },
+			...readsInAmerican,
+			list_accounts: {
+				accounts: [
+					{
+						name: 'Stéphane',
+						is_operator: true,
+						disabled: false,
+						is_you: true,
+						created_at: '2026-01-04T10:00:00Z',
+					},
+				],
+			},
+			list_access_keys: {
+				access_keys: [
+					{
+						id: 'ak_1',
+						name: 'house agent',
+						read_only: false,
+						operator: true,
+						created_at: '2026-01-01T00:00:00Z',
+						last_used_at: null,
+						revoked: false,
+					},
+				],
+			},
+			mint_access_key: {
+				id: 'ak_new',
+				name: 'a new agent',
+				read_only: false,
+				operator: true,
+				secret: 'the-one-time-secret',
+			},
+			list_kitchens: { kitchens: [] },
+		});
+
+		expect(await screen.findByText('Acts as Operator')).toBeInTheDocument();
+		const asCook = await screen.findByRole('radio', { name: /You, as a cook/ });
+		expect(asCook).toBeChecked();
+		const warning = /House Notes every agent reads/;
+		expect(screen.queryByText(warning)).not.toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('radio', { name: /You, as Operator too/ }));
+		expect(screen.getByText(warning)).toBeInTheDocument();
+
+		await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'a new agent' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Create Access Key' }));
+		await screen.findByText('the-one-time-secret');
+		const sent = kamosu.calls.find((call) => call.operation === 'mint_access_key');
+		expect(sent?.input).toEqual({ name: 'a new agent', read_only: false, operator: true });
+	});
+
+	it('offers a Person who is no Operator no choice, and mints them an ordinary key (#369)', async () => {
+		const { kamosu } = renderScreen(Account, {
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			list_sessions: { sessions: [] },
+			...readsInAmerican,
+			list_accounts: { refuse: 'unauthorized' },
+			list_access_keys: { access_keys: [] },
+			mint_access_key: {
+				id: 'ak_new',
+				name: 'a new agent',
+				read_only: false,
+				operator: false,
+				secret: 'the-one-time-secret',
+			},
+			list_kitchens: { kitchens: [] },
+		});
+
+		await screen.findByText('No Access Keys yet.');
+		expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+		await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'a new agent' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Create Access Key' }));
+		await screen.findByText('the-one-time-secret');
+		const sent = kamosu.calls.find((call) => call.operation === 'mint_access_key');
+		expect(sent?.input).toEqual({ name: 'a new agent', read_only: false, operator: false });
+	});
+
 	it('copies a minted Access Key, and still shows it when the browser will not copy (#142)', async () => {
 		renderScreen(Account, {
 			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
@@ -326,6 +409,7 @@ describe('the settings screen', () => {
 				id: 'ak_new',
 				name: 'a new agent',
 				read_only: false,
+				operator: false,
 				secret: 'the-one-time-secret',
 			},
 			list_kitchens: { kitchens: [] },

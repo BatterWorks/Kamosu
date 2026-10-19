@@ -580,7 +580,7 @@ async fn an_operator_may_delete_a_kitchen_nobody_is_left_in_and_nothing_else() {
         .to_string();
     let operator_key = app
         .core
-        .mint_access_key(&operator_id, "agent", false)
+        .mint_operator_key(&operator_id, "agent", false)
         .unwrap()
         .secret;
 
@@ -628,6 +628,19 @@ async fn an_operator_may_delete_a_kitchen_nobody_is_left_in_and_nothing_else() {
     );
     assert_eq!(status, 401, "{refused}");
 
+    // Nor may an Operator's own Access Key that is no Operator key (#369).
+    let ordinary_key = app
+        .core
+        .mint_access_key(&operator_id, "recipe agent", false)
+        .unwrap()
+        .secret;
+    let (status, refused) = app.post_op(
+        "delete_kitchen",
+        Some(&ordinary_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+
     // Now nobody is left in it, and an Operator may delete it.
     let (status, deleted) = app.post_op(
         "delete_kitchen",
@@ -652,7 +665,7 @@ async fn deleting_a_kitchen_takes_its_invites_and_keeps_its_hands_name() {
         .to_string();
     let operator_key = app
         .core
-        .mint_access_key(&operator_id, "agent", false)
+        .mint_operator_key(&operator_id, "agent", false)
         .unwrap()
         .secret;
     let key_for = |name: &str| {
@@ -4529,7 +4542,7 @@ fn operator_with_kitchen(app: &support::TestApp) -> (String, String) {
         .to_string();
     let key = app
         .core
-        .mint_access_key(operator_id, "agent", false)
+        .mint_operator_key(operator_id, "agent", false)
         .unwrap()
         .secret;
     (key, kitchen_id)
@@ -6385,6 +6398,257 @@ async fn listing_mcp_tools_does_not_itself_count_as_using_the_access_key() {
         mine["last_used_at"],
         Value::Null,
         "listing tools must not bump last_used_at: {mine}"
+    );
+}
+
+// --- Operator keys (#369) ------------------------------------------------------
+
+/// Whether a Secret may call an Operator's Operation, and whether it may ask
+/// to act as one: `(list_runner_keys status, as_operator status)`. The recipe
+/// asked for does not exist, so a call allowed to act as Operator is answered
+/// "not found" and one refused is answered "unauthorized".
+fn operator_reach(app: &support::TestApp, secret: &str) -> (u16, u16) {
+    let (listed, _) = app.post_op("list_runner_keys", Some(secret), "{}");
+    let (asked, _) = app.post_op(
+        "get_recipe",
+        Some(secret),
+        r#"{"branch_id":"no-such-branch","as_operator":true}"#,
+    );
+    (listed, asked)
+}
+
+/// The keys a Secret's Person holds, as `(name, operator)`.
+fn keys_marked(app: &support::TestApp, secret: &str) -> Vec<(String, bool)> {
+    let (status, listed) = app.post_op("list_access_keys", Some(secret), "{}");
+    assert_eq!(status, 200, "{listed}");
+    let mut keys: Vec<(String, bool)> = listed["result"]["access_keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|key| {
+            (
+                key["name"].as_str().unwrap().to_string(),
+                key["operator"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    keys.sort();
+    keys
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_operators_access_key_acts_as_an_ordinary_person_unless_minted_as_an_operator_key() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+
+    let (status, ordinary) = app.post_op(
+        "mint_access_key",
+        Some(&session),
+        r#"{"name":"recipe agent"}"#,
+    );
+    assert_eq!(status, 200, "{ordinary}");
+    assert_eq!(ordinary["result"]["operator"], json!(false), "{ordinary}");
+    let ordinary = ordinary["result"]["secret"].as_str().unwrap().to_string();
+
+    let (status, operator_key) = app.post_op(
+        "mint_access_key",
+        Some(&session),
+        r#"{"name":"house agent","operator":true}"#,
+    );
+    assert_eq!(status, 200, "{operator_key}");
+    assert_eq!(
+        operator_key["result"]["operator"],
+        json!(true),
+        "{operator_key}"
+    );
+    let operator_key = operator_key["result"]["secret"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // The key minted the ordinary way is a Person's and nothing more, at
+    // both Doors: no Operator Operation and no `as_operator`.
+    assert_eq!(operator_reach(&app, &ordinary), (401, 401));
+    let at_mcp = |secret: &str| {
+        let call = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": "list_runner_keys", "arguments": {} },
+        });
+        app.post_mcp(&call.to_string(), Some(secret)).1["result"]["isError"].clone()
+    };
+    assert_eq!(at_mcp(&ordinary), json!(true));
+    // The Operator key carries everything an Operator's key carried before.
+    assert_eq!(operator_reach(&app, &operator_key), (200, 404));
+    assert_eq!(at_mcp(&operator_key), json!(false));
+    // And the Session is an Operator as before.
+    assert_eq!(operator_reach(&app, &session), (200, 404));
+
+    assert_eq!(
+        keys_marked(&app, &session),
+        vec![
+            ("house agent".to_string(), true),
+            ("recipe agent".to_string(), false),
+        ],
+        "the list says which keys act as Operator"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_an_operator_signed_in_mints_an_operator_key() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+
+    // A Person who is no Operator, signed in directly, is refused.
+    let (_, invite) = app.post_op("mint_invite", Some(&session), "{}");
+    let joined = app.post_auth_response(
+        "/auth/invite",
+        &json!({
+            "link": invite["result"]["link"],
+            "name": "Marie",
+            "password": "a password only Marie knows",
+            "session_name": "Marie's browser",
+        })
+        .to_string(),
+    );
+    assert_eq!(joined.status, 200, "{}", joined.text());
+    let marie = support::session_cookie_secret(&joined);
+    let (status, refused) = app.post_op(
+        "mint_access_key",
+        Some(&marie),
+        r#"{"name":"agent","operator":true}"#,
+    );
+    assert_eq!(
+        status, 401,
+        "a Person who is no Operator minted an Operator key: {refused}"
+    );
+    assert_eq!(keys_marked(&app, &marie), vec![], "nothing was minted");
+
+    // An Operator key mints nothing, as no Access Key does.
+    let (_, operator_key) = app.post_op(
+        "mint_access_key",
+        Some(&session),
+        r#"{"name":"house agent","operator":true}"#,
+    );
+    let operator_key = operator_key["result"]["secret"].as_str().unwrap();
+    let (status, _) = app.post_op(
+        "mint_access_key",
+        Some(operator_key),
+        r#"{"name":"another","operator":true}"#,
+    );
+    assert_eq!(status, 401, "an Operator key minted a key");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_operator_key_stops_acting_as_operator_when_its_person_steps_down_and_stays_stopped() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let (_, operator_key) = app.post_op(
+        "mint_access_key",
+        Some(&session),
+        r#"{"name":"house agent","operator":true}"#,
+    );
+    let operator_key = operator_key["result"]["secret"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Somebody else administers, so Stéphane may step down.
+    let (_, invite) = app.post_op("mint_invite", Some(&session), "{}");
+    let joined = app.post_auth_response(
+        "/auth/invite",
+        &json!({
+            "link": invite["result"]["link"],
+            "name": "Marie",
+            "password": "a password only Marie knows",
+            "session_name": "Marie's browser",
+        })
+        .to_string(),
+    );
+    let marie = support::session_cookie_secret(&joined);
+    let (status, made) = app.post_op(
+        "set_operator",
+        Some(&session),
+        r#"{"name":"Marie","is_operator":true}"#,
+    );
+    assert_eq!(status, 200, "{made}");
+    let (status, stepped) = app.post_op(
+        "set_operator",
+        Some(&marie),
+        r#"{"name":"Stéphane","is_operator":false}"#,
+    );
+    assert_eq!(status, 200, "{stepped}");
+
+    assert_eq!(operator_reach(&app, &operator_key), (401, 401));
+    assert_eq!(
+        keys_marked(&app, &session),
+        vec![("house agent".to_string(), false)]
+    );
+
+    // Made Operator again, the key stays an ordinary one: it was handed out
+    // for an Operator who stopped being one, and a new one is minted on purpose.
+    let (status, _) = app.post_op(
+        "set_operator",
+        Some(&marie),
+        r#"{"name":"Stéphane","is_operator":true}"#,
+    );
+    assert_eq!(status, 200);
+    assert_eq!(operator_reach(&app, &operator_key), (401, 401));
+    assert_eq!(operator_reach(&app, &session), (200, 404));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recovery_link_ends_every_session_and_access_key_the_account_held() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let (_, invite) = app.post_op("mint_invite", Some(&session), "{}");
+    let joined = app.post_auth_response(
+        "/auth/invite",
+        &json!({
+            "link": invite["result"]["link"],
+            "name": "Marie",
+            "password": "her old password",
+            "session_name": "Marie's browser",
+        })
+        .to_string(),
+    );
+    let old_session = support::session_cookie_secret(&joined);
+    let (_, minted) = app.post_op("mint_access_key", Some(&old_session), r#"{"name":"agent"}"#);
+    let old_key = minted["result"]["secret"].as_str().unwrap().to_string();
+    // The Operator's own Credentials are no part of Marie's account.
+    let (_, operators) = app.post_op("mint_access_key", Some(&session), r#"{"name":"mine"}"#);
+    let operators_key = operators["result"]["secret"].as_str().unwrap().to_string();
+
+    let (_, recovery) = app.post_op("mint_recovery_link", Some(&session), r#"{"name":"Marie"}"#);
+    let recovered = app.post_auth_response(
+        "/auth/recover",
+        &json!({
+            "link": recovery["result"]["link"],
+            "password": "her new password",
+            "session_name": "replacement browser",
+        })
+        .to_string(),
+    );
+    assert_eq!(recovered.status, 200, "{}", recovered.text());
+    let answer: Value = serde_json::from_str(&recovered.text()).unwrap();
+    assert_eq!(answer["result"]["ended_sessions"], json!(1), "{answer}");
+    assert_eq!(answer["result"]["ended_access_keys"], json!(1), "{answer}");
+    let new_session = support::session_cookie_secret(&recovered);
+
+    assert_eq!(
+        app.post_op("list_sessions", Some(&old_session), "{}").0,
+        401
+    );
+    assert_eq!(app.post_op("list_sessions", Some(&old_key), "{}").0, 401);
+    assert_eq!(
+        app.post_op("list_sessions", Some(&new_session), "{}").0,
+        200
+    );
+    assert_eq!(app.post_op("list_sessions", Some(&session), "{}").0, 200);
+    assert_eq!(
+        app.post_op("list_sessions", Some(&operators_key), "{}").0,
+        200
     );
 }
 
@@ -29437,6 +29701,32 @@ async fn fetching_a_backup_is_an_operator_power_and_nobody_elses() {
     // Nor may a stranger presenting nothing at all.
     let (stranger, _, _) = app.get_bytes(&format!("/api/backups/{name}"), None);
     assert_eq!(stranger, 401);
+
+    // Nor an Operator's key minted read-only, Operator key though it is: a
+    // Backup holds every password and Secret hash, which is more than reading
+    // recipes (#369).
+    let operator_id: String = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            Ok(conn
+                .query_row("SELECT id FROM people WHERE is_operator = 1", [], |r| {
+                    r.get(0)
+                })
+                .unwrap())
+        })
+        .unwrap();
+    let reading_key = app
+        .core
+        .mint_operator_key(&operator_id, "reader", true)
+        .unwrap()
+        .secret;
+    assert_eq!(app.post_op("list_backups", Some(&reading_key), "{}").0, 200);
+    let (status, _, _) = app.get_bytes(&format!("/api/backups/{name}"), Some(&reading_key));
+    assert_eq!(
+        status, 401,
+        "a read-only Access Key must not fetch a Backup"
+    );
 
     // A name nobody wrote is not a path into `/data`.
     for wrong in [

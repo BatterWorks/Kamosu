@@ -110,11 +110,12 @@
 	// Kamosu has no Operation answering *who is signed in*, so whether this
 	// Person administers the instance is learnt by asking something only an
 	// Operator may ask. `list_accounts` is the cheapest of those and the one
-	// the screen itself opens with.
+	// the screen itself opens with. Account asks too: only an Operator is
+	// offered an Operator key (#369).
 	let mayAdminister = $state(false);
 
 	$effect(() => {
-		if (page !== 'instance') return;
+		if (page !== 'instance' && page !== 'account') return;
 		let current = true;
 		asksWhetherAdministering(kamosu).then((answer) => {
 			// Only a plain yes opens the door. A Kamosu that could not answer
@@ -328,6 +329,8 @@
 	let mintedSecret = $state<string | undefined>(undefined);
 	let newKeyName = $state('');
 	let newKeyReadOnly = $state(false);
+	/** Whether the key being made acts as Operator too (#369): an Operator's choice alone. */
+	let newKeyOperator = $state(false);
 	let minting = $state(false);
 	let accessError = $state<string | undefined>(undefined);
 
@@ -436,10 +439,15 @@
 		minting = true;
 		accessError = undefined;
 		try {
-			const created = await kamosu.mintAccessKey({ name: newKeyName, read_only: newKeyReadOnly });
+			const created = await kamosu.mintAccessKey({
+				name: newKeyName,
+				read_only: newKeyReadOnly,
+				operator: mayAdminister && newKeyOperator,
+			});
 			mintedSecret = created.secret;
 			newKeyName = '';
 			newKeyReadOnly = false;
+			newKeyOperator = false;
 			await loadAccess();
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
@@ -1011,6 +1019,11 @@
 							<div>
 								<p class="text-body text-ink">
 									{key.name}
+									{#if key.operator}
+										<span class="ml-1 text-label text-ink-2 uppercase"
+											>{m.access_key_operator()}</span
+										>
+									{/if}
 									{#if key.read_only}
 										<span class="ml-1 text-label text-ink-2 uppercase"
 											>{m.access_key_read_only()}</span
@@ -1067,6 +1080,45 @@
 						<input type="checkbox" bind:checked={newKeyReadOnly} />
 						{m.access_key_read_only_label()}
 					</label>
+					<!--
+						Shown to an Operator alone (#369, choice: option C with option
+						B's warning). A cook is the default; choosing Operator says
+						what that hands an agent, right where it is chosen.
+					-->
+					{#if mayAdminister}
+						<fieldset class="grid gap-2">
+							<legend class="mb-1 text-body text-ink">{m.access_key_acts_as()}</legend>
+							<label class="grid grid-cols-[auto_1fr] items-start gap-x-2 text-body text-ink">
+								<input
+									class="mt-1"
+									type="radio"
+									name="key-acts-as"
+									value={false}
+									bind:group={newKeyOperator}
+								/>
+								{m.access_key_as_cook()}
+								<span class="col-start-2 text-read text-ink-2">{m.access_key_as_cook_note()}</span>
+							</label>
+							<label class="grid grid-cols-[auto_1fr] items-start gap-x-2 text-body text-ink">
+								<input
+									class="mt-1"
+									type="radio"
+									name="key-acts-as"
+									value={true}
+									bind:group={newKeyOperator}
+								/>
+								{m.access_key_as_operator()}
+								<span class="col-start-2 text-read text-ink-2"
+									>{m.access_key_as_operator_note()}</span
+								>
+							</label>
+							{#if newKeyOperator}
+								<p class="border-l-3 border-accent bg-card px-3 py-2 text-read text-ink">
+									{m.access_key_as_operator_warning()}
+								</p>
+							{/if}
+						</fieldset>
+					{/if}
 					{#if accessError}
 						<p class="text-body text-accent" role="alert">{accessError}</p>
 					{/if}

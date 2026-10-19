@@ -227,7 +227,9 @@ pub struct Caller {
     /// Catalogue declares `session_only` to a caller carrying this, however
     /// unrestricted the Key.
     pub via_access_key: bool,
-    /// Whether this Person administers the instance.
+    /// Whether this Credential acts as an Operator: a Session or a Job Key of
+    /// a Person who administers the instance, or that Person's Operator key.
+    /// Any other Access Key of theirs acts as an ordinary Person (#369).
     pub is_operator: bool,
     /// The Access Key that resolved this Credential, if any — never set for a
     /// login Session. Local only: a Version records it (GLOSSARY.md, "Version")
@@ -654,7 +656,7 @@ impl Core {
     fn lookup_credential(&self, hash: &str) -> Result<Option<CredentialLookup>, OpError> {
         self.db().with_conn(|conn| {
             conn.query_row(
-                "SELECT access_keys.person_id, access_keys.read_only, 0, people.is_operator, access_keys.id, NULL
+                "SELECT access_keys.person_id, access_keys.read_only, 0, people.is_operator AND access_keys.acts_as_operator, access_keys.id, NULL
                    FROM access_keys JOIN people ON people.id = access_keys.person_id
                    WHERE access_keys.secret_hash = ?1 AND access_keys.revoked = 0 AND people.disabled = 0 AND people.deleted = 0
                  UNION ALL
@@ -913,6 +915,14 @@ impl Core {
         if !caller.is_operator {
             return Err(OpError::unauthorized(
                 "this route requires a Credential naming an Operator",
+            ));
+        }
+        // A Backup holds every password and Secret hash, which is more than a
+        // key minted to read recipes was handed (#369).
+        if caller.read_only {
+            return Err(OpError::unauthorized(
+                "this route requires a Credential naming an Operator, and this one is a \
+                 read-only Access Key",
             ));
         }
         Ok(caller)
