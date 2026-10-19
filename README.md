@@ -236,8 +236,11 @@ for real use:
 To try it on the machine that runs it, `http://localhost:5266` works in Chrome
 and Firefox, which treat `localhost` as secure.
 
-The proxy only needs to pass requests through. Kamosu reads no forwarded
-headers and trusts nothing a proxy adds.
+The proxy only needs to pass requests through, with the `Host` header as the
+browser sent it: Caddy and Traefik do this as they are, and nginx needs
+`proxy_set_header Host $host;`. Kamosu refuses a browser's request from a page
+on another address, and the `Host` is how it knows its own. Kamosu reads no
+forwarded headers and trusts nothing a proxy adds.
 
 ## Connecting an agent
 

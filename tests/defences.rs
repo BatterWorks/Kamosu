@@ -298,7 +298,7 @@ fn every_secret(app: &support::TestApp, key: &str) -> Vec<Secret> {
         .iter()
         .find(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
         .and_then(|(_, value)| value.split(';').next())
-        .and_then(|pair| pair.strip_prefix("kamosu_session="))
+        .and_then(|pair| pair.strip_prefix("__Host-kamosu_session="))
         .expect("an HttpOnly Session cookie")
         .to_string();
     secrets.push(Secret {
@@ -2724,11 +2724,17 @@ async fn every_answer_carries_the_browser_safety_headers() {
     )
     .expect("a Photograph");
     let stylesheet = kamosu::http_min::get(app.addr, "/assets/app.css").expect("the stylesheet");
+    let shared_file =
+        kamosu::http_min::get(app.addr, &format!("/s/{token}/bundle")).expect("a shared Bundle");
 
     for (what, reply) in [
         ("the interface's index.html", &shell),
         ("a screen served from the shell", &deep),
         ("a Share Link page", &share),
+        (
+            "the recipe file a Share Link hands to another Kamosu",
+            &shared_file,
+        ),
         ("an Operation's answer", &operation),
         ("a Photograph", &picture),
         ("the stylesheet", &stylesheet),
@@ -2763,6 +2769,36 @@ async fn every_answer_carries_the_browser_safety_headers() {
             .unwrap_or_else(|| panic!("{what}: no script-src in {policy}"));
         assert!(scripts.contains("'self'"), "{what}: {policy}");
         assert!(!scripts.contains("unsafe"), "{what}: {policy}");
+
+        // #368's: what a page may never ask for, and which other site's
+        // pages may hold or load Kamosu's.
+        let permissions = reply
+            .header("permissions-policy")
+            .unwrap_or_else(|| panic!("{what} carries no Permissions-Policy"));
+        for denied in ["geolocation=()", "microphone=()", "payment=()"] {
+            assert!(permissions.contains(denied), "{what}: {permissions}");
+        }
+        for kept in ["camera", "screen-wake-lock", "clipboard-write", "web-share"] {
+            assert!(!permissions.contains(kept), "{what}: {permissions}");
+        }
+        assert_eq!(
+            reply.header("cross-origin-opener-policy"),
+            Some("same-origin"),
+            "{what}"
+        );
+        let shared = what.contains("Share Link");
+        assert_eq!(
+            reply.header("cross-origin-resource-policy"),
+            Some(if shared {
+                "cross-origin"
+            } else {
+                "same-origin"
+            }),
+            "{what}"
+        );
+        // The public address is https://kamosu.example, and this request
+        // was sent to the instance's own port.
+        assert_eq!(reply.header("strict-transport-security"), None, "{what}");
     }
 
     // The shell's bootstrap is inline; without its hash in the policy the
@@ -2852,4 +2888,460 @@ async fn the_mcp_door_refuses_any_request_that_carries_an_origin() {
         .filter_map(|tag| tag["name"].as_str())
         .collect();
     assert_eq!(names, ["control"], "{listed}");
+}
+
+// --- The front door (#368) ----------------------------------------------------
+
+/// One answer to a request written out by hand.
+struct Raw {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: String,
+}
+
+impl Raw {
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(field, _)| field.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+
+    fn envelope(&self) -> Value {
+        serde_json::from_str(&self.body)
+            .unwrap_or_else(|_| panic!("not a JSON answer ({}): {}", self.status, self.body))
+    }
+}
+
+/// Send a request written out whole, `head` without its blank line, and read
+/// the answer. For what `post_with_headers` cannot send: a `Host` of the
+/// test's choosing, no `Content-Type`, and a body shorter than it declares.
+fn send_raw(app: &support::TestApp, head: &str, body: &[u8]) -> Raw {
+    use std::io::Write;
+
+    let mut stream = std::net::TcpStream::connect(app.addr).expect("connect");
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .expect("a read timeout");
+    // One write, so a body the answer leaves unread is already in the
+    // server's hands when it closes, rather than arriving after and turning
+    // the close into a reset that loses the answer.
+    let mut request = format!("{head}\r\nConnection: close\r\n\r\n").into_bytes();
+    request.extend_from_slice(body);
+    stream.write_all(&request).expect("write the request");
+    read_raw(stream)
+}
+
+fn read_raw(mut stream: std::net::TcpStream) -> Raw {
+    use std::io::Read;
+
+    let mut raw = Vec::new();
+    let _ = stream.read_to_end(&mut raw);
+    let text = String::from_utf8_lossy(&raw).into_owned();
+    let (head, body) = text.split_once("\r\n\r\n").unwrap_or((text.as_str(), ""));
+    let status = head
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(0);
+    let headers = head
+        .lines()
+        .skip(1)
+        .filter_map(|line| line.split_once(": "))
+        .map(|(field, value)| (field.to_string(), value.to_string()))
+        .collect();
+    Raw {
+        status,
+        headers,
+        body: body.to_string(),
+    }
+}
+
+/// A Tag named `name` exists, for asking whether an Operation ran.
+fn tag_exists(app: &support::TestApp, key: &str, name: &str) -> bool {
+    let (_, listed) = app.post_op("list_tags", Some(key), "{}");
+    listed["result"]["tags"]
+        .as_array()
+        .expect("the Tags")
+        .iter()
+        .any(|tag| tag["name"] == name)
+}
+
+fn create_tag_body(name: &str) -> String {
+    json!({ "language": "en", "name": name }).to_string()
+}
+
+/// A request with no Credential carries 64 KB at most, refused on what it
+/// declares before a byte of the body is read. A member's keeps the 40 MB a
+/// camera-original photograph needs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_strangers_body_is_small_and_a_members_is_not() {
+    let app = support::spawn_app();
+    let (_, key) = operator(&app);
+    let host = app.addr.to_string();
+
+    // Nothing of the body is sent: the answer comes from what was declared.
+    for path in ["/api/op/instance_status", "/auth/login", "/api/photographs"] {
+        let refused = send_raw(
+            &app,
+            &format!(
+                "POST {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n\
+                 Content-Length: 41943040"
+            ),
+            b"",
+        );
+        assert_eq!(refused.status, 413, "{path}: {}", refused.body);
+        assert_eq!(refused.envelope()["error"]["kind"], "bad_request", "{path}");
+    }
+
+    // Just under the cap is read and answered as ever.
+    let padded = json!({ "name": "x".repeat(60 * 1024), "password": "p", "session_name": "s" });
+    let (status, refused) = app.post_auth("/auth/login", &padded.to_string());
+    assert_ne!(status, 413, "{refused}");
+
+    // A member's megabyte reaches the Operation, whose own check refuses it.
+    let padded = json!({ "language": "en", "name": "x".repeat(1024 * 1024) }).to_string();
+    let (status, answered) = app.post_op("create_tag", Some(&key), &padded);
+    assert_ne!(status, 413, "{answered}");
+
+    // The MCP door holds a stranger to the same.
+    let refused = send_raw(
+        &app,
+        &format!(
+            "POST /mcp HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n\
+             Content-Length: 1048576"
+        ),
+        b"",
+    );
+    assert_eq!(refused.status, 413, "{}", refused.body);
+    assert_eq!(refused.envelope()["error"]["code"], json!(-32600));
+}
+
+/// A Secret that names nobody is answered at once, whatever body it declares,
+/// and a browser's dead Session cookie is taken back with the answer (#91).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_secret_naming_nobody_is_answered_before_its_body() {
+    let app = support::spawn_app();
+    operator(&app);
+    let host = app.addr.to_string();
+    let nobody = "0".repeat(64);
+
+    let refused = send_raw(
+        &app,
+        &format!(
+            "POST /api/op/list_kitchens HTTP/1.1\r\nHost: {host}\r\n\
+             Content-Type: application/json\r\nAuthorization: Bearer {nobody}\r\n\
+             Content-Length: 41943040"
+        ),
+        b"",
+    );
+    assert_eq!(refused.status, 401, "{}", refused.body);
+    assert_eq!(refused.header("set-cookie"), None);
+
+    let refused = send_raw(
+        &app,
+        &format!(
+            "POST /api/op/instance_status HTTP/1.1\r\nHost: {host}\r\n\
+             Content-Type: application/json\r\nCookie: __Host-kamosu_session={nobody}\r\n\
+             Content-Length: 41943040"
+        ),
+        b"",
+    );
+    assert_eq!(refused.status, 401, "{}", refused.body);
+    let expired = refused.header("set-cookie").expect("the cookie taken back");
+    assert!(
+        expired.starts_with("__Host-kamosu_session=;") && expired.contains("Max-Age=0"),
+        "{expired}"
+    );
+}
+
+/// The limits, shortened so the test does not wait out a running instance's.
+fn short_limits(in_flight: usize) -> kamosu::admission::Limits {
+    kamosu::admission::Limits {
+        header: std::time::Duration::from_secs(1),
+        stranger_body: std::time::Duration::from_secs(1),
+        request: std::time::Duration::from_secs(2),
+        in_flight,
+        strangers: in_flight,
+    }
+}
+
+/// A slow sender is let go: one that never finishes its headers, a stranger
+/// whose body is slow, and a member whose body is slower still.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_slow_sender_is_let_go() {
+    use std::io::Write;
+    use std::time::{Duration, Instant};
+
+    let app = support::spawn_app_held_to(short_limits(256));
+    let (_, key) = operator(&app);
+    let host = app.addr.to_string();
+
+    // Headers begun and never finished: the connection is closed.
+    let mut stream = std::net::TcpStream::connect(app.addr).expect("connect");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    stream
+        .write_all(format!("POST /api/op/instance_status HTTP/1.1\r\nHost: {host}\r\n").as_bytes())
+        .unwrap();
+    let started = Instant::now();
+    let closed = read_raw(stream);
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "held for {:?}",
+        started.elapsed()
+    );
+    assert_ne!(closed.status, 200, "{}", closed.body);
+
+    // A stranger's body that stops partway is let go after its deadline.
+    let started = Instant::now();
+    let refused = send_raw(
+        &app,
+        &format!(
+            "POST /api/op/instance_status HTTP/1.1\r\nHost: {host}\r\n\
+             Content-Type: application/json\r\nContent-Length: 100"
+        ),
+        b"{\"a\":",
+    );
+    assert_eq!(refused.status, 408, "{}", refused.body);
+    assert!(started.elapsed() < Duration::from_secs(5));
+
+    // So is a member's, after the whole request's.
+    let started = Instant::now();
+    let refused = send_raw(
+        &app,
+        &format!(
+            "POST /api/op/list_kitchens HTTP/1.1\r\nHost: {host}\r\n\
+             Content-Type: application/json\r\nAuthorization: Bearer {key}\r\n\
+             Content-Length: 100"
+        ),
+        b"{\"a\":",
+    );
+    assert_eq!(refused.status, 408, "{}", refused.body);
+    assert!(started.elapsed() >= Duration::from_secs(2));
+    assert!(started.elapsed() < Duration::from_secs(6));
+}
+
+/// Past the cap on requests at once, Kamosu answers busy at once, and answers
+/// again as soon as a request ends.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn past_the_cap_on_requests_kamosu_answers_busy() {
+    use std::io::Write;
+    use std::time::Duration;
+
+    let app = support::spawn_app_held_to(short_limits(1));
+    let (_, key) = operator(&app);
+    let host = app.addr.to_string();
+
+    // One request holds the one place, its body still to come.
+    let mut holding = std::net::TcpStream::connect(app.addr).expect("connect");
+    holding
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    holding
+        .write_all(
+            format!(
+                "POST /api/op/list_kitchens HTTP/1.1\r\nHost: {host}\r\n\
+                 Content-Type: application/json\r\nAuthorization: Bearer {key}\r\n\
+                 Content-Length: 100\r\nConnection: close\r\n\r\n{{"
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+
+    let busy = send_raw(&app, &format!("GET / HTTP/1.1\r\nHost: {host}"), b"");
+    assert_eq!(busy.status, 503, "{}", busy.body);
+    assert_eq!(busy.envelope()["error"]["kind"], "busy");
+    assert_eq!(busy.header("retry-after"), Some("1"));
+    assert!(
+        busy.header("content-security-policy").is_some(),
+        "a busy answer carries the safety headers too"
+    );
+
+    // The held request is let go at its deadline, and the place with it.
+    let let_go = read_raw(holding);
+    assert_eq!(let_go.status, 408, "{}", let_go.body);
+    let answered = send_raw(&app, &format!("GET / HTTP/1.1\r\nHost: {host}"), b"");
+    assert_eq!(answered.status, 200, "{}", answered.body);
+}
+
+/// An Operation's input is JSON sent as JSON. A body with no `Content-Type`,
+/// which a page on another site can send, is refused rather than run with an
+/// empty input.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_operation_sent_without_a_json_content_type_does_not_run() {
+    let app = support::spawn_app();
+    let (_, key) = operator(&app);
+    let host = app.addr.to_string();
+
+    for (what, content_type) in [
+        ("no Content-Type", ""),
+        ("text/plain", "\r\nContent-Type: text/plain"),
+    ] {
+        let body = create_tag_body("untyped");
+        let refused = send_raw(
+            &app,
+            &format!(
+                "POST /api/op/create_tag HTTP/1.1\r\nHost: {host}\r\n\
+                 Authorization: Bearer {key}\r\nContent-Length: {}{content_type}",
+                body.len()
+            ),
+            body.as_bytes(),
+        );
+        assert_eq!(refused.status, 415, "{what}: {}", refused.body);
+        assert_eq!(refused.envelope()["ok"], false, "{what}");
+    }
+    assert!(!tag_exists(&app, &key, "untyped"));
+
+    // A stranger's Operation that takes no input is refused alike.
+    let refused = send_raw(
+        &app,
+        &format!("POST /api/op/instance_status HTTP/1.1\r\nHost: {host}\r\nContent-Length: 0"),
+        b"",
+    );
+    assert_eq!(refused.status, 415, "{}", refused.body);
+}
+
+/// A page on another address is refused, even one holding the Session cookie
+/// as a sibling subdomain's page does. A page of the instance's own, and a
+/// caller that sends no `Origin` at all, are answered.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_request_from_another_sites_page_is_refused() {
+    let app = support::spawn_app();
+    let (_, key) = operator(&app);
+    let host = app.addr.to_string();
+    let send = |path: &str, host: &str, origin: Option<&str>, body: &str| {
+        let origin = origin
+            .map(|o| format!("\r\nOrigin: {o}"))
+            .unwrap_or_default();
+        send_raw(
+            &app,
+            &format!(
+                "POST {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n\
+                 Authorization: Bearer {key}\r\nContent-Length: {}{origin}",
+                body.len()
+            ),
+            body.as_bytes(),
+        )
+    };
+
+    for origin in [
+        "https://photos.kamosu.example",
+        "null",
+        "http://127.0.0.1:1",
+    ] {
+        let refused = send(
+            "/api/op/create_tag",
+            &host,
+            Some(origin),
+            &create_tag_body("foreign"),
+        );
+        assert_eq!(refused.status, 403, "{origin}: {}", refused.body);
+        for path in ["/auth/login", "/api/photographs", "/api/uploads"] {
+            let refused = send(path, &host, Some(origin), "{}");
+            assert_eq!(
+                refused.status, 403,
+                "{path} from {origin}: {}",
+                refused.body
+            );
+        }
+    }
+    assert!(!tag_exists(&app, &key, "foreign"));
+
+    let ours = send(
+        "/api/op/create_tag",
+        &host,
+        Some(&format!("http://{host}")),
+        &create_tag_body("ours"),
+    );
+    assert_eq!(ours.status, 200, "{}", ours.body);
+    let no_page = send("/api/op/create_tag", &host, None, &create_tag_body("agent"));
+    assert_eq!(no_page.status, 200, "{}", no_page.body);
+
+    // Behind a proxy that writes a Host of its own, the public address is
+    // the instance's own.
+    a_shared_recipe(&app, &key);
+    let proxied = send(
+        "/api/op/create_tag",
+        "127.0.0.1:5266",
+        Some("https://kamosu.example"),
+        &create_tag_body("proxied"),
+    );
+    assert_eq!(proxied.status, 200, "{}", proxied.body);
+}
+
+/// The headers #368 added. HSTS only on an answer sent to an `https://` public
+/// address, the one way Kamosu can know a request came over HTTPS.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn strict_transport_security_is_sent_only_to_the_https_public_address() {
+    let app = support::spawn_app();
+    let (_, key) = operator(&app);
+    let get = |host: &str| send_raw(&app, &format!("GET / HTTP/1.1\r\nHost: {host}"), b"");
+
+    // No public address yet: nothing says the request came over HTTPS.
+    assert_eq!(
+        get("kamosu.example").header("strict-transport-security"),
+        None
+    );
+
+    a_shared_recipe(&app, &key);
+    assert_eq!(
+        get("kamosu.example").header("strict-transport-security"),
+        Some("max-age=31536000")
+    );
+    assert_eq!(
+        get(&app.addr.to_string()).header("strict-transport-security"),
+        None,
+        "a request to the instance's own port came over plain HTTP"
+    );
+}
+
+/// Strangers sending slowly fill only the places kept for strangers. The next
+/// stranger is answered busy, and a member, a page and an agent are answered
+/// as ever.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn slow_strangers_hold_up_only_other_strangers() {
+    use std::io::Write;
+    use std::time::Duration;
+
+    let app = support::spawn_app_held_to(short_limits(1));
+    let (_, key) = operator(&app);
+    let host = app.addr.to_string();
+
+    // A stranger's sign-in, its body still to come, holds the one stranger's
+    // place.
+    let mut holding = std::net::TcpStream::connect(app.addr).expect("connect");
+    holding
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    holding
+        .write_all(
+            format!(
+                "POST /auth/login HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n\
+                 Content-Length: 100\r\nConnection: close\r\n\r\n{{"
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+
+    let next_stranger = send_raw(
+        &app,
+        &format!(
+            "POST /api/op/instance_status HTTP/1.1\r\nHost: {host}\r\n\
+             Content-Type: application/json\r\nContent-Length: 2"
+        ),
+        b"{}",
+    );
+    assert_eq!(next_stranger.status, 503, "{}", next_stranger.body);
+
+    let (status, member) = app.post_op("list_kitchens", Some(&key), "{}");
+    assert_eq!(status, 200, "{member}");
+    let page = send_raw(&app, &format!("GET / HTTP/1.1\r\nHost: {host}"), b"");
+    assert_eq!(page.status, 200, "{}", page.body);
+
+    let let_go = read_raw(holding);
+    assert_eq!(let_go.status, 408, "{}", let_go.body);
 }

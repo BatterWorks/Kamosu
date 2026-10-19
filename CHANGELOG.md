@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### After upgrading
+
+- Every browser is signed out once and signs in again. The sign-in cookie is now `__Host-kamosu_session`, which a page on another subdomain of the same domain can neither set nor replace, and the old `kamosu_session` is no longer read. [#368]
+- A proxy in front of Kamosu must pass the `Host` header on unchanged, as Caddy and Traefik do by default and nginx does with `proxy_set_header Host $host;`, or the public address must be set. Otherwise every request a browser makes to change something is refused as coming from another site. Kamosu also speaks HTTP/1.1 only, so a proxy told to speak HTTP/2 to it in the clear must speak HTTP/1.1 instead. [#368]
+
+### Changed
+
+- An Operation sent without `Content-Type: application/json` is refused. It used to run with an empty input. A request to an Operation, a sign-in or an upload that comes from a page on another address is refused too, where only `SameSite` kept one out, which a page on a sibling subdomain gets past. Agents, curl and the Runner send no `Origin` and are answered as before. [#368]
+- Every answer also tells the browser to deny what Kamosu never asks for, such as the microphone and location, to keep its pages out of reach of windows another site opened, and to let no other site load its answers, except what a Share Link hands to anyone. An answer sent to an `https://` public address also tells the browser to come back only over HTTPS for a year. [#368]
+
+### Fixed
+
+- A request with no Credential carries at most 64 KB, and is refused before its body is read when it says it carries more. Before, anyone could make Kamosu hold 40 MB per request in memory. A Credential that names nobody is answered before its body is read at all. A member's request keeps the 40 MB a phone's photograph needs. [#368]
+- Kamosu lets go of a slow sender: a connection that takes more than 20 seconds to send a request's headers, or sits idle that long between two, a request with no Credential whose body takes more than 30 seconds, and any request that takes more than ten minutes, a staged upload excepted. Past 256 requests at once it answers busy, where it used to take on as many as arrived, and it reads at most 64 strangers' bodies at once, apart from everyone else's requests, so slow strangers hold up only other strangers. Before, a stranger could hold connections open for as long as they liked. [#368]
+
+[#368]: https://github.com/BatterWorks/Kamosu/issues/368
+
 ## v0.3.0 - 2026-10-18
 
 ### Added

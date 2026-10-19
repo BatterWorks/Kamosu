@@ -315,6 +315,26 @@ describe('writing with no network', () => {
 		expect(at.kept()?.queue).toEqual([]);
 	});
 
+	it('keeps a write the server was too busy to take, and sends it later (#368)', async () => {
+		let busy = true;
+		const at = world({
+			add_loose_item: () =>
+				busy ? new OperationError('add_loose_item', 'busy', 'busy') : { chosen: [], rows: [] },
+			get_shopping_list: () => ({ chosen: [], rows: [] }),
+			get_reading_preferences: () => ({ reading_language: 'en', reading_measures: 'metric' }),
+		});
+		await at.call('get_shopping_list');
+		await at.call('get_reading_preferences');
+		at.offline();
+		await at.call('add_loose_item', { text: 'bin bags' });
+		at.online();
+		await at.outbox.flush();
+		expect(at.kept()?.queue.map((each) => each.operation)).toEqual(['add_loose_item']);
+		busy = false;
+		await at.outbox.flush();
+		expect(at.kept()?.queue).toEqual([]);
+	});
+
 	it('forgets an unsent cooking outright when it is thrown away', async () => {
 		const at = world({ get_recipe: () => recipe, get_current_attempt: () => ({ attempt: null }) });
 		await at.call('get_recipe', { branch_id: 'b_1' });

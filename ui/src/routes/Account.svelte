@@ -127,7 +127,7 @@
 	 * asks before it can know which form to wear.
 	 *
 	 * Asked twice at most, and only one refusal is worth asking twice for. A
-	 * browser whose Session has ended still holds its `kamosu_session` cookie,
+	 * browser whose Session has ended still holds its Session cookie,
 	 * and holding it is exactly what makes Kamosu refuse even this Public
 	 * Operation. That refusal is also what expires the cookie (#91), so the
 	 * second ask arrives as a stranger and is answered: what a person sees is a

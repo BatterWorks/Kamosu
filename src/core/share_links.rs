@@ -28,6 +28,19 @@ impl Core {
         branch_id: &str,
         address: Option<&str>,
     ) -> Result<Value, OpError> {
+        let shared = self.share_recipe_storing(person_id, branch_id, address);
+        if address.is_some() {
+            self.forget_public_address();
+        }
+        shared
+    }
+
+    fn share_recipe_storing(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+        address: Option<&str>,
+    ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             ensure_sees_branch(conn, branch_id, person_id)?;
 
@@ -213,10 +226,46 @@ impl Core {
     /// that opens, ready to send again. That is intended (ADR 0031).
     pub fn set_public_address(&self, address: &str) -> Result<Value, OpError> {
         let address = normalise_public_address(address)?;
-        self.db().with_conn(|conn| {
+        let stored = self.db().with_conn(|conn| {
             store_public_address(conn, &address)?;
             Ok(json!({ "public_address": address }))
-        })
+        });
+        self.forget_public_address();
+        stored
+    }
+
+    /// The public address, read from the database once and kept until it is
+    /// stored again (#368). Nothing when none is stored, or when the database
+    /// could not be read, which is asked again next time.
+    pub fn public_address(&self) -> Option<String> {
+        if let Some(known) = self
+            .public_address
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+        {
+            return known;
+        }
+        // Read under the write lock, so that forgetting, which always follows
+        // a store, waits for a read already under way rather than being
+        // overwritten by what it read before the store.
+        let mut known = self
+            .public_address
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(address) = known.clone() {
+            return address;
+        }
+        let read = self.db().with_conn(stored_public_address).ok()?;
+        *known = Some(read.clone());
+        read
+    }
+
+    fn forget_public_address(&self) {
+        *self
+            .public_address
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
 
     /// Everything the public Share Link page shows, for a stranger holding a
