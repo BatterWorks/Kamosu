@@ -661,6 +661,9 @@ runner-start settings=(env_var("HOME") / ".config/kamosu-runner.env"): _check-ru
         group="$(id -gn "$as")"
         dir="$home/.config/kamosu-runner"
         sudo install -d -o "$as" -g "$group" -m 0700 "$home/.config" "$dir"
+        # uutils install, Ubuntu's since 26.04, cannot write /dev/stdin over
+        # a file that is already there, so the last run's files go first (#387).
+        sudo rm -f "$dir/agent.env" "$dir/runner.env"
         { grep -v '^KAMOSU_RUNNER_' "{{settings}}" || true; } \
             | sudo install -o "$as" -g "$group" -m 0600 /dev/stdin "$dir/agent.env"
         { grep '^KAMOSU_RUNNER_' "{{settings}}" || true; } \
