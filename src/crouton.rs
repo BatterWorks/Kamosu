@@ -41,6 +41,17 @@ use crate::entities::decode_entities;
 /// that claims to be gigabytes.
 const MAX_CRUMB_BYTES: u64 = 128 * 1024 * 1024;
 
+/// The most one export ever unpacks, counted across all its `.crumb` files
+/// (#373). The ceiling per file alone is no limit: 128 MiB of zeros packs into
+/// about 130 KB, so a small zip can name thousands of such files.
+///
+/// Why 4 GB: the real export of 86 recipes, of 23 September 2026, is an 83 MB
+/// zip that unpacks to 114 MB, 1.37 times its size, because its pictures are
+/// already compressed. `POST /api/uploads` takes a file of up to 2 GiB, which
+/// at that ratio unpacks to some 2.9 GB, so every export the upload takes fits
+/// under this one, some 3,000 recipes like those.
+const MAX_EXPORT_BYTES: u64 = 4 * 1000 * 1000 * 1000;
+
 /// One recipe read out of a `.crumb`: the candidate `import` lands, minus the
 /// Main Photo, which the caller stores first because storing is Core's work.
 #[derive(Debug)]
@@ -68,6 +79,10 @@ pub struct Crumb {
 /// one at a time, so a library is never held in memory decoded all at once.
 pub struct Export {
     entries: Entries,
+    /// How much more the zip may unpack before the rest of it is not read.
+    left: u64,
+    /// The ceiling `left` started at, which the refusal names.
+    most: u64,
 }
 
 enum Entries {
@@ -86,7 +101,16 @@ impl Export {
     /// Open what a person handed over. A zip is read as Crouton's whole-library
     /// export; anything else is taken to be a single `.crumb`, which is what
     /// Crouton shares one recipe as.
-    pub fn open<R: Read + Seek + Send + 'static>(mut reader: R) -> Result<Export, OpError> {
+    pub fn open<R: Read + Seek + Send + 'static>(reader: R) -> Result<Export, OpError> {
+        Export::open_within(reader, MAX_EXPORT_BYTES)
+    }
+
+    /// [`Export::open`], unpacking at most `most` across the whole export:
+    /// the ceiling a test can reach.
+    fn open_within<R: Read + Seek + Send + 'static>(
+        mut reader: R,
+        most: u64,
+    ) -> Result<Export, OpError> {
         let mut magic = [0u8; 4];
         let read = read_up_to(&mut reader, &mut magic)
             .map_err(|e| OpError::bad_request(format!("cannot read the file: {e}")))?;
@@ -123,6 +147,8 @@ impl Export {
                     archive: Box::new(archive),
                     crumbs: crumbs.into_iter().map(|(_, index)| index).collect(),
                 },
+                left: most,
+                most,
             })
         } else {
             let mut bytes = Vec::new();
@@ -132,6 +158,8 @@ impl Export {
                 .map_err(|e| OpError::bad_request(format!("cannot read the file: {e}")))?;
             Ok(Export {
                 entries: Entries::One(Some(bytes)),
+                left: most,
+                most,
             })
         }
     }
@@ -165,12 +193,28 @@ impl Export {
                     Err(_) => return (None, Err(DAMAGED.to_string())),
                 };
                 let name = file_name(&entry);
+                let too_much = format!(
+                    "the export unpacks to more than {} GB in all, more than any \
+                     Crouton library holds, so this recipe and those after it were \
+                     not read",
+                    self.most / (1000 * 1000 * 1000)
+                );
+                // A zip says how big its files are and can lie, so every byte
+                // unpacked is counted rather than the header believed. A
+                // damaged file counts too: its checksum is checked only once
+                // it has been unpacked to the end.
+                let room = self.left;
                 let mut bytes = Vec::new();
-                if (&mut entry)
-                    .take(MAX_CRUMB_BYTES + 1)
-                    .read_to_end(&mut bytes)
-                    .is_err()
-                {
+                let unpacked = (&mut entry)
+                    .take(MAX_CRUMB_BYTES.min(room) + 1)
+                    .read_to_end(&mut bytes);
+                let read = bytes.len() as u64;
+                if read > room {
+                    self.left = 0;
+                    return (Some(name), Err(too_much));
+                }
+                self.left -= read;
+                if unpacked.is_err() {
                     return (Some(name), Err(DAMAGED.to_string()));
                 }
                 (Some(name), read_bytes(&bytes))
@@ -732,6 +776,72 @@ mod tests {
         let (name, second) = export.read(1);
         assert_eq!(name.as_deref(), Some("b.crumb"));
         assert_eq!(second.unwrap().title, "Bee");
+    }
+
+    /// A zip can name thousands of files that each unpack to the most one
+    /// recipe may, so the whole export has a ceiling too (#373). What it
+    /// reached before the ceiling is read, and every file after it is named
+    /// in the Report as not read.
+    #[test]
+    fn an_export_stops_unpacking_at_its_ceiling() {
+        use std::io::Write;
+        let crumb = |id: &str| format!(r#"{{"uuid":"{id}","name":"Recipe {id}"}}"#);
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buffer);
+            let options = zip::write::SimpleFileOptions::default();
+            for id in ["A", "B", "C", "D"] {
+                zip.start_file(format!("{id}.crumb"), options).unwrap();
+                zip.write_all(crumb(id).as_bytes()).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        buffer.set_position(0);
+        let one = crumb("A").len() as u64;
+        let mut export = Export::open_within(buffer, 2 * one + one / 2).expect("opens");
+        assert_eq!(export.len(), 4);
+        assert_eq!(export.read(0).1.unwrap().foreign_id, "A");
+        assert_eq!(export.read(1).1.unwrap().foreign_id, "B");
+        for index in [2, 3] {
+            let (name, refused) = export.read(index);
+            assert!(name.is_some(), "the Report names the file it did not read");
+            let reason = refused.unwrap_err();
+            assert!(reason.contains("unpacks to more than"), "{reason}");
+        }
+    }
+
+    /// A damaged file is unpacked to its end before the zip says so, so what
+    /// it unpacked counts against the ceiling as any other file's does.
+    /// Otherwise a zip of damaged files would unpack without end.
+    #[test]
+    fn a_damaged_file_counts_against_the_ceiling() {
+        use std::io::Write;
+        let crumb = |id: &str| format!(r#"{{"uuid":"{id}","name":"Recipe {id}"}}"#);
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buffer);
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            for id in ["A", "B", "C"] {
+                zip.start_file(format!("{id}.crumb"), options).unwrap();
+                zip.write_all(crumb(id).as_bytes()).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        // Change A's contents behind its checksum's back.
+        let mut bytes = buffer.into_inner();
+        let at = bytes
+            .windows(8)
+            .position(|window| window == b"Recipe A")
+            .unwrap();
+        bytes[at + 7] = b'Z';
+        let one = crumb("A").len() as u64;
+        let mut export =
+            Export::open_within(std::io::Cursor::new(bytes), 2 * one + one / 2).expect("opens");
+        assert!(export.read(0).1.unwrap_err().contains("damaged"));
+        assert_eq!(export.read(1).1.unwrap().foreign_id, "B");
+        let reason = export.read(2).1.unwrap_err();
+        assert!(reason.contains("unpacks to more than"), "{reason}");
     }
 
     #[test]

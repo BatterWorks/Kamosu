@@ -1096,7 +1096,7 @@ pub fn read_recipe_pdf(
     let caller = caller_of(invocation)?;
     let bytes = sent_file(core, caller, &input, USAGE, Some(crate::pdf::LARGEST_PDF))?;
 
-    let text = crate::pdf::text_of(&bytes)?;
+    let text = core.pdf_readers().text_of(&bytes)?;
     // The same bound as a paste, for the same reason: past it the text is a
     // book, not a recipe somebody printed.
     if text.len() > crate::pasting::LONGEST_PASTE {

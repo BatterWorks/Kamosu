@@ -119,8 +119,9 @@ typst-layout = "0.15.1"
 # Chrome, LibreOffice and picture-only PDFs: lopdf put every bold run and every
 # bullet on a line of its own, and pdf_oxide ran a LibreOffice PDF's whole
 # ingredient list into one line. This one kept the lines, and wraps nothing it
-# is not asked to. It panics on some malformed files, which `src/pdf.rs`
-# contains.
+# is not asked to. It panics on some malformed files, and a small crafted
+# one can make it take gigabytes, so `src/pdf.rs` runs it in a program of its
+# own, held to a memory cap and a time limit (#373).
 pdf-extract = "0.12.1"
 # The Runner (#274) starts an agent command in a process group of its own and
 # stops the whole group with kill(2), so that what the agent started stops

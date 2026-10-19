@@ -30,11 +30,16 @@
 - A read-only Access Key can no longer fetch a Backup, which holds every password and Secret hash on the instance. [#369]
 - A request with no Credential carries at most 64 KB, and is refused before its body is read when it says it carries more. Before, anyone could make Kamosu hold 40 MB per request in memory. A Credential that names nobody is answered before its body is read at all. A member's request keeps the 40 MB a phone's photograph needs. [#368]
 - Kamosu lets go of a slow sender: a connection that takes more than 20 seconds to send a request's headers, or sits idle that long between two, a request with no Credential whose body takes more than 30 seconds, and any request that takes more than ten minutes, a staged upload excepted. Past 256 requests at once it answers busy, where it used to take on as many as arrived, and it reads at most 64 strangers' bodies at once, apart from everyone else's requests, so slow strangers hold up only other strangers. Before, a stranger could hold connections open for as long as they liked. [#368]
+- A PDF is read in a program of its own, stopped once it takes more than 512 MB of memory or 10 seconds, and the file is refused saying which. Kamosu reads two at a time and answers busy past that. Before, a small PDF built to swell its reader could grow Kamosu by gigabytes, or keep it reading for as long as it liked. [#373]
+- Reading a PDF, decoding a photograph and drawing a share card's picture no longer slow everyone else's requests while they run. [#373]
+- A Crouton export stops being read once it has unpacked 4 GB, and the Import Report lists each recipe after that as not read. Before, a small zip could make Kamosu unpack far more. [#373]
+- Kamosu forgets a name's wrong passwords an hour after the last one, so made-up names tried at the sign-in page are no longer kept for good. A name that had wrong passwords in the last hour waits as before. [#373]
 
 [#368]: https://github.com/BatterWorks/Kamosu/issues/368
 [#369]: https://github.com/BatterWorks/Kamosu/issues/369
 [#370]: https://github.com/BatterWorks/Kamosu/issues/370
 [#372]: https://github.com/BatterWorks/Kamosu/issues/372
+[#373]: https://github.com/BatterWorks/Kamosu/issues/373
 
 ## v0.3.0 - 2026-10-18
 

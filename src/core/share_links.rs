@@ -178,11 +178,16 @@ impl Core {
             Some(hash) => Some(self.display_copy_bytes(hash, photographs::DisplaySize::Print)?),
             None => None,
         };
-        let drawn = crate::share_card::draw(
-            title,
-            photograph.as_deref(),
-            &crate::cover::cover_for(lineage_id),
-        )?;
+        // Drawing decodes the Print copy and paints a whole card, on the
+        // first visit to a link anyone may hold, so off the request workers
+        // as every other picture is (#373).
+        let drawn = crate::slow_work::off_the_request_workers(|| {
+            crate::share_card::draw(
+                title,
+                photograph.as_deref(),
+                &crate::cover::cover_for(lineage_id),
+            )
+        })?;
 
         // A card that cannot be cached is still a card: the drawing succeeded,
         // and refusing to serve it because a directory is unwritable would

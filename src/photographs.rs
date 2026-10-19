@@ -11,6 +11,7 @@ use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, imageops::Filt
 use sha2::{Digest, Sha256};
 
 use crate::core::OpError;
+use crate::slow_work::off_the_request_workers;
 
 /// A Photograph's long edge, capped in pixels — the one dimension every
 /// remade picture is measured against (ADR 0017). Never upscaled: a picture
@@ -150,17 +151,22 @@ pub fn remake(bytes: &[u8]) -> Result<Vec<u8>, OpError> {
 }
 
 /// Remake at a given long edge and quality: the one path every picture
-/// handed to Kamosu is decoded through.
+/// handed to Kamosu is decoded through. Decoding, resizing and encoding a
+/// camera's picture holds a thread far longer than a request should, so it is
+/// done off the request workers whichever Door it came through (#373).
 fn remake_at(bytes: &[u8], long_edge: u32, quality: f32) -> Result<Vec<u8>, OpError> {
-    let mut decoder = checked_decoder(bytes)?;
-    // Cameras stamp rotation into Exif rather than the pixels (eight of
-    // the sixty in the real export do). Reading it now and baking it in before
-    // the metadata is stripped below is the only chance to keep it upright.
-    let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
-    let mut image = DynamicImage::from_decoder(decoder)
-        .map_err(|e| OpError::bad_request(format!("cannot read this picture: {e}")))?;
-    image.apply_orientation(orientation);
-    encode_at(&downscale(image, long_edge), quality)
+    off_the_request_workers(|| {
+        let mut decoder = checked_decoder(bytes)?;
+        // Cameras stamp rotation into Exif rather than the pixels (eight of
+        // the sixty in the real export do). Reading it now and baking it in
+        // before the metadata is stripped below is the only chance to keep
+        // it upright.
+        let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+        let mut image = DynamicImage::from_decoder(decoder)
+            .map_err(|e| OpError::bad_request(format!("cannot read this picture: {e}")))?;
+        image.apply_orientation(orientation);
+        encode_at(&downscale(image, long_edge), quality)
+    })
 }
 
 /// Remake a picture handed to an agent as its Original (#269): checked and
@@ -179,11 +185,14 @@ pub fn looks_like_a_picture(bytes: &[u8]) -> bool {
 
 /// Work out one Display Copy from an already-remade Photograph. No
 /// orientation handling needed: a Photograph's own bytes already carry it
-/// correctly and nothing else remains in them to strip.
+/// correctly and nothing else remains in them to strip. Made when a screen
+/// first asks for it, so off the request workers as a remake is.
 pub fn display_copy(photograph_bytes: &[u8], long_edge: u32) -> Result<Vec<u8>, OpError> {
-    let image = image::load_from_memory_with_format(photograph_bytes, ImageFormat::WebP)
-        .map_err(|e| OpError::internal(format!("cannot read stored Photograph: {e}")))?;
-    encode(&downscale(image, long_edge))
+    off_the_request_workers(|| {
+        let image = image::load_from_memory_with_format(photograph_bytes, ImageFormat::WebP)
+            .map_err(|e| OpError::internal(format!("cannot read stored Photograph: {e}")))?;
+        encode(&downscale(image, long_edge))
+    })
 }
 
 /// Scale down to fit within `max_long_edge`, preserving aspect ratio, and

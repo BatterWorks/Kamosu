@@ -55,6 +55,9 @@ pub fn spawn_app_held_to(limits: kamosu::admission::Limits) -> TestApp {
 
 fn spawn_app_within(data_dir: &std::path::Path, limits: kamosu::admission::Limits) -> TestApp {
     let db = Arc::new(db::Db::open(data_dir).expect("database"));
+    // A PDF is read by Kamosu started again (#373), and this harness is not
+    // Kamosu.
+    kamosu::pdf::read_pdfs_with(env!("CARGO_BIN_EXE_kamosu").into());
     // Literally the application the binary serves — `kamosu::app_within` is
     // where it is assembled, and served by the same accept loop, so a test can
     // never drive an arrangement nobody runs. A Core with its Job lanes

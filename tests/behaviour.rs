@@ -36757,6 +36757,9 @@ mod reading_a_recipe_pdf {
     const BISCUIT_TEXT: &str = include_str!("fixtures/biscuit-de-savoie.txt");
     /// A page printed as a picture: a PDF with no text in it at all.
     const SCANNED: &[u8] = include_bytes!("fixtures/scanned-page.pdf");
+    /// A page built to swell its reader (#373): 55 KB that unpacks to 28 MB
+    /// of drawing, two million words of one letter each.
+    const SWELLING: &[u8] = include_bytes!("fixtures/swelling-page.pdf");
 
     fn a_reader(app: &support::TestApp) -> String {
         let person = app.core.create_person("Stéphane").expect("person");
@@ -36987,6 +36990,98 @@ mod reading_a_recipe_pdf {
         );
         let (_, imports) = app.post_op("list_imports", Some(&key), "{}");
         assert_eq!(imports["result"]["imports"], json!([]), "{imports}");
+    }
+
+    /// A damaged file is refused in words, and takes nothing down.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_damaged_pdf_is_refused_rather_than_taking_anything_down() {
+        let app = support::spawn_app();
+        let key = a_reader(&app);
+        let upload_id = staged(&app, &key, b"%PDF-1.4\n1 0 obj << /Type /Catalog >>\n%%EOF");
+        let (status, refused) = app.post_op(
+            "read_recipe_pdf",
+            Some(&key),
+            &json!({ "upload_id": upload_id }).to_string(),
+        );
+        assert_eq!(status, 400, "{refused}");
+        let message = refused["error"]["message"].as_str().unwrap();
+        assert!(
+            message.starts_with("that PDF could not be read"),
+            "{message}"
+        );
+    }
+
+    /// A PDF is read in a program of its own, held to a cap on its memory
+    /// (#373). One built to swell its reader is refused when it reaches the
+    /// cap, where read in place it grew Kamosu by gigabytes, and the next
+    /// PDF is read as if nothing had happened.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_pdf_built_to_swell_its_reader_is_refused_and_the_next_is_read() {
+        let app = support::spawn_app();
+        let key = a_reader(&app);
+        let read = |bytes: &[u8]| {
+            let upload_id = staged(&app, &key, bytes);
+            app.post_op(
+                "read_recipe_pdf",
+                Some(&key),
+                &json!({ "upload_id": upload_id }).to_string(),
+            )
+        };
+        let (status, refused) = read(SWELLING);
+        assert_eq!(status, 400, "{refused}");
+        assert_eq!(
+            refused["error"]["message"],
+            json!("that PDF could not be read: it needs far more memory than a recipe does")
+        );
+        let (status, read) = read(BISCUIT);
+        assert_eq!(status, 200, "{read}");
+        assert_eq!(read["result"]["title"], json!("Biscuit de Savoie"));
+    }
+
+    /// A reader still reading at its time limit is stopped, and the file
+    /// refused saying so (#373).
+    #[test]
+    fn a_pdf_still_being_read_at_its_limit_is_stopped() {
+        kamosu::pdf::read_pdfs_with(env!("CARGO_BIN_EXE_kamosu").into());
+        let refused = kamosu::pdf::Readers::default()
+            .text_within(SWELLING, std::time::Duration::from_millis(200))
+            .unwrap_err();
+        assert_eq!(
+            refused.message,
+            "that PDF could not be read in 1 seconds, which is longer than a recipe takes"
+        );
+    }
+
+    /// Two PDFs are read at once and a third is refused as busy, so a run of
+    /// crafted files costs a bounded share of the machine. Each reader gives
+    /// its place back when it ends, however it ends (#373).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_third_pdf_while_two_are_read_is_busy() {
+        let app = support::spawn_app();
+        let key = a_reader(&app);
+        let uploads: Vec<String> = [SWELLING, SWELLING, BISCUIT, BISCUIT]
+            .iter()
+            .map(|bytes| staged(&app, &key, bytes))
+            .collect();
+        let read = |upload_id: &str| {
+            app.post_op(
+                "read_recipe_pdf",
+                Some(&key),
+                &json!({ "upload_id": upload_id }).to_string(),
+            )
+        };
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| read(&uploads[0]));
+            let second = scope.spawn(|| read(&uploads[1]));
+            // Each takes about two seconds to reach its cap.
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let (status, busy) = read(&uploads[2]);
+            assert_eq!(status, 503, "{busy}");
+            assert_eq!(first.join().unwrap().0, 400);
+            assert_eq!(second.join().unwrap().0, 400);
+        });
+        let (status, read) = read(&uploads[3]);
+        assert_eq!(status, 200, "{read}");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
