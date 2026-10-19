@@ -91,6 +91,8 @@
 	let suggestions = $state<Suggestion[]>([]);
 	let foods = $state<Food[]>([]);
 	let address = $state<string | null>(null);
+	/** How many passkeys work at that address, which a new one would strand (#370). */
+	let passkeysAtAddress = $state(0);
 	let runnerKeys = $state<RunnerKey[]>([]);
 	let runnerStatus = $state<RunnerStatusOutput | undefined>(undefined);
 	let houseNotes = $state<GetHouseNotesOutput | undefined>(undefined);
@@ -140,7 +142,9 @@
 				foods = (await kamosu.listFoods({})).foods;
 			}),
 			quietly(async () => {
-				address = (await kamosu.getPublicAddress({})).public_address;
+				const answer = await kamosu.getPublicAddress({});
+				address = answer.public_address;
+				passkeysAtAddress = answer.passkeys;
 			}),
 			quietly(loadRunner),
 			quietly(async () => {
@@ -479,6 +483,7 @@
 	const saveAddress = () =>
 		act(async () => {
 			address = (await kamosu.setPublicAddress({ public_address: typedAddress })).public_address;
+			passkeysAtAddress = (await kamosu.getPublicAddress({})).passkeys;
 			typedAddress = '';
 			addressSaved = true;
 		});
@@ -1079,6 +1084,14 @@
 					secret at minting. Changing this fixes the future, not the past.
 				-->
 					<p class="mt-2 text-read text-ink-2">{m.operator_address_warning()}</p>
+					<!-- A passkey works at the address it was made at and no other (#370). -->
+					{#if passkeysAtAddress > 0}
+						<p class="mt-2 text-read text-ink-2">
+							{passkeysAtAddress === 1
+								? m.operator_address_passkeys_one()
+								: m.operator_address_passkeys({ count: passkeysAtAddress })}
+						</p>
+					{/if}
 				</Section>
 			{/if}
 		</div>

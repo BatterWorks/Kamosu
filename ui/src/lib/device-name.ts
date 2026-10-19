@@ -1,3 +1,5 @@
+import { m } from '$lib/paraglide/messages';
+
 /**
  * What a new Session is called: the browser and the kind of device, read off
  * what the browser says about itself (#114). The choice of 23 September
@@ -39,4 +41,14 @@ export function deviceName(userAgent: string, touchPoints: number): string | und
 	let device = DEVICES.find(([pattern]) => pattern.test(userAgent))?.[1];
 	if (device === 'Mac' && touchPoints > 1) device = 'iPad';
 	return [browser, device].filter(Boolean).join(' · ') || undefined;
+}
+
+/**
+ * What this browser is called where something is named for it: a new
+ * Session (#114), and a passkey added from it (#370).
+ */
+export function thisDeviceName(): string {
+	return (
+		deviceName(navigator.userAgent, navigator.maxTouchPoints) ?? m.account_session_unknown_device()
+	);
 }

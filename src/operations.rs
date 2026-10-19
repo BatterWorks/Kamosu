@@ -42,6 +42,10 @@ pub fn instance_status(
         "version": env!("CARGO_PKG_VERSION"),
         "setup_complete": core.setup_complete()?,
         "password_minimum": crate::core::PASSWORD_MINIMUM,
+        // Where a passkey signs in, so the sign-in screen offers one only
+        // there (#370). The public address is no secret: every Share Link
+        // carries it.
+        "passkey_origin": core.passkey_place().ok().map(|place| place.origin_text()),
     }))
 }
 
@@ -278,6 +282,98 @@ pub fn revoke_access_key(
     let caller = caller_of(invocation)?;
     core.revoke_access_key(&caller.person_id, access_key_id)?;
     Ok(json!({ "revoked": true }))
+}
+
+/// A text field an Operation needs, or the sentence saying what it takes.
+fn text_in<'a>(input: &'a Value, field: &str, takes: &str) -> Result<&'a str, OpError> {
+    input
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes.to_string()))
+}
+
+pub fn list_passkeys(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.list_passkeys(&caller_of(invocation)?.person_id)
+}
+
+pub fn rename_passkey(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    const TAKES: &str = "rename_passkey takes { passkey_id, name }";
+    let passkey_id = text_in(&input, "passkey_id", TAKES)?;
+    let name = text_in(&input, "name", TAKES)?;
+    let name = core.rename_passkey(&caller_of(invocation)?.person_id, passkey_id, name)?;
+    Ok(json!({ "name": name }))
+}
+
+pub fn remove_passkey(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let passkey_id = text_in(&input, "passkey_id", "remove_passkey takes { passkey_id }")?;
+    core.remove_passkey(&caller_of(invocation)?.person_id, passkey_id)?;
+    Ok(json!({ "removed": true }))
+}
+
+pub fn start_adding_passkey(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let password = text_in(
+        &input,
+        "password",
+        "start_adding_passkey takes { password }",
+    )?;
+    core.start_adding_passkey(&caller_of(invocation)?.person_id, password)
+}
+
+pub fn finish_adding_passkey(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    const TAKES: &str = "finish_adding_passkey takes { ceremony_id, credential, name }";
+    let ceremony_id = text_in(&input, "ceremony_id", TAKES)?;
+    let name = text_in(&input, "name", TAKES)?;
+    let credential = text_in(&input, "credential", TAKES)?;
+    core.finish_adding_passkey(
+        &caller_of(invocation)?.person_id,
+        ceremony_id,
+        credential,
+        name,
+    )
+}
+
+pub fn change_password(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    const TAKES: &str = "change_password takes { current_password, new_password, \
+                         sign_out_other_devices, end_access_keys }";
+    let current = text_in(&input, "current_password", TAKES)?;
+    let new = text_in(&input, "new_password", TAKES)?;
+    let flag = |field: &str| {
+        input
+            .get(field)
+            .and_then(Value::as_bool)
+            .ok_or_else(|| OpError::bad_request(TAKES))
+    };
+    core.change_password(
+        caller_of(invocation)?,
+        current,
+        new,
+        flag("sign_out_other_devices")?,
+        flag("end_access_keys")?,
+    )
 }
 
 /// Read one Job back: its state, its progress, and its result or the reason it
@@ -1804,7 +1900,11 @@ pub fn get_public_address(
     _invocation: &Invocation,
     _input: Value,
 ) -> Result<Value, OpError> {
-    core.get_public_address()
+    let mut answer = core.get_public_address()?;
+    // What moving the address would strand: passkeys work at one address
+    // alone (#370).
+    answer["passkeys"] = json!(core.passkeys_here()?);
+    Ok(answer)
 }
 
 pub fn set_public_address(

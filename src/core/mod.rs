@@ -60,6 +60,7 @@ mod keeping_backups;
 mod keeping_photographs;
 mod kitchens;
 mod originals;
+mod passkeys;
 mod reading_again;
 mod readings;
 mod recipes;
@@ -347,6 +348,8 @@ pub struct Core {
     /// Whose login is waiting, and the few threads that may hash or check a
     /// password at once (#138).
     passwords: accounts::Passwords,
+    /// Passkey exchanges begun and not yet finished (#370).
+    ceremonies: passkeys::Ceremonies,
     /// How long a Runner's hold on a Job lasts unless renewed, in
     /// milliseconds: `jobs::HOLD`, until a test shortens it (#266).
     hold_millis: AtomicU64,
@@ -381,6 +384,7 @@ impl Core {
             lanes,
             meaning,
             passwords: accounts::Passwords::default(),
+            ceremonies: Default::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             job_key_creates: Default::default(),
             public_address: Default::default(),
@@ -403,6 +407,7 @@ impl Core {
             lanes,
             meaning,
             passwords: accounts::Passwords::default(),
+            ceremonies: Default::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             job_key_creates: Default::default(),
             public_address: Default::default(),

@@ -541,6 +541,9 @@
   .mt-auto {
     margin-top: auto;
   }
+  .mt-gutter {
+    margin-top: var(--spacing-gutter);
+  }
   .-mb-px {
     margin-bottom: -1px;
   }
@@ -695,6 +698,10 @@
   .size-12 {
     width: var(--spacing-12);
     height: var(--spacing-12);
+  }
+  .size-\[22px\] {
+    width: 22px;
+    height: 22px;
   }
   .step-fade {
     height: 28px;
@@ -1051,6 +1058,9 @@
   }
   .gap-x-6 {
     column-gap: var(--spacing-6);
+  }
+  .gap-x-gutter {
+    column-gap: var(--spacing-gutter);
   }
   .gap-y-1 {
     row-gap: var(--spacing-1);

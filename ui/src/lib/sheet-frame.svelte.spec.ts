@@ -210,11 +210,13 @@ describe('every sheet in Kamosu', () => {
 			.sort();
 		expect(framed).toEqual([
 			'Carrying.svelte',
+			'ChangePassword.svelte',
 			'ComponentPicker.svelte',
 			'Confirm.svelte',
 			'Cooking.svelte',
 			'HouseNotes.svelte',
 			'LanguageSheet.svelte',
+			'Passkeys.svelte',
 			'PasteSheet.svelte',
 			'PhotoToRecipe.svelte',
 			'RelatedSheet.svelte',

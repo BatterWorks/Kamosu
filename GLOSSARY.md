@@ -98,6 +98,10 @@ _Avoid_: Token, key, credential, nonce, bearer token
 The Secret a browser holds after a Person logs in, so they stay logged in. Ends when it is revoked and at no other time. The browser keeps it for 400 days, counted again each time it is used, so a device opened at least that often never forgets it (#137). A Person sees their own beside their Access Keys, each named for the device it signed in on (and renamable), marking the one in hand and showing when it was last used, and ends any of them from any device. It carries a Person's full powers, which is what keeps it distinct from an Access Key despite the shared shape.
 _Avoid_: Cookie, login, token, sign-in
 
+**Passkey**:
+A way for a Person to log in with their device's face, fingerprint or screen lock, offered beside the password and never in its place. It is the WebAuthn credential the device keeps; Kamosu keeps only its public half, so it is not a **Secret** and nothing Kamosu stores signs anyone in. It works only at the public address it was made at, and only where that address is an `https://` name. Logging in with one mints a **Session**, as a password does, and a passkey is added only from a Session, after the password (#370).
+_Avoid_: WebAuthn key, security key, biometric login, FIDO credential
+
 **Immediate Operation**:
 An Operation that answers within a single request.
 _Avoid_: Sync operation

@@ -92,7 +92,12 @@ function open(options: {
 		kamosu?.calls.filter((call) => call.operation === 'get_job').at(-1)?.input as
 			{ job_id: string } | undefined;
 	kamosu = standIn({
-		instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+		instance_status: {
+			version: '0.1.0',
+			setup_complete: true,
+			password_minimum: 15,
+			passkey_origin: null,
+		},
 		preview_shared_recipe: { job_id: 'j_preview' },
 		import_bundle: { job_id: 'j_import' },
 		get_job: () =>
@@ -106,7 +111,11 @@ function open(options: {
 	render(ImportSharedTestHarness, {
 		props: {
 			client: kamosu.client,
-			auth: { authenticate },
+			auth: {
+				authenticate,
+				signInWithPasskey: async () => 'declined' as const,
+				readyPasskey: () => {},
+			},
 			link: options.link === undefined ? LINK : options.link,
 			origin: ORIGIN,
 			leave,
@@ -486,7 +495,7 @@ describe('the line above a recipe imported from a Share Link', () => {
 		render(ImportSharedTestHarness, {
 			props: {
 				client: standIn({}).client,
-				auth: { authenticate: vi.fn() },
+				auth: { authenticate: vi.fn(), signInWithPasskey: vi.fn(), readyPasskey: vi.fn() },
 				link: null,
 				origin: ORIGIN,
 				leave: vi.fn(),
@@ -513,7 +522,7 @@ describe('the line above a recipe imported from a Share Link', () => {
 		render(ImportSharedTestHarness, {
 			props: {
 				client: standIn({}).client,
-				auth: { authenticate: vi.fn() },
+				auth: { authenticate: vi.fn(), signInWithPasskey: vi.fn(), readyPasskey: vi.fn() },
 				link: null,
 				origin: ORIGIN,
 				leave: vi.fn(),

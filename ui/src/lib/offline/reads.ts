@@ -98,6 +98,8 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// Who can get in. Ending a Session on another device must show at once.
 	list_sessions: 'server-first',
 	list_access_keys: 'server-first',
+	// A passkey removed on another device must not still show here (#370).
+	list_passkeys: 'server-first',
 	// Whether a recipe is shared, and at what address (#171). The share screen
 	// offers that address to copy, so a kept answer from before the link was
 	// ended, here or on another device, would hand out one that no longer opens.

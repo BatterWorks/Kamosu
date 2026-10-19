@@ -29,6 +29,8 @@
 	import { asksWhetherAdministering } from '$lib/operator/administering';
 	import ImportCrouton from './ImportCrouton.svelte';
 	import Tags from './Tags.svelte';
+	import Passkeys from './Passkeys.svelte';
+	import ChangePassword from './ChangePassword.svelte';
 	import Confirm from '$lib/Confirm.svelte';
 	import OneTimeSecret from '$lib/OneTimeSecret.svelte';
 	import { copyText } from '$lib/clipboard';
@@ -49,6 +51,7 @@
 		InstanceStatusOutput,
 		ListSessionsOutput,
 		ListAccessKeysOutput,
+		ChangePasswordOutput,
 		ListKitchensOutput,
 		GetCookbookOutput,
 		GetReadingPreferencesOutput,
@@ -289,6 +292,31 @@
 	let renameError = $state<string | undefined>(undefined);
 	/** The name just taken, said once above the section. */
 	let renamedTo = $state<string | undefined>(undefined);
+
+	/** The change-password sheet is open (#370). */
+	let changingPassword = $state(false);
+	/** What changing the password just did, said under You until the page is left. */
+	let passwordChanged = $state<string | undefined>(undefined);
+
+	function passwordWasChanged(ended: ChangePasswordOutput) {
+		changingPassword = false;
+		passwordChanged = [
+			m.password_done(),
+			ended.ended_sessions === 1
+				? m.password_done_sessions_one()
+				: ended.ended_sessions > 1
+					? m.password_done_sessions({ count: ended.ended_sessions })
+					: undefined,
+			ended.ended_access_keys === 1
+				? m.password_done_keys_one()
+				: ended.ended_access_keys > 1
+					? m.password_done_keys({ count: ended.ended_access_keys })
+					: undefined,
+		]
+			.filter(Boolean)
+			.join(' ');
+		void loadAccess();
+	}
 
 	function startRenaming() {
 		if (!me) return;
@@ -690,6 +718,11 @@
 					{m.you_name_changed({ name: renamedTo })}
 				</p>
 			{/if}
+			{#if passwordChanged}
+				<p role="status" class="mb-3 border-l-3 border-accent bg-card px-3 py-2 text-read text-ink">
+					{passwordChanged}
+				</p>
+			{/if}
 			{#if editingName}
 				<form
 					class="grid gap-3"
@@ -732,9 +765,21 @@
 			{:else}
 				<p class="font-display text-title font-semibold break-words text-ink">{me.name}</p>
 				<p class="mt-1 mb-3 text-read text-ink-2">{m.you_name_explained()}</p>
-				<button type="button" class="quiet-button text-accent" onclick={startRenaming}>
-					{m.you_change_name()}
-				</button>
+				<div class="flex flex-wrap gap-x-gutter gap-y-2">
+					<button type="button" class="quiet-button text-accent" onclick={startRenaming}>
+						{m.you_change_name()}
+					</button>
+					<button
+						type="button"
+						class="quiet-button text-accent"
+						onclick={() => {
+							passwordChanged = undefined;
+							changingPassword = true;
+						}}
+					>
+						{m.password_change()}
+					</button>
+				</div>
 			{/if}
 		</Section>
 	{/if}
@@ -915,6 +960,8 @@
 
 	{#if page === 'account' && signedIn}
 		<Section heading={m.settings_access()}>
+			<!-- First in Access, above the devices (#370, choice A). -->
+			<Passkeys />
 			<h3 class="mb-2 text-body font-semibold text-ink">{m.settings_sessions()}</h3>
 			{#if sessions.length === 0}
 				<p class="mb-6 text-body text-ink-2">{m.access_sessions_empty()}</p>
@@ -1633,6 +1680,15 @@
 		</Section>
 	{/if}
 </Screen>
+
+{#if changingPassword}
+	<ChangePassword
+		otherDevices={sessions.filter((session) => !session.current).length}
+		accessKeys={accessKeys.length}
+		onChanged={passwordWasChanged}
+		onClose={() => (changingPassword = false)}
+	/>
+{/if}
 
 {#if leavingKitchen}
 	{@const asked = leavingKitchen}

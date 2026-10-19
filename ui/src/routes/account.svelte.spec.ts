@@ -16,7 +16,12 @@ describe('the account screen', () => {
 	const user = userEvent.setup();
 	it('offers the first visitor account creation', async () => {
 		renderScreen(Account, {
-			instance_status: { version: '0.1.0', setup_complete: false, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: false,
+				password_minimum: 15,
+				passkey_origin: null,
+			},
 		});
 
 		expect(await screen.findByRole('heading', { name: 'Set up Kamosu' })).toBeInTheDocument();
@@ -27,7 +32,12 @@ describe('the account screen', () => {
 
 	it('offers login once the first person exists', async () => {
 		renderScreen(Account, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+			},
 		});
 
 		expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
@@ -45,7 +55,7 @@ describe('the account screen', () => {
 			instance_status: () =>
 				++asked === 1
 					? { refuse: 'unauthorized', message: 'this Credential does not name anyone' }
-					: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+					: { version: '0.1.0', setup_complete: true, password_minimum: 15, passkey_origin: null },
 		});
 
 		expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
@@ -88,7 +98,7 @@ describe('the account screen', () => {
 			instance_status: () =>
 				++asked === 1
 					? { refuse: 'internal', message: 'the database is unreadable' }
-					: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+					: { version: '0.1.0', setup_complete: true, password_minimum: 15, passkey_origin: null },
 		});
 
 		await user.click(await screen.findByRole('button', { name: 'Try again' }));
@@ -124,9 +134,18 @@ describe('the account screen', () => {
 				props: {
 					component: Account,
 					client: standIn({
-						instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+						instance_status: {
+							version: '0.1.0',
+							setup_complete: true,
+							password_minimum: 15,
+							passkey_origin: null,
+						},
 					}).client,
-					auth: { authenticate },
+					auth: {
+						authenticate,
+						signInWithPasskey: async () => 'declined' as const,
+						readyPasskey: () => {},
+					},
 				},
 			});
 			await user.type(await screen.findByLabelText('Name'), 'Stéphane');
@@ -164,9 +183,14 @@ describe('the account screen', () => {
 							version: '0.1.0',
 							setup_complete: setupComplete,
 							password_minimum: 15,
+							passkey_origin: null,
 						},
 					}).client,
-					auth: { authenticate },
+					auth: {
+						authenticate,
+						signInWithPasskey: async () => 'declined' as const,
+						readyPasskey: () => {},
+					},
 				},
 			});
 		}
@@ -265,9 +289,18 @@ describe('the account screen', () => {
 					route,
 					secret,
 					client: standIn({
-						instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+						instance_status: {
+							version: '0.1.0',
+							setup_complete: true,
+							password_minimum: 15,
+							passkey_origin: null,
+						},
 					}).client,
-					auth: { authenticate },
+					auth: {
+						authenticate,
+						signInWithPasskey: async () => 'declined' as const,
+						readyPasskey: () => {},
+					},
 				},
 			});
 		}
@@ -362,5 +395,126 @@ describe('the account screen', () => {
 			expect(screen.getByRole('heading', { name: 'Join Kamosu' })).toBeInTheDocument();
 			expect(went).not.toHaveBeenCalled();
 		});
+	});
+});
+
+// A passkey beside the password at login, and only at the address it signs in
+// at (#370, choice A).
+describe('logging in with a passkey (#370)', () => {
+	const user = userEvent.setup();
+
+	afterEach(() => vi.unstubAllGlobals());
+
+	/** A browser that can ask its device for a passkey. */
+	function aBrowserWithPasskeys() {
+		vi.stubGlobal(
+			'PublicKeyCredential',
+			Object.assign(function PublicKeyCredential() {}, {
+				parseRequestOptionsFromJSON: () => ({}),
+				parseCreationOptionsFromJSON: () => ({}),
+			}),
+		);
+	}
+
+	function signInAt(
+		passkeyOrigin: string | null,
+		signInWithPasskey: AuthClient['signInWithPasskey'] = async () => 'declined',
+		readyPasskey: AuthClient['readyPasskey'] = () => {},
+	) {
+		render(Harness, {
+			props: {
+				component: Account,
+				client: standIn({
+					instance_status: {
+						version: '0.1.0',
+						setup_complete: true,
+						password_minimum: 15,
+						passkey_origin: passkeyOrigin,
+					},
+				}).client,
+				auth: { authenticate: async () => {}, signInWithPasskey, readyPasskey },
+			},
+		});
+	}
+
+	it('offers a passkey under the password where one signs in', async () => {
+		aBrowserWithPasskeys();
+		signInAt(window.location.origin);
+
+		const passkey = await screen.findByRole('button', { name: 'Log in with a passkey' });
+		expect(screen.getByText('or')).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"Your face, fingerprint or phone lock, if you've added a passkey here.".replace("'", '’'),
+			),
+		).toBeInTheDocument();
+		// The password form is still all there.
+		expect(screen.getByLabelText('Password')).toBeInTheDocument();
+		expect(passkey.compareDocumentPosition(screen.getByRole('button', { name: 'Log in' }))).toBe(
+			Node.DOCUMENT_POSITION_PRECEDING,
+		);
+	});
+
+	it('offers none on an instance with no https:// name, or at another address', async () => {
+		aBrowserWithPasskeys();
+		signInAt(null);
+		await screen.findByRole('button', { name: 'Log in' });
+		expect(screen.queryByRole('button', { name: 'Log in with a passkey' })).not.toBeInTheDocument();
+	});
+
+	it('offers none at the LAN address when the passkey signs in at the public one', async () => {
+		aBrowserWithPasskeys();
+		signInAt('https://recipes.kamosu.example');
+		await screen.findByRole('button', { name: 'Log in' });
+		expect(screen.queryByRole('button', { name: 'Log in with a passkey' })).not.toBeInTheDocument();
+	});
+
+	it('offers none in a browser that cannot ask its device', async () => {
+		signInAt(window.location.origin);
+		await screen.findByRole('button', { name: 'Log in' });
+		expect(screen.queryByRole('button', { name: 'Log in with a passkey' })).not.toBeInTheDocument();
+	});
+
+	it('asks for a challenge before the press, and again after it, so the press opens the device at once', async () => {
+		aBrowserWithPasskeys();
+		const readyPasskey = vi.fn();
+		signInAt(window.location.origin, async () => 'declined', readyPasskey);
+
+		await user.click(await screen.findByRole('button', { name: 'Log in with a passkey' }));
+		expect(readyPasskey).toHaveBeenCalledTimes(2);
+	});
+
+	it('asks for no challenge where no passkey is offered', async () => {
+		aBrowserWithPasskeys();
+		const readyPasskey = vi.fn();
+		signInAt(null, async () => 'declined', readyPasskey);
+		await screen.findByRole('button', { name: 'Log in' });
+		expect(readyPasskey).not.toHaveBeenCalled();
+	});
+
+	it('signs in with the passkey and says nothing when the device prompt is closed', async () => {
+		aBrowserWithPasskeys();
+		const signInWithPasskey = vi.fn<AuthClient['signInWithPasskey']>(async () => 'declined');
+		signInAt(window.location.origin, signInWithPasskey);
+
+		await user.click(await screen.findByRole('button', { name: 'Log in with a passkey' }));
+		expect(signInWithPasskey).toHaveBeenCalledOnce();
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+	});
+
+	it('says a passkey this Kamosu does not know is not one, and offers the password', async () => {
+		aBrowserWithPasskeys();
+		signInAt(window.location.origin, async () => {
+			throw new OperationError(
+				'authentication',
+				'unauthorized',
+				'that passkey is not one this Kamosu knows',
+			);
+		});
+
+		await user.click(await screen.findByRole('button', { name: 'Log in with a passkey' }));
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'That passkey isn’t one this Kamosu knows. Log in with your password, then add it again in Settings.',
+		);
 	});
 });

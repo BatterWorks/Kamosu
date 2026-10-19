@@ -116,6 +116,14 @@ ignore = [
   { id = "RUSTSEC-2026-0367", reason = "zip `extract` keeps SUID/SGID bits; Kamosu reads entries into memory and never calls `extract` outside a test on its own Backup" },
   { id = "RUSTSEC-2026-0368", reason = "zip `extract` applies permissions through symlinks; same reasoning as RUSTSEC-2026-0367" },
   { id = "RUSTSEC-2026-0369", reason = "zip `extract` creates symlinks pointing outside the folder; same reasoning as RUSTSEC-2026-0367" },
+
+  # Arrives with passkeys (#370, ADR 0051): webauthn-rs -> crypto-glue -> rsa,
+  # for the passkeys some devices sign with RS256. The Marvin attack reads a
+  # private key off the time its decryption or signing takes. Kamosu holds no
+  # RSA private key: it only checks a signature a device made, against that
+  # device's public key, and a public key has nothing to leak. No `rsa` release
+  # carries a fix yet. Re-read when webauthn-rs 0.6 ships stable.
+  { id = "RUSTSEC-2023-0071", reason = "rsa Marvin timing leak of a private key; Kamosu only verifies passkey signatures with public keys, and holds no RSA private key" },
 ]
 
 # The interface's tree has no file of its own for this, so what `npm audit`

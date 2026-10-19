@@ -359,7 +359,8 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   mod.rs            the Core itself, startup, `execute` with the only
                     authorisation check in Kamosu, and Credential resolution
   accounts.rs       people, logins, Sessions, Access Keys, invites, recovery,
-                    a Person's Reading Language, Operator
+                    changing your own password, a Person's Reading
+                    Language, Operator
   kitchens.rs       Kitchens, their members, and leaving one: who sees
                     whose recipes (ADR 0041)
   cookbooks.rs      Cookbooks: who may change a recipe, joining and
@@ -383,6 +384,9 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     from its kept Original, a file handed over again, or
                     its Source's link, and whether one can (#272, #273)
   readings.rs       Ingredient Lines, Readings, Foods and Food merges
+  passkeys.rs       passkeys: signing in with one, adding one after the
+                    password, the list a Person keeps, and the address each
+                    works at (#370)
   originals.rs      pasted text, a PDF or a picture handed to an agent,
                     kept under originals/ for its Job's Job Key alone and
                     in no Backup, and deleted 30 days after its Job ended.
