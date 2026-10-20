@@ -34,12 +34,14 @@
 - Reading a PDF, decoding a photograph and drawing a share card's picture no longer slow everyone else's requests while they run. [#373]
 - A Crouton export stops being read once it has unpacked 4 GB, and the Import Report lists each recipe after that as not read. Before, a small zip could make Kamosu unpack far more. [#373]
 - Kamosu forgets a name's wrong passwords an hour after the last one, so made-up names tried at the sign-in page are no longer kept for good. A name that had wrong passwords in the last hour waits as before. [#373]
+- Building Meaning Search's index reads a recipe's long lines apart from its short ones. Before, a recipe with a long Note held hundreds of megabytes more while it was read, enough for a container with a memory limit to be killed partway through, and killed again on the same recipe every time it started. When a build starts again on the recipe the last one died on, the log now says so. [#389]
 
 [#368]: https://github.com/BatterWorks/Kamosu/issues/368
 [#369]: https://github.com/BatterWorks/Kamosu/issues/369
 [#370]: https://github.com/BatterWorks/Kamosu/issues/370
 [#372]: https://github.com/BatterWorks/Kamosu/issues/372
 [#373]: https://github.com/BatterWorks/Kamosu/issues/373
+[#389]: https://github.com/BatterWorks/Kamosu/issues/389
 
 ## v0.3.0 - 2026-10-18
 
