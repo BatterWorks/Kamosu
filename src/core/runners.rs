@@ -17,8 +17,9 @@ impl Core {
 
     /// Mint a Runner Key. It belongs to the instance and to no Person: that
     /// an Operator asked is the Catalogue's declaration, checked in
-    /// `execute`. `by` is who did, for the Security Record (#371), and
-    /// nobody for plumbing that mints one directly.
+    /// `execute`. `by` is who did, for the Security Record (#371) and for a
+    /// recovery of their account to end it (#378), and nobody for plumbing
+    /// that mints one directly.
     pub fn mint_runner_key(
         &self,
         by: Option<&Caller>,
@@ -28,10 +29,12 @@ impl Core {
         let secret = generate_secret();
         let hash = hash_secret(&secret);
         let id = format!("rk_{}", hex::encode(random_bytes(8)));
+        let minted_by = by.map(|caller| caller.person_id.as_str());
         self.db().with_conn(|conn| {
             conn.execute(
-                "INSERT INTO runner_keys (id, secret_hash, name) VALUES (?1, ?2, ?3)",
-                params![id, hash, key_name],
+                "INSERT INTO runner_keys (id, secret_hash, name, minted_by) \
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![id, hash, key_name, minted_by],
             )
             .map_err(|e| OpError::internal(format!("cannot mint Runner Key: {e}")))
         })?;
@@ -95,6 +98,58 @@ impl Core {
         })?;
         self.note_runner_key("runner_key_revoked", by, &name);
         Ok(())
+    }
+
+    /// The Runner Keys a recovery link ends with the old password (#378):
+    /// every live one `person_id` minted, and when they are an Operator,
+    /// every live one minted before Kamosu wrote down who mints them. Each
+    /// is revoked as by hand, inside the recovery's own transaction, and
+    /// answered by name for the Security Record.
+    pub(super) fn end_runner_keys_of_recovered(
+        conn: &Connection,
+        person_id: &str,
+    ) -> Result<Vec<String>, OpError> {
+        let failed = |e| OpError::internal(format!("cannot end the Runner Keys: {e}"));
+        let ended: Vec<(String, String)> = conn
+            .prepare(
+                "UPDATE runner_keys SET revoked = 1
+                  WHERE revoked = 0
+                    AND (minted_by = ?1
+                         OR (minted_by IS NULL
+                             AND (SELECT is_operator FROM people WHERE id = ?1) = 1))
+                 RETURNING id, name",
+            )
+            .and_then(|mut statement| {
+                statement
+                    .query_map(params![person_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                    .collect()
+            })
+            .map_err(failed)?;
+        for (key_id, _) in &ended {
+            jobs::release_for_revoked_runner(conn, key_id)?;
+        }
+        Ok(ended.into_iter().map(|(_, name)| name).collect())
+    }
+
+    /// Note the Runner Keys a recovery link ended in every Operator's record,
+    /// each as revoked by the recovered Person through the Session the link
+    /// opened, which no Caller holds yet.
+    pub(super) fn note_runner_keys_recovery_ended(
+        &self,
+        person_id: &str,
+        session_name: &str,
+        names: &[String],
+    ) {
+        for name in names {
+            let mut event = Event::instance("runner_key_revoked", None)
+                .naming(Some(Named {
+                    kind: "session",
+                    name: session_name.to_string(),
+                }))
+                .saying(json!({ "runner_key": name }));
+            event.by_id = Some(person_id.to_string());
+            self.note(event);
+        }
     }
 
     /// Note a Runner Key minted or revoked in every Operator's record, with

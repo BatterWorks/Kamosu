@@ -176,6 +176,29 @@ describe('how a row is said (#371)', () => {
 		expect(row).toHaveTextContent(/From \w{3},? \d+ \w+ 23:50 to 00:10/);
 	});
 
+	it('says what a recovery link ended, Runner Keys among it (#378)', async () => {
+		security({
+			list_security_record: record([
+				event({
+					event: 'signed_in',
+					at: today(11, 0),
+					credential: { kind: 'session', name: 'replacement browser' },
+					detail: {
+						how: 'recovery_link',
+						ended_sessions: 1,
+						ended_access_keys: 2,
+						ended_runner_keys: 1,
+					},
+				}),
+			]),
+			list_instance_security_record: { refuse: 'unauthorized' },
+		});
+		const row = (await screen.findByText('Signed in on replacement browser')).closest('li')!;
+		expect(row).toHaveTextContent(
+			/1 other device signed out · 2 Access Keys ended · 1 Runner Key ended · 11:00$/,
+		);
+	});
+
 	it('says a new Operator arrived through an Operator Invite', async () => {
 		security({
 			list_security_record: record([]),

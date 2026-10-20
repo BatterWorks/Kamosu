@@ -6652,6 +6652,117 @@ async fn a_recovery_link_ends_every_session_and_access_key_the_account_held() {
     );
 }
 
+/// A Person invited and signed in at the web door: their Session's Secret.
+fn invited(app: &support::TestApp, operator: &str, name: &str) -> String {
+    let (_, invite) = app.post_op("mint_invite", Some(operator), "{}");
+    let joined = app.post_auth_response(
+        "/auth/invite",
+        &json!({
+            "link": invite["result"]["link"],
+            "name": name,
+            "password": "the password someone took",
+            "session_name": "the old browser",
+        })
+        .to_string(),
+    );
+    assert_eq!(joined.status, 200, "{}", joined.text());
+    support::session_cookie_secret(&joined)
+}
+
+/// `name`'s password set again with a recovery link: what it answered.
+fn recovered(app: &support::TestApp, operator: &str, name: &str) -> Value {
+    let (_, recovery) = app.post_op(
+        "mint_recovery_link",
+        Some(operator),
+        &json!({ "name": name }).to_string(),
+    );
+    let answer = app.post_auth_response(
+        "/auth/recover",
+        &json!({
+            "link": recovery["result"]["link"],
+            "password": "a password nobody else has",
+            "session_name": "replacement browser",
+        })
+        .to_string(),
+    );
+    assert_eq!(answer.status, 200, "{}", answer.text());
+    serde_json::from_str::<Value>(&answer.text()).unwrap()["result"].clone()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recovery_link_ends_the_runner_keys_the_account_minted_and_the_unrecorded_ones() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let marie = invited(&app, &session, "Marie");
+    let (status, raised) = app.post_op(
+        "set_operator",
+        Some(&session),
+        r#"{"name":"Marie","is_operator":true}"#,
+    );
+    assert_eq!(status, 200, "{raised}");
+    // Hers, minted with the password someone took; the other Operator's;
+    // and one from before Kamosu wrote down who mints a Runner Key.
+    let (hers, _) = runner_key(&app, &marie, "Marie's Runner");
+    let (theirs, _) = runner_key(&app, &session, "the kitchen's Runner");
+    let unrecorded = app
+        .core
+        .mint_runner_key(None, "from before")
+        .unwrap()
+        .secret;
+
+    let answer = recovered(&app, &session, "Marie");
+    assert_eq!(answer["ended_runner_keys"], json!(2), "{answer}");
+
+    let asks = |secret: &str| app.post_op("ask_for_work", Some(secret), &asking()).0;
+    assert_eq!(asks(&hers), 401);
+    assert_eq!(asks(&unrecorded), 401);
+    assert_eq!(asks(&theirs), 200);
+
+    // Every Operator reads which went, by whom and through what.
+    let (_, record) = app.post_op("list_instance_security_record", Some(&session), "{}");
+    let revoked: Vec<(Value, Value, Value)> = record["result"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["event"] == "runner_key_revoked")
+        .map(|row| {
+            (
+                row["by"].clone(),
+                row["credential"]["name"].clone(),
+                row["detail"]["runner_key"].clone(),
+            )
+        })
+        .collect();
+    let mut names: Vec<Value> = revoked.iter().map(|(_, _, key)| key.clone()).collect();
+    names.sort_by_key(|name| name.to_string());
+    assert_eq!(names, vec![json!("Marie's Runner"), json!("from before")]);
+    for (by, through, _) in &revoked {
+        assert_eq!(
+            (by, through),
+            (&json!("Marie"), &json!("replacement browser"))
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recovery_link_of_someone_who_is_no_operator_leaves_the_unrecorded_runner_keys() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    invited(&app, &session, "Camille");
+    let unrecorded = app
+        .core
+        .mint_runner_key(None, "from before")
+        .unwrap()
+        .secret;
+
+    let answer = recovered(&app, &session, "Camille");
+    assert_eq!(answer["ended_runner_keys"], json!(0), "{answer}");
+    assert_eq!(
+        app.post_op("ask_for_work", Some(&unrecorded), &asking()).0,
+        200
+    );
+}
+
 /// What the MCP door lists to a Secret, by name.
 fn mcp_tool_names(app: &support::TestApp, secret: &str) -> Vec<String> {
     let (_, listing) = app.post_mcp(
@@ -15760,6 +15871,30 @@ mod web_link_importer {
         assert_eq!(handed["job_id"], json!(held.job_id));
         fail_every_try(&app, &bystander, &held.job_id, "The page timed out.");
         assert_eq!(job(&app, &cook, &held.job_id)["status"], json!("failed"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recovery_link_ending_a_runner_key_sends_its_job_back_to_waiting() {
+        let app = support::spawn_app();
+        let (session, _) = super::operator_signed_in(&app);
+        let (runner, _) = super::runner_key(&app, &session, "minted with the old password");
+        let person = app.core.create_person("Camille").expect("person");
+        let cook = app
+            .core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret;
+        let held = a_job_held_for(&app, &cook, &runner);
+
+        let answer = super::recovered(&app, &session, "Stéphane");
+        assert_eq!(answer["ended_runner_keys"], json!(1), "{answer}");
+
+        let waiting = job(&app, &cook, &held.job_id);
+        assert_eq!(waiting["status"], json!("queued"), "{waiting}");
+        assert_eq!(
+            reads_with(&app, &held.job_key),
+            an_unknown_secret_is_answered(&app, "search_recipes")
+        );
     }
 
     // --- An agent's Job is cancelled while it is being worked (#267) -------
@@ -39936,7 +40071,7 @@ async fn a_recovery_link_says_what_it_ended_with_the_old_password() {
     );
     assert_eq!(
         record["events"][0]["detail"],
-        json!({ "how": "recovery_link", "ended_sessions": 1, "ended_access_keys": 1 })
+        json!({ "how": "recovery_link", "ended_sessions": 1, "ended_access_keys": 1, "ended_runner_keys": 0 })
     );
     assert_eq!(
         record["events"].as_array().unwrap().last().unwrap()["detail"],

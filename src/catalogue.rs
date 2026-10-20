@@ -7423,6 +7423,10 @@ fn security_record_output() -> Value {
                                 },
                                 "ended_sessions": { "type": "integer" },
                                 "ended_access_keys": { "type": "integer" },
+                                "ended_runner_keys": {
+                                    "type": "integer",
+                                    "description": "Runner Keys a recovery link ended.",
+                                },
                                 "read_only": { "type": "boolean" },
                                 "operator": { "type": "boolean" },
                                 "taken_away": {

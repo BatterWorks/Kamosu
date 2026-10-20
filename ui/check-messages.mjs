@@ -30,6 +30,9 @@ const ALLOWED_LONGER = {
 	// A scanned PDF's refusal (#176): why, and the two ways in that still
 	// work. This wording was chosen word for word on 27 September 2026.
 	plus_pdf_no_text: 175,
+	// What a recovery link ends before the password is set, an Operator's
+	// Runner Keys among it (#378). Chosen word for word on 20 October 2026.
+	account_recover_blurb: 215,
 };
 
 const failures = [];

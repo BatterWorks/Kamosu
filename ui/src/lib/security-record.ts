@@ -181,6 +181,7 @@ function howSignedIn(how: SecurityEvent['detail']['how']): string | undefined {
 function whatEnded(detail: SecurityEvent['detail']): (string | undefined)[] {
 	const sessions = detail.ended_sessions ?? 0;
 	const keys = detail.ended_access_keys ?? 0;
+	const runnerKeys = detail.ended_runner_keys ?? 0;
 	return [
 		sessions === 0
 			? undefined
@@ -192,6 +193,11 @@ function whatEnded(detail: SecurityEvent['detail']): (string | undefined)[] {
 			: keys === 1
 				? m.security_keys_ended_one()
 				: m.security_keys_ended({ count: String(keys) }),
+		runnerKeys === 0
+			? undefined
+			: runnerKeys === 1
+				? m.security_runner_keys_ended_one()
+				: m.security_runner_keys_ended({ count: String(runnerKeys) }),
 	];
 }
 

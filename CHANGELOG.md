@@ -28,7 +28,7 @@
 
 ### Fixed
 
-- Setting a new password with a recovery link signs out every device and ends every Access Key the account held, so whoever had the old password is shut out. Before, they all kept working. The recovery page says so before the password is set, and the answer says how many in `ended_sessions` and `ended_access_keys`. [#369]
+- Setting a new password with a recovery link signs out every device and ends every Access Key the account held, so whoever had the old password is shut out. Before, they all kept working. The recovery page says so before the password is set, and the answer says how many in `ended_sessions` and `ended_access_keys`. It also ends every Runner Key the account minted, which the Security Record and `ended_runner_keys` count. Kamosu did not record who minted a Runner Key before this version, so an Operator's recovery ends every Runner Key minted earlier too, and the Runner needs a new one. [#369] [#378]
 - A read-only Access Key can no longer fetch a Backup, which holds every password and Secret hash on the instance. [#369]
 - A request with no Credential carries at most 64 KB, and is refused before its body is read when it says it carries more. Before, anyone could make Kamosu hold 40 MB per request in memory. A Credential that names nobody is answered before its body is read at all. A member's request keeps the 40 MB a phone's photograph needs. [#368]
 - Kamosu lets go of a slow sender: a connection that takes more than 20 seconds to send a request's headers, or sits idle that long between two, a request with no Credential whose body takes more than 30 seconds, and any request that takes more than ten minutes, a staged upload excepted. Past 256 requests at once it answers busy, where it used to take on as many as arrived, and it reads at most 64 strangers' bodies at once, apart from everyone else's requests, so slow strangers hold up only other strangers. Before, a stranger could hold connections open for as long as they liked. [#368]
@@ -44,6 +44,7 @@
 [#371]: https://github.com/BatterWorks/Kamosu/issues/371
 [#372]: https://github.com/BatterWorks/Kamosu/issues/372
 [#373]: https://github.com/BatterWorks/Kamosu/issues/373
+[#378]: https://github.com/BatterWorks/Kamosu/issues/378
 [#389]: https://github.com/BatterWorks/Kamosu/issues/389
 
 ## v0.3.0 - 2026-10-18
