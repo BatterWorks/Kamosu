@@ -42,6 +42,7 @@
 - Signing out first sends what the device wrote offline, such as a cooking moved on or a shopping-list tick. If some still cannot go, Kamosu says how many changes have not arrived and offers to wait and try again before signing out anyway. Before, they were thrown away without a word the next time anyone signed in on the device. [#380]
 - In an English recipe, an Ingredient Line's `1,020 g` is read as 1020 g, and the shopping list and scaling use that. Before, every comma between digits was read as a decimal point, so it came out as 1.02 g. `1,5 g` still reads as 1.5 g, and a French or Spanish recipe's comma is still its decimal point. [#383]
 - A word too long for its line, such as a web address in a recipe's note, a Step or an Ingredient Line, wraps onto the next line where it reaches the edge. Before, it ran off the side of a phone and the page scrolled sideways. [#385]
+- With Meaning Search on, a recipe that holds only a title no longer keeps the index catching up forever. Before, Settings said such recipes had changed since the last index for as long as they stayed that way, `meaning_search_status` counted them in `recipes_not_yet_indexed`, and the log said `index caught up` every minute with nothing changed. `build_meaning_index` now counts in `indexed` only the recipes and cooking notes it put in the index. [#391]
 
 [#368]: https://github.com/BatterWorks/Kamosu/issues/368
 [#369]: https://github.com/BatterWorks/Kamosu/issues/369
@@ -54,6 +55,7 @@
 [#383]: https://github.com/BatterWorks/Kamosu/issues/383
 [#385]: https://github.com/BatterWorks/Kamosu/issues/385
 [#389]: https://github.com/BatterWorks/Kamosu/issues/389
+[#391]: https://github.com/BatterWorks/Kamosu/issues/391
 
 ## v0.3.0 - 2026-10-18
 

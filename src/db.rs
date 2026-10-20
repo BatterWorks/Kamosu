@@ -2002,6 +2002,25 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 60,
+        description: "Meaning Search remembers a recipe with nothing to embed (#391)",
+        sql: r#"
+        -- A Branch whose head Version Meaning Search looked at and found
+        -- nothing in to embed: a title and no ingredients, steps or Note. It
+        -- writes no meaning_vectors row, so without this it is owed on every
+        -- pass and the index never says it has caught up. Derived like the
+        -- vectors, and pruned with them: a row whose Branch is gone, whose
+        -- head has moved or whose embedding space is not today's goes.
+        CREATE TABLE meaning_nothing_to_embed (
+            branch_id       TEXT NOT NULL,
+            version_id      TEXT NOT NULL,
+            embedding_space TEXT NOT NULL,
+            PRIMARY KEY (branch_id, version_id, embedding_space)
+        );
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

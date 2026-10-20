@@ -1656,6 +1656,7 @@ pub(super) fn delete_branch_rows(conn: &Connection, branch_id: &str) -> Result<(
         // Derived, never truth (ADR 0029). Gone from Meaning Search the moment
         // the Branch is, without waiting for a rebuild.
         "DELETE FROM meaning_vectors WHERE branch_id = ?1",
+        "DELETE FROM meaning_nothing_to_embed WHERE branch_id = ?1",
         "DELETE FROM branches WHERE id = ?1",
     ] {
         conn.execute(statement, params![branch_id])
