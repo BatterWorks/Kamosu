@@ -342,7 +342,8 @@ ui-test:
     # The release commands' tests (#234). They drive the two scripts against
     # throwaway git repositories and stand-ins for `gh`, `just` and the release
     # hook, so they run under Node's own test runner, outside jsdom. The Docker
-    # Hub page's limits (#235) run beside them.
+    # Hub page's limits (#235) and `just audit`'s npm judgement (#374) run
+    # beside them.
     node --test tools/*.test.mjs
 
 # Check formatting and lints without changing anything. Also verifies the
@@ -419,12 +420,12 @@ format:
 # the RustSec database, npm audit against GitHub's.
 #
 # Deliberately NOT part of `just check`. Both halves fetch an advisory database
-# over the network, and `just check` has to stay fast and work offline. The
-# trade-off is that this is a recipe someone has to remember — run it when
-# adding or changing a dependency, and every so often regardless. That last part
-# is the real argument for CI: an advisory appears because the world changed,
-# not because this repo did, so a tree that was clean in March is not clean in
-# June by any property of the code.
+# over the network, and `just check` has to stay fast and work offline. Run it
+# when adding or changing a dependency. It also runs without anyone remembering
+# to, in .github/workflows/audit.yml: on every pull request into dev, and weekly
+# against dev, because an advisory appears because the world changed, not
+# because this repo did. A tree that was clean in March is not clean in June by
+# any property of the code (#374).
 #
 # Both run even when the first one fails, because "what is wrong with my
 # dependencies" is a question you want answered in full, once.
@@ -444,12 +445,14 @@ audit:
     echo ""
     echo "── The interface (npm audit) ──────────────────────────────────────────"
     just _npm-deps
-    # Fails on high and critical only. The lows in this tree today are
-    # SvelteKit's server-side cookie parser, which Kamosu never runs: the
-    # server half is unused (ADR 0012) and the Rust binary serves the built
-    # files. npm's own remedy for it is a downgrade to @sveltejs/kit 0.0.30,
-    # which is not a fix. Lows are still printed — read them, don't obey them.
-    ( cd ui && npm audit --audit-level=high ) || failed=1
+    # Fails on high and critical only, less what ui/npm-audit-exceptions.json
+    # excuses: npm has no ignore list of its own, so that file is deny.toml's
+    # for this tree, each entry with its reason (#374). The lows in this tree
+    # today are SvelteKit's server-side cookie parser, which Kamosu never runs:
+    # the server half is unused (ADR 0012) and the Rust binary serves the built
+    # files. npm's own remedy for it is a downgrade, which is not a fix. Lows
+    # are still printed — read them, don't obey them.
+    ( cd ui && node tools/npm-audit.mjs ) || failed=1
 
     echo ""
     if (( failed )); then

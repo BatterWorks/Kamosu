@@ -1,0 +1,9 @@
+{
+	"about": "npm advisories read and judged not to apply to Kamosu, each with its reason: deny.toml's ignore list for the interface's tree, read by tools/npm-audit.mjs when `just audit` runs. An id belongs here only when the advisory has been read and the real fix tried first, never to quiet a build. Re-read an entry whenever the package it names moves.",
+	"ignore": [
+		{
+			"id": "GHSA-vfj7-8cjw-p6xm",
+			"reason": "a nested brace pattern can overflow the stack, and no patched braces exists. It arrives as @tailwindcss/cli -> @parcel/watcher -> micromatch -> braces, and the CLI loads that watcher only for --watch, which Kamosu never passes: `just css` builds once. Even watching, the patterns are the @source lines in src/app.css, written here. Nothing that ships holds it, and nothing a stranger sends reaches it. npm's remedy is @tailwindcss/cli 4.3.0, a downgrade. Re-read when @tailwindcss/cli or @parcel/watcher moves, or braces publishes a fix."
+		}
+	]
+}

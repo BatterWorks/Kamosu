@@ -60,7 +60,13 @@ runs here: automated version-bump pull requests would fight the paragraph above
 every week, and `just audit` gives the security half without the churn. Read
 what it reports rather than obeying it — `npm audit`'s suggested remedy is
 routinely a downgrade that breaks more than it fixes. Advisories judged not to
-apply are recorded, with the reasoning, in `deny.toml`.
+apply are recorded, with the reasoning, in `deny.toml` for the Rust tree and
+`ui/npm-audit-exceptions.json` for the interface's.
+
+**`just audit` runs without anyone remembering to**, in
+`.github/workflows/audit.yml`: on every pull request into `dev`, and weekly
+against `dev`. A failure on the weekly run opens one issue, or comments on it
+while it stays open, so it is seen without anyone watching the Actions tab.
 
 **Kamosu pins its compiler.** `rust-toolchain.toml` fixes the Rust version so
 every machine and every CI run builds identically. Pinning the toolchain and
