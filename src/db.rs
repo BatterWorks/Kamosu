@@ -1959,6 +1959,37 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 58,
+        description: "the Security Record (#371)",
+        sql: r#"
+        -- What happened at the doors: signing in, wrong passwords, keys,
+        -- Sessions and passkeys in a Person's own record (`account_id`), and
+        -- changes to the instance in every Operator's (`for_operators`).
+        -- `by_id` is the Person who acted and `subject_id` the one acted on.
+        -- The Credential is named as it was called then, and `detail` is
+        -- JSON, null when the event says nothing more. A run of wrong
+        -- passwords, or a crowd at the sign-in, is one row whose `count`
+        -- grows from `first_at` to `at`. Kept 90 days, swept daily.
+        CREATE TABLE security_record (
+            id              INTEGER PRIMARY KEY,
+            event           TEXT NOT NULL,
+            for_operators   INTEGER NOT NULL,
+            account_id      TEXT REFERENCES people(id),
+            by_id           TEXT REFERENCES people(id),
+            subject_id      TEXT REFERENCES people(id),
+            credential_kind TEXT,
+            credential_name TEXT,
+            detail          TEXT,
+            count           INTEGER NOT NULL DEFAULT 1,
+            first_at        TEXT NOT NULL,
+            at              TEXT NOT NULL
+        );
+        CREATE INDEX security_record_of_an_account ON security_record(account_id, at);
+        CREATE INDEX security_record_by_age ON security_record(for_operators, at);
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

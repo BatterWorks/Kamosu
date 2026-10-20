@@ -67,6 +67,7 @@ mod recipes;
 mod related;
 mod runners;
 mod search;
+mod security_record;
 mod share_links;
 mod shared;
 mod sheets;
@@ -90,6 +91,7 @@ pub use recipes::COLLAPSE_WINDOW_SECONDS;
 pub use related::*;
 pub use runners::*;
 pub use search::*;
+pub use security_record::*;
 pub(crate) use shared::*;
 pub use sheets::*;
 use shelves::*;
@@ -350,6 +352,9 @@ pub struct Core {
     passwords: accounts::Passwords,
     /// Passkey exchanges begun and not yet finished (#370).
     ceremonies: passkeys::Ceremonies,
+    /// A crowd at the sign-in, counted between the times it is written down
+    /// in the Security Record (#371).
+    security: security_record::Watch,
     /// The PDFs being read now, each in a program of its own (#373).
     pdf_readers: crate::pdf::Readers,
     /// How long a Runner's hold on a Job lasts unless renewed, in
@@ -387,6 +392,7 @@ impl Core {
             meaning,
             passwords: accounts::Passwords::default(),
             ceremonies: Default::default(),
+            security: Default::default(),
             pdf_readers: Default::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             job_key_creates: Default::default(),
@@ -411,6 +417,7 @@ impl Core {
             meaning,
             passwords: accounts::Passwords::default(),
             ceremonies: Default::default(),
+            security: Default::default(),
             pdf_readers: Default::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             job_key_creates: Default::default(),
@@ -425,6 +432,7 @@ impl Core {
         spawn_meaning_search(core.clone());
         spawn_backups(core.clone());
         spawn_hold_watch(core.clone());
+        spawn_crowd_watch(core.clone());
         core
     }
 

@@ -102,6 +102,10 @@ _Avoid_: Cookie, login, token, sign-in
 A way for a Person to log in with their device's face, fingerprint or screen lock, offered beside the password and never in its place. It is the WebAuthn credential the device keeps; Kamosu keeps only its public half, so it is not a **Secret** and nothing Kamosu stores signs anyone in. It works only at the public address it was made at, and only where that address is an `https://` name. Logging in with one mints a **Session**, as a password does, and a passkey is added only from a Session, after the password (#370).
 _Avoid_: WebAuthn key, security key, biometric login, FIDO credential
 
+**Security Record**:
+What Kamosu notes of what happens at its doors, kept 90 days (#371). A Person reads their own: each sign-in and how it was made, a run of wrong passwords at their name as one entry, their passkeys, password, Access Keys and Sessions ended. Every Operator reads the instance's: changes to the House Notes and the public address, who administers, accounts ended, Operator keys, Runner Keys, Backups fetched and a crowd at the sign-in, each with who did it through which Credential. Every entry is also one line of the log, in a fixed format (`docs/security-record.md`). It names Credentials, never an address, and is sent nowhere.
+_Avoid_: Audit log, activity log, history
+
 **Immediate Operation**:
 An Operation that answers within a single request.
 _Avoid_: Sync operation

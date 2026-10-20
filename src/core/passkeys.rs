@@ -348,6 +348,12 @@ impl Core {
                 e => OpError::internal(format!("cannot keep the passkey: {e}")),
             })
         })?;
+        self.note(
+            Event::theirs("passkey_added", person_id).naming(Some(Named {
+                kind: "passkey",
+                name: name.to_string(),
+            })),
+        );
         Ok(json!({
             "id": id,
             "name": name,
@@ -381,16 +387,24 @@ impl Core {
     /// Forget a passkey here. The device still holds it until it is deleted
     /// there; it signs in to nothing.
     pub fn remove_passkey(&self, person_id: &str, passkey_id: &str) -> Result<(), OpError> {
-        let removed = self.db().with_conn(|conn| {
-            conn.execute(
-                "DELETE FROM passkeys WHERE id = ?1 AND person_id = ?2",
+        let removed: Option<String> = self.db().with_conn(|conn| {
+            conn.query_row(
+                "DELETE FROM passkeys WHERE id = ?1 AND person_id = ?2 RETURNING name",
                 params![passkey_id, person_id],
+                |row| row.get(0),
             )
+            .optional()
             .map_err(|e| OpError::internal(format!("cannot remove the passkey: {e}")))
         })?;
-        if removed == 0 {
+        let Some(name) = removed else {
             return Err(OpError::not_found("no passkey with that id is yours"));
-        }
+        };
+        self.note(
+            Event::theirs("passkey_removed", person_id).naming(Some(Named {
+                kind: "passkey",
+                name,
+            })),
+        );
         Ok(())
     }
 
@@ -479,7 +493,7 @@ impl Core {
             )
             .map_err(|e| OpError::internal(format!("cannot note the passkey's use: {e}")))
         })?;
-        let session = self.mint_session(&person_id, session_name)?;
+        let session = self.mint_session(&person_id, session_name, "passkey")?;
         Ok(json!({ "session_id": session.id, "_session_secret": session.secret }))
     }
 }

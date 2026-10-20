@@ -32,6 +32,12 @@ not a company with a response time.
   it reads cannot rewrite the House Notes every later agent follows.
 - **Back up `/data`.** Kamosu keeps three Backups under `/data/backups` and
   never sends one anywhere. Getting them off the machine is your job.
+- **Read the Security Record now and then, or watch its log lines.**
+  Settings › Security record lists each sign-in, wrong passwords at your
+  name, and every change an Operator or an Operator key made to the
+  instance, for 90 days. Each is also a `kamosu-security` line on standard
+  output for a log watcher to match; `docs/security-record.md` describes
+  the format.
 
 ## What Kamosu does not defend
 
@@ -59,7 +65,8 @@ is never behind it.
 **A stolen unlocked phone is a logged-in phone.** Sessions do not expire,
 because an expiry fires on a phone that spent a fortnight offline at the stove
 rather than on a thief. End the session from another device instead. That works
-immediately, which a timer would not have.
+immediately, which a timer would not have. The Security Record lists each
+sign-in with the device's name, which is how you learn there is one to end.
 
 **Someone who knows your name here can keep you from signing in while they keep
 guessing.** Each wrong password makes the next try at that name wait, up to 30

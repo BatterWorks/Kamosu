@@ -74,6 +74,11 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// it beside the buttons that change it, and a kept answer is wrong at
 	// exactly the moment it matters: a Kitchen joined or left on another
 	// device, or another member removing you. Found in live acceptance (#111).
+	// The Security Record (#371). Read to learn whether somebody else is
+	// signing in or changing things, so a kept answer would hide the very
+	// event it is read for.
+	list_security_record: 'server-first',
+	list_instance_security_record: 'server-first',
 	list_kitchens: 'server-first',
 	// Your Cookbook, who writes it and the Invites still waiting (#131). The
 	// same reason: joining, leaving and renaming happen on other devices and

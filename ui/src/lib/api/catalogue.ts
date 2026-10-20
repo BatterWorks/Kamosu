@@ -211,6 +211,38 @@ export type SetHouseNotesOutput = {
 	saved_by: string | null;
 };
 
+/** Read the instance's Security Record, newest first. Every Operator reads it. It holds the House Notes and the public address changed, a Person made an Operator or stood down, an account disabled or deleted, an Operator key minted, a crowd of sign-ins refused because the line for them was full (counted as one row while it lasts), Runner Keys minted and revoked, and Backups fetched. Each row says who did it and through which Session or key. Kept for `kept_for_days` days. A change you did not make, made through an Operator key, may be an agent tricked by what it read: end that key. */
+export type ListInstanceSecurityRecordInput = Record<string, never>;
+/** What list_instance_security_record answers. */
+export type ListInstanceSecurityRecordOutput = {
+	events: {
+		about: string | null;
+		at: string;
+		by: string | null;
+		count: number;
+		credential: {
+			kind: "session" | "access_key" | "operator_key" | "job_key" | "passkey";
+			name: string;
+		} | null;
+		detail: {
+			address?: string;
+			backup?: string;
+			ended_access_keys?: number;
+			ended_sessions?: number;
+			how?: "password" | "passkey" | "invite" | "recovery_link" | "setup";
+			key?: string;
+			operator?: boolean;
+			read_only?: boolean;
+			runner_key?: string;
+			taken_away?: boolean;
+		};
+		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched";
+		first_at: string;
+		id: number;
+	}[];
+	kept_for_days: number;
+};
+
 /** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it with reason `another_version`. */
 export type AskForWorkInput = {
 	ask: string;
@@ -332,6 +364,38 @@ export type RevokeAccessKeyInput = {
 /** What revoke_access_key answers. */
 export type RevokeAccessKeyOutput = {
 	revoked: boolean;
+};
+
+/** Read your own Security Record, newest first. It holds each time you signed in and how, wrong passwords at your name counted as one row per run, passkeys added and removed, your password changed, Access Keys minted and ended, and Sessions ended. Each row names the Session or key it is about, never an address. Kept for `kept_for_days` days. What to look for: a sign-in on a device you do not know, wrong passwords you did not type, or a key you did not mint. End that Session or key and change your password. */
+export type ListSecurityRecordInput = Record<string, never>;
+/** What list_security_record answers. */
+export type ListSecurityRecordOutput = {
+	events: {
+		about: string | null;
+		at: string;
+		by: string | null;
+		count: number;
+		credential: {
+			kind: "session" | "access_key" | "operator_key" | "job_key" | "passkey";
+			name: string;
+		} | null;
+		detail: {
+			address?: string;
+			backup?: string;
+			ended_access_keys?: number;
+			ended_sessions?: number;
+			how?: "password" | "passkey" | "invite" | "recovery_link" | "setup";
+			key?: string;
+			operator?: boolean;
+			read_only?: boolean;
+			runner_key?: string;
+			taken_away?: boolean;
+		};
+		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched";
+		first_at: string;
+		id: number;
+	}[];
+	kept_for_days: number;
 };
 
 /** List your passkeys. Each says when it was added and last used, and whether it works at this instance's address. Also whether this instance offers passkeys at all, and if not, why. */
@@ -5646,6 +5710,12 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'operator';
 	};
+	list_instance_security_record: {
+		input: ListInstanceSecurityRecordInput;
+		output: ListInstanceSecurityRecordOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
 	ask_for_work: {
 		input: AskForWorkInput;
 		output: AskForWorkOutput;
@@ -5697,6 +5767,12 @@ export interface Operations {
 	revoke_access_key: {
 		input: RevokeAccessKeyInput;
 		output: RevokeAccessKeyOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	list_security_record: {
+		input: ListSecurityRecordInput;
+		output: ListSecurityRecordOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -7190,6 +7266,174 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "list_instance_security_record",
+		"summary": "Read the instance's Security Record, newest first. Every Operator reads it. It holds the House Notes and the public address changed, a Person made an Operator or stood down, an account disabled or deleted, an Operator key minted, a crowd of sign-ins refused because the line for them was full (counted as one row while it lasts), Runner Keys minted and revoked, and Backups fetched. Each row says who did it and through which Session or key. Kept for `kept_for_days` days. A change you did not make, made through an Operator key, may be an agent tricked by what it read: end that key.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"events": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"about": {
+								"description": "The Person it was done to: made an Operator, stood down, disabled or deleted.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"at": {
+								"description": "When it last happened.",
+								"type": "string"
+							},
+							"by": {
+								"description": "The name the Person who did it goes by now. Null when nobody signed in did it.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"count": {
+								"description": "How many times: above one only for wrong passwords and a crowd at the sign-in.",
+								"type": "integer"
+							},
+							"credential": {
+								"additionalProperties": false,
+								"description": "The Session, key or passkey it names, as it was called then: the one that acted, or the one it was about.",
+								"properties": {
+									"kind": {
+										"enum": [
+											"session",
+											"access_key",
+											"operator_key",
+											"job_key",
+											"passkey"
+										]
+									},
+									"name": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"name"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"detail": {
+								"additionalProperties": false,
+								"description": "What else the row says, by event.",
+								"properties": {
+									"address": {
+										"type": "string"
+									},
+									"backup": {
+										"type": "string"
+									},
+									"ended_access_keys": {
+										"type": "integer"
+									},
+									"ended_sessions": {
+										"type": "integer"
+									},
+									"how": {
+										"description": "How a sign-in was made.",
+										"enum": [
+											"password",
+											"passkey",
+											"invite",
+											"recovery_link",
+											"setup"
+										]
+									},
+									"key": {
+										"description": "The Operator key minted.",
+										"type": "string"
+									},
+									"operator": {
+										"type": "boolean"
+									},
+									"read_only": {
+										"type": "boolean"
+									},
+									"runner_key": {
+										"type": "string"
+									},
+									"taken_away": {
+										"description": "The House Notes were emptied.",
+										"type": "boolean"
+									}
+								},
+								"type": "object"
+							},
+							"event": {
+								"enum": [
+									"signed_in",
+									"sign_in_failed",
+									"passkey_added",
+									"passkey_removed",
+									"password_changed",
+									"access_key_minted",
+									"access_key_ended",
+									"session_ended",
+									"house_notes_changed",
+									"public_address_changed",
+									"operator_raised",
+									"operator_stood_down",
+									"account_disabled",
+									"account_deleted",
+									"operator_key_minted",
+									"sign_in_crowd",
+									"runner_key_minted",
+									"runner_key_revoked",
+									"backup_fetched"
+								]
+							},
+							"first_at": {
+								"description": "When it first happened. Earlier than `at` only on a row that counts a run.",
+								"type": "string"
+							},
+							"id": {
+								"type": "integer"
+							}
+						},
+						"required": [
+							"id",
+							"event",
+							"first_at",
+							"at",
+							"count",
+							"by",
+							"about",
+							"credential",
+							"detail"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"kept_for_days": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"events",
+				"kept_for_days"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "ask_for_work",
 		"summary": "Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it with reason `another_version`.",
 		"permission": "runner",
@@ -7682,6 +7926,174 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"revoked"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_security_record",
+		"summary": "Read your own Security Record, newest first. It holds each time you signed in and how, wrong passwords at your name counted as one row per run, passkeys added and removed, your password changed, Access Keys minted and ended, and Sessions ended. Each row names the Session or key it is about, never an address. Kept for `kept_for_days` days. What to look for: a sign-in on a device you do not know, wrong passwords you did not type, or a key you did not mint. End that Session or key and change your password.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"events": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"about": {
+								"description": "The Person it was done to: made an Operator, stood down, disabled or deleted.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"at": {
+								"description": "When it last happened.",
+								"type": "string"
+							},
+							"by": {
+								"description": "The name the Person who did it goes by now. Null when nobody signed in did it.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"count": {
+								"description": "How many times: above one only for wrong passwords and a crowd at the sign-in.",
+								"type": "integer"
+							},
+							"credential": {
+								"additionalProperties": false,
+								"description": "The Session, key or passkey it names, as it was called then: the one that acted, or the one it was about.",
+								"properties": {
+									"kind": {
+										"enum": [
+											"session",
+											"access_key",
+											"operator_key",
+											"job_key",
+											"passkey"
+										]
+									},
+									"name": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"name"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"detail": {
+								"additionalProperties": false,
+								"description": "What else the row says, by event.",
+								"properties": {
+									"address": {
+										"type": "string"
+									},
+									"backup": {
+										"type": "string"
+									},
+									"ended_access_keys": {
+										"type": "integer"
+									},
+									"ended_sessions": {
+										"type": "integer"
+									},
+									"how": {
+										"description": "How a sign-in was made.",
+										"enum": [
+											"password",
+											"passkey",
+											"invite",
+											"recovery_link",
+											"setup"
+										]
+									},
+									"key": {
+										"description": "The Operator key minted.",
+										"type": "string"
+									},
+									"operator": {
+										"type": "boolean"
+									},
+									"read_only": {
+										"type": "boolean"
+									},
+									"runner_key": {
+										"type": "string"
+									},
+									"taken_away": {
+										"description": "The House Notes were emptied.",
+										"type": "boolean"
+									}
+								},
+								"type": "object"
+							},
+							"event": {
+								"enum": [
+									"signed_in",
+									"sign_in_failed",
+									"passkey_added",
+									"passkey_removed",
+									"password_changed",
+									"access_key_minted",
+									"access_key_ended",
+									"session_ended",
+									"house_notes_changed",
+									"public_address_changed",
+									"operator_raised",
+									"operator_stood_down",
+									"account_disabled",
+									"account_deleted",
+									"operator_key_minted",
+									"sign_in_crowd",
+									"runner_key_minted",
+									"runner_key_revoked",
+									"backup_fetched"
+								]
+							},
+							"first_at": {
+								"description": "When it first happened. Earlier than `at` only on a row that counts a run.",
+								"type": "string"
+							},
+							"id": {
+								"type": "integer"
+							}
+						},
+						"required": [
+							"id",
+							"event",
+							"first_at",
+							"at",
+							"count",
+							"by",
+							"about",
+							"credential",
+							"detail"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"kept_for_days": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"events",
+				"kept_for_days"
 			],
 			"type": "object"
 		}
@@ -34276,8 +34688,10 @@ export const READS: readonly OperationName[] = [
 	'list_runner_keys',
 	'runner_status',
 	'get_house_notes',
+	'list_instance_security_record',
 	'list_sessions',
 	'list_access_keys',
+	'list_security_record',
 	'list_passkeys',
 	'list_kitchens',
 	'preview_leaving_kitchen',
@@ -34337,6 +34751,7 @@ export const METHOD_NAMES = {
 	runner_status: 'runnerStatus',
 	get_house_notes: 'getHouseNotes',
 	set_house_notes: 'setHouseNotes',
+	list_instance_security_record: 'listInstanceSecurityRecord',
 	ask_for_work: 'askForWork',
 	renew_hold: 'renewHold',
 	report_on_job: 'reportOnJob',
@@ -34346,6 +34761,7 @@ export const METHOD_NAMES = {
 	mint_access_key: 'mintAccessKey',
 	list_access_keys: 'listAccessKeys',
 	revoke_access_key: 'revokeAccessKey',
+	list_security_record: 'listSecurityRecord',
 	list_passkeys: 'listPasskeys',
 	rename_passkey: 'renamePasskey',
 	remove_passkey: 'removePasskey',
@@ -34505,6 +34921,8 @@ export interface KamosuClient {
 	getHouseNotes(input?: GetHouseNotesInput): Promise<Answer<'get_house_notes'>>;
 	/** Save the agent's House Notes. They replace any there were, up to 4,000 characters. The agent reads them after its own instructions, as the Operator's, and follows them where the two disagree. A Job carries the notes as they stand when a Runner takes it. Blank text takes them away. Kamosu's own agent image follows them; another agent follows them only if it reads `house_notes` from each Job. */
 	setHouseNotes(input: SetHouseNotesInput): Promise<Answer<'set_house_notes'>>;
+	/** Read the instance's Security Record, newest first. Every Operator reads it. It holds the House Notes and the public address changed, a Person made an Operator or stood down, an account disabled or deleted, an Operator key minted, a crowd of sign-ins refused because the line for them was full (counted as one row while it lasts), Runner Keys minted and revoked, and Backups fetched. Each row says who did it and through which Session or key. Kept for `kept_for_days` days. A change you did not make, made through an Operator key, may be an agent tricked by what it read: end that key. */
+	listInstanceSecurityRecord(input?: ListInstanceSecurityRecordInput): Promise<Answer<'list_instance_security_record'>>;
 	/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it with reason `another_version`. */
 	askForWork(input: AskForWorkInput): Promise<Answer<'ask_for_work'>>;
 	/** Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again. This is how a Runner learns that its Job was cancelled, and the refusal says so. */
@@ -34523,6 +34941,8 @@ export interface KamosuClient {
 	listAccessKeys(input?: ListAccessKeysInput): Promise<Answer<'list_access_keys'>>;
 	/** End one of your Access Keys. */
 	revokeAccessKey(input: RevokeAccessKeyInput): Promise<Answer<'revoke_access_key'>>;
+	/** Read your own Security Record, newest first. It holds each time you signed in and how, wrong passwords at your name counted as one row per run, passkeys added and removed, your password changed, Access Keys minted and ended, and Sessions ended. Each row names the Session or key it is about, never an address. Kept for `kept_for_days` days. What to look for: a sign-in on a device you do not know, wrong passwords you did not type, or a key you did not mint. End that Session or key and change your password. */
+	listSecurityRecord(input?: ListSecurityRecordInput): Promise<Answer<'list_security_record'>>;
 	/** List your passkeys. Each says when it was added and last used, and whether it works at this instance's address. Also whether this instance offers passkeys at all, and if not, why. */
 	listPasskeys(input?: ListPasskeysInput): Promise<Answer<'list_passkeys'>>;
 	/** Rename one of your passkeys. */

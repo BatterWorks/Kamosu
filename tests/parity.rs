@@ -138,6 +138,8 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "revoke_runner_key"
             | "runner_status"
             | "get_house_notes"
+            | "list_security_record"
+            | "list_instance_security_record"
             | "set_house_notes"
             | "create_kitchen"
             | "list_kitchens"
@@ -360,6 +362,8 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "revoke_runner_key"
                 | "runner_status"
                 | "get_house_notes"
+                | "list_security_record"
+                | "list_instance_security_record"
                 | "set_house_notes"
                 | "ask_for_work"
                 | "renew_hold"
@@ -777,7 +781,10 @@ fn listed_to_a_person() -> Vec<&'static str> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_runner_keys_mcp_tool_list_carries_exactly_the_runners_operations() {
     let app = support::spawn_app();
-    let key = app.core.mint_runner_key("the kitchen's Runner").unwrap();
+    let key = app
+        .core
+        .mint_runner_key(None, "the kitchen's Runner")
+        .unwrap();
 
     let (_, listing) = app.post_mcp(
         r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
@@ -798,7 +805,7 @@ async fn a_runner_keys_mcp_tool_list_carries_exactly_the_runners_operations() {
     assert_eq!(keys[0]["last_used_at"], Value::Null, "{}", keys[0]);
 
     // A revoked Runner Key is nobody again, and is listed as nobody is.
-    app.core.revoke_runner_key(&key.id).unwrap();
+    app.core.revoke_runner_key(None, &key.id).unwrap();
     let (_, listing) = app.post_mcp(
         r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
         Some(&key.secret),

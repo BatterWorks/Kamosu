@@ -229,13 +229,20 @@ impl Core {
     /// link keeps its secret, and `share_link_summary` builds the URL against
     /// the address stored now, so after a move the screen offers the address
     /// that opens, ready to send again. That is intended (ADR 0031).
-    pub fn set_public_address(&self, address: &str) -> Result<Value, OpError> {
+    pub fn set_public_address(&self, by: &Caller, address: &str) -> Result<Value, OpError> {
         let address = normalise_public_address(address)?;
         let stored = self.db().with_conn(|conn| {
             store_public_address(conn, &address)?;
             Ok(json!({ "public_address": address }))
         });
         self.forget_public_address();
+        if stored.is_ok() {
+            self.note(
+                Event::instance("public_address_changed", Some(by))
+                    .naming(self.named_credential(by))
+                    .saying(json!({ "address": address })),
+            );
+        }
         stored
     }
 

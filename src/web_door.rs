@@ -515,7 +515,7 @@ async fn get_backup(core: &Core, headers: &HeaderMap, name: &str) -> Response {
     let secret = bearer_from_headers(headers);
     let path = match core
         .authenticate_for_operator(secret.as_deref())
-        .and_then(|_| core.backup_path(name))
+        .and_then(|caller| core.fetch_backup(&caller, name))
     {
         Ok(path) => path,
         Err(err) => return respond_to(headers, Err(err)),

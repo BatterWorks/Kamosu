@@ -115,7 +115,7 @@ pub fn list_accounts(
 
 /// Make a Person an Operator, or stand them down (#103). The refusal that
 /// protects the last one lives in the Core, under both Doors.
-pub fn set_operator(core: &Core, _invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+pub fn set_operator(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let takes = "set_operator takes { name, is_operator }";
     let name = input
         .get("name")
@@ -125,7 +125,7 @@ pub fn set_operator(core: &Core, _invocation: &Invocation, input: Value) -> Resu
         .get("is_operator")
         .and_then(Value::as_bool)
         .ok_or_else(|| OpError::bad_request(takes))?;
-    core.set_operator(name, is_operator)
+    core.set_operator(caller_of(invocation)?, name, is_operator)
 }
 
 /// Mint a one-use Invite. The Operator receives the link once; its Secret is
@@ -145,27 +145,27 @@ pub fn mint_invite(core: &Core, _invocation: &Invocation, input: Value) -> Resul
 
 pub fn disable_account(
     core: &Core,
-    _invocation: &Invocation,
+    invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
     let name = input
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("disable_account takes { name }"))?;
-    core.end_account(name, false)?;
+    core.end_account(caller_of(invocation)?, name, false)?;
     Ok(json!({ "disabled": true }))
 }
 
 pub fn delete_account(
     core: &Core,
-    _invocation: &Invocation,
+    invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
     let name = input
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("delete_account takes { name }"))?;
-    core.end_account(name, true)?;
+    core.end_account(caller_of(invocation)?, name, true)?;
     Ok(json!({ "deleted": true }))
 }
 
@@ -248,7 +248,7 @@ pub fn mint_access_key(
     // Session. The Core refuses an Operator key to anybody not an Operator
     // (#369).
     let key = if operator {
-        core.mint_operator_key(&caller.person_id, name, read_only)?
+        core.mint_operator_key(Some(caller), &caller.person_id, name, read_only)?
     } else {
         core.mint_access_key(&caller.person_id, name, read_only)?
     };
@@ -1909,14 +1909,14 @@ pub fn get_public_address(
 
 pub fn set_public_address(
     core: &Core,
-    _invocation: &Invocation,
+    invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
     let address = input
         .get("public_address")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("set_public_address takes { public_address }"))?;
-    core.set_public_address(address)
+    core.set_public_address(caller_of(invocation)?, address)
 }
 
 /// What the Share Link page consumes. Public: holding the token is the whole
@@ -2422,14 +2422,14 @@ pub fn turn_off_meaning_search(
 
 pub fn mint_runner_key(
     core: &Core,
-    _invocation: &Invocation,
+    invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
     let name = input
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("mint_runner_key takes { name }"))?;
-    let key = core.mint_runner_key(name)?;
+    let key = core.mint_runner_key(Some(caller_of(invocation)?), name)?;
     Ok(json!({ "id": key.id, "name": key.name, "secret": key.secret }))
 }
 
@@ -2443,14 +2443,14 @@ pub fn list_runner_keys(
 
 pub fn revoke_runner_key(
     core: &Core,
-    _invocation: &Invocation,
+    invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
     let runner_key_id = input
         .get("runner_key_id")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("revoke_runner_key takes { runner_key_id }"))?;
-    core.revoke_runner_key(runner_key_id)?;
+    core.revoke_runner_key(Some(caller_of(invocation)?), runner_key_id)?;
     Ok(json!({ "revoked": true }))
 }
 
@@ -2480,7 +2480,26 @@ pub fn set_house_notes(
         .get("notes")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("set_house_notes takes { notes }"))?;
-    core.set_house_notes(&caller.person_id, notes)
+    core.set_house_notes(caller, notes)
+}
+
+/// Your own Security Record (#371): signing in, wrong passwords at your
+/// name, your passkeys, password, Access Keys and Sessions.
+pub fn list_security_record(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.security_record_of(&caller_of(invocation)?.person_id)
+}
+
+/// The instance's Security Record, which every Operator reads (#371).
+pub fn list_instance_security_record(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.instance_security_record()
 }
 
 pub fn ask_for_work(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
