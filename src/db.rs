@@ -1944,6 +1944,21 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 57,
+        description: "an index build notes which recipe it is embedding (#389)",
+        sql: r#"
+        -- The recipe or Attempt an index build has handed to the model, by id
+        -- and embedding space, cleared once its rows are written. One still
+        -- here when a build starts is one the last build never finished: the
+        -- process died inside the model, and a start that keeps dying on it
+        -- says so in the log. A Backup taken mid-build carries it too, so the
+        -- first build after restoring one says so once, for a build that did
+        -- stop there.
+        ALTER TABLE meaning_search ADD COLUMN embedding_now TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.
