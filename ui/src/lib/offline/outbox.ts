@@ -192,7 +192,7 @@ export interface World {
 	told?: (operations: OperationName[]) => void;
 }
 
-/** What a screen may ask of it: only about photographs, and whether a cooking is still waiting. */
+/** What a screen may ask of it: about photographs, and what is still waiting. */
 export interface Keeping {
 	/** Whether this phone holds writes to this cooking that it has not sent yet. */
 	holds(attemptId: string): boolean;
@@ -200,6 +200,11 @@ export interface Keeping {
 	keepPhotograph(picture: Blob): Promise<string>;
 	/** Where to draw one of a cooking's photographs from, whether or not it has reached the server. */
 	photographSrc(id: string, size: 'card' | 'page'): Promise<string | undefined>;
+	/**
+	 * Send what is waiting now, and answer how many writes the server has still
+	 * not taken. Asked before signing out, which would lose them (#380).
+	 */
+	sendWaiting(): Promise<number>;
 }
 
 const isUnreached = (error: unknown): error is OperationError =>
@@ -1002,6 +1007,11 @@ export class Outbox implements Keeping {
 	holds(attemptId: string): boolean {
 		const kept = this.#read();
 		return this.#waiting(kept).has(this.#renamed(kept, attemptId));
+	}
+
+	async sendWaiting(): Promise<number> {
+		await this.flush();
+		return this.#read().queue.length;
 	}
 
 	async keepPhotograph(picture: Blob): Promise<string> {

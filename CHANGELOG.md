@@ -23,6 +23,7 @@
 - An Access Key an Operator mints acts as an ordinary Person unless it is minted as an Operator key, with `operator: true` on `mint_access_key`, which only an Operator signed in can do. Before, every key an Operator minted carried all of an Operator's powers, so any agent an Operator handed a key to could rewrite the House Notes every later Job reads. `mint_access_key` and `list_access_keys` answer which keys are Operator keys, in a new field, `operator`. An Operator key stops acting as Operator once its Person stops being one, and stays an ordinary key if they become Operator again. [#369]
 - In Settings, an Operator creating an Access Key chooses whether it acts as them as a cook, which is the default, or as Operator too, and choosing Operator says what that hands an agent. A Person who is no Operator sees no choice. The key list marks an Operator key "Acts as Operator". [#369]
 - A form that sets a password, on the first start, an Invite or a recovery link, asks for it twice, and says so when the two differ. [#369]
+- *Sign out* stands at the foot of the Settings menu, under who is signed in, on the phone and on a wide screen. Before, it was a button on this device's row of the Sessions list, in Settings › Account. Both ask first, saying the recipes kept for offline use leave the device, and offline the button waits for the server. [#380]
 - An Operation sent without `Content-Type: application/json` is refused. It used to run with an empty input. A request to an Operation, a sign-in or an upload that comes from a page on another address is refused too, where only `SameSite` kept one out, which a page on a sibling subdomain gets past. Agents, curl and the Runner send no `Origin` and are answered as before. [#368]
 - Every answer also tells the browser to deny what Kamosu never asks for, such as the microphone and location, to keep its pages out of reach of windows another site opened, and to let no other site load its answers, except what a Share Link hands to anyone. An answer sent to an `https://` public address also tells the browser to come back only over HTTPS for a year. [#368]
 
@@ -37,6 +38,7 @@
 - A Crouton export stops being read once it has unpacked 4 GB, and the Import Report lists each recipe after that as not read. Before, a small zip could make Kamosu unpack far more. [#373]
 - Kamosu forgets a name's wrong passwords an hour after the last one, so made-up names tried at the sign-in page are no longer kept for good. A name that had wrong passwords in the last hour waits as before. [#373]
 - Building Meaning Search's index reads a recipe's long lines apart from its short ones. Before, a recipe with a long Note held hundreds of megabytes more while it was read, enough for a container with a memory limit to be killed partway through, and killed again on the same recipe every time it started. When a build starts again on the recipe the last one died on, the log now says so. [#389]
+- Signing out first sends what the device wrote offline, such as a cooking moved on or a shopping-list tick. If some still cannot go, Kamosu says how many changes have not arrived and offers to wait and try again before signing out anyway. Before, they were thrown away without a word the next time anyone signed in on the device. [#380]
 
 [#368]: https://github.com/BatterWorks/Kamosu/issues/368
 [#369]: https://github.com/BatterWorks/Kamosu/issues/369
@@ -45,6 +47,7 @@
 [#372]: https://github.com/BatterWorks/Kamosu/issues/372
 [#373]: https://github.com/BatterWorks/Kamosu/issues/373
 [#378]: https://github.com/BatterWorks/Kamosu/issues/378
+[#380]: https://github.com/BatterWorks/Kamosu/issues/380
 [#389]: https://github.com/BatterWorks/Kamosu/issues/389
 
 ## v0.3.0 - 2026-10-18

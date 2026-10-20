@@ -16,7 +16,6 @@
 <script lang="ts">
 	import { aDate, aMoment } from '$lib/dates';
 	import { titleOf, type SettingsPage } from './pages';
-	import { goto } from '$app/navigation';
 	import { m } from '$lib/paraglide/messages';
 	import { getLocale, locales, setLocale, type Locale } from '$lib/paraglide/runtime';
 	import { useKamosu } from '$lib/kamosu';
@@ -24,7 +23,6 @@
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Section from '$lib/shell/Section.svelte';
-	import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
 	import { MeaningSearch } from '$lib/meaning.svelte';
 	import { asksWhetherAdministering } from '$lib/operator/administering';
 	import ImportCrouton from './ImportCrouton.svelte';
@@ -32,6 +30,7 @@
 	import Passkeys from './Passkeys.svelte';
 	import SecurityRecord from './SecurityRecord.svelte';
 	import ChangePassword from './ChangePassword.svelte';
+	import SignOut from './SignOut.svelte';
 	import Confirm from '$lib/Confirm.svelte';
 	import OneTimeSecret from '$lib/OneTimeSecret.svelte';
 	import { copyText } from '$lib/clipboard';
@@ -44,7 +43,7 @@
 	} from '$lib/cookbook';
 	import InstallSteps from '$lib/offline/InstallSteps.svelte';
 	import CookbookJoins from '$lib/CookbookJoins.svelte';
-	import { thisDevice } from '$lib/offline/device.svelte';
+	import { Online, thisDevice } from '$lib/offline/device.svelte';
 	import { readableSize, useLibrary } from '$lib/offline/library.svelte';
 	import { languageName } from '$lib/language';
 	import type { ReadingLanguage } from '$lib/tags';
@@ -445,17 +444,19 @@
 		}
 	}
 
+	const online = new Online();
+
+	/** The Session in your hand, while signing out of it asks first (#380). */
+	let signingOutOf = $state<string | undefined>(undefined);
+
 	async function endSession(session: Session) {
-		await kamosu.revokeSession({ session_id: session.id });
-		// Ending the Session in your hand is signing out: Home is the sign-in
-		// form to somebody who is not signed in.
+		// Ending the Session in your hand is signing out, asked as the foot of
+		// the Settings menu asks it: what this device wrote offline goes first.
 		if (session.current) {
-			// Said before Home is drawn, so the sidebar is gone with the Session
-			// rather than a moment after it (#194).
-			heardWhetherSignedIn(false);
-			await goto('/');
+			signingOutOf = session.id;
 			return;
 		}
+		await kamosu.revokeSession({ session_id: session.id });
 		await loadAccess();
 	}
 
@@ -1033,13 +1034,20 @@
 										</p>
 									</div>
 									<div class="flex shrink-0 items-center gap-3">
-										<button
-											type="button"
-											class="quiet-button text-accent"
-											onclick={() => endSession(session)}
-										>
-											{session.current ? m.sessions_sign_out() : m.access_end()}
-										</button>
+										{#if session.current && !online.current}
+											<!-- Signing out needs the server, as at the foot of the menu (#380). -->
+											<button type="button" class="quiet-button text-ink-2 opacity-55" disabled>
+												{m.offline_waits_sign_out()}
+											</button>
+										{:else}
+											<button
+												type="button"
+												class="quiet-button text-accent"
+												onclick={() => endSession(session)}
+											>
+												{session.current ? m.sessions_sign_out() : m.access_end()}
+											</button>
+										{/if}
 										<button
 											type="button"
 											class="quiet-button text-accent"
@@ -1771,4 +1779,8 @@
 			cancel={() => (cookbookAsk = undefined)}
 		/>
 	{/if}
+{/if}
+
+{#if signingOutOf}
+	<SignOut sessionId={signingOutOf} onclose={() => (signingOutOf = undefined)} />
 {/if}

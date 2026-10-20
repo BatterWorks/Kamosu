@@ -57,6 +57,7 @@
 				throw new Error('this test took a photograph without giving an outbox');
 			},
 			photographSrc: async (id, size) => `/api/photographs/${id}/${size}`,
+			sendWaiting: async () => 0,
 		},
 		room = 'phone',
 		children,

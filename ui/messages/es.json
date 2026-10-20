@@ -1565,5 +1565,19 @@
   "security_by_key": "Por {by}, con la clave «{name}»",
   "security_by_session": "Por {by}, en {name}",
   "security_by_agent": "Por el agente de {by}, durante un trabajo",
-  "security_how_operator_invite": "Con una invitación de Operador"
+  "security_how_operator_invite": "Con una invitación de Operador",
+  "settings_signed_in_as": "Has iniciado sesión como {name}",
+  "sign_out": "Cerrar sesión",
+  "sign_out_working": "Cerrando sesión…",
+  "offline_waits_sign_out": "Cerrar sesión espera al servidor",
+  "sign_out_ask_title": "¿Cerrar sesión en este dispositivo?",
+  "sign_out_ask_consequence": "Las recetas guardadas aquí para usar sin conexión se eliminan. Vuelven cuando inicias sesión de nuevo.",
+  "sign_out_unsent_title_one": "1 cambio aún no ha llegado a Kamosu",
+  "sign_out_unsent_title": "{count} cambios aún no han llegado a Kamosu",
+  "sign_out_unsent_consequence_one": "Se hizo en este dispositivo mientras estaba sin conexión. Kamosu acaba de intentar enviarlo y no ha podido. Si cierras sesión ahora, se pierde.",
+  "sign_out_unsent_consequence": "Se hicieron en este dispositivo mientras estaba sin conexión. Kamosu acaba de intentar enviarlos y no ha podido. Si cierras sesión ahora, se pierden.",
+  "sign_out_wait": "Esperar y reintentar",
+  "sign_out_anyway": "Cerrar sesión de todos modos",
+  "sign_out_sending": "Enviando primero lo que este dispositivo escribió sin conexión…",
+  "sign_out_cancel": "Cancelar"
 }
