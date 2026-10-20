@@ -851,7 +851,12 @@ describe('the settings screen', () => {
 	});
 
 	it('draws the menu and a page on the wide layout too (#221)', async () => {
-		renderScreen(Settings, {}, undefined, 'wide');
+		renderScreen(
+			Settings,
+			{ get_person: { person_id: 'p_1', name: 'Stéphane' } },
+			undefined,
+			'wide',
+		);
 		expect(await screen.findAllByRole('link')).toHaveLength(5);
 		cleanup();
 
@@ -871,7 +876,9 @@ describe('the settings screen', () => {
 	});
 
 	it('is a menu of five pages, each named with what it holds (#221, #371)', async () => {
-		const { kamosu } = renderScreen(Settings, {});
+		const { kamosu } = renderScreen(Settings, {
+			get_person: { person_id: 'p_1', name: 'Stéphane' },
+		});
 
 		const rows = await screen.findAllByRole('link');
 		expect(rows.map((row) => row.getAttribute('href'))).toEqual([
@@ -884,8 +891,9 @@ describe('the settings screen', () => {
 		expect(rows[0]).toHaveTextContent('Account');
 		expect(rows[0]).toHaveTextContent('Your name, the language, who is signed in, your password');
 		expect(rows[2]).toHaveTextContent('Kitchens and cookbooks');
-		// The menu reads nothing: every page reads what its own sections need.
-		expect(kamosu.calls).toEqual([]);
+		// The menu reads who is signed in, for the foot of it (#380), and nothing
+		// else: every page reads what its own sections need.
+		expect(kamosu.calls).toEqual([{ operation: 'get_person', input: {} }]);
 	});
 
 	it('keeps the "not right now" facts once their cards are put away (#76)', async () => {
@@ -1678,12 +1686,16 @@ describe('telling your Sessions apart (#114)', () => {
 		);
 
 		await fireEvent.click(within((await rows())[0]).getByRole('button', { name: 'Sign out' }));
+		// It asks first, as the foot of the Settings menu does (#380).
+		await fireEvent.click(
+			within(await screen.findByRole('dialog')).getByRole('button', { name: 'Sign out' }),
+		);
 
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/'));
 		expect(kamosu.calls).toContainEqual({
 			operation: 'revoke_session',
 			input: { session_id: 's_phone' },
 		});
-		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/'));
 		// So the sidebar is gone before Home is drawn, not a moment after (#194).
 		expect(signingIn.signedIn).toBe(false);
 	});

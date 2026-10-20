@@ -56,5 +56,6 @@ export function keepingForTests(): Keeping & { kept: Blob[] } {
 			return `local:${kept.length.toString(16).padStart(16, '0')}`;
 		},
 		photographSrc: async (id, size) => `/api/photographs/${id}/${size}`,
+		sendWaiting: async () => 0,
 	};
 }

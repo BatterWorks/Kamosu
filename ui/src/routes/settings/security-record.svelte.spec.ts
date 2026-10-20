@@ -101,7 +101,7 @@ const rowOf = (text: string) => screen.getByText(text).closest('li')!;
 
 describe('the Security Record (#371)', () => {
 	it('is a fifth row on the Settings menu', async () => {
-		renderScreen(Settings, signedIn);
+		renderScreen(Settings, { ...signedIn, get_person: { person_id: 'p_1', name: 'Stéphane' } });
 		const row = await screen.findByRole('link', { name: /Security record/ });
 		expect(row).toHaveAttribute('href', '/settings/security');
 		expect(row).toHaveTextContent('Sign-ins, wrong passwords, keys and changes, the last 90 days');

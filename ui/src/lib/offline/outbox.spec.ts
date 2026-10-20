@@ -668,3 +668,34 @@ describe('the diary with no network', () => {
 		});
 	});
 });
+
+describe('signing out with writes waiting (#380)', () => {
+	it('sends what waits first, and says how many writes the server has not taken', async () => {
+		const at = world({
+			get_recipe: () => recipe,
+			get_current_attempt: () => ({ attempt: null }),
+			start_attempt: (input) =>
+				attempt({ id: input.attempt_id as string, version_id: input.version_id as string }),
+			advance_attempt: (input) => attempt({ id: input.attempt_id as string }),
+		});
+		expect(await at.outbox.sendWaiting()).toBe(0);
+		await at.call('get_recipe', { branch_id: 'b_1' });
+		await at.call('get_current_attempt', { lineage_id: 'l_1' });
+		at.offline();
+		const started = await at.call('start_attempt', { branch_id: 'b_1' });
+		await at.call('advance_attempt', { attempt_id: started.id, current_step_index: 1 });
+
+		// Still no server: both wait, and nothing is thrown away by asking.
+		expect(await at.outbox.sendWaiting()).toBe(2);
+		expect(at.kept()?.queue).toHaveLength(2);
+
+		at.online();
+		expect(await at.outbox.sendWaiting()).toBe(0);
+		expect(at.sent.map((sent) => sent.operation)).toEqual([
+			'get_recipe',
+			'get_current_attempt',
+			'start_attempt',
+			'advance_attempt',
+		]);
+	});
+});

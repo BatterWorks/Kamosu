@@ -1565,5 +1565,19 @@
   "security_by_key": "Par {by}, avec la clé « {name} »",
   "security_by_session": "Par {by}, sur {name}",
   "security_by_agent": "Par l’agent de {by}, pendant une tâche",
-  "security_how_operator_invite": "Avec une invitation d’Opérateur"
+  "security_how_operator_invite": "Avec une invitation d’Opérateur",
+  "settings_signed_in_as": "Connecté en tant que {name}",
+  "sign_out": "Se déconnecter",
+  "sign_out_working": "Déconnexion…",
+  "offline_waits_sign_out": "La déconnexion attend le serveur",
+  "sign_out_ask_title": "Se déconnecter sur cet appareil ?",
+  "sign_out_ask_consequence": "Les recettes gardées ici pour le hors-ligne sont retirées. Elles reviennent quand vous vous reconnectez.",
+  "sign_out_unsent_title_one": "1 modification n’est pas encore arrivée sur Kamosu",
+  "sign_out_unsent_title": "{count} modifications ne sont pas encore arrivées sur Kamosu",
+  "sign_out_unsent_consequence_one": "Elle a été faite sur cet appareil pendant qu’il était hors ligne. Kamosu vient d’essayer de l’envoyer, sans y parvenir. Vous déconnecter maintenant la perd.",
+  "sign_out_unsent_consequence": "Elles ont été faites sur cet appareil pendant qu’il était hors ligne. Kamosu vient d’essayer de les envoyer, sans y parvenir. Vous déconnecter maintenant les perd.",
+  "sign_out_wait": "Attendre et réessayer",
+  "sign_out_anyway": "Se déconnecter quand même",
+  "sign_out_sending": "Envoi d’abord de ce que cet appareil a écrit hors ligne…",
+  "sign_out_cancel": "Annuler"
 }

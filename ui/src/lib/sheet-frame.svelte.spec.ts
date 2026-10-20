@@ -223,6 +223,7 @@ describe('every sheet in Kamosu', () => {
 			'RenameSheet.svelte',
 			'RunnerKeySecret.svelte',
 			'SendSheet.svelte',
+			'SignOut.svelte',
 			'StepPhoto.svelte',
 			'TagSheet.svelte',
 			'Thread.svelte',

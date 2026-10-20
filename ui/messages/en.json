@@ -1565,5 +1565,19 @@
   "security_by_key": "By {by}, through the key “{name}”",
   "security_by_session": "By {by}, on {name}",
   "security_by_agent": "By {by}’s agent, during a Job",
-  "security_how_operator_invite": "With an Operator Invite"
+  "security_how_operator_invite": "With an Operator Invite",
+  "settings_signed_in_as": "Signed in as {name}",
+  "sign_out": "Sign out",
+  "sign_out_working": "Signing out…",
+  "offline_waits_sign_out": "Signing out waits for the server",
+  "sign_out_ask_title": "Sign out on this device?",
+  "sign_out_ask_consequence": "The recipes kept here for offline use are removed. They come back when you sign in again.",
+  "sign_out_unsent_title_one": "1 change hasn’t reached Kamosu yet",
+  "sign_out_unsent_title": "{count} changes haven’t reached Kamosu yet",
+  "sign_out_unsent_consequence_one": "It was made on this device while it was offline. Kamosu tried to send it just now and could not. Signing out now loses it.",
+  "sign_out_unsent_consequence": "They were made on this device while it was offline. Kamosu tried to send them just now and could not. Signing out now loses them.",
+  "sign_out_wait": "Wait, and try again",
+  "sign_out_anyway": "Sign out anyway",
+  "sign_out_sending": "Sending what this device wrote offline first…",
+  "sign_out_cancel": "Cancel"
 }
