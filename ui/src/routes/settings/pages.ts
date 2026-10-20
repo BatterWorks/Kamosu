@@ -1,15 +1,17 @@
 /**
- * Settings' four pages (#221, option 2 of the audit of 9 October 2026).
+ * Settings' pages (#221, option 2 of the audit of 9 October 2026).
  *
  * Settings was one page 8,000px tall on a phone, with fourteen sections. It
- * is a menu of four rows now, each opening a page of its own that holds the
+ * is a menu of rows now, each opening a page of its own that holds the
  * sections it names. The sections' own words did not change; this is where
- * they live, not what they say.
+ * they live, not what they say. The fifth, the Security Record, came with
+ * #371 (choice A of 20 October 2026).
  */
 
 import { m } from '$lib/paraglide/messages';
+import { KEPT_FOR_DAYS } from '$lib/security-record';
 
-export type SettingsPage = 'account' | 'device' | 'kitchens' | 'instance';
+export type SettingsPage = 'account' | 'device' | 'kitchens' | 'instance' | 'security';
 
 export interface PageEntry {
 	page: SettingsPage;
@@ -43,6 +45,12 @@ export const PAGES: PageEntry[] = [
 		href: '/settings/instance',
 		title: m.settings_instance,
 		inside: m.settings_instance_inside,
+	},
+	{
+		page: 'security',
+		href: '/settings/security',
+		title: m.settings_security_record,
+		inside: () => m.settings_security_record_inside({ days: KEPT_FOR_DAYS }),
 	},
 ];
 

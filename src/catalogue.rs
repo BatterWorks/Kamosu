@@ -662,6 +662,30 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::set_house_notes,
         },
         Operation {
+            name: "list_instance_security_record",
+            summary: "Read the instance's Security Record, newest first. \
+                      Every Operator reads it. It holds the House Notes and the \
+                      public address changed, a Person made an Operator or \
+                      stood down, an account disabled or deleted, an \
+                      Operator key minted, a crowd of sign-ins refused \
+                      because the line for them was full (counted as one \
+                      row while it lasts), Runner Keys minted and revoked, \
+                      and Backups fetched. Each row says who did it and \
+                      through which Session or key. Kept for \
+                      `kept_for_days` days. A change you did not make, made \
+                      through an Operator key, may be an agent tricked by \
+                      what it read: end that key.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: security_record_output(),
+            handler: crate::operations::list_instance_security_record,
+        },
+        Operation {
             name: "ask_for_work",
             summary: "Ask for a Job to do. For a Runner alone, with its \
                       Runner Key. Answers the oldest Job that waits for an \
@@ -983,6 +1007,28 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: json!({ "type": "object", "properties": { "access_key_id": { "type": "string" } }, "required": ["access_key_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" } }, "required": ["revoked"], "additionalProperties": false }),
             handler: crate::operations::revoke_access_key,
+        },
+        Operation {
+            name: "list_security_record",
+            summary: "Read your own Security Record, newest first. It holds \
+                      each time you signed in and how, wrong passwords at your \
+                      name counted as one row per run, passkeys added and \
+                      removed, your password changed, Access Keys minted and \
+                      ended, and Sessions ended. Each row names the Session \
+                      or key it is about, never an address. Kept for \
+                      `kept_for_days` days. What to look for: a sign-in on a \
+                      device you do not know, wrong passwords you did not \
+                      type, or a key you did not mint. End that Session or \
+                      key and change your password.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: security_record_output(),
+            handler: crate::operations::list_security_record,
         },
         Operation {
             name: "list_passkeys",
@@ -7313,6 +7359,97 @@ fn empty_input() -> Value {
     json!({
         "type": "object",
         "properties": {},
+        "additionalProperties": false,
+    })
+}
+
+/// A Security Record as both Operations that read one answer it (#371).
+fn security_record_output() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "events": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "integer" },
+                        "event": { "enum": crate::core::SECURITY_EVENTS },
+                        "first_at": {
+                            "type": "string",
+                            "description": "When it first happened. Earlier than `at` only \
+                                             on a row that counts a run.",
+                        },
+                        "at": { "type": "string", "description": "When it last happened." },
+                        "count": {
+                            "type": "integer",
+                            "description": "How many times: above one only for wrong \
+                                             passwords and a crowd at the sign-in.",
+                        },
+                        "by": {
+                            "type": ["string", "null"],
+                            "description": "The name the Person who did it goes by now. \
+                                             Null when nobody signed in did it.",
+                        },
+                        "about": {
+                            "type": ["string", "null"],
+                            "description": "The Person it was done to: made an Operator, \
+                                             stood down, disabled or deleted.",
+                        },
+                        "credential": {
+                            "type": ["object", "null"],
+                            "description": "The Session, key or passkey it names, as it was \
+                                             called then: the one that acted, or the one it \
+                                             was about.",
+                            "properties": {
+                                "kind": {
+                                    "enum": [
+                                        "session", "access_key", "operator_key", "job_key",
+                                        "passkey",
+                                    ],
+                                },
+                                "name": { "type": "string" },
+                            },
+                            "required": ["kind", "name"],
+                            "additionalProperties": false,
+                        },
+                        "detail": {
+                            "type": "object",
+                            "description": "What else the row says, by event.",
+                            "properties": {
+                                "how": {
+                                    "enum": ["password", "passkey", "invite", "recovery_link", "setup"],
+                                    "description": "How a sign-in was made.",
+                                },
+                                "ended_sessions": { "type": "integer" },
+                                "ended_access_keys": { "type": "integer" },
+                                "read_only": { "type": "boolean" },
+                                "operator": { "type": "boolean" },
+                                "taken_away": {
+                                    "type": "boolean",
+                                    "description": "The House Notes were emptied.",
+                                },
+                                "address": { "type": "string" },
+                                "runner_key": { "type": "string" },
+                                "key": {
+                                    "type": "string",
+                                    "description": "The Operator key minted.",
+                                },
+                                "backup": { "type": "string" },
+                            },
+                            "additionalProperties": false,
+                        },
+                    },
+                    "required": [
+                        "id", "event", "first_at", "at", "count", "by", "about",
+                        "credential", "detail",
+                    ],
+                    "additionalProperties": false,
+                },
+            },
+            "kept_for_days": { "type": "integer" },
+        },
+        "required": ["events", "kept_for_days"],
         "additionalProperties": false,
     })
 }

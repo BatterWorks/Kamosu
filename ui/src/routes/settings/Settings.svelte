@@ -30,6 +30,7 @@
 	import ImportCrouton from './ImportCrouton.svelte';
 	import Tags from './Tags.svelte';
 	import Passkeys from './Passkeys.svelte';
+	import SecurityRecord from './SecurityRecord.svelte';
 	import ChangePassword from './ChangePassword.svelte';
 	import Confirm from '$lib/Confirm.svelte';
 	import OneTimeSecret from '$lib/OneTimeSecret.svelte';
@@ -377,7 +378,7 @@
 			const [sessionsAnswer, keysAnswer, preferencesAnswer, personAnswer] = await Promise.all([
 				kamosu.listSessions(),
 				page === 'account' ? kamosu.listAccessKeys() : undefined,
-				page !== 'instance' ? kamosu.getReadingPreferences() : undefined,
+				page !== 'instance' && page !== 'security' ? kamosu.getReadingPreferences() : undefined,
 				page === 'account' || page === 'kitchens' ? kamosu.getPerson() : undefined,
 			]);
 			sessions = sessionsAnswer.sessions.filter((session) => !session.revoked);
@@ -1178,6 +1179,10 @@
 				</form>
 			{/if}
 		</Section>
+	{/if}
+
+	{#if page === 'security' && signedIn}
+		<SecurityRecord />
 	{/if}
 
 	{#if page === 'kitchens' && signedIn}

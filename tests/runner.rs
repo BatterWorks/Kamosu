@@ -374,7 +374,7 @@ fn cook_and_runner(app: &support::TestApp) -> (String, String) {
         .secret;
     let runner = app
         .core
-        .mint_runner_key("the kitchen's Runner")
+        .mint_runner_key(None, "the kitchen's Runner")
         .unwrap()
         .secret;
     (key, runner)
@@ -743,8 +743,8 @@ async fn with_kamosu_out_of_reach_the_runner_says_so_and_tries_again() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_runner_whose_key_was_revoked_says_so() {
     let app = support::spawn_app();
-    let minted = app.core.mint_runner_key("gone").unwrap();
-    app.core.revoke_runner_key(&minted.id).unwrap();
+    let minted = app.core.mint_runner_key(None, "gone").unwrap();
+    app.core.revoke_runner_key(None, &minted.id).unwrap();
     let data_dir = tempfile::tempdir().unwrap();
 
     let mut runner = start_runner(Start {

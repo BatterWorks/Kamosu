@@ -46,7 +46,7 @@ fn operator(app: &support::TestApp) -> (String, String) {
         .to_string();
     let key = app
         .core
-        .mint_operator_key(&person, "agent", false)
+        .mint_operator_key(None, &person, "agent", false)
         .expect("an Access Key")
         .secret;
     (person, key)

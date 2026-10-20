@@ -30,23 +30,26 @@ impl Core {
         key_name: &str,
         read_only: bool,
     ) -> Result<AccessKey, OpError> {
-        self.mint_key(person_id, key_name, read_only, false)
+        self.mint_key(None, person_id, key_name, read_only, false)
     }
 
     /// Mint an Operator key: an Access Key that carries its Person's powers as
     /// an Operator for as long as they are one (#369). Refused for a Person who
-    /// is not an Operator now.
+    /// is not an Operator now. `by` is the Credential that minted it, which
+    /// every Operator's Security Record names (#371); nobody for plumbing.
     pub fn mint_operator_key(
         &self,
+        by: Option<&Caller>,
         person_id: &str,
         key_name: &str,
         read_only: bool,
     ) -> Result<AccessKey, OpError> {
-        self.mint_key(person_id, key_name, read_only, true)
+        self.mint_key(by, person_id, key_name, read_only, true)
     }
 
     fn mint_key(
         &self,
+        by: Option<&Caller>,
         person_id: &str,
         key_name: &str,
         read_only: bool,
@@ -76,13 +79,15 @@ impl Core {
             .map_err(|e| OpError::internal(format!("cannot mint access key: {e}")))?;
             Ok(())
         })?;
-        Ok(AccessKey {
+        let key = AccessKey {
             id,
             secret,
             name: key_name,
             read_only,
             operator,
-        })
+        };
+        self.note_key_minted(by, person_id, &key);
+        Ok(key)
     }
 
     /// Access Keys remain knowable by their name and last use until revoked;
@@ -106,18 +111,31 @@ impl Core {
     }
 
     pub fn revoke_access_key(&self, person_id: &str, key_id: &str) -> Result<(), OpError> {
-        let changed = self.db().with_conn(|conn| {
-            conn.execute(
-                "UPDATE access_keys SET revoked = 1 WHERE id = ?1 AND person_id = ?2 AND revoked = 0",
+        let ended: Option<(String, bool)> = self.db().with_conn(|conn| {
+            conn.query_row(
+                "UPDATE access_keys SET revoked = 1 WHERE id = ?1 AND person_id = ?2 AND revoked = 0 \
+                 RETURNING name, acts_as_operator",
                 params![key_id, person_id],
+                |row| Ok((row.get(0)?, row.get::<_, i64>(1)? != 0)),
             )
+            .optional()
             .map_err(|e| OpError::internal(format!("cannot revoke Access Key: {e}")))
         })?;
-        if changed == 0 {
+        let Some((name, operator)) = ended else {
             return Err(OpError::not_found(
                 "no live Access Key with that id belongs to this Person",
             ));
-        }
+        };
+        self.note(
+            Event::theirs("access_key_ended", person_id).naming(Some(Named {
+                kind: if operator {
+                    "operator_key"
+                } else {
+                    "access_key"
+                },
+                name,
+            })),
+        );
         Ok(())
     }
 
@@ -139,7 +157,8 @@ impl Core {
                 "this instance already has its first Person",
             ));
         }
-        let password_hash = self.passwords.work.hash(new_password(password)?)?;
+        let password_hash =
+            self.noting_a_crowd(self.passwords.work.hash(new_password(password)?))?;
         let person_id = format!("p_{}", hex::encode(random_bytes(8)));
         let session = Session {
             id: format!("s_{}", hex::encode(random_bytes(8))),
@@ -184,6 +203,7 @@ impl Core {
                 }
             }
         })?;
+        self.note_signed_in(&person_id, session_name, "setup", None);
 
         Ok(json!({
             "person": {
@@ -219,10 +239,10 @@ impl Core {
             .optional()
             .map_err(|e| OpError::internal(format!("cannot read Person for login: {e}")))
         })?;
-        let verified = self.passwords.work.verify(
+        let verified = self.noting_a_crowd(self.passwords.work.verify(
             what_counts(password),
             person.as_ref().map(|(_, hash)| hash.as_str()),
-        )?;
+        ))?;
         let Some((person_id, _)) = person.filter(|_| verified) else {
             turn.missed(self.record_login_failure(name)?);
             return Err(OpError::unauthorized("that name and password do not match"));
@@ -233,7 +253,7 @@ impl Core {
             Ok(())
         })?;
         turn.matched();
-        let session = self.mint_session(&person_id, session_name)?;
+        let session = self.mint_session(&person_id, session_name, "password")?;
         Ok(json!({ "session_id": session.id, "_session_secret": session.secret }))
     }
 
@@ -361,22 +381,62 @@ impl Core {
     }
 
     pub fn revoke_session(&self, person_id: &str, session_id: &str) -> Result<(), OpError> {
-        let changed = self.db().with_conn(|conn| {
-            conn.execute(
-                "UPDATE sessions SET revoked = 1 WHERE id = ?1 AND person_id = ?2 AND revoked = 0",
+        let ended: Option<String> = self.db().with_conn(|conn| {
+            conn.query_row(
+                "UPDATE sessions SET revoked = 1 WHERE id = ?1 AND person_id = ?2 AND revoked = 0 \
+                 RETURNING name",
                 params![session_id, person_id],
+                |row| row.get(0),
             )
+            .optional()
             .map_err(|e| OpError::internal(format!("cannot revoke Session: {e}")))
         })?;
-        if changed == 0 {
+        let Some(name) = ended else {
             return Err(OpError::not_found(
                 "no live Session by that name belongs to this Person",
             ));
-        }
+        };
+        self.note(
+            Event::theirs("session_ended", person_id).naming(Some(Named {
+                kind: "session",
+                name,
+            })),
+        );
         Ok(())
     }
 
-    pub(super) fn mint_session(&self, person_id: &str, name: &str) -> Result<Session, OpError> {
+    /// Note a sign-in in its Person's record: the Session it made, and how
+    /// it was made. `ended` says what a recovery link ended with it.
+    fn note_signed_in(
+        &self,
+        person_id: &str,
+        session_name: &str,
+        how: &str,
+        ended: Option<(usize, usize)>,
+    ) {
+        let mut detail = json!({ "how": how });
+        if let Some((sessions, access_keys)) = ended {
+            detail["ended_sessions"] = json!(sessions);
+            detail["ended_access_keys"] = json!(access_keys);
+        }
+        self.note(
+            Event::theirs("signed_in", person_id)
+                .naming(Some(Named {
+                    kind: "session",
+                    name: session_name.to_string(),
+                }))
+                .saying(detail),
+        );
+    }
+
+    /// Mint the Session a sign-in unlocks, and note it in the Security
+    /// Record with `how` it was signed in: `password` or `passkey`.
+    pub(super) fn mint_session(
+        &self,
+        person_id: &str,
+        name: &str,
+        how: &str,
+    ) -> Result<Session, OpError> {
         let secret = generate_secret();
         let id = format!("s_{}", hex::encode(random_bytes(8)));
         self.db().with_conn(|conn| {
@@ -387,6 +447,7 @@ impl Core {
             .map_err(|e| OpError::internal(format!("cannot mint Session: {e}")))?;
             Ok(())
         })?;
+        self.note_signed_in(person_id, name, how, None);
         Ok(Session { id, secret })
     }
 
@@ -408,11 +469,11 @@ impl Core {
             .map_err(|e| OpError::internal(format!("cannot read this Person: {e}")))
         })?;
         let turn = self.passwords.take_turn(&name)?;
-        let verified = off_the_request_workers(|| {
+        let verified = self.noting_a_crowd(off_the_request_workers(|| {
             self.passwords
                 .work
                 .verify(what_counts(password), hash.as_deref())
-        })?;
+        }))?;
         if !verified {
             turn.missed(self.record_login_failure(&name)?);
             return Err(OpError::refused_because(
@@ -443,7 +504,8 @@ impl Core {
     ) -> Result<Value, OpError> {
         let new = new_password(new)?;
         self.check_own_password(&caller.person_id, current)?;
-        let password_hash = off_the_request_workers(|| self.passwords.work.hash(new))?;
+        let password_hash =
+            self.noting_a_crowd(off_the_request_workers(|| self.passwords.work.hash(new)))?;
         let (ended_sessions, ended_access_keys) = self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE")
                 .map_err(|e| OpError::internal(e.to_string()))?;
@@ -486,6 +548,14 @@ impl Core {
                 }
             }
         })?;
+        self.note(
+            Event::theirs("password_changed", &caller.person_id)
+                .naming(self.named_credential(caller))
+                .saying(json!({
+                    "ended_sessions": ended_sessions,
+                    "ended_access_keys": ended_access_keys,
+                })),
+        );
         Ok(json!({ "ended_sessions": ended_sessions, "ended_access_keys": ended_access_keys }))
     }
 
@@ -497,25 +567,44 @@ impl Core {
     /// so guesses at made-up names cannot grow the table without end (#373).
     /// It is every name alike, because forgetting made-up names alone would
     /// say which are real; ADR 0031 says why that costs nothing.
+    ///
+    /// A wrong password at a Person's name is noted in their Security Record
+    /// (#371), as one more in a run. A name nobody holds is noted nowhere:
+    /// it is somebody's typing, and there is nobody to tell.
     fn record_login_failure(&self, name: &str) -> Result<i64, OpError> {
-        self.db().with_conn(|conn| {
+        let (in_a_row, person_id) = self.db().with_conn(|conn| {
             conn.execute(
                 "DELETE FROM login_failures \
                   WHERE last_failed_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?1)",
                 params![format!("-{} seconds", FORGOTTEN_AFTER.as_secs())],
             )
             .map_err(|e| OpError::internal(format!("cannot forget old login failures: {e}")))?;
-            conn.query_row(
-                "INSERT INTO login_failures(name, consecutive_failures, last_failed_at) \
+            let in_a_row: i64 = conn
+                .query_row(
+                    "INSERT INTO login_failures(name, consecutive_failures, last_failed_at) \
                  VALUES (?1, 1, strftime('%Y-%m-%dT%H:%M:%fZ','now')) \
                  ON CONFLICT(name) DO UPDATE SET consecutive_failures = consecutive_failures + 1, \
                  last_failed_at = excluded.last_failed_at \
                  RETURNING consecutive_failures",
-                params![name],
-                |row| row.get(0),
-            )
-            .map_err(|e| OpError::internal(format!("cannot record login failure: {e}")))
-        })
+                    params![name],
+                    |row| row.get(0),
+                )
+                .map_err(|e| OpError::internal(format!("cannot record login failure: {e}")))?;
+            let person_id: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM people \
+                      WHERE name = ?1 AND password_hash IS NOT NULL AND deleted = 0",
+                    params![name],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Person for login: {e}")))?;
+            Ok((in_a_row, person_id))
+        })?;
+        if let Some(person_id) = person_id {
+            self.note_wrong_password(&person_id, in_a_row);
+        }
+        Ok(in_a_row)
     }
 
     pub fn mint_invite(&self, is_operator: bool) -> Result<String, OpError> {
@@ -547,7 +636,8 @@ impl Core {
                 "this Invite has already been spent or revoked",
             ));
         }
-        let password_hash = self.passwords.work.hash(new_password(password)?)?;
+        let password_hash =
+            self.noting_a_crowd(self.passwords.work.hash(new_password(password)?))?;
         let person_id = format!("p_{}", hex::encode(random_bytes(8)));
         let session = Session {
             id: format!("s_{}", hex::encode(random_bytes(8))),
@@ -566,6 +656,16 @@ impl Core {
             })();
             match result { Ok(v) => { conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string()))?; Ok(v) }, Err(e) => { let _=conn.execute_batch("ROLLBACK"); Err(e) } }
         })?;
+        self.note_signed_in(&person_id, session_name, "invite", None);
+        // An Operator Invite makes an Operator, which every Operator's record
+        // says, as it says one raised (#371).
+        if operator {
+            self.note(
+                Event::instance("operator_raised", None)
+                    .about(&person_id)
+                    .saying(json!({ "how": "invite" })),
+            );
+        }
         Ok(
             json!({"person":{"id":person_id,"name":name,"hand_id":person_id,"cookbook_id":cookbook_id,"reading_language":"en","reading_measures":"us","is_operator":operator},"session_id":session.id,"_session_secret":session.secret}),
         )
@@ -619,14 +719,15 @@ impl Core {
                 "this recovery link has already been spent or revoked",
             ));
         }
-        let password_hash = self.passwords.work.hash(new_password(password)?)?;
+        let password_hash =
+            self.noting_a_crowd(self.passwords.work.hash(new_password(password)?))?;
         let session = Session {
             id: format!("s_{}", hex::encode(random_bytes(8))),
             secret: generate_secret(),
         };
-        let (ended_sessions, ended_access_keys) = self.db().with_conn(|conn| {
+        let (person_id, ended_sessions, ended_access_keys) = self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| OpError::internal(e.to_string()))?;
-            let result = (|| -> Result<(usize, usize), OpError> {
+            let result = (|| -> Result<(String, usize, usize), OpError> {
                 let person_id: Option<String> = conn.query_row("SELECT people.id FROM account_links JOIN people ON people.id=account_links.person_id WHERE secret_hash=?1 AND kind='recovery' AND spent=0 AND revoked=0 AND disabled=0 AND deleted=0", params![hash_secret(secret)], |r| r.get(0)).optional().map_err(|e| OpError::internal(e.to_string()))?;
                 let person_id=person_id.ok_or_else(|| OpError::unauthorized("this recovery link has already been spent or revoked"))?;
                 conn.execute("UPDATE account_links SET spent=1 WHERE secret_hash=?1 AND spent=0",params![hash_secret(secret)]).map_err(|e| OpError::internal(e.to_string()))?;
@@ -636,10 +737,16 @@ impl Core {
                 let ended_sessions = conn.execute("UPDATE sessions SET revoked=1 WHERE person_id=?1 AND revoked=0",params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 let ended_access_keys = conn.execute("UPDATE access_keys SET revoked=1 WHERE person_id=?1 AND revoked=0",params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 conn.execute("INSERT INTO sessions (id,secret_hash,person_id,name) VALUES (?1,?2,?3,?4)",params![session.id,hash_secret(&session.secret),person_id,session_name]).map_err(|e| OpError::internal(e.to_string()))?;
-                Ok((ended_sessions, ended_access_keys))
+                Ok((person_id, ended_sessions, ended_access_keys))
             })();
             match result { Ok(ended) => { conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string()))?; Ok(ended) }, Err(e) => { let _=conn.execute_batch("ROLLBACK"); Err(e) } }
         })?;
+        self.note_signed_in(
+            &person_id,
+            session_name,
+            "recovery_link",
+            Some((ended_sessions, ended_access_keys)),
+        );
         Ok(
             json!({"session_id":session.id,"_session_secret":session.secret,"ended_sessions":ended_sessions,"ended_access_keys":ended_access_keys}),
         )
@@ -687,15 +794,31 @@ impl Core {
     /// raced: two Operators standing each other down at the same instant would
     /// both read "somebody else remains" and both be right, and the instance
     /// would end up with nobody.
-    pub fn set_operator(&self, name: &str, is_operator: bool) -> Result<Value, OpError> {
+    pub fn set_operator(
+        &self,
+        by: &Caller,
+        name: &str,
+        is_operator: bool,
+    ) -> Result<Value, OpError> {
         let name = required_text(name, "name")?;
-        self.db().with_conn(|conn| {
+        let mut changed = None;
+        let answer = self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE")
                 .map_err(|e| OpError::internal(e.to_string()))?;
             let result = (|| -> Result<Value, OpError> {
                 let person_id = undeleted_person_named(conn, name)?;
                 if !is_operator {
                     ensure_an_operator_remains(conn, &person_id, name, "standing them down")?;
+                }
+                let was: bool = conn
+                    .query_row(
+                        "SELECT is_operator FROM people WHERE id = ?1",
+                        params![person_id],
+                        |row| row.get::<_, i64>(0).map(|held| held != 0),
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot read who administers: {e}")))?;
+                if was != is_operator {
+                    changed = Some(person_id.clone());
                 }
                 conn.execute(
                     "UPDATE people SET is_operator = ?1 WHERE id = ?2",
@@ -726,14 +849,32 @@ impl Core {
                     Err(error)
                 }
             }
-        })
+        })?;
+        if let Some(person_id) = changed {
+            self.note(
+                Event::instance(
+                    if is_operator {
+                        "operator_raised"
+                    } else {
+                        "operator_stood_down"
+                    },
+                    Some(by),
+                )
+                .naming(self.named_credential(by))
+                .about(&person_id),
+            );
+        }
+        Ok(answer)
     }
 
-    pub fn end_account(&self, name: &str, deleted: bool) -> Result<(), OpError> {
+    /// Disable an account, or delete it. A deleted Person's own Security
+    /// Record goes with them, since nobody can read it again; every
+    /// Operator's record keeps that it happened (#371).
+    pub fn end_account(&self, by: &Caller, name: &str, deleted: bool) -> Result<(), OpError> {
         let name = required_text(name, "name")?;
-        self.db().with_conn(|conn| {
+        let person_id = self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| OpError::internal(e.to_string()))?;
-            let result = (|| -> Result<(), OpError> {
+            let result = (|| -> Result<String, OpError> {
                 // #101: a deleted namesake may share this Name, so the Person
                 // is found once and every write below is keyed on their id.
                 let person_id = undeleted_person_named(conn, name)?;
@@ -762,19 +903,33 @@ impl Core {
                     conn.execute("DELETE FROM passkeys WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                     jobs::end_for_deleted_asker(conn, &person_id)?;
                     forget_cookbook_of(conn, &person_id)?;
+                    conn.execute("DELETE FROM security_record WHERE account_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 } else {
                     // A disabled account is no longer asked about a waiting
                     // join, and may have been the last one it waited for (#135).
                     let cookbook_id = cookbook_of_person(conn, &person_id)?;
                     settle_joins_of(conn, &cookbook_id)?;
                 }
-                Ok(())
+                Ok(person_id)
             })();
             match result {
-                Ok(()) => conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string())),
+                Ok(person_id) => conn.execute_batch("COMMIT").map(|()| person_id).map_err(|e| OpError::internal(e.to_string())),
                 Err(error) => { let _ = conn.execute_batch("ROLLBACK"); Err(error) }
             }
-        })
+        })?;
+        self.note(
+            Event::instance(
+                if deleted {
+                    "account_deleted"
+                } else {
+                    "account_disabled"
+                },
+                Some(by),
+            )
+            .naming(self.named_credential(by))
+            .about(&person_id),
+        );
+        Ok(())
     }
 
     /// Create a Person with their own Cookbook. Test plumbing uses this;

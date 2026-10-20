@@ -852,7 +852,7 @@ describe('the settings screen', () => {
 
 	it('draws the menu and a page on the wide layout too (#221)', async () => {
 		renderScreen(Settings, {}, undefined, 'wide');
-		expect(await screen.findAllByRole('link')).toHaveLength(4);
+		expect(await screen.findAllByRole('link')).toHaveLength(5);
 		cleanup();
 
 		renderScreen(
@@ -870,7 +870,7 @@ describe('the settings screen', () => {
 		expect(screen.queryByRole('heading', { name: 'Kitchens' })).not.toBeInTheDocument();
 	});
 
-	it('is a menu of four pages, each named with what it holds (#221)', async () => {
+	it('is a menu of five pages, each named with what it holds (#221, #371)', async () => {
 		const { kamosu } = renderScreen(Settings, {});
 
 		const rows = await screen.findAllByRole('link');
@@ -879,6 +879,7 @@ describe('the settings screen', () => {
 			'/settings/device',
 			'/settings/kitchens',
 			'/settings/instance',
+			'/settings/security',
 		]);
 		expect(rows[0]).toHaveTextContent('Account');
 		expect(rows[0]).toHaveTextContent('Your name, the language, who is signed in, your password');

@@ -44,12 +44,19 @@ impl Core {
 
     /// Where one named Backup sits, for the out-of-band route to send. An
     /// archive is far too large to wrap in a JSON envelope, so it travels as
-    /// its own bytes exactly as a Photograph does (ADR 0001).
-    pub fn backup_path(&self, name: &str) -> Result<std::path::PathBuf, OpError> {
+    /// its own bytes exactly as a Photograph does (ADR 0001). Asking is
+    /// fetching it, and every Operator's Security Record says who did
+    /// (#371): an archive holds every password hash on the instance.
+    pub fn fetch_backup(&self, by: &Caller, name: &str) -> Result<std::path::PathBuf, OpError> {
         let path = backups::archive_path(&self.data_dir(), name)?;
         if !path.is_file() {
             return Err(OpError::not_found("no such Backup"));
         }
+        self.note(
+            Event::instance("backup_fetched", Some(by))
+                .naming(self.named_credential(by))
+                .saying(json!({ "backup": name })),
+        );
         Ok(path)
     }
 }

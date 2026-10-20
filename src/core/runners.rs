@@ -15,10 +15,15 @@ impl Core {
     /// How often lapsed holds are looked for when no Runner calls.
     const HOLD_WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 
-    /// Mint a Runner Key. It belongs to the instance and to no Person, so
-    /// nothing here says who asked: that an Operator did is the Catalogue's
-    /// declaration, checked in `execute`.
-    pub fn mint_runner_key(&self, key_name: &str) -> Result<RunnerKey, OpError> {
+    /// Mint a Runner Key. It belongs to the instance and to no Person: that
+    /// an Operator asked is the Catalogue's declaration, checked in
+    /// `execute`. `by` is who did, for the Security Record (#371), and
+    /// nobody for plumbing that mints one directly.
+    pub fn mint_runner_key(
+        &self,
+        by: Option<&Caller>,
+        key_name: &str,
+    ) -> Result<RunnerKey, OpError> {
         let key_name = required_text(key_name, "name")?.to_string();
         let secret = generate_secret();
         let hash = hash_secret(&secret);
@@ -30,6 +35,7 @@ impl Core {
             )
             .map_err(|e| OpError::internal(format!("cannot mint Runner Key: {e}")))
         })?;
+        self.note_runner_key("runner_key_minted", by, &key_name);
         Ok(RunnerKey {
             id,
             secret,
@@ -65,24 +71,40 @@ impl Core {
 
     /// Revoke a Runner Key. The Job it holds goes back to waiting, and the
     /// Job Keys it was handed stop working with it (#266).
-    pub fn revoke_runner_key(&self, key_id: &str) -> Result<(), OpError> {
+    pub fn revoke_runner_key(&self, by: Option<&Caller>, key_id: &str) -> Result<(), OpError> {
         let failed = |e| OpError::internal(format!("cannot revoke Runner Key: {e}"));
-        self.db().with_conn(|conn| {
+        let name = self.db().with_conn(|conn| {
             // The Key and what it held go together or not at all.
             let tx = conn.unchecked_transaction().map_err(failed)?;
-            let changed = tx
-                .execute(
-                    "UPDATE runner_keys SET revoked = 1 WHERE id = ?1 AND revoked = 0",
+            let name: Option<String> = tx
+                .query_row(
+                    "UPDATE runner_keys SET revoked = 1 WHERE id = ?1 AND revoked = 0 \
+                     RETURNING name",
                     params![key_id],
+                    |row| row.get(0),
                 )
+                .optional()
                 .map_err(failed)?;
-            if changed == 0 {
+            let Some(name) = name else {
                 return Err(OpError::not_found("no live Runner Key has that id"));
-            }
+            };
             // Nothing can renew its hold or report on its Job from here on.
             jobs::release_for_revoked_runner(&tx, key_id)?;
-            tx.commit().map_err(failed)
-        })
+            tx.commit().map_err(failed)?;
+            Ok(name)
+        })?;
+        self.note_runner_key("runner_key_revoked", by, &name);
+        Ok(())
+    }
+
+    /// Note a Runner Key minted or revoked in every Operator's record, with
+    /// the Credential that did it and the key's own name in `detail`.
+    fn note_runner_key(&self, event: &'static str, by: Option<&Caller>, name: &str) {
+        self.note(
+            Event::instance(event, by)
+                .naming(by.and_then(|caller| self.named_credential(caller)))
+                .saying(json!({ "runner_key": name })),
+        );
     }
 
     /// The Runner Key a Secret's hash names, if it names a live one. Reads
@@ -489,7 +511,7 @@ impl Core {
     /// Save the agent's house notes, in place of any there were. Text that
     /// is only blank takes them away, and the agent follows its own
     /// instructions alone again.
-    pub fn set_house_notes(&self, person_id: &str, notes: &str) -> Result<Value, OpError> {
+    pub fn set_house_notes(&self, by: &Caller, notes: &str) -> Result<Value, OpError> {
         let notes = notes.trim();
         if notes.chars().count() > HOUSE_NOTES_CHARS {
             return Err(OpError::bad_request(format!(
@@ -506,10 +528,17 @@ impl Core {
                         agent_house_notes = excluded.agent_house_notes,
                         house_notes_saved_by = excluded.house_notes_saved_by,
                         house_notes_saved_at = excluded.house_notes_saved_at",
-                params![notes, person_id],
+                params![notes, by.person_id],
             )
             .map_err(|e| OpError::internal(format!("cannot save the house notes: {e}")))
         })?;
+        // What they now say is read from the House Notes themselves, which
+        // keep who saved them last; the record says that they changed.
+        self.note(
+            Event::instance("house_notes_changed", Some(by))
+                .naming(self.named_credential(by))
+                .saying(json!({ "taken_away": notes.is_none() })),
+        );
         self.house_notes()
     }
 }

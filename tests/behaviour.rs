@@ -580,7 +580,7 @@ async fn an_operator_may_delete_a_kitchen_nobody_is_left_in_and_nothing_else() {
         .to_string();
     let operator_key = app
         .core
-        .mint_operator_key(&operator_id, "agent", false)
+        .mint_operator_key(None, &operator_id, "agent", false)
         .unwrap()
         .secret;
 
@@ -665,7 +665,7 @@ async fn deleting_a_kitchen_takes_its_invites_and_keeps_its_hands_name() {
         .to_string();
     let operator_key = app
         .core
-        .mint_operator_key(&operator_id, "agent", false)
+        .mint_operator_key(None, &operator_id, "agent", false)
         .unwrap()
         .secret;
     let key_for = |name: &str| {
@@ -4542,7 +4542,7 @@ fn operator_with_kitchen(app: &support::TestApp) -> (String, String) {
         .to_string();
     let key = app
         .core
-        .mint_operator_key(operator_id, "agent", false)
+        .mint_operator_key(None, operator_id, "agent", false)
         .unwrap()
         .secret;
     (key, kitchen_id)
@@ -12663,7 +12663,7 @@ mod web_link_importer {
         let person = app.core.create_person("Stéphane").expect("person");
         if runner {
             app.core
-                .mint_runner_key("the kitchen's Runner")
+                .mint_runner_key(None, "the kitchen's Runner")
                 .expect("a Runner Key");
         }
         app.core
@@ -13026,8 +13026,8 @@ mod web_link_importer {
         assert_eq!(recipes_and_agent_jobs(&app), (1, 0));
 
         // A Runner Key that was revoked is no Runner.
-        let minted = app.core.mint_runner_key("gone").unwrap();
-        app.core.revoke_runner_key(&minted.id).unwrap();
+        let minted = app.core.mint_runner_key(None, "gone").unwrap();
+        app.core.revoke_runner_key(None, &minted.id).unwrap();
         let finished = import_web_link_to_the_end(&app, &key, &a_page_that_refuses(403));
         assert_eq!(finished["status"], json!("failed"), "{finished}");
         assert_eq!(recipes_and_agent_jobs(&app), (1, 0));
@@ -13412,7 +13412,10 @@ mod web_link_importer {
 
     /// A second Runner Key beside the one `cook_beside_a_runner` minted.
     fn another_runner(app: &support::TestApp, name: &str) -> String {
-        app.core.mint_runner_key(name).expect("a Runner Key").secret
+        app.core
+            .mint_runner_key(None, name)
+            .expect("a Runner Key")
+            .secret
     }
 
     /// A cook, and the Secret of the instance's one Runner Key.
@@ -17223,7 +17226,9 @@ mod web_link_importer {
         };
         refused_with(&linked, "no_runner", json!(A_SOURCE_LINK));
 
-        app.core.mint_runner_key("the kitchen's Runner").unwrap();
+        app.core
+            .mint_runner_key(None, "the kitchen's Runner")
+            .unwrap();
         refused_with(&unlinked, "nothing_to_read", json!(null));
         // Kamosu never fetched a Source's link, so an agent is sent to none
         // that Kamosu's own fetch would refuse to set out for (ADR 0033).
@@ -29718,7 +29723,7 @@ async fn fetching_a_backup_is_an_operator_power_and_nobody_elses() {
         .unwrap();
     let reading_key = app
         .core
-        .mint_operator_key(&operator_id, "reader", true)
+        .mint_operator_key(None, &operator_id, "reader", true)
         .unwrap()
         .secret;
     assert_eq!(app.post_op("list_backups", Some(&reading_key), "{}").0, 200);
@@ -37272,7 +37277,10 @@ mod handing_an_original_to_an_agent {
     }
 
     fn another_runner(app: &support::TestApp, name: &str) -> String {
-        app.core.mint_runner_key(name).expect("a Runner Key").secret
+        app.core
+            .mint_runner_key(None, name)
+            .expect("a Runner Key")
+            .secret
     }
 
     fn hand_over(app: &support::TestApp, key: Option<&str>, input: Value) -> (u16, Value) {
@@ -39509,7 +39517,7 @@ mod an_operator_looks_after_every_cookbook {
         let (status, refused) = op(&app, "list_cookbooks", &read_only, json!({}));
         assert_eq!(status, 401, "{refused}");
 
-        let runner = app.core.mint_runner_key("a Runner").unwrap().secret;
+        let runner = app.core.mint_runner_key(None, "a Runner").unwrap().secret;
         for name in ["get_recipe", "list_cookbooks"] {
             let (status, refused) = op(&app, name, &runner, recipe.clone());
             assert_eq!(status, 401, "{name}: {refused}");
@@ -39557,7 +39565,7 @@ mod an_operator_looks_after_every_cookbook {
         let app = support::spawn_app();
         let at = an_instance(&app);
         let theirs = cookbook_of(&app, &at.owner_id);
-        let runner = app.core.mint_runner_key("a Runner").unwrap().secret;
+        let runner = app.core.mint_runner_key(None, "a Runner").unwrap().secret;
 
         let (status, asked) = op(
             &app,
@@ -39614,7 +39622,7 @@ mod an_operator_looks_after_every_cookbook {
         let app = support::spawn_app();
         let at = an_instance(&app);
         let theirs = cookbook_of(&app, &at.owner_id);
-        let runner = app.core.mint_runner_key("a Runner").unwrap().secret;
+        let runner = app.core.mint_runner_key(None, "a Runner").unwrap().secret;
         let link = "https://video.example/watch?v=tian";
 
         let (status, refused) = op(
@@ -39652,7 +39660,7 @@ mod an_operator_looks_after_every_cookbook {
         let app = support::spawn_app();
         let at = an_instance(&app);
         let theirs = cookbook_of(&app, &at.owner_id);
-        let runner = app.core.mint_runner_key("a Runner").unwrap().secret;
+        let runner = app.core.mint_runner_key(None, "a Runner").unwrap().secret;
 
         let (status, asked) = op(
             &app,
@@ -39696,4 +39704,507 @@ mod an_operator_looks_after_every_cookbook {
         let (status, tags) = op(&app, "list_tags", job_key, json!({ "cookbook_id": theirs }));
         assert_eq!(status, 200, "{tags}");
     }
+}
+
+// --- The Security Record (#371) ------------------------------------------------
+
+/// What a record reads as at a Door: each row's event, count and the name of
+/// the Credential it names, newest first.
+fn record_rows(record: &Value) -> Vec<(String, i64, Option<String>)> {
+    record["events"]
+        .as_array()
+        .unwrap_or_else(|| panic!("a record: {record}"))
+        .iter()
+        .map(|row| {
+            (
+                row["event"].as_str().expect("an event").to_string(),
+                row["count"].as_i64().expect("a count"),
+                row["credential"]["name"].as_str().map(str::to_string),
+            )
+        })
+        .collect()
+}
+
+fn own_record(app: &support::TestApp, key: &str) -> Value {
+    let (status, record) = app.post_op("list_security_record", Some(key), "{}");
+    assert_eq!(status, 200, "{record}");
+    record["result"].clone()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_persons_own_record_says_how_they_signed_in_and_what_their_keys_did() {
+    let app = support::spawn_app();
+    let first = json!({
+        "name": "Stéphane",
+        "password": "a password only its person knows",
+        "session_name": "Firefox on Linux",
+    });
+    let created = app.post_auth_response("/auth/first-person", &first.to_string());
+    assert_eq!(created.status, 200, "{}", created.text());
+    let browser = support::session_cookie_secret(&created);
+
+    // Two wrong passwords at the name, then the right one from a phone once
+    // the second's second of waiting is over.
+    for _ in 0..2 {
+        let wrong = json!({ "name": "Stéphane", "password": "not the password at all", "session_name": "x" });
+        assert_eq!(app.post_auth("/auth/login", &wrong.to_string()).0, 401);
+    }
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    // A made-up name is somebody's typing, and is in nobody's record.
+    let made_up = json!({ "name": "Nobody here", "password": "not the password at all", "session_name": "x" });
+    assert_eq!(app.post_auth("/auth/login", &made_up.to_string()).0, 401);
+    let right = json!({ "name": "Stéphane", "password": "a password only its person knows", "session_name": "Safari on iPhone" });
+    let phone = app.post_auth_response("/auth/login", &right.to_string());
+    assert_eq!(phone.status, 200, "{}", phone.text());
+    let phone_id = serde_json::from_str::<Value>(&phone.text()).unwrap()["result"]["session_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // A key minted and ended, and the phone's Session ended from the browser.
+    let (status, minted) = app.post_op(
+        "mint_access_key",
+        Some(&browser),
+        r#"{"name":"Claude","read_only":true}"#,
+    );
+    assert_eq!(status, 200, "{minted}");
+    let key_id = minted["result"]["id"].as_str().unwrap();
+    let key = minted["result"]["secret"].as_str().unwrap().to_string();
+    let (status, _) = app.post_op(
+        "revoke_access_key",
+        Some(&browser),
+        &json!({ "access_key_id": key_id }).to_string(),
+    );
+    assert_eq!(status, 200);
+    let (status, _) = app.post_op(
+        "revoke_session",
+        Some(&browser),
+        &json!({ "session_id": phone_id }).to_string(),
+    );
+    assert_eq!(status, 200);
+
+    let record = own_record(&app, &browser);
+    assert_eq!(
+        record_rows(&record),
+        vec![
+            (
+                "session_ended".to_string(),
+                1,
+                Some("Safari on iPhone".to_string())
+            ),
+            (
+                "access_key_ended".to_string(),
+                1,
+                Some("Claude".to_string())
+            ),
+            (
+                "access_key_minted".to_string(),
+                1,
+                Some("Claude".to_string())
+            ),
+            (
+                "signed_in".to_string(),
+                1,
+                Some("Safari on iPhone".to_string())
+            ),
+            ("sign_in_failed".to_string(), 2, None),
+            (
+                "signed_in".to_string(),
+                1,
+                Some("Firefox on Linux".to_string())
+            ),
+        ],
+        "{record}"
+    );
+    let rows = record["events"].as_array().unwrap();
+    assert_eq!(rows[3]["detail"], json!({ "how": "password" }));
+    assert_eq!(rows[5]["detail"], json!({ "how": "setup" }));
+    assert_eq!(
+        rows[2]["detail"],
+        json!({ "read_only": true, "operator": false })
+    );
+    assert_eq!(rows[2]["credential"]["kind"], json!("access_key"));
+    assert!(
+        rows[4]["first_at"].as_str() < rows[4]["at"].as_str(),
+        "{record}"
+    );
+    assert_eq!(record["kept_for_days"], json!(90));
+
+    // Nothing about Stéphane is in anybody else's, and their own record
+    // holds nothing of the instance's.
+    let (_, someone, _) = person_with_kitchen(&app, "Camille");
+    let theirs = own_record(&app, &someone);
+    assert!(
+        record_rows(&theirs)
+            .iter()
+            .all(|(event, _, _)| event == "access_key_minted"),
+        "{theirs}"
+    );
+
+    // The MCP door reads the same record, the ended key aside.
+    let (status, answered) = app.post_mcp(
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": "list_security_record", "arguments": {} },
+        })
+        .to_string(),
+        Some(&browser),
+    );
+    assert_eq!(status, 200, "{answered}");
+    assert_eq!(
+        answered["result"]["structuredContent"], record,
+        "{answered}"
+    );
+    assert_eq!(app.post_op("list_security_record", Some(&key), "{}").0, 401);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_run_of_wrong_passwords_starts_after_a_right_one_or_an_hour() {
+    let app = support::spawn_app();
+    let first = json!({ "name": "Stéphane", "password": "a password only its person knows", "session_name": "laptop" });
+    let created = app.post_auth_response("/auth/first-person", &first.to_string());
+    let laptop = support::session_cookie_secret(&created);
+    let miss = || {
+        let wrong = json!({ "name": "Stéphane", "password": "not the password at all", "session_name": "x" });
+        assert_eq!(app.post_auth("/auth/login", &wrong.to_string()).0, 401);
+    };
+    miss();
+    let right = json!({ "name": "Stéphane", "password": "a password only its person knows", "session_name": "phone" });
+    assert_eq!(app.post_auth("/auth/login", &right.to_string()).0, 200);
+    miss();
+    // An hour on, the run that was going is over: the next miss starts one,
+    // though the name still counts it as its second.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE security_record SET at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-61 minutes') \
+                  WHERE event = 'sign_in_failed'",
+                [],
+            )
+            .map_err(|e| kamosu::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    miss();
+
+    let runs: Vec<i64> = record_rows(&own_record(&app, &laptop))
+        .into_iter()
+        .filter(|(event, _, _)| event == "sign_in_failed")
+        .map(|(_, count, _)| count)
+        .collect();
+    assert_eq!(runs, vec![1, 1, 1]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recovery_link_says_what_it_ended_with_the_old_password() {
+    let app = support::spawn_app();
+    let first = json!({ "name": "Stéphane", "password": "a password only its person knows", "session_name": "laptop" });
+    let created = app.post_auth_response("/auth/first-person", &first.to_string());
+    let operator = support::session_cookie_secret(&created);
+    let (_, invite) = app.post_op("mint_invite", Some(&operator), "{}");
+    let redeem = json!({
+        "link": invite["result"]["link"],
+        "name": "Camille",
+        "password": "a long enough password here",
+        "session_name": "old phone",
+    });
+    let (status, joined) = app.post_auth("/auth/invite", &redeem.to_string());
+    assert_eq!(status, 200, "{joined}");
+    let camille = joined["result"]["person"]["id"].as_str().unwrap();
+    app.core.mint_access_key(camille, "agent", false).unwrap();
+    let (_, link) = app.post_op(
+        "mint_recovery_link",
+        Some(&operator),
+        r#"{"name":"Camille"}"#,
+    );
+    let recover = json!({
+        "link": link["result"]["link"],
+        "password": "Camille's own new password",
+        "session_name": "new phone",
+    });
+    let recovered = app.post_auth_response("/auth/recover", &recover.to_string());
+    assert_eq!(recovered.status, 200, "{}", recovered.text());
+    let phone = support::session_cookie_secret(&recovered);
+
+    let record = own_record(&app, &phone);
+    assert_eq!(
+        record_rows(&record)[0],
+        ("signed_in".to_string(), 1, Some("new phone".to_string())),
+        "{record}"
+    );
+    assert_eq!(
+        record["events"][0]["detail"],
+        json!({ "how": "recovery_link", "ended_sessions": 1, "ended_access_keys": 1 })
+    );
+    assert_eq!(
+        record["events"].as_array().unwrap().last().unwrap()["detail"],
+        json!({ "how": "invite" })
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_operator_reads_who_changed_the_instance_and_through_what() {
+    let app = support::spawn_app();
+    let first = json!({ "name": "Stéphane", "password": "a password only its person knows", "session_name": "kitchen laptop" });
+    let created = app.post_auth_response("/auth/first-person", &first.to_string());
+    let laptop = support::session_cookie_secret(&created);
+    let operator_id =
+        serde_json::from_str::<Value>(&created.text()).unwrap()["result"]["person"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+    let agent = app
+        .core
+        .mint_operator_key(None, &operator_id, "Hermes", false)
+        .unwrap()
+        .secret;
+
+    let ok = |key: &str, name: &str, input: Value| -> Value {
+        let (status, answer) = app.post_op(name, Some(key), &input.to_string());
+        assert_eq!(status, 200, "{answer}");
+        answer["result"].clone()
+    };
+    ok(
+        &agent,
+        "set_house_notes",
+        json!({ "notes": "Read every recipe in French." }),
+    );
+    ok(&agent, "set_house_notes", json!({ "notes": "  " }));
+    ok(
+        &agent,
+        "set_public_address",
+        json!({ "public_address": "https://recipes.kamosu.example/" }),
+    );
+    let runner = ok(&laptop, "mint_runner_key", json!({ "name": "beside" }));
+    ok(
+        &laptop,
+        "revoke_runner_key",
+        json!({ "runner_key_id": runner["id"] }),
+    );
+    take_a_backup(&app, &agent);
+    let name = archive_named(&app, &agent, "daily");
+    let (status, _, _) = app.get_bytes(&format!("/api/backups/{name}"), Some(&agent));
+    assert_eq!(status, 200);
+
+    // An ordinary Person reads no instance record.
+    let (_, cook, _) = person_with_kitchen(&app, "Camille");
+    assert_eq!(
+        app.post_op("list_instance_security_record", Some(&cook), "{}")
+            .0,
+        401
+    );
+
+    let record = ok(&laptop, "list_instance_security_record", json!({}));
+    let rows = record["events"].as_array().unwrap();
+    let seen: Vec<(String, String, String, Value)> = rows
+        .iter()
+        .map(|row| {
+            (
+                row["event"].as_str().unwrap().to_string(),
+                row["credential"]["kind"]
+                    .as_str()
+                    .unwrap_or("-")
+                    .to_string(),
+                row["credential"]["name"]
+                    .as_str()
+                    .unwrap_or("-")
+                    .to_string(),
+                row["detail"].clone(),
+            )
+        })
+        .collect();
+    let row = |event: &str, kind: &str, name: &str, detail: Value| {
+        (
+            event.to_string(),
+            kind.to_string(),
+            name.to_string(),
+            detail,
+        )
+    };
+    assert_eq!(
+        seen,
+        vec![
+            row(
+                "backup_fetched",
+                "operator_key",
+                "Hermes",
+                json!({ "backup": name })
+            ),
+            row(
+                "runner_key_revoked",
+                "session",
+                "kitchen laptop",
+                json!({ "runner_key": "beside" })
+            ),
+            row(
+                "runner_key_minted",
+                "session",
+                "kitchen laptop",
+                json!({ "runner_key": "beside" })
+            ),
+            row(
+                "public_address_changed",
+                "operator_key",
+                "Hermes",
+                json!({ "address": "https://recipes.kamosu.example" })
+            ),
+            row(
+                "house_notes_changed",
+                "operator_key",
+                "Hermes",
+                json!({ "taken_away": true })
+            ),
+            row(
+                "house_notes_changed",
+                "operator_key",
+                "Hermes",
+                json!({ "taken_away": false })
+            ),
+            row(
+                "operator_key_minted",
+                "-",
+                "-",
+                json!({ "key": "Hermes", "read_only": false })
+            ),
+        ],
+        "{record}"
+    );
+    assert!(
+        rows.iter().all(|row| row["by"] == json!("Stéphane")),
+        "{record}"
+    );
+    // Minting the Operator key is in its Person's own record too.
+    assert_eq!(
+        record_rows(&own_record(&app, &laptop))[0],
+        (
+            "access_key_minted".to_string(),
+            1,
+            Some("Hermes".to_string())
+        )
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn who_administers_and_whose_account_ended_is_in_every_operators_record() {
+    let app = support::spawn_app();
+    let first = json!({ "name": "Stéphane", "password": "a password only its person knows", "session_name": "kitchen laptop" });
+    let created = app.post_auth_response("/auth/first-person", &first.to_string());
+    let operator = support::session_cookie_secret(&created);
+    // Marc arrives through an Operator Invite.
+    for (name, is_operator) in [("Camille", false), ("Marc", true)] {
+        let (_, invite) = app.post_op(
+            "mint_invite",
+            Some(&operator),
+            &json!({ "is_operator": is_operator }).to_string(),
+        );
+        let redeem = json!({
+            "link": invite["result"]["link"],
+            "name": name,
+            "password": "a long enough password here",
+            "session_name": "phone",
+        });
+        assert_eq!(app.post_auth("/auth/invite", &redeem.to_string()).0, 200);
+    }
+    let call = |name: &str, input: Value| {
+        let (status, answer) = app.post_op(name, Some(&operator), &input.to_string());
+        assert_eq!(status, 200, "{answer}");
+    };
+    call(
+        "set_operator",
+        json!({ "name": "Camille", "is_operator": true }),
+    );
+    // Asking for what already is changes nothing, and notes nothing.
+    call(
+        "set_operator",
+        json!({ "name": "Camille", "is_operator": true }),
+    );
+    call(
+        "set_operator",
+        json!({ "name": "Camille", "is_operator": false }),
+    );
+    call("disable_account", json!({ "name": "Camille" }));
+    call("delete_account", json!({ "name": "Marc" }));
+
+    let (_, record) = app.post_op("list_instance_security_record", Some(&operator), "{}");
+    let rows = record["result"]["events"].as_array().unwrap();
+    let seen: Vec<(String, String, String)> = rows
+        .iter()
+        .map(|row| {
+            (
+                row["event"].as_str().unwrap().to_string(),
+                row["about"].as_str().unwrap_or("-").to_string(),
+                row["credential"]["name"]
+                    .as_str()
+                    .unwrap_or("-")
+                    .to_string(),
+            )
+        })
+        .collect();
+    let about = |event: &str, who: &str| {
+        (
+            event.to_string(),
+            who.to_string(),
+            "kitchen laptop".to_string(),
+        )
+    };
+    assert_eq!(
+        seen,
+        vec![
+            about("account_deleted", "Marc"),
+            about("account_disabled", "Camille"),
+            about("operator_stood_down", "Camille"),
+            about("operator_raised", "Camille"),
+            (
+                "operator_raised".to_string(),
+                "Marc".to_string(),
+                "-".to_string()
+            ),
+        ],
+        "{record}"
+    );
+    // Marc's own record went with his account; Camille's is kept, since a
+    // disabled account may be enabled again.
+    let left: Vec<String> = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            let mut statement = conn
+                .prepare(
+                    "SELECT people.name FROM security_record JOIN people ON people.id = account_id \
+                      GROUP BY people.name ORDER BY people.name",
+                )
+                .unwrap();
+            Ok(statement
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<Vec<String>, _>>()
+                .unwrap())
+        })
+        .unwrap();
+    assert_eq!(left, vec!["Camille".to_string(), "Stéphane".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_record_keeps_ninety_days_and_the_daily_sweep_takes_the_rest() {
+    let app = support::spawn_app();
+    let (_, key, _) = person_with_kitchen(&app, "Camille");
+    app.core
+        .mint_access_key(&app.core.create_person("x").unwrap(), "k", false)
+        .unwrap();
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE security_record SET at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-91 days') \
+                  WHERE credential_name = 'k'",
+                [],
+            )
+            .map_err(|e| kamosu::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(app.core.sweep_security_record().unwrap(), 1);
+    assert_eq!(app.core.sweep_security_record().unwrap(), 0);
+    assert_eq!(record_rows(&own_record(&app, &key)).len(), 1);
 }

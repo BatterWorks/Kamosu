@@ -406,6 +406,11 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     receiving one (ADR 0020)
   shopping_list.rs  the shopping list
   search.rs         word search and Meaning Search
+  security_record.rs
+                    the Security Record: sign-ins, wrong passwords, keys
+                    and changes to the instance, kept 90 days, each also
+                    one `kamosu-security` log line (#371,
+                    docs/security-record.md)
   keeping_backups.rs
                     taking and listing Backups
   shared.rs         the few helpers several areas call and none owns

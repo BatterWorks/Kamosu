@@ -15,6 +15,8 @@
 - A person can change their own password from Settings › Account, with the current one. Signing out their other devices is ticked to start with, ending their Access Keys is offered too, and their passkeys keep working. Before, only an Operator's recovery link or `kamosu recover` could. [#370]
 - A Runner given the model provider's key relays its agent's model requests, so the agent never holds the key and a page that tricks it has none to send away. For each Job it opens a relay for that Job's agent alone, on the loopback for an agent command or at a socket for an agent in a container of its own, and hands the agent its address and a stand-in key in `job.json`, as `model_relay`. The relay puts the real key where the agent put the stand-in, in `Authorization`, `x-api-key` or `x-goog-api-key`, sends the request to the one address the Runner was given, under the same path, and streams the answer back. It refuses any other key, and closes when the Job ends. The published agent image sends opencode through it. [#372]
 - The published agent image can be started as a fence, `/opt/kamosu-agent/fence`, whose network the agent's container shares. It lets the agent reach the internet and Kamosu's address, refuses the host, the LAN and every other private address, and keeps no root and no capability once its rules are set. [#372]
+- Kamosu keeps a Security Record for 90 days, in Settings › Security record. Each person sees their own sign-ins and how each was made, wrong passwords at their name counted as one line per run, passkeys, password changes, Access Keys and Sessions ended. An Operator also sees the instance's: the House Notes and the public address changed, who was made an Operator or stood down, accounts disabled or deleted, Operator keys, Runner Keys, Backups fetched, and a crowd of sign-ins refused at once, each saying who did it through which Session or key. Agents read both with `list_security_record` and `list_instance_security_record`. Before, nothing recorded any of it. [#371]
+- Each of those events is also one line on standard output, starting `kamosu-security`, in a fixed format a log watcher can match: `docs/security-record.md` describes it. It names Sessions and keys, never an address, a password or a Secret, and Kamosu sends it nowhere. [#371]
 
 ### Changed
 
@@ -39,6 +41,7 @@
 [#368]: https://github.com/BatterWorks/Kamosu/issues/368
 [#369]: https://github.com/BatterWorks/Kamosu/issues/369
 [#370]: https://github.com/BatterWorks/Kamosu/issues/370
+[#371]: https://github.com/BatterWorks/Kamosu/issues/371
 [#372]: https://github.com/BatterWorks/Kamosu/issues/372
 [#373]: https://github.com/BatterWorks/Kamosu/issues/373
 [#389]: https://github.com/BatterWorks/Kamosu/issues/389

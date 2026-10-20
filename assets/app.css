@@ -538,6 +538,9 @@
   .mt-8 {
     margin-top: var(--spacing-8);
   }
+  .mt-\[18px\] {
+    margin-top: 18px;
+  }
   .mt-auto {
     margin-top: auto;
   }
@@ -561,6 +564,9 @@
   }
   .mb-6 {
     margin-bottom: var(--spacing-6);
+  }
+  .mb-\[6px\] {
+    margin-bottom: 6px;
   }
   .beside-back-arrow {
     margin-left: calc(var(--arrow-room) - var(--spacing-gutter));
@@ -1211,6 +1217,9 @@
   }
   .border-l-accent {
     border-left-color: var(--color-accent);
+  }
+  .border-l-support {
+    border-left-color: var(--color-support);
   }
   .border-l-transparent {
     border-left-color: transparent;
@@ -1993,6 +2002,10 @@
         padding-left: var(--spacing-6);
       }
     }
+  }
+  .\[\&\+\&\]\:border-t + .\[\&\+\&\]\:border-t {
+    border-top-style: var(--tw-border-style);
+    border-top-width: 1px;
   }
   @media (orientation: landscape) and (height < 560px) {
     .sideways\:\[\&\>button\]\:min-h-\[40px\] > button {
