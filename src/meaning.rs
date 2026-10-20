@@ -620,6 +620,10 @@ pub struct Line {
 /// Note, split per Section where the recipe has Sections, plus the recipe as a
 /// whole. It is a dial, not a promise — what is promised is that a result can
 /// say what matched, and that survives any cut (ADR 0027).
+///
+/// A cut that starts reading a field it did not read before has to empty
+/// `meaning_nothing_to_embed` in a migration: a recipe recorded there as
+/// holding nothing is not looked at again until its head Version moves (#391).
 pub fn blocks_of(content: &Value) -> Vec<Block> {
     let mut blocks: Vec<Block> = Vec::new();
 
@@ -1032,6 +1036,8 @@ pub fn fell_back(conn: &Connection) -> Result<(), OpError> {
 pub fn discard_index(conn: &Connection) -> Result<(), OpError> {
     conn.execute("DELETE FROM meaning_vectors", [])
         .map_err(write)?;
+    conn.execute("DELETE FROM meaning_nothing_to_embed", [])
+        .map_err(write)?;
     Ok(())
 }
 
@@ -1050,7 +1056,8 @@ struct Owed {
 /// Everything the index owes the library right now: a Branch whose head Version
 /// has no rows (or rows from an older Version, or from another embedding
 /// space), and an Attempt whose note has none — or has rows made from a
-/// sentence its writer has since corrected.
+/// sentence its writer has since corrected. A head Version already found to
+/// hold nothing to embed is not owed again (#391).
 ///
 /// A Branch is caught by its head Version moving, because an edit always makes
 /// one. An Attempt is not: correcting a cooking note leaves the Attempt's id
@@ -1068,7 +1075,12 @@ fn owed(conn: &Connection) -> Result<Vec<Owed>, OpError> {
                         SELECT 1 FROM meaning_vectors \
                          WHERE meaning_vectors.branch_id = branches.id \
                            AND meaning_vectors.version_id = branches.head_version_id \
-                           AND meaning_vectors.embedding_space = ?1)",
+                           AND meaning_vectors.embedding_space = ?1) \
+                    AND NOT EXISTS ( \
+                        SELECT 1 FROM meaning_nothing_to_embed \
+                         WHERE meaning_nothing_to_embed.branch_id = branches.id \
+                           AND meaning_nothing_to_embed.version_id = branches.head_version_id \
+                           AND meaning_nothing_to_embed.embedding_space = ?1)",
             )
             .map_err(read)?;
         let rows: Vec<(String, String, String, String)> = statement
@@ -1149,6 +1161,15 @@ fn prune(conn: &Connection) -> Result<(), OpError> {
         params![embedding_space()],
     )
     .map_err(write)?;
+    conn.execute(
+        "DELETE FROM meaning_nothing_to_embed WHERE embedding_space <> ?1 \
+            OR NOT EXISTS ( \
+                    SELECT 1 FROM branches \
+                     WHERE branches.id = meaning_nothing_to_embed.branch_id \
+                       AND branches.head_version_id = meaning_nothing_to_embed.version_id)",
+        params![embedding_space()],
+    )
+    .map_err(write)?;
     Ok(())
 }
 
@@ -1158,7 +1179,8 @@ pub fn behind(conn: &Connection) -> Result<usize, OpError> {
     Ok(owed(conn)?.len())
 }
 
-/// Bring the index up to date, embedding only what has actually changed.
+/// Bring the index up to date, embedding only what has actually changed, and
+/// answer how many recipes and Attempts it embedded.
 ///
 /// Rebuilding the whole library is what happens the first time and after a
 /// model change, because then every row is owed. Afterwards this is the cheap
@@ -1213,6 +1235,7 @@ fn build_with(
     if total == 0 {
         return Ok(0);
     }
+    let mut embedded_count = 0;
 
     for (done, one) in owed.into_iter().enumerate() {
         // One recipe (or one Attempt) at a time: a whole library in one batch
@@ -1237,6 +1260,20 @@ fn build_with(
             // A recipe of nothing but a title has nothing to embed — which is a
             // perfectly ordinary recipe (#6), not a failure. Its title is still
             // found by words, which is how a title is looked for anyway.
+            // Noted, so the next `owed` does not ask for it again until its
+            // head Version moves (#391). Only a recipe gets here: an Attempt
+            // with no note is never owed.
+            if let (Some(branch_id), Some(version_id)) = (&one.branch_id, &one.version_id) {
+                db.with_conn(|conn| {
+                    conn.execute(
+                        "INSERT OR IGNORE INTO meaning_nothing_to_embed \
+                            (branch_id, version_id, embedding_space) VALUES (?1, ?2, ?3)",
+                        params![branch_id, version_id, space],
+                    )
+                    .map_err(write)?;
+                    Ok(())
+                })?;
+            }
             progress(done + 1, total);
             continue;
         }
@@ -1321,10 +1358,11 @@ fn build_with(
             set_embedding_now(conn, None)
         })?;
 
+        embedded_count += 1;
         progress(done + 1, total);
     }
 
-    Ok(total)
+    Ok(embedded_count)
 }
 
 impl Owed {
@@ -1852,6 +1890,132 @@ mod tests {
 
         assert_eq!(build_with(&db, &fake_vectors, &|_, _| {}).unwrap(), 1);
         assert_eq!(embedding_now(&core), None);
+    }
+
+    /// A Core with one recipe holding a title and nothing else, its Branch, and
+    /// a Caller who may change it.
+    fn one_title_only_recipe() -> (
+        tempfile::TempDir,
+        crate::core::Core,
+        String,
+        crate::core::Caller,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = std::sync::Arc::new(crate::db::Db::open(dir.path()).unwrap());
+        let core = crate::core::Core::open(db);
+        let first = core
+            .create_first_person("cook", "a password only its person knows", "laptop")
+            .unwrap();
+        let caller = core
+            .authenticate(first["_session_secret"].as_str())
+            .unwrap();
+        let created = core
+            .create_recipe(&caller, &json!({ "title": "Toast" }), None, None)
+            .unwrap();
+        let branch_id = created["branch_id"].as_str().unwrap().to_string();
+        (dir, core, branch_id, caller)
+    }
+
+    fn behind_now(core: &crate::core::Core) -> usize {
+        core.db().with_conn(behind).unwrap()
+    }
+
+    #[test]
+    fn a_recipe_with_only_a_title_is_not_owed_once_it_has_been_looked_at() {
+        let (_dir, core, _branch, _caller) = one_title_only_recipe();
+        let db = core.db();
+        assert_eq!(behind_now(&core), 1, "never looked at, so owed");
+
+        assert_eq!(
+            build_with(&db, &fake_vectors, &|_, _| {}).unwrap(),
+            0,
+            "nothing was embedded, so nothing counts as indexed"
+        );
+        assert_eq!(
+            behind_now(&core),
+            0,
+            "looked at, and holds nothing to embed"
+        );
+        assert_eq!(build_with(&db, &fake_vectors, &|_, _| {}).unwrap(), 0);
+    }
+
+    fn nothing_to_embed_rows(core: &crate::core::Core) -> i64 {
+        core.db()
+            .with_conn(|conn| {
+                conn.query_row("SELECT COUNT(*) FROM meaning_nothing_to_embed", [], |row| {
+                    row.get(0)
+                })
+                .map_err(read)
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn a_title_only_recipe_given_an_ingredient_is_owed_and_indexed_as_usual() {
+        let (_dir, core, branch, caller) = one_title_only_recipe();
+        let db = core.db();
+        build_with(&db, &fake_vectors, &|_, _| {}).unwrap();
+
+        core.edit_recipe(
+            &caller,
+            &branch,
+            &json!({ "ingredients": [{ "kind": "ingredient", "text": "2 slices of bread" }] }),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(behind_now(&core), 1, "its head Version moved");
+        assert_eq!(build_with(&db, &fake_vectors, &|_, _| {}).unwrap(), 1);
+        assert_eq!(behind_now(&core), 0);
+        assert_eq!(
+            nothing_to_embed_rows(&core),
+            0,
+            "the old Version's record went with it"
+        );
+    }
+
+    #[test]
+    fn a_deleted_title_only_recipe_leaves_no_record_behind() {
+        let (_dir, core, branch, caller) = one_title_only_recipe();
+        build_with(&core.db(), &fake_vectors, &|_, _| {}).unwrap();
+        assert_eq!(nothing_to_embed_rows(&core), 1);
+
+        core.delete_recipe(&caller, &branch).unwrap();
+        assert_eq!(nothing_to_embed_rows(&core), 0);
+    }
+
+    #[test]
+    fn a_title_only_recipe_is_owed_again_in_another_embedding_space() {
+        let (_dir, core, _branch, _caller) = one_title_only_recipe();
+        let db = core.db();
+        build_with(&db, &fake_vectors, &|_, _| {}).unwrap();
+        // As if it had been looked at under weights this build does not use.
+        db.with_conn(|conn| {
+            conn.execute(
+                "UPDATE meaning_nothing_to_embed SET embedding_space = 'older weights'",
+                [],
+            )
+            .map_err(write)
+        })
+        .unwrap();
+
+        assert_eq!(behind_now(&core), 1);
+        build_with(&db, &fake_vectors, &|_, _| {}).unwrap();
+        assert_eq!(behind_now(&core), 0);
+        assert_eq!(
+            nothing_to_embed_rows(&core),
+            1,
+            "the older space's record was pruned, today's written"
+        );
+    }
+
+    #[test]
+    fn turning_meaning_search_off_forgets_what_held_nothing() {
+        let (_dir, core, _branch, _caller) = one_title_only_recipe();
+        build_with(&core.db(), &fake_vectors, &|_, _| {}).unwrap();
+        core.db().with_conn(turn_off).unwrap();
+        assert_eq!(nothing_to_embed_rows(&core), 0);
     }
 
     #[test]
