@@ -7,6 +7,7 @@
 - Every browser is signed out once and signs in again. The sign-in cookie is now `__Host-kamosu_session`, which a page on another subdomain of the same domain can neither set nor replace, and the old `kamosu_session` is no longer read. [#368]
 - A proxy in front of Kamosu must pass the `Host` header on unchanged, as Caddy and Traefik do by default and nginx does with `proxy_set_header Host $host;`, or the public address must be set. Otherwise every request a browser makes to change something is refused as coming from another site. Kamosu also speaks HTTP/1.1 only, so a proxy told to speak HTTP/2 to it in the clear must speak HTTP/1.1 instead. [#368]
 - The model provider's key moves from the agent beside a Runner to the Runner. Put it in the Runner's settings as `KAMOSU_RUNNER_MODEL_KEY`, with the provider's API address as `KAMOSU_RUNNER_MODEL_ADDRESS`, and take `KAMOSU_AGENT_API_KEY`, or the provider's own variable, out of the agent's. Beside the published agent image, the Runner also needs `KAMOSU_RUNNER_MODEL_SOCKET` and a second socket volume shared with the agent, and the agent belongs behind the new fence, as the Compose file in `docs/runner.md` shows. Until the key moves, the agent works as before, and the Runner's log and the agent's say to move it. [#372]
+- An Operator presses "Read every line again" on the Operator page once, so English lines already read with a thousands comma, such as `1,020 g`, are read again as a thousand and twenty grams. A Reading somebody set by hand is left alone. [#383]
 - Every Access Key an Operator already holds still acts as Operator. Revoke any whose agent does not look after the instance, and mint it again as an ordinary key. `list_access_keys` says which keys act as Operator. [#369]
 
 ### Added
@@ -39,6 +40,7 @@
 - Kamosu forgets a name's wrong passwords an hour after the last one, so made-up names tried at the sign-in page are no longer kept for good. A name that had wrong passwords in the last hour waits as before. [#373]
 - Building Meaning Search's index reads a recipe's long lines apart from its short ones. Before, a recipe with a long Note held hundreds of megabytes more while it was read, enough for a container with a memory limit to be killed partway through, and killed again on the same recipe every time it started. When a build starts again on the recipe the last one died on, the log now says so. [#389]
 - Signing out first sends what the device wrote offline, such as a cooking moved on or a shopping-list tick. If some still cannot go, Kamosu says how many changes have not arrived and offers to wait and try again before signing out anyway. Before, they were thrown away without a word the next time anyone signed in on the device. [#380]
+- In an English recipe, an Ingredient Line's `1,020 g` is read as 1020 g, and the shopping list and scaling use that. Before, every comma between digits was read as a decimal point, so it came out as 1.02 g. `1,5 g` still reads as 1.5 g, and a French or Spanish recipe's comma is still its decimal point. [#383]
 
 [#368]: https://github.com/BatterWorks/Kamosu/issues/368
 [#369]: https://github.com/BatterWorks/Kamosu/issues/369
@@ -48,6 +50,7 @@
 [#373]: https://github.com/BatterWorks/Kamosu/issues/373
 [#378]: https://github.com/BatterWorks/Kamosu/issues/378
 [#380]: https://github.com/BatterWorks/Kamosu/issues/380
+[#383]: https://github.com/BatterWorks/Kamosu/issues/383
 [#389]: https://github.com/BatterWorks/Kamosu/issues/389
 
 ## v0.3.0 - 2026-10-18

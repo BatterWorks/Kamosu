@@ -137,7 +137,8 @@ impl Core {
                             COALESCE(branch_versions.language, branches.language), \
                             branches.head_version_id = branch_versions.version_id \
                        FROM branch_versions JOIN branches ON branches.id = branch_versions.branch_id \
-                      ORDER BY branch_versions.version_id, branch_versions.branch_id",
+                      ORDER BY branch_versions.version_id, branch_versions.branch_id, \
+                               branch_versions.sequence DESC",
                 )
                 .map_err(|e| OpError::internal(format!("cannot read the library: {e}")))?;
             let rows = statement
@@ -155,7 +156,9 @@ impl Core {
             Ok(rows)
         })?;
         // One entry per Version, however many Branches hold it: its Readings
-        // are shared, so it is read once.
+        // are shared, so it is read once, in the Language its latest
+        // occurrence stands in. A Language set by the cook occurs the same
+        // Version again (#383).
         let mut versions: Vec<HeldVersion> = Vec::new();
         for (version_id, branch_id, language, is_head) in held {
             if versions
@@ -1102,7 +1105,7 @@ fn reread_version(conn: &Connection, version: &HeldVersion) -> Result<Reread, Op
             reread.kept_by_hand += 1;
             continue;
         }
-        let now = crate::reading::read_line(text);
+        let now = crate::reading::read_line(text, &version.language);
         let before = held
             .as_ref()
             .map(|(amount, unit, target, ..)| (amount.clone(), unit.clone(), target.clone()));
@@ -1233,7 +1236,7 @@ pub(super) fn read_unread_lines(
         if already_read.unwrap_or(true) {
             continue;
         }
-        let Some(reading) = crate::reading::read_line(text) else {
+        let Some(reading) = crate::reading::read_line(text, language) else {
             continue;
         };
         let taken = rendered
@@ -1374,6 +1377,28 @@ impl RenderedFoods {
         if !same_shape {
             return None;
         }
+        // The source is read in its own Language, which a Translation's is
+        // not: `1,020 g` is a thousand grams only in English (#383).
+        let source_language: String = conn
+            .query_row(
+                "SELECT COALESCE(branch_versions.language, branches.language) \
+                   FROM branch_versions JOIN branches ON branches.id = branch_versions.branch_id \
+                  WHERE branch_versions.version_id = ?1 \
+                  ORDER BY branch_versions.sequence DESC LIMIT 1",
+                params![source_version_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .inspect_err(|error| {
+                tracing::warn!(
+                    target: "kamosu::reading",
+                    %error, source_version_id,
+                    "a Translation's source lines were read with no Language"
+                )
+            })
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| crate::language::UNKNOWN.to_string());
         let foods = source_foods(conn, source_version_id)
             .inspect_err(|error| {
                 tracing::warn!(
@@ -1392,7 +1417,7 @@ impl RenderedFoods {
                     // The source line read afresh, not its Reading: a hand
                     // correction says which Food, and the amounts are
                     // compared as the reader writes both of them.
-                    let read = crate::reading::read_line(line["text"].as_str()?)?;
+                    let read = crate::reading::read_line(line["text"].as_str()?, &source_language)?;
                     Some(SourceLine { read, food_id })
                 })
                 .collect(),
