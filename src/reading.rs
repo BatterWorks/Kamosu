@@ -677,13 +677,22 @@ fn listed(list: &[&str], word: &str) -> bool {
 /// gets, and the line goes on working exactly as written. `salt and pepper to
 /// taste` is not such a line: the phrase is dropped and it reads as `salt and
 /// pepper` does (#163).
-pub fn read_line(line: &str) -> Option<Reading> {
+///
+/// `language` is the Branch's Language, and English is the one it changes:
+/// there `1,020 g` is a thousand and twenty grams (#383). A caller that knows
+/// no Language passes [`crate::language::UNKNOWN`].
+pub fn read_line(line: &str, language: &str) -> Option<Reading> {
     use unicode_normalization::UnicodeNormalization;
     let opens_with_a_bracket = line.trim_start().starts_with(['(', '[', '{']);
     // An accent typed as its own character is put back on its letter, so one
     // name read from two keyboards is one spelling (#230). Only the Reading
     // is respelt: the line itself is the recipe's, and stays as written.
     let line: String = without_brackets(line).nfc().collect();
+    let line = if language == "en" {
+        without_thousands_commas(&line)
+    } else {
+        line
+    };
     // A comma straight after an opening aside in brackets ends nothing, since
     // nothing stood before it: `(white part), finely sliced Spring onion` is
     // the aside and then the line itself (#353). Without the bracket the
@@ -2020,12 +2029,34 @@ fn strip_glue<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
     words
 }
 
+/// **An English line with its thousands separators taken out**, so `1,020 g`
+/// is read as `1020 g` and every later step reads the right number (#383). A
+/// comma is one when a digit stands before it and exactly three digits after
+/// it. `1,5` and `1,0200` keep theirs, which is a decimal comma even in
+/// English, as a European writing English uses one.
+fn without_thousands_commas(line: &str) -> String {
+    let bytes = line.as_bytes();
+    let digit = |at: usize| bytes.get(at).is_some_and(u8::is_ascii_digit);
+    let mut kept = String::with_capacity(line.len());
+    let mut from = 0;
+    for (at, _) in line.match_indices(',') {
+        let separates =
+            at > 0 && digit(at - 1) && (1..=3).all(|ahead| digit(at + ahead)) && !digit(at + 4);
+        if separates {
+            kept.push_str(&line[from..at]);
+            from = at + 1;
+        }
+    }
+    kept.push_str(&line[from..]);
+    kept
+}
+
 /// The line cut at each comma that ends a clause. **A comma with a digit on
 /// both sides ends nothing**: it is the decimal comma French and Spanish write
 /// `1,2` with, and [`units::parse_amount`] reads it as part of the amount
 /// (#180). Every other comma is a clause's end, so `salt, 2 pinches` still
-/// cuts. An English thousands separator, `1,500 g`, reads as 1.5 by the same
-/// rule; the text alone cannot tell the two apart.
+/// cuts. An English thousands separator, `1,500 g`, never reaches here:
+/// [`read_line`] takes it out of an English line first (#383).
 fn split_clauses(line: &str) -> Vec<&str> {
     let digit = |at: Option<usize>| {
         at.and_then(|at| line.as_bytes().get(at))
@@ -2340,7 +2371,8 @@ mod tests {
 
     /// A line's Reading as its three parts, `None` where a part is absent.
     fn read(line: &str) -> Option<(Option<String>, Option<String>, Option<String>)> {
-        read_line(line).map(|reading| (reading.amount, reading.unit, reading.target))
+        read_line(line, crate::language::UNKNOWN)
+            .map(|reading| (reading.amount, reading.unit, reading.target))
     }
 
     fn parts(
@@ -2714,6 +2746,46 @@ mod tests {
         );
         assert_eq!(read("salt, 2 pinches"), parts(None, None, Some("salt")));
         assert_eq!(read("salt,2 pinches"), parts(None, None, Some("salt")));
+    }
+
+    #[test]
+    fn an_english_comma_before_three_digits_separates_thousands() {
+        // Vanilla cheesecake brownie, whose source writes bakery amounts with
+        // thousands separators (#383).
+        let read_en = |line: &str| {
+            read_line(line, "en").map(|reading| (reading.amount, reading.unit, reading.target))
+        };
+        assert_eq!(
+            read_en("1,020 g full-fat soft cheese (Philadelphia type)"),
+            parts(Some("1020"), Some("g"), Some("full-fat soft cheese"))
+        );
+        assert_eq!(
+            read_en("1,300 g unsalted butter, softened"),
+            parts(Some("1300"), Some("g"), Some("unsalted butter"))
+        );
+        assert_eq!(
+            read_en("1,000,000 g sugar"),
+            parts(Some("1000000"), Some("g"), Some("sugar"))
+        );
+        // A European writing English still writes a decimal comma.
+        assert_eq!(
+            read_en("1,5 g salt"),
+            parts(Some("1,5"), Some("g"), Some("salt"))
+        );
+        // Four digits after the comma separate no thousands.
+        assert_eq!(
+            read_en("1,0200 kg flour"),
+            parts(Some("1,0200"), Some("kg"), Some("flour"))
+        );
+        // French and Spanish keep the decimal comma #180 settled.
+        assert_eq!(
+            read_line("1,200 kg de viande", "fr").map(|r| r.amount),
+            Some(Some("1,200".to_string()))
+        );
+        assert_eq!(
+            read_line("1,200 kg de carne", "es").map(|r| r.amount),
+            Some(Some("1,200".to_string()))
+        );
     }
 
     #[test]
@@ -4018,7 +4090,7 @@ mod tests {
             read("2 c à s de sucre"),
             parts(Some("2"), Some("c à s"), Some("sucre"))
         );
-        let unit = |line: &str| read_line(line).and_then(|reading| reading.unit);
+        let unit = |line: &str| read_line(line, "fr").and_then(|reading| reading.unit);
         for line in [
             "1 c. à dessert de miel",
             // Written with no `à`, or with no spoon's name at all.

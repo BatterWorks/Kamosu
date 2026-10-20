@@ -324,7 +324,7 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
                 Some(unit),
                 "{text}"
             );
-            let read = kamosu::reading::read_line(text)
+            let read = kamosu::reading::read_line(text, "en")
                 .and_then(|reading| reading.unit)
                 .and_then(|unit| kamosu::units::recognise(&unit).map(|u| u.id));
             // Ranges included, since #167: `380-400 ml` reads as `ml`.

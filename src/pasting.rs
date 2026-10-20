@@ -164,7 +164,8 @@ impl Paste {
             .iter()
             .filter(|line| line.kind == Kind::Line)
             .filter(|line| {
-                reading::read_line(&line.text).is_some_and(|reading| reading.amount.is_some())
+                reading::read_line(&line.text, crate::language::UNKNOWN)
+                    .is_some_and(|reading| reading.amount.is_some())
             })
             .count()
             >= FEWEST_MEASURED_INGREDIENTS
@@ -526,7 +527,7 @@ fn ends_a_note(line: &str) -> bool {
 /// ingredient is and a sentence of prose is not.
 fn reads_as_an_ingredient(line: &str) -> bool {
     line.split_whitespace().count() <= SHORT && {
-        let reading = reading::read_line(line).unwrap_or_default();
+        let reading = reading::read_line(line, crate::language::UNKNOWN).unwrap_or_default();
         reading.amount.is_some() && reading.unit.is_some()
     }
 }
@@ -603,7 +604,8 @@ fn is_a_label(line: &str) -> bool {
 fn reads_as_a_list_item(line: &str) -> bool {
     unbulleted(line).is_some()
         || (line.split_whitespace().count() <= SHORT
-            && reading::read_line(line).is_some_and(|reading| reading.amount.is_some()))
+            && reading::read_line(line, crate::language::UNKNOWN)
+                .is_some_and(|reading| reading.amount.is_some()))
 }
 
 fn names_a_recipe(line: &str) -> bool {
@@ -714,7 +716,11 @@ fn look(line: &str) -> Looked {
     let text = line.trim();
     let words = text.split_whitespace().count();
     let numbered = strip_step_number(text).is_some();
-    let reading = reading::read_line(strip_step_number(text).unwrap_or(text)).unwrap_or_default();
+    let reading = reading::read_line(
+        strip_step_number(text).unwrap_or(text),
+        crate::language::UNKNOWN,
+    )
+    .unwrap_or_default();
 
     let kind = if is_section_word(text)
         || (text.ends_with(':') && words <= LONGEST_SECTION && reading.amount.is_none())

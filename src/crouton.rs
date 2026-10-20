@@ -601,7 +601,8 @@ mod tests {
             (q(1.0, "LITRES"), "milk", 1.0, "l"),
         ] {
             let line = rebuild_line(Some(&quantity), name);
-            let reading = crate::reading::read_line(&line).expect("a reading");
+            let reading =
+                crate::reading::read_line(&line, crate::language::UNKNOWN).expect("a reading");
             let read = crate::units::parse_amount(reading.amount.as_deref().unwrap()).unwrap();
             assert!((read - amount).abs() < 1e-9, "{line}: read {read}");
             assert_eq!(reading.unit.as_deref(), Some(unit), "{line}");

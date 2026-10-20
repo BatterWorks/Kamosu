@@ -33999,6 +33999,135 @@ async fn a_recipes_shopping_basis_is_what_its_rows_are_added_up_from() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_thousands_comma_is_read_only_in_english() {
+    // Vanilla cheesecake brownie writes its amounts with thousands
+    // separators, and was read as buying 1.02 g of cheese (#383). A French
+    // recipe's comma is still its decimal point (#180).
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let first_food = |language: &str, line: &str| {
+        let (_, created) = app.post_op(
+            "create_recipe",
+            Some(&key),
+            &json!({
+                "language": language,
+                "title": "Vanilla cheesecake brownie",
+                "ingredients": [{ "kind": "ingredient", "text": line }],
+            })
+            .to_string(),
+        );
+        let branch_id = created["result"]["branch_id"].as_str().unwrap();
+        let (status, basis) = app.post_op(
+            "shopping_basis",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{basis}");
+        basis["result"]["lines"][0]["food"].clone()
+    };
+
+    let cheese = first_food("en", "1,020 g full-fat soft cheese (Philadelphia type)");
+    assert_eq!(cheese["amount"], json!(1020.0), "{cheese}");
+    assert_eq!(cheese["unit_id"], json!("gram"), "{cheese}");
+    let salt = first_food("en", "1,5 g salt");
+    assert_eq!(salt["amount"], json!(1.5), "{salt}");
+    let viande = first_food("fr", "1,200 kg de viande");
+    assert_eq!(viande["amount"], json!(1.2), "{viande}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reading_the_library_again_takes_out_an_english_thousands_comma() {
+    // A line read before #383 keeps `1,020` until the library is read again.
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "language": "en",
+            "title": "Vanilla cheesecake brownie",
+            "ingredients": [
+                { "kind": "ingredient", "text": "1,300 g unsalted butter" },
+                { "kind": "ingredient", "text": "1,170 g caster sugar" },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    // A person's Reading, however it reads, is never read again.
+    let (status, set) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id, "line_index": 1,
+            "amount": "1,170", "unit": "g", "target": "caster sugar",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+    let (status, misread) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id, "line_index": 0,
+            "amount": "1,300", "unit": "g", "target": "unsalted butter",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{misread}");
+    as_if_the_reader_wrote(&app, &branch_id, 0);
+
+    let (status, asked) = app.post_op("reread_ingredient_lines", Some(&key), "{}");
+    assert_eq!(status, 200, "{asked}");
+    let job_id = asked["result"]["job_id"].as_str().expect("a job id");
+    let finished = support::wait_terminal(&app, Some(&key), job_id);
+    assert_eq!(finished["status"], "completed", "{finished}");
+    let report = &finished["result"];
+    let changed = report["changed"].as_array().unwrap();
+    assert_eq!(changed.len(), 1, "{report}");
+    assert_eq!(changed[0]["before"]["amount"], "1,300", "{report}");
+    assert_eq!(changed[0]["after"]["amount"], "1300", "{report}");
+    assert_eq!(report["kept_by_hand"], 1, "{report}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reading_the_library_again_reads_in_the_language_the_cook_set_last() {
+    // Saved as French, then said to be English: the Version occurs twice on
+    // its Branch, once in each Language, and is read in the later (#383).
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "language": "fr",
+            "title": "Vanilla cheesecake brownie",
+            "ingredients": [{ "kind": "ingredient", "text": "1,300 g unsalted butter" }],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let (status, set) = app.post_op(
+        "set_recipe_language",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "language": "en" }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+
+    let (status, asked) = app.post_op("reread_ingredient_lines", Some(&key), "{}");
+    assert_eq!(status, 200, "{asked}");
+    let job_id = asked["result"]["job_id"].as_str().expect("a job id");
+    let finished = support::wait_terminal(&app, Some(&key), job_id);
+    assert_eq!(finished["status"], "completed", "{finished}");
+    let report = &finished["result"];
+    assert_eq!(
+        report["changed"][0]["before"]["amount"], "1,300",
+        "{report}"
+    );
+    assert_eq!(report["changed"][0]["after"]["amount"], "1300", "{report}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_finished_cooking_is_final_whatever_arrives_late() {
     // Finished on the iPad; the phone, with no network, went on moving through
     // it and finished it too. What the phone sends later changes nothing and
