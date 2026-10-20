@@ -244,6 +244,11 @@ does not.
 program as a Runner, and its agent command there is a short Python stand-in
 that writes a recipe with the Job Key it was handed (#274).
 
+**And a Chrome**, the one the dev tools drive (`KAMOSU_DEV_BROWSER` in `.env`,
+or the first on the path). jsdom lays nothing out, so the screen test that a
+long word breaks inside its box hands the drawn page to it to be measured
+(#385).
+
 `dev-clean` deletes `target/` to reclaim build cache; the next build is a full
 rebuild. Dev state lives in gitignored `.dev/`.
 

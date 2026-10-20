@@ -468,6 +468,12 @@
        not whatever the root's size happens to be (#228). */
     font-size: var(--text-body);
     font-variant-numeric: tabular-nums;
+    /* A word too long for its line, a web address most often, breaks at the
+       edge of its box instead of pushing the page sideways (#385). Inherited
+       by all text, so no screen asks for it. `break-word` leaves the width a
+       box asks for alone, so text that fits lays out as before; a box in a
+       flex row needs `min-w-0` for it to bite, as a Step's text has. */
+    overflow-wrap: break-word;
   }
 
   /* A caret you can see (#225): the browser's own blue ring clashed with
