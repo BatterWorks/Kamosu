@@ -406,18 +406,20 @@ impl Core {
     }
 
     /// Note a sign-in in its Person's record: the Session it made, and how
-    /// it was made. `ended` says what a recovery link ended with it.
+    /// it was made. `ended` says what a recovery link ended with it: Sessions,
+    /// Access Keys and Runner Keys.
     fn note_signed_in(
         &self,
         person_id: &str,
         session_name: &str,
         how: &str,
-        ended: Option<(usize, usize)>,
+        ended: Option<(usize, usize, usize)>,
     ) {
         let mut detail = json!({ "how": how });
-        if let Some((sessions, access_keys)) = ended {
+        if let Some((sessions, access_keys, runner_keys)) = ended {
             detail["ended_sessions"] = json!(sessions);
             detail["ended_access_keys"] = json!(access_keys);
+            detail["ended_runner_keys"] = json!(runner_keys);
         }
         self.note(
             Event::theirs("signed_in", person_id)
@@ -725,9 +727,9 @@ impl Core {
             id: format!("s_{}", hex::encode(random_bytes(8))),
             secret: generate_secret(),
         };
-        let (person_id, ended_sessions, ended_access_keys) = self.db().with_conn(|conn| {
+        let (person_id, ended_sessions, ended_access_keys, ended_runner_keys) = self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| OpError::internal(e.to_string()))?;
-            let result = (|| -> Result<(String, usize, usize), OpError> {
+            let result = (|| -> Result<(String, usize, usize, Vec<String>), OpError> {
                 let person_id: Option<String> = conn.query_row("SELECT people.id FROM account_links JOIN people ON people.id=account_links.person_id WHERE secret_hash=?1 AND kind='recovery' AND spent=0 AND revoked=0 AND disabled=0 AND deleted=0", params![hash_secret(secret)], |r| r.get(0)).optional().map_err(|e| OpError::internal(e.to_string()))?;
                 let person_id=person_id.ok_or_else(|| OpError::unauthorized("this recovery link has already been spent or revoked"))?;
                 conn.execute("UPDATE account_links SET spent=1 WHERE secret_hash=?1 AND spent=0",params![hash_secret(secret)]).map_err(|e| OpError::internal(e.to_string()))?;
@@ -736,8 +738,10 @@ impl Core {
                 // browser or through a key (#369).
                 let ended_sessions = conn.execute("UPDATE sessions SET revoked=1 WHERE person_id=?1 AND revoked=0",params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 let ended_access_keys = conn.execute("UPDATE access_keys SET revoked=1 WHERE person_id=?1 AND revoked=0",params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
+                // Nor through a Runner Key minted with it (#378).
+                let ended_runner_keys = Core::end_runner_keys_of_recovered(conn, &person_id)?;
                 conn.execute("INSERT INTO sessions (id,secret_hash,person_id,name) VALUES (?1,?2,?3,?4)",params![session.id,hash_secret(&session.secret),person_id,session_name]).map_err(|e| OpError::internal(e.to_string()))?;
-                Ok((person_id, ended_sessions, ended_access_keys))
+                Ok((person_id, ended_sessions, ended_access_keys, ended_runner_keys))
             })();
             match result { Ok(ended) => { conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string()))?; Ok(ended) }, Err(e) => { let _=conn.execute_batch("ROLLBACK"); Err(e) } }
         })?;
@@ -745,10 +749,11 @@ impl Core {
             &person_id,
             session_name,
             "recovery_link",
-            Some((ended_sessions, ended_access_keys)),
+            Some((ended_sessions, ended_access_keys, ended_runner_keys.len())),
         );
+        self.note_runner_keys_recovery_ended(&person_id, session_name, &ended_runner_keys);
         Ok(
-            json!({"session_id":session.id,"_session_secret":session.secret,"ended_sessions":ended_sessions,"ended_access_keys":ended_access_keys}),
+            json!({"session_id":session.id,"_session_secret":session.secret,"ended_sessions":ended_sessions,"ended_access_keys":ended_access_keys,"ended_runner_keys":ended_runner_keys.len()}),
         )
     }
 

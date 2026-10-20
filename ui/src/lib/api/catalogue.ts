@@ -228,6 +228,7 @@ export type ListInstanceSecurityRecordOutput = {
 			address?: string;
 			backup?: string;
 			ended_access_keys?: number;
+			ended_runner_keys?: number;
 			ended_sessions?: number;
 			how?: "password" | "passkey" | "invite" | "recovery_link" | "setup";
 			key?: string;
@@ -383,6 +384,7 @@ export type ListSecurityRecordOutput = {
 			address?: string;
 			backup?: string;
 			ended_access_keys?: number;
+			ended_runner_keys?: number;
 			ended_sessions?: number;
 			how?: "password" | "passkey" | "invite" | "recovery_link" | "setup";
 			key?: string;
@@ -7343,6 +7345,10 @@ export const CATALOGUE = [
 									"ended_access_keys": {
 										"type": "integer"
 									},
+									"ended_runner_keys": {
+										"description": "Runner Keys a recovery link ended.",
+										"type": "integer"
+									},
 									"ended_sessions": {
 										"type": "integer"
 									},
@@ -8006,6 +8012,10 @@ export const CATALOGUE = [
 										"type": "string"
 									},
 									"ended_access_keys": {
+										"type": "integer"
+									},
+									"ended_runner_keys": {
+										"description": "Runner Keys a recovery link ended.",
 										"type": "integer"
 									},
 									"ended_sessions": {

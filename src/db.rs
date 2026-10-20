@@ -1990,6 +1990,18 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 59,
+        description: "a Runner Key names the Person who minted it (#378)",
+        sql: r#"
+        -- The Person whose Credential minted the key, so a recovery link
+        -- used on that account ends it. Null on every key minted before
+        -- this, whose maker nobody wrote down: those end on any Operator's
+        -- recovery instead.
+        ALTER TABLE runner_keys ADD COLUMN minted_by TEXT REFERENCES people(id);
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

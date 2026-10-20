@@ -42,7 +42,7 @@ A Person's own record:
 
 | Event | When |
 | --- | --- |
-| `signed_in` | A Session was made: by password, passkey, Invite, recovery link or at setup. `credential_name` is the new Session's. |
+| `signed_in` | A Session was made: by password, passkey, Invite, recovery link or at setup. `credential_name` is the new Session's. A recovery link's says how many Sessions, Access Keys and Runner Keys it ended. |
 | `sign_in_failed` | A wrong password at this Person's name, at the sign-in or where their own password is asked again. One run of them is one row, ended by the Person's next sign-in of any kind or an hour with none; each wrong password writes a line with the run's `count` so far. A name nobody holds writes nothing. |
 | `passkey_added`, `passkey_removed` | |
 | `password_changed` | `credential_name` is the Session that changed it. |
@@ -58,7 +58,7 @@ Every Operator's record:
 | `account_disabled`, `account_deleted` | `subject` is the Person. |
 | `operator_key_minted` | Recorded beside its Person's `access_key_minted`, which is the one line written. The row names the Session that minted it. |
 | `sign_in_crowd` | Sign-ins refused because too many passwords were waiting to be checked at once: most likely a crowd of guesses at made-up names. One row while it lasts, ended by an hour with none. A line is written when it starts, then once a minute with the count so far while refusals keep coming, the last within a minute of the final refusal. A restart loses the refusals of its last minute. |
-| `runner_key_minted`, `runner_key_revoked` | |
+| `runner_key_minted`, `runner_key_revoked` | A Runner Key a recovery link ended is `runner_key_revoked` by the recovered Person, through the Session the link opened (#378). |
 | `backup_fetched` | A Backup's archive was downloaded. It holds every password hash on the instance. |
 
 For the Operators' events, `person` and `credential` say who made the change

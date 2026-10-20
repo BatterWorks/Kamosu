@@ -73,7 +73,7 @@ An **Access Key** an Operator mints to act as an Operator too, chosen when it is
 _Avoid_: admin key, admin token
 
 **Runner Key**:
-A **Secret** an Operator mints for a **Runner**. It can ask for a **Job**, keep hold of it and report how it ended, and nothing else. It never acts as a Person and it cannot touch a recipe (ADR 0048).
+A **Secret** an Operator mints for a **Runner**. It can ask for a **Job**, keep hold of it and report how it ended, and nothing else. It never acts as a Person and it cannot touch a recipe (ADR 0048). Setting a new password through a recovery link ends every Runner Key that account minted, and an Operator's also ends those minted before Kamosu recorded who mints them (#378).
 _Avoid_: Agent key, API key, token, service account, Access Key
 
 **Job Key**:
