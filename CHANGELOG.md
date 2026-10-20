@@ -41,6 +41,7 @@
 - Building Meaning Search's index reads a recipe's long lines apart from its short ones. Before, a recipe with a long Note held hundreds of megabytes more while it was read, enough for a container with a memory limit to be killed partway through, and killed again on the same recipe every time it started. When a build starts again on the recipe the last one died on, the log now says so. [#389]
 - Signing out first sends what the device wrote offline, such as a cooking moved on or a shopping-list tick. If some still cannot go, Kamosu says how many changes have not arrived and offers to wait and try again before signing out anyway. Before, they were thrown away without a word the next time anyone signed in on the device. [#380]
 - In an English recipe, an Ingredient Line's `1,020 g` is read as 1020 g, and the shopping list and scaling use that. Before, every comma between digits was read as a decimal point, so it came out as 1.02 g. `1,5 g` still reads as 1.5 g, and a French or Spanish recipe's comma is still its decimal point. [#383]
+- A word too long for its line, such as a web address in a recipe's note, a Step or an Ingredient Line, wraps onto the next line where it reaches the edge. Before, it ran off the side of a phone and the page scrolled sideways. [#385]
 
 [#368]: https://github.com/BatterWorks/Kamosu/issues/368
 [#369]: https://github.com/BatterWorks/Kamosu/issues/369
@@ -51,6 +52,7 @@
 [#378]: https://github.com/BatterWorks/Kamosu/issues/378
 [#380]: https://github.com/BatterWorks/Kamosu/issues/380
 [#383]: https://github.com/BatterWorks/Kamosu/issues/383
+[#385]: https://github.com/BatterWorks/Kamosu/issues/385
 [#389]: https://github.com/BatterWorks/Kamosu/issues/389
 
 ## v0.3.0 - 2026-10-18
