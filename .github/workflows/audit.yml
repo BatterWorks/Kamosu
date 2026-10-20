@@ -1,0 +1,120 @@
+name: Audit
+
+# `just audit` checks both dependency trees against their advisory databases:
+# cargo-deny against RustSec, npm's against GitHub's. An advisory appears
+# because the world changed, not because this repository did, so the audit
+# runs here on its own rather than when someone remembers to (#374).
+#
+# - On every pull request into `dev`, so a change that brings a vulnerable
+#   dependency in is seen before it merges.
+# - Weekly against `dev`, so an advisory published against what is already
+#   there is seen within the week. A failure here opens one issue, or comments
+#   on it while it stays open, so nobody has to watch the Actions tab.
+#
+# GitHub runs a schedule from the copy of this file on the default branch,
+# `main`, so the weekly run starts with the first release that carries it. It
+# audits `dev` all the same. On a public repository, GitHub also turns a
+# schedule off after 60 days with no commit; the Actions tab turns it back on.
+#
+# A failure is read, not obeyed: npm's suggested remedy is routinely a
+# downgrade. What has been read and judged not to apply is recorded with its
+# reason, in deny.toml and ui/npm-audit-exceptions.json.
+
+on:
+  pull_request:
+    branches: [dev]
+  schedule:
+    # Monday, 06:17 UTC: off the hour, when GitHub's schedules bunch up.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The schedule runs on `main`, where this file is read from, but it
+          # is `dev` whose dependencies are about to ship.
+          ref: ${{ github.event_name == 'schedule' && 'dev' || '' }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          # The Node the image builds the interface with (Dockerfile).
+          node-version: 24
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just,cargo-deny
+      - name: Install the pinned Rust toolchain
+        # cargo-deny reads the tree through `cargo metadata`, under the
+        # toolchain rust-toolchain.toml names.
+        run: rustup toolchain install --profile minimal
+      - name: just audit
+        run: |
+          set -o pipefail
+          git rev-parse HEAD > "$RUNNER_TEMP/audited-commit"
+          just audit 2>&1 | tee "$RUNNER_TEMP/audit.txt"
+      - name: Keep the output for the report
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/upload-artifact@v7
+        with:
+          name: audit
+          path: |
+            ${{ runner.temp }}/audit.txt
+            ${{ runner.temp }}/audited-commit
+          retention-days: 7
+
+  # A job of its own, so the token that can write issues never meets the code
+  # `just audit` runs, which includes every npm package's install script.
+  report:
+    name: report
+    needs: audit
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    concurrency: audit-report
+    steps:
+      - uses: actions/download-artifact@v8
+        # A run that failed before the audit itself, installing a tool say,
+        # left nothing to download, and is still reported.
+        continue-on-error: true
+        with:
+          name: audit
+          path: audit
+      - name: Open or update the audit issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="just audit found something in dev's dependencies"
+          {
+            if [ -f audit/audit.txt ]; then
+              echo "The [audit run]($RUN_URL) of \`$(cat audit/audited-commit)\` failed."
+            else
+              echo "The [audit run]($RUN_URL) failed before \`just audit\` finished; its log says why."
+            fi
+            echo ""
+            echo "Read it before acting on it: npm's suggested remedy is routinely a"
+            echo "downgrade. An advisory judged not to apply goes in \`deny.toml\` or"
+            echo "\`ui/npm-audit-exceptions.json\` with its reason (AGENTS.md, Dependencies)."
+            echo ""
+            echo '```'
+            # An issue holds 65,536 characters; the end is where the findings are.
+            if [ -f audit/audit.txt ]; then tail -c 60000 audit/audit.txt; fi
+            echo '```'
+          } > report.md
+          # The search is loose, so the title is matched exactly here.
+          number="$(gh issue list --repo "$REPO" --state open --search "in:title $title" \
+            --json number,title --jq "map(select(.title == \"$title\")) | first | .number // empty")"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$REPO" --body-file report.md
+          else
+            gh issue create --repo "$REPO" --title "$title" --body-file report.md
+          fi
