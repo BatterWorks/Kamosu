@@ -688,11 +688,7 @@ pub fn read_line(line: &str, language: &str) -> Option<Reading> {
     // name read from two keyboards is one spelling (#230). Only the Reading
     // is respelt: the line itself is the recipe's, and stays as written.
     let line: String = without_brackets(line).nfc().collect();
-    let line = if language == "en" {
-        without_thousands_commas(&line)
-    } else {
-        line
-    };
+    let line = with_thousands_read(&line, language);
     // A comma straight after an opening aside in brackets ends nothing, since
     // nothing stood before it: `(white part), finely sliced Spring onion` is
     // the aside and then the line itself (#353). Without the bracket the
@@ -2029,6 +2025,16 @@ fn strip_glue<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
     words
 }
 
+/// The text as `language` reads its numbers: an English one with its
+/// thousands separators taken out, any other as written (#383, #397).
+fn with_thousands_read(text: &str, language: &str) -> String {
+    if language == "en" {
+        without_thousands_commas(text)
+    } else {
+        text.to_string()
+    }
+}
+
 /// **An English line with its thousands separators taken out**, so `1,020 g`
 /// is read as `1020 g` and every later step reads the right number (#383). A
 /// comma is one when a digit stands before it and exactly three digits after
@@ -2214,12 +2220,16 @@ impl StepAmount {
 /// too, and the one test that tells an amount from any other number in prose
 /// is a Unit Kamosu can convert standing right after it. A range, `1–1½
 /// cups`, reads as nothing, exactly as it does on an Ingredient Line.
-pub fn amounts_in_step(text: &str) -> Vec<StepAmount> {
+///
+/// `language` is the Branch's Language, as for [`read_line`]: in English
+/// `1,020 g` is a thousand and twenty grams (#397). Only the amount is read
+/// without the comma. The Step's text, and every place in it, is as written.
+pub fn amounts_in_step(text: &str, language: &str) -> Vec<StepAmount> {
     let words = words_with_places(text);
     let mut found = Vec::new();
     let mut index = 0;
     while index < words.len() {
-        match amount_at(text, &words, index) {
+        match amount_at(text, &words, index, language) {
             Some((amount, taken)) => {
                 index += taken;
                 found.push(amount);
@@ -2251,7 +2261,12 @@ fn words_with_places(text: &str) -> Vec<(usize, usize)> {
 }
 
 /// The amount starting at word `index`, and how many words it took.
-fn amount_at(text: &str, words: &[(usize, usize)], index: usize) -> Option<(StepAmount, usize)> {
+fn amount_at(
+    text: &str,
+    words: &[(usize, usize)],
+    index: usize,
+    language: &str,
+) -> Option<(StepAmount, usize)> {
     let word = |at: usize| words.get(at).map(|(from, to)| &text[*from..*to]);
     // An opening bracket belongs to the sentence, not to the amount:
     // `(½ cup)` is an amount of half a cup.
@@ -2262,7 +2277,8 @@ fn amount_at(text: &str, words: &[(usize, usize)], index: usize) -> Option<(Step
     let (amount, amount_words) = [2, 1].into_iter().find_map(|take| {
         let last = index + take - 1;
         let candidate = &text[words[index].0 + opened..words.get(last)?.1];
-        units::parse_amount(candidate).map(|_| (candidate.to_string(), take))
+        let candidate = with_thousands_read(candidate, language);
+        units::parse_amount(&candidate).map(|_| (candidate, take))
     })?;
 
     // The Unit: the longest window the closed set recognises, `c. à s.` being
@@ -2619,8 +2635,21 @@ mod tests {
     }
 
     #[test]
+    fn an_english_step_amount_reads_a_comma_before_three_digits_as_thousands() {
+        // The cheesecake brownie's Step, which was scaled as 2 g (#397). The
+        // amount is read without the comma; the Step still says what it said.
+        let text = "Beat in 1,020 g soft cheese until smooth.";
+        let english = &amounts_in_step(text, "en")[0];
+        assert_eq!(english.amount, "1020");
+        assert_eq!(english.written(text), "1,020 g");
+        assert_eq!(amounts_in_step("Add 1,5 g salt.", "en")[0].amount, "1,5");
+        // French keeps its decimal comma (#180).
+        assert_eq!(amounts_in_step(text, "fr")[0].amount, "1,020");
+    }
+
+    #[test]
     fn a_step_amount_names_the_food_without_its_temperature() {
-        let amounts = amounts_in_step("Ajouter 100 g de beurre froid en dés.");
+        let amounts = amounts_in_step("Ajouter 100 g de beurre froid en dés.", "fr");
         assert_eq!(amounts[0].food.as_deref(), Some("beurre"));
     }
 
@@ -3397,7 +3426,7 @@ mod tests {
     }
 
     fn written(text: &str) -> Vec<(&str, Option<String>)> {
-        amounts_in_step(text)
+        amounts_in_step(text, crate::language::UNKNOWN)
             .into_iter()
             .map(|amount| (amount.written(text), amount.food.clone()))
             .collect()
@@ -3415,7 +3444,7 @@ mod tests {
                 ("1 cup", Some("panko".into())),
             ]
         );
-        let first = &amounts_in_step(text)[0];
+        let first = &amounts_in_step(text, "en")[0];
         assert_eq!((first.amount.as_str(), first.unit.as_str()), ("3", "oz."));
     }
 
@@ -4111,8 +4140,8 @@ mod tests {
     fn a_lone_c_in_a_step_is_no_cup() {
         // An oven written `180 C` is a temperature, not a hundred and eighty
         // cups (#326).
-        assert!(amounts_in_step("Bake at 180 C for 20 minutes.").is_empty());
-        assert!(amounts_in_step("Add 1 c sugar.").is_empty());
+        assert!(amounts_in_step("Bake at 180 C for 20 minutes.", "en").is_empty());
+        assert!(amounts_in_step("Add 1 c sugar.", "en").is_empty());
     }
 
     #[test]

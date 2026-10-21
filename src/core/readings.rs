@@ -197,7 +197,9 @@ impl Core {
                     format!("reading again the lines of {done} of {total} versions"),
                 );
             }
-            let reread = self.db().with_conn(|conn| reread_version(conn, version))?;
+            let reread = self
+                .db()
+                .with_conn(|conn| reread_version(conn, version, &|_, _| true))?;
             if !version.head_of.is_empty() {
                 kept_by_hand += reread.kept_by_hand;
             }
@@ -1027,6 +1029,52 @@ struct HeldVersion {
     head_of: Vec<String>,
 }
 
+/// **Read again the lines a new Language reads differently** (#397), when a
+/// cook says what Language a recipe is in: `1,020 g` is 1.02 g in French and
+/// 1020 g in English. Only those lines are read, in the new Language. Every
+/// other line keeps the Reading it has, because a Reading is never silently
+/// recomputed (ADR 0021). A Reading a person set is kept, and so is a line
+/// whose Reading somebody cleared.
+///
+/// **A Reading belongs to the Version, and every Branch holding it reads it.**
+/// So where another Branch holds this Version in another Language, nothing is
+/// read: a cook saying what their own recipe is in never changes the amounts
+/// of somebody else's, as a Kitchen-mate's Copy would the recipe it came from.
+/// That Branch reads the Version as before until either is saved again.
+pub(super) fn read_again_in_language(
+    conn: &Connection,
+    branch_id: &str,
+    version_id: &str,
+    old_language: &str,
+    new_language: &str,
+) -> Result<(), OpError> {
+    let held_in_another_language: bool = conn
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM branch_versions \
+                 JOIN branches ON branches.id = branch_versions.branch_id \
+                WHERE branch_versions.version_id = ?1 AND branch_versions.branch_id <> ?2 \
+                  AND COALESCE(branch_versions.language, branches.language) <> ?3)",
+            params![version_id, branch_id, new_language],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read who holds a Version: {e}")))?;
+    if held_in_another_language {
+        return Ok(());
+    }
+    let version = HeldVersion {
+        version_id: version_id.to_string(),
+        language: new_language.to_string(),
+        held_by: Vec::new(),
+        head_of: Vec::new(),
+    };
+    let differs = |text: &str, has_reading: bool| {
+        has_reading
+            && crate::reading::read_line(text, old_language)
+                != crate::reading::read_line(text, new_language)
+    };
+    reread_version(conn, &version, &differs).map(|_| ())
+}
+
 /// What reading one Version's lines again did.
 struct Reread {
     /// One entry per line whose Reading changed: its title, line and the
@@ -1040,7 +1088,13 @@ struct Reread {
 
 /// Read one Version's Ingredient Lines again, all under one hold of the lock
 /// so a correction cannot land between reading a row and replacing it.
-fn reread_version(conn: &Connection, version: &HeldVersion) -> Result<Reread, OpError> {
+/// `reads_again` says which lines may be read, from each line's text and
+/// whether it has a Reading; the Operator's re-read reads every one.
+fn reread_version(
+    conn: &Connection,
+    version: &HeldVersion,
+    reads_again: &dyn Fn(&str, bool) -> bool,
+) -> Result<Reread, OpError> {
     let fail = |e: rusqlite::Error| OpError::internal(format!("cannot read a line again: {e}"));
     let mut reread = Reread {
         changes: Vec::new(),
@@ -1099,6 +1153,9 @@ fn reread_version(conn: &Connection, version: &HeldVersion) -> Result<Reread, Op
             )
             .optional()
             .map_err(fail)?;
+        if !reads_again(text, held.is_some()) {
+            continue;
+        }
         if let Some((_, _, _, lineage_id, _, by_hand)) = &held
             && (*by_hand || lineage_id.is_some())
         {
@@ -1540,6 +1597,7 @@ pub(super) fn measured_for_version(
     conn: &Connection,
     content: &Value,
     version_id: &str,
+    written_in_language: &str,
     reader: &Reader,
     scale: f64,
 ) -> Result<Value, OpError> {
@@ -1571,7 +1629,9 @@ pub(super) fn measured_for_version(
             };
             let oven = units::step_temperature(text, measures, language, written_in)
                 .map(|oven| (oven.start, oven.written(text), oven.measured));
-            let amounts = crate::reading::amounts_in_step(text)
+            // The Step is read in the Language it is written in, and the
+            // additions worded in the reader's (#397).
+            let amounts = crate::reading::amounts_in_step(text, written_in_language)
                 .into_iter()
                 .filter_map(|amount| {
                     let cup_weight = amount
