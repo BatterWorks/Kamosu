@@ -344,7 +344,8 @@ fn gather_sheet(
             reader,
             wanted,
         } if scaled => {
-            let measured = measured_for_version(conn, &content, &head_version_id, reader, scale)?;
+            let measured =
+                measured_for_version(conn, &content, &head_version_id, &language, reader, scale)?;
             let about = measured["ingredients"]
                 .as_array()
                 .map_or(Vec::new(), |slots| {

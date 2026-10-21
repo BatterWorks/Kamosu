@@ -951,8 +951,20 @@ impl Core {
                 // THIS reader — scaling and conversion in one slot (ADR 0016,
                 // #49). A recipe being read rather than cooked is at the Yield
                 // as written, which is a scale of one.
-                version["measured"] =
-                    measured_for_version(conn, &version["content"], &version_id, &reader, scale)?;
+                // Read in the Language this occurrence stood in, and the
+                // Branch's where an older one recorded none.
+                let written_in_language = version["language"]
+                    .as_str()
+                    .unwrap_or(&language)
+                    .to_string();
+                version["measured"] = measured_for_version(
+                    conn,
+                    &version["content"],
+                    &version_id,
+                    &written_in_language,
+                    &reader,
+                    scale,
+                )?;
                 // And what the cooking screen reads out of each Step, from the
                 // Readings just laid alongside (ADR 0011). Derived here, on
                 // every read, so nothing about which Ingredients a Step uses is
@@ -1578,11 +1590,19 @@ impl Unfolds<'_> {
         conn: &Connection,
         content: &Value,
         version_id: &str,
+        written_in_language: &str,
         scale: f64,
     ) -> Result<Value, OpError> {
         match self {
             Unfolds::ForReader { reader, .. } | Unfolds::PrintedPassenger { reader, .. } => {
-                measured_for_version(conn, content, version_id, reader, scale)
+                measured_for_version(
+                    conn,
+                    content,
+                    version_id,
+                    written_in_language,
+                    reader,
+                    scale,
+                )
             }
             Unfolds::AsPassenger { .. } | Unfolds::ForShopping { .. } => Ok(Value::Null),
         }
@@ -1709,7 +1729,21 @@ pub(super) fn unfold_components(
 
         let line_count = content["ingredients"].as_array().map(Vec::len).unwrap_or(0);
         let readings = readings_for_version(conn, &inner_version_id, line_count)?;
-        let measured = how.measured(conn, &content, &inner_version_id, inner_scale)?;
+        // The inner recipe's Steps are read in its own Language (#397).
+        let inner_language: String = conn
+            .query_row(
+                "SELECT language FROM branches WHERE id = ?1",
+                params![branch_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| OpError::internal(format!("cannot read a Component's Branch: {e}")))?;
+        let measured = how.measured(
+            conn,
+            &content,
+            &inner_version_id,
+            &inner_language,
+            inner_scale,
+        )?;
 
         walk.found.push(json!({
             "path": walk.path.clone(),
@@ -2673,6 +2707,7 @@ impl BranchHead {
                 conn,
                 content,
                 &self.head_version_id,
+                &self.language,
                 &reader,
                 scale,
             )?,
