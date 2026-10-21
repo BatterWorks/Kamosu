@@ -370,6 +370,20 @@ _Avoid_: Item, entry, line, aggregate, shopping item
 A line typed straight onto a **Shopping List** that belongs to no recipe — bin bags, coffee. Kept exactly as typed and never interpreted, so it has no **Food**, no quantity and merges with nothing: typing *flour* beside a recipe that wants flour gives two lines. Reading it would mean guessing at a number about to be shopped by, where a **Shopping Row** is built on **Reading**s that already exist. An **Ingredient Line** nobody ever read appears on a list the same way.
 _Avoid_: Extra, manual item, custom item, note
 
+### Showing Kamosu
+
+**Demo**:
+An instance anyone may open without signing in, to see what Kamosu is before installing it. Every screen opens, and only cooking and shopping save: every other save is refused as the save is made. Every visitor is the same Person, and the Demo puts its **Sample Library** back every day (ADR 0052).
+_Avoid_: Sandbox, trial, guest access, read-only mode, playground
+
+**Sample Library**:
+The recipes, cooks, Kitchens and history a **Demo** holds, shipped with each release and loaded again every day with its dates moved forward, so its History always reads as recent.
+_Avoid_: Seed data, fixtures, demo data, test library
+
+**Replay**:
+An agent's reading of a ready example played in a **Demo**, step by step, ending on a recipe and **Import Report** the **Sample Library** already holds. No model runs and nothing is written.
+_Avoid_: Simulation, fake import, mock agent
+
 ### Laying out the app
 
 **Room**:

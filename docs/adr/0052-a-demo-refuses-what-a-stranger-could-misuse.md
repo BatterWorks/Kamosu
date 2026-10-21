@@ -1,0 +1,43 @@
+# A demo refuses what a stranger could misuse, and cleans itself every day
+
+Kamosu gets a demo mode: one environment variable on the released image turns an instance into a public **Demo** that anyone can open without signing in, where every screen can be seen and only cooking and shopping really save. It loads a **Sample Library** of about 40 recipes with lived-in history, puts it back every day, and shows the agent at work through **Replays** of ready examples, since no model runs. Settled on 2026-10-21 in a design session; how other self-hosted apps run theirs is in `docs/research/demo-modes.md`.
+
+The README had pictures and nothing to try. A stranger deciding whether to install Kamosu had to install it first, and most of what makes it different (History, two cooks, the agent) only shows on a library that has lived for a while.
+
+## What was decided
+
+- **One switch, in the image every release publishes.** The Demo runs the latest release, not `dev`, so it shows what an install gets. Demo mode and the analytics address below are two more optional environment variables beside the four of `src/config.rs`. Everything it turns on is a refusal, a loaded library or a replay, so anyone may run one.
+- **Nobody signs in.** A visitor arrives already in the library as Camille, who is an Operator, as Hatchdoor's and Grocy's demos let a visitor straight in. Every visitor is the same Camille and sees what the others did since the last cleaning.
+- **Cooking and shopping save; nothing else does.** Starting, noting and finishing an Attempt, the Shopping List, and the small writes a screen makes on its own (noting a recipe was opened) go through. Every other write is refused in `Core::execute`, at the moment of saving, with one reason the interface words as *this is a demo*: recipes (creating, editing, importing, Variations, Translations, Readings, Tags on a recipe), Photographs, fetching a web link, People and accounts, Sessions, passwords and passkeys, every Key, Kitchens, Cookbooks, Tags and Foods, and every Operator Operation. Every screen up to that save opens. What changes nothing still works: Sheets and Bundle exports.
+- **The cleaning is Kamosu's own.** Every day at 04:00 UTC a Demo throws its library away and loads the Sample Library again, every date moved forward by the time since it was built, so History reads *last Tuesday* and never *eight months ago*. The cleaning keeps the instance's own state: the Meaning Search model and the terms accepted for it. Then it rebuilds the Meaning Search index.
+- **The Sample Library ships with the release, and is built through the real Operations.** About 40 recipes: 10 to 15 from a real household library with their history, names taken out, and the rest written for the Demo. English first, about a third also in French or Spanish. Photographs are freely licensed, two or three recipes have none, and a credits page sits beside it. The cast is Camille and Mum in a Kitchen called Family, and a friend in a Kitchen of their own who writes one Cookbook with Camille. It comes with the screens that only a save opens: a Share Link, a Kitchen Invite and a Cookbook Invite waiting, a finished Attempt with changed lines waiting for its Promotion, and recipes the agent brought in with their Import Reports. The page that shows a new Key once stays out.
+- **The agent is shown by Replay.** The + menu offers four examples: a photographed handwritten card, a messy blog post pasted in, a magazine PDF page and a cooking video. Picking one plays the agent tracker through Sent, Waiting, Reading and Ready, and Ready opens a recipe and Import Report already in the Sample Library. A visitor's own file or link is refused with a pointer to the examples. The Demo says an agent is connected.
+- **A visitor's own AI may read it.** One read-only Access Key is published with the Demo's MCP address, made again with the same value at every cleaning. The visitor's agent does the thinking on their own account.
+- **Meaning Search runs for real.** The Operator accepts Google's terms and fetches the model before demo mode goes on, since that stays a person's act (ADR 0029). The cleaning keeps both.
+- **It says it is a demo.** A welcome card on arrival says what works, what does not and when it cleans. A slim strip on every screen leads to installing.
+- **Analytics in demo mode only.** Given an Umami address, a Demo lets that one address through its Content Security Policy and loads its script. A Kamosu not in demo mode sends nothing anywhere, as before.
+- **The release checklist builds the Sample Library** on the release being cut, so a release that would break the Demo is caught before it is published.
+
+## Why
+
+- **Refused where a stranger could hurt someone, open where they can only make a mess.** HedgeDoc shut its demo in 2024 after bots used it to host malware, and Immich turned off uploads "due to abuse". Everything refused here either reaches beyond the demo (a fetched address, a hosted picture, an account, a key) or is the front page every visitor lands on (a recipe). A stray cooking note or shopping row is the litter a daily cleaning is for.
+- **Recipes are refused even though a cleaning would undo them.** All visitors are one Camille, so two strangers' edits in the same hour would fold into one Version, and History, the thing editing would show off, would be wrong. Undoing that would make the Demo behave unlike Kamosu. A defaced recipe would also be the first thing everyone sees until the cleaning, on a domain the maintainer's other services share.
+- **The cleaning lives in Kamosu because it moves dates.** A script outside the repository that rewrites Kamosu's tables breaks silently the first time a migration changes them. Inside, the tests and the release checklist see it.
+- **No sign-in, because the Demo is the door.** Every surveyed demo that asks for a login prints it on the page. Kamosu also slows wrong passwords down per name, and a few strangers mistyping a shared one would slow everyone.
+- **Replay instead of a real agent, or a fake one.** A real agent costs money per stranger and reads anything a stranger hands it. Answering a visitor's own file with a ready result is found out the first time someone sends lasagne and gets tarte tatin back. Replaying an example that says it is one is honest and costs nothing.
+
+## Considered options
+
+- **A private copy per visitor**, in their browser as Actual Budget's and Home Assistant's demos run, or on the server as Grocy's private demos and Nextcloud's trials. Not taken: far more work for a Demo whose shared mess is cosmetic, and the browser copy would be a second way for the interface to behave, kept working through every change.
+- **Typing recipes by hand allowed**, with folding turned off and a more frequent cleaning. Rejected above.
+- **Everything but recipes allowed.** Rejected: it includes changing Camille's password, minting Keys and Invites, uploading pictures and having the server fetch any address a stranger types.
+- **Cleaning from outside**, by restoring a copy of `/data` on a timer, as most demos surveyed do. Rejected above.
+- **A sign-in page with the login printed, or a one-click button.** Not taken: the sign-in screen is the one screen the Demo leaves out.
+
+## Consequences
+
+- **Visitors see each other.** A shopping row, a cooking note or the answer to a Promotion card made by one stranger is there for the next until the cleaning, and two people cooking the same recipe at once may meet in one Attempt. A more frequent cleaning is the fix if it bothers people, not a private copy.
+- **The sign-in screen, passkeys and the page that shows a new Key once are not in the Demo.**
+- **Every Session and Security Record row a visitor makes is in Camille's lists until the cleaning.** Settings shows them and ending them is refused.
+- **The Sample Library is kept working at every release.** It is built through Operations, so a change to an Operation it calls breaks its build, on purpose, before the release.
+- **An instance that turns demo mode on loses its library every day.** The variable is named for what it does, and the README says so beside it.
