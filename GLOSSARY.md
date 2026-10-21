@@ -373,11 +373,11 @@ _Avoid_: Extra, manual item, custom item, note
 ### Showing Kamosu
 
 **Demo**:
-An instance anyone may open without signing in, to see what Kamosu is before installing it. Every screen opens, and only cooking and shopping save: every other save is refused as the save is made. Every visitor is the same Person, and the Demo puts its **Sample Library** back every day (ADR 0052).
+An instance anyone may open without signing in, to see what Kamosu is before installing it, where every screen opens and only cooking and shopping save. Every visitor is the same Person, in a **Sample Library** put back every day (ADR 0052).
 _Avoid_: Sandbox, trial, guest access, read-only mode, playground
 
 **Sample Library**:
-The recipes, cooks, Kitchens and history a **Demo** holds, shipped with each release and loaded again every day with its dates moved forward, so its History always reads as recent.
+The recipes, cooks, Kitchens and Threads a **Demo** holds, written for it and kept with each release, their dates always recent.
 _Avoid_: Seed data, fixtures, demo data, test library
 
 **Replay**:
