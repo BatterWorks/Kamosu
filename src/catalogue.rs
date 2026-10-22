@@ -664,6 +664,55 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::runner_status,
         },
         Operation {
+            name: "list_replays",
+            summary: "List the examples a Demo replays the agent's work on. \
+                      Each is an agent's Import, ended, which the interface \
+                      plays through Sent, Waiting and Reading before its \
+                      Report. Empty on an instance that is no Demo.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            in_demo: InDemo::GoesThrough,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "replays": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "enum": ["picture", "pdf", "pasted_text", "video"],
+                                    "description": "What was handed to the agent.",
+                                },
+                                "job_id": {
+                                    "type": "string",
+                                    "description": "The agent's Job, its own Import, read with get_job.",
+                                },
+                                "photograph_id": {
+                                    "type": ["string", "null"],
+                                    "description": "A Photograph of what was handed over, or null where the example shows its text.",
+                                },
+                                "excerpt": {
+                                    "type": ["string", "null"],
+                                    "description": "The start of the text handed over, or null where the example shows a picture.",
+                                },
+                            },
+                            "required": ["kind", "job_id", "photograph_id", "excerpt"],
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "required": ["replays"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_replays,
+        },
+        Operation {
             name: "get_house_notes",
             summary: "Read the agent's House Notes. They are what an \
                       Operator adds to the end of the instructions the agent \

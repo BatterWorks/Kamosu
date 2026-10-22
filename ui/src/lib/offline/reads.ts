@@ -116,6 +116,10 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// say a Runner is there after its Key was revoked, or silent while it works.
 	runner_status: 'never',
 	list_runner_keys: 'never',
+	// The examples a Demo replays (#406) name Jobs of the library a Demo
+	// builds when it starts, so a kept answer from before a restart names
+	// Jobs that are gone. Kept for offline, where their row says it waits.
+	list_replays: 'server-first',
 	// The agent's house notes (#344) are edited in the box that shows them,
 	// and a kept answer from before a save on another device would put the
 	// old notes back over the new ones at the next Save.

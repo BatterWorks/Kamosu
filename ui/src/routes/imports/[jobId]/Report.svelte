@@ -42,14 +42,21 @@
 	import AgentWork from '$lib/agent/AgentWork.svelte';
 	import SendAgain from './SendAgain.svelte';
 	import { AGENTS_OWN, working } from '$lib/agent/agent';
+	import { REPLAY_EVERY, type Replaying } from '$lib/agent/replay';
 
 	interface Props {
 		jobId: string;
 		/** How long to wait between reads of a running Job. Tests shorten it. */
 		every?: number;
+		/**
+		 * The Replay a Demo plays of this Job (#406), whose client the frame
+		 * replays it through. Its tracker says it is sped up, and reads often
+		 * enough to show every step of a few seconds.
+		 */
+		replay?: Replaying | null;
 	}
 
-	let { jobId, every = 700 }: Props = $props();
+	let { jobId, every = 700, replay = null }: Props = $props();
 
 	const kamosu = useKamosu();
 	const room = useRoom();
@@ -76,7 +83,7 @@
 		let current = true;
 		let waited = false;
 		waitForJob(kamosu, id, {
-			every,
+			every: replay ? Math.min(every, REPLAY_EVERY) : every,
 			giveUpAfter: 6 * 60 * 60 * 1000,
 			whileWaiting: (read) => {
 				waited = true;
@@ -503,10 +510,11 @@
 		<AgentWork
 			jobId={id}
 			mine={yours[id] ?? false}
-			saying="report"
+			saying={replay?.jobId === id ? 'replay' : 'report'}
 			hasRecipe={hasRecipe(id)}
 			{panel}
 			gutter={false}
+			every={replay?.jobId === id ? REPLAY_EVERY : undefined}
 			ended={() => agentEnded(id)}
 		/>
 	{/each}

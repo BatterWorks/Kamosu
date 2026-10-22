@@ -221,6 +221,7 @@ describe('every sheet in Kamosu', () => {
 			'PhotoToRecipe.svelte',
 			'RelatedSheet.svelte',
 			'RenameSheet.svelte',
+			'Replays.svelte',
 			'RunnerKeySecret.svelte',
 			'SendSheet.svelte',
 			'SignOut.svelte',

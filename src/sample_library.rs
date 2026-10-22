@@ -53,6 +53,58 @@ pub(crate) const A_TIME_GLOB: &str =
 #[serde(deny_unknown_fields)]
 struct Story {
     steps: Vec<Step>,
+    /// The agent's Jobs a visitor replays (#406), named once the story is
+    /// told.
+    replays: Vec<ReplayStep>,
+}
+
+/// One of the examples a Demo's + offers, as the story names it: what kind
+/// of thing was handed over, the Job that read it, and what the visitor is
+/// shown of it before choosing, a picture or the start of the text.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReplayStep {
+    kind: ReplayKind,
+    job: Value,
+    picture: Option<Value>,
+    excerpt: Option<Value>,
+}
+
+/// What was handed to the agent in an example, in the words the interface
+/// draws each with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplayKind {
+    Picture,
+    Pdf,
+    PastedText,
+    Video,
+}
+
+impl ReplayKind {
+    /// The `source_kind` its Job was asked with: a video is a link.
+    fn source_kind(self) -> &'static str {
+        match self {
+            ReplayKind::Picture => "picture",
+            ReplayKind::Pdf => "pdf",
+            ReplayKind::PastedText => "pasted_text",
+            ReplayKind::Video => crate::jobs::LINK_SOURCE,
+        }
+    }
+}
+
+/// How much of a pasted text an example shows, in characters: the top of a
+/// blog post, enough to see it is one.
+const EXCERPT_CHARS: usize = 400;
+
+/// One example a Demo's + offers (#406): an agent's Job of the visitor's,
+/// ended and holding its recipe and Report, which a visitor replays.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct Replay {
+    pub kind: ReplayKind,
+    pub job_id: String,
+    pub photograph_id: Option<String>,
+    pub excerpt: Option<String>,
 }
 
 /// One thing a cook did, on one day at one time. Exactly one of
@@ -91,6 +143,7 @@ struct Step {
 /// Photographs and Originals beside it.
 pub struct Built {
     dir: PathBuf,
+    replays: Vec<Replay>,
 }
 
 impl Built {
@@ -102,6 +155,11 @@ impl Built {
     /// The folder it was built in.
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// The examples a visitor replays, in the order the + offers them.
+    pub fn replays(&self) -> &[Replay] {
+        &self.replays
     }
 }
 
@@ -164,6 +222,20 @@ pub fn build(dir: &Path) -> Result<Built, OpError> {
             "the Sample Library has nobody named {DEMO_VISITOR} for a visitor to arrive as"
         )));
     }
+    let replays = story
+        .replays
+        .iter()
+        .enumerate()
+        .map(|(number, replay)| {
+            told.replay(&db, replay).map_err(|error| {
+                OpError::internal(format!(
+                    "the Sample Library's replay {} failed: {}",
+                    number + 1,
+                    error.message
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     db.with_conn(|conn| refuse_what_its_build_day_left(conn, &stamped, &built_on))?;
 
@@ -183,6 +255,7 @@ pub fn build(dir: &Path) -> Result<Built, OpError> {
     })?;
     Ok(Built {
         dir: dir.to_path_buf(),
+        replays,
     })
 }
 
@@ -325,6 +398,81 @@ impl Told {
         }
         let input = self.resolved(step.input.clone().unwrap_or_else(|| json!({})))?;
         core.execute(Some(&actor), op, input)
+    }
+
+    /// An example as the story names it, its references followed. Its Job is
+    /// one a visitor reads and replays to the end: an agent's own Import that
+    /// Camille asked for, completed, with its recipe.
+    fn replay(&self, db: &Db, replay: &ReplayStep) -> Result<Replay, OpError> {
+        let text = |value: Value, what: &str| -> Result<String, OpError> {
+            match self.resolved(value)? {
+                Value::String(text) => Ok(text),
+                other => Err(OpError::bad_request(format!("its {what} names {other}"))),
+            }
+        };
+        let job_id = text(replay.job.clone(), "job")?;
+        let photograph_id = replay
+            .picture
+            .clone()
+            .map(|picture| text(picture, "picture"))
+            .transpose()?;
+        let excerpt = replay
+            .excerpt
+            .clone()
+            .map(|excerpt| text(excerpt, "excerpt"))
+            .transpose()?
+            .map(|words| words.chars().take(EXCERPT_CHARS).collect::<String>());
+        if photograph_id.is_some() == excerpt.is_some() {
+            return Err(OpError::bad_request(
+                "it shows exactly one of a picture and an excerpt",
+            ));
+        }
+        let fits = db.with_conn(|conn| {
+            let failed = |e: rusqlite::Error| OpError::internal(format!("cannot read its Job: {e}"));
+            let visitor: String = conn
+                .query_row(
+                    "SELECT id FROM people WHERE name = ?1",
+                    params![DEMO_VISITOR],
+                    |row| row.get(0),
+                )
+                .map_err(failed)?;
+            let job_fits: bool = conn
+                .query_row(
+                    "SELECT EXISTS (SELECT 1 FROM jobs JOIN agent_jobs ON agent_jobs.job_id = jobs.id
+                      WHERE jobs.id = ?1 AND jobs.operation = ?2 AND jobs.status = 'completed'
+                        AND jobs.person_id = ?3 AND agent_jobs.branch_id IS NOT NULL
+                        AND json_extract(jobs.input, '$.source_kind') = ?4)",
+                    params![
+                        job_id,
+                        crate::jobs::AGENT_OPERATION,
+                        visitor,
+                        replay.kind.source_kind()
+                    ],
+                    |row| row.get(0),
+                )
+                .map_err(failed)?;
+            let picture_seen = match &photograph_id {
+                Some(hash) => crate::core::photograph_seen_by(conn, &visitor, hash)?,
+                None => true,
+            };
+            Ok((job_fits, picture_seen))
+        })?;
+        match fits {
+            (false, _) => Err(OpError::bad_request(format!(
+                "its job {job_id} is no agent's Import of a {} that {DEMO_VISITOR} asked \
+                 for, completed with its recipe",
+                replay.kind.source_kind()
+            ))),
+            (true, false) => Err(OpError::bad_request(format!(
+                "its picture is no Photograph {DEMO_VISITOR} may see"
+            ))),
+            (true, true) => Ok(Replay {
+                kind: replay.kind,
+                job_id,
+                photograph_id,
+                excerpt,
+            }),
+        }
     }
 
     /// A cook signed in: their Secret held for the steps that follow, and

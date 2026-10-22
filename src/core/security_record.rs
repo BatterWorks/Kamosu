@@ -535,7 +535,7 @@ fn log_line(event: &Event, at: &str, count: i64) {
 }
 
 /// Now, as the database writes a time: `2026-10-20T09:15:02.123Z`, in UTC.
-fn now_text() -> String {
+pub(super) fn now_text() -> String {
     let since = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();

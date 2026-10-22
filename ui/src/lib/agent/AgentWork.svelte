@@ -36,7 +36,8 @@
 		mine: boolean;
 		/**
 		 * Which sentence goes under the steps. On a recipe's page a Job reading
-		 * the recipe again says it is updating it, whoever reads the page.
+		 * the recipe again says it is updating it, whoever reads the page. A
+		 * Replay in a Demo says it is sped up (#406).
 		 */
 		saying?: Saying;
 		/** Whether a recipe is there to stay as the agent left it, once stopped. */
@@ -222,6 +223,8 @@
 				{:else}
 					{m.agent_no_answer_cook()}
 				{/if}
+			{:else if sentence === 'replay'}
+				{m.agent_replay()}
 			{:else if sentence === 'updating'}
 				{m.agent_updating()}
 			{:else if sentence === 'report'}

@@ -1480,6 +1480,8 @@ describe('the + for every new recipe (#174)', () => {
 		const withAgent = {
 			...fullShelf,
 			runner_status: { has_runner: true, last_asked_at: '2026-10-15T12:00:00.000Z' },
+			// No Demo, so no examples to replay (#406).
+			list_replays: { replays: [] },
 		};
 		/** What `import_by_agent` answers for a new Job. */
 		const sentAs = (source_kind: 'picture' | 'pdf' | 'pasted_text' | 'web') => ({
@@ -1755,6 +1757,205 @@ describe('the + for every new recipe (#174)', () => {
 			]) {
 				expect(screen.getByRole('button', { name: words })).toBeDisabled();
 			}
+		});
+
+		describe('in a Demo (#406)', () => {
+			const REPLAYS = {
+				replays: [
+					{ kind: 'picture', job_id: 'j_card', photograph_id: 'p_card', excerpt: null },
+					{ kind: 'pdf', job_id: 'j_page', photograph_id: 'p_page', excerpt: null },
+					{
+						kind: 'pasted_text',
+						job_id: 'j_blog',
+						photograph_id: null,
+						excerpt: 'Sunny Side Up Kitchen. THE Shakshuka That Got Me Through Last Winter',
+					},
+					{ kind: 'video', job_id: 'j_video', photograph_id: 'p_frame', excerpt: null },
+				],
+			};
+			/** What a Demo answers a visitor's own file, text or link. */
+			const refusedInDemo = {
+				refuse: 'refused',
+				message: 'This is a demo of Kamosu, where only cooking and shopping are saved.',
+				reason: 'demo',
+			};
+			const inADemo = (answers: object = {}) =>
+				shelfWithAgent({ list_replays: REPLAYS, ...answers });
+
+			it("opens the agent's group with a row that shows the four examples", async () => {
+				inADemo();
+				const plus = await openThePlus();
+				const list = document.getElementById(plus.getAttribute('aria-controls')!)!;
+				const rows = [...list.querySelectorAll('button')].map(
+					(button) => button.querySelector('.font-display')?.textContent,
+				);
+				expect(rows).toEqual([
+					'From a link',
+					'From a Kamosu zip file',
+					'Write it yourself',
+					'Watch it read an example',
+					'From a photo of a page',
+					'From a PDF',
+					'From pasted text',
+					'From a video',
+				]);
+				expect(
+					screen.getByRole('button', {
+						name: /Watch it read an example.*Four ready examples, sped up/,
+					}),
+				).toBeInTheDocument();
+
+				await fireEvent.click(screen.getByRole('button', { name: /Watch it read an example/ }));
+				const panel = await screen.findByRole('dialog', {
+					name: "Watch Kamosu's AI agent at work",
+				});
+				expect(plus).toHaveAttribute('aria-expanded', 'false');
+				expect(panel).toHaveTextContent('Pick one of four things a cook handed the agent.');
+				expect(panel).toHaveTextContent('a real read takes a few minutes');
+				const tiles = within(panel)
+					.getAllByRole('button')
+					.filter((button) => button.textContent !== 'Back');
+				expect(tiles.map((tile) => tile.querySelector('.font-display')?.textContent)).toEqual([
+					'A handwritten card',
+					'A magazine page',
+					'A blog post, pasted',
+					'A YouTube video',
+				]);
+				// Each is drawn as what was handed over: a picture, or the top of the text.
+				expect(tiles[0].querySelector('img')).toHaveAttribute(
+					'src',
+					'/api/photographs/p_card/card',
+				);
+				expect(tiles[2].querySelector('img')).toBeNull();
+				expect(tiles[2]).toHaveTextContent('THE Shakshuka That Got Me Through Last Winter');
+			});
+
+			it('replays the example picked from the moment it is picked', async () => {
+				inADemo();
+				await openThePlus();
+				await fireEvent.click(screen.getByRole('button', { name: /Watch it read an example/ }));
+				const panel = await screen.findByRole('dialog');
+				const before = Date.now();
+				await fireEvent.click(within(panel).getByRole('button', { name: /A YouTube video/ }));
+
+				await vi.waitFor(() =>
+					expect(went).toHaveBeenCalledWith(
+						expect.stringMatching(/^\/imports\/j_video\?replay=\d+$/),
+					),
+				);
+				const address = went.mock.calls.at(-1)![0] as string;
+				const startedAt = Number(new URL(address, 'http://kamosu.test').searchParams.get('replay'));
+				expect(startedAt).toBeGreaterThanOrEqual(before);
+				expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+			});
+
+			it("refuses a visitor's own photo under Send, and leads to the examples instead", async () => {
+				const { kamosu } = inADemo({ import_by_agent: refusedInDemo });
+				await pick(
+					/From a photo of a page/,
+					"Send a photo of a page to Kamosu's AI agent",
+					aPhoto(),
+				);
+				const sheet = await screen.findByRole('dialog');
+				await fireEvent.click(within(sheet).getByRole('button', { name: 'Send' }));
+
+				const said = await within(sheet).findByRole('alert');
+				expect(said).toHaveTextContent(
+					"This is a demo, so Kamosu's AI agent reads only its four examples here, never a photo of your own. Install Kamosu to send yours.",
+				);
+				// Under Send, as R1 drew it, and only once.
+				const send = within(sheet).getByRole('button', { name: 'Send' });
+				expect(send.compareDocumentPosition(said)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+				expect(within(sheet).getAllByRole('alert')).toHaveLength(1);
+				expect(went).not.toHaveBeenCalledWith(expect.stringMatching(/^\/imports\//));
+
+				await fireEvent.click(
+					within(sheet).getByRole('button', { name: 'Watch it read an example' }),
+				);
+				await screen.findByRole('dialog', { name: "Watch Kamosu's AI agent at work" });
+				expect(
+					screen.queryByRole('dialog', { name: "Send this photo to Kamosu's AI agent?" }),
+				).not.toBeInTheDocument();
+				expect(kamosu.calls.filter((call) => call.operation === 'import_by_agent')).toHaveLength(1);
+			});
+
+			it("refuses a visitor's own video link in its field, with the way to the examples", async () => {
+				inADemo({ import_by_agent: refusedInDemo });
+				await openThePlus();
+				await fireEvent.click(screen.getByRole('button', { name: /From a video/ }));
+				const field = screen.getByLabelText("The video's web address");
+				await fireEvent.input(field, {
+					target: { value: 'https://www.youtube.com/watch?v=tarte' },
+				});
+				await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+				await vi.waitFor(() =>
+					expect(screen.getByRole('alert')).toHaveTextContent(
+						"This is a demo, so Kamosu's AI agent reads only its four examples here, never a link of your own. Install Kamosu to send yours.",
+					),
+				);
+				await fireEvent.click(screen.getByRole('button', { name: 'Watch it read an example' }));
+				await screen.findByRole('dialog', { name: "Watch Kamosu's AI agent at work" });
+			});
+
+			it("says no way to the examples beside a refusal that is not a Demo's", async () => {
+				inADemo({
+					import_by_agent: {
+						refuse: 'refused',
+						message: 'this Kamosu has no Runner',
+						reason: 'no_runner',
+					},
+				});
+				await openThePlus();
+				await fireEvent.click(screen.getByRole('button', { name: /From a video/ }));
+				await fireEvent.input(screen.getByLabelText("The video's web address"), {
+					target: { value: 'https://www.youtube.com/watch?v=tarte' },
+				});
+				await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+				await vi.waitFor(() =>
+					expect(screen.getByRole('alert')).toHaveTextContent('this Kamosu has no Runner'),
+				);
+				expect(
+					screen.queryByRole('button', { name: 'Watch it read an example' }),
+				).not.toBeInTheDocument();
+			});
+
+			it('puts the way to the examples away when a later try says something else', async () => {
+				inADemo({ import_by_agent: refusedInDemo });
+				await openThePlus();
+				await fireEvent.click(screen.getByRole('button', { name: /From pasted text/ }));
+				const box = screen.getByLabelText('The recipe, pasted as text');
+				await fireEvent.input(box, { target: { value: 'Shakshuka. 4 eggs, 1 tin tomatoes.' } });
+				await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+				await vi.waitFor(() =>
+					expect(screen.getByRole('alert')).toHaveTextContent('never text of your own'),
+				);
+				expect(
+					screen.getByRole('button', { name: 'Watch it read an example' }),
+				).toBeInTheDocument();
+
+				await fireEvent.input(box, { target: { value: '   ' } });
+				await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+				await vi.waitFor(() =>
+					expect(screen.getByRole('alert')).toHaveTextContent('There is nothing in that paste.'),
+				);
+				expect(
+					screen.queryByRole('button', { name: 'Watch it read an example' }),
+				).not.toBeInTheDocument();
+			});
+
+			it('says offline that watching an example waits for the server', async () => {
+				inADemo();
+				const plus = await openThePlus();
+				await fireEvent.click(plus);
+				Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+				window.dispatchEvent(new Event('offline'));
+
+				await openThePlus();
+				expect(
+					screen.getByRole('button', { name: 'Watching an example waits for the server' }),
+				).toBeDisabled();
+			});
 		});
 
 		describe('dropped on Recipes', () => {

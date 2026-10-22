@@ -421,6 +421,25 @@ impl Core {
         Ok(())
     }
 
+    /// The examples a visitor replays the agent's work on (#406): the
+    /// Sample Library's, and none on an instance that is no Demo.
+    pub fn replays(&self) -> &[sample_library::Replay] {
+        self.sample_library
+            .get()
+            .map_or(&[], sample_library::Built::replays)
+    }
+
+    /// When a Runner was last heard from, as a Demo says it: no agent runs
+    /// in one, so a Runner that stands has just asked for work, and no Job a
+    /// visitor replays says none is answering (#406). Anywhere else, `heard`.
+    pub(super) fn heard_in_a_demo(&self, stands: bool, heard: Option<String>) -> Option<String> {
+        if self.is_demo() && stands {
+            Some(security_record::now_text())
+        } else {
+            heard
+        }
+    }
+
     /// Whether this instance is a Demo.
     pub fn is_demo(&self) -> bool {
         self.mode == Mode::Demo

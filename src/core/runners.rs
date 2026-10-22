@@ -58,12 +58,13 @@ impl Core {
                 .map_err(|e| OpError::internal(format!("cannot list Runner Keys: {e}")))?;
             statement
                 .query_map([], |row| {
+                    let revoked = row.get::<_, i64>(4)? != 0;
                     Ok(json!({
                         "id": row.get::<_, String>(0)?,
                         "name": row.get::<_, String>(1)?,
                         "created_at": row.get::<_, String>(2)?,
-                        "last_used_at": row.get::<_, Option<String>>(3)?,
-                        "revoked": row.get::<_, i64>(4)? != 0,
+                        "last_used_at": self.heard_in_a_demo(!revoked, row.get(3)?),
+                        "revoked": revoked,
                     }))
                 })
                 .map_err(|e| OpError::internal(format!("cannot read Runner Keys: {e}")))?
@@ -520,16 +521,18 @@ impl Core {
     /// is not revoked, and when one was last heard from: asking for work, or
     /// renewing its hold on the Job it works on (#277). The time is read
     /// across every Key, revoked ones included, so replacing a Key does not
-    /// erase when the Runner was last heard from.
+    /// erase when the Runner was last heard from. A Demo's has just asked
+    /// (#406).
     pub fn runner_status(&self) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             conn.query_row(
                 "SELECT COALESCE(SUM(revoked = 0), 0) > 0, MAX(last_asked_at) FROM runner_keys",
                 [],
                 |row| {
+                    let has_runner = row.get::<_, bool>(0)?;
                     Ok(json!({
-                        "has_runner": row.get::<_, bool>(0)?,
-                        "last_asked_at": row.get::<_, Option<String>>(1)?,
+                        "has_runner": has_runner,
+                        "last_asked_at": self.heard_in_a_demo(has_runner, row.get(1)?),
                     }))
                 },
             )

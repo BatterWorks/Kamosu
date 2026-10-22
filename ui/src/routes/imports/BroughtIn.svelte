@@ -17,30 +17,39 @@
 
 	A Report that watches its import end tells the list through `ended`, so
 	the row beside it stops saying the import is still running.
+
+	A Replay (#406) is played here, for the list and the Report together:
+	both read the Job through the client this frame hands down.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { useRoom } from '$lib/room.svelte';
+	import { provideKamosu, useKamosu } from '$lib/kamosu';
+	import { REPLAY_EVERY, replayingClient, type Replaying } from '$lib/agent/replay';
 	import { provideEnded } from './ended.svelte';
 	import Imports from './Imports.svelte';
 
 	interface Props {
 		/** The import whose Report the address names, where it names one. */
 		open?: string;
+		/** The example's Job a Demo replays (#406), where the address asks for one. */
+		replay?: Replaying | null;
 		/** The open Report's page. */
 		children?: Snippet;
 	}
 
-	let { open, children }: Props = $props();
+	let { open, replay = null, children }: Props = $props();
 
 	const room = useRoom();
+	const replayed = replayingClient(useKamosu(), () => replay);
+	provideKamosu(() => replayed);
 	provideEnded();
 </script>
 
 <div class={[room.wide && 'list-beside']}>
 	{#if room.wide || open === undefined}
-		<Imports {open} />
+		<Imports {open} every={replay ? REPLAY_EVERY : undefined} />
 	{/if}
 	{#if room.wide || open !== undefined}
 		<div class={[room.wide && 'min-w-0']}>

@@ -9,11 +9,15 @@
 -->
 <script lang="ts">
 	import { page } from '$app/state';
+	import { replayIn } from '$lib/agent/replay';
 	import Report from './Report.svelte';
+
+	/** A Replay picked again is a Report of its own, played from Sent (#406). */
+	const replay = $derived(replayIn(page.url, page.params.jobId));
 </script>
 
 {#if page.params.jobId}
-	{#key page.params.jobId}
-		<Report jobId={page.params.jobId} />
+	{#key `${page.params.jobId}@${replay?.startedAt ?? ''}`}
+		<Report jobId={page.params.jobId} {replay} />
 	{/key}
 {/if}

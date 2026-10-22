@@ -41494,4 +41494,111 @@ mod a_demos_sample_library {
             "{refused}"
         );
     }
+
+    // --- The Replay (#406) ---------------------------------------------------
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_demo_offers_four_examples_its_visitor_reads_to_the_end() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app = support::spawn_sample_demo_in(dir.path());
+        let visitor = arrive(&app);
+        let listed = op(&app, "list_replays", &visitor, json!({}));
+        let replays = listed["replays"].as_array().expect("a list of replays");
+        let kinds: Vec<&str> = replays.iter().filter_map(|r| r["kind"].as_str()).collect();
+        assert_eq!(
+            kinds,
+            ["picture", "pdf", "pasted_text", "video"],
+            "{listed}"
+        );
+
+        for replay in replays {
+            // The Job is the visitor's own to read, ended, with its recipe.
+            let job_id = replay["job_id"].as_str().expect("a job id");
+            let job = op(&app, "get_job", &visitor, json!({ "job_id": job_id }));
+            assert_eq!(job["operation"], json!("read_by_agent"), "{job}");
+            assert_eq!(job["status"], json!("completed"), "{job}");
+            let made = &job["result"]["agent_jobs"][0];
+            assert!(made["branch_id"].is_string(), "{job}");
+            assert_eq!(made["status"], json!("completed"), "{job}");
+
+            // What the + shows of it: a picture the visitor may open, or the
+            // start of the text.
+            match replay["photograph_id"].as_str() {
+                Some(photograph) => {
+                    let (status, _, bytes) = app.get_bytes(
+                        &format!("/api/photographs/{photograph}/card"),
+                        Some(&visitor),
+                    );
+                    assert_eq!(status, 200, "{replay}");
+                    assert!(!bytes.is_empty());
+                    assert_eq!(replay["excerpt"], Value::Null, "{replay}");
+                }
+                None => {
+                    let excerpt = replay["excerpt"].as_str().expect("an excerpt");
+                    assert!(excerpt.starts_with("THE Shakshuka"), "{excerpt}");
+                    assert!(excerpt.chars().count() <= 400, "{excerpt}");
+                }
+            }
+        }
+
+        // The cleaning puts the same library back, so every example still
+        // names a Job that is there, ended, and a picture the visitor sees.
+        app.core.put_back_sample_library().expect("the cleaning");
+        for replay in op(&app, "list_replays", &visitor, json!({}))["replays"]
+            .as_array()
+            .expect("a list of replays")
+        {
+            let job_id = replay["job_id"].as_str().expect("a job id");
+            let job = op(&app, "get_job", &visitor, json!({ "job_id": job_id }));
+            assert_eq!(job["status"], json!("completed"), "{job}");
+            if let Some(photograph) = replay["photograph_id"].as_str() {
+                let (status, _, _) = app.get_bytes(
+                    &format!("/api/photographs/{photograph}/card"),
+                    Some(&visitor),
+                );
+                assert_eq!(status, 200, "{replay}");
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_demos_agent_has_just_asked_for_work() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app = support::spawn_sample_demo_in(dir.path());
+        let visitor = arrive(&app);
+        let a_minute_ago: String = ask(
+            &app,
+            "SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 minute')",
+        );
+        let status = op(&app, "runner_status", &visitor, json!({}));
+        assert_eq!(status["has_runner"], json!(true), "{status}");
+        let asked = status["last_asked_at"].as_str().expect("a time");
+        assert!(asked > a_minute_ago.as_str(), "{status}");
+
+        let keys = op(&app, "list_runner_keys", &visitor, json!({}));
+        let standing: Vec<&Value> = keys["runner_keys"]
+            .as_array()
+            .expect("a list of keys")
+            .iter()
+            .filter(|key| key["revoked"] == json!(false))
+            .collect();
+        assert!(!standing.is_empty(), "{keys}");
+        for key in standing {
+            let used = key["last_used_at"].as_str().expect("a time");
+            assert!(used > a_minute_ago.as_str(), "{key}");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_instance_that_is_no_demo_offers_no_examples() {
+        let app = support::spawn_app();
+        let (session, _) = super::operator_signed_in(&app);
+        let listed = op(&app, "list_replays", &session, json!({}));
+        assert_eq!(listed, json!({ "replays": [] }));
+        let status = op(&app, "runner_status", &session, json!({}));
+        assert_eq!(
+            status,
+            json!({ "has_runner": false, "last_asked_at": null })
+        );
+    }
 }

@@ -27,7 +27,12 @@ import { useUpload, type Uploader } from '$lib/api/upload';
 import { OperationError } from '$lib/api/client';
 import { StillRunning, waitForJob } from '$lib/api/job';
 import { receiveStaged } from '$lib/receive';
-import type { ImportWebLinkOutput, KamosuClient, ReadPastedRecipeOutput } from '$lib/api/catalogue';
+import type {
+	ImportWebLinkOutput,
+	KamosuClient,
+	ListReplaysOutput,
+	ReadPastedRecipeOutput,
+} from '$lib/api/catalogue';
 import { holdPaste, readPdf, type PageReading, type PastedDraft } from '$lib/pasted.svelte';
 import { noteArrival } from '$lib/arrival.svelte';
 
@@ -81,6 +86,19 @@ export class Adding {
 	runner = $state<boolean | null>(null);
 	/** A photo or a PDF waiting on the sheet that asks before it is sent, or none. */
 	toSend = $state<ToSend | null>(null);
+	/**
+	 * The examples a Demo replays the agent's work on (#406), or none on any
+	 * other instance. Read from the server each time the + opens, and from
+	 * what the phone kept when it is out of reach.
+	 */
+	replays = $state<ListReplaysOutput['replays']>([]);
+	/** Whether the panel of examples is showing. */
+	showingReplays = $state(false);
+	/**
+	 * A Demo refused what was sent to the agent, a visitor's own file, text or
+	 * link (#406): `failed` says so, and points at the examples.
+	 */
+	refusedInDemo = $state(false);
 
 	#kamosu: KamosuClient;
 	#upload: Uploader;
@@ -156,6 +174,27 @@ export class Adding {
 	}
 
 	/**
+	 * Read again which examples this instance replays, none but in a Demo
+	 * (#406). A refusal leaves what was known.
+	 */
+	async readReplays(): Promise<void> {
+		try {
+			this.replays = (await this.#kamosu.listReplays({})).replays;
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+		}
+	}
+
+	/** Put away whatever was being sent, and show the examples instead (#406). */
+	watchExamples() {
+		if (this.working) return;
+		this.toSend = null;
+		this.failed = undefined;
+		this.refusedInDemo = false;
+		this.showingReplays = true;
+	}
+
+	/**
 	 * A PDF was chosen or dropped. With a Runner it goes to the agent, a scan
 	 * included, once the sheet has shown it; without one it is read into a
 	 * draft as it always was (#176).
@@ -198,6 +237,7 @@ export class Adding {
 	quiet() {
 		if (this.working) return;
 		this.failed = undefined;
+		this.refusedInDemo = false;
 		this.waiting = undefined;
 		this.stillGoing = false;
 	}
@@ -205,6 +245,7 @@ export class Adding {
 	/** Show a photo or a PDF on the sheet that asks before it is sent. */
 	offer(chosen: ToSend) {
 		this.failed = undefined;
+		this.refusedInDemo = false;
 		this.waiting = undefined;
 		this.stillGoing = false;
 		this.toSend = chosen;
@@ -218,16 +259,31 @@ export class Adding {
 	 * made from it opens, saying it was read before. A link is never matched,
 	 * and Kamosu does not read it first, so nothing lands before the agent's
 	 * recipe.
+	 *
+	 * A Demo refuses it, whatever it is, and says so in words that point at
+	 * the examples it replays instead (#406). A file is refused at its
+	 * upload, which a Demo refuses as it refuses the Operation.
 	 */
 	send = (handed: { text: string } | { link: string } | { file: File }) =>
 		this.#run('send', async () => {
-			const input =
+			// What was handed over, and the words a Demo refuses it in.
+			const [handOver, refused] =
 				'text' in handed
-					? { text: handed.text }
+					? [async () => ({ text: handed.text }), m.send_refused_text]
 					: 'link' in handed
-						? { link: handed.link.trim() }
-						: { upload_id: await this.#upload(handed.file) };
-			const answer = await this.#kamosu.importByAgent(input);
+						? [async () => ({ link: handed.link.trim() }), m.send_refused_link]
+						: [
+								async () => ({ upload_id: await this.#upload(handed.file) }),
+								this.toSend?.kind === 'pdf' ? m.send_refused_pdf : m.send_refused_picture,
+							];
+			let answer;
+			try {
+				answer = await this.#kamosu.importByAgent(await handOver());
+			} catch (error) {
+				if (!(error instanceof OperationError) || error.reason !== 'demo') throw error;
+				this.refusedInDemo = true;
+				return refused();
+			}
 			this.toSend = null;
 			if (answer.job_id) {
 				await goto(`/imports/${answer.job_id}`);
@@ -284,6 +340,7 @@ export class Adding {
 		if (this.working) return;
 		this.stillGoing = false;
 		this.waiting = undefined;
+		this.refusedInDemo = false;
 		this.failed = words;
 	}
 
@@ -292,6 +349,7 @@ export class Adding {
 		if (this.working) return;
 		this.stillGoing = false;
 		this.failed = undefined;
+		this.refusedInDemo = false;
 		this.waiting = words;
 	}
 
@@ -310,6 +368,7 @@ export class Adding {
 		if (this.working) return;
 		this.working = act;
 		this.failed = undefined;
+		this.refusedInDemo = false;
 		this.waiting = undefined;
 		this.stillGoing = false;
 		try {

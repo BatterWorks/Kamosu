@@ -53,9 +53,14 @@
 	interface Props {
 		/** The import whose Report is open beside this list, on the wide layout. */
 		open?: string;
+		/**
+		 * How often to read again while an agent waits or reads on an arrival:
+		 * oftener while a Replay plays, so its row keeps step (#406).
+		 */
+		every?: number;
 	}
 
-	let { open }: Props = $props();
+	let { open, every = EVERY_MS }: Props = $props();
 
 	const kamosu = useKamosu();
 	const room = useRoom();
@@ -104,7 +109,7 @@
 				const agentsAtWork = answer.imports.some((source) =>
 					source.arrivals.some((arrival) => arrivalWorking(arrival)),
 				);
-				if (agentsAtWork) timer = setTimeout(() => (again += 1), EVERY_MS);
+				if (agentsAtWork) timer = setTimeout(() => (again += 1), every);
 			})
 			.catch((error: unknown) => {
 				if (!(error instanceof OperationError)) throw error;
