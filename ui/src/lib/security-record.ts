@@ -172,6 +172,8 @@ function howSignedIn(how: SecurityEvent['detail']['how']): string | undefined {
 			return m.security_how_recovery();
 		case 'setup':
 			return m.security_how_setup();
+		case 'demo':
+			return m.security_how_demo();
 		default:
 			return undefined;
 	}

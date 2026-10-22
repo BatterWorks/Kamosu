@@ -8,10 +8,11 @@
 
 import type { JobAsk } from './job';
 
-/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, and the address a passkey signs in at, if any. */
+/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. */
 export type InstanceStatusInput = Record<string, never>;
 /** What instance_status answers. */
 export type InstanceStatusOutput = {
+	demo: boolean;
 	passkey_origin: string | null;
 	password_minimum: number;
 	setup_complete: boolean;
@@ -230,7 +231,7 @@ export type ListInstanceSecurityRecordOutput = {
 			ended_access_keys?: number;
 			ended_runner_keys?: number;
 			ended_sessions?: number;
-			how?: "password" | "passkey" | "invite" | "recovery_link" | "setup";
+			how?: "password" | "passkey" | "invite" | "recovery_link" | "setup" | "demo";
 			key?: string;
 			operator?: boolean;
 			read_only?: boolean;
@@ -386,7 +387,7 @@ export type ListSecurityRecordOutput = {
 			ended_access_keys?: number;
 			ended_runner_keys?: number;
 			ended_sessions?: number;
-			how?: "password" | "passkey" | "invite" | "recovery_link" | "setup";
+			how?: "password" | "passkey" | "invite" | "recovery_link" | "setup" | "demo";
 			key?: string;
 			operator?: boolean;
 			read_only?: boolean;
@@ -6483,7 +6484,7 @@ export type Answer<N extends OperationName> =
 export const CATALOGUE = [
 	{
 		"name": "instance_status",
-		"summary": "Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, and the address a passkey signs in at, if any.",
+		"summary": "Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -6494,6 +6495,9 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"demo": {
+					"type": "boolean"
+				},
 				"passkey_origin": {
 					"type": [
 						"string",
@@ -6515,7 +6519,8 @@ export const CATALOGUE = [
 				"version",
 				"setup_complete",
 				"password_minimum",
-				"passkey_origin"
+				"passkey_origin",
+				"demo"
 			],
 			"type": "object"
 		}
@@ -7359,7 +7364,8 @@ export const CATALOGUE = [
 											"passkey",
 											"invite",
 											"recovery_link",
-											"setup"
+											"setup",
+											"demo"
 										]
 									},
 									"key": {
@@ -8028,7 +8034,8 @@ export const CATALOGUE = [
 											"passkey",
 											"invite",
 											"recovery_link",
-											"setup"
+											"setup",
+											"demo"
 										]
 									},
 									"key": {
@@ -34891,7 +34898,7 @@ export const METHOD_NAMES = {
 
 /** The typed client: one method per Operation, named as the Catalogue names it. */
 export interface KamosuClient {
-	/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, and the address a passkey signs in at, if any. */
+	/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. */
 	instanceStatus(input?: InstanceStatusInput): Promise<Answer<'instance_status'>>;
 	/** Set the Language and measures this Person reads in. */
 	setReadingPreferences(input: SetReadingPreferencesInput): Promise<Answer<'set_reading_preferences'>>;

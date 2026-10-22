@@ -162,13 +162,17 @@
 	 * beside the one at the stove, for the plate photographed at the table.
 	 */
 	let photographing = $state(false);
+	/** The cooking a photograph was just put on in a Demo, which will not keep it (#403). */
+	let photoInDemo = $state<string | undefined>(undefined);
 	async function photograph(entry: Entry, picture: File | undefined) {
 		if (!picture) return;
 		photographing = true;
 		writeFailed = undefined;
+		photoInDemo = undefined;
 		try {
-			const photographs = await photographCooking(kamosu, keeping, entry.id, picture);
-			layOver(entry.id, { photographs });
+			const taken = await photographCooking(kamosu, keeping, entry.id, picture);
+			layOver(entry.id, { photographs: taken.photographs });
+			if (taken.inADemo) photoInDemo = entry.id;
 		} catch (error) {
 			if (!(error instanceof OperationError) && !(error instanceof DOMException)) throw error;
 			writeFailed = error.message;
@@ -446,6 +450,9 @@
 											<p class="mt-2 text-read text-support" role="alert">
 												{m.drop_photo_cooking_refused()}
 											</p>
+										{/if}
+										{#if photoInDemo === entry.id}
+											<p class="mt-2 text-read text-ink-2" role="status">{m.cook_photo_demo()}</p>
 										{/if}
 										{#if promoted?.entry === entry.id}
 											<p class="mt-2 text-read text-accent" role="status">

@@ -72,6 +72,9 @@ function world(
 	answers: Partial<Record<OperationName, (input: Record<string, unknown>) => unknown>>,
 ) {
 	let online = true;
+	/** A Demo, which refuses every photograph (#403). */
+	let demo = false;
+	let refusedUploads = 0;
 	const sent: { operation: OperationName; input: Record<string, unknown> }[] = [];
 	const kept = new Map<string, unknown>();
 	let stored: Kept | undefined;
@@ -113,6 +116,11 @@ function world(
 				throw new OperationError('upload', 'internal', 'Kamosu could not be reached.', {
 					reached: false,
 				});
+			if (demo) refusedUploads += 1;
+			if (demo)
+				throw new OperationError('upload_photograph', 'bad_request', 'This is a demo.', {
+					reason: 'demo',
+				});
 			uploaded.push(picture);
 			return `p_${uploaded.length}`;
 		},
@@ -134,6 +142,8 @@ function world(
 		kept: () => stored,
 		offline: () => (online = false),
 		online: () => (online = true),
+		demo: () => (demo = true),
+		refusedUploads: () => refusedUploads,
 	};
 }
 
@@ -381,6 +391,61 @@ describe('a photograph taken with no network', () => {
 		});
 		expect(at.pictures.size).toBe(0);
 		expect(await at.outbox.photographSrc('p_1', 'page')).toBe('/api/photographs/p_1/page');
+	});
+});
+
+describe('a photograph in a Demo, which keeps none (#403)', () => {
+	it('is left out, and the note written with it is still sent', async () => {
+		const at = world({
+			get_current_attempt: () => ({ attempt: attempt() }),
+			edit_attempt: (input) =>
+				attempt({
+					photographs: input.add_photographs as string[],
+					note: (input.note as string | undefined) ?? null,
+				}),
+		});
+		at.demo();
+		await at.call('get_current_attempt', { lineage_id: 'l_1' });
+		at.offline();
+		const name = await at.outbox.keepPhotograph(new Blob(['a picture']));
+		await at.call('edit_attempt', {
+			attempt_id: 'at_server000000001',
+			note: 'Moins de sucre.',
+			add_photographs: [name],
+		});
+
+		at.online();
+		await at.outbox.flush();
+		expect(at.uploaded).toHaveLength(0);
+		expect(at.sent.at(-1)).toMatchObject({
+			operation: 'edit_attempt',
+			input: { note: 'Moins de sucre.', add_photographs: [] },
+		});
+		expect(at.kept()?.queue).toEqual([]);
+		// Gone from the phone once it is level with the server.
+		expect(at.pictures.size).toBe(0);
+		// And never sent again by a later write that still names it.
+		await at.call('edit_attempt', {
+			attempt_id: 'at_server000000001',
+			photographs: [name],
+		});
+		expect(at.refusedUploads()).toBe(1);
+		expect(at.sent.at(-1)).toMatchObject({ input: { photographs: [] } });
+	});
+
+	it('still stands where it was put when taken with the server there', async () => {
+		const at = world({
+			edit_attempt: (input) => attempt({ photographs: input.add_photographs as string[] }),
+		});
+		at.demo();
+		const name = await at.outbox.keepPhotograph(new Blob(['a picture']));
+		const edited = await at.call('edit_attempt', {
+			attempt_id: 'at_server000000001',
+			add_photographs: [name],
+		});
+		expect(edited.photographs).toEqual([]);
+		globalThis.URL.createObjectURL ??= () => 'blob:kept';
+		expect(await at.outbox.photographSrc(name, 'card')).toMatch(/^blob:/);
 	});
 });
 

@@ -147,6 +147,8 @@ impl Core {
         password: &str,
         session_name: &str,
     ) -> Result<Value, OpError> {
+        // Nobody signs in to a Demo; every visitor arrives (ADR 0052).
+        self.refuse_in_a_demo()?;
         let name = required_text(name, "name")?;
         let session_name = required_text(session_name, "session_name")?;
         // Refused before the hash, which is the costly part (#138). The
@@ -226,6 +228,8 @@ impl Core {
     /// out its wrong passwords: those are refused at once as busy, with the
     /// seconds left (#138). Nothing here sleeps.
     pub fn log_in(&self, name: &str, password: &str, session_name: &str) -> Result<Value, OpError> {
+        // Nobody signs in to a Demo; every visitor arrives (ADR 0052).
+        self.refuse_in_a_demo()?;
         let name = required_text(name, "name")?;
         let session_name = required_text(session_name, "session_name")?;
         let turn = self.passwords.take_turn(name)?;
@@ -626,6 +630,8 @@ impl Core {
         password: &str,
         session_name: &str,
     ) -> Result<Value, OpError> {
+        // Nobody signs in to a Demo; every visitor arrives (ADR 0052).
+        self.refuse_in_a_demo()?;
         let secret = link
             .strip_prefix("/invite/")
             .filter(|s| !s.is_empty())
@@ -710,6 +716,8 @@ impl Core {
         password: &str,
         session_name: &str,
     ) -> Result<Value, OpError> {
+        // Nobody signs in to a Demo; every visitor arrives (ADR 0052).
+        self.refuse_in_a_demo()?;
         let secret = link
             .strip_prefix("/recover/")
             .filter(|s| !s.is_empty())

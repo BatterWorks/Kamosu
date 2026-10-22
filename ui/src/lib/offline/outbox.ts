@@ -876,12 +876,27 @@ export class Outbox implements Keeping {
 			}
 			const kept = this.#read();
 			let id = kept.photographs[name];
+			// Dropped in a Demo already: not sent again.
+			if (id === '') continue;
 			if (!id) {
 				const picture = await this.#world.pictures.read(name);
 				// Gone from the phone — its storage cleared — so there is nothing
 				// left to send, and a name pointing at nothing is refused.
 				if (!picture) continue;
-				id = await this.#world.upload(picture);
+				try {
+					id = await this.#world.upload(picture);
+				} catch (error) {
+					// A Demo keeps no photograph (#403). The picture is left out
+					// and the rest of the write is sent, so the cooking's note
+					// is never thrown away with it. Named by nothing, it is still
+					// drawn from the phone until the phone is level, and then
+					// forgotten with the others.
+					if (!(error instanceof OperationError) || error.reason !== 'demo') throw error;
+					const now = this.#read();
+					now.photographs[name] = '';
+					this.#write(now);
+					continue;
+				}
 				const now = this.#read();
 				now.photographs[name] = id;
 				this.#write(now);

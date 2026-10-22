@@ -40,6 +40,7 @@
 			authenticate: async () => {},
 			signInWithPasskey: async () => 'declined',
 			readyPasskey: () => {},
+			arrive: async () => {},
 		},
 		upload = async () => {
 			throw new Error('this test sent a file without giving an uploader');

@@ -46,6 +46,9 @@ pub fn instance_status(
         // there (#370). The public address is no secret: every Share Link
         // carries it.
         "passkey_origin": core.passkey_place().ok().map(|place| place.origin_text()),
+        // A Demo's visitor arrives rather than signs in (ADR 0052), and the
+        // interface asks here which of the two it is doing.
+        "demo": core.is_demo(),
     }))
 }
 

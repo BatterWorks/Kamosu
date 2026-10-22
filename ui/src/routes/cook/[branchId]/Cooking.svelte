@@ -132,6 +132,8 @@
 	let discarded = $state(false);
 	/** A photograph that could not be kept, even on the phone. */
 	let photoFailed = $state(false);
+	/** A photograph taken in a Demo, which will not be kept (#403). */
+	let photoInDemo = $state(false);
 
 	/** How much is being cooked is being asked (#109). */
 	let asking = $state(false);
@@ -676,9 +678,10 @@
 		if (!attempt || !picture) return;
 		const id = attempt.id;
 		try {
-			const photographs = await photographCooking(kamosu, keeping, id, picture);
-			if (attempt?.id === id) attempt = { ...attempt, photographs };
+			const taken = await photographCooking(kamosu, keeping, id, picture);
+			if (attempt?.id === id) attempt = { ...attempt, photographs: taken.photographs };
 			photoFailed = false;
+			photoInDemo = taken.inADemo;
 		} catch (error) {
 			if (!(error instanceof OperationError) && !(error instanceof DOMException)) throw error;
 			photoFailed = true;
@@ -1097,6 +1100,8 @@
 						<p class="pb-2 text-read text-cook-ink-2" role="alert">
 							{room.wide ? m.cook_photo_failed_device() : m.cook_photo_failed()}
 						</p>
+					{:else if photoInDemo}
+						<p class="pb-2 text-read text-cook-ink-2" role="status">{m.cook_photo_demo()}</p>
 					{/if}
 					<!--
 				A change of how much made with no network (#77): the phone holds

@@ -21,6 +21,11 @@ export interface AuthClient {
 	 * close to a tap, and a round trip in between can be too long.
 	 */
 	readyPasskey(): void;
+	/**
+	 * Arrive in a Demo as its visitor, with no name and no password (ADR
+	 * 0052). Refused on any instance that is not a Demo.
+	 */
+	arrive(sessionName: string): Promise<void>;
 }
 
 const KEY = Symbol('auth');
@@ -125,8 +130,14 @@ async function signInWithPasskey(sessionName: string): Promise<'signed-in' | 'de
 	return 'signed-in';
 }
 
+async function arrive(sessionName: string): Promise<void> {
+	await post('/auth/demo', { session_name: sessionName });
+	sessionBegan();
+}
+
 export const realAuth = (): AuthClient => ({
 	authenticate: (mode, input) => watched(reach(mode, input)),
 	signInWithPasskey: (sessionName) => watched(signInWithPasskey(sessionName)),
 	readyPasskey,
+	arrive: (sessionName) => watched(arrive(sessionName)),
 });

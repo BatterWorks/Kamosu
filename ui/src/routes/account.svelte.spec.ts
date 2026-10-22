@@ -21,6 +21,7 @@ describe('the account screen', () => {
 				setup_complete: false,
 				password_minimum: 15,
 				passkey_origin: null,
+				demo: false,
 			},
 		});
 
@@ -37,6 +38,7 @@ describe('the account screen', () => {
 				setup_complete: true,
 				password_minimum: 15,
 				passkey_origin: null,
+				demo: false,
 			},
 		});
 
@@ -55,7 +57,13 @@ describe('the account screen', () => {
 			instance_status: () =>
 				++asked === 1
 					? { refuse: 'unauthorized', message: 'this Credential does not name anyone' }
-					: { version: '0.1.0', setup_complete: true, password_minimum: 15, passkey_origin: null },
+					: {
+							version: '0.1.0',
+							setup_complete: true,
+							password_minimum: 15,
+							passkey_origin: null,
+							demo: false,
+						},
 		});
 
 		expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
@@ -98,7 +106,13 @@ describe('the account screen', () => {
 			instance_status: () =>
 				++asked === 1
 					? { refuse: 'internal', message: 'the database is unreadable' }
-					: { version: '0.1.0', setup_complete: true, password_minimum: 15, passkey_origin: null },
+					: {
+							version: '0.1.0',
+							setup_complete: true,
+							password_minimum: 15,
+							passkey_origin: null,
+							demo: false,
+						},
 		});
 
 		await user.click(await screen.findByRole('button', { name: 'Try again' }));
@@ -139,12 +153,14 @@ describe('the account screen', () => {
 							setup_complete: true,
 							password_minimum: 15,
 							passkey_origin: null,
+							demo: false,
 						},
 					}).client,
 					auth: {
 						authenticate,
 						signInWithPasskey: async () => 'declined' as const,
 						readyPasskey: () => {},
+						arrive: async () => {},
 					},
 				},
 			});
@@ -184,12 +200,14 @@ describe('the account screen', () => {
 							setup_complete: setupComplete,
 							password_minimum: 15,
 							passkey_origin: null,
+							demo: false,
 						},
 					}).client,
 					auth: {
 						authenticate,
 						signInWithPasskey: async () => 'declined' as const,
 						readyPasskey: () => {},
+						arrive: async () => {},
 					},
 				},
 			});
@@ -294,12 +312,14 @@ describe('the account screen', () => {
 							setup_complete: true,
 							password_minimum: 15,
 							passkey_origin: null,
+							demo: false,
 						},
 					}).client,
 					auth: {
 						authenticate,
 						signInWithPasskey: async () => 'declined' as const,
 						readyPasskey: () => {},
+						arrive: async () => {},
 					},
 				},
 			});
@@ -430,9 +450,15 @@ describe('logging in with a passkey (#370)', () => {
 						setup_complete: true,
 						password_minimum: 15,
 						passkey_origin: passkeyOrigin,
+						demo: false,
 					},
 				}).client,
-				auth: { authenticate: async () => {}, signInWithPasskey, readyPasskey },
+				auth: {
+					authenticate: async () => {},
+					signInWithPasskey,
+					readyPasskey,
+					arrive: async () => {},
+				},
 			},
 		});
 	}
@@ -516,5 +542,85 @@ describe('logging in with a passkey (#370)', () => {
 		expect(await screen.findByRole('alert')).toHaveTextContent(
 			'That passkey isn’t one this Kamosu knows. Log in with your password, then add it again in Settings.',
 		);
+	});
+});
+
+// A Demo's visitor arrives rather than signs in (ADR 0052, #403).
+describe('the account screen in a Demo', () => {
+	const user = userEvent.setup();
+
+	function inADemo(arrive: AuthClient['arrive']) {
+		const authenticate = vi.fn<AuthClient['authenticate']>(async () => {});
+		render(Harness, {
+			props: {
+				component: Account,
+				client: standIn({
+					instance_status: {
+						version: '0.1.0',
+						setup_complete: true,
+						password_minimum: 15,
+						passkey_origin: null,
+						demo: true,
+					},
+				}).client,
+				auth: {
+					authenticate,
+					signInWithPasskey: async () => 'declined' as const,
+					readyPasskey: () => {},
+					arrive,
+				},
+			},
+		});
+		return authenticate;
+	}
+
+	it('lets the visitor in with no form, naming the Session for the device', async () => {
+		const arrive = vi.fn<AuthClient['arrive']>(async () => {});
+		const authenticate = inADemo(arrive);
+
+		await vi.waitFor(() => expect(arrive).toHaveBeenCalledTimes(1));
+		expect(arrive.mock.calls[0][0]).toEqual(expect.any(String));
+		expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+		expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+		expect(authenticate).not.toHaveBeenCalled();
+	});
+
+	it('says why it could not let the visitor in, and asks again when told to', async () => {
+		const arrive = vi.fn<AuthClient['arrive']>(async () => {
+			throw new OperationError(
+				'authentication',
+				'bad_request',
+				'This demo has nobody to let you in as.',
+			);
+		});
+		inADemo(arrive);
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'This demo has nobody to let you in as.',
+		);
+		expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+		await user.click(screen.getByRole('button', { name: 'Try again' }));
+		expect(arrive).toHaveBeenCalledTimes(2);
+	});
+
+	it('waits out a crowd arriving at once and comes in after', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		try {
+			let asked = 0;
+			const arrive = vi.fn<AuthClient['arrive']>(async () => {
+				if (++asked === 1)
+					throw new OperationError('authentication', 'busy', 'Many people are arriving.', {
+						retryAfterSeconds: 3,
+					});
+			});
+			inADemo(arrive);
+
+			await vi.waitFor(() => expect(arrive).toHaveBeenCalledTimes(1));
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+			await vi.advanceTimersByTimeAsync(3000);
+			await vi.waitFor(() => expect(arrive).toHaveBeenCalledTimes(2));
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

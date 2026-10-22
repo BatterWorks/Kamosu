@@ -363,6 +363,7 @@ describe('Home', () => {
 				setup_complete: true,
 				password_minimum: 15,
 				passkey_origin: null,
+				demo: false,
 			},
 		});
 

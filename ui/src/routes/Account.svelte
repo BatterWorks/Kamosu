@@ -67,6 +67,13 @@
 	});
 
 	let setupComplete = $state<boolean | undefined>(undefined);
+	/**
+	 * This instance is a Demo, whose visitor arrives rather than signs in (ADR
+	 * 0052): no form is drawn at all, whichever link opened this.
+	 */
+	let demo = $state(false);
+	/** Why arriving in the Demo was refused, said in the Core's words. */
+	let arrivalRefused = $state<string | undefined>(undefined);
 	/** The shortest password Kamosu accepts where one is set, as it says (#138). */
 	let passwordMinimum = $state(0);
 	/** Where a passkey signs in, if this instance offers passkeys at all (#370). */
@@ -162,7 +169,9 @@
 					setupComplete = status.setup_complete;
 					passwordMinimum = status.password_minimum;
 					passkeyOrigin = status.passkey_origin;
+					demo = status.demo;
 				}
+				if (status.demo && mine === latestAsk) await arrive(mine);
 				return;
 			} catch (error) {
 				// Anything at all, not refusals alone. Whatever went wrong, the
@@ -170,6 +179,35 @@
 				if (error instanceof OperationError && error.kind === 'unauthorized' && attempt === 0)
 					continue;
 				if (mine === latestAsk) stalled = true;
+				return;
+			}
+		}
+	}
+
+	/**
+	 * Come into a Demo as its visitor. A crowd arriving at once is told to wait,
+	 * and waits here on its own; anything else refused is said, with a button
+	 * to ask again.
+	 */
+	async function arrive(mine: number) {
+		arrivalRefused = undefined;
+		for (;;) {
+			try {
+				await auth.arrive(thisDeviceName());
+				if (mine !== latestAsk) return;
+				heardWhetherSignedIn(true);
+				onSignedIn?.();
+				return;
+			} catch (error) {
+				if (!(error instanceof OperationError)) throw error;
+				if (mine !== latestAsk) return;
+				if (error.kind === 'busy' && error.retryAfterSeconds) {
+					const seconds = error.retryAfterSeconds;
+					await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+					if (mine !== latestAsk) return;
+					continue;
+				}
+				arrivalRefused = error.message;
 				return;
 			}
 		}
@@ -271,6 +309,19 @@
 	</Screen>
 {:else if setupComplete === undefined}
 	<Screen title={m.account_loading()} />
+{:else if demo}
+	<Screen title={m.account_loading()}>
+		{#if arrivalRefused}
+			<p class="text-body text-accent" role="alert">{arrivalRefused}</p>
+			<button
+				type="button"
+				class="min-h-12 w-full rounded-sm bg-accent px-4 font-semibold text-on-accent"
+				onclick={() => arrive(++latestAsk)}
+			>
+				{m.account_try_again()}
+			</button>
+		{/if}
+	</Screen>
 {:else}
 	<Screen title={words.title} blurb={words.blurb}>
 		{@render framing?.before()}

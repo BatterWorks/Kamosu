@@ -11,7 +11,7 @@
  * So a test can lie about the values. It cannot lie about the shape.
  *
  * ```ts
- * const kamosu = standIn({ instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15, passkey_origin: null } });
+ * const kamosu = standIn({ instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15, passkey_origin: null, demo: false } });
  * render(Home, { props: { kamosu: kamosu.client } });
  * ```
  */

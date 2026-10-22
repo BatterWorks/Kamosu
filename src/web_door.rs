@@ -34,6 +34,7 @@ pub fn router(core: Arc<Core>) -> Router {
     let recovery_core = core.clone();
     let passkey_start_core = core.clone();
     let passkey_finish_core = core.clone();
+    let demo_core = core.clone();
     // Credential minting is deliberately outside the Catalogue: it precedes
     // every Operation, then the cookie becomes the Credential the Door carries.
     // Whoever signs in has no Credential yet, so every one of these is read as
@@ -85,6 +86,17 @@ pub fn router(core: Arc<Core>) -> Router {
             post(move |body: Option<Json<Value>>| {
                 let core = passkey_finish_core.clone();
                 async move { respond(authenticate_passkey(&core, body)) }
+            }),
+        )
+        // A Demo's visitor arrives with no password at all (ADR 0052). Only
+        // here, so only a browser at this Door is handed a Session, as a
+        // cookie its pages cannot read. On any other instance the Core
+        // answers that nothing is here.
+        .route(
+            "/auth/demo",
+            post(move |body: Option<Json<Value>>| {
+                let core = demo_core.clone();
+                async move { respond(arrive_in_demo(&core, body)) }
             }),
         )
         .route_layer(middleware::from_fn_with_state(
@@ -385,6 +397,15 @@ fn authenticate_passkey(core: &Core, body: Option<Json<Value>>) -> Result<Value,
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request(TAKES))?;
     core.finish_passkey_sign_in(ceremony_id, credential, session_name)
+}
+
+fn arrive_in_demo(core: &Core, body: Option<Json<Value>>) -> Result<Value, OpError> {
+    let input = body.map(|Json(value)| value).unwrap_or_default();
+    let session_name = input
+        .get("session_name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("arriving takes { session_name }"))?;
+    core.arrive_in_demo(session_name)
 }
 
 fn call_operation(
