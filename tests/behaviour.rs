@@ -40632,3 +40632,468 @@ async fn the_record_keeps_ninety_days_and_the_daily_sweep_takes_the_rest() {
     assert_eq!(app.core.sweep_security_record().unwrap(), 0);
     assert_eq!(record_rows(&own_record(&app, &key)).len(), 1);
 }
+
+// --- A Demo (ADR 0052, #403) -------------------------------------------------
+
+mod a_demo {
+    use super::*;
+
+    /// The writes a Demo lets through. Every other write is refused in a Demo,
+    /// so one let through is added here on purpose or this test fails.
+    const A_DEMOS_WRITES: [&str; 15] = [
+        "add_loose_item",
+        "add_to_shopping_list",
+        "advance_attempt",
+        "decline_promotion",
+        "delete_attempt",
+        "edit_attempt",
+        "empty_shopping_list",
+        "finish_attempt",
+        "note_recipe_opened",
+        "remove_from_shopping_list",
+        "remove_loose_item",
+        "revoke_session",
+        "set_as_cooked",
+        "set_shopping_yield",
+        "start_attempt",
+    ];
+
+    /// What writes nothing and is refused all the same: the start of importing.
+    const A_DEMOS_REFUSED_READS: [&str; 2] = ["read_pasted_recipe", "read_recipe_pdf"];
+
+    #[test]
+    fn a_demo_lets_through_these_writes() {
+        use kamosu::catalogue::{InDemo, OPERATIONS};
+
+        let mut through: Vec<&str> = OPERATIONS
+            .iter()
+            .filter(|op| op.write && op.in_demo != InDemo::Refused)
+            .map(|op| op.name)
+            .collect();
+        through.sort_unstable();
+        assert_eq!(through, A_DEMOS_WRITES);
+
+        let mut refused_reads: Vec<&str> = OPERATIONS
+            .iter()
+            .filter(|op| !op.write && op.in_demo == InDemo::Refused)
+            .map(|op| op.name)
+            .collect();
+        refused_reads.sort_unstable();
+        assert_eq!(refused_reads, A_DEMOS_REFUSED_READS);
+
+        // Signing out is the one let through on the Session in hand alone.
+        let on_the_session: Vec<&str> = OPERATIONS
+            .iter()
+            .filter(|op| op.in_demo == InDemo::OnTheSessionInHand)
+            .map(|op| op.name)
+            .collect();
+        assert_eq!(on_the_session, ["revoke_session"]);
+    }
+
+    /// A Demo as an Operator leaves it: Camille, signed up on an ordinary
+    /// Kamosu with a recipe and a Runner Key, then the same data served as a
+    /// Demo. The ordinary instance is kept, since its data directory is.
+    struct Demo {
+        app: support::TestApp,
+        _before: support::TestApp,
+        _dir: tempfile::TempDir,
+        runner_key: String,
+        access_key: String,
+        recipe: String,
+    }
+
+    fn a_demo_with_camille() -> Demo {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let before = support::spawn_app_in(dir.path());
+        let first = json!({
+            "name": kamosu::core::DEMO_VISITOR,
+            "password": "a password nobody in a Demo types",
+            "session_name": "setting the Demo up",
+        });
+        let created = before.post_auth_response("/auth/first-person", &first.to_string());
+        assert_eq!(created.status, 200, "{}", created.text());
+        let session = support::session_cookie_secret(&created);
+        let body: Value = serde_json::from_str(&created.text()).unwrap();
+        let camille = body["result"]["person"]["id"].as_str().unwrap();
+        let access_key = before
+            .core
+            .mint_access_key(camille, "an agent from before", false)
+            .unwrap()
+            .secret;
+        let (status, recipe) = before.post_op(
+            "create_recipe",
+            Some(&session),
+            &json!({
+                "title": "Tarte Tatin",
+                "ingredients": [
+                    { "kind": "ingredient", "text": "6 pommes" },
+                    { "kind": "ingredient", "text": "100 g de sucre" },
+                ],
+                "steps": [
+                    { "kind": "step", "text": "Caraméliser le sucre" },
+                    { "kind": "step", "text": "Ranger les pommes" },
+                ],
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{recipe}");
+        let (runner_key, _) = super::runner_key(&before, &session, "a Runner from before");
+        let app = support::spawn_demo_in(dir.path());
+        Demo {
+            app,
+            _before: before,
+            _dir: dir,
+            runner_key,
+            access_key,
+            recipe: recipe["result"]["branch_id"].as_str().unwrap().to_string(),
+        }
+    }
+
+    /// A visitor arriving, as the interface does: the Session's id and Secret.
+    fn arrive(app: &support::TestApp) -> (String, String) {
+        let arrived = app.post_auth_response(
+            "/auth/demo",
+            &json!({ "session_name": "a visitor's phone" }).to_string(),
+        );
+        assert_eq!(arrived.status, 200, "{}", arrived.text());
+        let secret = support::session_cookie_secret(&arrived);
+        let body: Value = serde_json::from_str(&arrived.text()).unwrap();
+        assert_eq!(body["result"].get("_session_secret"), None, "{body}");
+        let id = body["result"]["session_id"].as_str().unwrap().to_string();
+        (id, secret)
+    }
+
+    fn op(app: &support::TestApp, name: &str, key: &str, input: Value) -> (u16, Value) {
+        app.post_op(name, Some(key), &input.to_string())
+    }
+
+    fn assert_refused_as_a_demo(status: u16, answer: &Value, what: &str) {
+        assert_eq!(status, 400, "{what}: {answer}");
+        assert_eq!(answer["error"]["reason"], json!("demo"), "{what}: {answer}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_visitor_arrives_as_camille_with_no_password() {
+        let demo = a_demo_with_camille();
+        let (status, said) = demo.app.post_op("instance_status", None, "{}");
+        assert_eq!(status, 200, "{said}");
+        assert_eq!(said["result"]["demo"], json!(true), "{said}");
+
+        let (session_id, visitor) = arrive(&demo.app);
+        let (status, person) = op(&demo.app, "get_person", &visitor, json!({}));
+        assert_eq!(status, 200, "{person}");
+        assert_eq!(person["result"]["name"], json!(kamosu::core::DEMO_VISITOR));
+        // Camille is an Operator, so the Operator's screens open.
+        let (status, accounts) = op(&demo.app, "list_accounts", &visitor, json!({}));
+        assert_eq!(status, 200, "{accounts}");
+
+        // The Security Record says how the visitor came in.
+        let (status, record) = op(&demo.app, "list_security_record", &visitor, json!({}));
+        assert_eq!(status, 200, "{record}");
+        assert!(
+            record.to_string().contains(r#""how":"demo""#),
+            "an arrival is a sign-in by the Demo: {record}"
+        );
+
+        // A second arrival is a new Session of its own.
+        let (other_id, _) = arrive(&demo.app);
+        assert_ne!(other_id, session_id);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_instance_that_is_no_demo_offers_no_way_in_without_signing_in() {
+        let app = support::spawn_app();
+        let (session, _) = super::operator_signed_in(&app);
+        let (status, said) = app.post_op("instance_status", None, "{}");
+        assert_eq!(status, 200, "{said}");
+        assert_eq!(said["result"]["demo"], json!(false), "{said}");
+
+        let refused = app.post_auth_response(
+            "/auth/demo",
+            &json!({ "session_name": "a stranger" }).to_string(),
+        );
+        assert_eq!(refused.status, 404, "{}", refused.text());
+        assert_eq!(refused.header("set-cookie"), None);
+        // Nothing was minted: the only Session is the Operator's own.
+        let (_, sessions) = op(&app, "list_sessions", &session, json!({}));
+        assert_eq!(
+            sessions["result"]["sessions"].as_array().map(Vec::len),
+            Some(1),
+            "{sessions}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_demo_with_nobody_to_let_in_says_so() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app = support::spawn_demo_in(dir.path());
+        let (status, refused) = app.post_auth(
+            "/auth/demo",
+            &json!({ "session_name": "too early" }).to_string(),
+        );
+        assert_eq!(status, 400, "{refused}");
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .is_some_and(|said| said.contains(kamosu::core::DEMO_VISITOR)),
+            "{refused}"
+        );
+    }
+
+    /// Every Operation the mark refuses is refused at both Doors with the
+    /// same sentence, the two readers included, before its input is read.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn every_operation_a_demo_refuses_is_refused_at_both_doors() {
+        use kamosu::catalogue::{InDemo, OPERATIONS, Permission};
+
+        let demo = a_demo_with_camille();
+        let (_, visitor) = arrive(&demo.app);
+        let sentence = kamosu::core::refused_in_demo().message;
+        let mut refused = 0;
+        for op in OPERATIONS.iter().filter(|op| op.in_demo == InDemo::Refused) {
+            // A Runner's own are asked with the Runner Key minted before.
+            let key = if op.permission == Permission::Runner {
+                &demo.runner_key
+            } else {
+                &visitor
+            };
+            let (status, answer) = demo.app.post_op(op.name, Some(key), "{}");
+            assert_refused_as_a_demo(status, &answer, op.name);
+            assert_eq!(answer["error"]["message"], json!(sentence), "{}", op.name);
+
+            let call = json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": { "name": op.name, "arguments": {} },
+            });
+            let (status, answer) = demo.app.post_mcp(&call.to_string(), Some(key));
+            assert_eq!(status, 200, "{}: {answer}", op.name);
+            assert_eq!(
+                answer["result"]["isError"],
+                json!(true),
+                "{}: {answer}",
+                op.name
+            );
+            assert_eq!(
+                answer["result"]["content"][0]["text"],
+                json!(sentence),
+                "{}: {answer}",
+                op.name
+            );
+            refused += 1;
+        }
+        assert!(refused > 80, "only {refused} refused");
+
+        // The MCP door lists none of them.
+        let listed = super::mcp_tool_names(&demo.app, &visitor);
+        assert!(listed.iter().any(|name| name == "get_recipe"), "{listed:?}");
+        assert!(
+            listed.iter().any(|name| name == "start_attempt"),
+            "{listed:?}"
+        );
+        for name in ["create_recipe", "read_pasted_recipe", "mint_access_key"] {
+            assert!(!listed.iter().any(|listed| listed == name), "{name}");
+        }
+    }
+
+    /// Cooking and shopping save, and so do noting a recipe opened and
+    /// signing out.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cooking_and_shopping_save_in_a_demo() {
+        let demo = a_demo_with_camille();
+        let app = &demo.app;
+        let (session_id, visitor) = arrive(app);
+        let recipe = json!({ "branch_id": demo.recipe });
+        let ok = |name: &str, input: Value| {
+            let (status, answer) = op(app, name, &visitor, input);
+            assert_eq!(status, 200, "{name}: {answer}");
+            answer["result"].clone()
+        };
+
+        ok("note_recipe_opened", recipe.clone());
+        let attempt = ok("start_attempt", recipe.clone())["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let at = |more: Value| {
+            let mut input = json!({ "attempt_id": attempt });
+            input
+                .as_object_mut()
+                .unwrap()
+                .extend(more.as_object().unwrap().clone());
+            input
+        };
+        ok("advance_attempt", at(json!({ "current_step_index": 1 })));
+        ok("edit_attempt", at(json!({ "note": "Moins de sucre." })));
+        ok(
+            "set_as_cooked",
+            at(json!({ "as_cooked": {
+                "title": "Tarte Tatin",
+                "ingredients": [
+                    { "kind": "ingredient", "text": "6 pommes" },
+                    { "kind": "ingredient", "text": "80 g de sucre" },
+                ],
+                "steps": [
+                    { "kind": "step", "text": "Caraméliser le sucre" },
+                    { "kind": "step", "text": "Ranger les pommes" },
+                ],
+            } })),
+        );
+        ok("finish_attempt", at(json!({ "rating": "again" })));
+        ok("decline_promotion", at(json!({ "declined": true })));
+        let diary = ok("list_attempts", json!({}));
+        assert!(
+            diary.to_string().contains("Moins de sucre."),
+            "the note was kept: {diary}"
+        );
+        // Promoting makes a Version, so it is refused.
+        let (status, answer) = op(
+            app,
+            "promote_as_cooked",
+            &visitor,
+            json!({ "attempt_id": attempt, "branch_id": demo.recipe }),
+        );
+        assert_refused_as_a_demo(status, &answer, "promote_as_cooked");
+
+        let again = ok("start_attempt", recipe.clone())["id"].clone();
+        ok("delete_attempt", json!({ "attempt_id": again }));
+
+        ok("add_to_shopping_list", recipe.clone());
+        ok("set_shopping_yield", recipe.clone());
+        let list = ok("add_loose_item", json!({ "text": "Crème fraîche" }));
+        assert!(list.to_string().contains("Crème fraîche"), "{list}");
+        let item = list.to_string();
+        let item_id = item
+            .split('"')
+            .find(|part| part.starts_with("i_"))
+            .expect("the loose item's id")
+            .to_string();
+        ok("remove_loose_item", json!({ "item_id": item_id }));
+        ok("remove_from_shopping_list", recipe.clone());
+        ok("add_to_shopping_list", recipe.clone());
+        ok("empty_shopping_list", json!({}));
+
+        let signed_out = ok("revoke_session", json!({ "session_id": session_id }));
+        assert_eq!(signed_out["current"], json!(true), "{signed_out}");
+        let (status, _) = op(app, "get_person", &visitor, json!({}));
+        assert_eq!(status, 401);
+    }
+
+    /// Every visitor is Camille, so the Sessions list holds them all; ending
+    /// one that is not your own is refused.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_visitor_may_end_their_own_session_and_no_other() {
+        let demo = a_demo_with_camille();
+        let (mine, visitor) = arrive(&demo.app);
+        let (theirs, other) = arrive(&demo.app);
+
+        let (status, answer) = op(
+            &demo.app,
+            "revoke_session",
+            &visitor,
+            json!({ "session_id": theirs }),
+        );
+        assert_refused_as_a_demo(status, &answer, "ending another's Session");
+        let (status, answer) = op(&demo.app, "get_person", &other, json!({}));
+        assert_eq!(status, 200, "still signed in: {answer}");
+
+        // An Access Key has no Session in hand, so it ends none.
+        let (status, answer) = op(
+            &demo.app,
+            "revoke_session",
+            &demo.access_key,
+            json!({ "session_id": mine }),
+        );
+        assert_refused_as_a_demo(status, &answer, "ending a Session with a Key");
+
+        let (status, answer) = op(
+            &demo.app,
+            "revoke_session",
+            &visitor,
+            json!({ "session_id": mine }),
+        );
+        assert_eq!(status, 200, "{answer}");
+    }
+
+    /// A Job left waiting from before the instance became a Demo does not
+    /// run inside it when its Operation is one a Demo refuses.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_job_waiting_from_before_does_not_run_in_a_demo() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let before = support::spawn_app_in(dir.path());
+        let (_, operator) = super::operator_signed_in(&before);
+        before
+            .core
+            .db()
+            .with_conn(|conn| {
+                conn.execute(
+                    "INSERT INTO jobs (id, person_id, read_only, via_access_key, operation, input)
+                     VALUES ('j_waiting', ?1, 0, 0, 'take_backup', '{}')",
+                    rusqlite::params![operator],
+                )
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+            })
+            .expect("a waiting Job");
+        let demo = support::spawn_demo_in(dir.path());
+        let (status, error): (String, Option<String>) = demo
+            .core
+            .db()
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT status, error FROM jobs WHERE id = 'j_waiting'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        assert_eq!(status, "failed");
+        assert_eq!(error, Some(kamosu::core::refused_in_demo().message));
+    }
+
+    /// The routes outside the Catalogue refuse too: storing a file, every
+    /// way of signing in, and handing over a Backup.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_routes_outside_the_catalogue_refuse_in_a_demo() {
+        let demo = a_demo_with_camille();
+        let (_, visitor) = arrive(&demo.app);
+
+        for path in ["/api/photographs", "/api/uploads"] {
+            let (status, answer) =
+                demo.app
+                    .post_bytes(path, Some(&visitor), "image/jpeg", b"not even a picture");
+            assert_refused_as_a_demo(status, &answer, path);
+        }
+
+        let signing_in = json!({
+            "name": kamosu::core::DEMO_VISITOR,
+            "password": "a password nobody in a Demo types",
+            "session_name": "a stranger",
+            "link": "/invite/anything",
+            "ceremony_id": "anything",
+            "credential": "{}",
+        })
+        .to_string();
+        for path in [
+            "/auth/first-person",
+            "/auth/login",
+            "/auth/invite",
+            "/auth/recover",
+            "/auth/passkey/start",
+            "/auth/passkey/finish",
+        ] {
+            let (status, answer) = demo.app.post_auth(path, &signing_in);
+            assert_refused_as_a_demo(status, &answer, path);
+        }
+
+        let (status, _, body) = demo
+            .app
+            .get_bytes("/api/backups/kamosu-backup.tar.gz", Some(&visitor));
+        let answer: Value = serde_json::from_slice(&body).unwrap();
+        assert_refused_as_a_demo(status, &answer, "a Backup");
+        // Reading what there is still goes through.
+        let (status, listed) = op(&demo.app, "list_backups", &visitor, json!({}));
+        assert_eq!(status, 200, "{listed}");
+    }
+}

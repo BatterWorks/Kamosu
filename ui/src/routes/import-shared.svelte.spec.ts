@@ -97,6 +97,7 @@ function open(options: {
 			setup_complete: true,
 			password_minimum: 15,
 			passkey_origin: null,
+			demo: false,
 		},
 		preview_shared_recipe: { job_id: 'j_preview' },
 		import_bundle: { job_id: 'j_import' },
@@ -115,6 +116,7 @@ function open(options: {
 				authenticate,
 				signInWithPasskey: async () => 'declined' as const,
 				readyPasskey: () => {},
+				arrive: async () => {},
 			},
 			link: options.link === undefined ? LINK : options.link,
 			origin: ORIGIN,
@@ -495,7 +497,12 @@ describe('the line above a recipe imported from a Share Link', () => {
 		render(ImportSharedTestHarness, {
 			props: {
 				client: standIn({}).client,
-				auth: { authenticate: vi.fn(), signInWithPasskey: vi.fn(), readyPasskey: vi.fn() },
+				auth: {
+					authenticate: vi.fn(),
+					signInWithPasskey: vi.fn(),
+					readyPasskey: vi.fn(),
+					arrive: vi.fn(),
+				},
 				link: null,
 				origin: ORIGIN,
 				leave: vi.fn(),
@@ -522,7 +529,12 @@ describe('the line above a recipe imported from a Share Link', () => {
 		render(ImportSharedTestHarness, {
 			props: {
 				client: standIn({}).client,
-				auth: { authenticate: vi.fn(), signInWithPasskey: vi.fn(), readyPasskey: vi.fn() },
+				auth: {
+					authenticate: vi.fn(),
+					signInWithPasskey: vi.fn(),
+					readyPasskey: vi.fn(),
+					arrive: vi.fn(),
+				},
 				link: null,
 				origin: ORIGIN,
 				leave: vi.fn(),

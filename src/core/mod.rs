@@ -40,7 +40,7 @@ use sha2::{Digest, Sha256};
 
 use crate::backups;
 use crate::bundles;
-use crate::catalogue::{self, JobKey, JobLane, Kind, Permission};
+use crate::catalogue::{self, InDemo, JobKey, JobLane, Kind, Permission};
 use crate::crouton;
 use crate::db::Db;
 use crate::fingerprint::{canonical_json, stored_version};
@@ -55,6 +55,7 @@ mod accounts;
 mod carrying_bundles;
 mod cookbooks;
 mod cooking;
+mod demo;
 mod imports;
 mod keeping_backups;
 mod keeping_photographs;
@@ -79,6 +80,7 @@ mod translation;
 pub use accounts::*;
 use cookbooks::*;
 pub use cooking::*;
+pub use demo::{DEMO_VISITOR, Mode, refused_in_demo};
 pub use imports::*;
 use keeping_backups::*;
 use keeping_photographs::*;
@@ -342,6 +344,10 @@ impl Invocation {
 /// carry slow work (ADR 0032): one for members, one depth-one lane for strangers.
 pub struct Core {
     db: Arc<Db>,
+    /// Whether this instance is a Demo (ADR 0052), for the life of the Core.
+    mode: Mode,
+    /// The visitors who arrived in the last minute, in a Demo (#403).
+    arrivals: demo::Arrivals,
     lanes: jobs::Lanes,
     /// Meaning Search, which on most instances is an empty slot and stays one
     /// (ADR 0029). Nothing branches on that outside the two places that must:
@@ -388,6 +394,8 @@ impl Core {
         ));
         Core {
             db,
+            mode: Mode::Ordinary,
+            arrivals: Default::default(),
             lanes,
             meaning,
             passwords: accounts::Passwords::default(),
@@ -406,13 +414,26 @@ impl Core {
     /// The lanes exist from the moment the instance serves — and anything a
     /// previous process left behind is recovered before the first answer goes out.
     pub fn start(db: Arc<Db>) -> Arc<Core> {
+        Core::start_as(db, Mode::Ordinary)
+    }
+
+    /// Start as `start` does, as a Demo or not. A Demo takes no Backups: it
+    /// holds nothing worth keeping, and puts its library back every day.
+    pub fn start_as(db: Arc<Db>, mode: Mode) -> Arc<Core> {
         let (lanes, receivers) = jobs::lanes();
+        if mode == Mode::Demo
+            && let Err(err) = demo::fail_waiting_jobs_a_demo_refuses(&db)
+        {
+            tracing::warn!("cannot fail the Jobs a Demo refuses: {err}");
+        }
         jobs::recover_at_startup(&db, &lanes);
         let meaning = Arc::new(crate::meaning::MeaningSearch::new(
             db.data_dir().to_path_buf(),
         ));
         let core = Core {
             db,
+            mode,
+            arrivals: Default::default(),
             lanes,
             meaning,
             passwords: accounts::Passwords::default(),
@@ -430,7 +451,9 @@ impl Core {
         jobs::spawn_workers(core.clone(), receivers);
         spawn_orphan_sweep(core.clone());
         spawn_meaning_search(core.clone());
-        spawn_backups(core.clone());
+        if mode == Mode::Ordinary {
+            spawn_backups(core.clone());
+        }
         spawn_hold_watch(core.clone());
         spawn_crowd_watch(core.clone());
         core
@@ -534,6 +557,26 @@ impl Core {
                      never by an Access Key",
                     op.name
                 )));
+            }
+        }
+
+        // A Demo refuses what a stranger could misuse (ADR 0052), whoever
+        // asks, by the mark on the declaration. Before the shape is checked,
+        // since a refused Operation's input is nobody's business.
+        if self.is_demo() {
+            let in_hand = match &asker {
+                Asker::Person(caller) => caller.session_id.as_deref(),
+                Asker::Nobody | Asker::Runner(_) => None,
+            };
+            let goes_through = match op.in_demo {
+                InDemo::GoesThrough => true,
+                InDemo::Refused => false,
+                InDemo::OnTheSessionInHand => {
+                    in_hand.is_some() && input.get("session_id").and_then(Value::as_str) == in_hand
+                }
+            };
+            if !goes_through {
+                return Err(refused_in_demo());
             }
         }
 
@@ -857,6 +900,12 @@ impl Core {
                     op.permission == Permission::Runner
                         || (read_only && op.write)
                         || (is_access_key && op.session_only)
+                        // A Demo lists none it refuses. One that goes through
+                        // on the Session in hand is no Key's to call.
+                        || (self.is_demo() && op.in_demo == InDemo::Refused)
+                        || (self.is_demo()
+                            && is_access_key
+                            && op.in_demo == InDemo::OnTheSessionInHand)
                 };
                 !left_out
             })
@@ -885,8 +934,11 @@ impl Core {
 
     /// The same resolution, additionally refusing a read-only Access Key — the
     /// out-of-band equivalent of a Catalogue Operation declared `write: true`.
+    /// A Demo refuses it, as it refuses every write it was not told to let
+    /// through (ADR 0052).
     pub fn authenticate_for_write(&self, secret: Option<&str>) -> Result<Caller, OpError> {
         let caller = self.authenticate(secret)?;
+        self.refuse_in_a_demo()?;
         if caller.read_only {
             return Err(OpError::unauthorized(
                 "this route writes, and this Credential is a read-only Access Key",
@@ -910,6 +962,8 @@ impl Core {
             OpError::unauthorized("this route requires a Credential naming a Person")
         })?;
         let caller = self.resolve_person(secret)?;
+        // Nobody stores a Photograph in a Demo, a cooking's included (#403).
+        self.refuse_in_a_demo()?;
         if let Some(job_id) = &caller.job_id {
             let upload = catalogue::find("upload_photograph")
                 .ok_or_else(|| OpError::internal("upload_photograph is not declared"))?;
@@ -934,6 +988,9 @@ impl Core {
     /// (GLOSSARY.md, "Operator") and nobody else's.
     pub fn authenticate_for_operator(&self, secret: Option<&str>) -> Result<Caller, OpError> {
         let caller = self.authenticate(secret)?;
+        // A Demo takes no Backups, and one left from before it was a Demo
+        // holds what came before (ADR 0052).
+        self.refuse_in_a_demo()?;
         if !caller.is_operator {
             return Err(OpError::unauthorized(
                 "this route requires a Credential naming an Operator",

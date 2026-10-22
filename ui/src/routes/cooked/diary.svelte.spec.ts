@@ -255,6 +255,13 @@ describe('the cooking diary', () => {
 			{
 				list_attempts: { attempts: [entry({ photographs: ['p_plate'] })] },
 				edit_attempt: attempt({ photographs: ['p_plate', 'local:0000000000000001'] }),
+				instance_status: {
+					version: '0.1.0',
+					setup_complete: true,
+					password_minimum: 15,
+					passkey_origin: null,
+					demo: false,
+				},
 			},
 			keeping,
 		);
@@ -511,6 +518,36 @@ describe('putting a cooking’s picture on the recipe', () => {
 	});
 });
 
+describe('a photograph added in a Demo (#403)', () => {
+	it('stands where it would go, saying the demo keeps none', async () => {
+		renderScreen(
+			Cooked,
+			{
+				list_attempts: { attempts: [entry({ photographs: ['p_plate'] })] },
+				edit_attempt: attempt({ photographs: ['p_plate'] }),
+				instance_status: {
+					version: '0.1.0',
+					setup_complete: true,
+					password_minimum: 15,
+					passkey_origin: null,
+					demo: true,
+				},
+			},
+			keepingForTests(),
+		);
+		await fireEvent.click(await screen.findByRole('button', { name: /Miso Soup/ }));
+		await fireEvent.change(screen.getByLabelText('Add another'), {
+			target: { files: [new File(['a plate'], 'plate.jpg', { type: 'image/jpeg' })] },
+		});
+		await vi.waitFor(() =>
+			expect(screen.getAllByAltText('A photograph of this cooking')).toHaveLength(2),
+		);
+		expect(
+			await screen.findByText(/This is a demo, so photographs aren't kept/),
+		).toBeInTheDocument();
+	});
+});
+
 describe('dropping a photograph on a cooking (#205)', () => {
 	async function opened() {
 		const drawn = renderScreen(
@@ -518,6 +555,13 @@ describe('dropping a photograph on a cooking (#205)', () => {
 			{
 				list_attempts: { attempts: [entry({ photographs: ['p_plate'] })] },
 				edit_attempt: attempt({ photographs: ['p_plate', 'local:0000000000000001'] }),
+				instance_status: {
+					version: '0.1.0',
+					setup_complete: true,
+					password_minimum: 15,
+					passkey_origin: null,
+					demo: false,
+				},
 			},
 			keepingForTests(),
 		);

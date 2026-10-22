@@ -17,6 +17,7 @@ describe('the Catalogue-derived stand-in', () => {
 				setup_complete: true,
 				password_minimum: 15,
 				passkey_origin: null,
+				demo: false,
 			},
 		});
 		await expect(kamosu.client.instanceStatus()).resolves.toEqual({
@@ -24,6 +25,7 @@ describe('the Catalogue-derived stand-in', () => {
 			setup_complete: true,
 			password_minimum: 15,
 			passkey_origin: null,
+			demo: false,
 		});
 	});
 
@@ -34,6 +36,7 @@ describe('the Catalogue-derived stand-in', () => {
 				setup_complete: true,
 				password_minimum: 15,
 				passkey_origin: null,
+				demo: false,
 			} as never,
 		});
 		await expect(kamosu.client.instanceStatus()).rejects.toThrow(/missing version/);
@@ -46,6 +49,7 @@ describe('the Catalogue-derived stand-in', () => {
 				setup_complete: true,
 				password_minimum: 15,
 				passkey_origin: null,
+				demo: false,
 				kitchen: 'home',
 			} as never,
 		});
@@ -59,6 +63,7 @@ describe('the Catalogue-derived stand-in', () => {
 				setup_complete: 'yes',
 				password_minimum: 15,
 				passkey_origin: null,
+				demo: false,
 			} as never,
 		});
 		await expect(kamosu.client.instanceStatus()).rejects.toThrow(/declares boolean/);

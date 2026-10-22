@@ -412,6 +412,8 @@ impl Core {
     /// the passkeys it holds for this address, and says whose the one chosen
     /// is. Anybody may ask, so what is held for it is bounded (`Ceremonies`).
     pub fn start_passkey_sign_in(&self) -> Result<Value, OpError> {
+        // Nobody signs in to a Demo; every visitor arrives (ADR 0052).
+        self.refuse_in_a_demo()?;
         let place = self.passkey_place().map_err(unavailable)?;
         let (challenge, state) = place
             .webauthn()?
@@ -435,6 +437,8 @@ impl Core {
         credential: &str,
         session_name: &str,
     ) -> Result<Value, OpError> {
+        // Nobody signs in to a Demo; every visitor arrives (ADR 0052).
+        self.refuse_in_a_demo()?;
         let session_name = required_text(session_name, "session_name")?;
         let credential: PublicKeyCredential = serde_json::from_str(credential).map_err(|e| {
             OpError::bad_request(format!("that is not a passkey a device sent: {e}"))

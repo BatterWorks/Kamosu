@@ -1,7 +1,7 @@
-//! The four environment variables, all optional, all read once before serving
+//! The five environment variables, all optional, all read once before serving
 //! (spec #33). A default install cannot be misconfigured: with nothing set,
-//! Kamosu binds `0.0.0.0:5266`, stores everything under `/data`, and logs at
-//! `info`.
+//! Kamosu binds `0.0.0.0:5266`, stores everything under `/data`, logs at
+//! `info`, and is nobody's Demo.
 //!
 //! Port 5266 is deliberate (2026-08-26): it spells KAMO on a phone keypad, is
 //! unassigned by IANA, sits outside Linux's ephemeral range, and avoids the
@@ -23,6 +23,12 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// Log filter for `tracing_subscriber` (`KAMOSU_LOG`, default `info`).
     pub log_filter: String,
+    /// Whether this instance is a public Demo (ADR 0052): anyone arrives
+    /// signed in, and only cooking and shopping save. Named for what it costs
+    /// (`KAMOSU_DEMO_ERASES_LIBRARY_DAILY`), since a Demo puts its library
+    /// back every day (#404), and on only when the variable says `true`: a
+    /// typo leaves a library alone rather than erasing it.
+    pub demo: bool,
 }
 
 impl Config {
@@ -32,6 +38,7 @@ impl Config {
             port: env_num("KAMOSU_PORT", 5266),
             data_dir: PathBuf::from(env_str("KAMOSU_DATA_DIR", "/data")),
             log_filter: env_str("KAMOSU_LOG", "info"),
+            demo: env_str(DEMO, "false").trim().eq_ignore_ascii_case("true"),
         }
     }
 
@@ -39,6 +46,9 @@ impl Config {
         format!("{}:{}", self.address, self.port)
     }
 }
+
+/// The variable that turns an instance into a Demo.
+pub const DEMO: &str = "KAMOSU_DEMO_ERASES_LIBRARY_DAILY";
 
 fn env_str(key: &str, default: &str) -> String {
     match std::env::var(key) {

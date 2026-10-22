@@ -13,8 +13,9 @@ services:
       # user 65532, so the folder must belong to that user:
       #   mkdir -p kamosu-data && sudo chown 65532:65532 kamosu-data
       - ./kamosu-data:/data
-    # No environment variable is required. Four exist, all optional:
-    # KAMOSU_ADDRESS, KAMOSU_PORT, KAMOSU_DATA_DIR and KAMOSU_LOG.
+    # No environment variable is required. Five exist, all optional:
+    # KAMOSU_ADDRESS, KAMOSU_PORT, KAMOSU_DATA_DIR, KAMOSU_LOG and
+    # KAMOSU_DEMO_ERASES_LIBRARY_DAILY, which is for a public demo only.
     restart: unless-stopped
     # Declared here as well as in the image, because a Podman-built image
     # (the podman-* tags) carries no HEALTHCHECK. The distroless runtime has

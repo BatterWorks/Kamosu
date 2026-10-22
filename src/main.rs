@@ -111,9 +111,16 @@ fn serve(config: Config) {
     runtime.block_on(async move {
         // Core::start opens the database and starts the Job lanes: slow work is
         // carried from the moment the instance serves.
-        let core = Core::start(Arc::new(
-            db::Db::open(&config.data_dir).unwrap_or_else(|e| panic!("cannot open /data: {e}")),
-        ));
+        let core = Core::start_as(
+            Arc::new(
+                db::Db::open(&config.data_dir).unwrap_or_else(|e| panic!("cannot open /data: {e}")),
+            ),
+            if config.demo {
+                kamosu::core::Mode::Demo
+            } else {
+                kamosu::core::Mode::Ordinary
+            },
+        );
         let app = kamosu::app(core);
 
         let listener = tokio::net::TcpListener::bind(config.bind_address())
@@ -125,6 +132,13 @@ fn serve(config: Config) {
             config.bind_address(),
             config.data_dir.display()
         );
+        if config.demo {
+            println!(
+                "This is a Demo ({}): anyone arrives signed in, and only cooking and \
+                 shopping save",
+                kamosu::config::DEMO
+            );
+        }
 
         kamosu::admission::serve(
             listener,

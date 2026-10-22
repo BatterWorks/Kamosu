@@ -84,6 +84,7 @@ function account(more: Answers) {
 			setup_complete: true,
 			password_minimum: 15,
 			passkey_origin: null,
+			demo: false,
 		},
 		list_sessions: {
 			sessions: [

@@ -30,6 +30,7 @@ function open(answers: Answers) {
 			setup_complete: true,
 			password_minimum: 15,
 			passkey_origin: null,
+			demo: false,
 		},
 		...answers,
 	});
@@ -43,6 +44,7 @@ function open(answers: Answers) {
 				authenticate,
 				signInWithPasskey: async () => 'declined' as const,
 				readyPasskey: () => {},
+				arrive: async () => {},
 			},
 		},
 	});
