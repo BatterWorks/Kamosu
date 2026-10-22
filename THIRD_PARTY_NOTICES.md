@@ -33,6 +33,15 @@ text on Share Cards and Sheets. No glyph is altered. Neither family declares a
 Reserved Font Name, so the subsets keep their names.
 [`assets/fonts/README.md`](assets/fonts/README.md) says how they are made.
 
+### The Sample Library's pictures
+
+A Demo's Sample Library, in [`sample-library/`](sample-library/), carries
+photographs and four recipe cards from Wikimedia Commons, under CC0, the public
+domain, CC BY and CC BY-SA. [`sample-library/CREDITS.md`](sample-library/CREDITS.md)
+names the author, the licence and the source page of each, and what was changed.
+The frames of the recipes read from videos belong to the videos' creators, whom
+each recipe's Source names and links.
+
 ---
 
 ## In the agent image

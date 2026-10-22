@@ -41314,6 +41314,7 @@ mod a_demos_sample_library {
         // A visitor makes a mess with what a Demo lets through.
         let visitor = arrive(&app);
         let tarte = the_tarte(&app, &visitor);
+        let cooked_as_built = op(&app, "list_attempts", &visitor, json!({}));
         let cooking = op(
             &app,
             "start_attempt",
@@ -41373,7 +41374,15 @@ mod a_demos_sample_library {
         // same address, their Session still theirs, their mess gone.
         assert_eq!(the_tarte(&app, &visitor), tarte);
         let attempts = op(&app, "list_attempts", &visitor, json!({}));
-        assert_eq!(attempts["attempts"], json!([]), "{attempts}");
+        assert!(
+            !attempts.to_string().contains("Burnt the caramel."),
+            "{attempts}"
+        );
+        assert_eq!(
+            attempts["attempts"].as_array().map(Vec::len),
+            cooked_as_built["attempts"].as_array().map(Vec::len),
+            "the story's own cookings, and no other"
+        );
         let shopping = op(&app, "get_shopping_list", &visitor, json!({}));
         assert!(!shopping.to_string().contains("lemons"), "{shopping}");
         // And the published key goes on working.
