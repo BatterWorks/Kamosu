@@ -273,6 +273,7 @@ export const CHECKLIST_ITEMS = [
 	'The Docker Hub overviews of Kamosu and its agent describe what shipped.',
 	'No ADR is contradicted by what shipped, and `GLOSSARY.md` holds every word the release added.',
 	"A library left by the previous release opens under this one: every migration runs, and no Version's id differs from the fingerprint of its content.",
+	"A Demo's Sample Library builds on this release: `just sample-library` prints what it holds.",
 	'`just audit` is clean, or each advisory it reports is recorded in `deny.toml` with its reasoning.',
 	"The agent image has Alpine's security fixes: if the Alpine release it is built on has published fixes for a package in it since it was last built, the bump branch edits the rebuild line in `agent-image/Dockerfile`.",
 	'`THIRD_PARTY_NOTICES.md` matches the dependencies that ship.',

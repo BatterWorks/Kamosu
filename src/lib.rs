@@ -37,6 +37,7 @@ pub mod pdf;
 pub mod photographs;
 pub mod reading;
 pub mod runner;
+pub mod sample_library;
 pub mod schema;
 pub mod share_card;
 pub mod share_page;

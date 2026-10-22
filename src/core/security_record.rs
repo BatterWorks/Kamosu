@@ -163,7 +163,15 @@ impl Core {
     /// has already happened; the line is written either way.
     pub(super) fn note(&self, event: Event) {
         let at = self.note_row(&event);
-        log_line(&event, &at, 1);
+        self.say(&event, &at, 1);
+    }
+
+    /// Say an event in the log, as every one the Security Record notes is,
+    /// unless this Core keeps quiet (#404).
+    fn say(&self, event: &Event, at: &str, count: i64) {
+        if self.says_security_lines {
+            log_line(event, at, count);
+        }
     }
 
     /// Write an event's row alone, and answer the time it was written at.
@@ -223,7 +231,7 @@ impl Core {
             tracing::warn!(target: "kamosu::security", %error, "cannot write to the security record");
             in_a_row
         });
-        log_line(&event, &at, count);
+        self.say(&event, &at, count);
     }
 
     /// A sign-in refused because the line for password work was full: a
@@ -290,7 +298,7 @@ impl Core {
             tracing::warn!(target: "kamosu::security", %error, "cannot write to the security record");
             refusals
         });
-        log_line(&event, &at, count);
+        self.say(&event, &at, count);
     }
 
     /// A password-work refusal is a crowd at the sign-in when the line was

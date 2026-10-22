@@ -52,6 +52,16 @@ pub fn spawn_demo_in(data_dir: &std::path::Path) -> TestApp {
     spawn_app_within(data_dir, kamosu::admission::Limits::KAMOSU, Mode::Demo)
 }
 
+/// Start a real Kamosu as a Demo the way the binary starts one (#404): its
+/// Sample Library built and poured in before it serves, in a data directory
+/// the caller may have filled first with an ordinary Kamosu.
+#[allow(dead_code)]
+pub fn spawn_sample_demo_in(data_dir: &std::path::Path) -> TestApp {
+    let db = Arc::new(db::Db::open(data_dir).expect("database"));
+    let core = kamosu::core::start_demo(db).expect("a Demo with its Sample Library");
+    serve_core(core, kamosu::admission::Limits::KAMOSU)
+}
+
 /// Start a real Kamosu held to shorter limits than a running instance's, for
 /// a test of a deadline it would otherwise wait minutes for (#368).
 #[allow(dead_code)]
@@ -74,6 +84,11 @@ fn spawn_app_within(
     // never drive an arrangement nobody runs. A Core with its Job lanes
     // started sits underneath it.
     let core = Core::start_as(db, mode);
+    serve_core(core, limits)
+}
+
+/// Serve a started Core at both Doors on an ephemeral port.
+fn serve_core(core: Arc<Core>, limits: kamosu::admission::Limits) -> TestApp {
     let app = kamosu::app_within(core.clone(), limits);
 
     let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");

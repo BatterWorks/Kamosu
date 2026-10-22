@@ -1,0 +1,239 @@
+{
+  "steps": [
+    { "days_ago": 60, "at": "18:02", "first_person": "Camille" },
+    {
+      "days_ago": 60,
+      "at": "18:04",
+      "as": "Camille",
+      "op": "set_public_address",
+      "input": { "public_address": "https://demo.kamosu.example" }
+    },
+    { "days_ago": 60, "at": "18:10", "as": "Camille", "person": "Mum" },
+    {
+      "days_ago": 60,
+      "at": "18:12",
+      "as": "Camille",
+      "op": "create_kitchen",
+      "input": { "name": "Family" },
+      "keep": "family"
+    },
+    {
+      "days_ago": 60,
+      "at": "18:13",
+      "as": "Camille",
+      "op": "invite_to_kitchen",
+      "input": { "kitchen_id": { "$ref": "family.id" } },
+      "keep": "mum_invite"
+    },
+    {
+      "days_ago": 60,
+      "at": "18:20",
+      "as": "Mum",
+      "op": "accept_kitchen_invite",
+      "input": { "secret": { "$ref": "mum_invite.secret" } }
+    },
+    {
+      "days_ago": 58,
+      "at": "19:40",
+      "as": "Camille",
+      "photograph": "photographs/tarte-tatin.png",
+      "keep": "tarte_photo"
+    },
+    {
+      "days_ago": 58,
+      "at": "19:45",
+      "as": "Camille",
+      "op": "create_recipe",
+      "input": {
+        "title": "Tarte Tatin",
+        "yield": { "amount": "8", "noun": "slices" },
+        "prep_time_minutes": 30,
+        "cook_time_minutes": 45,
+        "main_photo": { "$ref": "tarte_photo.photograph_id" },
+        "ingredients": [
+          { "kind": "ingredient", "text": "6 firm apples" },
+          { "kind": "ingredient", "text": "100 g sugar" },
+          { "kind": "ingredient", "text": "60 g butter" },
+          { "kind": "ingredient", "text": "1 sheet puff pastry" }
+        ],
+        "steps": [
+          { "kind": "step", "text": "Heat the oven to 200 °C." },
+          {
+            "kind": "step",
+            "text": "Melt the sugar in an ovenproof pan until it turns amber, then stir in the butter."
+          },
+          { "kind": "step", "text": "Peel and quarter the apples and pack them into the caramel." },
+          {
+            "kind": "step",
+            "text": "Lay the pastry over the apples, tuck in the edges and bake for 30 minutes."
+          },
+          { "kind": "step", "text": "Rest 5 minutes, then turn out onto a plate." }
+        ]
+      },
+      "keep": "tarte"
+    },
+    {
+      "days_ago": 41,
+      "at": "20:15",
+      "as": "Camille",
+      "op": "edit_recipe",
+      "input": {
+        "branch_id": { "$ref": "tarte.branch_id" },
+        "change_note": "Less sugar, and a pinch of salt in the caramel.",
+        "ingredients": [
+          { "kind": "ingredient", "text": "6 firm apples" },
+          { "kind": "ingredient", "text": "80 g sugar" },
+          { "kind": "ingredient", "text": "60 g salted butter" },
+          { "kind": "ingredient", "text": "1 sheet puff pastry" }
+        ]
+      }
+    },
+    {
+      "days_ago": 30,
+      "at": "11:05",
+      "as": "Mum",
+      "op": "create_recipe",
+      "input": {
+        "title": "Weeknight Tomato Pasta",
+        "yield": { "amount": "4", "noun": "servings" },
+        "cook_time_minutes": 25,
+        "ingredients": [
+          { "kind": "ingredient", "text": "400 g spaghetti" },
+          { "kind": "ingredient", "text": "2 tbsp olive oil" },
+          { "kind": "ingredient", "text": "3 cloves garlic, sliced" },
+          { "kind": "ingredient", "text": "1 can (400 g) chopped tomatoes" },
+          { "kind": "ingredient", "text": "1 handful basil" }
+        ],
+        "steps": [
+          { "kind": "step", "text": "Cook the spaghetti in well-salted water." },
+          { "kind": "step", "text": "Warm the garlic in the olive oil without letting it brown." },
+          { "kind": "step", "text": "Add the tomatoes and simmer 10 minutes." },
+          { "kind": "step", "text": "Toss in the pasta and the basil." }
+        ]
+      },
+      "keep": "pasta"
+    },
+    {
+      "days_ago": 21,
+      "at": "09:30",
+      "as": "Camille",
+      "op": "start_translation",
+      "input": {
+        "branch_id": { "$ref": "tarte.branch_id" },
+        "language": "fr",
+        "title": "Tarte Tatin",
+        "yield": { "amount": "8", "noun": "parts" },
+        "ingredients": [
+          { "kind": "ingredient", "text": "6 pommes fermes" },
+          { "kind": "ingredient", "text": "80 g de sucre" },
+          { "kind": "ingredient", "text": "60 g de beurre demi-sel" },
+          { "kind": "ingredient", "text": "1 pâte feuilletée" }
+        ],
+        "steps": [
+          { "kind": "step", "text": "Préchauffer le four à 200 °C." },
+          {
+            "kind": "step",
+            "text": "Faire fondre le sucre dans une poêle allant au four jusqu'à un caramel ambré, puis ajouter le beurre."
+          },
+          {
+            "kind": "step",
+            "text": "Peler les pommes, les couper en quartiers et les serrer dans le caramel."
+          },
+          {
+            "kind": "step",
+            "text": "Poser la pâte sur les pommes, rentrer les bords et cuire 30 minutes."
+          },
+          { "kind": "step", "text": "Laisser reposer 5 minutes, puis retourner sur un plat." }
+        ]
+      }
+    },
+    {
+      "days_ago": 9,
+      "at": "18:40",
+      "as": "Mum",
+      "op": "start_attempt",
+      "input": { "branch_id": { "$ref": "pasta.branch_id" } },
+      "keep": "pasta_cooking"
+    },
+    {
+      "days_ago": 9,
+      "at": "19:20",
+      "as": "Mum",
+      "op": "finish_attempt",
+      "input": {
+        "attempt_id": { "$ref": "pasta_cooking.id" },
+        "rating": "tweak",
+        "note": "A pinch of chilli with the garlic next time."
+      }
+    },
+    {
+      "days_ago": 6,
+      "at": "17:55",
+      "as": "Camille",
+      "op": "share_recipe",
+      "input": { "branch_id": { "$ref": "tarte.branch_id" } }
+    },
+    {
+      "days_ago": 4,
+      "at": "21:10",
+      "as": "Camille",
+      "op": "invite_to_kitchen",
+      "input": { "kitchen_id": { "$ref": "family.id" } }
+    },
+    { "days_ago": 4, "at": "21:30", "as": "Camille", "op": "invite_to_cookbook" },
+    {
+      "days_ago": 3,
+      "at": "08:00",
+      "as": "Camille",
+      "op": "mint_runner_key",
+      "input": { "name": "The kitchen's agent" },
+      "keep": "runner"
+    },
+    {
+      "days_ago": 3,
+      "at": "12:30",
+      "as": "Camille",
+      "op": "import_by_agent",
+      "input": {
+        "text": "Lemony vinaigrette, my go-to. Shake 3 tbsp olive oil, 1 tbsp lemon juice, 1 tsp Dijon mustard and a pinch of salt in a jar."
+      }
+    },
+    {
+      "days_ago": 3,
+      "at": "12:31",
+      "as": { "$ref": "runner.secret" },
+      "op": "ask_for_work",
+      "input": { "runner_version": { "$ref": "kamosu.version" }, "ask": "the vinaigrette" },
+      "keep": "work"
+    },
+    {
+      "days_ago": 3,
+      "at": "12:32",
+      "as": { "$ref": "work.job.job_key" },
+      "op": "create_recipe",
+      "input": {
+        "title": "Lemon Vinaigrette",
+        "yield": { "amount": "1", "noun": "small jar" },
+        "ingredients": [
+          { "kind": "ingredient", "text": "3 tbsp olive oil" },
+          { "kind": "ingredient", "text": "1 tbsp lemon juice" },
+          { "kind": "ingredient", "text": "1 tsp Dijon mustard" },
+          { "kind": "ingredient", "text": "1 pinch salt" }
+        ],
+        "steps": [{ "kind": "step", "text": "Shake everything together in a jar." }]
+      }
+    },
+    {
+      "days_ago": 3,
+      "at": "12:33",
+      "as": { "$ref": "runner.secret" },
+      "op": "report_on_job",
+      "input": {
+        "job_id": { "$ref": "work.job.job_id" },
+        "outcome": "completed",
+        "report": { "unsure": ["The text never says how long the vinaigrette keeps."] }
+      }
+    },
+    { "days_ago": 1, "at": "07:00", "as": "Camille", "published_key": "An agent of your own" }
+  ]
+}

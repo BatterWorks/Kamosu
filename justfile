@@ -322,6 +322,13 @@ release-publish version:
 release-library folder:
     KAMOSU_RELEASE_LIBRARY="$(realpath '{{folder}}')" cargo test --test release_library -- --ignored --nocapture
 
+# The release checklist's Sample Library check: build a Demo's Sample Library
+# from this tree's story into .dev/sample-library, as a Demo does when it
+# starts, and print what it holds and how long it took. Fails if any step of
+# the story does (#404).
+sample-library:
+    cargo run --quiet -- sample-library .dev/sample-library
+
 # ── Checking the code ─────────────────────────────────────────────────────────
 
 # Run everything: the behaviour suite, and the interface's screen-seam tests.
