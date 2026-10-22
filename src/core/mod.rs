@@ -83,6 +83,7 @@ pub use cooking::*;
 pub use demo::{DEMO_ACCESS_KEY, DEMO_VISITOR, Mode, refused_in_demo, start_demo};
 pub use imports::*;
 use keeping_backups::*;
+pub(crate) use keeping_photographs::photograph_seen_by;
 use keeping_photographs::*;
 use kitchens::*;
 pub use originals::*;

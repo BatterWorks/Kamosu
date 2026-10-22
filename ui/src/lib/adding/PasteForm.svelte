@@ -16,6 +16,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import WatchExamples from './WatchExamples.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import type { ReadPastedRecipeOutput } from '$lib/api/catalogue';
 	import { readPasted } from '$lib/pasted.svelte';
@@ -39,6 +40,8 @@
 	async function read() {
 		reading = true;
 		failed = undefined;
+		// A new try: what the last one said, a Demo's refusal included, goes.
+		adding.quiet();
 		try {
 			if (await adding.readRunner()) {
 				if (text.trim() === '') failed = m.write_paste_nothing();
@@ -75,6 +78,7 @@
 	{#if failed ?? (adding.runner ? adding.failed : undefined)}
 		<p class="text-read text-support" role="alert">{failed ?? adding.failed}</p>
 	{/if}
+	<WatchExamples {adding} />
 	<button
 		class="min-h-12 rounded-sm bg-accent px-4 py-3 font-display text-body text-on-accent disabled:opacity-60"
 		disabled={reading || adding.working !== null}

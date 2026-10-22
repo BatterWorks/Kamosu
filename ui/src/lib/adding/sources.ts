@@ -27,6 +27,9 @@ export const ICON: Record<Source, string> = {
 	video: 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM10 9v6l5-3z',
 };
 
+/** A play button in a circle: watching the agent read an example, in a Demo (#406). */
+export const WATCH_ICON = 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM10 8.5v7l6-3.5z';
+
 /** What an act says offline instead of its label (#76). */
 export const WAITS_FOR_SERVER: Record<Source, () => string> = {
 	link: m.offline_waits_import_link,

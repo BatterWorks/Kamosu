@@ -472,7 +472,11 @@ fn no_such_photograph() -> OpError {
 /// row rather than a parse of the whole library. What `instr` finds is then
 /// confirmed field by field: a hash typed into a recipe's words is not a
 /// picture the recipe shows.
-fn photograph_seen_by(conn: &Connection, person_id: &str, hash: &str) -> Result<bool, OpError> {
+pub(crate) fn photograph_seen_by(
+    conn: &Connection,
+    person_id: &str,
+    hash: &str,
+) -> Result<bool, OpError> {
     let failed = |e: rusqlite::Error| OpError::internal(format!("cannot read who sees it: {e}"));
 
     let uploaded: bool = conn

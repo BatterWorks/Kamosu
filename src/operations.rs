@@ -2465,6 +2465,14 @@ pub fn runner_status(
     core.runner_status()
 }
 
+pub fn list_replays(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    Ok(json!({ "replays": core.replays() }))
+}
+
 pub fn get_house_notes(
     core: &Core,
     _invocation: &Invocation,

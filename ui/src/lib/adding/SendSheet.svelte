@@ -12,6 +12,9 @@
 	Send hands it over (`Adding.send`) and lands on its Import, which says
 	whether it waits or is being read (#277). Back puts it away and sends
 	nothing. Pasted text has no sheet: it is already in view in its own box.
+
+	A Demo refuses it, and says so under Send with a button to the examples
+	it replays instead (#406, R1).
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
@@ -20,6 +23,7 @@
 	import { Online } from '$lib/offline/device.svelte';
 	import type { Adding, ToSend } from './adding.svelte';
 	import { ICON, waitsForServer } from './sources';
+	import WatchExamples from './WatchExamples.svelte';
 
 	interface Props {
 		adding: Adding;
@@ -121,7 +125,7 @@
 		<p class="mt-1 text-read break-words text-ink-2">{chosen.file.name}</p>
 	{/if}
 	<p class="mt-3 text-read">{m.send_said()}</p>
-	{#if adding.failed}
+	{#if adding.failed && !adding.refusedInDemo}
 		<p class="mt-2 text-read text-support" role="alert">{adding.failed}</p>
 	{/if}
 	<NeedsServer
@@ -132,6 +136,11 @@
 		shapeClass="mt-4 block w-full p-4 text-center font-display text-body disabled:opacity-60"
 		lookClass="bg-accent text-on-accent"
 	/>
+	<!-- A Demo's refusal says itself under Send, with the way on to the examples (#406). -->
+	{#if adding.refusedInDemo}
+		<p class="mt-2 text-read text-support" role="alert">{adding.failed}</p>
+		<WatchExamples {adding} />
+	{/if}
 	<button
 		type="button"
 		class="mt-2 block w-full border border-rule p-4 text-center font-display text-body text-ink-2 disabled:opacity-40"

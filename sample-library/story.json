@@ -5980,6 +5980,13 @@
     },
     {
       "days_ago": 22,
+      "at": "10:00",
+      "as": "Camille",
+      "photograph": "originals/orange-cake-card.jpg",
+      "keep": "replay_card"
+    },
+    {
+      "days_ago": 22,
       "at": "10:01",
       "as": { "$ref": "runner.secret" },
       "op": "ask_for_work",
@@ -7591,6 +7598,13 @@
     },
     {
       "days_ago": 8,
+      "at": "10:00",
+      "as": "Camille",
+      "photograph": "originals/the-weekend-table-ratatouille.jpg",
+      "keep": "replay_page"
+    },
+    {
+      "days_ago": 8,
       "at": "10:01",
       "as": { "$ref": "runner.secret" },
       "op": "ask_for_work",
@@ -8017,6 +8031,28 @@
       "at": "07:00",
       "as": "Camille",
       "published_key": "An agent of your own"
+    }
+  ],
+  "replays": [
+    {
+      "kind": "picture",
+      "job": { "$ref": "hand_orange_cake.job_id" },
+      "picture": { "$ref": "replay_card.photograph_id" }
+    },
+    {
+      "kind": "pdf",
+      "job": { "$ref": "hand_ratatouille.job_id" },
+      "picture": { "$ref": "replay_page.photograph_id" }
+    },
+    {
+      "kind": "pasted_text",
+      "job": { "$ref": "hand_shakshuka.job_id" },
+      "excerpt": "THE Shakshuka That Got Me Through Last Winter (Easy, One Pan!!) Posted by Margot · 14 min read · 212 comments. Okay friends. Pull up a chair, because before we get to the eggs I need to tell you about the worst February of my life."
+    },
+    {
+      "kind": "video",
+      "job": { "$ref": "hand_pizza.job_id" },
+      "picture": { "$ref": "jph_pizza_step_01.photograph_id" }
     }
   ]
 }

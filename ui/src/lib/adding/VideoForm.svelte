@@ -9,6 +9,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import WatchExamples from './WatchExamples.svelte';
 	import type { Adding } from './adding.svelte';
 
 	interface Props {
@@ -41,6 +42,7 @@
 	{#if adding.failed}
 		<p class="text-read text-support" role="alert">{adding.failed}</p>
 	{/if}
+	<WatchExamples {adding} />
 	<button
 		class="min-h-12 rounded-sm bg-accent px-4 py-3 font-display text-body text-on-accent disabled:opacity-60"
 		disabled={adding.working !== null}

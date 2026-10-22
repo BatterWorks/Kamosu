@@ -119,8 +119,28 @@ About 40 recipes, written as the Demo's cooks would have written them:
   Cookbook Invite, and the pizza dough's cooking with changed lines that were
   never kept.
 
-The Replay's examples (#406) are the agent's Jobs on these, each one asked for by
-Camille or Lucía, whose Jobs a visitor can read:
+## The examples a Demo replays
+
+A Demo shows the agent at work on four of the agent's Jobs (#406). The story
+names them in `replays`, after its steps, and the + offers them in that order:
+
+```json
+{ "kind": "picture", "job": { "$ref": "hand_orange_cake.job_id" }, "picture": { "$ref": "replay_card.photograph_id" } }
+```
+
+- `kind` is what was handed over: `picture`, `pdf`, `pasted_text` or `video`.
+  The interface names each example by its kind, and says which dish it holds.
+  So an example swapped for another dish changes the words in
+  `ui/messages/` too.
+- `job` is the `job_id` of an `import_by_agent` step. Its Job is one Camille
+  asked for, whose agent made its recipe. A visitor is Camille, so it is one
+  they can read. Anything else fails the build.
+- `picture` is a Photograph of what was handed over, or `excerpt` is the
+  top of the text as a visitor would want to see it: the post's own title
+  and first lines, not the site's menu above them. One of the two, never
+  both. The card and the
+  magazine page are uploaded as Photographs of their own for this, since an
+  Original is the agent's alone to read.
 
 | Example | What was handed over | Recipe |
 |---|---|---|
@@ -128,8 +148,6 @@ Camille or Lucía, whose Jobs a visitor can read:
 | A blog post, pasted | `originals/sunny-side-shakshuka.txt` | Sunny Side Shakshuka |
 | A magazine page | `originals/the-weekend-table-ratatouille.pdf`, printed from the `.html` beside it | Summer ratatouille, sliced and baked |
 | A YouTube video | the pizza dough's link | Easiest Actually Good Pizza Dough |
-| An Instagram reel | the gâteau au chocolat's link | Gâteau au chocolat à 3 textures |
-| A TikTok | the wet-wet sauce's link | Wet-Wet Sauce |
 
 `CREDITS.md` names who made every picture here that is not the project's own,
 and under which licence. A picture added to the library adds its line there.

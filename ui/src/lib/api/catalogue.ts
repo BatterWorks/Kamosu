@@ -192,6 +192,18 @@ export type RunnerStatusOutput = {
 	last_asked_at: string | null;
 };
 
+/** List the examples a Demo replays the agent's work on. Each is an agent's Import, ended, which the interface plays through Sent, Waiting and Reading before its Report. Empty on an instance that is no Demo. */
+export type ListReplaysInput = Record<string, never>;
+/** What list_replays answers. */
+export type ListReplaysOutput = {
+	replays: {
+		excerpt: string | null;
+		job_id: string;
+		kind: "picture" | "pdf" | "pasted_text" | "video";
+		photograph_id: string | null;
+	}[];
+};
+
 /** Read the agent's House Notes. They are what an Operator adds to the end of the instructions the agent follows, handed over with every Job. Null when none are written, and the agent follows its own instructions alone. Says who saved them last and when. */
 export type GetHouseNotesInput = Record<string, never>;
 /** What get_house_notes answers. */
@@ -5701,6 +5713,12 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	list_replays: {
+		input: ListReplaysInput;
+		output: ListReplaysOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	get_house_notes: {
 		input: GetHouseNotesInput;
 		output: GetHouseNotesOutput;
@@ -7179,6 +7197,68 @@ export const CATALOGUE = [
 			"required": [
 				"has_runner",
 				"last_asked_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_replays",
+		"summary": "List the examples a Demo replays the agent's work on. Each is an agent's Import, ended, which the interface plays through Sent, Waiting and Reading before its Report. Empty on an instance that is no Demo.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"replays": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"excerpt": {
+								"description": "The start of the text handed over, or null where the example shows a picture.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"job_id": {
+								"description": "The agent's Job, its own Import, read with get_job.",
+								"type": "string"
+							},
+							"kind": {
+								"description": "What was handed to the agent.",
+								"enum": [
+									"picture",
+									"pdf",
+									"pasted_text",
+									"video"
+								]
+							},
+							"photograph_id": {
+								"description": "A Photograph of what was handed over, or null where the example shows its text.",
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"kind",
+							"job_id",
+							"photograph_id",
+							"excerpt"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"replays"
 			],
 			"type": "object"
 		}
@@ -34704,6 +34784,7 @@ export const READS: readonly OperationName[] = [
 	'list_backups',
 	'list_runner_keys',
 	'runner_status',
+	'list_replays',
 	'get_house_notes',
 	'list_instance_security_record',
 	'list_sessions',
@@ -34766,6 +34847,7 @@ export const METHOD_NAMES = {
 	list_runner_keys: 'listRunnerKeys',
 	revoke_runner_key: 'revokeRunnerKey',
 	runner_status: 'runnerStatus',
+	list_replays: 'listReplays',
 	get_house_notes: 'getHouseNotes',
 	set_house_notes: 'setHouseNotes',
 	list_instance_security_record: 'listInstanceSecurityRecord',
@@ -34934,6 +35016,8 @@ export interface KamosuClient {
 	revokeRunnerKey(input: RevokeRunnerKeyInput): Promise<Answer<'revoke_runner_key'>>;
 	/** Read whether this instance has a Runner. Also when one was last heard from, asking for work or renewing its hold on a Job. */
 	runnerStatus(input?: RunnerStatusInput): Promise<Answer<'runner_status'>>;
+	/** List the examples a Demo replays the agent's work on. Each is an agent's Import, ended, which the interface plays through Sent, Waiting and Reading before its Report. Empty on an instance that is no Demo. */
+	listReplays(input?: ListReplaysInput): Promise<Answer<'list_replays'>>;
 	/** Read the agent's House Notes. They are what an Operator adds to the end of the instructions the agent follows, handed over with every Job. Null when none are written, and the agent follows its own instructions alone. Says who saved them last and when. */
 	getHouseNotes(input?: GetHouseNotesInput): Promise<Answer<'get_house_notes'>>;
 	/** Save the agent's House Notes. They replace any there were, up to 4,000 characters. The agent reads them after its own instructions, as the Operator's, and follows them where the two disagree. A Job carries the notes as they stand when a Runner takes it. Blank text takes them away. Kamosu's own agent image follows them; another agent follows them only if it reads `house_notes` from each Job. */
