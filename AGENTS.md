@@ -151,6 +151,7 @@ checklist, the release hook's contract and every refusal.
 just release-prepare <version>   # the bump pull request, its checklist and a draft release; run again after the bump merges, the pull request into main
 just release-publish <version>   # merge, tag, have the hook build the images, publish
 just release-library <folder>    # the checklist's library check: a copy of a real library through every migration
+just sample-library              # the checklist's Demo check: build the Sample Library from sample-library/story.json
 ```
 
 - **Only the maintainer approves a release's title and notes.** Show the draft
@@ -373,9 +374,11 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   accounts.rs       people, logins, Sessions, Access Keys, invites, recovery,
                     changing your own password, a Person's Reading
                     Language, Operator
-  demo.rs           a Demo: the way a visitor arrives, and the refusal
-                    every route outside the Catalogue gives (ADR 0052,
-                    #403)
+  demo.rs           a Demo: the way a visitor arrives, the refusal
+                    every route outside the Catalogue gives, and its
+                    Sample Library poured in at startup and every day
+                    at 04:00 UTC, its dates moved forward (ADR 0052,
+                    #403, #404)
   kitchens.rs       Kitchens, their members, and leaving one: who sees
                     whose recipes (ADR 0041)
   cookbooks.rs      Cookbooks: who may change a recipe, joining and
@@ -467,6 +470,11 @@ src/runner.rs       the Runner: `kamosu runner`, which asks one Kamosu for
                     each, or hands each to an agent at a Unix socket. Its
                     client is its own, apart from the guarded one (ADR 0033,
                     ADR 0048, #274, #317)
+src/sample_library.rs
+                    a Demo's Sample Library built from its story through
+                    the real Operations, by a Core with no Door, each
+                    step moved back to its own day (#404). `kamosu
+                    sample-library` builds it on its own
 src/model_relay.rs  the Runner's model relay: the provider's key the Runner
                     holds, added to the agent's model requests for the
                     length of a Job and sent to one address alone, so the
@@ -508,6 +516,9 @@ ui/                 the Svelte app; ui/src/app.css is the design tokens' source
 ui/tools/           the dev tools `just` runs against the dev instance: sign in,
                     photograph screens, capture and serve a prototype (#216).
                     The two release commands live here too (ADR 0047)
+sample-library/     the story a Demo's Sample Library is built from, and
+                    the photographs it names, embedded in the binary.
+                    Its README says how the story is written (#404)
 agent-image/        the agent beside a Runner, in an Alpine image of its own,
                     which every release publishes as battermanz/kamosu-agent
                     and builds again only when this folder changed:

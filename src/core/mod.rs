@@ -80,7 +80,7 @@ mod translation;
 pub use accounts::*;
 use cookbooks::*;
 pub use cooking::*;
-pub use demo::{DEMO_VISITOR, Mode, refused_in_demo};
+pub use demo::{DEMO_ACCESS_KEY, DEMO_VISITOR, Mode, refused_in_demo, start_demo};
 pub use imports::*;
 use keeping_backups::*;
 use keeping_photographs::*;
@@ -348,6 +348,12 @@ pub struct Core {
     mode: Mode,
     /// The visitors who arrived in the last minute, in a Demo (#403).
     arrivals: demo::Arrivals,
+    /// Whether what the Security Record notes is also said in the log. Not
+    /// by the Core that builds a Demo's Sample Library (#404), whose cooks'
+    /// sign-ins are the story's and thrown away with it.
+    says_security_lines: bool,
+    /// The Sample Library a Demo puts back, once it is built (#404).
+    sample_library: std::sync::OnceLock<crate::sample_library::Built>,
     lanes: jobs::Lanes,
     /// Meaning Search, which on most instances is an empty slot and stays one
     /// (ADR 0029). Nothing branches on that outside the two places that must:
@@ -396,6 +402,8 @@ impl Core {
             db,
             mode: Mode::Ordinary,
             arrivals: Default::default(),
+            says_security_lines: true,
+            sample_library: Default::default(),
             lanes,
             meaning,
             passwords: accounts::Passwords::default(),
@@ -434,6 +442,8 @@ impl Core {
             db,
             mode,
             arrivals: Default::default(),
+            says_security_lines: true,
+            sample_library: Default::default(),
             lanes,
             meaning,
             passwords: accounts::Passwords::default(),
@@ -719,6 +729,11 @@ impl Core {
     /// `operations_listed_to` reads only, so a Door merely listing what a
     /// Key may do never counts as the Key being used.
     fn lookup_credential(&self, hash: &str) -> Result<Option<CredentialLookup>, OpError> {
+        // The key a Demo publishes stays in its library when demo mode goes
+        // off, and its Secret is in the open: it names nobody here then (#404).
+        if !self.is_demo() && hash == hash_secret(DEMO_ACCESS_KEY) {
+            return Ok(None);
+        }
         self.db().with_conn(|conn| {
             conn.query_row(
                 "SELECT access_keys.person_id, access_keys.read_only, 0, people.is_operator AND access_keys.acts_as_operator, access_keys.id, NULL

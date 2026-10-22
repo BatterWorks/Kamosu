@@ -41097,3 +41097,392 @@ mod a_demo {
         assert_eq!(status, 200, "{listed}");
     }
 }
+
+// --- A Demo's Sample Library (ADR 0052, #404) --------------------------------
+
+mod a_demos_sample_library {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    /// What a cleaning leaves as it was, or ends by its own rule, rather than
+    /// putting back: the instance's own, and the Sessions and their record.
+    const NOT_THE_LIBRARY: [&str; 7] = [
+        "meta",
+        "meaning_search",
+        "meaning_vectors",
+        "meaning_nothing_to_embed",
+        "sessions",
+        "security_record",
+        "login_failures",
+    ];
+
+    /// A visitor arriving: their Session's Secret.
+    fn arrive(app: &support::TestApp) -> String {
+        let arrived = app.post_auth_response(
+            "/auth/demo",
+            &json!({ "session_name": "a visitor's phone" }).to_string(),
+        );
+        assert_eq!(arrived.status, 200, "{}", arrived.text());
+        support::session_cookie_secret(&arrived)
+    }
+
+    fn op(app: &support::TestApp, name: &str, key: &str, input: Value) -> Value {
+        let (status, answer) = app.post_op(name, Some(key), &input.to_string());
+        assert_eq!(status, 200, "{name}: {answer}");
+        answer["result"].clone()
+    }
+
+    /// One answer from the instance's own SQLite.
+    fn ask<T: rusqlite::types::FromSql>(app: &support::TestApp, sql: &str) -> T {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.query_row(sql, [], |row| row.get(0))
+                    .map_err(|e| kamosu::OpError::internal(e.to_string()))
+            })
+            .unwrap()
+    }
+
+    fn today(app: &support::TestApp) -> String {
+        ask(app, "SELECT date('now')")
+    }
+
+    /// Whether a value is a time as Kamosu writes one. Read here by hand, not
+    /// by the pattern the cleaning uses, so that a time the cleaning missed
+    /// shows up as one it left unmoved.
+    fn is_a_time(value: &str) -> bool {
+        let bytes = value.as_bytes();
+        bytes.len() >= 20
+            && bytes[..4].iter().all(u8::is_ascii_digit)
+            && bytes[4] == b'-'
+            && bytes[7] == b'-'
+            && bytes[10] == b'T'
+            && bytes[13] == b':'
+            && value.ends_with('Z')
+    }
+
+    /// Every row of the library, table by table and sorted, with every time
+    /// in it moved forward `days`.
+    fn the_library(app: &support::TestApp, days: i64) -> BTreeMap<String, Vec<String>> {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                let failed = |e: rusqlite::Error| kamosu::OpError::internal(e.to_string());
+                let tables: Vec<String> = conn
+                    .prepare(
+                        "SELECT name FROM sqlite_master WHERE type = 'table' \
+                         AND name NOT LIKE 'sqlite_%' ORDER BY name",
+                    )
+                    .and_then(|mut stmt| stmt.query_map([], |row| row.get(0))?.collect())
+                    .map_err(failed)?;
+                let mut library = BTreeMap::new();
+                for table in tables {
+                    if NOT_THE_LIBRARY.contains(&table.as_str()) {
+                        continue;
+                    }
+                    let mut stmt = conn
+                        .prepare(&format!("SELECT * FROM \"{table}\""))
+                        .map_err(failed)?;
+                    let width = stmt.column_count();
+                    let mut rows = Vec::new();
+                    let mut found = stmt.query([]).map_err(failed)?;
+                    while let Some(row) = found.next().map_err(failed)? {
+                        let mut values = Vec::new();
+                        for i in 0..width {
+                            let value: rusqlite::types::Value = row.get(i).map_err(failed)?;
+                            values.push(match value {
+                                rusqlite::types::Value::Text(text) if is_a_time(&text) => conn
+                                    .query_row(
+                                        "SELECT strftime('%Y-%m-%dT%H:%M:%fZ', ?1, ?2)",
+                                        rusqlite::params![text, format!("{days:+} days")],
+                                        |moved| moved.get::<_, String>(0),
+                                    )
+                                    .map_err(failed)?,
+                                other => format!("{other:?}"),
+                            });
+                        }
+                        rows.push(values.join(" | "));
+                    }
+                    rows.sort();
+                    library.insert(table, rows);
+                }
+                Ok(library)
+            })
+            .unwrap()
+    }
+
+    fn versions_off_their_fingerprint(app: &support::TestApp) -> i64 {
+        ask(
+            app,
+            "SELECT COUNT(*) FROM versions WHERE id <> version_fingerprint(content)",
+        )
+    }
+
+    fn the_tarte(app: &support::TestApp, key: &str) -> String {
+        let found = op(
+            app,
+            "search_recipes",
+            key,
+            json!({ "query": "Tarte Tatin" }),
+        );
+        found["recipes"][0]["branch_id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the Sample Library has its Tarte Tatin: {found}"))
+            .to_string()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_demo_starts_with_its_sample_library_dated_before_today() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app = support::spawn_sample_demo_in(dir.path());
+        let visitor = arrive(&app);
+        let person = op(&app, "get_person", &visitor, json!({}));
+        assert_eq!(person["name"], json!(kamosu::core::DEMO_VISITOR));
+
+        // The story's moments, counted back from today: the tarte was made
+        // 58 days ago at 19:45, and the build's own present is nowhere.
+        let tarte = the_tarte(&app, &visitor);
+        let made: String = ask(
+            &app,
+            &format!(
+                "SELECT min(versions.created_at) FROM versions \
+                 JOIN branch_versions ON branch_versions.version_id = versions.id \
+                 WHERE branch_versions.branch_id = '{tarte}'"
+            ),
+        );
+        let fifty_eight_days_ago: String = ask(&app, "SELECT date('now', '-58 days')");
+        assert!(
+            made.starts_with(&format!("{fifty_eight_days_ago}T19:45:00")),
+            "the tarte was made at {made}"
+        );
+        let newest: String = ask(
+            &app,
+            "SELECT max(created_at) FROM versions UNION ALL SELECT 1 LIMIT 1",
+        );
+        assert!(
+            newest < today(&app),
+            "nothing in it is from today: {newest}"
+        );
+        assert_eq!(versions_off_their_fingerprint(&app), 0);
+
+        // Mum, in the Kitchen called Family.
+        let kitchens = op(&app, "list_kitchens", &visitor, json!({}));
+        assert!(
+            kitchens.to_string().contains(r#""name":"Family""#)
+                && kitchens.to_string().contains(r#""name":"Mum""#),
+            "{kitchens}"
+        );
+
+        // The build signed in as its cooks, and none of that is left: the one
+        // Session is the visitor's, and their arrival is all the record says.
+        let sessions = op(&app, "list_sessions", &visitor, json!({}));
+        assert_eq!(
+            sessions["sessions"].as_array().map(Vec::len),
+            Some(1),
+            "{sessions}"
+        );
+        let record: i64 = ask(&app, "SELECT COUNT(*) FROM security_record");
+        assert_eq!(record, 1);
+
+        // The published key reads the library at the MCP door, and writes
+        // nothing.
+        let search = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": "search_recipes", "arguments": { "query": "pasta" } },
+        });
+        let (_, found) = app.post_mcp(&search.to_string(), Some(kamosu::core::DEMO_ACCESS_KEY));
+        assert_eq!(found["result"]["isError"], json!(false), "{found}");
+        assert!(
+            found.to_string().contains("Weeknight Tomato Pasta"),
+            "{found}"
+        );
+        let (status, refused) = app.post_op(
+            "create_recipe",
+            Some(kamosu::core::DEMO_ACCESS_KEY),
+            &json!({ "title": "Graffiti" }).to_string(),
+        );
+        assert_eq!(status, 401, "{refused}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_cleaning_puts_the_library_back_as_built_with_its_dates_moved() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app = support::spawn_sample_demo_in(dir.path());
+        let three_days_on: String = ask(&app, "SELECT date('now', '+3 days')");
+        let as_built_three_days_on = the_library(&app, 3);
+
+        // A visitor makes a mess with what a Demo lets through.
+        let visitor = arrive(&app);
+        let tarte = the_tarte(&app, &visitor);
+        let cooking = op(
+            &app,
+            "start_attempt",
+            &visitor,
+            json!({ "branch_id": tarte }),
+        );
+        op(
+            &app,
+            "finish_attempt",
+            &visitor,
+            json!({ "attempt_id": cooking["id"], "note": "Burnt the caramel." }),
+        );
+        op(
+            &app,
+            "add_loose_item",
+            &visitor,
+            json!({ "text": "lemons" }),
+        );
+        op(
+            &app,
+            "note_recipe_opened",
+            &visitor,
+            json!({ "branch_id": tarte }),
+        );
+        assert_ne!(the_library(&app, 3), as_built_three_days_on);
+        // And files no row names, as the library it replaced would leave.
+        let data = dir.path();
+        let photographs = data.join("photographs");
+        let kept: Vec<_> = std::fs::read_dir(&photographs)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert!(!kept.is_empty(), "the story's photograph is there");
+        std::fs::write(photographs.join("p_left_behind.webp"), b"old").unwrap();
+        std::fs::create_dir_all(data.join("display")).unwrap();
+        std::fs::write(data.join("display/p_left_behind-card.webp"), b"old").unwrap();
+        std::fs::write(data.join("originals/j_left_behind"), b"old").unwrap();
+
+        app.core.put_back_sample_library_on(&three_days_on).unwrap();
+
+        for gone in [
+            "photographs/p_left_behind.webp",
+            "display/p_left_behind-card.webp",
+            "originals/j_left_behind",
+        ] {
+            assert!(!data.join(gone).exists(), "{gone} is named by no row");
+        }
+        for name in &kept {
+            assert!(photographs.join(name).exists(), "{name:?} is the story's");
+        }
+
+        // Every row as it was built, every time three days later, and no
+        // Version under another id.
+        assert_eq!(the_library(&app, 0), as_built_three_days_on);
+        assert_eq!(versions_off_their_fingerprint(&app), 0);
+        // The visitor holding a page noticed nothing: the same recipe at the
+        // same address, their Session still theirs, their mess gone.
+        assert_eq!(the_tarte(&app, &visitor), tarte);
+        let attempts = op(&app, "list_attempts", &visitor, json!({}));
+        assert_eq!(attempts["attempts"], json!([]), "{attempts}");
+        let shopping = op(&app, "get_shopping_list", &visitor, json!({}));
+        assert!(!shopping.to_string().contains("lemons"), "{shopping}");
+        // And the published key goes on working.
+        let (status, _) = app.post_op("get_person", Some(kamosu::core::DEMO_ACCESS_KEY), "{}");
+        assert_eq!(status, 200);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_session_idle_for_a_day_ends_at_the_cleaning() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app = support::spawn_sample_demo_in(dir.path());
+        let idle = arrive(&app);
+        let busy = arrive(&app);
+        let hash = kamosu::core::hash_secret(&idle);
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.execute(
+                    "UPDATE sessions SET \
+                       created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours'), \
+                       last_used_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours') \
+                     WHERE secret_hash = ?1",
+                    [hash],
+                )
+                .map_err(|e| kamosu::OpError::internal(e.to_string()))
+            })
+            .unwrap();
+
+        app.core.put_back_sample_library().unwrap();
+
+        let (status, _) = app.post_op("get_person", Some(&idle), "{}");
+        assert_eq!(status, 401, "a Session idle for a day ends");
+        let (status, _) = app.post_op("get_person", Some(&busy), "{}");
+        assert_eq!(status, 200, "a Session used today goes on");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn whoever_accepted_meaning_search_is_kept_closed_through_every_cleaning() {
+        // The Operator who set the instance up before demo mode went on,
+        // named as the Sample Library's own visitor is, which a closed
+        // account may share.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let before = support::spawn_app_in(dir.path());
+        let first = json!({
+            "name": kamosu::core::DEMO_VISITOR,
+            "password": "a password only its person knows",
+            "session_name": "setting the Demo up",
+        });
+        let created = before.post_auth_response("/auth/first-person", &first.to_string());
+        assert_eq!(created.status, 200, "{}", created.text());
+        let operator = support::session_cookie_secret(&created);
+        let body: Value = serde_json::from_str(&created.text()).unwrap();
+        let operator_id = body["result"]["person"]["id"].as_str().unwrap().to_string();
+        let accepted = op(&before, "accept_meaning_search_terms", &operator, json!({}));
+        assert_eq!(accepted["state"], json!("accepted"));
+        let (status, _) = before.post_op(
+            "set_public_address",
+            Some(&operator),
+            &json!({ "public_address": "https://try.kamosu.example" }).to_string(),
+        );
+        assert_eq!(status, 200);
+
+        let app = support::spawn_sample_demo_in(dir.path());
+        for _ in 0..2 {
+            let visitor = arrive(&app);
+            let person = op(&app, "get_person", &visitor, json!({}));
+            assert_ne!(person["person_id"], json!(operator_id), "{person}");
+            let status = op(&app, "meaning_search_status", &visitor, json!({}));
+            assert_eq!(status["state"], json!("accepted"), "{status}");
+            assert_eq!(status["accepted_by"], json!(operator_id), "{status}");
+            let accounts = op(&app, "list_accounts", &visitor, json!({}));
+            let named: Vec<&Value> = accounts["accounts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|account| account["name"] == json!(kamosu::core::DEMO_VISITOR))
+                .collect();
+            assert_eq!(named.len(), 1, "only the Sample Library's own: {accounts}");
+            // The Operator's own Session went with their account.
+            let (status, _) = app.post_op("get_person", Some(&operator), "{}");
+            assert_eq!(status, 401);
+            // The address the Operator set is the Demo's, not the story's own.
+            let address: Option<String> = ask(&app, "SELECT public_address FROM instance_setup");
+            assert_eq!(address.as_deref(), Some("https://try.kamosu.example"));
+            app.core.put_back_sample_library().unwrap();
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_published_key_names_nobody_once_the_instance_is_no_demo() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let demo = support::spawn_sample_demo_in(dir.path());
+        let (status, _) = demo.post_op("get_person", Some(kamosu::core::DEMO_ACCESS_KEY), "{}");
+        assert_eq!(status, 200);
+
+        // Demo mode turned off: the library stays, and its key opens nothing.
+        let after = support::spawn_app_in(dir.path());
+        let (status, refused) =
+            after.post_op("get_person", Some(kamosu::core::DEMO_ACCESS_KEY), "{}");
+        assert_eq!(status, 401, "{refused}");
+        let call = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": "get_person", "arguments": {} },
+        });
+        let (_, refused) = after.post_mcp(&call.to_string(), Some(kamosu::core::DEMO_ACCESS_KEY));
+        assert_eq!(refused["result"]["isError"], json!(true), "{refused}");
+        assert!(
+            refused.to_string().contains("does not name anyone"),
+            "{refused}"
+        );
+    }
+}

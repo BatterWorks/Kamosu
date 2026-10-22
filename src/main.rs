@@ -58,6 +58,10 @@ enum Command {
         #[arg(last = true)]
         command: Vec<String>,
     },
+    /// Build a Demo's Sample Library into a folder of its own, as a Demo does
+    /// when it starts, and print what it holds and how long it took. Fails if
+    /// any step of the story does. The folder is emptied first.
+    SampleLibrary { folder: std::path::PathBuf },
     /// Read the PDF on standard input and write its text to standard output.
     /// Kamosu starts this itself to read a PDF apart from everything else
     /// (#373); it is no command for a person.
@@ -86,6 +90,7 @@ fn main() {
             std::process::exit(health_check(addr));
         }
         Command::Recover { name } => recover(&config, &name),
+        Command::SampleLibrary { folder } => std::process::exit(sample_library(&folder)),
         Command::ReadPdf => std::process::exit(kamosu::pdf::read_here()),
         Command::Runner {
             kamosu,
@@ -96,6 +101,31 @@ fn main() {
             agent_socket,
             command,
         })),
+    }
+}
+
+fn sample_library(folder: &std::path::Path) -> i32 {
+    let started = std::time::Instant::now();
+    let built = match kamosu::sample_library::build(folder) {
+        Ok(built) => built,
+        Err(err) => {
+            eprintln!("{}", err.to_sentence());
+            return 1;
+        }
+    };
+    match kamosu::sample_library::summary(&built) {
+        Ok(mut summary) => {
+            summary["seconds"] = json!(started.elapsed().as_secs_f64());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&summary).expect("a summary serialises")
+            );
+            0
+        }
+        Err(err) => {
+            eprintln!("{}", err.to_sentence());
+            1
+        }
     }
 }
 
@@ -110,17 +140,17 @@ fn serve(config: Config) {
         .expect("tokio runtime");
     runtime.block_on(async move {
         // Core::start opens the database and starts the Job lanes: slow work is
-        // carried from the moment the instance serves.
-        let core = Core::start_as(
-            Arc::new(
-                db::Db::open(&config.data_dir).unwrap_or_else(|e| panic!("cannot open /data: {e}")),
-            ),
-            if config.demo {
-                kamosu::core::Mode::Demo
-            } else {
-                kamosu::core::Mode::Ordinary
-            },
+        // carried from the moment the instance serves. A Demo has its Sample
+        // Library poured in first, so no visitor arrives before Camille does.
+        let db = Arc::new(
+            db::Db::open(&config.data_dir).unwrap_or_else(|e| panic!("cannot open /data: {e}")),
         );
+        let core = if config.demo {
+            kamosu::core::start_demo(db)
+                .unwrap_or_else(|e| panic!("cannot start the Demo with its Sample Library: {e}"))
+        } else {
+            Core::start(db)
+        };
         let app = kamosu::app(core);
 
         let listener = tokio::net::TcpListener::bind(config.bind_address())

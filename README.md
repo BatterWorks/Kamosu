@@ -393,7 +393,7 @@ No environment variable is required.
 | `KAMOSU_PORT` | `5266` | Port to listen on. |
 | `KAMOSU_DATA_DIR` | `/data` | The folder that holds everything. Inside the container, leave it alone and change the mount instead. |
 | `KAMOSU_LOG` | `info` | Log level, as a `tracing` filter such as `debug` or `kamosu=debug,info`. |
-| `KAMOSU_DEMO_ERASES_LIBRARY_DAILY` | unset | `true` makes this instance a public demo: anyone gets in without a password, and only cooking and shopping save. A demo is built to be thrown away, so never set it on a Kamosu you keep recipes in. |
+| `KAMOSU_DEMO_ERASES_LIBRARY_DAILY` | unset | `true` makes this instance a public demo: anyone gets in without a password, and only cooking and shopping save. It erases the library when it starts and every day at 04:00 UTC, putting its Sample Library in its place, so never set it on a Kamosu you keep recipes in. |
 
 ## Troubleshooting
 
