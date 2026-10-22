@@ -4,7 +4,7 @@ A Demo holds this library (ADR 0052). `story.json` is a story of what its cooks
 did, step by step, and a Demo plays it through Kamosu's real Operations each
 time it starts. Then it pours the result into its own database, at startup and
 every day at 04:00 UTC, with every date moved forward to today. The photographs
-the story names sit beside it, and both are built into the binary.
+and files the story names sit beside it, and all of it is built into the binary.
 
 Build it on its own with `just sample-library`. It prints what the library holds
 and how long it took, and stops at the first step that fails, naming it.
@@ -43,6 +43,14 @@ deeper: `{ "$ref": "tarte.branch_id" }`, `{ "$ref": "work.job.job_key" }`.
 `{ "$ref": "kamosu.version" }` is this Kamosu's own version, which a Runner in
 the story reports when it asks for work.
 
+Two more stand for a file in this folder, so a step can hand a cook's file to
+the agent:
+
+- `{ "$file": "originals/orange-cake-card.jpg" }` is the file's bytes in
+  base64, as `import_by_agent` takes a picture or a PDF in `data`.
+- `{ "$text": "originals/sunny-side-shakshuka.txt" }` is the file's words, as
+  `import_by_agent` takes pasted text in `text`.
+
 ## Time in the story
 
 Every Operation stamps the present. Once a step has run, everything it stamped
@@ -73,4 +81,55 @@ An Import Report comes from a real agent Job:
 3. The Job Key makes the recipe (`create_recipe`).
 4. The Runner Key ends the Job with the agent's report (`report_on_job`).
 
-`story.json` does this once, for the lemon vinaigrette.
+Between the last two, the Job Key uploads the frames or the page's picture
+with a `photograph` step, as an agent sends them to `POST /api/photographs`,
+and corrects the Readings it checked with `set_reading`. A
+Job that cannot be read ends with `outcome` `could_not_be_read` and a `reason`,
+and makes no recipe.
+
+A Job reading a file keeps it as its Original for 30 days after it ends. A
+recipe read from one is read again from it while it is kept, and asks for the
+file again once it is gone. A Demo moves every date forward by whole days, so
+an Original stays as old as the story made it: hand files over in the story's
+last four weeks. A visitor, who is Camille, reads only the Jobs that Camille or
+Lucía asked for, and sees the Read Again card only on their recipes, since it
+is for the recipe's Co-authors.
+
+## What the library holds
+
+About 40 recipes, written as the Demo's cooks would have written them:
+
+- **Camille**, the Operator, a visitor's own self. **Mum** cooks with Camille
+  in the Kitchen called Family. **Lucía**, a friend in a Kitchen of her own,
+  joined her Cookbook to Camille's, so the two write one Cookbook together.
+- Twelve recipes come from a real household library, with their history, the
+  names taken out. The rest were written for the Demo.
+- Twelve the agent read from videos, four each from YouTube, Instagram and
+  TikTok, tagged with their platform. Their photographs are frames of the
+  video, and each recipe's Source links the video and, where the agent found
+  one, names its creator. Four old
+  recipe cards, a magazine page and two pasted texts were read by the agent
+  too. Every one of those recipes, its frames and its Import Report is
+  what Kamosu's own agent made of that source, run through a Runner and
+  copied into the story as it was, the Readings it corrected included. No
+  recipe here comes from behind a paywall.
+- About a third have a Translation into French or Spanish. The wet-wet sauce is
+  a Component of the garlic butter noodles and the wontons.
+- Waiting for a visitor: a Share Link to the Tarte Tatin, a Kitchen Invite, a
+  Cookbook Invite, and the pizza dough's cooking with changed lines that were
+  never kept.
+
+The Replay's examples (#406) are the agent's Jobs on these, each one asked for by
+Camille or Lucía, whose Jobs a visitor can read:
+
+| Example | What was handed over | Recipe |
+|---|---|---|
+| A handwritten card | `originals/orange-cake-card.jpg` | Orange Cake |
+| A blog post, pasted | `originals/sunny-side-shakshuka.txt` | Sunny Side Shakshuka |
+| A magazine page | `originals/the-weekend-table-ratatouille.pdf`, printed from the `.html` beside it | Summer ratatouille, sliced and baked |
+| A YouTube video | the pizza dough's link | Easiest Actually Good Pizza Dough |
+| An Instagram reel | the gâteau au chocolat's link | Gâteau au chocolat à 3 textures |
+| A TikTok | the wet-wet sauce's link | Wet-Wet Sauce |
+
+`CREDITS.md` names who made every picture here that is not the project's own,
+and under which licence. A picture added to the library adds its line there.

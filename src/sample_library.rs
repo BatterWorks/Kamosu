@@ -299,11 +299,9 @@ impl Told {
             return Ok(self.signed_in(name, answered));
         }
         if let Some(path) = &step.photograph {
-            let file = Files::get(path).ok_or_else(|| {
-                OpError::bad_request(format!("sample-library/{path} is not there"))
-            })?;
+            let bytes = carried(path)?;
             let caller = core.authenticate_to_store_photograph(Some(&actor))?;
-            return core.upload_photograph(&caller, &file.data);
+            return core.upload_photograph(&caller, &bytes);
         }
         if let Some(name) = &step.published_key {
             let caller = core.authenticate(Some(&actor))?;
@@ -362,7 +360,10 @@ impl Told {
         }
     }
 
-    /// `input` with every `{ "$ref": "name.path" }` replaced by what it names.
+    /// `input` with every `{ "$ref": "name.path" }` replaced by what it names,
+    /// every `{ "$file": "path" }` by that file of `sample-library/` in
+    /// base64, as a Door that sends only JSON hands one over, and every
+    /// `{ "$text": "path" }` by that file's words.
     fn resolved(&self, input: Value) -> Result<Value, OpError> {
         match input {
             Value::Object(fields) if fields.len() == 1 && fields.contains_key("$ref") => {
@@ -370,6 +371,19 @@ impl Told {
                     .as_str()
                     .ok_or_else(|| OpError::bad_request("a $ref is a string"))?;
                 self.find(reference)
+            }
+            Value::Object(fields) if fields.len() == 1 && fields.contains_key("$file") => {
+                use base64::Engine;
+                let bytes = carried(named(&fields["$file"])?)?;
+                Ok(Value::String(
+                    base64::engine::general_purpose::STANDARD.encode(bytes),
+                ))
+            }
+            Value::Object(fields) if fields.len() == 1 && fields.contains_key("$text") => {
+                let bytes = carried(named(&fields["$text"])?)?;
+                String::from_utf8(bytes.to_vec())
+                    .map(Value::String)
+                    .map_err(|_| OpError::bad_request("a $text names a file that is not UTF-8"))
             }
             Value::Object(fields) => Ok(Value::Object(
                 fields
@@ -405,6 +419,20 @@ impl Told {
         }
         Ok(found.clone())
     }
+}
+
+/// A file of `sample-library/`, as a `photograph` step, a `$file` or a
+/// `$text` names it.
+fn carried(path: &str) -> Result<std::borrow::Cow<'static, [u8]>, OpError> {
+    Files::get(path)
+        .map(|file| file.data)
+        .ok_or_else(|| OpError::bad_request(format!("sample-library/{path} is not there")))
+}
+
+/// The path a `$file` or a `$text` names.
+fn named(path: &Value) -> Result<&str, OpError> {
+    path.as_str()
+        .ok_or_else(|| OpError::bad_request("a $file or $text names a path, as a string"))
 }
 
 impl Step {
@@ -554,4 +582,54 @@ fn move_back(
         .map_err(|e| OpError::internal(format!("cannot move {table}.{column} back: {e}")))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_named_in_the_story_is_its_bytes_in_base64() {
+        use base64::Engine;
+        let told = Told::default();
+        let input = json!({ "data": { "$file": "photographs/tarte-tatin/photo.jpg" } });
+        let resolved = told.resolved(input).unwrap();
+        let bytes = Files::get("photographs/tarte-tatin/photo.jpg")
+            .unwrap()
+            .data;
+        assert_eq!(
+            resolved["data"],
+            json!(base64::engine::general_purpose::STANDARD.encode(bytes))
+        );
+    }
+
+    #[test]
+    fn a_text_named_in_the_story_is_its_words() {
+        let told = Told::default();
+        let resolved = told
+            .resolved(json!({ "text": { "$text": "originals/sunny-side-shakshuka.txt" } }))
+            .unwrap();
+        let words = Files::get("originals/sunny-side-shakshuka.txt")
+            .unwrap()
+            .data;
+        assert_eq!(
+            resolved["text"],
+            json!(String::from_utf8(words.to_vec()).unwrap())
+        );
+    }
+
+    #[test]
+    fn a_file_the_story_does_not_carry_fails_the_step() {
+        let told = Told::default();
+        let refused = told
+            .resolved(json!({ "data": { "$file": "originals/nowhere.jpg" } }))
+            .unwrap_err();
+        assert!(
+            refused
+                .message
+                .contains("sample-library/originals/nowhere.jpg"),
+            "{}",
+            refused.message
+        );
+    }
 }
