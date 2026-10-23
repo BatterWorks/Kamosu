@@ -125,9 +125,10 @@ export class Library {
 	/**
 	 * Find out what the library is, and bring what the phone holds level with
 	 * it: silently if it was filled before, on wifi if the browser can say, and
-	 * otherwise by waiting for `fill()`.
+	 * otherwise by waiting for `fill()`. A Demo brings nothing over unasked
+	 * (#426), so `byItself: false` leaves both to `fill()`.
 	 */
-	async start(wifi: boolean | undefined): Promise<void> {
+	async start(wifi: boolean | undefined, { byItself = true } = {}): Promise<void> {
 		this.#recall();
 		if (!(await controlled())) {
 			this.phase = 'unavailable';
@@ -160,8 +161,8 @@ export class Library {
 
 		if (this.filledAt) {
 			this.phase = 'kept';
-			await this.fill({ owed: true });
-		} else if (wifi === true) {
+			if (byItself) await this.fill({ owed: true });
+		} else if (wifi === true && byItself) {
 			await this.fill();
 		} else {
 			this.phase = 'absent';
