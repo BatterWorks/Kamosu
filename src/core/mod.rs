@@ -376,6 +376,10 @@ pub struct Core {
     /// How long a Runner's hold on a Job lasts unless renewed, in
     /// milliseconds: `jobs::HOLD`, until a test shortens it (#266).
     hold_millis: AtomicU64,
+    /// How long one import from another app's export may spend downloading
+    /// the photos its file holds only as addresses, in milliseconds:
+    /// `imports::PHOTO_DOWNLOAD_TIME`, until a test shortens it (#414).
+    photo_download_millis: AtomicU64,
     /// Held while a Job Key creates its Job's recipe (#269), from the check
     /// that the Job has none to the moment the new one is made its own, so
     /// that two creates at once cannot both find it has none.
@@ -416,6 +420,7 @@ impl Core {
             security: Default::default(),
             pdf_readers: Default::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
+            photo_download_millis: AtomicU64::new(imports::PHOTO_DOWNLOAD_TIME.as_millis() as u64),
             job_key_creates: Default::default(),
             public_address: Default::default(),
             #[cfg(feature = "test-jobs")]
@@ -457,6 +462,7 @@ impl Core {
             security: Default::default(),
             pdf_readers: Default::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
+            photo_download_millis: AtomicU64::new(imports::PHOTO_DOWNLOAD_TIME.as_millis() as u64),
             job_key_creates: Default::default(),
             public_address: Default::default(),
             #[cfg(feature = "test-jobs")]

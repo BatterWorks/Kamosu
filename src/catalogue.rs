@@ -6473,7 +6473,10 @@ fn import_report_schema() -> Value {
                                  `ratings`, `favourites` and `comments` are the app's, \
                                  which no cooking in Kamosu stands behind; \
                                  `photos_not_downloaded` is a photo the file held only as \
-                                 the `address` named, which was not downloaded.",
+                                 the `address` named, which was not downloaded: the \
+                                 address failed, was one Kamosu does not fetch, or came \
+                                 after the import's time for downloads ran out; \
+                                 `nutrition` is nutrition the app kept as free text.",
                 "items": {
                     "type": "object",
                     "properties": {
@@ -6484,7 +6487,7 @@ fn import_report_schema() -> Value {
                             "enum": [
                                 "site_icon", "extra_photos", "unreadable_photos",
                                 "attached_files", "ratings", "favourites", "comments",
-                                "photos_not_downloaded"
+                                "photos_not_downloaded", "nutrition"
                             ],
                         },
                         "count": { "type": "integer" },

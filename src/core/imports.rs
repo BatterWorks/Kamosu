@@ -6,6 +6,39 @@ use std::collections::VecDeque;
 
 use crate::other_apps::{self, LeftOut, Unread};
 
+/// How long one import from another app's export may spend downloading the
+/// photos its file holds only as web addresses, all of them together (#414).
+/// Such an import runs on the lane strangers' addresses share (ADR 0032), so
+/// this is how long one file can hold that lane on downloads. Ten minutes
+/// takes some six hundred photos at a second each; a photo after that lands
+/// its recipe without it, and the Report lists its address.
+pub(super) const PHOTO_DOWNLOAD_TIME: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// One import's downloads of the photos its file holds only as addresses:
+/// the time it has left for them, and the Cookbook and app whose earlier
+/// imports may already have brought a photo in.
+struct Downloads {
+    left: std::cell::Cell<std::time::Duration>,
+    cookbook_id: String,
+    app: &'static str,
+}
+
+impl Downloads {
+    /// The photo at `address`, or nothing where it could not be fetched, was
+    /// refused by the guarded fetch (ADR 0033), or the time had run out. Only
+    /// the time spent fetching counts against what is left.
+    fn fetch(&self, address: &str) -> Option<Vec<u8>> {
+        let left = self.left.get();
+        if left.is_zero() {
+            return None;
+        }
+        let started = std::time::Instant::now();
+        let fetched = crate::web_import::fetch_photo_within(address, left).ok();
+        self.left.set(left.saturating_sub(started.elapsed()));
+        fetched
+    }
+}
+
 impl Core {
     /// Bring in a Crouton library (#69): every `.crumb` in the export read one
     /// at a time, its first picture remade into a Photograph at the door (#45),
@@ -51,13 +84,18 @@ impl Core {
         into: Option<&str>,
         progress: Option<&JobProgress>,
     ) -> Result<Value, OpError> {
+        let downloads = Downloads {
+            left: std::cell::Cell::new(self.photo_download_time()),
+            cookbook_id: self.db().with_conn(|conn| lands_in(conn, caller, into))?,
+            app: export.app,
+        };
         let mut left_out_of_file = export.left_out;
         let mut pointing = VecDeque::new();
         let mut photos_not_in_export = 0;
         let incoming = export.recipes.map(|recipe| match recipe {
             Ok(recipe) => {
                 let foreign_id = recipe.foreign_id.clone();
-                let arriving = self.arriving(recipe);
+                let arriving = self.arriving(recipe, &downloads);
                 if !arriving.components.is_empty() {
                     pointing.push_back((foreign_id, arriving.components));
                 }
@@ -73,7 +111,7 @@ impl Core {
         });
         let mut report =
             self.import_each(caller, export.app, into, export.total, incoming, progress)?;
-        photos_not_in_export += self.land_components(caller, &mut report, pointing)?;
+        photos_not_in_export += self.land_components(caller, &mut report, pointing, &downloads)?;
         if photos_not_in_export > 0 {
             match left_out_of_file.iter_mut().find_map(|left| match left {
                 other_apps::FileLeftOut::PhotosNotInExport(count) => Some(count),
@@ -95,10 +133,11 @@ impl Core {
     }
 
     /// One recipe a reader handed over, as the landing takes it: its Main
-    /// Photo and its Steps' photos stored as Photographs, and the lines that
+    /// Photo and its Steps' photos stored as Photographs, a Main Photo the
+    /// file holds only as an address downloaded first, and the lines that
     /// point at another recipe named so they are left unread, with what they
     /// point at.
-    fn arriving(&self, recipe: other_apps::Recipe) -> Arriving {
+    fn arriving(&self, recipe: other_apps::Recipe, downloads: &Downloads) -> Arriving {
         let mut left_out = recipe.left_out;
         // A picture that cannot be remade never fails its recipe (#45): the
         // recipe lands without it, and the Report says so.
@@ -116,9 +155,23 @@ impl Core {
         let photo_not_in_export = matches!(recipe.photo, Some(other_apps::Photo::NotInExport));
         let main_photo = match recipe.photo {
             Some(other_apps::Photo::Bytes(bytes)) => stored(&bytes),
+            // A download that fails, or is no picture, never fails its
+            // recipe either, and the Report names its address (#414).
+            // A recipe an earlier import brought in keeps the photo it has,
+            // and nothing is downloaded again: a site gone since would
+            // otherwise offer a change the cook never made.
             Some(other_apps::Photo::Address(address)) => {
-                left_out.push(LeftOut::PhotoNotDownloaded(address));
-                None
+                let stored = self
+                    .photo_already_landed(downloads, &recipe.foreign_id)
+                    .or_else(|| {
+                        let bytes = downloads.fetch(&address)?;
+                        let stored = self.store_photograph(&bytes).ok()?;
+                        stored["photograph_id"].as_str().map(str::to_string)
+                    });
+                if stored.is_none() {
+                    left_out.push(LeftOut::PhotoNotDownloaded(address));
+                }
+                stored
             }
             Some(other_apps::Photo::NotInExport) | None => None,
         };
@@ -176,6 +229,7 @@ impl Core {
         caller: &Caller,
         report: &mut Value,
         mut pointing: VecDeque<(String, Vec<other_apps::Component>)>,
+        downloads: &Downloads,
     ) -> Result<usize, OpError> {
         if pointing.is_empty() {
             return Ok(0);
@@ -203,7 +257,7 @@ impl Core {
                     && !failed.contains(&component.foreign_id)
                     && let Some(copy) = component.copy
                 {
-                    let arriving = self.arriving(*copy);
+                    let arriving = self.arriving(*copy, downloads);
                     let copy_id = component.foreign_id.clone();
                     let landed = self.land_one(
                         caller,
@@ -310,6 +364,44 @@ impl Core {
             push_row(report, "left_out", left.row(foreign_id, &branch_id, &title));
         }
         Ok(Some(lineage_id))
+    }
+
+    /// How long one import may spend downloading photos (#414).
+    fn photo_download_time(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.photo_download_millis.load(Ordering::Relaxed))
+    }
+
+    /// Give each import `time` to download photos in place of
+    /// `imports::PHOTO_DOWNLOAD_TIME`. Compiled only under `test-jobs`: a test
+    /// that runs the time out cannot wait ten minutes.
+    #[cfg(feature = "test-jobs")]
+    pub fn download_photos_for(&self, time: std::time::Duration) {
+        self.photo_download_millis
+            .store(time.as_millis() as u64, Ordering::Relaxed);
+    }
+
+    /// The Main Photo the recipe an earlier import from the same app landed
+    /// as `foreign_id` holds now, where the ledger knows it and it holds one.
+    fn photo_already_landed(&self, downloads: &Downloads, foreign_id: &str) -> Option<String> {
+        let content: String = self
+            .db()
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT versions.content FROM imports \
+                       JOIN import_ledger ON import_ledger.import_id = imports.id \
+                       JOIN branches ON branches.id = import_ledger.branch_id \
+                       JOIN versions ON versions.id = branches.head_version_id \
+                      WHERE imports.cookbook_id = ?1 AND imports.source_kind = ?2 \
+                        AND import_ledger.foreign_id = ?3",
+                    params![downloads.cookbook_id, downloads.app, foreign_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Import ledger: {e}")))
+            })
+            .ok()??;
+        let content: Value = serde_json::from_str(&content).ok()?;
+        content["main_photo"].as_str().map(str::to_string)
     }
 
     /// What this Person has brought in from outside, and what happened each
@@ -1048,6 +1140,7 @@ impl LeftOut {
             LeftOut::Favourite => ("favourites", 1),
             LeftOut::Comments(count) => ("comments", *count),
             LeftOut::PhotoNotDownloaded(_) => ("photos_not_downloaded", 1),
+            LeftOut::Nutrition => ("nutrition", 1),
         };
         let mut row = json!({
             "foreign_id": foreign_id, "branch_id": branch_id, "title": title,

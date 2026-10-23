@@ -3087,6 +3087,7 @@ dependencies = [
  "caseless",
  "clap",
  "fastembed",
+ "flate2",
  "futures-util",
  "hex",
  "hf-hub",

@@ -224,6 +224,7 @@
 		{ what: 'photos_not_downloaded', label: m.report_stayed_not_downloaded },
 		{ what: 'attached_files', label: m.report_stayed_attached_files, each: true },
 		{ what: 'comments', label: m.report_stayed_comments, each: true },
+		{ what: 'nutrition', label: m.report_stayed_nutrition },
 	];
 	const OF_THE_FILE: Record<OfTheFile, () => string> = {
 		meal_plans: m.report_stayed_meal_plans,

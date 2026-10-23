@@ -553,13 +553,15 @@ fn guarded_answer(
 }
 
 /// [`guarded_answer`], for a caller that wants only a success.
-fn guarded_get(url: &str, noun: &str, cap: usize) -> Result<(Vec<u8>, String), OpError> {
-    let answered = guarded_answer(
-        url,
-        noun,
-        Duration::from_secs(FETCH_TIMEOUT_SECS),
-        |status| status.is_success().then_some(cap),
-    )?;
+fn guarded_get(
+    url: &str,
+    noun: &str,
+    cap: usize,
+    timeout: Duration,
+) -> Result<(Vec<u8>, String), OpError> {
+    let answered = guarded_answer(url, noun, timeout, |status| {
+        status.is_success().then_some(cap)
+    })?;
     if !answered.status.is_success() {
         return Err(OpError::bad_request(format!(
             "{noun} answered with {}",
@@ -623,7 +625,15 @@ pub fn fetch_page(url: &str) -> Result<Page, OpError> {
 
 /// Fetch a candidate photo's bytes, under the same guard as the page itself.
 pub fn fetch_photo(url: &str) -> Result<Vec<u8>, OpError> {
-    let (bytes, _effective_url) = guarded_get(url, "that photo", MAX_IMAGE_BYTES)?;
+    fetch_photo_within(url, Duration::from_secs(FETCH_TIMEOUT_SECS))
+}
+
+/// [`fetch_photo`], given up after `time`, or after the usual time for one
+/// fetch where that is shorter: an import from another app's export shares
+/// one time between every photo it downloads (#414).
+pub fn fetch_photo_within(url: &str, time: Duration) -> Result<Vec<u8>, OpError> {
+    let time = time.min(Duration::from_secs(FETCH_TIMEOUT_SECS));
+    let (bytes, _effective_url) = guarded_get(url, "that photo", MAX_IMAGE_BYTES, time)?;
     Ok(bytes)
 }
 
@@ -750,7 +760,13 @@ pub fn fetch_shared_recipe(bundle_url: &str) -> Result<SharedRecipe, OpError> {
 /// one, which a Kamosu from before #170 never does: a preview then shows no
 /// sharer rather than failing over a courtesy.
 pub fn fetch_shared_by(page_url: &str) -> Option<String> {
-    let (body, _) = guarded_get(page_url, "that shared page", MAX_HTML_BYTES).ok()?;
+    let (body, _) = guarded_get(
+        page_url,
+        "that shared page",
+        MAX_HTML_BYTES,
+        Duration::from_secs(FETCH_TIMEOUT_SECS),
+    )
+    .ok()?;
     let page = String::from_utf8_lossy(&body);
     let document = Html::parse_document(&page);
     let selector = Selector::parse(&format!(

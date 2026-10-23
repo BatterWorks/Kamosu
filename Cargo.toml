@@ -140,6 +140,8 @@ hyper-util = { version = "0.1.21", features = ["server", "server-graceful", "htt
 # `conditional-ui` is the feature that holds the sign-in that asks for no name
 # (discoverable credentials); Kamosu asks from a button, not as autofill.
 webauthn-rs = { version = "=0.6.1-dev", features = ["conditional-ui"] }
+# A Paprika export is a zip of gzip files, one recipe in each (#414).
+flate2 = "1.1.10"
 
 [features]
 # Adds `probe_job`, a demonstration Job Operation, so the behaviour suite can
@@ -185,6 +187,10 @@ test = false
 
 [[test]]
 name = "pasting_corpus"
+test = false
+
+[[test]]
+name = "paprika_corpus"
 test = false
 
 [[test]]
