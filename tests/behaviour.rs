@@ -38602,6 +38602,263 @@ mod tandoor {
     }
 }
 
+/// Bringing in a KitchenOwl export (#417): the real files in
+/// `tests/fixtures/kitchenowl/`, through "import from another app".
+mod kitchenowl {
+    use super::*;
+
+    fn fixture(name: &str) -> Vec<u8> {
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/kitchenowl")
+                .join(name),
+        )
+        .expect("the fixture")
+    }
+
+    fn import(app: &support::TestApp, key: &str, file: &[u8]) -> Value {
+        let (status, staged) = app.post_bytes("/api/uploads", Some(key), "application/json", file);
+        assert_eq!(status, 200, "{staged}");
+        let (status, ask) = app.post_op(
+            "import_from_another_app",
+            Some(key),
+            &json!({ "upload_id": staged["result"]["upload_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{ask}");
+        let finished =
+            support::wait_terminal(app, Some(key), ask["result"]["job_id"].as_str().unwrap());
+        assert_eq!(finished["status"], json!("completed"), "{finished}");
+        finished["result"].clone()
+    }
+
+    fn recipe(app: &support::TestApp, key: &str, report: &Value, title: &str) -> Value {
+        let row = report["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["title"] == title)
+            .unwrap_or_else(|| panic!("no {title}: {report}"));
+        let (status, recipe) = app.post_op(
+            "get_recipe",
+            Some(key),
+            &json!({ "branch_id": row["branch_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{recipe}");
+        recipe["result"].clone()
+    }
+
+    fn statuses(report: &Value) -> Vec<String> {
+        let mut statuses: Vec<String> = report["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                format!(
+                    "{} {}",
+                    row["title"].as_str().unwrap(),
+                    row["status"].as_str().unwrap()
+                )
+            })
+            .collect();
+        statuses.sort();
+        statuses
+    }
+
+    /// Each row of a list as its text, a Section as `## text`.
+    fn rows(content: &Value, field: &str) -> Vec<String> {
+        content[field]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let text = row["text"].as_str().unwrap();
+                if row["kind"] == "section" {
+                    format!("## {text}")
+                } else {
+                    text.to_string()
+                }
+            })
+            .collect()
+    }
+
+    fn recipes_held(app: &support::TestApp) -> i64 {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                Ok(conn
+                    .query_row("SELECT COUNT(*) FROM branches", [], |row| row.get(0))
+                    .unwrap())
+            })
+            .unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_kitchenowl_export_lands_every_recipe_once() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let report = import(&app, &key, &fixture("v0.7.10-export.json"));
+
+        assert_eq!(report["source_kind"], json!("kitchenowl"));
+        assert_eq!(
+            statuses(&report),
+            [
+                "Lemonade created",
+                "Orange cake created",
+                "Pâtes à la tomate created"
+            ]
+        );
+        assert_eq!(report["unreadable"], json!([]), "{report}");
+        assert_eq!(report["left_out"], json!([]), "{report}");
+        // KitchenOwl's export names each photo and holds none, and what the
+        // household kept beside its recipes is counted.
+        assert_eq!(
+            report["left_out_of_file"],
+            json!([
+                { "what": "shopping_lists", "count": 2 },
+                { "what": "items", "count": 660 },
+                { "what": "expenses", "count": 1 },
+                { "what": "photos_not_in_export", "count": 2 },
+            ]),
+            "{report}"
+        );
+
+        // One recipe, field by field.
+        let cake = recipe(&app, &key, &report, "Orange cake");
+        let held = &cake["versions"][0]["content"];
+        assert_eq!(held["yield"], json!({ "amount": "8", "noun": "servings" }));
+        assert_eq!(held["prep_time_minutes"], json!(20));
+        assert_eq!(held["cook_time_minutes"], json!(45));
+        assert_eq!(
+            held["source"],
+            json!({ "text": "example.com", "link": "https://example.com/orange-cake" })
+        );
+        assert_eq!(
+            held["note"],
+            json!("A moist cake with a sharp orange syrup.\n\nKeeps for three days in a tin.")
+        );
+        assert!(held.get("nutrition").is_none_or(Value::is_null), "{held}");
+        assert!(held.get("main_photo").is_none_or(Value::is_null), "{held}");
+        assert_eq!(
+            rows(held, "ingredients"),
+            [
+                "225 g Butter",
+                "4 Eggs",
+                "2 Oranges, zest and juice",
+                "Salt",
+                "225 g Self-raising flour",
+                "225 g Sugar",
+                "## Optional",
+                "Icing sugar, to dust",
+            ]
+        );
+        assert_eq!(
+            rows(held, "steps"),
+            [
+                "## Cake",
+                "Heat the oven to 180 °C and line a 20 cm tin.",
+                "Beat the butter and sugar until pale, then beat in the eggs one at a time.",
+                "Fold in the flour and the orange zest, and scrape into the tin.",
+                "Bake for 45 minutes.",
+                "## Syrup",
+                "Warm the orange juice with the sugar until it dissolves.",
+                "Pour over the warm cake.",
+            ]
+        );
+        let mut tags: Vec<&str> = cake["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tag| tag["name"].as_str().unwrap())
+            .collect();
+        tags.sort_unstable();
+        assert_eq!(tags, ["Baking", "Dessert"]);
+        // Every line is Kamosu's own reading.
+        let readings = &cake["versions"][0]["readings"];
+        assert!(
+            readings.as_array().unwrap().iter().any(|reading| {
+                reading["target"].as_str().map(str::to_lowercase) == Some("butter".to_string())
+                    && reading["amount"] == "225"
+            }),
+            "{readings}"
+        );
+
+        // The French recipe is worded in French, its total time in its Note.
+        let pasta = recipe(&app, &key, &report, "Pâtes à la tomate");
+        let held = &pasta["versions"][0]["content"];
+        assert_eq!(held["yield"], json!({ "amount": "2", "noun": "portions" }));
+        assert_eq!(
+            rows(held, "ingredients")[4..],
+            ["## Facultatif", "Parmesan, un peu"]
+        );
+        assert!(
+            held["note"]
+                .as_str()
+                .unwrap()
+                .ends_with("Bon appétit !\n\nTemps total : 20 minutes"),
+            "{held}"
+        );
+
+        // Importing the same export again shelves nothing twice.
+        let again = import(&app, &key, &fixture("v0.7.10-export.json"));
+        assert!(
+            statuses(&again)
+                .iter()
+                .all(|row| row.ends_with(" unchanged")),
+            "{again}"
+        );
+        assert_eq!(recipes_held(&app), 3);
+        let (_, listed) = app.post_op("list_imports", Some(&key), "{}");
+        let imports = listed["result"]["imports"].as_array().unwrap();
+        assert_eq!(imports.len(), 1, "{listed}");
+        assert_eq!(imports[0]["source_kind"], json!("kitchenowl"));
+    }
+
+    /// KitchenOwl's export gives a recipe no id, so it is known by its name,
+    /// and one renamed in KitchenOwl between two imports arrives twice.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_renamed_in_kitchenowl_arrives_as_a_second_recipe() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        import(&app, &key, &fixture("v0.7.10-export.json"));
+        let renamed = import(&app, &key, &fixture("v0.7.10-export-renamed.json"));
+        assert_eq!(
+            statuses(&renamed),
+            [
+                "Fresh lemonade created",
+                "Orange cake unchanged",
+                "Pâtes à la tomate unchanged"
+            ]
+        );
+        assert_eq!(renamed["offered"], json!([]), "{renamed}");
+        assert_eq!(recipes_held(&app), 4);
+    }
+
+    /// Two KitchenOwl households may each have a recipe of one name, and one
+    /// household's is never taken for the other's.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn two_households_recipes_of_one_name_stay_apart() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        import(&app, &key, &fixture("v0.7.10-export.json"));
+        // The same export as another household of that KitchenOwl wrote it,
+        // its cake made another way.
+        let mut parents: Value = serde_json::from_slice(&fixture("v0.7.10-export.json")).unwrap();
+        parents["name"] = json!("Parents");
+        parents["recipes"][0]["description"] = json!("1. Mix.\n2. Bake.");
+        let second = import(&app, &key, parents.to_string().as_bytes());
+        assert_eq!(
+            statuses(&second),
+            [
+                "Lemonade created",
+                "Orange cake created",
+                "Pâtes à la tomate created"
+            ]
+        );
+        assert_eq!(second["offered"], json!([]), "{second}");
+        assert_eq!(recipes_held(&app), 6);
+    }
+}
+
 /// Bringing in a recipe from a PDF (#176): read, shown, and never written
 /// until a person saves it.
 mod reading_a_recipe_pdf {

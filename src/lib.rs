@@ -26,6 +26,7 @@ pub mod fingerprint;
 pub mod http_min;
 pub mod interface;
 pub mod jobs;
+pub mod kitchenowl;
 pub mod language;
 pub mod mcp_door;
 pub mod mealie;

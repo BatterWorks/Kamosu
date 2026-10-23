@@ -467,6 +467,11 @@ src/bar_assistant.rs
                     recipe files are, and its own JSON Schema format, which
                     keeps the garnish, the glass and an ingredient's range
                     (#416)
+src/kitchenowl.rs   KitchenOwl's household export in that shape: one JSON
+                    file, each recipe's steps read out of its markdown
+                    description, each line an item's amount and name, and
+                    no photo. Its test files are in
+                    tests/fixtures/kitchenowl/ (#417)
 src/db.rs           the SQLite file under /data — WAL on, migrations forward-only
 src/entities.rs     the HTML entities importers undo in text that was never HTML
 src/jobs.rs         slow work: two lanes (one for strangers, ADR 0032), progress, results

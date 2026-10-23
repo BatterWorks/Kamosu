@@ -21,6 +21,7 @@ export const OTHER_APPS: OtherApp[] = [
 	{ kind: 'paprika', name: 'Paprika', where: m.other_app_where_paprika },
 	{ kind: 'tandoor', name: 'Tandoor', where: m.other_app_where_tandoor },
 	{ kind: 'crouton', name: 'Crouton', where: m.other_app_where_crouton },
+	{ kind: 'kitchenowl', name: 'KitchenOwl', where: m.other_app_where_kitchenowl },
 	// One reader reads the schema.org recipe files these four write, and each
 	// lands under its own kind (#416).
 	{

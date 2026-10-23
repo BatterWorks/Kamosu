@@ -44,7 +44,6 @@
 //!   and once as it lands, so a zip of thousands holds one at a time.
 
 use std::collections::HashMap;
-use std::io::Read;
 
 use base64::Engine;
 use serde_json::{Value, json};
@@ -137,31 +136,7 @@ enum Held {
 /// A JSON file handed over alone: RecipeSage's export, Tandoor's, or one
 /// CookCLI recipe.
 fn read_file(handed: &Handed) -> Option<other_apps::Export> {
-    // A PDF or a picture is turned away by its first bytes, before the rest
-    // of it is read.
-    let mut start = Vec::new();
-    handed
-        .open()
-        .ok()?
-        .take(1024)
-        .read_to_end(&mut start)
-        .ok()?;
-    let first = start.iter().find(|byte| !byte.is_ascii_whitespace());
-    if !matches!(first, Some(b'{' | b'[')) {
-        return None;
-    }
-    let mut bytes = Vec::new();
-    handed
-        .open()
-        .ok()?
-        .take(MAX_JSON_FILE_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.len() as u64 > MAX_JSON_FILE_BYTES {
-        return None;
-    }
-    let value: Value = serde_json::from_slice(&bytes).ok()?;
-    drop(bytes);
+    let value = handed.json(MAX_JSON_FILE_BYTES)?;
     let (app, items) = match value {
         Value::Object(mut map) if !is_recipe(&map) => {
             let Some(Value::Array(recipes)) = map.remove("recipes") else {
@@ -486,22 +461,7 @@ fn unique_ids(found: &[Found]) -> Vec<String> {
             _ => id.clone(),
         })
         .collect();
-    let mut taken: std::collections::HashSet<String> = told.iter().cloned().collect();
-    let mut given: std::collections::HashSet<String> = std::collections::HashSet::new();
-    told.into_iter()
-        .map(|id| {
-            if given.insert(id.clone()) {
-                return id;
-            }
-            let numbered = (2..)
-                .map(|n| format!("{id} ({n})"))
-                .find(|numbered| !taken.contains(numbered))
-                .unwrap_or_default();
-            taken.insert(numbered.clone());
-            given.insert(numbered.clone());
-            numbered
-        })
-        .collect()
+    other_apps::numbered(told)
 }
 
 /// The app's own id for a recipe, its link, or its name.
@@ -638,12 +598,13 @@ fn images(value: &Value) -> Vec<String> {
     }
 }
 
-/// The words a recipe's Language puts around what the file kept.
-struct Words {
-    servings: &'static str,
+/// The words a recipe's Language puts around what the file kept, which the
+/// KitchenOwl reader words its own with too.
+pub(crate) struct Words {
+    pub(crate) servings: &'static str,
     prep: &'static str,
     cook: &'static str,
-    total: &'static str,
+    pub(crate) total: &'static str,
     equipment: &'static str,
     method: &'static str,
     nutrition: &'static str,
@@ -656,7 +617,7 @@ struct Words {
     figures: [(&'static str, &'static str); 13],
 }
 
-fn words(language: Option<&str>) -> Words {
+pub(crate) fn words(language: Option<&str>) -> Words {
     match language {
         Some("fr") => Words {
             servings: "portions",
@@ -809,7 +770,7 @@ fn time(node: &Value, field: &str, read: Option<i64>) -> Time {
 }
 
 /// Minutes as a cook says them: `1 hour 10 minutes`.
-fn spoken(minutes: i64, words: &Words) -> String {
+pub(crate) fn spoken(minutes: i64, words: &Words) -> String {
     let worded = |count: i64, (one, many): (&str, &str)| {
         format!("{count} {}", if count == 1 { one } else { many })
     };

@@ -230,6 +230,8 @@
 		meal_plans: m.report_stayed_meal_plans,
 		shopping_lists: m.report_stayed_shopping_lists,
 		photos_not_in_export: m.report_stayed_not_in_export,
+		items: m.report_stayed_items,
+		expenses: m.report_stayed_expenses,
 	};
 
 	/** The recipes a row names: the first few, then how many more. */
