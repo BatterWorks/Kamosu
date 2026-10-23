@@ -36,7 +36,13 @@
 	import { useRoom } from '$lib/room.svelte';
 	import { OperationError } from '$lib/api/client';
 	import { waitForJob } from '$lib/api/job';
-	import type { GetJobOutput, ImportCroutonOutput } from '$lib/api/catalogue';
+	import type {
+		GetJobOutput,
+		ImportCroutonOutput,
+		ImportFromAnotherAppOutput,
+	} from '$lib/api/catalogue';
+	import RefusedExport from '$lib/RefusedExport.svelte';
+	import { appNamed } from '$lib/other-apps';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Section from '$lib/shell/Section.svelte';
 	import { useEnded } from '../ended.svelte';
@@ -124,11 +130,17 @@
 	 */
 	const report = $derived.by(() => {
 		const result = job?.result as Report | undefined;
-		if (job?.status === 'completed') return result;
+		if (job?.status === 'completed') return refused ? undefined : result;
 		if (job?.status === 'failed' && holdsAReport(job)) return result;
 		return undefined;
 	});
 	const running = $derived(job !== undefined && ['queued', 'running'].includes(job.status));
+	/** An export from another app turned away whole, nothing imported (#412). */
+	const refused = $derived(
+		job?.status === 'completed'
+			? (job.result as ImportFromAnotherAppOutput | null)?.refused
+			: undefined,
+	);
 	/**
 	 * This Report is an agent's own Import (#269, #272). Its Job carries the
 	 * Report from the start, naming what was handed over, so the page is
@@ -166,12 +178,100 @@
 				.filter((icon): icon is string => Boolean(icon)),
 		),
 	]);
-	const extraPhotos = $derived(
-		(report?.left_out ?? []).filter((row) => row.what === 'extra_photos'),
-	);
 	const brokenPhotos = $derived(
 		(report?.left_out ?? []).filter((row) => row.what === 'unreadable_photos'),
 	);
+
+	// --- What stayed in the app (#412), option 2 of 23 October 2026 ----------
+	//
+	// A section of its own after Arrived, one row per kind with its count, a
+	// check to go through before the old app is deleted. A row about recipes
+	// opens to name them; what belongs to the whole file is a count alone.
+	// The prototype is `.dev/prototypes/412-import-place/r2-report-phone.html`,
+	// whose rows come first here in its order. A website's icon and a photo
+	// that could not be read stay under Arrived as before: neither is
+	// something the app kept.
+
+	type LeftOutRow = Report['left_out'][number];
+	type OfTheFile = NonNullable<Report['left_out_of_file']>[number]['what'];
+	interface Stayed {
+		what: string;
+		label: string;
+		count: number;
+		/** What it says when opened, the recipes named; none for a count of the whole file. */
+		said?: string;
+		/** For photos not downloaded: each recipe and the address it pointed at. */
+		addresses: LeftOutRow[];
+	}
+
+	/** How many recipes a row names before it says how many more. */
+	const NAMED = 5;
+	const PER_RECIPE: {
+		what: LeftOutRow['what'];
+		label: () => string;
+		why?: () => string;
+		/** Each recipe named with its count, as for photos: "Lasagna: 2". */
+		each?: boolean;
+	}[] = [
+		{ what: 'ratings', label: m.report_stayed_ratings },
+		{ what: 'favourites', label: m.report_stayed_favourites },
+		{
+			what: 'extra_photos',
+			label: m.report_stayed_extra_photos,
+			why: m.report_stayed_extra_photos_why,
+			each: true,
+		},
+		{ what: 'photos_not_downloaded', label: m.report_stayed_not_downloaded },
+		{ what: 'attached_files', label: m.report_stayed_attached_files, each: true },
+		{ what: 'comments', label: m.report_stayed_comments, each: true },
+	];
+	const OF_THE_FILE: Record<OfTheFile, () => string> = {
+		meal_plans: m.report_stayed_meal_plans,
+		shopping_lists: m.report_stayed_shopping_lists,
+		photos_not_in_export: m.report_stayed_not_in_export,
+	};
+
+	/** The recipes a row names: the first few, then how many more. */
+	function naming(rows: LeftOutRow[], each: boolean): string {
+		const names = rows
+			.slice(0, NAMED)
+			.map((row) =>
+				each ? m.report_stayed_each({ title: row.title, count: row.count }) : row.title,
+			)
+			.join(each ? ' · ' : ', ');
+		return rows.length > NAMED
+			? m.report_stayed_named_more({ names, count: rows.length - NAMED })
+			: m.report_stayed_named({ names });
+	}
+
+	const stayed = $derived.by((): Stayed[] => {
+		const rows = report?.left_out ?? [];
+		const kinds = PER_RECIPE.flatMap((kind): Stayed[] => {
+			const of = rows.filter((row) => row.what === kind.what);
+			if (!of.length) return [];
+			const addressed = kind.what === 'photos_not_downloaded';
+			return [
+				{
+					what: kind.what,
+					label: kind.label(),
+					count: of.reduce((sum, row) => sum + row.count, 0),
+					said: addressed
+						? undefined
+						: [naming(of, kind.each ?? false), kind.why?.()].filter(Boolean).join(' '),
+					addresses: addressed ? of : [],
+				},
+			];
+		});
+		const file = (report?.left_out_of_file ?? []).map((row) => ({
+			what: row.what,
+			label: OF_THE_FILE[row.what](),
+			count: row.count,
+			addresses: [],
+		}));
+		return [...kinds, ...file];
+	});
+	/** The app it all stayed in, by name. */
+	const stayedIn = $derived(appNamed(report?.source_kind) ?? report?.source_kind ?? '');
 
 	// --- The pairs -------------------------------------------------------------
 
@@ -274,7 +374,19 @@
 	 * Bundle never produces one.
 	 */
 	const SOURCE_OF: Record<string, string> = { import_bundle: 'bundle', import_web_link: 'web' };
-	const source = $derived(drawn?.source_kind ?? (job ? SOURCE_OF[job.operation] : undefined));
+	/**
+	 * An import from another app says which app made its file once it has
+	 * looked inside, by standing the Report's frame as its result while it
+	 * runs (#412).
+	 */
+	const named = $derived((job?.result as { source_kind?: string } | null)?.source_kind);
+	const source = $derived(
+		drawn?.source_kind ?? named ?? (job ? SOURCE_OF[job.operation] : undefined),
+	);
+	/** An import from another app before it knows which, or one turned away. */
+	const unnamedExport = $derived(
+		refused !== undefined || (job?.operation === 'import_from_another_app' && !source),
+	);
 	const TITLED: Record<string, () => string> = {
 		bundle: () => m.report_title_file(),
 		web: () => m.report_title_link(),
@@ -375,8 +487,17 @@
 	};
 	const kind = $derived(handed ? HANDED[handed] : undefined);
 
+	/** An app's library, by the app's name: "Your Crouton library". */
+	const library = $derived.by(() => {
+		const app = appNamed(source);
+		return app ? m.report_title_app({ app }) : m.report_title();
+	});
 	const title = $derived(
-		kind ? kind.title() : ((source && TITLED[source]?.()) ?? m.report_title()),
+		kind
+			? kind.title()
+			: unnamedExport
+				? m.report_title_refused()
+				: ((source && TITLED[source]?.()) ?? library),
 	);
 
 	/** A recipe read again whose agent failed is left as it was before. */
@@ -553,6 +674,8 @@
 				{m.report_needs_you_waiting()}
 			</p>
 		</Section>
+	{:else if refused}
+		<div class="mt-4"><RefusedExport {refused} {panel} /></div>
 	{:else if !report}
 		<p class={['mt-4 border-l-3 border-support px-3 py-2 text-body', panel]} role="alert">
 			{m.report_stopped({ reason: job.error ?? job.status })}
@@ -763,13 +886,6 @@
 					</p>
 				{/if}
 			{/if}
-			{#each extraPhotos as extra (extra.branch_id)}
-				<p class="mt-2 text-read text-ink-2">
-					{extra.count === 1
-						? m.report_extra_photo_one({ title: extra.title })
-						: m.report_extra_photo_many({ title: extra.title, count: extra.count })}
-				</p>
-			{/each}
 			{#each brokenPhotos as broken (broken.branch_id)}
 				<p class="mt-2 text-read text-ink-2">
 					{m.report_unreadable_photos({ title: broken.title })}
@@ -811,5 +927,42 @@
 				</details>
 			{/if}
 		</Section>
+
+		{#if stayed.length}
+			<Section heading={m.report_stayed_in({ app: stayedIn })}>
+				<p class="mb-1 text-read text-ink-2">{m.report_stayed_blurb({ app: stayedIn })}</p>
+				<ul class="border-t border-rule">
+					{#each stayed as row (row.what)}
+						<li class="border-b border-rule">
+							{#if row.said || row.addresses.length}
+								<details>
+									<summary
+										class="flex cursor-pointer list-none items-baseline justify-between gap-3 py-3 [&::-webkit-details-marker]:hidden"
+									>
+										<span class="text-body text-accent underline">{row.label}</span>
+										<span class="text-body text-ink-2">{row.count}</span>
+									</summary>
+									<div class="pb-3 text-read text-ink-2">
+										{#if row.said}{row.said}{/if}
+										{#each row.addresses as recipe (recipe.branch_id + recipe.address)}
+											<p class="mt-1 break-words">
+												<a href="/recipes/{recipe.branch_id}" class="text-accent underline"
+													>{recipe.title}</a
+												><br /><span class="font-mono">{recipe.address}</span>
+											</p>
+										{/each}
+									</div>
+								</details>
+							{:else}
+								<p class="flex items-baseline justify-between gap-3 py-3">
+									<span class="text-body">{row.label}</span>
+									<span class="text-body text-ink-2">{row.count}</span>
+								</p>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			</Section>
+		{/if}
 	{/if}
 </Screen>

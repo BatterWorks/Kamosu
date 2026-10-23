@@ -33107,6 +33107,276 @@ mod crouton {
         assert!(!dir.join(&stale).exists(), "the stale upload stayed");
         assert!(dir.join(&fresh).exists(), "a fresh upload was taken");
     }
+
+    // -- The same export through "import from another app" (#412) ----------
+
+    /// Ask `import_from_another_app` for `bytes`, staged, and wait for its end.
+    fn import_from_another_app(app: &support::TestApp, key: &str, bytes: &[u8]) -> Value {
+        let upload_id = upload(app, key, bytes);
+        let (status, ask) = app.post_op(
+            "import_from_another_app",
+            Some(key),
+            &json!({ "upload_id": upload_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{ask}");
+        let job_id = ask["result"]["job_id"].as_str().expect("a job id");
+        let finished = support::wait_terminal(app, Some(key), job_id);
+        assert_eq!(finished["status"], json!("completed"), "{finished}");
+        finished["result"].clone()
+    }
+
+    fn recipes_held(app: &support::TestApp) -> i64 {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                Ok(conn
+                    .query_row("SELECT COUNT(*) FROM branches", [], |row| row.get(0))
+                    .unwrap())
+            })
+            .unwrap()
+    }
+
+    fn uploads_left(app: &support::TestApp) -> usize {
+        let uploads = app.data_dir().unwrap().join("uploads");
+        std::fs::read_dir(&uploads)
+            .map(|people| {
+                people
+                    .flatten()
+                    .map(|person| std::fs::read_dir(person.path()).unwrap().count())
+                    .sum()
+            })
+            .unwrap_or(0)
+    }
+
+    /// A Report with its instance's own ids taken out, so two instances'
+    /// Reports of one file can be compared.
+    fn as_read(app: &support::TestApp, key: &str, report: &Value) -> Value {
+        let mut arrived: Vec<Value> = report["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let content =
+                    &recipe(app, key, row["branch_id"].as_str().unwrap())["versions"][0]["content"];
+                json!({
+                    "foreign_id": row["foreign_id"], "title": row["title"],
+                    "status": row["status"], "bare": row["bare"],
+                    "photo": row["main_photo"].is_string(),
+                    "ingredients": content["ingredients"], "steps": content["steps"],
+                    "yield": content["yield"], "source": content["source"],
+                    "readings": recipe(app, key, row["branch_id"].as_str().unwrap())["versions"][0]
+                        ["readings"],
+                })
+            })
+            .collect();
+        arrived.sort_by_key(|row| row["foreign_id"].to_string());
+        let left_out: Vec<Value> = report["left_out"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| json!([row["foreign_id"], row["what"], row["count"], row["icon"]]))
+            .collect();
+        let shared: Vec<&Value> = report["related_candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pair| &pair["shared"])
+            .collect();
+        json!({
+            "source_kind": report["source_kind"],
+            "arrived": arrived,
+            "offered": report["offered"],
+            "unreadable": report["unreadable"],
+            "left_out": left_out,
+            "related": shared,
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_crouton_export_from_another_app_lands_as_import_crouton_lands_it() {
+        let by_name = support::spawn_app();
+        let (_, by_name_key) = a_person(&by_name);
+        let named = import_crouton(&by_name, &by_name_key, &a_library());
+
+        let recognised_at = support::spawn_app();
+        let (_, key) = a_person(&recognised_at);
+        let recognised = import_from_another_app(&recognised_at, &key, &a_library());
+
+        assert_eq!(recognised["source_kind"], json!("crouton"));
+        // Every line is read by Kamosu's own reader, as on any recipe.
+        let chicken = arrived_titled(&recognised, "KFC-1")["branch_id"]
+            .as_str()
+            .unwrap();
+        let readings = &recipe(&recognised_at, &key, chicken)["versions"][0]["readings"];
+        let targets: Vec<&Value> = readings
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|reading| !reading.is_null())
+            .map(|reading| &reading["target"])
+            .collect();
+        assert_eq!(
+            targets,
+            [
+                &json!("chicken wings"),
+                &json!("minced garlic"),
+                &json!("salt")
+            ]
+        );
+        assert_eq!(
+            as_read(&recognised_at, &key, &recognised),
+            as_read(&by_name, &by_name_key, &named),
+        );
+        assert_eq!(recognised["left_out_of_file"], json!([]), "{recognised}");
+        assert_eq!(
+            uploads_left(&recognised_at),
+            0,
+            "the staged upload outlived its import"
+        );
+
+        // One ledger whichever way in: each run after the first, through
+        // either Operation, finds what is there and shelves nothing twice.
+        let again = import_crouton(&recognised_at, &key, &a_library());
+        assert_eq!(again["import_id"], recognised["import_id"]);
+        let and_again = import_from_another_app(&recognised_at, &key, &a_library());
+        for report in [&again, &and_again] {
+            assert!(
+                report["arrived"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|row| row["status"] == json!("unchanged")),
+                "{report}"
+            );
+        }
+        assert_eq!(recipes_held(&recognised_at), 3, "shelved twice");
+
+        // And the run is listed under the app the file came from.
+        let (_, listed) = recognised_at.post_op("list_imports", Some(&key), "{}");
+        let crouton = source(&listed["result"], "crouton");
+        assert_eq!(
+            crouton["arrivals"].as_array().unwrap().len(),
+            3,
+            "{crouton}"
+        );
+    }
+
+    /// A run is listed under the app its file came from while it still runs
+    /// (#412): the Report's frame, naming the app, stands as the Job's result
+    /// from the moment the file is recognised until the Report replaces it.
+    /// The Job's row is written by hand, so the landing can be asked about
+    /// halfway through rather than raced.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_running_import_is_listed_under_its_app() {
+        let app = support::spawn_app();
+        let (person, key) = a_person(&app);
+        let job_id = "j_412_running";
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.execute(
+                    "INSERT INTO jobs (id, person_id, read_only, via_access_key, operation, input, status)
+                     VALUES (?1, ?2, 0, 0, 'import_from_another_app', '{}', 'running')",
+                    rusqlite::params![job_id, person],
+                )
+                .unwrap();
+                Ok(())
+            })
+            .unwrap();
+        let progress = kamosu::jobs::JobProgress::new(job_id, app.core.db());
+
+        let listed_halfway = std::cell::RefCell::new(Value::Null);
+        let incoming = std::iter::once_with(|| {
+            *listed_halfway.borrow_mut() = list_imports(&app, &key);
+            kamosu::core::Incoming::candidate(json!({
+                "foreign_id": "ONE", "title": "Avocado Rice",
+                "ingredients": [{ "kind": "ingredient", "text": "1 cup rice" }],
+            }))
+        });
+        app.core
+            .import_each(
+                &as_person(&person),
+                "crouton",
+                None,
+                1,
+                incoming,
+                Some(&progress),
+            )
+            .unwrap();
+
+        let listed = listed_halfway.into_inner();
+        let crouton = source(&listed, "crouton");
+        let arrivals = crouton["arrivals"].as_array().unwrap();
+        assert_eq!(arrivals.len(), 1, "{listed}");
+        assert_eq!(arrivals[0]["job_id"], json!(job_id));
+        assert_eq!(arrivals[0]["status"], json!("running"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn one_crumb_is_recognised_by_what_is_in_it() {
+        use base64::Engine;
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+        let data = base64::engine::general_purpose::STANDARD.encode(crumb(json!({
+            "uuid": "ONE", "name": "Avocado Rice",
+            "ingredients": [{ "order": 0, "ingredient": { "name": "rice" }, "quantity": { "amount": 1.5, "quantityType": "CUP" } }],
+        })));
+        let (status, ask) = app.post_op(
+            "import_from_another_app",
+            Some(&key),
+            &json!({ "data": data }).to_string(),
+        );
+        assert_eq!(status, 200, "{ask}");
+        let finished =
+            support::wait_terminal(&app, Some(&key), ask["result"]["job_id"].as_str().unwrap());
+        assert_eq!(
+            finished["result"]["source_kind"],
+            json!("crouton"),
+            "{finished}"
+        );
+        let branch_id = finished["result"]["arrived"][0]["branch_id"]
+            .as_str()
+            .unwrap();
+        assert_eq!(
+            recipe(&app, &key, branch_id)["versions"][0]["content"]["ingredients"][0]["text"],
+            json!("1½ cups rice")
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_file_no_app_made_is_refused_and_lands_nothing() {
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+        let not_an_export = an_export(&[("photo.jpg", vec![1, 2, 3])]);
+        for bytes in [
+            not_an_export.as_slice(),
+            b"Tarte Tatin: 6 apples, butter, sugar.",
+        ] {
+            let answer = import_from_another_app(&app, &key, bytes);
+            assert_eq!(
+                answer["refused"]["reason"],
+                json!("unrecognised"),
+                "{answer}"
+            );
+            assert!(
+                answer["refused"]["sentence"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Crouton"),
+                "it names the apps it reads: {answer}"
+            );
+            assert!(answer.get("arrived").is_none(), "{answer}");
+            assert_eq!(
+                uploads_left(&app),
+                0,
+                "the staged upload outlived its refusal"
+            );
+        }
+        // Nothing landed, and no Import was opened for a file of no app's.
+        let (_, listed) = app.post_op("list_imports", Some(&key), "{}");
+        assert_eq!(listed["result"]["imports"], json!([]), "{listed}");
+        assert_eq!(recipes_held(&app), 0, "a recipe landed");
+    }
 }
 
 // ── Sheets (#75, ADR 0023) ───────────────────────────────────────────────────

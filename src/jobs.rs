@@ -83,6 +83,15 @@ impl JobProgress {
             Ok(())
         });
     }
+
+    /// Stand `result` as the Job's result while it still runs, until the
+    /// result it ends with replaces it: what an import names its source by
+    /// before its Report is written (#412).
+    pub fn result_so_far(&self, result: &Value) {
+        let _ = self
+            .db
+            .with_conn(|conn| set_result(conn, &self.job_id, result));
+    }
 }
 
 /// The member lane: two pieces of work at once, a bounded line behind them.

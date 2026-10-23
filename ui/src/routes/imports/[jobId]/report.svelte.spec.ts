@@ -312,11 +312,131 @@ describe('the Import Report', () => {
 		expect(
 			screen.getByText(/1 came as just a name and a link: Dan Dan Noodles/),
 		).toBeInTheDocument();
-		expect(screen.getByText(/Left out: 2 website icons/)).toBeInTheDocument();
+		expect(screen.getByText('Show all 6')).toBeInTheDocument();
+	});
+
+	it('says what arrived, and the website icons left out, under Arrived', async () => {
+		open({ get_job: job() });
+		expect(await screen.findByText(/Left out: 2 website icons/)).toBeInTheDocument();
 		// The two recipes share one icon, so it is drawn once.
 		expect(document.querySelectorAll('img[src^="data:image/png"]')).toHaveLength(1);
-		expect(screen.getByText(/one extra photo from Beef Short Ribs/)).toBeInTheDocument();
-		expect(screen.getByText('Show all 6')).toBeInTheDocument();
+	});
+
+	it('counts what stayed in the app in a section of its own (#412)', async () => {
+		open({ get_job: job() });
+		const stayed = within(
+			(await screen.findByRole('heading', { name: 'Stayed in Crouton' })).closest('section')!,
+		);
+		expect(stayed.getByText(/no place in Kamosu/)).toBeInTheDocument();
+		const extra = stayed.getByText('Extra photos').closest('details')!;
+		expect(extra.querySelector('summary')).toHaveTextContent('1');
+		expect(extra).toHaveTextContent(
+			'Beef Short Ribs: 1. A recipe keeps one photo; add the others to a step by hand.',
+		);
+		// A website's icon is not something the app kept.
+		expect(stayed.queryByText(/icon/i)).not.toBeInTheDocument();
+	});
+
+	it('names every kind an app can leave behind, in the chosen order, the whole file apart', async () => {
+		const ribs = { foreign_id: 'p-ribs', branch_id: 'b_ribs', title: 'Beef Short Ribs' };
+		const dan = { foreign_id: 'p-dan', branch_id: 'b_dan', title: 'Dan Dan Noodles' };
+		open({
+			get_job: job({
+				operation: 'import_from_another_app',
+				result: report({
+					left_out: [
+						{ ...ribs, what: 'comments', count: 3 },
+						{ ...ribs, what: 'attached_files', count: 2 },
+						{
+							...dan,
+							what: 'photos_not_downloaded',
+							count: 1,
+							address: 'https://example.com/dan.jpg',
+						},
+						{ ...ribs, what: 'extra_photos', count: 2 },
+						{ ...dan, what: 'extra_photos', count: 1 },
+						{ ...dan, what: 'favourites', count: 1 },
+						{ ...ribs, what: 'ratings', count: 1 },
+						{ ...dan, what: 'ratings', count: 1 },
+					],
+					left_out_of_file: [
+						{ what: 'meal_plans', count: 41 },
+						{ what: 'shopping_lists', count: 2 },
+						{ what: 'photos_not_in_export', count: 6 },
+					],
+				}),
+			}),
+		});
+		const section = (await screen.findByRole('heading', { name: 'Stayed in Crouton' })).closest(
+			'section',
+		)!;
+		const rows = [...section.querySelectorAll('li')];
+		expect(
+			rows.map(
+				(row) =>
+					row.textContent
+						?.replace(/\s+/g, ' ')
+						.trim()
+						.split(/(?<=\d) /)[0],
+			),
+		).toEqual([
+			'Ratings 2',
+			'Favourites 1',
+			'Extra photos 3',
+			'Photos that could not be downloaded 1',
+			'Attached files 2',
+			'Comments 3',
+			'Meal plan entries 41',
+			'Shopping lists 2',
+			'Photos not in the export 6',
+		]);
+		expect(rows[0]).toHaveTextContent('Beef Short Ribs, Dan Dan Noodles.');
+		expect(rows[2]).toHaveTextContent('Beef Short Ribs: 2 · Dan Dan Noodles: 1.');
+		expect(rows[3]).toHaveTextContent('https://example.com/dan.jpg');
+		expect(within(rows[3]).getByRole('link', { name: 'Dan Dan Noodles' })).toHaveAttribute(
+			'href',
+			'/recipes/b_dan',
+		);
+		// What belongs to the whole file names no recipe and opens to nothing.
+		for (const row of rows.slice(6)) expect(row.querySelector('details')).toBeNull();
+	});
+
+	it('names five recipes, then how many more', async () => {
+		const many = Array.from({ length: 12 }, (_, index) => ({
+			foreign_id: `p-${index}`,
+			branch_id: `b_${index}`,
+			title: `Recipe ${index}`,
+			what: 'ratings' as const,
+			count: 1,
+		}));
+		open({ get_job: job({ result: report({ left_out: many }) }) });
+		const ratings = (await screen.findByText('Ratings')).closest('li')!;
+		expect(ratings).toHaveTextContent(
+			'Recipe 0, Recipe 1, Recipe 2, Recipe 3, Recipe 4 and 7 more.',
+		);
+	});
+
+	it('draws no such section when nothing stayed behind', async () => {
+		open({ get_job: job({ result: report({ left_out: [] }) }) });
+		await screen.findByText('Every file could be read.');
+		expect(screen.queryByRole('heading', { name: /Stayed in/ })).not.toBeInTheDocument();
+	});
+
+	it('says an export from another app was turned away, and what to do (#412)', async () => {
+		open({
+			get_job: job({
+				operation: 'import_from_another_app',
+				result: { refused: { reason: 'unrecognised', sentence: 'not known' } },
+			}),
+			runner_status: { has_runner: false, last_asked_at: null },
+		});
+		expect(
+			await screen.findByRole('heading', { name: 'An export from another app' }),
+		).toBeInTheDocument();
+		expect(screen.getByRole('alert')).toHaveTextContent(
+			'Kamosu could not tell which app made this file.',
+		);
+		expect(screen.getByRole('link', { name: 'Pasted text' })).toBeInTheDocument();
 	});
 
 	it('says why an import stopped', async () => {

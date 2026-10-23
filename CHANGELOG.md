@@ -20,6 +20,7 @@
 - The published agent image can be started as a fence, `/opt/kamosu-agent/fence`, whose network the agent's container shares. It lets the agent reach the internet and Kamosu's address, refuses the host, the LAN and every other private address, and keeps no root and no capability once its rules are set. [#372]
 - Kamosu keeps a Security Record for 90 days, in Settings › Security record. Each person sees their own sign-ins and how each was made, wrong passwords at their name counted as one line per run, passkeys, password changes, Access Keys and Sessions ended. An Operator also sees the instance's: the House Notes and the public address changed, who was made an Operator or stood down, accounts disabled or deleted, Operator keys, Runner Keys, Backups fetched, and a crowd of sign-ins refused at once, each saying who did it through which Session or key. Agents read both with `list_security_record` and `list_instance_security_record`. Before, nothing recorded any of it. [#371]
 - Each of those events is also one line on standard output, starting `kamosu-security`, in a fixed format a log watcher can match: `docs/security-record.md` describes it. It names Sessions and keys, never an address, a password or a Secret, and Kamosu sends it nowhere. [#371]
+- Settings opens with *Import from another app*, a page of its own where the export file of the app you used before is dropped or picked, and Kamosu works out from what is inside it which app made it. Today it reads Crouton's, which moved here from This instance; the page lists each app it reads and where that app keeps its export. A file it does not recognise, or an app's export in a shape Kamosu was not tested with, is turned away on the page with nothing imported, saying which apps it reads, where to ask for another, and the ways one recipe at a time comes in. The Import Report counts what stayed behind in the old app in a section of its own, so it can be checked before the app is deleted. Agents import the same way with `import_from_another_app`, and `import_crouton` works as before. [#412]
 
 ### Changed
 
@@ -64,6 +65,7 @@
 [#406]: https://github.com/BatterWorks/Kamosu/issues/406
 [#407]: https://github.com/BatterWorks/Kamosu/issues/407
 [#408]: https://github.com/BatterWorks/Kamosu/issues/408
+[#412]: https://github.com/BatterWorks/Kamosu/issues/412
 [#426]: https://github.com/BatterWorks/Kamosu/issues/426
 
 ## v0.3.0 - 2026-10-18

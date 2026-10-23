@@ -885,7 +885,14 @@ describe('the recipes screen', () => {
 				errorCode: null,
 				created_at: '2026-09-26T10:00:00.000Z',
 				updated_at: '2026-09-26T10:00:01.000Z',
-				result: {},
+				result:
+					job_id === 'j_model'
+						? {
+								model: 'embeddinggemma-300m',
+								repository: 'google/embeddinggemma-300m',
+								revision: 'r1',
+							}
+						: { indexed: 1 },
 			}),
 			// Words alone find nothing; by meaning, the stew is close enough.
 			search_recipes: ({ query }) => ({
@@ -1298,7 +1305,7 @@ describe('the + for every new recipe (#174)', () => {
 				updated_at: '2026-09-27T10:00:02.000Z',
 				result: {
 					import_id: 'i_1',
-					kitchen_id: 'k_home',
+					cookbook_id: 'c_home',
 					source_kind: 'bundle',
 					arrived: [
 						{
@@ -2062,7 +2069,7 @@ describe('the + for every new recipe (#174)', () => {
 				import_bundle: { job_id: 'j_1' },
 				get_job: finished('import_bundle', {
 					import_id: 'i_1',
-					kitchen_id: 'k_home',
+					cookbook_id: 'c_home',
 					source_kind: 'bundle',
 					arrived: [
 						{
