@@ -80,7 +80,9 @@ describe('importing from another app', () => {
 		expect(screen.getByText(/cook recipe -f schema/)).toBeInTheDocument();
 		expect(screen.getByText('Bar Assistant')).toBeInTheDocument();
 		expect(screen.getByText(/JSON \(Schema draft 2\) or Schema\.org Recipe/)).toBeInTheDocument();
-		for (const later of ['KitchenOwl', 'Recipe Keeper', 'Mela']) {
+		expect(screen.getByText('KitchenOwl')).toBeInTheDocument();
+		expect(screen.getByText(/household's settings › Danger Zone › Export/)).toBeInTheDocument();
+		for (const later of ['Recipe Keeper', 'Mela']) {
 			expect(screen.queryByText(new RegExp(later))).not.toBeInTheDocument();
 		}
 		expect(screen.getByRole('link', { name: 'Ask for it on GitHub' })).toHaveAttribute(
@@ -114,7 +116,7 @@ describe('importing from another app', () => {
 		expect(card).toHaveTextContent('Recipes 2026-10-20.zip');
 		expect(card).toHaveTextContent('Kamosu could not tell which app made this file.');
 		expect(card).toHaveTextContent(
-			'It reads exports from Mealie, Paprika, Tandoor, Crouton, Nextcloud Cookbook, RecipeSage, Recipya, CookCLI and Bar Assistant.',
+			'It reads exports from Mealie, Paprika, Tandoor, Crouton, KitchenOwl, Nextcloud Cookbook, RecipeSage, Recipya, CookCLI and Bar Assistant.',
 		);
 		expect(screen.getByRole('link', { name: 'A PDF' })).toHaveAttribute('href', '/recipes?add');
 		expect(screen.getByRole('link', { name: 'Pasted text' })).toHaveAttribute(

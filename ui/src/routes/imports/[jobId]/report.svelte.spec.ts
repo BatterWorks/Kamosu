@@ -364,6 +364,8 @@ describe('the Import Report', () => {
 						{ what: 'meal_plans', count: 41 },
 						{ what: 'shopping_lists', count: 2 },
 						{ what: 'photos_not_in_export', count: 6 },
+						{ what: 'items', count: 660 },
+						{ what: 'expenses', count: 1 },
 					],
 				}),
 			}),
@@ -391,6 +393,8 @@ describe('the Import Report', () => {
 			'Meal plan entries 41',
 			'Shopping lists 2',
 			'Photos not in the export 6',
+			'Shopping items 660',
+			'Expenses 1',
 		]);
 		expect(rows[0]).toHaveTextContent('Beef Short Ribs, Dan Dan Noodles.');
 		expect(rows[2]).toHaveTextContent('Beef Short Ribs: 2 · Dan Dan Noodles: 1.');

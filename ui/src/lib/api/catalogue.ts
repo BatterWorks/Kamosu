@@ -2303,7 +2303,7 @@ export type ImportOutput = {
 	}[];
 	left_out_of_file?: {
 		count: number;
-		what: "meal_plans" | "shopping_lists" | "photos_not_in_export";
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
 	offered: {
 		branch_id: string;
@@ -2382,7 +2382,7 @@ export type ImportCroutonOutput = {
 	}[];
 	left_out_of_file?: {
 		count: number;
-		what: "meal_plans" | "shopping_lists" | "photos_not_in_export";
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
 	offered: {
 		branch_id: string;
@@ -2462,7 +2462,7 @@ export type ImportFromAnotherAppOutput = {
 	}[];
 	left_out_of_file?: {
 		count: number;
-		what: "meal_plans" | "shopping_lists" | "photos_not_in_export";
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
 	offered?: {
 		branch_id: string;
@@ -2581,7 +2581,7 @@ export type ImportWebLinkOutput = {
 	}[];
 	left_out_of_file?: {
 		count: number;
-		what: "meal_plans" | "shopping_lists" | "photos_not_in_export";
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
 	offered?: {
 		branch_id: string;
@@ -3300,7 +3300,7 @@ export type ImportBundleOutput = {
 	}[];
 	left_out_of_file?: {
 		count: number;
-		what: "meal_plans" | "shopping_lists" | "photos_not_in_export";
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
 	offered: {
 		branch_id: string;
@@ -17885,7 +17885,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -17896,7 +17896,9 @@ export const CATALOGUE = [
 								"enum": [
 									"meal_plans",
 									"shopping_lists",
-									"photos_not_in_export"
+									"photos_not_in_export",
+									"items",
+									"expenses"
 								]
 							}
 						},
@@ -18287,7 +18289,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -18298,7 +18300,9 @@ export const CATALOGUE = [
 								"enum": [
 									"meal_plans",
 									"shopping_lists",
-									"photos_not_in_export"
+									"photos_not_in_export",
+									"items",
+									"expenses"
 								]
 							}
 						},
@@ -18693,7 +18697,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -18704,7 +18708,9 @@ export const CATALOGUE = [
 								"enum": [
 									"meal_plans",
 									"shopping_lists",
-									"photos_not_in_export"
+									"photos_not_in_export",
+									"items",
+									"expenses"
 								]
 							}
 						},
@@ -19280,7 +19286,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -19291,7 +19297,9 @@ export const CATALOGUE = [
 								"enum": [
 									"meal_plans",
 									"shopping_lists",
-									"photos_not_in_export"
+									"photos_not_in_export",
+									"items",
+									"expenses"
 								]
 							}
 						},
@@ -22902,7 +22910,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -22913,7 +22921,9 @@ export const CATALOGUE = [
 								"enum": [
 									"meal_plans",
 									"shopping_lists",
-									"photos_not_in_export"
+									"photos_not_in_export",
+									"items",
+									"expenses"
 								]
 							}
 						},

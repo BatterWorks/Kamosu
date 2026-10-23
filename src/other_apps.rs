@@ -33,6 +33,7 @@ pub static READERS: &[&dyn Reader] = &[
     &crate::paprika::Paprika,
     &crate::tandoor::Tandoor,
     &crate::crouton::Crouton,
+    &crate::kitchenowl::KitchenOwl,
     // Bar Assistant's JSON-LD export is recipe files too, so its reader is
     // asked first.
     &crate::bar_assistant::BarAssistant,
@@ -73,6 +74,28 @@ impl Handed {
             HandedSource::File(path) => Box::new(std::fs::File::open(path)?),
             HandedSource::Bytes(bytes) => Box::new(std::io::Cursor::new(ArcBytes(bytes.clone()))),
         })
+    }
+
+    /// The file as JSON, where it is an object or an array of no more than
+    /// `most` bytes. A zip, a PDF or a picture is turned away by its first
+    /// bytes, before the rest of it is read.
+    pub fn json(&self, most: u64) -> Option<Value> {
+        let mut start = Vec::new();
+        self.open().ok()?.take(1024).read_to_end(&mut start).ok()?;
+        let first = start.iter().find(|byte| !byte.is_ascii_whitespace());
+        if !matches!(first, Some(b'{' | b'[')) {
+            return None;
+        }
+        let mut bytes = Vec::new();
+        self.open()
+            .ok()?
+            .take(most + 1)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        if bytes.len() as u64 > most {
+            return None;
+        }
+        serde_json::from_slice(&bytes).ok()
     }
 
     /// Whether the file is a zip, by its first four bytes.
@@ -316,6 +339,28 @@ pub enum Photo {
     NotInExport,
 }
 
+/// What each recipe is known by, given `ids` in the file's order: each as it
+/// is, and one already given numbered, `Lemonade (2)`, never as another of
+/// `ids` is already known.
+pub fn numbered(ids: Vec<String>) -> Vec<String> {
+    let mut taken: std::collections::HashSet<String> = ids.iter().cloned().collect();
+    let mut given = std::collections::HashSet::new();
+    ids.into_iter()
+        .map(|id| {
+            if given.insert(id.clone()) {
+                return id;
+            }
+            let numbered = (2..)
+                .map(|n| format!("{id} ({n})"))
+                .find(|numbered| !taken.contains(numbered))
+                .unwrap_or_default();
+            taken.insert(numbered.clone());
+            given.insert(numbered.clone());
+            numbered
+        })
+        .collect()
+}
+
 /// A Source that is a web page alone: named by the page's site, and linking
 /// to it.
 pub fn source_of_link(link: &str) -> Value {
@@ -371,15 +416,32 @@ pub enum FileLeftOut {
     ShoppingLists(usize),
     /// Recipes the app had a photo for that its export does not carry.
     PhotosNotInExport(usize),
+    /// The app's catalogue of things to buy (#417).
+    Items(usize),
+    /// Money the household recorded spending (#417).
+    Expenses(usize),
 }
 
 impl FileLeftOut {
+    /// How many of it the file held.
+    pub fn count(&self) -> usize {
+        match self {
+            FileLeftOut::MealPlans(count)
+            | FileLeftOut::ShoppingLists(count)
+            | FileLeftOut::PhotosNotInExport(count)
+            | FileLeftOut::Items(count)
+            | FileLeftOut::Expenses(count) => *count,
+        }
+    }
+
     /// The Report's row for it.
     pub fn row(&self) -> Value {
         let (what, count) = match self {
             FileLeftOut::MealPlans(count) => ("meal_plans", count),
             FileLeftOut::ShoppingLists(count) => ("shopping_lists", count),
             FileLeftOut::PhotosNotInExport(count) => ("photos_not_in_export", count),
+            FileLeftOut::Items(count) => ("items", count),
+            FileLeftOut::Expenses(count) => ("expenses", count),
         };
         json!({ "what": what, "count": count })
     }
