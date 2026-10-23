@@ -38,6 +38,7 @@ impl Core {
                 &version_id,
                 &content_text,
                 caller,
+                &[],
             )
         })?;
 
@@ -3028,7 +3029,8 @@ pub(super) fn start_copy(
 /// Version — the one sequence `create_recipe` and a freshly-seen Import
 /// candidate both start from (ADR 0004): the Cookbook's own Hand on the
 /// Branch, the writing Person's Hand on this first Version, and the writer
-/// as the one who started it.
+/// as the one who started it. The lines in `leave_unread` are not read: an
+/// import gives them their Readings itself once its file has landed (#413).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn insert_new_lineage_and_branch(
     conn: &Connection,
@@ -3040,6 +3042,7 @@ pub(super) fn insert_new_lineage_and_branch(
     version_id: &str,
     content_text: &str,
     writer: &Caller,
+    leave_unread: &[usize],
 ) -> Result<Vec<CreatedFood>, OpError> {
     conn.execute(
         "INSERT OR IGNORE INTO versions (id, content) VALUES (?1, ?2)",
@@ -3094,7 +3097,20 @@ pub(super) fn insert_new_lineage_and_branch(
     let Ok(content) = serde_json::from_str::<Value>(content_text) else {
         return Ok(Vec::new());
     };
-    Ok(read_unread_lines(conn, version_id, &language.language, &content, None, None).foods_created)
+    let lines: Option<HashSet<usize>> = (!leave_unread.is_empty()).then(|| {
+        (0..content["ingredients"].as_array().map_or(0, Vec::len))
+            .filter(|line| !leave_unread.contains(line))
+            .collect()
+    });
+    Ok(read_unread_lines(
+        conn,
+        version_id,
+        &language.language,
+        &content,
+        lines.as_ref(),
+        None,
+    )
+    .foods_created)
 }
 
 /// The title of one Version, which is what a recipe is called right now.

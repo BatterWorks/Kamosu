@@ -37445,6 +37445,423 @@ async fn editing_a_recipe_you_did_not_write_is_a_copy() {
     assert_eq!(head_content(&app, &key, &branch_id), before);
 }
 
+/// Bringing in a Mealie export (#413): the files in `tests/fixtures/mealie/`,
+/// made by Mealie itself, through "import from another app".
+mod mealie {
+    use super::*;
+
+    fn fixture(name: &str) -> Vec<u8> {
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/mealie")
+                .join(name),
+        )
+        .expect("the fixture")
+    }
+
+    fn import(app: &support::TestApp, key: &str, name: &str) -> Value {
+        let (status, staged) =
+            app.post_bytes("/api/uploads", Some(key), "application/zip", &fixture(name));
+        assert_eq!(status, 200, "{staged}");
+        let (status, ask) = app.post_op(
+            "import_from_another_app",
+            Some(key),
+            &json!({ "upload_id": staged["result"]["upload_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{ask}");
+        let finished =
+            support::wait_terminal(app, Some(key), ask["result"]["job_id"].as_str().unwrap());
+        assert_eq!(finished["status"], json!("completed"), "{finished}");
+        finished["result"].clone()
+    }
+
+    fn recipe(app: &support::TestApp, key: &str, branch_id: &str, wanted: Option<Value>) -> Value {
+        let mut input = json!({ "branch_id": branch_id });
+        if let Some(wanted) = wanted {
+            input["wanted_yield"] = wanted;
+        }
+        let (status, recipe) = app.post_op("get_recipe", Some(key), &input.to_string());
+        assert_eq!(status, 200, "{recipe}");
+        recipe["result"].clone()
+    }
+
+    fn row<'a>(report: &'a Value, list: &str, title: &str) -> &'a Value {
+        report[list]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["title"] == title)
+            .unwrap_or_else(|| panic!("no {title} in {list}: {report}"))
+    }
+
+    fn statuses(report: &Value) -> Vec<String> {
+        let mut statuses: Vec<String> = report["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                format!(
+                    "{} {}",
+                    row["title"].as_str().unwrap(),
+                    row["status"].as_str().unwrap()
+                )
+            })
+            .collect();
+        statuses.sort();
+        statuses
+    }
+
+    fn recipes_held(app: &support::TestApp) -> i64 {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                Ok(conn
+                    .query_row("SELECT COUNT(*) FROM branches", [], |row| row.get(0))
+                    .unwrap())
+            })
+            .unwrap()
+    }
+
+    fn left_out_of(report: &Value, title: &str) -> Vec<(String, i64)> {
+        report["left_out"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["title"] == title)
+            .map(|row| {
+                (
+                    row["what"].as_str().unwrap().to_string(),
+                    row["count"].as_i64().unwrap(),
+                )
+            })
+            .collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_mealie_export_lands_every_recipe_as_mealie_showed_it() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let report = import(&app, &key, "v3-export.zip");
+
+        assert_eq!(report["source_kind"], json!("mealie"));
+        assert_eq!(
+            statuses(&report),
+            [
+                "Margherita pizza created",
+                "Pizza dough created",
+                "Tarte aux pommes created"
+            ]
+        );
+        assert_eq!(report["unreadable"], json!([]), "{report}");
+
+        // The pizza, field by field, as Mealie showed it.
+        let pizza_row = row(&report, "arrived", "Margherita pizza");
+        assert_eq!(
+            pizza_row["foreign_id"],
+            json!("c1acc761-fb3d-4735-b53b-b61059d5716a")
+        );
+        let pizza = recipe(&app, &key, pizza_row["branch_id"].as_str().unwrap(), None);
+        let content = &pizza["versions"][0]["content"];
+        assert_eq!(content["title"], json!("Margherita pizza"));
+        assert_eq!(
+            content["yield"],
+            json!({ "amount": "2", "noun": "servings" })
+        );
+        assert_eq!(content["prep_time_minutes"], json!(15));
+        assert_eq!(content["cook_time_minutes"], json!(8));
+        assert_eq!(
+            content["source"],
+            json!({ "text": "example.com", "link": "https://www.example.com/margherita" })
+        );
+        assert_eq!(
+            content["note"],
+            json!(
+                "The pizza we make every Friday.\n\nOven\nA home oven at its hottest, with the \
+                 stone heated an hour.\n\nEquipment: Pizza peel, Pizza stone."
+            )
+        );
+        assert_eq!(
+            content["nutrition"],
+            json!({ "calories": 850.0, "basis": "per_serving" })
+        );
+        let texts = |field: &str| -> Vec<String> {
+            content[field]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| {
+                    format!(
+                        "{} {}",
+                        row["kind"].as_str().unwrap(),
+                        row["text"].as_str().unwrap()
+                    )
+                })
+                .collect()
+        };
+        assert_eq!(
+            texts("ingredients"),
+            [
+                "section Base",
+                "ingredient 1 batch Pizza dough",
+                "ingredient 1 tbsp semolina for dusting",
+                "section Toppings",
+                "ingredient 200 g tomato passata",
+                "ingredient 125 g mozzarella torn",
+                "ingredient A few basil leaves",
+                "ingredient 1½ tbsp olive oil",
+            ]
+        );
+        assert_eq!(texts("steps")[0], "section Shape");
+        assert_eq!(texts("steps")[3], "section Bake");
+        assert!(content["main_photo"].is_string(), "{content}");
+        // The picture the cook dropped into the second Step is that Step's photo.
+        let photos: Vec<bool> = content["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|step| step["photo"].is_string())
+            .collect();
+        assert_eq!(photos, [false, false, true, false, false, false]);
+        let mut tags: Vec<&str> = pizza["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tag| tag["name"].as_str().unwrap())
+            .collect();
+        tags.sort_unstable();
+        assert_eq!(
+            tags,
+            ["Dinner", "Italian", "Weeknight"],
+            "{}",
+            pizza["tags"]
+        );
+        assert_eq!(
+            left_out_of(&report, "Margherita pizza"),
+            [
+                ("extra_photos".to_string(), 2),
+                ("attached_files".to_string(), 1),
+                ("ratings".to_string(), 1),
+                ("comments".to_string(), 2),
+            ]
+        );
+
+        // Every other line is Kamosu's own reading.
+        let readings = &pizza["versions"][0]["readings"];
+        assert_eq!(readings[4]["target"], json!("tomato passata"), "{readings}");
+
+        // The dough line is a Component naming the dough's Lineage, and it
+        // unfolds whole in the pizza, scaling with it.
+        let dough_row = row(&report, "arrived", "Pizza dough");
+        assert_eq!(
+            readings[1]["lineage_id"], dough_row["lineage_id"],
+            "{readings}"
+        );
+        let components = &pizza["versions"][0]["components"];
+        assert_eq!(components[0]["title"], json!("Pizza dough"), "{components}");
+        assert_eq!(components[0]["share"], json!(1.0), "{components}");
+        let doubled = recipe(
+            &app,
+            &key,
+            pizza_row["branch_id"].as_str().unwrap(),
+            Some(json!({ "amount": "4", "noun": "servings" })),
+        );
+        assert_eq!(doubled["versions"][0]["components"][0]["share"], json!(2.0));
+
+        // The French recipe reads as French.
+        let tarte = recipe(
+            &app,
+            &key,
+            row(&report, "arrived", "Tarte aux pommes")["branch_id"]
+                .as_str()
+                .unwrap(),
+            None,
+        );
+        assert_eq!(tarte["language"], json!("fr"));
+        assert_eq!(
+            tarte["versions"][0]["content"]["yield"],
+            json!({ "amount": "6", "noun": "portions" })
+        );
+
+        // An Operator's re-read of every line leaves the Component in place.
+        let (status, asked) = app.post_op("reread_ingredient_lines", Some(&key), "{}");
+        assert_eq!(status, 200, "{asked}");
+        let reread = support::wait_terminal(
+            &app,
+            Some(&key),
+            asked["result"]["job_id"].as_str().unwrap(),
+        );
+        assert_eq!(reread["status"], json!("completed"), "{reread}");
+        let after = recipe(&app, &key, pizza_row["branch_id"].as_str().unwrap(), None);
+        assert_eq!(
+            after["versions"][0]["readings"][1]["lineage_id"],
+            dough_row["lineage_id"]
+        );
+
+        // Importing the same export again shelves nothing twice.
+        let again = import(&app, &key, "v3-export.zip");
+        assert_eq!(
+            statuses(&again),
+            [
+                "Margherita pizza unchanged",
+                "Pizza dough unchanged",
+                "Tarte aux pommes unchanged"
+            ]
+        );
+        assert_eq!(recipes_held(&app), 3);
+        let (_, listed) = app.post_op("list_imports", Some(&key), "{}");
+        let imports = listed["result"]["imports"].as_array().unwrap();
+        assert_eq!(imports.len(), 1, "{listed}");
+        assert_eq!(imports[0]["source_kind"], json!("mealie"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_pizza_exported_without_its_dough_lands_the_dough_once() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let report = import(&app, &key, "v3-export-pizza-alone.zip");
+
+        assert_eq!(
+            statuses(&report),
+            ["Margherita pizza created", "Pizza dough created"]
+        );
+        let dough = row(&report, "arrived", "Pizza dough");
+        let dough_content = &recipe(&app, &key, dough["branch_id"].as_str().unwrap(), None)["versions"]
+            [0]["content"];
+        assert_eq!(
+            dough_content["ingredients"][0]["text"],
+            json!("500 g bread flour")
+        );
+        assert_eq!(
+            dough_content["yield"],
+            json!({ "amount": "2", "noun": "balls" })
+        );
+        let pizza = recipe(
+            &app,
+            &key,
+            row(&report, "arrived", "Margherita pizza")["branch_id"]
+                .as_str()
+                .unwrap(),
+            None,
+        );
+        assert_eq!(
+            pizza["versions"][0]["readings"][1]["lineage_id"],
+            dough["lineage_id"]
+        );
+
+        let again = import(&app, &key, "v3-export-pizza-alone.zip");
+        assert_eq!(
+            statuses(&again),
+            ["Margherita pizza unchanged"],
+            "the dough is found, not landed again"
+        );
+        assert_eq!(recipes_held(&app), 2);
+
+        // The whole export afterwards finds the dough the copy became.
+        let whole = import(&app, &key, "v3-export.zip");
+        assert_eq!(
+            statuses(&whole),
+            [
+                "Margherita pizza unchanged",
+                "Pizza dough unchanged",
+                "Tarte aux pommes created"
+            ]
+        );
+        assert_eq!(recipes_held(&app), 3);
+    }
+
+    /// The pizza was changed in Mealie between the two exports: its last Step
+    /// bakes for 7 minutes rather than 8. No Operation reads an offered
+    /// Version yet, so its Component is looked for where it is kept.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_changed_in_mealie_is_offered_with_its_component() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let first = import(&app, &key, "v3-export.zip");
+        let later = import(&app, &key, "v3-export-pizza-changed.zip");
+
+        assert_eq!(
+            statuses(&later),
+            ["Pizza dough unchanged", "Tarte aux pommes unchanged"]
+        );
+        let offered = row(&later, "offered", "Margherita pizza");
+        let pizza_id = offered["branch_id"].as_str().unwrap();
+        let head = recipe(&app, &key, pizza_id, None);
+        assert_eq!(
+            head["versions"][0]["content"]["steps"][5]["text"],
+            json!("Bake for 8 minutes, then add the basil and the oil."),
+            "the offer was written over the recipe"
+        );
+        let held: (String, String, bool) = app
+            .core
+            .db()
+            .with_conn(|conn| {
+                Ok(conn
+                    .query_row(
+                        "SELECT versions.content, readings.lineage_id, readings.by_hand
+                           FROM versions JOIN readings ON readings.version_id = versions.id
+                          WHERE versions.id = ?1 AND readings.line_index = 1",
+                        rusqlite::params![offered["candidate_version_id"].as_str().unwrap()],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    )
+                    .unwrap())
+            })
+            .unwrap();
+        assert!(held.0.contains("Bake for 7 minutes"), "{}", held.0);
+        assert_eq!(
+            json!(held.1),
+            row(&first, "arrived", "Pizza dough")["lineage_id"]
+        );
+        assert!(held.2, "the Component counts as set by hand");
+        assert_eq!(recipes_held(&app), 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_borrowed_exports_are_read() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let before_v1 = import(&app, &key, "pre-v1-export.zip");
+        assert_eq!(before_v1["source_kind"], json!("mealie"));
+        assert_eq!(
+            before_v1["arrived"].as_array().unwrap().len(),
+            3,
+            "{before_v1}"
+        );
+        assert_eq!(before_v1["unreadable"], json!([]));
+        let of_2025 = import(&app, &key, "v2-export.zip");
+        assert_eq!(
+            of_2025["arrived"].as_array().unwrap().len(),
+            10,
+            "{of_2025}"
+        );
+        assert_eq!(of_2025["unreadable"], json!([]));
+        assert_eq!(
+            left_out_of(&of_2025, "Boulettes de Courgettes au Four"),
+            [("extra_photos".to_string(), 1), ("ratings".to_string(), 1)]
+        );
+        assert_eq!(recipes_held(&app), 13);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_mealie_backup_is_not_read_as_an_export() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let answer = import(&app, &key, "v3-backup.zip");
+        assert_eq!(
+            answer["refused"]["reason"],
+            json!("unrecognised"),
+            "{answer}"
+        );
+        assert!(
+            answer["refused"]["sentence"]
+                .as_str()
+                .unwrap()
+                .contains("Mealie"),
+            "{answer}"
+        );
+        assert_eq!(recipes_held(&app), 0);
+    }
+}
+
 /// Bringing in a recipe from a PDF (#176): read, shown, and never written
 /// until a person saves it.
 mod reading_a_recipe_pdf {

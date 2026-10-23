@@ -28,7 +28,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 /// The readers, asked in this order. Each later ticket of #411 adds its app.
-pub static READERS: &[&dyn Reader] = &[&crate::crouton::Crouton];
+pub static READERS: &[&dyn Reader] = &[&crate::mealie::Mealie, &crate::crouton::Crouton];
 
 /// What a cook handed over, which each reader opens afresh to look inside.
 pub struct Handed {
@@ -266,7 +266,34 @@ pub struct Recipe {
     pub tags: Vec<String>,
     /// What becomes its Main Photo.
     pub photo: Option<Photo>,
+    /// Pictures the app placed in a Step, each by the Step's place in the
+    /// candidate's `steps` (#413).
+    pub step_photos: Vec<StepPhoto>,
+    /// Lines that point at another of the app's recipes, which become
+    /// Components once the whole file has landed (#413).
+    pub components: Vec<Component>,
     pub left_out: Vec<LeftOut>,
+}
+
+/// A picture the app placed in one Step.
+pub struct StepPhoto {
+    /// The Step's place in the candidate's `steps`, Sections counted.
+    pub step: usize,
+    pub bytes: Vec<u8>,
+}
+
+/// An Ingredient Line that points at another of the app's recipes (#413).
+pub struct Component {
+    /// The line's place in the candidate's `ingredients`, Sections counted.
+    pub line: usize,
+    /// The app's own id for the recipe it points at.
+    pub foreign_id: String,
+    /// How many of that recipe the line asks for, where the app counts in
+    /// whole recipes: one is all of it.
+    pub times: Option<f64>,
+    /// The app's copy of that recipe, which lands in its place when the file
+    /// holds it nowhere else and no earlier import brought it in.
+    pub copy: Option<Box<Recipe>>,
 }
 
 /// A Main Photo as the file holds it.
@@ -275,6 +302,22 @@ pub enum Photo {
     Bytes(Vec<u8>),
     /// Only its web address.
     Address(String),
+    /// The app had one, and its export does not carry it.
+    NotInExport,
+}
+
+/// A Source that is a web page alone: named by the page's site, and linking
+/// to it.
+pub fn source_of_link(link: &str) -> Value {
+    json!({ "text": host(link).unwrap_or_else(|| link.to_string()), "link": link })
+}
+
+/// A link's site as a cook names it: its host, `www.` left off.
+pub fn host(link: &str) -> Option<String> {
+    let rest = link.split_once("://").map_or(link, |(_, rest)| rest);
+    let host = rest.split(['/', '?', '#']).next()?;
+    let host = host.strip_prefix("www.").unwrap_or(host);
+    (!host.is_empty()).then(|| host.to_string())
 }
 
 /// A recipe a reader could not read at all. `name` is what the file called it

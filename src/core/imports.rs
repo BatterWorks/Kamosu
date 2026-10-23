@@ -2,6 +2,8 @@
 //! and the ledger that finds every Import again (#108).
 
 use super::*;
+use std::collections::VecDeque;
+
 use crate::other_apps::{self, LeftOut, Unread};
 
 impl Core {
@@ -38,8 +40,10 @@ impl Core {
         }
     }
 
-    /// Land what an app's reader hands over: each recipe's photo stored as a
-    /// Photograph first, and what the whole file left out added to the Report.
+    /// Land what an app's reader hands over: each recipe's photos stored as
+    /// Photographs first, its lines that point at another recipe made
+    /// Components once the whole file has landed, and what the whole file
+    /// left out added to the Report.
     fn land_export(
         &self,
         caller: &Caller,
@@ -47,57 +51,265 @@ impl Core {
         into: Option<&str>,
         progress: Option<&JobProgress>,
     ) -> Result<Value, OpError> {
-        let left_out_of_file: Vec<Value> = export.left_out.iter().map(|left| left.row()).collect();
-        let incoming = export.recipes.map(|recipe| {
-            let recipe = match recipe {
-                Ok(recipe) => recipe,
-                Err(unread) => {
-                    return Incoming {
-                        candidate: Err(unread),
-                        left_out: Vec::new(),
-                        tags: Vec::new(),
-                    };
+        let mut left_out_of_file = export.left_out;
+        let mut pointing = VecDeque::new();
+        let mut photos_not_in_export = 0;
+        let incoming = export.recipes.map(|recipe| match recipe {
+            Ok(recipe) => {
+                let foreign_id = recipe.foreign_id.clone();
+                let arriving = self.arriving(recipe);
+                if !arriving.components.is_empty() {
+                    pointing.push_back((foreign_id, arriving.components));
                 }
-            };
-            let mut left_out = recipe.left_out;
-            let main_photo = match recipe.photo {
-                Some(other_apps::Photo::Bytes(bytes)) => {
-                    let stored = self
-                        .store_photograph(&bytes)
-                        .ok()
-                        .and_then(|stored| stored["photograph_id"].as_str().map(str::to_string));
-                    // A picture that cannot be remade never fails its recipe
-                    // (#45): the recipe lands without it, and the Report says so.
-                    if stored.is_none() {
-                        match left_out.iter_mut().find_map(|left| match left {
-                            LeftOut::UnreadablePhotos(count) => Some(count),
-                            _ => None,
-                        }) {
-                            Some(count) => *count += 1,
-                            None => left_out.push(LeftOut::UnreadablePhotos(1)),
-                        }
-                    }
-                    stored
-                }
-                Some(other_apps::Photo::Address(address)) => {
-                    left_out.push(LeftOut::PhotoNotDownloaded(address));
-                    None
-                }
-                None => None,
-            };
-            let mut candidate = recipe.candidate;
-            candidate["foreign_id"] = json!(recipe.foreign_id);
-            candidate["main_photo"] = json!(main_photo);
-            Incoming {
-                candidate: Ok(candidate),
-                left_out,
-                tags: recipe.tags,
+                photos_not_in_export += usize::from(arriving.photo_not_in_export);
+                arriving.incoming
             }
+            Err(unread) => Incoming {
+                candidate: Err(unread),
+                left_out: Vec::new(),
+                tags: Vec::new(),
+                component_lines: Vec::new(),
+            },
         });
         let mut report =
             self.import_each(caller, export.app, into, export.total, incoming, progress)?;
-        report["left_out_of_file"] = json!(left_out_of_file);
+        photos_not_in_export += self.land_components(caller, &mut report, pointing)?;
+        if photos_not_in_export > 0 {
+            match left_out_of_file.iter_mut().find_map(|left| match left {
+                other_apps::FileLeftOut::PhotosNotInExport(count) => Some(count),
+                _ => None,
+            }) {
+                Some(count) => *count += photos_not_in_export,
+                None => left_out_of_file.push(other_apps::FileLeftOut::PhotosNotInExport(
+                    photos_not_in_export,
+                )),
+            }
+        }
+        report["left_out_of_file"] = json!(
+            left_out_of_file
+                .iter()
+                .map(other_apps::FileLeftOut::row)
+                .collect::<Vec<_>>()
+        );
         Ok(report)
+    }
+
+    /// One recipe a reader handed over, as the landing takes it: its Main
+    /// Photo and its Steps' photos stored as Photographs, and the lines that
+    /// point at another recipe named so they are left unread, with what they
+    /// point at.
+    fn arriving(&self, recipe: other_apps::Recipe) -> Arriving {
+        let mut left_out = recipe.left_out;
+        // A picture that cannot be remade never fails its recipe (#45): the
+        // recipe lands without it, and the Report says so.
+        let mut unreadable = 0;
+        let mut stored = |bytes: &[u8]| {
+            let stored = self
+                .store_photograph(bytes)
+                .ok()
+                .and_then(|stored| stored["photograph_id"].as_str().map(str::to_string));
+            if stored.is_none() {
+                unreadable += 1;
+            }
+            stored
+        };
+        let photo_not_in_export = matches!(recipe.photo, Some(other_apps::Photo::NotInExport));
+        let main_photo = match recipe.photo {
+            Some(other_apps::Photo::Bytes(bytes)) => stored(&bytes),
+            Some(other_apps::Photo::Address(address)) => {
+                left_out.push(LeftOut::PhotoNotDownloaded(address));
+                None
+            }
+            Some(other_apps::Photo::NotInExport) | None => None,
+        };
+        let mut candidate = recipe.candidate;
+        for other_apps::StepPhoto { step, bytes } in recipe.step_photos {
+            if let Some(photograph_id) = stored(&bytes)
+                && let Some(step) = candidate["steps"].get_mut(step)
+            {
+                step["photo"] = json!(photograph_id);
+            }
+        }
+        if unreadable > 0 {
+            match left_out.iter_mut().find_map(|left| match left {
+                LeftOut::UnreadablePhotos(count) => Some(count),
+                _ => None,
+            }) {
+                Some(count) => *count += unreadable,
+                None => left_out.push(LeftOut::UnreadablePhotos(unreadable)),
+            }
+        }
+        candidate["foreign_id"] = json!(recipe.foreign_id);
+        candidate["main_photo"] = json!(main_photo);
+        Arriving {
+            incoming: Incoming {
+                candidate: Ok(candidate),
+                left_out,
+                tags: recipe.tags,
+                component_lines: recipe.components.iter().map(|c| c.line).collect(),
+            },
+            components: recipe.components,
+            photo_not_in_export,
+        }
+    }
+
+    /// Make each line that pointed at another of the app's recipes a
+    /// Component (#413), once every recipe of the file has landed, so the
+    /// recipe it points at is there whichever came first in the file.
+    ///
+    /// The line's Reading names that recipe's Lineage, found through the
+    /// Import's ledger, and counts as set by hand: an Operator's re-read of
+    /// every line keeps it, and so does a later import, which never replaces a
+    /// Reading somebody set. A recipe pointed at that no import has brought in
+    /// lands first, from the copy the app keeps in the line, and once, since
+    /// it is then in the ledger. On a recipe that was offered rather than
+    /// landed, the Component goes on the offered Version, ready if the cook
+    /// takes it.
+    ///
+    /// This is a link the cook made in the other app, never a guess, so ADR
+    /// 0025's "no Component is guessed at" stands.
+    ///
+    /// The answer is how many recipes landed from a copy whose photos the
+    /// file does not carry, for the Report to count.
+    fn land_components(
+        &self,
+        caller: &Caller,
+        report: &mut Value,
+        mut pointing: VecDeque<(String, Vec<other_apps::Component>)>,
+    ) -> Result<usize, OpError> {
+        if pointing.is_empty() {
+            return Ok(0);
+        }
+        let mut photos_not_in_export = 0;
+        // A copy that could not land is tried once, and listed once.
+        let mut failed: HashSet<String> = HashSet::new();
+        let import_id = report["import_id"].as_str().unwrap_or_default().to_string();
+        let cookbook_id = report["cookbook_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let cookbook_hand_id = self
+            .db()
+            .with_conn(|conn| cookbook_hand(conn, &cookbook_id))?;
+        while let Some((foreign_id, components)) = pointing.pop_front() {
+            let Some(lines_on) = LinesOn::of(report, &foreign_id) else {
+                continue;
+            };
+            for component in components {
+                let mut lineage_id = self
+                    .db()
+                    .with_conn(|conn| ledger_lineage(conn, &import_id, &component.foreign_id))?;
+                if lineage_id.is_none()
+                    && !failed.contains(&component.foreign_id)
+                    && let Some(copy) = component.copy
+                {
+                    let arriving = self.arriving(*copy);
+                    let copy_id = component.foreign_id.clone();
+                    let landed = self.land_one(
+                        caller,
+                        report,
+                        (&cookbook_id, &cookbook_hand_id, &import_id),
+                        &copy_id,
+                        arriving.incoming,
+                    )?;
+                    match landed {
+                        Some(_) => {
+                            photos_not_in_export += usize::from(arriving.photo_not_in_export);
+                            if !arriving.components.is_empty() {
+                                pointing.push_back((copy_id, arriving.components));
+                            }
+                        }
+                        None => {
+                            failed.insert(copy_id);
+                        }
+                    }
+                    lineage_id = landed;
+                }
+                self.db().with_conn(|conn| {
+                    point_line(
+                        conn,
+                        &lines_on,
+                        component.line,
+                        lineage_id.as_deref(),
+                        component.times,
+                    )
+                })?;
+            }
+        }
+        Ok(photos_not_in_export)
+    }
+
+    /// Land one recipe through the ledger outside the run of a file, and say
+    /// so in the Report: the Lineage it is, or nothing where it could not land.
+    fn land_one(
+        &self,
+        caller: &Caller,
+        report: &mut Value,
+        (cookbook_id, cookbook_hand_id, import_id): (&str, &str, &str),
+        foreign_id: &str,
+        incoming: Incoming,
+    ) -> Result<Option<String>, OpError> {
+        let Ok(candidate) = incoming.candidate else {
+            return Ok(None);
+        };
+        let shape = LandedShape::of(&candidate);
+        let landed = self.import_one(
+            caller,
+            cookbook_id,
+            cookbook_hand_id,
+            import_id,
+            foreign_id,
+            &candidate,
+            &incoming.tags,
+            &incoming.component_lines,
+        );
+        let (lineage_id, branch_id, title) = match landed {
+            Ok(ImportOutcome::Landed {
+                lineage_id,
+                branch_id,
+                title,
+                status,
+                ..
+            }) => {
+                push_row(
+                    report,
+                    "arrived",
+                    arrived_row(foreign_id, status, &lineage_id, &branch_id, &title, &shape),
+                );
+                (lineage_id, branch_id, title)
+            }
+            Ok(ImportOutcome::Offered {
+                lineage_id,
+                branch_id,
+                title,
+                candidate_version_id,
+            }) => {
+                push_row(
+                    report,
+                    "offered",
+                    offered_row(
+                        foreign_id,
+                        &lineage_id,
+                        &branch_id,
+                        &title,
+                        &candidate_version_id,
+                    ),
+                );
+                (lineage_id, branch_id, title)
+            }
+            Err(err) => {
+                push_row(
+                    report,
+                    "unreadable",
+                    json!({ "foreign_id": foreign_id, "reason": err.to_sentence() }),
+                );
+                return Ok(None);
+            }
+        };
+        for left in &incoming.left_out {
+            push_row(report, "left_out", left.row(foreign_id, &branch_id, &title));
+        }
+        Ok(Some(lineage_id))
     }
 
     /// What this Person has brought in from outside, and what happened each
@@ -506,6 +718,7 @@ impl Core {
                 &foreign_id,
                 &candidate,
                 &item.tags,
+                &item.component_lines,
             ) {
                 Ok(ImportOutcome::Landed {
                     lineage_id,
@@ -517,11 +730,14 @@ impl Core {
                     if let Some(held) = &held {
                         shape = LandedShape::of(held);
                     }
-                    arrived.push(json!({
-                        "foreign_id": foreign_id, "status": status,
-                        "lineage_id": lineage_id, "branch_id": branch_id, "title": title,
-                        "main_photo": shape.main_photo, "bare": shape.bare,
-                    }));
+                    arrived.push(arrived_row(
+                        &foreign_id,
+                        status,
+                        &lineage_id,
+                        &branch_id,
+                        &title,
+                        &shape,
+                    ));
                     (lineage_id, branch_id, title)
                 }
                 Ok(ImportOutcome::Offered {
@@ -530,11 +746,13 @@ impl Core {
                     title,
                     candidate_version_id,
                 }) => {
-                    offered.push(json!({
-                        "foreign_id": foreign_id,
-                        "lineage_id": lineage_id, "branch_id": branch_id, "title": title,
-                        "candidate_version_id": candidate_version_id,
-                    }));
+                    offered.push(offered_row(
+                        &foreign_id,
+                        &lineage_id,
+                        &branch_id,
+                        &title,
+                        &candidate_version_id,
+                    ));
                     (lineage_id, branch_id, title)
                 }
                 Err(err) => {
@@ -672,6 +890,9 @@ impl Core {
     /// again gains the tags it lacked and keeps every one given it here; and
     /// since a Tag is no part of a Version (ADR 0035), filing moves no id and
     /// leaves `unchanged` unchanged.
+    ///
+    /// A new recipe's lines in `component_lines` are left unread: they point
+    /// at another recipe, and [`Core::land_components`] reads them (#413).
     #[allow(clippy::too_many_arguments)]
     fn import_one(
         &self,
@@ -682,6 +903,7 @@ impl Core {
         foreign_id: &str,
         candidate: &Value,
         tags: &[String],
+        component_lines: &[usize],
     ) -> Result<ImportOutcome, OpError> {
         let content = parse_recipe_content(candidate)?;
         let title = content["title"].as_str().unwrap_or_default().to_string();
@@ -723,6 +945,7 @@ impl Core {
                         &version_id,
                         &content_text,
                         caller,
+                        component_lines,
                     )?;
                     conn.execute(
                         "INSERT INTO import_ledger (import_id, foreign_id, lineage_id, branch_id) \
@@ -808,6 +1031,9 @@ pub struct Incoming {
     /// Crouton library's tags (#128). Beside the candidate, not in it,
     /// because a Tag is filing, not content (ADR 0035).
     pub tags: Vec<String>,
+    /// Lines that point at another recipe, left unread on a new recipe until
+    /// the whole file has landed (#413).
+    pub component_lines: Vec<usize>,
 }
 
 impl LeftOut {
@@ -881,8 +1107,205 @@ impl Incoming {
             candidate: Ok(candidate),
             left_out: Vec::new(),
             tags: Vec::new(),
+            component_lines: Vec::new(),
         }
     }
+}
+
+/// One recipe from a reader, ready to land: what [`Core::import_each`] takes,
+/// the lines that point at another recipe, and whether the app had a photo
+/// of it that the file does not carry.
+struct Arriving {
+    incoming: Incoming,
+    components: Vec<other_apps::Component>,
+    photo_not_in_export: bool,
+}
+
+/// A recipe the Report lists as having arrived.
+fn arrived_row(
+    foreign_id: &str,
+    status: &str,
+    lineage_id: &str,
+    branch_id: &str,
+    title: &str,
+    shape: &LandedShape,
+) -> Value {
+    json!({
+        "foreign_id": foreign_id, "status": status,
+        "lineage_id": lineage_id, "branch_id": branch_id, "title": title,
+        "main_photo": shape.main_photo, "bare": shape.bare,
+    })
+}
+
+/// A recipe the Report lists as changed and offered.
+fn offered_row(
+    foreign_id: &str,
+    lineage_id: &str,
+    branch_id: &str,
+    title: &str,
+    candidate_version_id: &str,
+) -> Value {
+    json!({
+        "foreign_id": foreign_id,
+        "lineage_id": lineage_id, "branch_id": branch_id, "title": title,
+        "candidate_version_id": candidate_version_id,
+    })
+}
+
+/// Add a row to one of the Report's lists.
+fn push_row(report: &mut Value, list: &str, row: Value) {
+    if let Some(rows) = report[list].as_array_mut() {
+        rows.push(row);
+    }
+}
+
+/// The Version whose lines a recipe of the file holds, as the Report says it
+/// landed: the Version offered where it was offered, and the recipe as it
+/// stands otherwise.
+struct LinesOn {
+    branch_id: String,
+    offered: Option<String>,
+}
+
+impl LinesOn {
+    fn of(report: &Value, foreign_id: &str) -> Option<LinesOn> {
+        let row = |list: &str| {
+            report[list]
+                .as_array()?
+                .iter()
+                .find(|row| row["foreign_id"] == foreign_id)
+                .cloned()
+        };
+        if let Some(offered) = row("offered") {
+            return Some(LinesOn {
+                branch_id: offered["branch_id"].as_str()?.to_string(),
+                offered: Some(offered["candidate_version_id"].as_str()?.to_string()),
+            });
+        }
+        let arrived = row("arrived")?;
+        Some(LinesOn {
+            branch_id: arrived["branch_id"].as_str()?.to_string(),
+            offered: None,
+        })
+    }
+}
+
+/// The Lineage an Import's ledger knows a foreign id as.
+fn ledger_lineage(
+    conn: &Connection,
+    import_id: &str,
+    foreign_id: &str,
+) -> Result<Option<String>, OpError> {
+    conn.query_row(
+        "SELECT lineage_id FROM import_ledger WHERE import_id = ?1 AND foreign_id = ?2",
+        params![import_id, foreign_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read Import ledger: {e}")))
+}
+
+/// Point one line at the Lineage the app's line pointed at (#413), counted as
+/// set by hand. A Reading somebody set already stands.
+///
+/// How much of it the line asks for is said in the inner recipe's own Yield,
+/// so [`units::how_much_of`] works out the share the app meant: the app counts
+/// in whole recipes, and a cook's `1 batch` of a dough that makes `2 balls`
+/// is both balls. One is the whole recipe and needs no amount at all.
+///
+/// Where nothing is there to point at, the line on the recipe as it stands is
+/// read as any other line is. An offered Version is read when it is taken.
+fn point_line(
+    conn: &Connection,
+    lines_on: &LinesOn,
+    line: usize,
+    lineage_id: Option<&str>,
+    times: Option<f64>,
+) -> Result<(), OpError> {
+    // A recipe deleted since it landed has no line left to point.
+    let Some((head_version_id, language)): Option<(String, String)> = conn
+        .query_row(
+            "SELECT head_version_id, language FROM branches WHERE id = ?1",
+            params![lines_on.branch_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the recipe: {e}")))?
+    else {
+        return Ok(());
+    };
+    let version_id = lines_on.offered.as_deref().unwrap_or(&head_version_id);
+    let line_index = line as i64;
+
+    let Some(lineage_id) = lineage_id else {
+        if lines_on.offered.is_none() {
+            let content = version_content(conn, version_id)?;
+            read_unread_lines(
+                conn,
+                version_id,
+                &language,
+                &content,
+                Some(&HashSet::from([line])),
+                None,
+            );
+        }
+        return Ok(());
+    };
+
+    let set_by_hand: bool = conn
+        .query_row(
+            "SELECT by_hand FROM readings WHERE version_id = ?1 AND line_index = ?2",
+            params![version_id, line_index],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the Reading: {e}")))?
+        .unwrap_or(false);
+    if set_by_hand {
+        return Ok(());
+    }
+
+    let (amount, unit) = match times.filter(|times| (times - 1.0).abs() > f64::EPSILON) {
+        None => (None, None),
+        Some(times) => {
+            let made: Option<Value> = conn
+                .query_row(
+                    "SELECT versions.content FROM branches
+                       JOIN versions ON versions.id = branches.head_version_id
+                      WHERE branches.lineage_id = ?1 LIMIT 1",
+                    params![lineage_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read the recipe: {e}")))?
+                .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+                .map(|content| content["yield"].clone());
+            let made_amount = made
+                .as_ref()
+                .and_then(|made| made["amount"].as_str())
+                .and_then(units::parse_amount)
+                .filter(|amount| *amount > 0.0);
+            let noun = made.as_ref().and_then(|made| made["noun"].as_str());
+            match (made_amount, noun) {
+                (Some(made_amount), Some(noun)) => (
+                    Some(units::as_decimal(times * made_amount)),
+                    Some(noun.to_string()),
+                ),
+                _ => (Some(units::as_decimal(times)), None),
+            }
+        }
+    };
+    conn.execute(
+        "INSERT INTO readings (version_id, line_index, amount, unit, target, food_id, lineage_id, by_hand) \
+         VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5, 1) \
+         ON CONFLICT (version_id, line_index) DO UPDATE SET \
+            amount = excluded.amount, unit = excluded.unit, target = NULL, \
+            food_id = NULL, lineage_id = excluded.lineage_id, by_hand = 1, \
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+        params![version_id, line_index, amount, unit, lineage_id],
+    )
+    .map_err(|e| OpError::internal(format!("cannot save the Component: {e}")))?;
+    Ok(())
 }
 
 /// What the Report says about a landed recipe beyond its name, read off the

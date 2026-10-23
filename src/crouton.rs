@@ -270,6 +270,8 @@ impl Export {
                     .into_iter()
                     .next()
                     .map(other_apps::Photo::Bytes),
+                step_photos: Vec::new(),
+                components: Vec::new(),
                 left_out,
             })
         });
@@ -437,18 +439,11 @@ fn minutes(value: Option<&Value>) -> Value {
 /// kept only the link, or nothing where it kept neither.
 fn source(crumb: &Value) -> Value {
     let link = text(crumb, "webLink");
-    let name = text(crumb, "sourceName").or_else(|| link.as_deref().and_then(host));
+    let name = text(crumb, "sourceName").or_else(|| link.as_deref().and_then(other_apps::host));
     match name {
         Some(name) => json!({ "text": name, "link": link }),
         None => Value::Null,
     }
-}
-
-fn host(link: &str) -> Option<String> {
-    let rest = link.split_once("://").map_or(link, |(_, rest)| rest);
-    let host = rest.split(['/', '?', '#']).next()?;
-    let host = host.strip_prefix("www.").unwrap_or(host);
-    (!host.is_empty()).then(|| host.to_string())
 }
 
 /// Items of a Crouton list, in the order Crouton says rather than the order
