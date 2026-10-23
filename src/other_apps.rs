@@ -31,6 +31,7 @@ use serde_json::{Value, json};
 pub static READERS: &[&dyn Reader] = &[
     &crate::mealie::Mealie,
     &crate::paprika::Paprika,
+    &crate::tandoor::Tandoor,
     &crate::crouton::Crouton,
 ];
 

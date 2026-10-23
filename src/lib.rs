@@ -48,6 +48,7 @@ pub mod sheet;
 pub mod shopping;
 pub mod slow_work;
 pub mod step_uses;
+pub mod tandoor;
 pub mod units;
 pub mod web_door;
 pub mod web_import;

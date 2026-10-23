@@ -68,7 +68,9 @@ describe('importing from another app', () => {
 		expect(screen.getByText(/Data Management › Recipes › Export/)).toBeInTheDocument();
 		expect(screen.getByText('Paprika')).toBeInTheDocument();
 		expect(screen.getByText(/\.paprikarecipes file: File › Export/)).toBeInTheDocument();
-		for (const later of ['Tandoor', 'Recipe Keeper', 'Mela']) {
+		expect(screen.getByText('Tandoor')).toBeInTheDocument();
+		expect(screen.getByText(/Settings › Space › Export, of the Default type/)).toBeInTheDocument();
+		for (const later of ['KitchenOwl', 'Recipe Keeper', 'Mela']) {
 			expect(screen.queryByText(new RegExp(later))).not.toBeInTheDocument();
 		}
 		expect(screen.getByRole('link', { name: 'Ask for it on GitHub' })).toHaveAttribute(
@@ -101,7 +103,7 @@ describe('importing from another app', () => {
 		const card = await screen.findByRole('alert');
 		expect(card).toHaveTextContent('Recipes 2026-10-20.zip');
 		expect(card).toHaveTextContent('Kamosu could not tell which app made this file.');
-		expect(card).toHaveTextContent('It reads exports from Mealie, Paprika and Crouton.');
+		expect(card).toHaveTextContent('It reads exports from Mealie, Paprika, Tandoor and Crouton.');
 		expect(screen.getByRole('link', { name: 'A PDF' })).toHaveAttribute('href', '/recipes?add');
 		expect(screen.getByRole('link', { name: 'Pasted text' })).toHaveAttribute(
 			'href',

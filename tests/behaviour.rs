@@ -38333,6 +38333,275 @@ mod paprika {
     }
 }
 
+/// Bringing in a Tandoor export (#415): the real files in
+/// `tests/fixtures/tandoor/`, through "import from another app".
+mod tandoor {
+    use super::*;
+
+    fn fixture(name: &str) -> Vec<u8> {
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/tandoor")
+                .join(name),
+        )
+        .expect("the fixture")
+    }
+
+    fn import(app: &support::TestApp, key: &str, file: &[u8]) -> Value {
+        let (status, staged) = app.post_bytes("/api/uploads", Some(key), "application/zip", file);
+        assert_eq!(status, 200, "{staged}");
+        let (status, ask) = app.post_op(
+            "import_from_another_app",
+            Some(key),
+            &json!({ "upload_id": staged["result"]["upload_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{ask}");
+        let finished =
+            support::wait_terminal(app, Some(key), ask["result"]["job_id"].as_str().unwrap());
+        assert_eq!(finished["status"], json!("completed"), "{finished}");
+        finished["result"].clone()
+    }
+
+    fn recipe(app: &support::TestApp, key: &str, report: &Value, title: &str) -> Value {
+        let row = report["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["title"] == title)
+            .unwrap_or_else(|| panic!("no {title}: {report}"));
+        let (status, recipe) = app.post_op(
+            "get_recipe",
+            Some(key),
+            &json!({ "branch_id": row["branch_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{recipe}");
+        recipe["result"].clone()
+    }
+
+    fn statuses(report: &Value) -> Vec<String> {
+        let mut statuses: Vec<String> = report["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                format!(
+                    "{} {}",
+                    row["title"].as_str().unwrap(),
+                    row["status"].as_str().unwrap()
+                )
+            })
+            .collect();
+        statuses.sort();
+        statuses
+    }
+
+    /// Each row of a list as its text, a Section as `## text`.
+    fn rows(content: &Value, field: &str) -> Vec<String> {
+        content[field]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let text = row["text"].as_str().unwrap();
+                if row["kind"] == "section" {
+                    format!("## {text}")
+                } else {
+                    text.to_string()
+                }
+            })
+            .collect()
+    }
+
+    fn recipes_held(app: &support::TestApp) -> i64 {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                Ok(conn
+                    .query_row("SELECT COUNT(*) FROM branches", [], |row| row.get(0))
+                    .unwrap())
+            })
+            .unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_tandoor_export_lands_every_recipe_once() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let report = import(&app, &key, &fixture("v2.6-export.zip"));
+
+        assert_eq!(report["source_kind"], json!("tandoor"));
+        assert_eq!(
+            statuses(&report),
+            ["Orange cake created", "Pâtes à la tomate created"]
+        );
+        assert_eq!(report["unreadable"], json!([]), "{report}");
+        assert_eq!(report["left_out"], json!([]), "{report}");
+        assert_eq!(report["left_out_of_file"], json!([]), "{report}");
+
+        // One recipe, field by field.
+        let cake = recipe(&app, &key, &report, "Orange cake");
+        let held = &cake["versions"][0]["content"];
+        assert_eq!(held["yield"], json!({ "amount": "8", "noun": "slices" }));
+        assert_eq!(held["prep_time_minutes"], json!(25));
+        assert_eq!(held["cook_time_minutes"], json!(45));
+        assert_eq!(
+            held["source"],
+            json!({ "text": "example.org", "link": "https://example.org/orange-cake" })
+        );
+        assert_eq!(
+            held["note"],
+            json!(
+                "A moist cake soaked in a sticky orange syrup.\n\n\
+                 Nutrition: carbohydrates 42, fats 15, proteins 5"
+            )
+        );
+        assert_eq!(
+            held["nutrition"],
+            json!({ "calories": 320.0, "basis": "per_serving" })
+        );
+        assert!(held["main_photo"].is_string(), "{held}");
+        assert_eq!(
+            rows(held, "ingredients"),
+            [
+                "## Cake",
+                "## Wet",
+                "225 g butter, soft",
+                "225 g caster sugar",
+                "4 eggs",
+                "## Dry",
+                "225 g self-raising flour",
+                "salt",
+                "2 oranges, zest only",
+                "## Syrup",
+                "2 oranges, juice only",
+                "½ cup icing sugar",
+            ]
+        );
+        assert_eq!(
+            rows(held, "steps"),
+            [
+                "## Cake",
+                "Heat the oven to 180°C. Beat the butter and sugar until pale, then beat in the \
+                 eggs one at a time.\n\nFold in the flour, the salt and the zest.",
+                "Bake in a lined 20 cm tin until a skewer comes out clean.\n\nTime: 45 minutes",
+                "## Syrup",
+                "Warm the juice with the sugar until it dissolves. Prick the warm cake all over \
+                 and pour the syrup on.",
+            ]
+        );
+        let mut tags: Vec<&str> = cake["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tag| tag["name"].as_str().unwrap())
+            .collect();
+        tags.sort_unstable();
+        assert_eq!(tags, ["Baking", "Cake"]);
+        // Every line is Kamosu's own reading, the note after its comma
+        // included.
+        let readings = &cake["versions"][0]["readings"];
+        assert!(
+            readings
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|reading| reading["target"] == "butter" && reading["amount"] == "225"),
+            "{readings}"
+        );
+
+        // The French recipe is worded in French.
+        let pasta = recipe(&app, &key, &report, "Pâtes à la tomate");
+        let held = &pasta["versions"][0]["content"];
+        assert_eq!(held["yield"], json!({ "amount": "2", "noun": "portions" }));
+        assert_eq!(
+            rows(held, "ingredients")[4..],
+            ["## Étape 2", "200 g spaghetti"]
+        );
+        assert!(
+            held["note"].as_str().unwrap().ends_with(
+                "Valeurs nutritionnelles : glucides 80, matières grasses 9, protéines 14"
+            )
+        );
+
+        // Importing the same export again shelves nothing twice.
+        let again = import(&app, &key, &fixture("v2.6-export.zip"));
+        assert!(
+            statuses(&again)
+                .iter()
+                .all(|row| row.ends_with(" unchanged")),
+            "{again}"
+        );
+        assert_eq!(recipes_held(&app), 2);
+        let (_, listed) = app.post_op("list_imports", Some(&key), "{}");
+        let imports = listed["result"]["imports"].as_array().unwrap();
+        assert_eq!(imports.len(), 1, "{listed}");
+        assert_eq!(imports[0]["source_kind"], json!("tandoor"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tandoor_ones_and_twos_exports_land_whole() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+
+        let report = import(&app, &key, &fixture("v1-mealie-sample.zip"));
+        assert_eq!(report["source_kind"], json!("tandoor"));
+        assert_eq!(statuses(&report), ["“Texas Red” Chili created"]);
+        let chili = recipe(&app, &key, &report, "“Texas Red” Chili");
+        assert!(chili["versions"][0]["content"]["main_photo"].is_string());
+
+        let report = import(&app, &key, &fixture("v2-export.zip"));
+        assert_eq!(report["source_kind"], json!("tandoor"));
+        assert_eq!(report["arrived"].as_array().unwrap().len(), 10, "{report}");
+        assert!(
+            statuses(&report)
+                .iter()
+                .all(|row| row.ends_with(" created")),
+            "{report}"
+        );
+        assert_eq!(report["unreadable"], json!([]), "{report}");
+        // Tandoor 2.0 names its picture `image`, with no extension.
+        let rohlik = recipe(&app, &key, &report, "Rohlik s maslem");
+        assert!(rohlik["versions"][0]["content"]["main_photo"].is_string());
+        let photos = report["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| {
+                let title = row["title"].as_str().unwrap();
+                recipe(&app, &key, &report, title)["versions"][0]["content"]["main_photo"]
+                    .is_string()
+            })
+            .count();
+        assert_eq!(photos, 5);
+        assert_eq!(recipes_held(&app), 11);
+    }
+
+    /// Every Tandoor numbers its recipes from 1, so recipe 1 of one Tandoor
+    /// is not recipe 1 of another.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn two_tandoors_recipes_of_the_same_number_stay_apart() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let first = import(&app, &key, &fixture("v1-mealie-sample.zip"));
+        assert_eq!(statuses(&first), ["“Texas Red” Chili created"]);
+        let second = import(&app, &key, &fixture("v2.6-export.zip"));
+        assert_eq!(
+            statuses(&second),
+            ["Orange cake created", "Pâtes à la tomate created"]
+        );
+        assert_eq!(second["offered"], json!([]), "{second}");
+        let chili = recipe(&app, &key, &first, "“Texas Red” Chili");
+        let tags: Vec<&str> = chili["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tag| tag["name"].as_str().unwrap())
+            .collect();
+        assert!(!tags.contains(&"Cake"), "{tags:?}");
+        assert_eq!(recipes_held(&app), 3);
+    }
+}
+
 /// Bringing in a recipe from a PDF (#176): read, shown, and never written
 /// until a person saves it.
 mod reading_a_recipe_pdf {
