@@ -823,6 +823,9 @@ It can:
   Job that has no recipe yet.
 - **Correct that recipe's Readings** with `set_reading`.
 - **Put a Tag the Cookbook already has** on that recipe, with `set_recipe_tag`.
+  The published agent's instructions have it file every recipe it reads
+  under each of the Cookbook's Tags that plainly fits, and leave the Tags a
+  person put on where they are.
 - **Store a Photograph** with `upload_photograph`, or by sending the picture's
   bytes as the whole body of `POST <kamosu>api/photographs`.
 
@@ -881,6 +884,10 @@ with a person beside it have to say what to do instead of asking:
   words. Tell the agent to correct each Reading with a unit Kamosu converts
   (`cup`, not an old card's "c"), and to look up and name the Foods its
   corrections leave unused.
+- **Ask for the Tags.** An agent told only that it may put a Tag on its
+  recipe rarely does: one handed seven videos tagged one of them. Tell it to
+  read the Cookbook's Tags, put on each that plainly fits, make none, and
+  keep the ones a person put on.
 - **Send it to the captions.** A cooking video often names each ingredient
   on screen and says it nowhere else. Contact sheets small enough to see a
   whole video shrink that text past reading, so give the agent a way to

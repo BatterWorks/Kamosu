@@ -222,6 +222,35 @@ A Job writes one recipe, whatever the source holds.
   send. Every save in this Job shapes one Version of the recipe, so saving
   again to correct it is fine.
 
+## Filing it under the Cookbook's Tags
+
+A Tag is a word the Cookbook files its recipes by, such as Fish, Dessert or
+One pot. Once the recipe exists, file it under every Tag that fits.
+
+1. Read the Cookbook's Tags with `list_tags`, sending as `cookbook_id` the
+   `cookbook.id` that `get_recipe` gives for this recipe. A Tag goes only on a
+   recipe in its own Cookbook, and the person's own Cookbook may not be the
+   one holding this recipe. A Tag may carry a name in more than one language,
+   in `names`: read them all.
+2. Put on, with `set_recipe_tag` and `carried: true`, every Tag that plainly
+   fits the dish as you saved it: its cuisine, its course, its main
+   ingredient, how it is cooked, who it is for. Plainly means a cook filing
+   it by hand would agree without a second look. A Tag that might fit stays
+   off.
+3. A dish with any meat in it, however little, such as ham in an omelette's
+   filling, takes Meat and the Tag of its animal, such as Pork, Beef or
+   Chicken, where the Cookbook has them, under whatever name it gives them.
+   How much of the dish the meat is does not matter: a little meat plainly
+   fits. Fish and seafood are not meat: they take Fish, or its like, and not
+   Meat.
+4. Never make a Tag. Where the Cookbook has none that fits, put none on and
+   say nothing about it.
+5. The Tags already on the recipe are its `tags` in what `get_recipe`
+   answers. Note them before you file it, and leave each where it is, such
+   as on a recipe read again: a person put it there. Add the ones that fit
+   and are missing. Take off, with `carried: false`, only a Tag you put on
+   in this Job by mistake.
+
 ## Checking it
 
 1. Read the saved recipe back with `get_recipe`.
@@ -262,7 +291,11 @@ A Job writes one recipe, whatever the source holds.
 4. A recipe from a video has a main photograph and step photographs, all
    frames of the video ([A video](#a-video), step 4). Take them now if it
    has none.
-5. Correct what is wrong and read it back again, until it matches.
+5. The recipe's `tags` hold every Tag it carried before this Job and every
+   one you put on ([Filing it under the Cookbook's
+   Tags](#filing-it-under-the-cookbooks-tags)). Put on
+   any that is missing.
+6. Correct what is wrong and read it back again, until it matches.
 
 ## Looking for the same dish
 
