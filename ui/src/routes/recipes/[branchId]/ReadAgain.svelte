@@ -23,6 +23,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { useUpload } from '$lib/api/upload';
 	import { OperationError } from '$lib/api/client';
@@ -217,7 +218,7 @@
 				{/if}
 
 				{#if said}
-					<p class="mt-2 text-read text-support" role="alert">{said}</p>
+					<p class="mt-2 text-read text-support" role="alert"><Refusal words={said} /></p>
 				{/if}
 
 				{#if step === 'asking'}

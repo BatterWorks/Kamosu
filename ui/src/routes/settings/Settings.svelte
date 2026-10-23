@@ -15,6 +15,7 @@
 -->
 <script lang="ts">
 	import { aDate, aMoment } from '$lib/dates';
+	import Refusal from '$lib/Refusal.svelte';
 	import { titleOf, type SettingsPage } from './pages';
 	import { m } from '$lib/paraglide/messages';
 	import { getLocale, locales, setLocale, type Locale } from '$lib/paraglide/runtime';
@@ -746,7 +747,7 @@
 					<p class="text-read text-ink">{m.you_name_reach_versions()}</p>
 					<p class="text-read text-ink">{m.you_name_reach_sign_in()}</p>
 					{#if renameError}
-						<p class="text-body text-accent" role="alert">{renameError}</p>
+						<p class="text-body text-accent" role="alert"><Refusal words={renameError} /></p>
 					{/if}
 					<div class="flex flex-wrap items-center gap-4">
 						<button
@@ -994,7 +995,9 @@
 										/>
 									</label>
 									{#if sessionRenameError}
-										<p class="text-body text-accent" role="alert">{sessionRenameError}</p>
+										<p class="text-body text-accent" role="alert">
+											<Refusal words={sessionRenameError} />
+										</p>
 									{/if}
 									<div class="flex flex-wrap items-center gap-4">
 										<button
@@ -1176,7 +1179,7 @@
 						</fieldset>
 					{/if}
 					{#if accessError}
-						<p class="text-body text-accent" role="alert">{accessError}</p>
+						<p class="text-body text-accent" role="alert"><Refusal words={accessError} /></p>
 					{/if}
 					<button
 						class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
@@ -1203,7 +1206,7 @@
 			{@const book = cookbook}
 			<Section heading={m.settings_cookbook()}>
 				{#if cookbookError}
-					<p class="mb-4 text-body text-accent" role="alert">{cookbookError}</p>
+					<p class="mb-4 text-body text-accent" role="alert"><Refusal words={cookbookError} /></p>
 				{/if}
 				{#if book.joins.length > 0}
 					<!-- A join waiting on answers, or one somebody said no to (#135). -->
@@ -1345,7 +1348,7 @@
 
 		<Section heading={m.settings_kitchens()}>
 			{#if kitchensError}
-				<p class="mb-4 text-body text-accent" role="alert">{kitchensError}</p>
+				<p class="mb-4 text-body text-accent" role="alert"><Refusal words={kitchensError} /></p>
 			{/if}
 
 			<ul class="grid gap-4">
@@ -1665,7 +1668,7 @@
 				</button>
 			{/if}
 			{#if meaning.failed}
-				<p class="mt-2 text-read text-support" role="alert">{meaning.failed}</p>
+				<p class="mt-2 text-read text-support" role="alert"><Refusal words={meaning.failed} /></p>
 			{/if}
 		</Section>
 	{/if}

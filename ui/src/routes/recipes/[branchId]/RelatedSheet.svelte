@@ -54,6 +54,7 @@
 
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -206,7 +207,7 @@
 
 	<div class="min-h-0 flex-1 overflow-y-auto">
 		{#if refused}
-			<p class="px-gutter pt-3 text-read text-support" role="alert">{refused}</p>
+			<p class="px-gutter pt-3 text-read text-support" role="alert"><Refusal words={refused} /></p>
 		{/if}
 
 		{#if carried.length > 0}

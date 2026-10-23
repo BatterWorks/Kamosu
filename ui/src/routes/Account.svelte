@@ -13,6 +13,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { useAuth } from '$lib/auth';
 	import { OperationError } from '$lib/api/client';
@@ -312,7 +313,7 @@
 {:else if demo}
 	<Screen title={m.account_loading()}>
 		{#if arrivalRefused}
-			<p class="text-body text-accent" role="alert">{arrivalRefused}</p>
+			<p class="text-body text-accent" role="alert"><Refusal words={arrivalRefused} /></p>
 			<button
 				type="button"
 				class="min-h-12 w-full rounded-sm bg-accent px-4 font-semibold text-on-accent"
@@ -377,7 +378,7 @@
 			{#if waiting > 0}
 				<p class="text-body text-accent" role="alert">{m.account_wait({ seconds: waiting })}</p>
 			{:else if failed}
-				<p class="text-body text-accent" role="alert">{failed}</p>
+				<p class="text-body text-accent" role="alert"><Refusal words={failed} /></p>
 			{/if}
 			<button
 				class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
@@ -403,7 +404,7 @@
 			</button>
 			<p class="mt-2 text-read text-ink-2">{m.account_passkey_hint()}</p>
 			{#if passkeyRefused}
-				<p class="mt-3 text-body text-support" role="alert">{passkeyRefused}</p>
+				<p class="mt-3 text-body text-support" role="alert"><Refusal words={passkeyRefused} /></p>
 			{/if}
 		{/if}
 		<!-- For somebody who reached the sign-in form without knowing what

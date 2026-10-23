@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -166,7 +167,7 @@
 			<span class="col-start-2 text-read text-ink-2">{keysSaid}</span>
 		</label>
 		{#if failed}
-			<p class="text-body text-support" role="alert">{failed}</p>
+			<p class="text-body text-support" role="alert"><Refusal words={failed} /></p>
 		{/if}
 		<div class="mt-2 mb-4 flex flex-col gap-2">
 			<button

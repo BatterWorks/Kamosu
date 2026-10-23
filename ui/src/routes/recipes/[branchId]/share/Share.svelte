@@ -30,6 +30,7 @@
 -->
 <script lang="ts">
 	import { aDate } from '$lib/dates';
+	import Refusal from '$lib/Refusal.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -280,7 +281,7 @@
 	{/if}
 
 	{#if failed}
-		<p class="mt-4 text-read text-support" role="alert">{failed}</p>
+		<p class="mt-4 text-read text-support" role="alert"><Refusal words={failed} /></p>
 	{/if}
 
 	{#if !link && !failed}

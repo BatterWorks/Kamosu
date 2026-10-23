@@ -103,6 +103,7 @@
 -->
 <script lang="ts">
 	import { tick } from 'svelte';
+	import Refusal from '$lib/Refusal.svelte';
 	import type { Attachment } from 'svelte/attachments';
 	import { m } from '$lib/paraglide/messages';
 	import SheetFrame from '$lib/SheetFrame.svelte';
@@ -1163,6 +1164,16 @@
 			{saving ? m.write_saving() : m.write_save()}
 		</button>
 	</div>
+	<!--
+		A refused save said under the bar too, beside the Save that was pressed
+		(#407): said only at the foot of the page, it was out of sight of the
+		person who pressed it, which a Demo's refusal made plain.
+	-->
+	{#if failed}
+		<p class="border-b border-rule px-gutter py-3 text-read text-support" role="alert">
+			<Refusal words={failed} />
+		</p>
+	{/if}
 
 	<!--
 		And in the open on a recipe that holds nothing yet, which is when you
@@ -1619,7 +1630,8 @@
 		</label>
 
 		{#if failed}
-			<p class="mt-4 px-gutter text-read text-support" role="alert">{failed}</p>
+			<!-- Announced once, by the line under the bar. -->
+			<p class="mt-4 px-gutter text-read text-support"><Refusal words={failed} /></p>
 		{/if}
 
 		<div class="px-gutter py-6">
@@ -1708,7 +1720,7 @@
 				class="mt-3 block w-full rounded-sm border border-rule bg-card p-2 text-body text-ink"
 			></textarea>
 			{#if pasteFailed}
-				<p class="mt-2 text-read text-support" role="alert">{pasteFailed}</p>
+				<p class="mt-2 text-read text-support" role="alert"><Refusal words={pasteFailed} /></p>
 			{/if}
 			<button
 				type="button"

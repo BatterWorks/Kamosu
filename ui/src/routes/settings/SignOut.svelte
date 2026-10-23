@@ -13,6 +13,7 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import Refusal from '$lib/Refusal.svelte';
 	import { onMount } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import SheetFrame from '$lib/SheetFrame.svelte';
@@ -123,7 +124,7 @@
 	{/if}
 
 	{#if failed}
-		<p class="mt-3 text-body text-support" role="alert">{failed}</p>
+		<p class="mt-3 text-body text-support" role="alert"><Refusal words={failed} /></p>
 	{/if}
 
 	<div class="mt-6 mb-4 flex flex-col gap-2">

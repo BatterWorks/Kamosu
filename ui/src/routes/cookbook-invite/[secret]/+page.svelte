@@ -25,6 +25,7 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import Refusal from '$lib/Refusal.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -160,7 +161,7 @@
 				{/if}
 				<p class="mt-3 text-read text-ink-2">{m.cookbook_invite_leave_any_time()}</p>
 				{#if failed}
-					<p class="mt-3 text-body text-support" role="alert">{failed}</p>
+					<p class="mt-3 text-body text-support" role="alert"><Refusal words={failed} /></p>
 				{/if}
 				<div class="mt-6 flex flex-col gap-2">
 					<button

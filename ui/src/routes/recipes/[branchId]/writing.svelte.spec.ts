@@ -25,6 +25,7 @@ import type { Room } from '$lib/room.svelte';
 import WritingTestHarness from './WritingTestHarness.svelte';
 import { recipeAnswer, writtenByMe } from '../../../testing/recipes';
 import { carrying } from '../../../testing/drops';
+import { m } from '$lib/paraglide/messages';
 
 type Content = GetRecipeOutput['versions'][number]['content'];
 
@@ -1828,5 +1829,23 @@ describe('dropping a photograph where it goes (#205)', () => {
 		await fireEvent.dragEnter(hero, { dataTransfer });
 		await fireEvent.drop(hero, { dataTransfer });
 		expect(await screen.findByRole('alert')).toHaveTextContent('That picture could not be kept.');
+	});
+});
+
+describe('a save a Demo refuses (#407)', () => {
+	it('says so under the bar, beside the Save that was pressed, with the way to installing', async () => {
+		renderWriting({
+			save_recipe_version: { refuse: 'bad_request', reason: 'demo', message: 'In English.' },
+		} as Answers);
+
+		await saveThrough(/Save onto mine/);
+
+		// Announced once, at the top: the line at the foot says it again unannounced.
+		const said = await screen.findByRole('alert');
+		expect(said).toHaveTextContent(m.demo_refused());
+		expect(within(said).getByRole('link', { name: m.demo_refused_install() })).toBeInTheDocument();
+		const bar = screen.getByRole('button', { name: m.write_save() }).parentElement as HTMLElement;
+		expect(bar.nextElementSibling).toBe(said);
+		expect(screen.getAllByText(m.demo_refused_install())).toHaveLength(2);
 	});
 });

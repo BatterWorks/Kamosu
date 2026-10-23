@@ -263,7 +263,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Read this Kamosu's version and whether setup has \
                       happened. Also the shortest password it accepts, the \
                       address a passkey signs in at, if any, and whether it \
-                      is a Demo, where only cooking and shopping save.",
+                      is a Demo, where only cooking and shopping save. A Demo \
+                      also names the read-only Access Key it publishes.",
             permission: Permission::Public,
             kind: Kind::Immediate,
             write: false,
@@ -280,6 +281,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     "password_minimum": { "type": "integer", "minimum": 1 },
                     "passkey_origin": { "type": ["string", "null"] },
                     "demo": { "type": "boolean" },
+                    // Only in a Demo, which publishes it for a visitor's own
+                    // agent to read the Sample Library with (#404, #407).
+                    "demo_access_key": { "type": "string" },
                 },
                 "required": ["version", "setup_complete", "password_minimum", "passkey_origin", "demo"],
                 "additionalProperties": false,

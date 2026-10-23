@@ -27,6 +27,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import SheetFrame from '$lib/SheetFrame.svelte';
 	import type { Snippet } from 'svelte';
 
@@ -109,7 +110,7 @@
 	{/if}
 
 	{#if failed}
-		<p class="mt-3 text-body text-support" role="alert">{failed}</p>
+		<p class="mt-3 text-body text-support" role="alert"><Refusal words={failed} /></p>
 	{/if}
 
 	<div class="mt-6 mb-4 flex flex-col gap-2">

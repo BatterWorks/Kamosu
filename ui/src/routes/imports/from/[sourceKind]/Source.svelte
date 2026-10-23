@@ -29,6 +29,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
@@ -119,7 +120,9 @@
 
 <Screen title={source ? sourceName(source.source_kind) : sourceName(sourceKind)}>
 	{#if said && !asking}
-		<p class="mt-4 border-l-3 border-support bg-card px-3 py-2 text-body" role="alert">{said}</p>
+		<p class="mt-4 border-l-3 border-support bg-card px-3 py-2 text-body" role="alert">
+			<Refusal words={said} />
+		</p>
 	{/if}
 
 	{#if imports === undefined}

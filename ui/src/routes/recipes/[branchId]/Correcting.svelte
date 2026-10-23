@@ -52,6 +52,8 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
+	import { demoRefusalOr } from '$lib/demo.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import type { GetRecipeOutput } from '$lib/api/catalogue';
@@ -121,7 +123,8 @@
 	// svelte-ignore state_referenced_locally
 	let target = $state(reading?.target ?? '');
 	let saving = $state(false);
-	let failed = $state(false);
+	/** What a failed correction said, a Demo's refusal or the screen's own words. */
+	let failed = $state<string | undefined>(undefined);
 	/** Set when the corrector is closed under a request still in flight. */
 	let abandoned = false;
 
@@ -140,7 +143,7 @@
 		lineage_id: string | null;
 	}) {
 		saving = true;
-		failed = false;
+		failed = undefined;
 		try {
 			const answered = await kamosu.setReading({
 				branch_id: branchId,
@@ -154,7 +157,7 @@
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			if (abandoned) return;
-			failed = true;
+			failed = demoRefusalOr(error, m.reading_failed());
 			saving = false;
 		}
 	}
@@ -306,7 +309,7 @@
 	</button>
 
 	{#if failed}
-		<p class="mt-2 text-read text-support" role="alert">{m.reading_failed()}</p>
+		<p class="mt-2 text-read text-support" role="alert"><Refusal words={failed} /></p>
 	{:else}
 		<p class="mt-2 text-read text-ink-2">{m.reading_no_version()}</p>
 	{/if}

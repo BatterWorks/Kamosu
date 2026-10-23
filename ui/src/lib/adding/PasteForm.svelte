@@ -16,6 +16,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import WatchExamples from './WatchExamples.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import type { ReadPastedRecipeOutput } from '$lib/api/catalogue';
@@ -76,7 +77,7 @@
 		aria-label={m.write_paste_label()}
 		class="block w-full rounded-sm border border-rule bg-card p-2 text-body text-ink"></textarea>
 	{#if failed ?? (adding.runner ? adding.failed : undefined)}
-		<p class="text-read text-support" role="alert">{failed ?? adding.failed}</p>
+		<p class="text-read text-support" role="alert"><Refusal words={failed ?? adding.failed} /></p>
 	{/if}
 	<WatchExamples {adding} />
 	<button

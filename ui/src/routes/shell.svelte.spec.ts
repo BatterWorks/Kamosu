@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import ShellTestHarness from './ShellTestHarness.svelte';
 import { heardWhetherSignedIn, signingIn } from '$lib/shell/signing-in.svelte';
+import { closeWelcome, demo, INSTALL_KAMOSU, openWelcomeAgain } from '$lib/demo.svelte';
 import { HISTORY_INDEX, VISITS, noteArrival } from '$lib/shell/way-back';
 import { m } from '$lib/paraglide/messages';
 import { went } from '../testing/navigation';
@@ -680,5 +681,97 @@ describe('the / key', () => {
 		expect(await slash(document.body)).toBe(true);
 
 		expect(went).not.toHaveBeenCalled();
+	});
+});
+
+/**
+ * A Demo's strip (#407, option B chosen on 23 October 2026): one line at the
+ * foot of every screen, on the tab bar on the phone, beside the sidebar on the
+ * wide layout, and under the cooking screen's buttons.
+ */
+describe("a Demo's strip", () => {
+	function demoShell(pathname: string, room: Room) {
+		render(ShellTestHarness, { props: { pathname, room, demo: true } });
+	}
+
+	const strip = () => document.querySelector('[data-demo-strip]');
+
+	beforeEach(() => Object.assign(demo, { is: false, key: undefined, welcome: 'first' }));
+
+	it('stands on the tab bar on the phone, saying it is a demo and leading to installing', async () => {
+		demoShell('/recipes', 'phone');
+
+		await waitFor(() => expect(strip()).not.toBeNull());
+		// Fixed with the tab bar, directly above it.
+		expect(strip()!.nextElementSibling).toBe(navigation());
+		expect(strip()).toHaveTextContent(m.demo_name());
+		const install = within(strip() as HTMLElement).getByRole('link', {
+			name: m.demo_strip_install(),
+		});
+		expect(install).toHaveAttribute('href', INSTALL_KAMOSU);
+		// Every screen leaves room for it.
+		expect(document.documentElement).toHaveClass('demo-strip-shown');
+	});
+
+	it('stands at the foot of the window beside the sidebar on the wide layout', async () => {
+		demoShell('/recipes', 'wide');
+
+		await waitFor(() => expect(strip()).not.toBeNull());
+		expect(strip()).toHaveClass('fixed', 'bottom-0');
+		expect(strip()!.closest('.beside-rail')).not.toBeNull();
+	});
+
+	it("stands under the cooking screen's buttons, in its colours", async () => {
+		demoShell('/cook/b_soba', 'phone');
+
+		await waitFor(() => expect(strip()).not.toBeNull());
+		expect(strip()).toHaveClass('bg-cook-panel');
+		expect(navigation()).toBeNull();
+	});
+
+	it('is not drawn on Home on a first arrival, while the welcome card is set into its top', async () => {
+		demoShell('/', 'phone');
+
+		// Asked, and a Demo: the strip waits for the card to be put away.
+		await waitFor(() => expect(demo.is).toBe(true));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(strip()).toBeNull();
+		expect(document.documentElement).not.toHaveClass('demo-strip-shown');
+	});
+
+	it.each([
+		['put away on this device', closeWelcome],
+		['brought back by the strip', openWelcomeAgain],
+	])('is drawn on Home once the card was %s', async (_how, done) => {
+		done();
+		demoShell('/', 'phone');
+
+		await waitFor(() => expect(strip()).not.toBeNull());
+	});
+
+	it('brings the welcome card back at the top of Home', async () => {
+		closeWelcome();
+		demoShell('/recipes', 'phone');
+
+		await waitFor(() => expect(strip()).not.toBeNull());
+		await fireEvent.click(
+			within(strip() as HTMLElement).getByRole('button', { name: m.demo_name() }),
+		);
+
+		expect(demo.welcome).toBe('again');
+		expect(localStorage.getItem('kamosu.demo-welcome')).toBe('again');
+		expect(went).toHaveBeenCalledExactlyOnceWith('/');
+	});
+
+	it('is drawn nowhere on an instance that is no Demo, and forgets one it was', async () => {
+		localStorage.setItem('kamosu.demo-key', 'a-published-key');
+		demo.is = true;
+		shell('/recipes', 'phone');
+
+		await waitFor(() => expect(demo.is).toBe(false));
+		expect(localStorage.getItem('kamosu.demo-key')).toBeNull();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(strip()).toBeNull();
+		expect(document.documentElement).not.toHaveClass('demo-strip-shown');
 	});
 });

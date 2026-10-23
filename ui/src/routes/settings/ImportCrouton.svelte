@@ -15,6 +15,7 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import Refusal from '$lib/Refusal.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -114,7 +115,9 @@
 		<p class="mt-2 text-read text-support" role="alert">{m.drop_crouton_refused()}</p>
 	{/if}
 	{#if failed}
-		<p class="mt-2 border-l-3 border-support bg-card px-3 py-2 text-read" role="alert">{failed}</p>
+		<p class="mt-2 border-l-3 border-support bg-card px-3 py-2 text-read" role="alert">
+			<Refusal words={failed} />
+		</p>
 	{/if}
 	{#if lastJob}
 		<p class="mt-3 text-read">

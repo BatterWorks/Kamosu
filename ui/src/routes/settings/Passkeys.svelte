@@ -16,6 +16,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import { aDate, aMoment } from '$lib/dates';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -198,7 +199,7 @@
 								/>
 							</label>
 							{#if renameFailed}
-								<p class="text-body text-accent" role="alert">{renameFailed}</p>
+								<p class="text-body text-accent" role="alert"><Refusal words={renameFailed} /></p>
 							{/if}
 							<div class="flex flex-wrap items-center gap-4">
 								<button
@@ -311,7 +312,7 @@
 				/>
 			</label>
 			{#if addFailed}
-				<p class="mt-2 text-body text-support" role="alert">{addFailed}</p>
+				<p class="mt-2 text-body text-support" role="alert"><Refusal words={addFailed} /></p>
 			{/if}
 			<div class="mt-6 mb-4 flex flex-col gap-2">
 				<button

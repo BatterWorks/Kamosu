@@ -38,7 +38,7 @@ pub fn instance_status(
     _invocation: &Invocation,
     _input: Value,
 ) -> Result<Value, OpError> {
-    Ok(json!({
+    let mut status = json!({
         "version": env!("CARGO_PKG_VERSION"),
         "setup_complete": core.setup_complete()?,
         "password_minimum": crate::core::PASSWORD_MINIMUM,
@@ -49,7 +49,13 @@ pub fn instance_status(
         // A Demo's visitor arrives rather than signs in (ADR 0052), and the
         // interface asks here which of the two it is doing.
         "demo": core.is_demo(),
-    }))
+    });
+    // The key a Demo publishes on its welcome card (#407). It is the same on
+    // every Demo and names nothing anywhere else, so it is no secret here.
+    if core.is_demo() {
+        status["demo_access_key"] = json!(crate::core::DEMO_ACCESS_KEY);
+    }
+    Ok(status)
 }
 
 pub fn set_reading_preferences(
