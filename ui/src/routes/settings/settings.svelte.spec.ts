@@ -876,7 +876,7 @@ describe('the settings screen', () => {
 			undefined,
 			'wide',
 		);
-		expect(await screen.findAllByRole('link')).toHaveLength(5);
+		expect(await screen.findAllByRole('link')).toHaveLength(6);
 		cleanup();
 
 		renderScreen(
@@ -894,22 +894,27 @@ describe('the settings screen', () => {
 		expect(screen.queryByRole('heading', { name: 'Kitchens' })).not.toBeInTheDocument();
 	});
 
-	it('is a menu of five pages, each named with what it holds (#221, #371)', async () => {
+	it('is a menu of six pages, each named with what it holds (#221, #371, #412)', async () => {
 		const { kamosu } = renderScreen(Settings, {
 			get_person: { person_id: 'p_1', name: 'Stéphane' },
 		});
 
 		const rows = await screen.findAllByRole('link');
 		expect(rows.map((row) => row.getAttribute('href'))).toEqual([
+			'/settings/import',
 			'/settings/account',
 			'/settings/device',
 			'/settings/kitchens',
 			'/settings/instance',
 			'/settings/security',
 		]);
-		expect(rows[0]).toHaveTextContent('Account');
-		expect(rows[0]).toHaveTextContent('Your name, the language, who is signed in, your password');
-		expect(rows[2]).toHaveTextContent('Kitchens and cookbooks');
+		// Import from another app comes first, naming the apps it reads (#412).
+		expect(rows[0]).toHaveTextContent('Import from another app');
+		expect(rows[0]).toHaveTextContent('Crouton');
+		expect(rows[1]).toHaveTextContent('Account');
+		expect(rows[1]).toHaveTextContent('Your name, the language, who is signed in, your password');
+		expect(rows[3]).toHaveTextContent('Kitchens and cookbooks');
+		expect(rows[4]).toHaveTextContent('What arrived, Meaning Search, the version');
 		// The menu reads who is signed in, for the foot of it (#380), and nothing
 		// else: every page reads what its own sections need.
 		expect(kamosu.calls).toEqual([{ operation: 'get_person', input: {} }]);

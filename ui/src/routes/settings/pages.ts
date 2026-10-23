@@ -5,13 +5,15 @@
  * is a menu of rows now, each opening a page of its own that holds the
  * sections it names. The sections' own words did not change; this is where
  * they live, not what they say. The fifth, the Security Record, came with
- * #371 (choice A of 20 October 2026).
+ * #371 (choice A of 20 October 2026), and Import from another app, first on
+ * the menu, with #412 (option B of 23 October 2026).
  */
 
 import { m } from '$lib/paraglide/messages';
 import { KEPT_FOR_DAYS } from '$lib/security-record';
+import { appsInBrief } from '$lib/other-apps';
 
-export type SettingsPage = 'account' | 'device' | 'kitchens' | 'instance' | 'security';
+export type SettingsPage = 'import' | 'account' | 'device' | 'kitchens' | 'instance' | 'security';
 
 export interface PageEntry {
 	page: SettingsPage;
@@ -22,6 +24,14 @@ export interface PageEntry {
 }
 
 export const PAGES: PageEntry[] = [
+	// Its own page, first on the menu (#412, option B of 23 October 2026):
+	// it was the Crouton button on This instance.
+	{
+		page: 'import',
+		href: '/settings/import',
+		title: m.settings_import_page,
+		inside: appsInBrief,
+	},
 	{
 		page: 'account',
 		href: '/settings/account',

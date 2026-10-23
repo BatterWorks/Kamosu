@@ -436,6 +436,11 @@ src/cookbook_migration.rs
                     Kitchen that held it into a Cookbook (#131)
 src/crouton.rs      reading a Crouton export into import candidates: lines rebuilt
                     from split fields, favicons and nutrition text left out (#69)
+src/other_apps.rs   another recipe app's export: the one shape every app's
+                    reader hands its recipes over in, and the asking of each
+                    reader in turn which app made the file, by what is in
+                    it. A refusal is data, and unpacking stops at a limit at
+                    every level (#412)
 src/db.rs           the SQLite file under /data — WAL on, migrations forward-only
 src/entities.rs     the HTML entities importers undo in text that was never HTML
 src/jobs.rs         slow work: two lanes (one for strangers, ADR 0032), progress, results

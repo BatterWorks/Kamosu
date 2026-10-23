@@ -30,6 +30,7 @@ pub mod mcp_door;
 pub mod meaning;
 pub mod model_relay;
 pub mod operations;
+pub mod other_apps;
 pub mod page_text;
 pub mod pairing;
 pub mod pasting;

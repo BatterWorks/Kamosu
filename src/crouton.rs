@@ -1,10 +1,11 @@
 //! Reading a Crouton export (#69): the whole library, a zip of `.crumb` files,
 //! turned into candidates the shared `import` machinery lands (ADR 0025).
 //!
-//! **This is the parser and nothing else.** Matching against the ledger,
-//! making Lineages and writing the Import Report all belong to
-//! [`crate::core::Core::import_each`]; what lives here is what a `.crumb`
-//! means. `docs/research/crouton-real-export.md` measured the format against
+//! **This is the parser and nothing else.** It hands its recipes over in the
+//! shape every app's reader does ([`crate::other_apps`], #412). Matching
+//! against the ledger, making Lineages and writing the Import Report all
+//! belong to [`crate::core::Core::import_each`]; what lives here is what a
+//! `.crumb` means. `docs/research/crouton-real-export.md` measured the format against
 //! a real library of 86 recipes, and every rule below comes from that measurement.
 //!
 //! - **The Crouton UUID is the foreign id, never the filename.** Crouton names
@@ -34,23 +35,13 @@ use serde_json::{Value, json};
 
 use crate::core::OpError;
 use crate::entities::decode_entities;
+use crate::other_apps::{self, LeftOut};
 
 /// The largest single `.crumb` read out of a zip. The corpus's largest is
 /// 8.5 MB — one recipe with a camera-original photo inline — so this leaves
 /// room for a library with bigger pictures while refusing to inflate an entry
 /// that claims to be gigabytes.
 const MAX_CRUMB_BYTES: u64 = 128 * 1024 * 1024;
-
-/// The most one export ever unpacks, counted across all its `.crumb` files
-/// (#373). The ceiling per file alone is no limit: 128 MiB of zeros packs into
-/// about 130 KB, so a small zip can name thousands of such files.
-///
-/// Why 4 GB: the real export of 86 recipes, of 23 September 2026, is an 83 MB
-/// zip that unpacks to 114 MB, 1.37 times its size, because its pictures are
-/// already compressed. `POST /api/uploads` takes a file of up to 2 GiB, which
-/// at that ratio unpacks to some 2.9 GB, so every export the upload takes fits
-/// under this one, some 3,000 recipes like those.
-const MAX_EXPORT_BYTES: u64 = 4 * 1000 * 1000 * 1000;
 
 /// One recipe read out of a `.crumb`: the candidate `import` lands, minus the
 /// Main Photo, which the caller stores first because storing is Core's work.
@@ -80,9 +71,7 @@ pub struct Crumb {
 pub struct Export {
     entries: Entries,
     /// How much more the zip may unpack before the rest of it is not read.
-    left: u64,
-    /// The ceiling `left` started at, which the refusal names.
-    most: u64,
+    budget: other_apps::Budget,
 }
 
 enum Entries {
@@ -102,7 +91,7 @@ impl Export {
     /// export; anything else is taken to be a single `.crumb`, which is what
     /// Crouton shares one recipe as.
     pub fn open<R: Read + Seek + Send + 'static>(reader: R) -> Result<Export, OpError> {
-        Export::open_within(reader, MAX_EXPORT_BYTES)
+        Export::open_within(reader, other_apps::MOST_UNPACKED)
     }
 
     /// [`Export::open`], unpacking at most `most` across the whole export:
@@ -147,8 +136,7 @@ impl Export {
                     archive: Box::new(archive),
                     crumbs: crumbs.into_iter().map(|(_, index)| index).collect(),
                 },
-                left: most,
-                most,
+                budget: other_apps::Budget::new(most),
             })
         } else {
             let mut bytes = Vec::new();
@@ -158,8 +146,7 @@ impl Export {
                 .map_err(|e| OpError::bad_request(format!("cannot read the file: {e}")))?;
             Ok(Export {
                 entries: Entries::One(Some(bytes)),
-                left: most,
-                most,
+                budget: other_apps::Budget::new(most),
             })
         }
     }
@@ -193,32 +180,104 @@ impl Export {
                     Err(_) => return (None, Err(DAMAGED.to_string())),
                 };
                 let name = file_name(&entry);
-                let too_much = format!(
-                    "the export unpacks to more than {} GB in all, more than any \
-                     Crouton library holds, so this recipe and those after it were \
-                     not read",
-                    self.most / (1000 * 1000 * 1000)
-                );
-                // A zip says how big its files are and can lie, so every byte
-                // unpacked is counted rather than the header believed. A
-                // damaged file counts too: its checksum is checked only once
-                // it has been unpacked to the end.
-                let room = self.left;
-                let mut bytes = Vec::new();
-                let unpacked = (&mut entry)
-                    .take(MAX_CRUMB_BYTES.min(room) + 1)
-                    .read_to_end(&mut bytes);
-                let read = bytes.len() as u64;
-                if read > room {
-                    self.left = 0;
-                    return (Some(name), Err(too_much));
+                match self.budget.unpack(&mut entry, MAX_CRUMB_BYTES) {
+                    Err(other_apps::TooMuch) => {
+                        let too_much = format!(
+                            "the export unpacks to more than {} GB in all, more than any \
+                             Crouton library holds, so this recipe and those after it were \
+                             not read",
+                            self.budget.most() / (1000 * 1000 * 1000)
+                        );
+                        (Some(name), Err(too_much))
+                    }
+                    Ok((_, false)) => (Some(name), Err(DAMAGED.to_string())),
+                    Ok((bytes, true)) => (Some(name), read_bytes(&bytes)),
                 }
-                self.left -= read;
-                if unpacked.is_err() {
-                    return (Some(name), Err(DAMAGED.to_string()));
-                }
-                (Some(name), read_bytes(&bytes))
             }
+        }
+    }
+}
+
+/// Crouton among the readers of another app's export (#412). A zip is
+/// Crouton's when it holds a `.crumb`, and any other file when it parses as
+/// one recipe that carries Crouton's id: the export is known by what is in
+/// it, never by its name.
+pub struct Crouton;
+
+impl other_apps::Reader for Crouton {
+    fn name(&self) -> &'static str {
+        "Crouton"
+    }
+
+    fn read(
+        &self,
+        handed: &other_apps::Handed,
+    ) -> Result<Option<other_apps::Export>, other_apps::Refusal> {
+        let Ok(file) = handed.open() else {
+            return Ok(None);
+        };
+        if !handed.is_zip() {
+            let mut bytes = Vec::new();
+            if file
+                .take(MAX_CRUMB_BYTES + 1)
+                .read_to_end(&mut bytes)
+                .is_err()
+            {
+                return Ok(None);
+            }
+            let one: Option<Value> = serde_json::from_slice(&bytes).ok();
+            if !one.is_some_and(|crumb| crumb.get("uuid").is_some_and(Value::is_string)) {
+                return Ok(None);
+            }
+            return Ok(Export::open(std::io::Cursor::new(bytes))
+                .ok()
+                .map(Export::into_recipes));
+        }
+        // Not a Crouton zip is not a refusal: another reader may know it.
+        Ok(Export::open(file).ok().map(Export::into_recipes))
+    }
+}
+
+impl Export {
+    /// This export as the recipes every reader hands over (#412): each
+    /// `.crumb` read as it is pulled, its first picture the Main Photo, and
+    /// the favicon and the pictures past the first named as left out.
+    pub fn into_recipes(mut self) -> other_apps::Export {
+        let total = self.len();
+        let recipes = (0..total).map(move |index| {
+            let (name, read) = self.read(index);
+            let crumb = read.map_err(|reason| other_apps::Unread {
+                foreign_id: None,
+                name,
+                reason,
+            })?;
+            let mut left_out = Vec::new();
+            if let Some(icon) = crumb.site_icon {
+                left_out.push(LeftOut::SiteIcon(icon));
+            }
+            if crumb.photos.len() > 1 {
+                left_out.push(LeftOut::ExtraPhotos(crumb.photos.len() - 1));
+            }
+            if crumb.unreadable_photos > 0 {
+                left_out.push(LeftOut::UnreadablePhotos(crumb.unreadable_photos));
+            }
+            Ok(other_apps::Recipe {
+                foreign_id: crumb.foreign_id,
+                candidate: crumb.candidate,
+                tags: crumb.tags,
+                photo: crumb
+                    .photos
+                    .into_iter()
+                    .next()
+                    .map(other_apps::Photo::Bytes),
+                left_out,
+            })
+        });
+        other_apps::Export {
+            app: "crouton",
+            total,
+            recipes: Box::new(recipes),
+            left_out: Vec::new(),
         }
     }
 }

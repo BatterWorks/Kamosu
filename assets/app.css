@@ -1024,6 +1024,9 @@
   .list-disc {
     list-style-type: disc;
   }
+  .list-none {
+    list-style-type: none;
+  }
   .appearance-none {
     appearance: none;
   }
@@ -1135,6 +1138,9 @@
   }
   .rounded-\[50\%\] {
     border-radius: 50%;
+  }
+  .rounded-md {
+    border-radius: var(--radius-md);
   }
   .rounded-sm {
     border-radius: var(--radius-sm);
@@ -2057,6 +2063,9 @@
   .\[\&\+\&\]\:border-t + .\[\&\+\&\]\:border-t {
     border-top-style: var(--tw-border-style);
     border-top-width: 1px;
+  }
+  .\[\&\:\:-webkit-details-marker\]\:hidden::-webkit-details-marker {
+    display: none;
   }
   @media (orientation: landscape) and (height < 560px) {
     .sideways\:\[\&\>button\]\:min-h-\[40px\] > button {

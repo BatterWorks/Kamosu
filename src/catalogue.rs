@@ -2327,6 +2327,56 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::import_crouton,
         },
         Operation {
+            name: "import_from_another_app",
+            summary: "Bring in the export file of another recipe app, as a \
+                      Job. Kamosu looks inside the file, works out which app \
+                      made it, and lands every recipe in your own Cookbook \
+                      through the same ledger `import` uses, keyed by that \
+                      app's own id, so running it again matches instead of \
+                      doubling. The apps it reads: Crouton (its library zip of \
+                      .crumb files, or one .crumb). A file it does not know, a \
+                      known app's export in a shape Kamosu was not tested \
+                      with, or archives nested too deep, land nothing: the \
+                      answer is then `refused` alone, with its reason. Send the \
+                      file to POST /api/uploads and pass the `upload_id` it \
+                      answers, or pass it base64-encoded as `data`.",
+            permission: Permission::Person,
+            kind: Kind::Job,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            in_demo: InDemo::Refused,
+            // A file can hold photos only as web addresses, which are
+            // somebody else's, so this takes the lane `import_web_link` takes
+            // whoever asked (ADR 0032).
+            job_lane: JobLane::AlwaysSingle,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "cookbook_id": landing_cookbook_id(),
+                    "upload_id": {
+                        "type": "string",
+                        "description": "The id POST /api/uploads answered for the \
+                                         export. Used once, then deleted.",
+                    },
+                    "data": {
+                        "type": "string",
+                        "description": "The export itself, base64-encoded — for a \
+                                         Door that can send only JSON.",
+                    },
+                    "mealie_household": {
+                        "type": "string",
+                        "description": "For a Mealie backup holding more than one \
+                                         household: which one to import. No app read \
+                                         today asks for it.",
+                    },
+                },
+                "additionalProperties": false,
+            }),
+            output_schema: another_app_answer_schema(),
+            handler: crate::operations::import_from_another_app,
+        },
+        Operation {
             name: "list_imports",
             summary: "List every Import, and what happened each time. It \
                       covers what has been brought into your Kitchens from \
@@ -5961,7 +6011,7 @@ fn ignored_kitchen_id() -> Value {
 /// The Operations that take `as_operator`: a recipe and its Tags read or
 /// changed wherever it is, and a create or an Import landing in any Cookbook
 /// (#302, ADR 0049).
-pub const AS_OPERATOR: [&str; 15] = [
+pub const AS_OPERATOR: [&str; 16] = [
     "create_recipe",
     "create_tag",
     "delete_recipe",
@@ -5972,6 +6022,7 @@ pub const AS_OPERATOR: [&str; 15] = [
     "import_bundle",
     "import_by_agent",
     "import_crouton",
+    "import_from_another_app",
     "import_web_link",
     "list_tags",
     "save_recipe_version",
@@ -6257,6 +6308,36 @@ fn web_link_answer_schema() -> Value {
     schema
 }
 
+/// What `import_from_another_app` answers (#412): the Import Report, or,
+/// where the file landed nothing, `refused` alone. A declaration says one
+/// shape, so the Report's fields are all optional here and the description
+/// says which of the two came back.
+fn another_app_answer_schema() -> Value {
+    let mut schema = import_report_schema();
+    schema["properties"]["refused"] = json!({
+        "type": "object",
+        "description": "Present alone when the file landed nothing, and why: \
+                         `unrecognised` is a file no app's reader knows; \
+                         `untested_shape` is an export from `app` in a shape \
+                         Kamosu has not been tested with, so update that app, \
+                         export again and import the new file; \
+                         `nested_too_deep` is a file of archives nested deeper \
+                         than any app's export, which was not unpacked.",
+        "properties": {
+            "reason": { "enum": ["unrecognised", "untested_shape", "nested_too_deep"] },
+            "app": {
+                "type": "string",
+                "description": "For `untested_shape`: the app the file is from.",
+            },
+            "sentence": { "type": "string" },
+        },
+        "required": ["reason", "sentence"],
+        "additionalProperties": false,
+    });
+    schema["required"] = json!([]);
+    schema
+}
+
 /// Every importer's eventual result: the Import Report, a ledger read by a
 /// person rather than an error log (ADR 0025, GLOSSARY.md "Import Report").
 /// Every candidate lands in exactly one bucket — `arrived` covers a recipe
@@ -6387,14 +6468,25 @@ fn import_report_schema() -> Value {
                                  which is not a photograph of the dish (ADR 0017); \
                                  `extra_photos` are pictures past the first, since a recipe \
                                  keeps one Main Photo and Kamosu does not guess which Step \
-                                 another shows; `unreadable_photos` could not be decoded.",
+                                 another shows; `unreadable_photos` could not be decoded; \
+                                 `attached_files` are files the app kept beside the recipe; \
+                                 `ratings`, `favourites` and `comments` are the app's, \
+                                 which no cooking in Kamosu stands behind; \
+                                 `photos_not_downloaded` is a photo the file held only as \
+                                 the `address` named, which was not downloaded.",
                 "items": {
                     "type": "object",
                     "properties": {
                         "foreign_id": { "type": "string" },
                         "branch_id": { "type": "string" },
                         "title": { "type": "string" },
-                        "what": { "enum": ["site_icon", "extra_photos", "unreadable_photos"] },
+                        "what": {
+                            "enum": [
+                                "site_icon", "extra_photos", "unreadable_photos",
+                                "attached_files", "ratings", "favourites", "comments",
+                                "photos_not_downloaded"
+                            ],
+                        },
                         "count": { "type": "integer" },
                         "icon": {
                             "type": "string",
@@ -6403,8 +6495,31 @@ fn import_report_schema() -> Value {
                                              was left out. Carried only here, never \
                                              stored as a Photograph.",
                         },
+                        "address": {
+                            "type": "string",
+                            "description": "For `photos_not_downloaded`: the photo's \
+                                             web address.",
+                        },
                     },
                     "required": ["foreign_id", "branch_id", "title", "what", "count"],
+                    "additionalProperties": false,
+                },
+            },
+            "left_out_of_file": {
+                "type": "array",
+                "description": "What the whole file held that belongs to no recipe and \
+                                 did not come in (#412): `meal_plans` and `shopping_lists` \
+                                 are entries the app kept, and `photos_not_in_export` counts \
+                                 recipes whose photo the app's export does not carry. \
+                                 Written by an import from another app's export; an older \
+                                 Report, or another importer's, may have none.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "what": { "enum": ["meal_plans", "shopping_lists", "photos_not_in_export"] },
+                        "count": { "type": "integer" },
+                    },
+                    "required": ["what", "count"],
                     "additionalProperties": false,
                 },
             },

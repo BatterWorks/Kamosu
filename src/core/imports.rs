@@ -1,7 +1,8 @@
-//! Imports: a Crouton export, staged uploads, and the ledger that finds every
-//! Import again (#108).
+//! Imports: a Crouton export, another app's export (#412), staged uploads,
+//! and the ledger that finds every Import again (#108).
 
 use super::*;
+use crate::other_apps::{self, LeftOut, Unread};
 
 impl Core {
     /// Bring in a Crouton library (#69): every `.crumb` in the export read one
@@ -13,60 +14,90 @@ impl Core {
     pub fn import_crouton(
         &self,
         caller: &Caller,
-        mut export: crouton::Export,
+        export: crouton::Export,
         into: Option<&str>,
         progress: Option<&JobProgress>,
     ) -> Result<Value, OpError> {
-        let total = export.len();
-        let incoming = (0..total).map(move |index| {
-            let (name, read) = export.read(index);
-            let crumb = match read {
-                Ok(crumb) => crumb,
-                Err(reason) => {
+        self.land_export(caller, export.into_recipes(), into, progress)
+    }
+
+    /// Bring in an export from another recipe app (#412): the first reader
+    /// that knows the file reads it, and its recipes land as Crouton's do. A
+    /// file no reader knows, or one a reader knows but cannot read, lands
+    /// nothing, and the answer is `refused` alone.
+    pub fn import_from_another_app(
+        &self,
+        caller: &Caller,
+        handed: &other_apps::Handed,
+        into: Option<&str>,
+        progress: Option<&JobProgress>,
+    ) -> Result<Value, OpError> {
+        match other_apps::read(handed, other_apps::READERS) {
+            Ok(export) => self.land_export(caller, export, into, progress),
+            Err(refusal) => Ok(json!({ "refused": refusal.to_value() })),
+        }
+    }
+
+    /// Land what an app's reader hands over: each recipe's photo stored as a
+    /// Photograph first, and what the whole file left out added to the Report.
+    fn land_export(
+        &self,
+        caller: &Caller,
+        export: other_apps::Export,
+        into: Option<&str>,
+        progress: Option<&JobProgress>,
+    ) -> Result<Value, OpError> {
+        let left_out_of_file: Vec<Value> = export.left_out.iter().map(|left| left.row()).collect();
+        let incoming = export.recipes.map(|recipe| {
+            let recipe = match recipe {
+                Ok(recipe) => recipe,
+                Err(unread) => {
                     return Incoming {
-                        candidate: Err(Unread {
-                            foreign_id: None,
-                            name,
-                            reason,
-                        }),
+                        candidate: Err(unread),
                         left_out: Vec::new(),
                         tags: Vec::new(),
                     };
                 }
             };
-            let mut left_out = Vec::new();
-            if let Some(icon) = crumb.site_icon {
-                left_out.push(LeftOut::SiteIcon(icon));
-            }
-            if crumb.photos.len() > 1 {
-                left_out.push(LeftOut::ExtraPhotos(crumb.photos.len() - 1));
-            }
-            // A picture that cannot be remade never fails its recipe (#45):
-            // the recipe lands without it, and the Report says so.
-            let mut unreadable_photos = crumb.unreadable_photos;
-            let main_photo = crumb.photos.first().and_then(|bytes| {
-                let stored = self
-                    .store_photograph(bytes)
-                    .ok()
-                    .and_then(|stored| stored["photograph_id"].as_str().map(str::to_string));
-                if stored.is_none() {
-                    unreadable_photos += 1;
+            let mut left_out = recipe.left_out;
+            let main_photo = match recipe.photo {
+                Some(other_apps::Photo::Bytes(bytes)) => {
+                    let stored = self
+                        .store_photograph(&bytes)
+                        .ok()
+                        .and_then(|stored| stored["photograph_id"].as_str().map(str::to_string));
+                    // A picture that cannot be remade never fails its recipe
+                    // (#45): the recipe lands without it, and the Report says so.
+                    if stored.is_none() {
+                        match left_out.iter_mut().find_map(|left| match left {
+                            LeftOut::UnreadablePhotos(count) => Some(count),
+                            _ => None,
+                        }) {
+                            Some(count) => *count += 1,
+                            None => left_out.push(LeftOut::UnreadablePhotos(1)),
+                        }
+                    }
+                    stored
                 }
-                stored
-            });
-            if unreadable_photos > 0 {
-                left_out.push(LeftOut::UnreadablePhotos(unreadable_photos));
-            }
-            let mut candidate = crumb.candidate;
-            candidate["foreign_id"] = json!(crumb.foreign_id);
+                Some(other_apps::Photo::Address(address)) => {
+                    left_out.push(LeftOut::PhotoNotDownloaded(address));
+                    None
+                }
+                None => None,
+            };
+            let mut candidate = recipe.candidate;
+            candidate["foreign_id"] = json!(recipe.foreign_id);
             candidate["main_photo"] = json!(main_photo);
             Incoming {
                 candidate: Ok(candidate),
                 left_out,
-                tags: crumb.tags,
+                tags: recipe.tags,
             }
         });
-        self.import_each(caller, "crouton", into, total, incoming, progress)
+        let mut report =
+            self.import_each(caller, export.app, into, export.total, incoming, progress)?;
+        report["left_out_of_file"] = json!(left_out_of_file);
+        Ok(report)
     }
 
     /// What this Person has brought in from outside, and what happened each
@@ -141,6 +172,7 @@ impl Core {
                            FROM jobs
                           WHERE person_id = ?1
                             AND (operation IN ('import', 'import_crouton',
+                                               'import_from_another_app',
                                                'import_bundle', 'import_web_link')
                                  OR (operation = '{}' AND {}))
                           ORDER BY created_at DESC",
@@ -414,6 +446,17 @@ impl Core {
         let import_id = self
             .db()
             .with_conn(|conn| find_or_create_import(conn, &cookbook_id, &source_kind))?;
+
+        // Listed under its source while it runs (#412): an import that
+        // recognises its file says only here which app made it, until the
+        // whole Report replaces this frame of one.
+        if let Some(progress) = progress {
+            progress.result_so_far(&json!({
+                "import_id": import_id, "cookbook_id": cookbook_id, "source_kind": source_kind,
+                "arrived": [], "offered": [], "unreadable": [], "left_out": [],
+                "related_candidates": [],
+            }));
+        }
 
         let total = total as u64;
         let mut arrived = Vec::new();
@@ -767,19 +810,6 @@ pub struct Incoming {
     pub tags: Vec<String>,
 }
 
-/// Something an importer read and chose not to bring in (#69).
-pub enum LeftOut {
-    /// The source site's favicon — not a photograph of the dish (ADR 0017).
-    /// Its bytes ride into the Report, and only there, so the Report can show
-    /// what was left out; it is never stored as a Photograph.
-    SiteIcon(Vec<u8>),
-    /// Pictures past the first: a recipe keeps one Main Photo, and Kamosu does
-    /// not guess which Step another one shows.
-    ExtraPhotos(usize),
-    /// Pictures that could not be decoded or remade.
-    UnreadablePhotos(usize),
-}
-
 impl LeftOut {
     /// The Report's row for it, naming the recipe it was left out of.
     fn row(&self, foreign_id: &str, branch_id: &str, title: &str) -> Value {
@@ -787,6 +817,11 @@ impl LeftOut {
             LeftOut::SiteIcon(_) => ("site_icon", 1),
             LeftOut::ExtraPhotos(count) => ("extra_photos", *count),
             LeftOut::UnreadablePhotos(count) => ("unreadable_photos", *count),
+            LeftOut::AttachedFiles(count) => ("attached_files", *count),
+            LeftOut::Rating => ("ratings", 1),
+            LeftOut::Favourite => ("favourites", 1),
+            LeftOut::Comments(count) => ("comments", *count),
+            LeftOut::PhotoNotDownloaded(_) => ("photos_not_downloaded", 1),
         };
         let mut row = json!({
             "foreign_id": foreign_id, "branch_id": branch_id, "title": title,
@@ -796,6 +831,9 @@ impl LeftOut {
             && let Some(icon) = icon_data_uri(bytes)
         {
             row["icon"] = json!(icon);
+        }
+        if let LeftOut::PhotoNotDownloaded(address) = self {
+            row["address"] = json!(address);
         }
         row
     }
@@ -834,14 +872,6 @@ fn icon_data_uri(bytes: &[u8]) -> Option<String> {
             base64::engine::general_purpose::STANDARD.encode(bytes)
         )
     })
-}
-
-/// A recipe an importer could not read at all. `name` is what the source
-/// called it where its own id was unreadable too — a Crouton file's name.
-pub struct Unread {
-    pub foreign_id: Option<String>,
-    pub name: Option<String>,
-    pub reason: String,
 }
 
 impl Incoming {

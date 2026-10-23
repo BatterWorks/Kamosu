@@ -49,12 +49,17 @@
 	each time the list opens, beside whether there is a Runner; on any other
 	instance there are none and the row is not drawn.
 
+	**`/recipes?add` arrives with the list open**, and `?add=paste` with the
+	box for pasted text (#412), for an export from another app turned away.
+
 	**A PDF, a Kamosu zip file or a link can be dropped on Recipes instead**
 	(#204), and is the same act as its row here: `DropARecipe` holds no act of
 	its own, only this +'s `adding`, and offline it says what the row says.
 -->
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages';
 	import { Online } from '$lib/offline/device.svelte';
 	import { useAdding, type Act } from '$lib/adding/adding.svelte';
@@ -167,6 +172,23 @@
 		open = false;
 		showing = null;
 	}
+
+	/**
+	 * Arriving at `/recipes?add` opens the list, and `?add=paste` the box for
+	 * pasted text (#412): where an export turned away sends the cook with one
+	 * recipe. A PDF and a photo stop at the list, since a browser opens its
+	 * picker only for a tap. The address is put back without it, so a reload
+	 * or a step back does not open the list again.
+	 */
+	onMount(() => {
+		const asked = page.url.searchParams.get('add');
+		if (asked === null) return;
+		const url = new URL(page.url);
+		url.searchParams.delete('add');
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+		if (asked === 'paste') choose('paste');
+		else void toggle();
+	});
 
 	/** The panel of examples a Demo replays (#406). */
 	function watch() {

@@ -1,9 +1,9 @@
 <!--
-	Settings' sections, drawn on whichever of its four pages holds them (#221,
-	option 2 of the audit of 9 October 2026): Account (You, Language, Access,
-	What Kamosu does not protect), This device (the phone, Measures), Kitchens
-	and cookbooks (Your Cookbook, Kitchens, Tags, Foods) and This instance
-	(Bring recipes in, This instance, Brought in, Meaning Search). The menu at
+	Settings' sections, drawn on whichever of its pages holds them (#221,
+	option 2 of the audit of 9 October 2026): Import from another app (#412),
+	Account (You, Language, Access, What Kamosu does not protect), This device
+	(the phone, Measures), Kitchens and cookbooks (Your Cookbook, Kitchens,
+	Tags, Foods) and This instance (This instance, Brought in, Meaning Search). The menu at
 	`/settings` is `+page.svelte` beside this; each page is a route that draws
 	this with its name.
 
@@ -26,7 +26,7 @@
 	import Section from '$lib/shell/Section.svelte';
 	import { MeaningSearch } from '$lib/meaning.svelte';
 	import { asksWhetherAdministering } from '$lib/operator/administering';
-	import ImportCrouton from './ImportCrouton.svelte';
+	import ImportFromAnotherApp from './ImportFromAnotherApp.svelte';
 	import Tags from './Tags.svelte';
 	import Passkeys from './Passkeys.svelte';
 	import SecurityRecord from './SecurityRecord.svelte';
@@ -378,7 +378,9 @@
 			const [sessionsAnswer, keysAnswer, preferencesAnswer, personAnswer] = await Promise.all([
 				kamosu.listSessions(),
 				page === 'account' ? kamosu.listAccessKeys() : undefined,
-				page !== 'instance' && page !== 'security' ? kamosu.getReadingPreferences() : undefined,
+				page === 'account' || page === 'device' || page === 'kitchens'
+					? kamosu.getReadingPreferences()
+					: undefined,
 				page === 'account' || page === 'kitchens' ? kamosu.getPerson() : undefined,
 			]);
 			sessions = sessionsAnswer.sessions.filter((session) => !session.revoked);
@@ -913,11 +915,11 @@
 		{/if}
 	{/if}
 
-	{#if page === 'instance'}
-		{#if signedIn}
-			<ImportCrouton />
-		{/if}
+	{#if page === 'import' && signedIn}
+		<ImportFromAnotherApp />
+	{/if}
 
+	{#if page === 'instance'}
 		<Section heading={m.settings_instance()}>
 			<p class="text-body text-ink-2">
 				{#if failed}

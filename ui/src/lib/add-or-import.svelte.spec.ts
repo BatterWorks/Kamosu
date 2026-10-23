@@ -38,7 +38,7 @@ const report = (rows: {
 	unreadable?: Record<string, unknown>[];
 }) => ({
 	import_id: 'i_1',
-	kitchen_id: 'k_home',
+	cookbook_id: 'c_home',
 	source_kind: 'bundle',
 	arrived: rows.arrived ?? [],
 	offered: [],

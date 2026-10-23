@@ -80,7 +80,7 @@ fn arguments_for(name: &str) -> Value {
         "read_job_again" => json!({ "job_id": "j_parity" }),
         "export_bundle" | "make_sheet" => json!({ "branch_id": "b_parity" }),
         "import_bundle" => json!({ "data": "" }),
-        "import_crouton" => json!({ "upload_id": "u_parity" }),
+        "import_crouton" | "import_from_another_app" => json!({ "upload_id": "u_parity" }),
         "forget_import" => json!({ "import_id": "i_parity" }),
         "set_reading" => json!({ "branch_id": "b_parity", "line_index": 0 }),
         "get_food" => json!({ "food_id": "f_parity" }),
@@ -187,6 +187,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "preview_shared_recipe"
             | "import_bundle"
             | "import_crouton"
+            | "import_from_another_app"
             | "list_imports"
             | "forget_import"
             | "rename_version"
@@ -415,6 +416,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "preview_shared_recipe"
                 | "import_bundle"
                 | "import_crouton"
+                | "import_from_another_app"
                 | "list_imports"
                 | "forget_import"
                 | "rename_version"
@@ -623,6 +625,7 @@ async fn every_answer_fields_meaning_reaches_the_mcp_listing() {
             "import",
             "import_bundle",
             "import_crouton",
+            "import_from_another_app",
             "import_web_link"
         ]
     );

@@ -2293,12 +2293,17 @@ export type ImportOutput = {
 	cookbook_id: string;
 	import_id: string;
 	left_out: {
+		address?: string;
 		branch_id: string;
 		count: number;
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded";
+	}[];
+	left_out_of_file?: {
+		count: number;
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export";
 	}[];
 	offered: {
 		branch_id: string;
@@ -2367,12 +2372,17 @@ export type ImportCroutonOutput = {
 	cookbook_id: string;
 	import_id: string;
 	left_out: {
+		address?: string;
 		branch_id: string;
 		count: number;
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded";
+	}[];
+	left_out_of_file?: {
+		count: number;
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export";
 	}[];
 	offered: {
 		branch_id: string;
@@ -2393,6 +2403,91 @@ export type ImportCroutonOutput = {
 	}[];
 	source_kind: string;
 	unreadable: {
+		branch_id?: string;
+		foreign_id: string | null;
+		kept_as?: {
+			branch_id: string;
+			lineage_id: string;
+			title: string;
+		};
+		name?: string;
+		reason: string;
+	}[];
+};
+
+/** Bring in the export file of another recipe app, as a Job. Kamosu looks inside the file, works out which app made it, and lands every recipe in your own Cookbook through the same ledger `import` uses, keyed by that app's own id, so running it again matches instead of doubling. The apps it reads: Crouton (its library zip of .crumb files, or one .crumb). A file it does not know, a known app's export in a shape Kamosu was not tested with, or archives nested too deep, land nothing: the answer is then `refused` alone, with its reason. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+export type ImportFromAnotherAppInput = {
+	as_operator?: boolean;
+	cookbook_id?: string;
+	data?: string;
+	mealie_household?: string;
+	upload_id?: string;
+};
+/** What import_from_another_app eventually produces, read back through `get_job`. */
+export type ImportFromAnotherAppOutput = {
+	agent_jobs?: {
+		agent_report?: {
+			left_undone?: string[];
+			likely_duplicates?: string[];
+			unsure?: string[];
+			unused_foods?: string[];
+		};
+		branch_id: string | null;
+		could_not_be_read?: boolean;
+		job_id: string;
+		made_by_agent?: boolean;
+		original_gone?: boolean;
+		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
+	}[];
+	arrived?: {
+		bare?: boolean;
+		branch_id: string;
+		foreign_id: string;
+		lineage_id: string;
+		main_photo?: string | null;
+		status: "created" | "extended" | "unchanged" | "read_again";
+		subject?: boolean;
+		title: string;
+	}[];
+	cookbook_id?: string;
+	import_id?: string;
+	left_out?: {
+		address?: string;
+		branch_id: string;
+		count: number;
+		foreign_id: string;
+		icon?: string;
+		title: string;
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded";
+	}[];
+	left_out_of_file?: {
+		count: number;
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export";
+	}[];
+	offered?: {
+		branch_id: string;
+		candidate_version_id: string;
+		foreign_id: string;
+		lineage_id: string;
+		title: string;
+	}[];
+	refused?: {
+		app?: string;
+		reason: "unrecognised" | "untested_shape" | "nested_too_deep";
+		sentence: string;
+	};
+	related_candidates?: {
+		recipes: {
+			branch_id: string;
+			ingredients: number;
+			lineage_id: string;
+			main_photo: string | null;
+			title: string;
+		}[];
+		shared: ("name" | "page")[];
+	}[];
+	source_kind?: string;
+	unreadable?: {
 		branch_id?: string;
 		foreign_id: string | null;
 		kept_as?: {
@@ -2476,12 +2571,17 @@ export type ImportWebLinkOutput = {
 	cookbook_id?: string;
 	import_id?: string;
 	left_out?: {
+		address?: string;
 		branch_id: string;
 		count: number;
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded";
+	}[];
+	left_out_of_file?: {
+		count: number;
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export";
 	}[];
 	offered?: {
 		branch_id: string;
@@ -3190,12 +3290,17 @@ export type ImportBundleOutput = {
 	cookbook_id: string;
 	import_id: string;
 	left_out: {
+		address?: string;
 		branch_id: string;
 		count: number;
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded";
+	}[];
+	left_out_of_file?: {
+		count: number;
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export";
 	}[];
 	offered: {
 		branch_id: string;
@@ -6081,6 +6186,12 @@ export interface Operations {
 	import_crouton: {
 		input: ImportCroutonInput;
 		output: ImportCroutonOutput;
+		kind: 'job';
+		permission: 'person';
+	};
+	import_from_another_app: {
+		input: ImportFromAnotherAppInput;
+		output: ImportFromAnotherAppOutput;
 		kind: 'job';
 		permission: 'person';
 	};
@@ -17724,10 +17835,14 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"address": {
+								"description": "For `photos_not_downloaded`: the photo's web address.",
+								"type": "string"
+							},
 							"branch_id": {
 								"type": "string"
 							},
@@ -17748,7 +17863,12 @@ export const CATALOGUE = [
 								"enum": [
 									"site_icon",
 									"extra_photos",
-									"unreadable_photos"
+									"unreadable_photos",
+									"attached_files",
+									"ratings",
+									"favourites",
+									"comments",
+									"photos_not_downloaded"
 								]
 							}
 						},
@@ -17756,6 +17876,30 @@ export const CATALOGUE = [
 							"foreign_id",
 							"branch_id",
 							"title",
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"left_out_of_file": {
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"count": {
+								"type": "integer"
+							},
+							"what": {
+								"enum": [
+									"meal_plans",
+									"shopping_lists",
+									"photos_not_in_export"
+								]
+							}
+						},
+						"required": [
 							"what",
 							"count"
 						],
@@ -18092,10 +18236,14 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"address": {
+								"description": "For `photos_not_downloaded`: the photo's web address.",
+								"type": "string"
+							},
 							"branch_id": {
 								"type": "string"
 							},
@@ -18116,7 +18264,12 @@ export const CATALOGUE = [
 								"enum": [
 									"site_icon",
 									"extra_photos",
-									"unreadable_photos"
+									"unreadable_photos",
+									"attached_files",
+									"ratings",
+									"favourites",
+									"comments",
+									"photos_not_downloaded"
 								]
 							}
 						},
@@ -18124,6 +18277,30 @@ export const CATALOGUE = [
 							"foreign_id",
 							"branch_id",
 							"title",
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"left_out_of_file": {
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"count": {
+								"type": "integer"
+							},
+							"what": {
+								"enum": [
+									"meal_plans",
+									"shopping_lists",
+									"photos_not_in_export"
+								]
+							}
+						},
+						"required": [
 							"what",
 							"count"
 						],
@@ -18285,6 +18462,427 @@ export const CATALOGUE = [
 				"left_out",
 				"related_candidates"
 			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "import_from_another_app",
+		"summary": "Bring in the export file of another recipe app, as a Job. Kamosu looks inside the file, works out which app made it, and lands every recipe in your own Cookbook through the same ledger `import` uses, keyed by that app's own id, so running it again matches instead of doubling. The apps it reads: Crouton (its library zip of .crumb files, or one .crumb). A file it does not know, a known app's export in a shape Kamosu was not tested with, or archives nested too deep, land nothing: the answer is then `refused` alone, with its reason. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
+		"permission": "person",
+		"kind": "job",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
+				},
+				"data": {
+					"description": "The export itself, base64-encoded — for a Door that can send only JSON.",
+					"type": "string"
+				},
+				"mealie_household": {
+					"description": "For a Mealie backup holding more than one household: which one to import. No app read today asks for it.",
+					"type": "string"
+				},
+				"upload_id": {
+					"description": "The id POST /api/uploads answered for the export. Used once, then deleted.",
+					"type": "string"
+				}
+			},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"agent_jobs": {
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it with `cancel_job`, while it waits or while it is being worked. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"agent_report": {
+								"additionalProperties": false,
+								"description": "The agent's own report on its work, present once a Runner has passed one on.",
+								"properties": {
+									"left_undone": {
+										"description": "What the agent did not do, a sentence each: an Ingredient Line it could not read, a Step it left out, a photo it could not fetch.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"likely_duplicates": {
+										"description": "The Branch id of each recipe already in the library that this one is likely a duplicate of. The recipe is saved all the same. Kamosu does not check the ids, so read each with `get_recipe`.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unsure": {
+										"description": "What the agent wrote and was unsure of, a sentence each, so the cook knows where to look.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unused_foods": {
+										"description": "The name of each Food the agent's corrections left with nothing pointing at it, for an Operator to tidy.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									}
+								},
+								"type": "object"
+							},
+							"branch_id": {
+								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`. Null while an agent reading pasted text, a PDF, a picture or a link handed to it alone has not created it yet.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"could_not_be_read": {
+								"description": "Present and true when the agent said what it was handed holds no recipe it can read. The reason under `unreadable` is then the agent's own words. A Job that failed any other way has Kamosu's reason there.",
+								"type": "boolean"
+							},
+							"job_id": {
+								"type": "string"
+							},
+							"made_by_agent": {
+								"description": "Present and true once the Job has completed: an agent made this recipe. Nothing on the recipe itself says so.",
+								"type": "boolean"
+							},
+							"original_gone": {
+								"description": "Present and true once the pasted text, PDF or picture this Job read has been deleted, which Kamosu does 30 days after the Job ended. `source_kind` still says which it was.",
+								"type": "boolean"
+							},
+							"status": {
+								"description": "`queued` is waiting for a Runner and `running` is held by one, its agent at work. A `failed` Job is also listed under `unreadable`, with the reason.",
+								"enum": [
+									"queued",
+									"running",
+									"completed",
+									"failed",
+									"cancelled"
+								]
+							}
+						},
+						"required": [
+							"job_id",
+							"branch_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"arrived": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"bare": {
+								"description": "It came as a bare name (and usually a link): no Ingredient Line and no Step. A real recipe that arrived correctly, not a failure.",
+								"type": "boolean"
+							},
+							"branch_id": {
+								"description": "The Branch as this instance holds it — the id every other Operation and every URL takes. On a recipe received from elsewhere it is not the id it travelled under.",
+								"type": "string"
+							},
+							"foreign_id": {
+								"description": "What the source called this recipe: from a Bundle, the Branch id it travels under, which is the sender's.",
+								"type": "string"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"main_photo": {
+								"description": "The Photograph the recipe arrived with as its Main Photo, or null.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"status": {
+								"description": "`read_again` is a recipe already held that a Co-author asked an agent to read again.",
+								"enum": [
+									"created",
+									"extended",
+									"unchanged",
+									"read_again"
+								]
+							},
+							"subject": {
+								"description": "From a Bundle: whether this recipe is what the Bundle is about, rather than a Passenger that travelled because something needed it.",
+								"type": "boolean"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"status",
+							"lineage_id",
+							"branch_id",
+							"title"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"cookbook_id": {
+					"type": "string"
+				},
+				"import_id": {
+					"type": "string"
+				},
+				"left_out": {
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"address": {
+								"description": "For `photos_not_downloaded`: the photo's web address.",
+								"type": "string"
+							},
+							"branch_id": {
+								"type": "string"
+							},
+							"count": {
+								"type": "integer"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"icon": {
+								"description": "For a `site_icon`: the icon itself as a `data:` URI, so the Report can show what was left out. Carried only here, never stored as a Photograph.",
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							},
+							"what": {
+								"enum": [
+									"site_icon",
+									"extra_photos",
+									"unreadable_photos",
+									"attached_files",
+									"ratings",
+									"favourites",
+									"comments",
+									"photos_not_downloaded"
+								]
+							}
+						},
+						"required": [
+							"foreign_id",
+							"branch_id",
+							"title",
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"left_out_of_file": {
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"count": {
+								"type": "integer"
+							},
+							"what": {
+								"enum": [
+									"meal_plans",
+									"shopping_lists",
+									"photos_not_in_export"
+								]
+							}
+						},
+						"required": [
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"offered": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"candidate_version_id": {
+								"description": "The Version this candidate's content became, held but not yet on the Branch.",
+								"type": "string"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"lineage_id",
+							"branch_id",
+							"title",
+							"candidate_version_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"refused": {
+					"additionalProperties": false,
+					"description": "Present alone when the file landed nothing, and why: `unrecognised` is a file no app's reader knows; `untested_shape` is an export from `app` in a shape Kamosu has not been tested with, so update that app, export again and import the new file; `nested_too_deep` is a file of archives nested deeper than any app's export, which was not unpacked.",
+					"properties": {
+						"app": {
+							"description": "For `untested_shape`: the app the file is from.",
+							"type": "string"
+						},
+						"reason": {
+							"enum": [
+								"unrecognised",
+								"untested_shape",
+								"nested_too_deep"
+							]
+						},
+						"sentence": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"reason",
+						"sentence"
+					],
+					"type": "object"
+				},
+				"related_candidates": {
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"recipes": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"ingredients": {
+											"type": "integer"
+										},
+										"lineage_id": {
+											"type": "string"
+										},
+										"main_photo": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"title": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"lineage_id",
+										"branch_id",
+										"title",
+										"main_photo",
+										"ingredients"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"shared": {
+								"items": {
+									"enum": [
+										"name",
+										"page"
+									]
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"recipes",
+							"shared"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"source_kind": {
+					"type": "string"
+				},
+				"unreadable": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"description": "Where an agent's Job failed on a recipe that had landed bare: that recipe. It stays, still listed under `arrived`, unless the Job failed because the recipe was deleted.",
+								"type": "string"
+							},
+							"foreign_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"kept_as": {
+								"additionalProperties": false,
+								"description": "From a damaged Bundle: the new recipe of your own its words were kept as, with no history and no link to the recipe it came from.",
+								"properties": {
+									"branch_id": {
+										"type": "string"
+									},
+									"lineage_id": {
+										"type": "string"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"lineage_id",
+									"branch_id",
+									"title"
+								],
+								"type": "object"
+							},
+							"name": {
+								"description": "What the source called it, where even its own id could not be read — a Crouton file's name.",
+								"type": "string"
+							},
+							"reason": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"reason"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [],
 			"type": "object"
 		}
 	},
@@ -18629,10 +19227,14 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"address": {
+								"description": "For `photos_not_downloaded`: the photo's web address.",
+								"type": "string"
+							},
 							"branch_id": {
 								"type": "string"
 							},
@@ -18653,7 +19255,12 @@ export const CATALOGUE = [
 								"enum": [
 									"site_icon",
 									"extra_photos",
-									"unreadable_photos"
+									"unreadable_photos",
+									"attached_files",
+									"ratings",
+									"favourites",
+									"comments",
+									"photos_not_downloaded"
 								]
 							}
 						},
@@ -18661,6 +19268,30 @@ export const CATALOGUE = [
 							"foreign_id",
 							"branch_id",
 							"title",
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"left_out_of_file": {
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"count": {
+								"type": "integer"
+							},
+							"what": {
+								"enum": [
+									"meal_plans",
+									"shopping_lists",
+									"photos_not_in_export"
+								]
+							}
+						},
+						"required": [
 							"what",
 							"count"
 						],
@@ -22217,10 +22848,14 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"address": {
+								"description": "For `photos_not_downloaded`: the photo's web address.",
+								"type": "string"
+							},
 							"branch_id": {
 								"type": "string"
 							},
@@ -22241,7 +22876,12 @@ export const CATALOGUE = [
 								"enum": [
 									"site_icon",
 									"extra_photos",
-									"unreadable_photos"
+									"unreadable_photos",
+									"attached_files",
+									"ratings",
+									"favourites",
+									"comments",
+									"photos_not_downloaded"
 								]
 							}
 						},
@@ -22249,6 +22889,30 @@ export const CATALOGUE = [
 							"foreign_id",
 							"branch_id",
 							"title",
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"left_out_of_file": {
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"count": {
+								"type": "integer"
+							},
+							"what": {
+								"enum": [
+									"meal_plans",
+									"shopping_lists",
+									"photos_not_in_export"
+								]
+							}
+						},
+						"required": [
 							"what",
 							"count"
 						],
@@ -34932,6 +35596,7 @@ export const METHOD_NAMES = {
 	set_recipe_language: 'setRecipeLanguage',
 	import: 'import',
 	import_crouton: 'importCrouton',
+	import_from_another_app: 'importFromAnotherApp',
 	list_imports: 'listImports',
 	forget_import: 'forgetImport',
 	import_web_link: 'importWebLink',
@@ -35162,6 +35827,8 @@ export interface KamosuClient {
 	import(input: ImportInput): Promise<Answer<'import'>>;
 	/** Bring in a Crouton library, as a Job. It takes the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your own Cookbook through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 	importCrouton(input: ImportCroutonInput): Promise<Answer<'import_crouton'>>;
+	/** Bring in the export file of another recipe app, as a Job. Kamosu looks inside the file, works out which app made it, and lands every recipe in your own Cookbook through the same ledger `import` uses, keyed by that app's own id, so running it again matches instead of doubling. The apps it reads: Crouton (its library zip of .crumb files, or one .crumb). A file it does not know, a known app's export in a shape Kamosu was not tested with, or archives nested too deep, land nothing: the answer is then `refused` alone, with its reason. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+	importFromAnotherApp(input: ImportFromAnotherAppInput): Promise<Answer<'import_from_another_app'>>;
 	/** List every Import, and what happened each time. It covers what has been brought into your Kitchens from outside. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025). */
 	listImports(input?: ListImportsInput): Promise<Answer<'list_imports'>>;
 	/** Throw an Import's ledger away whole. The ledger is the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */

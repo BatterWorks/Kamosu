@@ -1235,6 +1235,38 @@ fn sent_file(
     }
 }
 
+/// A file sent to an import read from where it lies rather than into memory,
+/// since a library is gigabytes: the two ways `sent_file` takes, and run
+/// with the file handed over. A staged upload is used once, deleted whatever
+/// the outcome.
+fn with_handed_file(
+    core: &Core,
+    caller: &crate::core::Caller,
+    input: &Value,
+    usage: &str,
+    run: impl FnOnce(&crate::other_apps::Handed) -> Result<Value, OpError>,
+) -> Result<Value, OpError> {
+    match (
+        input.get("upload_id").and_then(Value::as_str),
+        input.get("data").and_then(Value::as_str),
+    ) {
+        (Some(upload_id), None) => {
+            let path = core.staged_upload(&caller.person_id, upload_id)?;
+            let outcome = run(&crate::other_apps::Handed::file(path.clone()));
+            let _ = std::fs::remove_file(&path);
+            outcome
+        }
+        (None, Some(data)) => {
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
+            run(&crate::other_apps::Handed::bytes(bytes))
+        }
+        _ => Err(OpError::bad_request(usage)),
+    }
+}
+
 /// Start a Translation: an ordinary Branch of the same Lineage in another
 /// Language, whose first Version records what it renders (#56, ADR 0006).
 pub fn start_translation(
@@ -1721,29 +1753,31 @@ pub fn import_crouton(
                        sent to POST /api/uploads, or base64-encoded";
     let caller = caller_of(invocation)?;
     let progress = invocation.job.as_ref();
-    match (
-        input.get("upload_id").and_then(Value::as_str),
-        input.get("data").and_then(Value::as_str),
-    ) {
-        (Some(upload_id), None) => {
-            let path = core.staged_upload(&caller.person_id, upload_id)?;
-            let outcome = std::fs::File::open(&path)
-                .map_err(|e| OpError::internal(format!("cannot open the upload: {e}")))
-                .and_then(crate::crouton::Export::open)
-                .and_then(|export| core.import_crouton(caller, export, landing(&input), progress));
-            let _ = std::fs::remove_file(&path);
-            outcome
-        }
-        (None, Some(data)) => {
-            use base64::Engine;
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(data)
-                .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
-            let export = crate::crouton::Export::open(std::io::Cursor::new(bytes))?;
-            core.import_crouton(caller, export, landing(&input), progress)
-        }
-        _ => Err(OpError::bad_request(USAGE)),
-    }
+    with_handed_file(core, caller, &input, USAGE, |handed| {
+        handed
+            .open()
+            .map_err(|e| OpError::internal(format!("cannot open the upload: {e}")))
+            .and_then(crate::crouton::Export::open)
+            .and_then(|export| core.import_crouton(caller, export, landing(&input), progress))
+    })
+}
+
+/// Bring in an export from another recipe app (#412), whichever app's
+/// reader knows it. The file arrives the two ways `import_crouton`'s does
+/// (ADR 0001), and a staged upload is used once: deleted whatever the
+/// outcome, a refusal included, so a retry sends the file again.
+pub fn import_from_another_app(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    const USAGE: &str = "import_from_another_app takes { upload_id } or { data }: the \
+                       export sent to POST /api/uploads, or base64-encoded";
+    let caller = caller_of(invocation)?;
+    let progress = invocation.job.as_ref();
+    with_handed_file(core, caller, &input, USAGE, |handed| {
+        core.import_from_another_app(caller, handed, landing(&input), progress)
+    })
 }
 
 /// What has been brought in from outside, by source, with every arrival (#108).
