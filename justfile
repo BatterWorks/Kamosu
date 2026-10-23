@@ -360,7 +360,7 @@ ui-test:
 # the limit in ui/check-messages.mjs (issue #141).
 #
 # The corpus checks need naming one by one. They carry `test = false` so
-# `just test` does not link ten binaries to run nothing (see Cargo.toml), and
+# `just test` does not link eleven binaries to run nothing (see Cargo.toml), and
 # `--all-targets` skips a `test = false` target — so without this second pass
 # they would quietly stop compiling and nobody would find out until someone ran
 # one by hand. Type-checking them costs about two seconds, because clippy reads
@@ -372,7 +372,7 @@ check: _check-tokens-fresh _check-client-fresh _check-cover-fresh _check-message
 
 # Every tests/*_corpus.rs and the release's library check, as clippy target
 # flags. One list, used by `check`.
-CORPUS_TARGETS := "--test cooking_corpus --test crouton_corpus --test home_corpus --test meaning_corpus --test pasting_corpus --test photographs_corpus --test reading_corpus --test shelf_corpus --test shopping_corpus --test translations_corpus --test release_library"
+CORPUS_TARGETS := "--test cooking_corpus --test crouton_corpus --test home_corpus --test meaning_corpus --test paprika_corpus --test pasting_corpus --test photographs_corpus --test reading_corpus --test shelf_corpus --test shopping_corpus --test translations_corpus --test release_library"
 
 # svelte-check in strict mode, with Svelte's accessibility warnings treated as
 # failures (ADR 0012): the compiler is the reviewer this frontend does not have.

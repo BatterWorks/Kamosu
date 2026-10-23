@@ -346,6 +346,7 @@ describe('the Import Report', () => {
 				result: report({
 					left_out: [
 						{ ...ribs, what: 'comments', count: 3 },
+						{ ...dan, what: 'nutrition', count: 1 },
 						{ ...ribs, what: 'attached_files', count: 2 },
 						{
 							...dan,
@@ -386,6 +387,7 @@ describe('the Import Report', () => {
 			'Photos that could not be downloaded 1',
 			'Attached files 2',
 			'Comments 3',
+			'Nutrition notes 1',
 			'Meal plan entries 41',
 			'Shopping lists 2',
 			'Photos not in the export 6',
@@ -393,12 +395,13 @@ describe('the Import Report', () => {
 		expect(rows[0]).toHaveTextContent('Beef Short Ribs, Dan Dan Noodles.');
 		expect(rows[2]).toHaveTextContent('Beef Short Ribs: 2 · Dan Dan Noodles: 1.');
 		expect(rows[3]).toHaveTextContent('https://example.com/dan.jpg');
+		expect(rows[6]).toHaveTextContent('Dan Dan Noodles.');
 		expect(within(rows[3]).getByRole('link', { name: 'Dan Dan Noodles' })).toHaveAttribute(
 			'href',
 			'/recipes/b_dan',
 		);
 		// What belongs to the whole file names no recipe and opens to nothing.
-		for (const row of rows.slice(6)) expect(row.querySelector('details')).toBeNull();
+		for (const row of rows.slice(7)) expect(row.querySelector('details')).toBeNull();
 	});
 
 	it('names five recipes, then how many more', async () => {

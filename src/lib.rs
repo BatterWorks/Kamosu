@@ -34,6 +34,7 @@ pub mod operations;
 pub mod other_apps;
 pub mod page_text;
 pub mod pairing;
+pub mod paprika;
 pub mod pasting;
 pub mod pdf;
 pub mod photographs;

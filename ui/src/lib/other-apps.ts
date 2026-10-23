@@ -18,6 +18,7 @@ export interface OtherApp {
 
 export const OTHER_APPS: OtherApp[] = [
 	{ kind: 'mealie', name: 'Mealie', where: m.other_app_where_mealie },
+	{ kind: 'paprika', name: 'Paprika', where: m.other_app_where_paprika },
 	{ kind: 'crouton', name: 'Crouton', where: m.other_app_where_crouton },
 ];
 

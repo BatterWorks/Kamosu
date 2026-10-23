@@ -446,6 +446,10 @@ src/mealie.rs       Mealie's recipe export in that shape: each line as
                     Mealie's copy of it, a Step's picture. Its test files,
                     and where each came from, are in tests/fixtures/mealie/
                     (#413)
+src/paprika.rs      Paprika's export in that shape: a zip of one gzip per
+                    recipe, its ingredients and directions split into lines
+                    and Steps as written, its own photo before the website's.
+                    Its test file is in tests/fixtures/paprika/ (#414)
 src/db.rs           the SQLite file under /data — WAL on, migrations forward-only
 src/entities.rs     the HTML entities importers undo in text that was never HTML
 src/jobs.rs         slow work: two lanes (one for strangers, ADR 0032), progress, results

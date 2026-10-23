@@ -2299,7 +2299,7 @@ export type ImportOutput = {
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition";
 	}[];
 	left_out_of_file?: {
 		count: number;
@@ -2378,7 +2378,7 @@ export type ImportCroutonOutput = {
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition";
 	}[];
 	left_out_of_file?: {
 		count: number;
@@ -2458,7 +2458,7 @@ export type ImportFromAnotherAppOutput = {
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition";
 	}[];
 	left_out_of_file?: {
 		count: number;
@@ -2577,7 +2577,7 @@ export type ImportWebLinkOutput = {
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition";
 	}[];
 	left_out_of_file?: {
 		count: number;
@@ -3296,7 +3296,7 @@ export type ImportBundleOutput = {
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition";
 	}[];
 	left_out_of_file?: {
 		count: number;
@@ -17835,7 +17835,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -17868,7 +17868,8 @@ export const CATALOGUE = [
 									"ratings",
 									"favourites",
 									"comments",
-									"photos_not_downloaded"
+									"photos_not_downloaded",
+									"nutrition"
 								]
 							}
 						},
@@ -18236,7 +18237,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -18269,7 +18270,8 @@ export const CATALOGUE = [
 									"ratings",
 									"favourites",
 									"comments",
-									"photos_not_downloaded"
+									"photos_not_downloaded",
+									"nutrition"
 								]
 							}
 						},
@@ -18641,7 +18643,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -18674,7 +18676,8 @@ export const CATALOGUE = [
 									"ratings",
 									"favourites",
 									"comments",
-									"photos_not_downloaded"
+									"photos_not_downloaded",
+									"nutrition"
 								]
 							}
 						},
@@ -19227,7 +19230,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -19260,7 +19263,8 @@ export const CATALOGUE = [
 									"ratings",
 									"favourites",
 									"comments",
-									"photos_not_downloaded"
+									"photos_not_downloaded",
+									"nutrition"
 								]
 							}
 						},
@@ -22848,7 +22852,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -22881,7 +22885,8 @@ export const CATALOGUE = [
 									"ratings",
 									"favourites",
 									"comments",
-									"photos_not_downloaded"
+									"photos_not_downloaded",
+									"nutrition"
 								]
 							}
 						},

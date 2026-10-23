@@ -37862,6 +37862,477 @@ mod mealie {
     }
 }
 
+/// Bringing in a Paprika export (#414): Mealie's real sample of Paprika files,
+/// in `tests/fixtures/paprika/`, through "import from another app".
+mod paprika {
+    use super::*;
+    use std::io::{Read, Write};
+
+    fn sample() -> Vec<u8> {
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/paprika/mealie-sample.zip"),
+        )
+        .expect("the fixture")
+    }
+
+    /// A recipe's title, and how the cook changed it in Paprika.
+    type Change<'a> = (&'a str, &'a dyn Fn(&mut Value));
+
+    /// The real sample with each recipe named in `changes` changed as Paprika
+    /// would have written it had the cook done so: every other file as it was.
+    fn sample_with(changes: &[Change]) -> Vec<u8> {
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(sample())).unwrap();
+        let mut out = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut out);
+            for index in 0..archive.len() {
+                let mut entry = archive.by_index(index).unwrap();
+                let name = entry.name().to_string();
+                let mut bytes = Vec::new();
+                entry.read_to_end(&mut bytes).unwrap();
+                if name.ends_with(".paprikarecipe") && !name.contains("__MACOSX") {
+                    let mut text = String::new();
+                    flate2::read::GzDecoder::new(bytes.as_slice())
+                        .read_to_string(&mut text)
+                        .unwrap();
+                    let mut recipe: Value = serde_json::from_str(&text).unwrap();
+                    let title = recipe["name"].as_str().unwrap().trim().to_string();
+                    if let Some((_, change)) = changes.iter().find(|(t, _)| *t == title) {
+                        change(&mut recipe);
+                        let mut gz = flate2::write::GzEncoder::new(
+                            Vec::new(),
+                            flate2::Compression::default(),
+                        );
+                        gz.write_all(recipe.to_string().as_bytes()).unwrap();
+                        bytes = gz.finish().unwrap();
+                    }
+                }
+                zip.start_file(name, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                zip.write_all(&bytes).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        out.into_inner()
+    }
+
+    fn import(app: &support::TestApp, key: &str, file: &[u8]) -> Value {
+        let (status, staged) = app.post_bytes("/api/uploads", Some(key), "application/zip", file);
+        assert_eq!(status, 200, "{staged}");
+        let (status, ask) = app.post_op(
+            "import_from_another_app",
+            Some(key),
+            &json!({ "upload_id": staged["result"]["upload_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{ask}");
+        let finished =
+            support::wait_terminal(app, Some(key), ask["result"]["job_id"].as_str().unwrap());
+        assert_eq!(finished["status"], json!("completed"), "{finished}");
+        finished["result"].clone()
+    }
+
+    fn content(app: &support::TestApp, key: &str, report: &Value, title: &str) -> Value {
+        let row = report["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["title"] == title)
+            .unwrap_or_else(|| panic!("no {title}: {report}"));
+        let (status, recipe) = app.post_op(
+            "get_recipe",
+            Some(key),
+            &json!({ "branch_id": row["branch_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{recipe}");
+        recipe["result"].clone()
+    }
+
+    fn statuses(report: &Value) -> Vec<String> {
+        let mut statuses: Vec<String> = report["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                format!(
+                    "{} {}",
+                    row["title"].as_str().unwrap(),
+                    row["status"].as_str().unwrap()
+                )
+            })
+            .collect();
+        statuses.sort();
+        statuses
+    }
+
+    fn left_out_of(report: &Value, title: &str) -> Vec<(String, i64)> {
+        report["left_out"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["title"] == title)
+            .map(|row| {
+                (
+                    row["what"].as_str().unwrap().to_string(),
+                    row["count"].as_i64().unwrap(),
+                )
+            })
+            .collect()
+    }
+
+    fn recipes_held(app: &support::TestApp) -> i64 {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                Ok(conn
+                    .query_row("SELECT COUNT(*) FROM branches", [], |row| row.get(0))
+                    .unwrap())
+            })
+            .unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_paprika_export_lands_every_recipe_once() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let report = import(&app, &key, &sample());
+
+        assert_eq!(report["source_kind"], json!("paprika"));
+        assert_eq!(
+            statuses(&report),
+            [
+                "Zucchini Rolls with Goat Cheese and Mint created",
+                "Zucchini-Kartoffel-Frittata created",
+                "Zucchinipuffer created",
+                "Zweimal gebratenes Hähnchen mit Gemüse und Nudeln created",
+                "Zwiebelrostbraten mit selbstgemachten Spätzle created",
+            ]
+        );
+        assert_eq!(report["unreadable"], json!([]), "{report}");
+        assert_eq!(report["left_out"], json!([]), "{report}");
+
+        // One recipe, field by field.
+        let rolls = content(
+            &app,
+            &key,
+            &report,
+            "Zucchini Rolls with Goat Cheese and Mint",
+        );
+        let held = &rolls["versions"][0]["content"];
+        assert_eq!(held["yield"], json!({ "amount": "20", "noun": "rolls" }));
+        assert_eq!(held["prep_time_minutes"], json!(30));
+        assert_eq!(held["cook_time_minutes"], json!(30));
+        assert_eq!(
+            held["source"],
+            json!({
+                "text": "Seriouseats.com",
+                "link": "http://www.seriouseats.com/recipes/2012/03/zucchini-rolls-with-goat-cheese-and-mint.html"
+            })
+        );
+        assert_eq!(held["note"], Value::Null);
+        assert_eq!(held["nutrition"], Value::Null);
+        assert!(held["main_photo"].is_string(), "{held}");
+        let lines: Vec<&str> = held["ingredients"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| line["text"].as_str().unwrap())
+            .collect();
+        assert_eq!(lines.len(), 12);
+        assert_eq!(lines[0], "1 small bunch fresh chives");
+        assert_eq!(lines[11], "Grill heat: high");
+        let steps: Vec<&str> = held["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|step| step["text"].as_str().unwrap())
+            .collect();
+        assert_eq!(steps.len(), 4);
+        assert!(steps[0].starts_with("1. Bring a small saucepan of water to a boil"));
+        assert!(steps[3].ends_with("Serve warm or at room temperature."));
+        let mut tags: Vec<&str> = rolls["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tag| tag["name"].as_str().unwrap())
+            .collect();
+        tags.sort_unstable();
+        assert_eq!(tags, ["Grill", "Käse", "Vegetarisch", "Vorspeißen"]);
+        // Every line is Kamosu's own reading.
+        let readings = &rolls["versions"][0]["readings"];
+        assert_eq!(
+            readings[2]["target"],
+            json!("extra-virgin olive oil"),
+            "{readings}"
+        );
+
+        // Importing the same export again shelves nothing twice.
+        let again = import(&app, &key, &sample());
+        assert!(
+            statuses(&again)
+                .iter()
+                .all(|row| row.ends_with(" unchanged")),
+            "{again}"
+        );
+        assert_eq!(recipes_held(&app), 5);
+        let (_, listed) = app.post_op("list_imports", Some(&key), "{}");
+        let imports = listed["result"]["imports"].as_array().unwrap();
+        assert_eq!(imports.len(), 1, "{listed}");
+        assert_eq!(imports[0]["source_kind"], json!("paprika"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn what_paprika_kept_and_kamosu_does_not_is_counted() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let rated = |recipe: &mut Value| {
+            recipe["rating"] = json!(5);
+            recipe["on_favorites"] = json!(true);
+            recipe["nutritional_info"] = json!("Calories: 640");
+            recipe["photos"] = json!([{
+                "name": "1", "filename": "a.jpg", "hash": "a", "data": recipe["photo_data"]
+            }]);
+        };
+        let report = import(
+            &app,
+            &key,
+            &sample_with(&[("Zwiebelrostbraten mit selbstgemachten Spätzle", &rated)]),
+        );
+        assert_eq!(
+            left_out_of(&report, "Zwiebelrostbraten mit selbstgemachten Spätzle"),
+            [
+                ("extra_photos".to_string(), 1),
+                ("ratings".to_string(), 1),
+                ("favourites".to_string(), 1),
+                ("nutrition".to_string(), 1),
+            ]
+        );
+        let held = content(
+            &app,
+            &key,
+            &report,
+            "Zwiebelrostbraten mit selbstgemachten Spätzle",
+        );
+        assert_eq!(held["versions"][0]["content"]["nutrition"], Value::Null);
+    }
+
+    /// A photo the file gives only as an address, downloaded from a local
+    /// server standing in for the website, through the guarded fetch
+    /// (ADR 0033) the web-link import uses.
+    #[cfg(feature = "test-jobs")]
+    mod downloading_photos {
+        use super::*;
+
+        /// What the photo server was asked for, path by path.
+        #[derive(Default)]
+        struct Asked(std::sync::Mutex<std::collections::HashMap<String, usize>>);
+
+        impl Asked {
+            fn times(&self, path: &str) -> usize {
+                self.0.lock().unwrap().get(path).copied().unwrap_or(0)
+            }
+        }
+
+        /// Serve `/photo.jpg`, a picture; `/slow.jpg`, which answers after
+        /// two seconds; and nothing else. Answers the base address.
+        fn spawn_photo_server(asked: Arc<Asked>) -> String {
+            kamosu::web_import::allow_loopback_fetches_for_tests();
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+            listener.set_nonblocking(true).unwrap();
+            let listener = tokio::net::TcpListener::from_std(listener).expect("async listener");
+            let base = format!("http://{}", listener.local_addr().unwrap());
+            let photo = Arc::new(make_jpeg());
+            let router = axum::Router::new().route(
+                "/{name}",
+                axum::routing::get(
+                    move |axum::extract::Path(name): axum::extract::Path<String>| {
+                        let photo = photo.clone();
+                        let asked = asked.clone();
+                        async move {
+                            *asked.0.lock().unwrap().entry(name.clone()).or_default() += 1;
+                            match name.as_str() {
+                                "photo.jpg" => {
+                                    Ok(([("content-type", "image/jpeg")], (*photo).clone()))
+                                }
+                                "slow.jpg" => {
+                                    tokio::time::sleep(Duration::from_secs(2)).await;
+                                    Ok(([("content-type", "image/jpeg")], (*photo).clone()))
+                                }
+                                _ => Err(axum::http::StatusCode::NOT_FOUND),
+                            }
+                        }
+                    },
+                ),
+            );
+            tokio::spawn(async move {
+                axum::serve(listener, router).await.expect("photo server");
+            });
+            base
+        }
+
+        fn make_jpeg() -> Vec<u8> {
+            let image = image::RgbImage::from_fn(20, 20, |x, y| {
+                image::Rgb([(x * 10) as u8, (y * 10) as u8, 128])
+            });
+            let mut bytes = Vec::new();
+            image::DynamicImage::ImageRgb8(image)
+                .write_to(
+                    &mut std::io::Cursor::new(&mut bytes),
+                    image::ImageFormat::Jpeg,
+                )
+                .expect("encodes");
+            bytes
+        }
+
+        /// The recipe's own photo taken out, and `address` its only one.
+        fn only_at(address: String) -> impl Fn(&mut Value) {
+            move |recipe: &mut Value| {
+                recipe["photo_data"] = Value::Null;
+                recipe["image_url"] = json!(address);
+            }
+        }
+
+        fn not_downloaded(report: &Value) -> Vec<(String, String)> {
+            let mut rows: Vec<(String, String)> = report["left_out"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|row| row["what"] == "photos_not_downloaded")
+                .map(|row| {
+                    (
+                        row["title"].as_str().unwrap().to_string(),
+                        row["address"].as_str().unwrap().to_string(),
+                    )
+                })
+                .collect();
+            rows.sort();
+            rows
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn a_photo_given_only_as_an_address_is_downloaded() {
+            let app = support::spawn_app();
+            let (key, _) = operator_with_kitchen(&app);
+            let asked = Arc::new(Asked::default());
+            let base = spawn_photo_server(asked.clone());
+            let gone = format!("{base}/gone.jpg");
+            let private = "http://10.0.0.1/photo.jpg".to_string();
+            let file = sample_with(&[
+                (
+                    "Zucchini Rolls with Goat Cheese and Mint",
+                    &only_at(format!("{base}/photo.jpg")),
+                ),
+                ("Zucchini-Kartoffel-Frittata", &only_at(gone.clone())),
+                ("Zucchinipuffer", &only_at(private.clone())),
+                // Its own photo is in the file, so the website's is not asked for.
+                (
+                    "Zweimal gebratenes Hähnchen mit Gemüse und Nudeln",
+                    &|recipe: &mut Value| recipe["image_url"] = json!(format!("{base}/never.jpg")),
+                ),
+            ]);
+            // The guarded fetch refuses the private address before dialling
+            // it, so it costs none of the time a fetch that hung would.
+            assert!(!kamosu::web_import::is_readable_link(&private));
+            let started = Instant::now();
+            let report = import(&app, &key, &file);
+            assert!(started.elapsed() < Duration::from_secs(5));
+
+            assert_eq!(report["unreadable"], json!([]), "{report}");
+            assert_eq!(report["arrived"].as_array().unwrap().len(), 5);
+            let photo = |title: &str| -> Value {
+                content(&app, &key, &report, title)["versions"][0]["content"]["main_photo"].clone()
+            };
+            assert!(photo("Zucchini Rolls with Goat Cheese and Mint").is_string());
+            assert!(photo("Zweimal gebratenes Hähnchen mit Gemüse und Nudeln").is_string());
+            assert_eq!(photo("Zucchini-Kartoffel-Frittata"), Value::Null);
+            assert_eq!(photo("Zucchinipuffer"), Value::Null);
+            assert_eq!(
+                not_downloaded(&report),
+                [
+                    ("Zucchini-Kartoffel-Frittata".to_string(), gone),
+                    ("Zucchinipuffer".to_string(), private),
+                ]
+            );
+            assert_eq!(asked.times("photo.jpg"), 1);
+            assert_eq!(asked.times("gone.jpg"), 1);
+            assert_eq!(asked.times("never.jpg"), 0);
+        }
+
+        /// The second import finds the recipe the first one landed, and keeps
+        /// the photo it downloaded then: nothing is downloaded again, so a
+        /// site that has since gone offers no change the cook never made.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn importing_again_downloads_nothing_again() {
+            let app = support::spawn_app();
+            let (key, _) = operator_with_kitchen(&app);
+            let asked = Arc::new(Asked::default());
+            let base = spawn_photo_server(asked.clone());
+            let rolls = "Zucchini Rolls with Goat Cheese and Mint";
+            let first = import(
+                &app,
+                &key,
+                &sample_with(&[(rolls, &only_at(format!("{base}/photo.jpg")))]),
+            );
+            let photo =
+                content(&app, &key, &first, rolls)["versions"][0]["content"]["main_photo"].clone();
+            assert!(photo.is_string(), "{first}");
+
+            let again = import(
+                &app,
+                &key,
+                &sample_with(&[(rolls, &only_at(format!("{base}/gone.jpg")))]),
+            );
+            assert!(
+                statuses(&again)
+                    .iter()
+                    .all(|row| row.ends_with(" unchanged")),
+                "{again}"
+            );
+            assert_eq!(again["offered"], json!([]), "{again}");
+            assert_eq!(not_downloaded(&again), []);
+            assert_eq!(asked.times("photo.jpg"), 1);
+            assert_eq!(asked.times("gone.jpg"), 0);
+            assert_eq!(
+                content(&app, &key, &again, rolls)["versions"][0]["content"]["main_photo"],
+                photo
+            );
+        }
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn the_time_for_downloads_runs_out_once_for_the_whole_import() {
+            let app = support::spawn_app();
+            app.core.download_photos_for(Duration::from_millis(500));
+            let (key, _) = operator_with_kitchen(&app);
+            let asked = Arc::new(Asked::default());
+            let base = spawn_photo_server(asked.clone());
+            let slow = format!("{base}/slow.jpg");
+            let after = format!("{base}/photo.jpg");
+            // The recipes are read in the order of their files' names.
+            let file = sample_with(&[
+                (
+                    "Zucchini Rolls with Goat Cheese and Mint",
+                    &only_at(slow.clone()),
+                ),
+                ("Zucchinipuffer", &only_at(after.clone())),
+            ]);
+            let started = Instant::now();
+            let report = import(&app, &key, &file);
+
+            assert_eq!(report["arrived"].as_array().unwrap().len(), 5, "{report}");
+            assert_eq!(
+                not_downloaded(&report),
+                [
+                    ("Zucchini Rolls with Goat Cheese and Mint".to_string(), slow),
+                    ("Zucchinipuffer".to_string(), after),
+                ]
+            );
+            assert_eq!(asked.times("slow.jpg"), 1);
+            assert_eq!(asked.times("photo.jpg"), 0, "asked after the time ran out");
+            assert!(started.elapsed() < Duration::from_secs(10));
+        }
+    }
+}
+
 /// Bringing in a recipe from a PDF (#176): read, shown, and never written
 /// until a person saves it.
 mod reading_a_recipe_pdf {

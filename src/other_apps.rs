@@ -28,7 +28,11 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 /// The readers, asked in this order. Each later ticket of #411 adds its app.
-pub static READERS: &[&dyn Reader] = &[&crate::mealie::Mealie, &crate::crouton::Crouton];
+pub static READERS: &[&dyn Reader] = &[
+    &crate::mealie::Mealie,
+    &crate::paprika::Paprika,
+    &crate::crouton::Crouton,
+];
 
 /// What a cook handed over, which each reader opens afresh to look inside.
 pub struct Handed {
@@ -349,6 +353,9 @@ pub enum LeftOut {
     Comments(usize),
     /// A Main Photo the file holds only as an address, which was not downloaded.
     PhotoNotDownloaded(String),
+    /// Nutrition the app kept as free text, which Kamosu cannot be sure of a
+    /// number in (#414).
+    Nutrition,
 }
 
 /// Something the whole file held that belongs to no recipe, named in the
