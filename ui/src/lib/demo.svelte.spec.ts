@@ -4,11 +4,17 @@
  * reader's own clock.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import { OperationError } from './api/refusal';
 import { m } from './paraglide/messages';
-import { cleaningInLocalTime, demoRefusalOr, INSTALL_KAMOSU } from './demo.svelte';
+import { standIn } from './api/stand-in';
+import {
+	cleaningInLocalTime,
+	demoRefusalOr,
+	INSTALL_KAMOSU,
+	learnWhetherADemo,
+} from './demo.svelte';
 import Refusal from './Refusal.svelte';
 
 describe("a Demo's refusal", () => {
@@ -65,5 +71,45 @@ describe('a refusal a screen words itself', () => {
 		expect(demoRefusalOr(other, 'The name could not be saved.')).toBe(
 			'The name could not be saved.',
 		);
+	});
+});
+
+describe("a Demo's visits", () => {
+	const STATUS = {
+		version: '0.3.0',
+		setup_complete: true,
+		password_minimum: 15,
+		passkey_origin: null,
+	};
+	const UMAMI = {
+		script: 'https://umami.example.com/script.js',
+		website_id: '94db1cb1-74f4-4a40-ad6c-962362670409',
+	};
+	const counters = () => document.head.querySelectorAll('script[data-website-id]');
+
+	afterEach(() => counters().forEach((script) => script.remove()));
+
+	it('are counted by the Umami the Core names, loaded once however often it is asked', async () => {
+		const kamosu = standIn({
+			instance_status: { ...STATUS, demo: true, demo_access_key: 'k', analytics: UMAMI },
+		});
+
+		await learnWhetherADemo(kamosu.client);
+		await learnWhetherADemo(kamosu.client);
+
+		expect(counters()).toHaveLength(1);
+		const script = counters()[0] as HTMLScriptElement;
+		expect(script.src).toBe(UMAMI.script);
+		expect(script.dataset.websiteId).toBe(UMAMI.website_id);
+		expect(script.defer).toBe(true);
+	});
+
+	it('are counted by nothing where the Core names no Umami', async () => {
+		await learnWhetherADemo(
+			standIn({ instance_status: { ...STATUS, demo: true, demo_access_key: 'k' } }).client,
+		);
+		await learnWhetherADemo(standIn({ instance_status: { ...STATUS, demo: false } }).client);
+
+		expect(document.head.querySelectorAll('script')).toHaveLength(0);
 	});
 });

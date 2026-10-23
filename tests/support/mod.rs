@@ -57,8 +57,18 @@ pub fn spawn_demo_in(data_dir: &std::path::Path) -> TestApp {
 /// the caller may have filled first with an ordinary Kamosu.
 #[allow(dead_code)]
 pub fn spawn_sample_demo_in(data_dir: &std::path::Path) -> TestApp {
+    spawn_sample_demo_counting_in(data_dir, None)
+}
+
+/// Start a Demo as `spawn_sample_demo_in` does, counting its visits with the
+/// Umami given (#408).
+#[allow(dead_code)]
+pub fn spawn_sample_demo_counting_in(
+    data_dir: &std::path::Path,
+    analytics: Option<kamosu::config::Analytics>,
+) -> TestApp {
     let db = Arc::new(db::Db::open(data_dir).expect("database"));
-    let core = kamosu::core::start_demo(db).expect("a Demo with its Sample Library");
+    let core = kamosu::core::start_demo(db, analytics).expect("a Demo with its Sample Library");
     serve_core(core, kamosu::admission::Limits::KAMOSU)
 }
 

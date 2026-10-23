@@ -9,7 +9,7 @@
  * server just now still draws the strip it drew a minute ago.
  */
 
-import type { KamosuClient } from './api/catalogue';
+import type { InstanceStatusOutput, KamosuClient } from './api/catalogue';
 import { OperationError } from './api/refusal';
 
 /** Where "Install your own" leads: the README's Quick start, on GitHub. */
@@ -71,9 +71,26 @@ export async function learnWhetherADemo(kamosu: KamosuClient): Promise<void> {
 		demo.is = status.demo;
 		demo.key = status.demo_access_key;
 		remember(DEMO_KEY, status.demo ? (status.demo_access_key ?? '') : undefined);
+		if (status.demo && status.analytics) countVisits(status.analytics);
 	} catch (error) {
 		if (!(error instanceof OperationError)) throw error;
 	}
+}
+
+/**
+ * Load the Umami a Demo counts its visits with (#408), once for the life of
+ * the page: it follows the router's own moves from screen to screen. Its
+ * origin is the one address the Demo's Content-Security-Policy lets through,
+ * and it sets no cookie, so nobody is asked to consent. The answer it acts on
+ * is the server's, since `instance_status` is read server-first.
+ */
+function countVisits(umami: NonNullable<InstanceStatusOutput['analytics']>): void {
+	if (document.head.querySelector('script[data-website-id]')) return;
+	const script = document.createElement('script');
+	script.defer = true;
+	script.src = umami.script;
+	script.dataset.websiteId = umami.website_id;
+	document.head.append(script);
 }
 
 /**

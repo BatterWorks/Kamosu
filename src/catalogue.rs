@@ -264,7 +264,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       happened. Also the shortest password it accepts, the \
                       address a passkey signs in at, if any, and whether it \
                       is a Demo, where only cooking and shopping save. A Demo \
-                      also names the read-only Access Key it publishes.",
+                      also names the read-only Access Key it publishes, and \
+                      the Umami script it counts its visits with, if any.",
             permission: Permission::Public,
             kind: Kind::Immediate,
             write: false,
@@ -284,6 +285,17 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     // Only in a Demo, which publishes it for a visitor's own
                     // agent to read the Sample Library with (#404, #407).
                     "demo_access_key": { "type": "string" },
+                    // Only in a Demo given an Umami to count its visits
+                    // with, whose script the interface loads (#408).
+                    "analytics": {
+                        "type": "object",
+                        "properties": {
+                            "script": { "type": "string" },
+                            "website_id": { "type": "string" },
+                        },
+                        "required": ["script", "website_id"],
+                        "additionalProperties": false,
+                    },
                 },
                 "required": ["version", "setup_complete", "password_minimum", "passkey_origin", "demo"],
                 "additionalProperties": false,

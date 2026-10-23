@@ -79,7 +79,7 @@ pub fn app_within(core: Arc<core::Core>, limits: admission::Limits) -> axum::Rou
         .merge(mcp_door::router(core.clone()))
         .merge(design_tokens::router())
         .merge(share_page::router(core.clone()))
-        .merge(interface::router());
+        .merge(interface::router(core.clone()));
     // A stranger's body read small, the whole-request deadline and the cap on
     // requests at once (#368).
     admission::hold(app, core.clone(), limits)

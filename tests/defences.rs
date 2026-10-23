@@ -2811,6 +2811,75 @@ async fn every_answer_carries_the_browser_safety_headers() {
     }
 }
 
+/// A Demo given an Umami lets that one origin load a script and be sent
+/// to, and tells the interface which script to load (#408). An instance that
+/// is no Demo names it nowhere: its configuration never reads the setting
+/// (`config.rs`), and its policy is the one above.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_demo_lets_its_umami_through_and_nothing_else() {
+    let umami = kamosu::config::Analytics {
+        script: "https://umami.example.com/script.js".into(),
+        website_id: "94db1cb1-74f4-4a40-ad6c-962362670409".into(),
+        origin: "https://umami.example.com".into(),
+    };
+    let dir = tempfile::tempdir().expect("temp dir");
+    let demo = support::spawn_sample_demo_counting_in(dir.path(), Some(umami));
+    let ordinary = support::spawn_app();
+
+    let (status, told) = demo.post_op("instance_status", None, "{}");
+    assert_eq!(status, 200, "{told}");
+    assert_eq!(
+        told["result"]["analytics"],
+        json!({
+            "script": "https://umami.example.com/script.js",
+            "website_id": "94db1cb1-74f4-4a40-ad6c-962362670409",
+        }),
+        "{told}"
+    );
+    let (_, told) = ordinary.post_op("instance_status", None, "{}");
+    assert_eq!(told["ok"], json!(true), "{told}");
+    assert!(told["result"].get("analytics").is_none(), "{told}");
+
+    for path in ["/", "/recipes", "/assets/app.css"] {
+        let reply = kamosu::http_min::get(demo.addr, path).expect("an answer");
+        let policy = reply.header("content-security-policy").unwrap();
+        let directives: Vec<&str> = policy.split(';').map(str::trim).collect();
+        let scripts = directives
+            .iter()
+            .find(|d| d.starts_with("script-src "))
+            .unwrap();
+        assert!(
+            scripts.ends_with(" https://umami.example.com"),
+            "{path}: {policy}"
+        );
+        assert!(
+            directives.contains(&"connect-src 'self' https://umami.example.com"),
+            "{path}: {policy}"
+        );
+        assert_eq!(policy.matches("umami").count(), 2, "{path}: {policy}");
+
+        let reply = kamosu::http_min::get(ordinary.addr, path).expect("an answer");
+        let policy = reply.header("content-security-policy").unwrap();
+        assert!(!policy.contains("umami"), "{path}: {policy}");
+        assert!(!policy.contains("connect-src"), "{path}: {policy}");
+    }
+
+    // The worker a phone keeps the shell with names the Umami, so a phone
+    // that kept it under another policy installs it again; anywhere else
+    // it is the build's own, byte for byte.
+    let worker = kamosu::http_min::get(demo.addr, "/service-worker.js").expect("the worker");
+    let plain = kamosu::http_min::get(ordinary.addr, "/service-worker.js").expect("the worker");
+    assert_eq!(plain.status, 200);
+    assert!(!plain.text().contains("umami"));
+    assert_eq!(
+        worker.text(),
+        format!(
+            "{}\n// This Demo counts its visits with the Umami at https://umami.example.com\n",
+            plain.text()
+        )
+    );
+}
+
 // --- The MCP door answers no web page (#145) ---------------------------------
 
 /// The set of accepted origins is empty, for the reasons `refuse_any_origin`

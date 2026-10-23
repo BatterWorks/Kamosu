@@ -36,7 +36,10 @@ pub async fn stamp(State(core): State<Arc<Core>>, request: Request, next: Next) 
     let shared = request.uri().path().starts_with("/s/");
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
-    headers.insert(header::CONTENT_SECURITY_POLICY, content_security_policy());
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        content_security_policy(core.analytics().map(|a| a.origin.as_str())),
+    );
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
@@ -96,29 +99,35 @@ fn permissions_policy() -> HeaderValue {
 
 /// One policy for every answer. It names the shell's inline bootstrap by hash
 /// rather than allowing inline script at all, so a script that got into a page
-/// any other way does not run.
+/// any other way does not run. A Demo counting its visits (#408) also lets
+/// its Umami's one origin load a script and be sent to.
 ///
 /// A release build embeds the shell, so its hash is worked out once. A debug
 /// build reads `ui/build` from disk and `just ui-build` can replace it under a
 /// running server, so there it is worked out on every answer.
-fn content_security_policy() -> HeaderValue {
-    static POLICY: OnceLock<HeaderValue> = OnceLock::new();
+fn content_security_policy(analytics_origin: Option<&str>) -> HeaderValue {
+    static HASHES: OnceLock<Vec<String>> = OnceLock::new();
     if cfg!(debug_assertions) {
-        policy_for(&interface::shell_script_hashes())
+        policy_for(&interface::shell_script_hashes(), analytics_origin)
     } else {
-        POLICY
-            .get_or_init(|| policy_for(&interface::shell_script_hashes()))
-            .clone()
+        policy_for(
+            HASHES.get_or_init(interface::shell_script_hashes),
+            analytics_origin,
+        )
     }
 }
 
-fn policy_for(script_hashes: &[String]) -> HeaderValue {
+fn policy_for(script_hashes: &[String], analytics_origin: Option<&str>) -> HeaderValue {
     let mut scripts = String::from("'self'");
     for hash in script_hashes {
         scripts.push(' ');
         scripts.push_str(hash);
     }
-    let policy = [
+    if let Some(origin) = analytics_origin {
+        scripts.push(' ');
+        scripts.push_str(origin);
+    }
+    let mut policy = vec![
         "default-src 'self'".to_string(),
         format!("script-src {scripts}"),
         // Inline style is allowed, and taken on purpose: the shell wraps the
@@ -135,9 +144,13 @@ fn policy_for(script_hashes: &[String]) -> HeaderValue {
         "form-action 'self'".to_string(),
         // Only a header can say this; a `<meta>` policy ignores it.
         "frame-ancestors 'none'".to_string(),
-    ]
-    .join("; ");
-    HeaderValue::from_str(&policy).expect("a policy is plain ASCII")
+    ];
+    // Where the Umami script sends its counts. Without it, `default-src`
+    // already holds every request to Kamosu's own origin.
+    if let Some(origin) = analytics_origin {
+        policy.insert(2, format!("connect-src 'self' {origin}"));
+    }
+    HeaderValue::from_str(&policy.join("; ")).expect("a policy is plain ASCII")
 }
 
 #[cfg(test)]
@@ -146,7 +159,7 @@ mod tests {
 
     #[test]
     fn inline_script_is_allowed_only_by_hash() {
-        let policy = policy_for(&["'sha256-abc='".to_string()]);
+        let policy = policy_for(&["'sha256-abc='".to_string()], None);
         let policy = policy.to_str().unwrap();
         assert!(
             policy.contains("script-src 'self' 'sha256-abc='"),
@@ -157,5 +170,47 @@ mod tests {
             .find(|d| d.trim().starts_with("script-src"))
             .unwrap();
         assert!(!scripts.contains("unsafe"), "{policy}");
+    }
+
+    /// What every instance but a counting Demo is told, written out whole:
+    /// #408 must leave it byte for byte as it was.
+    #[test]
+    fn the_policy_without_analytics_is_what_it_always_was() {
+        let policy = policy_for(&["'sha256-abc='".to_string()], None);
+        assert_eq!(
+            policy.to_str().unwrap(),
+            "default-src 'self'; script-src 'self' 'sha256-abc='; \
+             style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; \
+             object-src 'none'; base-uri 'self'; form-action 'self'; \
+             frame-ancestors 'none'"
+        );
+    }
+
+    #[test]
+    fn a_counting_demo_lets_its_umami_load_a_script_and_be_sent_to_and_nothing_more() {
+        let umami = "https://umami.example.com";
+        let policy = policy_for(&["'sha256-abc='".to_string()], Some(umami));
+        let policy = policy.to_str().unwrap();
+        let directive = |name: &str| {
+            policy
+                .split("; ")
+                .find(|d| d.starts_with(&format!("{name} ")))
+                .unwrap_or_else(|| panic!("no {name} in {policy}"))
+                .to_string()
+        };
+        assert_eq!(
+            directive("script-src"),
+            format!("script-src 'self' 'sha256-abc=' {umami}")
+        );
+        assert_eq!(
+            directive("connect-src"),
+            format!("connect-src 'self' {umami}")
+        );
+        let elsewhere = policy
+            .split("; ")
+            .filter(|d| !d.starts_with("script-src ") && !d.starts_with("connect-src "))
+            .collect::<Vec<_>>();
+        assert!(elsewhere.iter().all(|d| !d.contains("umami")), "{policy}");
+        assert_eq!(policy.matches(umami).count(), 2, "{policy}");
     }
 }

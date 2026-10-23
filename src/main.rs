@@ -145,8 +145,12 @@ fn serve(config: Config) {
         let db = Arc::new(
             db::Db::open(&config.data_dir).unwrap_or_else(|e| panic!("cannot open /data: {e}")),
         );
+        let analytics = config.analytics.clone().unwrap_or_else(|why| {
+            eprintln!("This Demo counts no visits: {why}");
+            None
+        });
         let core = if config.demo {
-            kamosu::core::start_demo(db)
+            kamosu::core::start_demo(db, analytics.clone())
                 .unwrap_or_else(|e| panic!("cannot start the Demo with its Sample Library: {e}"))
         } else {
             Core::start(db)
@@ -168,6 +172,12 @@ fn serve(config: Config) {
                  shopping save",
                 kamosu::config::DEMO
             );
+            if let Some(analytics) = &analytics {
+                println!(
+                    "It counts its visits with the Umami at {}",
+                    analytics.origin
+                );
+            }
         }
 
         kamosu::admission::serve(

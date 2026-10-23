@@ -135,10 +135,16 @@ pub(super) fn fail_waiting_jobs_a_demo_refuses(db: &Db) -> Result<usize, OpError
 /// Start a Demo. Its Sample Library is built, the Core started, and the
 /// library poured in before the Demo answers anyone, then put back every day
 /// at 04:00 UTC (#404). A Demo whose library cannot be built does not start.
-pub fn start_demo(db: Arc<Db>) -> Result<Arc<Core>, OpError> {
+pub fn start_demo(
+    db: Arc<Db>,
+    analytics: Option<crate::config::Analytics>,
+) -> Result<Arc<Core>, OpError> {
     let built = sample_library::build(&db.data_dir().join(SAMPLE_LIBRARY_DIR))?;
     let core = Core::start_as(db, Mode::Demo);
     let _ = core.sample_library.set(built);
+    if let Some(analytics) = analytics {
+        let _ = core.analytics.set(analytics);
+    }
     core.put_back_sample_library()?;
     spawn_daily_cleaning(core.clone());
     Ok(core)
@@ -443,6 +449,12 @@ impl Core {
     /// Whether this instance is a Demo.
     pub fn is_demo(&self) -> bool {
         self.mode == Mode::Demo
+    }
+
+    /// The Umami this Demo counts its visits with, if it was given one
+    /// (#408). Nothing on an instance that is no Demo.
+    pub fn analytics(&self) -> Option<&crate::config::Analytics> {
+        self.analytics.get()
     }
 
     /// Refuse, in a Demo, what a route outside the Catalogue would do: sign

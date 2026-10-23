@@ -55,6 +55,14 @@ pub fn instance_status(
     if core.is_demo() {
         status["demo_access_key"] = json!(crate::core::DEMO_ACCESS_KEY);
     }
+    // The Umami a Demo counts its visits with (#408), which the interface
+    // loads. Both halves are in the script tag of any page it counts.
+    if let Some(analytics) = core.analytics() {
+        status["analytics"] = json!({
+            "script": analytics.script,
+            "website_id": analytics.website_id,
+        });
+    }
     Ok(status)
 }
 

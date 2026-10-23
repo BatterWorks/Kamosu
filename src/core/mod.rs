@@ -355,6 +355,9 @@ pub struct Core {
     says_security_lines: bool,
     /// The Sample Library a Demo puts back, once it is built (#404).
     sample_library: std::sync::OnceLock<crate::sample_library::Built>,
+    /// The Umami a Demo counts its visits with, given when it starts (#408).
+    /// Never set on an instance that is no Demo.
+    analytics: std::sync::OnceLock<crate::config::Analytics>,
     lanes: jobs::Lanes,
     /// Meaning Search, which on most instances is an empty slot and stays one
     /// (ADR 0029). Nothing branches on that outside the two places that must:
@@ -405,6 +408,7 @@ impl Core {
             arrivals: Default::default(),
             says_security_lines: true,
             sample_library: Default::default(),
+            analytics: Default::default(),
             lanes,
             meaning,
             passwords: accounts::Passwords::default(),
@@ -445,6 +449,7 @@ impl Core {
             arrivals: Default::default(),
             says_security_lines: true,
             sample_library: Default::default(),
+            analytics: Default::default(),
             lanes,
             meaning,
             passwords: accounts::Passwords::default(),
