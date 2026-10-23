@@ -46,6 +46,7 @@
 - In an English recipe, `1,020 g` is read as 1020 g, in an Ingredient Line and in a Step alike, and the shopping list and scaling use that. Before, every comma between digits was read as a decimal point, so it came out as 1.02 g. Saying a recipe is English reads its lines that way at once. `1,5 g` still reads as 1.5 g, and a French or Spanish recipe's comma is still its decimal point. [#383] [#397]
 - A word too long for its line, such as a web address in a recipe's note, a Step or an Ingredient Line, wraps onto the next line where it reaches the edge. Before, it ran off the side of a phone and the page scrolled sideways. [#385]
 - With Meaning Search on, a recipe that holds only a title no longer keeps the index catching up forever. Before, Settings said such recipes had changed since the last index for as long as they stayed that way, `meaning_search_status` counted them in `recipes_not_yet_indexed`, and the log said `index caught up` every minute with nothing changed. `build_meaning_index` now counts in `indexed` only the recipes and cooking notes it put in the index. [#391]
+- The published agent files the recipe it reads under each of the Cookbook's Tags that plainly fits, and leaves the Tags a person put on where they are. Before, it was only told it could, and seldom did. [#436]
 
 [#368]: https://github.com/BatterWorks/Kamosu/issues/368
 [#369]: https://github.com/BatterWorks/Kamosu/issues/369
@@ -71,6 +72,7 @@
 [#415]: https://github.com/BatterWorks/Kamosu/issues/415
 [#416]: https://github.com/BatterWorks/Kamosu/issues/416
 [#426]: https://github.com/BatterWorks/Kamosu/issues/426
+[#436]: https://github.com/BatterWorks/Kamosu/issues/436
 
 ## v0.3.0 - 2026-10-18
 
