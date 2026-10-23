@@ -1614,6 +1614,7 @@
   "other_app_where_crouton": "Its whole-library export, a zip of .crumb files, or one .crumb.",
   "other_app_where_mealie": "The zip from Data Management › Recipes › Export, with every recipe selected.",
   "other_app_where_paprika": "Its .paprikarecipes file: File › Export on a computer, or Settings › Export Recipes on a phone.",
+  "other_app_where_tandoor": "The zip from Settings › Space › Export, of the Default type, with All Recipes ticked.",
   "other_apps_list": "{some} and {last}",
   "other_apps_and_more": "{some} and {count} more",
   "import_other_blurb": "Bring every recipe over from the app you used before, with its photo and tags. Make the export your old app offers and bring it here: Kamosu works out which app made it.",
