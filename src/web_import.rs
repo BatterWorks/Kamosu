@@ -165,7 +165,10 @@ fn find_recipe_node(document: &Html) -> Option<Value> {
     None
 }
 
-fn search_for_recipe(value: &Value) -> Option<Value> {
+/// The first node in `value` whose `@type` names `Recipe`: `value` itself, a
+/// member of an array, or one inside `@graph`. A page's ld+json block is
+/// searched this way, and so is a recipe file another app wrote (#416).
+pub fn search_for_recipe(value: &Value) -> Option<Value> {
     match value {
         Value::Array(items) => items.iter().find_map(search_for_recipe),
         Value::Object(map) => {
@@ -191,7 +194,10 @@ fn is_recipe_type(type_field: Option<&Value>) -> bool {
     }
 }
 
-fn from_recipe_node(node: &Value, hostname: &str) -> ParsedRecipe {
+/// Read a Recipe node, a page's or a file's (#416), into what an importer
+/// lands. `hostname` names the Source where the node names no author or
+/// publisher, and the recipe where it has no name.
+pub fn from_recipe_node(node: &Value, hostname: &str) -> ParsedRecipe {
     let title = text_field(node, "name").unwrap_or_else(|| hostname.to_string());
     let ingredients = string_array(node.get("recipeIngredient"));
     let steps = extract_steps(node.get("recipeInstructions"));

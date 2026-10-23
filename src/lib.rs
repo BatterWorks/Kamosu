@@ -9,6 +9,7 @@
 
 pub mod admission;
 pub mod backups;
+pub mod bar_assistant;
 pub mod browser_policy;
 pub mod bundles;
 pub mod catalogue;
@@ -42,6 +43,7 @@ pub mod reading;
 pub mod runner;
 pub mod sample_library;
 pub mod schema;
+pub mod schema_org;
 pub mod share_card;
 pub mod share_page;
 pub mod sheet;

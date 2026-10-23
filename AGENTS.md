@@ -455,6 +455,18 @@ src/tandoor.rs      Tandoor's default export in that shape: a zip of one zip
                     food and note, and each named step's ingredients a
                     Section. Its test files are in tests/fixtures/tandoor/
                     (#415)
+src/schema_org.rs   recipe files in the format web pages carry, schema.org's
+                    Recipe, as Nextcloud Cookbook, RecipeSage, Recipya,
+                    CookCLI and Tandoor write them, in that shape: each read
+                    by the web-link import's own mapping and what a page
+                    lacks read here, each app under its own source kind told
+                    by the file's shape. Its test files are in
+                    tests/fixtures/schema-org/ (#416)
+src/bar_assistant.rs
+                    Bar Assistant's export in that shape: its JSON-LD read as
+                    recipe files are, and its own JSON Schema format, which
+                    keeps the garnish, the glass and an ingredient's range
+                    (#416)
 src/db.rs           the SQLite file under /data — WAL on, migrations forward-only
 src/entities.rs     the HTML entities importers undo in text that was never HTML
 src/jobs.rs         slow work: two lanes (one for strangers, ADR 0032), progress, results

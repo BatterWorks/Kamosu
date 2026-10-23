@@ -2333,8 +2333,15 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       made it, and lands every recipe in your own Cookbook \
                       through the same ledger `import` uses, keyed by that \
                       app's own id, so running it again matches instead of \
-                      doubling. The apps it reads: Crouton (its library zip of \
-                      .crumb files, or one .crumb). A file it does not know, a \
+                      doubling. The apps it reads: Mealie (its recipe export \
+                      zip), Paprika (.paprikarecipes), Tandoor (its Default \
+                      export zip, or its Recipe Sage .json), Crouton (its \
+                      library zip of .crumb files, or one .crumb), Nextcloud \
+                      Cookbook (its folder of recipes as a zip), RecipeSage (its \
+                      JSON-LD .json), Recipya (its JSON export zip), CookCLI \
+                      (its schema.org .json files, zipped together or one \
+                      alone) and Bar Assistant (its JSON Schema or JSON-LD \
+                      export zip). A file it does not know, a \
                       known app's export in a shape Kamosu was not tested \
                       with, or archives nested too deep, land nothing: the \
                       answer is then `refused` alone, with its reason. Send the \

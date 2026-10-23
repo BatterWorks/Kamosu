@@ -1310,6 +1310,27 @@ pub fn as_fraction(quantity: f64) -> String {
     }
 }
 
+/// An amount as a cook writes it before `unit`, an app's export having
+/// kept it as a number (#415, #416): metric as a decimal, anything else as the
+/// fraction on the cup where there is one. A decimal keeps three places, as
+/// Tandoor shows them: `0.375 kg`, where [`as_decimal`] would make it `0.38`.
+pub fn amount_for(amount: f64, unit: Option<&str>) -> String {
+    let metric = unit
+        .and_then(recognise)
+        .is_some_and(|unit| unit.system == System::Metric);
+    if !metric {
+        let fraction = as_fraction(amount);
+        if !fraction.is_ascii() {
+            return fraction;
+        }
+    }
+    let rendered = format!("{amount:.3}");
+    rendered
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
+}
+
 /// A plain number with no trailing zeroes — `250`, `1.5`, never `1.50`.
 pub fn as_decimal(quantity: f64) -> String {
     let rendered = format!("{quantity:.2}");
