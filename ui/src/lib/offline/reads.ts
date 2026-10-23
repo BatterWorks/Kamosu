@@ -100,6 +100,10 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// changes it, and a kept answer from before a rename on another device
 	// would offer to change a name you no longer have.
 	get_person: 'server-first',
+	// Whether this is a Demo, and the Umami it counts with (#408). A kept
+	// answer from before the instance stopped counting, or stopped being a
+	// Demo, would load the script on a Kamosu that sends nothing anywhere.
+	instance_status: 'server-first',
 	// Who can get in. Ending a Session on another device must show at once.
 	list_sessions: 'server-first',
 	list_access_keys: 'server-first',

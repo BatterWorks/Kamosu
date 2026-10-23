@@ -8,10 +8,14 @@
 
 import type { JobAsk } from './job';
 
-/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes. */
+/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes, and the Umami script it counts its visits with, if any. */
 export type InstanceStatusInput = Record<string, never>;
 /** What instance_status answers. */
 export type InstanceStatusOutput = {
+	analytics?: {
+		script: string;
+		website_id: string;
+	};
 	demo: boolean;
 	demo_access_key?: string;
 	passkey_origin: string | null;
@@ -6503,7 +6507,7 @@ export type Answer<N extends OperationName> =
 export const CATALOGUE = [
 	{
 		"name": "instance_status",
-		"summary": "Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes.",
+		"summary": "Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes, and the Umami script it counts its visits with, if any.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -6514,6 +6518,22 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"analytics": {
+					"additionalProperties": false,
+					"properties": {
+						"script": {
+							"type": "string"
+						},
+						"website_id": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"script",
+						"website_id"
+					],
+					"type": "object"
+				},
 				"demo": {
 					"type": "boolean"
 				},
@@ -34984,7 +35004,7 @@ export const METHOD_NAMES = {
 
 /** The typed client: one method per Operation, named as the Catalogue names it. */
 export interface KamosuClient {
-	/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes. */
+	/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes, and the Umami script it counts its visits with, if any. */
 	instanceStatus(input?: InstanceStatusInput): Promise<Answer<'instance_status'>>;
 	/** Set the Language and measures this Person reads in. */
 	setReadingPreferences(input: SetReadingPreferencesInput): Promise<Answer<'set_reading_preferences'>>;
