@@ -30,6 +30,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import { untrack } from 'svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { useRoom } from '$lib/room.svelte';
@@ -520,7 +521,7 @@
 	{/each}
 	{#if unreachable}
 		<p class={['mt-4 border-l-3 border-support px-3 py-2 text-body', panel]} role="alert">
-			{unreachable}
+			<Refusal words={unreachable} />
 		</p>
 	{:else if agentsOwn && (running || job?.status === 'cancelled')}
 		{#if running}
@@ -669,7 +670,7 @@
 							{/each}
 						</ul>
 						{#if relateError}
-							<p class="text-read text-support" role="alert">{relateError}</p>
+							<p class="text-read text-support" role="alert"><Refusal words={relateError} /></p>
 						{/if}
 						<div class="mt-3 flex items-center gap-2">
 							<button

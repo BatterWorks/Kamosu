@@ -37,6 +37,8 @@
 	import type { HomeShelvesOutput } from '$lib/api/catalogue';
 	import Tile from './recipes/Tile.svelte';
 	import AddOrImport from '$lib/AddOrImport.svelte';
+	import { demo } from '$lib/demo.svelte';
+	import DemoWelcome from './DemoWelcome.svelte';
 
 	interface Props {
 		/** The answer `home_shelves` gave. Asked for by the route, so signing in and reading Home are one round trip. */
@@ -102,6 +104,13 @@
 <svelte:head>
 	<title>{m.home_title()} · {m.app_name()}</title>
 </svelte:head>
+
+<!-- A Demo's welcome card, above the heading until it is put away (#407). -->
+{#if demo.is && demo.welcome !== 'closed'}
+	<div class="mx-auto max-w-2xl px-gutter pt-4 wide:max-w-none">
+		<DemoWelcome />
+	</div>
+{/if}
 
 <div class="pt-6 pb-tabbar">
 	<div class="mx-auto max-w-2xl px-gutter wide:max-w-none">

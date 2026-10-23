@@ -24,6 +24,7 @@
 -->
 <script lang="ts">
 	import { aDate } from '$lib/dates';
+	import Refusal from '$lib/Refusal.svelte';
 	import { goto } from '$app/navigation';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
@@ -372,7 +373,7 @@
 	</Screen>
 {:else}
 	<Screen title={m.import_shared_failed()}>
-		<p class="text-body" role="alert">{step.reason}</p>
+		<p class="text-body" role="alert"><Refusal words={step.reason} /></p>
 		{#if shared}
 			<button
 				type="button"

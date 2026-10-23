@@ -53,6 +53,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { useRoom } from '$lib/room.svelte';
 	import { useCorrected } from '../corrected.svelte';
@@ -353,7 +354,7 @@
 		</Section>
 
 		{#if said}
-			<p class="mt-4 text-body text-support" role="alert">{said}</p>
+			<p class="mt-4 text-body text-support" role="alert"><Refusal words={said} /></p>
 		{/if}
 
 		<p class="mt-6 text-read text-ink-2">{m.food_changes_no_recipe()}</p>

@@ -16,6 +16,7 @@
 -->
 <script lang="ts">
 	import { aMonth } from '$lib/dates';
+	import Refusal from '$lib/Refusal.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -540,7 +541,7 @@
 										{#if writeFailed}
 											<p class="text-read text-support" role="alert">
 												{m.cooked_write_failed()}
-												{writeFailed}
+												<Refusal words={writeFailed} />
 											</p>
 										{/if}
 									</div>

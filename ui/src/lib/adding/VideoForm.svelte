@@ -9,6 +9,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import WatchExamples from './WatchExamples.svelte';
 	import type { Adding } from './adding.svelte';
 
@@ -40,7 +41,7 @@
 		/>
 	</label>
 	{#if adding.failed}
-		<p class="text-read text-support" role="alert">{adding.failed}</p>
+		<p class="text-read text-support" role="alert"><Refusal words={adding.failed} /></p>
 	{/if}
 	<WatchExamples {adding} />
 	<button

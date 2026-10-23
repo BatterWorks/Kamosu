@@ -14,6 +14,8 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
+	import { demoRefusalOr } from '$lib/demo.svelte';
 	import { ratingLabel } from '$lib/rating';
 	import { isUnknown, languageName } from '$lib/language';
 	import { OperationError } from '$lib/api/client';
@@ -235,7 +237,7 @@
 			lastRename = { key: row.key, cleared: !name?.trim() };
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
-			renameError = m.thread_rename_failed();
+			renameError = demoRefusalOr(error, m.thread_rename_failed());
 		} finally {
 			saving = false;
 		}
@@ -317,7 +319,7 @@
 						/>
 					</label>
 					{#if renameError}
-						<p class="text-body text-accent" role="alert">{renameError}</p>
+						<p class="text-body text-accent" role="alert"><Refusal words={renameError} /></p>
 					{/if}
 					<div class="flex flex-wrap items-center gap-4">
 						<button

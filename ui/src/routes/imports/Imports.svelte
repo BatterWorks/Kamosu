@@ -36,6 +36,7 @@
 -->
 <script lang="ts">
 	import { aDate } from '$lib/dates';
+	import Refusal from '$lib/Refusal.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { untrack } from 'svelte';
 	import { useKamosu } from '$lib/kamosu';
@@ -155,7 +156,9 @@
 
 {#snippet nothingToList()}
 	{#if said}
-		<p class="border-l-3 border-support bg-card px-3 py-2 text-body" role="alert">{said}</p>
+		<p class="border-l-3 border-support bg-card px-3 py-2 text-body" role="alert">
+			<Refusal words={said} />
+		</p>
 	{:else if imports === undefined}
 		<p class="text-body text-ink-2">{m.loading()}</p>
 	{:else if imports.length === 0}

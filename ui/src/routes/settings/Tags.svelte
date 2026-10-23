@@ -32,6 +32,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import Confirm from '$lib/Confirm.svelte';
@@ -170,7 +171,7 @@
 <p class="mb-4 text-read text-ink-2">{m.settings_tags_blurb()}</p>
 
 {#if failed}
-	<p class="mb-4 text-body text-support" role="alert">{failed}</p>
+	<p class="mb-4 text-body text-support" role="alert"><Refusal words={failed} /></p>
 {/if}
 
 <!--

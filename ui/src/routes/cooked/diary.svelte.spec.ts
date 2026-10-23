@@ -21,6 +21,7 @@ import Cooked from './+page.svelte';
 import { keepingForTests, renderScreen } from '../../testing/render';
 import { MY_KITCHENS, PROMOTED, recipeAnswer } from '../../testing/recipes';
 import { carrying } from '../../testing/drops';
+import { m } from '$lib/paraglide/messages';
 
 /**
  * One Attempt as `edit_attempt` answers it — with everything the Catalogue
@@ -836,5 +837,15 @@ describe('keeping a tweaked cooking as a Version, from the diary (#210)', () => 
 
 		expect(await screen.findByRole('alert')).toHaveTextContent(/could not keep it/i);
 		expect(screen.getByRole('button', { name: 'Save as a new Version' })).toBeInTheDocument();
+	});
+
+	it("says a Demo's refusal in the Demo's words, with the way to installing (#407)", async () => {
+		await openTweaked({ promote_as_cooked: { refuse: 'bad_request', reason: 'demo' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Keep it as a new Version' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Save as a new Version' }));
+
+		const said = await screen.findByRole('alert');
+		expect(said).toHaveTextContent(m.demo_refused());
+		expect(within(said).getByRole('link', { name: m.demo_refused_install() })).toBeInTheDocument();
 	});
 });

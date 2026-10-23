@@ -50,6 +50,8 @@
 -->
 <script lang="ts">
 	import { aDay } from '$lib/dates';
+	import Refusal from '$lib/Refusal.svelte';
+	import { demoRefusalOr } from '$lib/demo.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -82,7 +84,8 @@
 	let opened = $state(false);
 	let saving = $state(false);
 	let saved = $state(false);
-	let failed = $state(false);
+	/** What a failed keep said, a Demo's refusal or the screen's own words. */
+	let failed = $state<string | undefined>(undefined);
 	/** Answered, and answered away — laid over the list without a re-read. */
 	let declinedHere = $state(new Set<string>());
 
@@ -151,14 +154,14 @@
 			// It will be asked again next time, which is the honest failure:
 			// nothing was lost and nothing was decided.
 			declinedHere = new Set([...declinedHere].filter((held) => held !== id));
-			failed = true;
+			failed = demoRefusalOr(error, m.recipe_promote_failed());
 		}
 	}
 
 	async function promote() {
 		if (!pending) return;
 		saving = true;
-		failed = false;
+		failed = undefined;
 		try {
 			const landed = await kamosu.promoteAsCooked({
 				attempt_id: pending.id,
@@ -173,7 +176,7 @@
 			promoted();
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
-			failed = true;
+			failed = demoRefusalOr(error, m.recipe_promote_failed());
 		} finally {
 			saving = false;
 		}
@@ -235,7 +238,7 @@
 		{/if}
 
 		{#if failed}
-			<p class="mt-2 text-read text-support" role="alert">{m.recipe_promote_failed()}</p>
+			<p class="mt-2 text-read text-support" role="alert"><Refusal words={failed} /></p>
 		{/if}
 	</div>
 {/if}

@@ -616,15 +616,74 @@
   }
 }
 
+/* A Demo's strip (#407, option B chosen on 23 October 2026): one line at the
+   foot of every screen, 40px as the prototype drew it. It stands on the tab bar
+   on the phone, at the foot of the window beside the sidebar, and under Back
+   and Start cooking on the cooking screen. Every screen leaves room for it
+   through `--demo-strip-h`, which the shell sets only while the strip is drawn.
+   Where the strip stands at the very foot of the window, beside the sidebar or
+   under the cooking screen, it also takes the home indicator's room, and what
+   stands above it leaves `--demo-strip-foot`. */
+:root {
+  --demo-strip-h: 0px;
+  --demo-strip-foot: 0px;
+}
+:root.demo-strip-shown {
+  --demo-strip-h: 40px;
+  --demo-strip-foot: calc(40px + env(safe-area-inset-bottom));
+}
+
+@utility demo-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-2);
+  box-sizing: content-box;
+  height: 40px;
+  padding-inline: var(--spacing-gutter);
+  /* The hairline above it, drawn inside the 40 rather than added to it. */
+  box-shadow: inset 0 1px 0 var(--demo-strip-rule, var(--color-rule));
+  white-space: nowrap;
+  font-size: var(--text-read);
+}
+
+/* A control on the strip: drawn the strip's height and tapped at 48 (ADR
+   0044), the extra all above it, so a thumb on the tab bar below never lands
+   on the strip. */
+@utility demo-strip-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  text-underline-offset: 3px;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -8px 0 0;
+  }
+}
+
+/* The strip at the very foot of the window, its line above the home indicator. */
+@utility demo-strip-at-foot {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* The cooking screen, which fills the window, stops above the strip. */
+@utility above-demo-strip {
+  bottom: var(--demo-strip-foot);
+}
+
 /* The room every screen leaves for the phone layout's tab bar, which is fixed
    over it: the bar's own height, its safe-area padding, and a step of air. Named once so a
-   screen never guesses a number, and so changing the bar changes every screen. */
+   screen never guesses a number, and so changing the bar changes every screen.
+   A Demo's strip adds its own height on either layout (#407). */
 @utility pb-tabbar {
-  padding-bottom: calc(var(--spacing-12) + var(--spacing-8) + env(safe-area-inset-bottom));
+  padding-bottom: calc(var(--spacing-12) + var(--spacing-8) + env(safe-area-inset-bottom) + var(--demo-strip-h));
 
   /* No page draws a tab bar on the wide layout (#194), so only the air stays. */
   @variant wide {
-    padding-bottom: calc(var(--spacing-8) + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--spacing-8) + max(env(safe-area-inset-bottom), var(--demo-strip-foot)));
   }
 }
 
@@ -634,11 +693,12 @@
    Divergence is the first of these, and it is the reason this exists — at
    `bottom-0` the tab bar swallowed its Save button entirely. */
 @utility bottom-tabbar {
-  bottom: calc(var(--spacing-12) + env(safe-area-inset-bottom));
+  bottom: calc(var(--spacing-12) + env(safe-area-inset-bottom) + var(--demo-strip-h));
 
-  /* With no tab bar to clear on the wide layout (#194), that is the bottom. */
+  /* With no tab bar to clear on the wide layout (#194), that is the bottom,
+     or the top of a Demo's strip (#407). */
   @variant wide {
-    bottom: 0;
+    bottom: var(--demo-strip-foot);
   }
 }
 
@@ -796,7 +856,7 @@
   top: 0;
   display: flex;
   flex-direction: column;
-  height: 100dvh;
+  height: calc(100dvh - var(--demo-strip-foot));
   padding-top: calc(var(--spacing-4) + env(safe-area-inset-top));
   border-right: 1px solid var(--color-rule);
 }
@@ -887,7 +947,7 @@
 
     position: sticky;
     top: var(--stays-below);
-    max-height: calc(100dvh - var(--stays-below));
+    max-height: calc(100dvh - var(--stays-below) - var(--demo-strip-foot));
     overflow-y: auto;
     padding-bottom: var(--spacing-4);
   }
@@ -927,7 +987,7 @@
   @variant wide {
     position: sticky;
     top: 0;
-    max-height: 100dvh;
+    max-height: calc(100dvh - var(--demo-strip-foot));
     overflow-y: auto;
     padding-bottom: var(--spacing-4);
   }

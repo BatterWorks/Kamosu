@@ -40778,6 +40778,12 @@ mod a_demo {
         let (status, said) = demo.app.post_op("instance_status", None, "{}");
         assert_eq!(status, 200, "{said}");
         assert_eq!(said["result"]["demo"], json!(true), "{said}");
+        // The key the welcome card publishes for a visitor's own agent (#407).
+        assert_eq!(
+            said["result"]["demo_access_key"],
+            json!(kamosu::core::DEMO_ACCESS_KEY),
+            "{said}"
+        );
 
         let (session_id, visitor) = arrive(&demo.app);
         let (status, person) = op(&demo.app, "get_person", &visitor, json!({}));
@@ -40807,6 +40813,7 @@ mod a_demo {
         let (status, said) = app.post_op("instance_status", None, "{}");
         assert_eq!(status, 200, "{said}");
         assert_eq!(said["result"]["demo"], json!(false), "{said}");
+        assert_eq!(said["result"].get("demo_access_key"), None, "{said}");
 
         let refused = app.post_auth_response(
             "/auth/demo",
@@ -41475,7 +41482,13 @@ mod a_demos_sample_library {
     async fn the_published_key_names_nobody_once_the_instance_is_no_demo() {
         let dir = tempfile::tempdir().expect("temp dir");
         let demo = support::spawn_sample_demo_in(dir.path());
-        let (status, _) = demo.post_op("get_person", Some(kamosu::core::DEMO_ACCESS_KEY), "{}");
+        // The key the Demo says it publishes is the one that reads it (#407).
+        let (_, said) = demo.post_op("instance_status", None, "{}");
+        let published = said["result"]["demo_access_key"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let (status, _) = demo.post_op("get_person", Some(&published), "{}");
         assert_eq!(status, 200);
 
         // Demo mode turned off: the library stays, and its key opens nothing.

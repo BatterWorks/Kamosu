@@ -21,18 +21,21 @@
 		 * the story, or the shelf Recipes draws, with its search box.
 		 */
 		holds?: 'account' | 'story' | 'shelf';
+		/** The instance is a Demo, which draws its strip (#407). */
+		demo?: boolean;
 	}
 
-	let { pathname, room, holds }: Props = $props();
+	let { pathname, room, holds, demo = false }: Props = $props();
 
 	const kamosu = standIn({
-		instance_status: {
+		instance_status: () => ({
 			version: '0.1.0',
 			setup_complete: true,
 			password_minimum: 15,
 			passkey_origin: null,
-			demo: false,
-		},
+			demo,
+			...(demo ? { demo_access_key: 'a-published-key' } : {}),
+		}),
 		list_tags: { tags: [] },
 		list_kitchens: { kitchens: [] },
 		meaning_search_status: {

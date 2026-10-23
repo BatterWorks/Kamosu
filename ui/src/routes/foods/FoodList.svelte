@@ -42,6 +42,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import { untrack } from 'svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { useRoom } from '$lib/room.svelte';
@@ -193,7 +194,7 @@
 
 {#snippet results()}
 	{#if said}
-		<p class={['mt-4 text-body text-support', pad]} role="alert">{said}</p>
+		<p class={['mt-4 text-body text-support', pad]} role="alert"><Refusal words={said} /></p>
 	{:else if foods === undefined}
 		<p class={['mt-4 text-body text-ink-2', pad]}>{m.loading()}</p>
 	{:else if foods.length === 0}

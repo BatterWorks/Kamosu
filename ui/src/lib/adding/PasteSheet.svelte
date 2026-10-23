@@ -15,6 +15,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import type { ReadPastedRecipeOutput } from '$lib/api/catalogue';
 	import type { PageReading } from '$lib/pasted.svelte';
 	import PasteCheck from '$lib/PasteCheck.svelte';
@@ -88,7 +89,7 @@
 		{m.plus_paste_make()}
 	</button>
 	{#if adding.failed}
-		<p class="mt-2 text-read text-support" role="alert">{adding.failed}</p>
+		<p class="mt-2 text-read text-support" role="alert"><Refusal words={adding.failed} /></p>
 	{/if}
 	<button
 		type="button"

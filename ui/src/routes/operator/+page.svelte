@@ -27,6 +27,7 @@
 -->
 <script lang="ts">
 	import { RUNNER_KEYS } from '$lib/agent/agent';
+	import Refusal from '$lib/Refusal.svelte';
 	import { aDate, howLongAgo } from '$lib/dates';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
@@ -627,7 +628,7 @@
 		</div>
 
 		{#if said && !asking}
-			<p class="mt-4 text-body text-support" role="alert">{said}</p>
+			<p class="mt-4 text-body text-support" role="alert"><Refusal words={said} /></p>
 		{/if}
 
 		<div role="tabpanel" id="operator-room" aria-labelledby="operator-tab-{room}">

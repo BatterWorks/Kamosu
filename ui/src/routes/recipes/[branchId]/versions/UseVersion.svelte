@@ -26,6 +26,7 @@
 
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -141,7 +142,7 @@
 		</label>
 	{/if}
 	{#if refused}
-		<p class="mt-3 text-read text-support" role="alert">{refused}</p>
+		<p class="mt-3 text-read text-support" role="alert"><Refusal words={refused} /></p>
 	{/if}
 	<button
 		type="button"

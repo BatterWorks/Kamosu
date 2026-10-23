@@ -60,6 +60,7 @@
 -->
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
+	import { demo } from '$lib/demo.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { useRoom } from '$lib/room.svelte';
@@ -246,6 +247,9 @@
 		void writing;
 		void amounts.length;
 		void writeFailed;
+		// A Demo's strip, which takes the foot of the screen once the shell
+		// has heard it is one (#407).
+		void demo.is;
 		if (!element) {
 			stepScrolls = false;
 			return;
@@ -257,8 +261,13 @@
 			stepScrolls = element.scrollHeight > element.clientHeight + 8;
 		};
 		measure();
+		// Once more after the frame, by when the strip's room has been taken.
+		const settled = requestAnimationFrame(measure);
 		window.addEventListener('resize', measure);
-		return () => window.removeEventListener('resize', measure);
+		return () => {
+			cancelAnimationFrame(settled);
+			window.removeEventListener('resize', measure);
+		};
 	});
 
 	$effect(() => {
@@ -783,8 +792,9 @@
 	<title>{content ? m.cook_tab_title({ title: content.title }) : m.app_name()}</title>
 </svelte:head>
 
+<!-- Stops above a Demo's strip, which stands under Back and Start cooking (#407). -->
 <div
-	class="fixed inset-0 z-30 flex flex-col bg-cook-ground px-gutter pt-safe pb-safe text-cook-ink cook-far wide:px-[var(--cook-inset)]"
+	class="fixed inset-x-0 top-0 above-demo-strip z-30 flex flex-col bg-cook-ground px-gutter pt-safe pb-safe text-cook-ink cook-far wide:px-[var(--cook-inset)]"
 >
 	<!--
 		Kamosu went wrong, said aloud (#119). The root layout keeps #98's card off

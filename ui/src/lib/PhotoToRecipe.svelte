@@ -39,6 +39,7 @@
 
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import Refusal from '$lib/Refusal.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -266,7 +267,7 @@
 	{#if refused}
 		<p class="px-gutter py-2 text-read text-support" role="alert">
 			{m.promote_failed()}
-			{refused}
+			<Refusal words={refused} />
 		</p>
 	{/if}
 

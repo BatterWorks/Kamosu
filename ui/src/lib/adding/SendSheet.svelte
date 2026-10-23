@@ -18,6 +18,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import SheetFrame from '$lib/SheetFrame.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
 	import { Online } from '$lib/offline/device.svelte';
@@ -126,7 +127,7 @@
 	{/if}
 	<p class="mt-3 text-read">{m.send_said()}</p>
 	{#if adding.failed && !adding.refusedInDemo}
-		<p class="mt-2 text-read text-support" role="alert">{adding.failed}</p>
+		<p class="mt-2 text-read text-support" role="alert"><Refusal words={adding.failed} /></p>
 	{/if}
 	<NeedsServer
 		label={sending ? m.send_doing() : m.send_do()}
@@ -138,7 +139,7 @@
 	/>
 	<!-- A Demo's refusal says itself under Send, with the way on to the examples (#406). -->
 	{#if adding.refusedInDemo}
-		<p class="mt-2 text-read text-support" role="alert">{adding.failed}</p>
+		<p class="mt-2 text-read text-support" role="alert"><Refusal words={adding.failed} /></p>
 		<WatchExamples {adding} />
 	{/if}
 	<button

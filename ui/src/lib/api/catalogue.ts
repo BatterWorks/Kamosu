@@ -8,11 +8,12 @@
 
 import type { JobAsk } from './job';
 
-/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. */
+/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes. */
 export type InstanceStatusInput = Record<string, never>;
 /** What instance_status answers. */
 export type InstanceStatusOutput = {
 	demo: boolean;
+	demo_access_key?: string;
 	passkey_origin: string | null;
 	password_minimum: number;
 	setup_complete: boolean;
@@ -6502,7 +6503,7 @@ export type Answer<N extends OperationName> =
 export const CATALOGUE = [
 	{
 		"name": "instance_status",
-		"summary": "Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save.",
+		"summary": "Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -6515,6 +6516,9 @@ export const CATALOGUE = [
 			"properties": {
 				"demo": {
 					"type": "boolean"
+				},
+				"demo_access_key": {
+					"type": "string"
 				},
 				"passkey_origin": {
 					"type": [
@@ -34980,7 +34984,7 @@ export const METHOD_NAMES = {
 
 /** The typed client: one method per Operation, named as the Catalogue names it. */
 export interface KamosuClient {
-	/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. */
+	/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes. */
 	instanceStatus(input?: InstanceStatusInput): Promise<Answer<'instance_status'>>;
 	/** Set the Language and measures this Person reads in. */
 	setReadingPreferences(input: SetReadingPreferencesInput): Promise<Answer<'set_reading_preferences'>>;
