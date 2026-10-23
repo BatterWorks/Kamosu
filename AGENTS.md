@@ -441,6 +441,11 @@ src/other_apps.rs   another recipe app's export: the one shape every app's
                     reader in turn which app made the file, by what is in
                     it. A refusal is data, and unpacking stops at a limit at
                     every level (#412)
+src/mealie.rs       Mealie's recipe export in that shape: each line as
+                    Mealie shows it, a line pointing at another recipe with
+                    Mealie's copy of it, a Step's picture. Its test files,
+                    and where each came from, are in tests/fixtures/mealie/
+                    (#413)
 src/db.rs           the SQLite file under /data — WAL on, migrations forward-only
 src/entities.rs     the HTML entities importers undo in text that was never HTML
 src/jobs.rs         slow work: two lanes (one for strangers, ADR 0032), progress, results
