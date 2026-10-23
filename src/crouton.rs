@@ -205,8 +205,8 @@ impl Export {
 pub struct Crouton;
 
 impl other_apps::Reader for Crouton {
-    fn name(&self) -> &'static str {
-        "Crouton"
+    fn names(&self) -> &'static [&'static str] {
+        &["Crouton"]
     }
 
     fn read(

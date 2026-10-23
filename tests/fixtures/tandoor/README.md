@@ -1,7 +1,8 @@
 # Tandoor exports
 
 Real files Tandoor wrote, which the Tandoor reader (`src/tandoor.rs`, #415) is
-tested against, and the schema.org reader (#416) after it. None was edited
+tested against, and the recipe-file reader (`src/schema_org.rs`, #416) the two
+schema.org ones. None was edited
 after Tandoor wrote it. A shape of Tandoor's file is supported exactly when a
 file of it is here.
 
@@ -10,6 +11,7 @@ file of it is here.
 | File | What it is | Where it comes from |
 |---|---|---|
 | `v1-mealie-sample.zip` | A Tandoor 1 export of June 2023: one recipe, copied from a website, with its picture as `image.jpeg`. Its file has no `source_url` | Mealie's own `tests/data/migrations/tandoor.zip`, at commit `cb59fad8f0187b1972ac040bf06aca0a34967c44`. © the Mealie contributors, [AGPL-3.0](https://github.com/mealie-recipes/mealie/blob/mealie-next/LICENSE) |
+| `v2-schema-org.json` | The same ten recipes exported from Tandoor 2 as *Recipe Sage*, which is schema.org JSON-LD: a bare array, each line written as `1.0 Taza de harina`, the times as bare minutes. vanilla-cookbook calls it a RecipeSage export, but RecipeSage writes neither these lines nor this array | vanilla-cookbook's `src/lib/data/import/recipe_sage.json`, at commit `e842601e109adf63667bae84a5ff28c96a1b4345`. © the vanilla-cookbook contributors, [GPL-3.0](https://github.com/jt196/vanilla-cookbook/blob/main/LICENSE) |
 | `v2-export.zip` | A Tandoor 2 export of August 2025: ten recipes in English, French, German, Czech and Spanish, most of them brought into Tandoor from Mealie, five with a picture named `image` with no extension | vanilla-cookbook's `src/lib/data/import/tandoor.zip`, at commit `e842601e109adf63667bae84a5ff28c96a1b4345`. © the vanilla-cookbook contributors, [GPL-3.0](https://github.com/jt196/vanilla-cookbook/blob/main/LICENSE) |
 
 GPL-3.0 and AGPL-3.0 combine under section 13 of each. Mealie's sample holds a

@@ -70,6 +70,16 @@ describe('importing from another app', () => {
 		expect(screen.getByText(/\.paprikarecipes file: File › Export/)).toBeInTheDocument();
 		expect(screen.getByText('Tandoor')).toBeInTheDocument();
 		expect(screen.getByText(/Settings › Space › Export, of the Default type/)).toBeInTheDocument();
+		expect(screen.getByText('Nextcloud Cookbook')).toBeInTheDocument();
+		expect(screen.getByText(/folder of recipes in Nextcloud Files/)).toBeInTheDocument();
+		expect(screen.getByText('RecipeSage')).toBeInTheDocument();
+		expect(screen.getByText(/Export Recipe Data › Export to JSON-LD/)).toBeInTheDocument();
+		expect(screen.getByText('Recipya')).toBeInTheDocument();
+		expect(screen.getByText(/Settings › Data › Export data, as JSON/)).toBeInTheDocument();
+		expect(screen.getByText('CookCLI')).toBeInTheDocument();
+		expect(screen.getByText(/cook recipe -f schema/)).toBeInTheDocument();
+		expect(screen.getByText('Bar Assistant')).toBeInTheDocument();
+		expect(screen.getByText(/JSON \(Schema draft 2\) or Schema\.org Recipe/)).toBeInTheDocument();
 		for (const later of ['KitchenOwl', 'Recipe Keeper', 'Mela']) {
 			expect(screen.queryByText(new RegExp(later))).not.toBeInTheDocument();
 		}
@@ -103,7 +113,9 @@ describe('importing from another app', () => {
 		const card = await screen.findByRole('alert');
 		expect(card).toHaveTextContent('Recipes 2026-10-20.zip');
 		expect(card).toHaveTextContent('Kamosu could not tell which app made this file.');
-		expect(card).toHaveTextContent('It reads exports from Mealie, Paprika, Tandoor and Crouton.');
+		expect(card).toHaveTextContent(
+			'It reads exports from Mealie, Paprika, Tandoor, Crouton, Nextcloud Cookbook, RecipeSage, Recipya, CookCLI and Bar Assistant.',
+		);
 		expect(screen.getByRole('link', { name: 'A PDF' })).toHaveAttribute('href', '/recipes?add');
 		expect(screen.getByRole('link', { name: 'Pasted text' })).toHaveAttribute(
 			'href',

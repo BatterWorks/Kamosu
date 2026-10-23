@@ -52,8 +52,8 @@ const MAX_FILE_BYTES: u64 = 128 * 1024 * 1024;
 type Archive = zip::ZipArchive<Box<dyn other_apps::ReadSeek>>;
 
 impl Reader for Tandoor {
-    fn name(&self) -> &'static str {
-        APP
+    fn names(&self) -> &'static [&'static str] {
+        &[APP]
     }
 
     fn read(&self, handed: &Handed) -> Result<Option<other_apps::Export>, Refusal> {
@@ -506,11 +506,7 @@ fn rebuild_line(line: &Value) -> String {
 
     let mut parts: Vec<String> = Vec::new();
     if let Some(amount) = amount {
-        let metric = unit
-            .as_deref()
-            .and_then(crate::units::recognise)
-            .is_some_and(|unit| unit.system == crate::units::System::Metric);
-        parts.push(amount_text(amount, metric));
+        parts.push(crate::units::amount_for(amount, unit.as_deref()));
     }
     // A note after a food or a unit says more about it; a note after a bare
     // amount, or alone, is what the amount counts.
@@ -526,24 +522,6 @@ fn rebuild_line(line: &Value) -> String {
         };
     }
     written
-}
-
-/// An amount as a cook writes it: metric as a decimal, anything else as the
-/// fraction on the cup where there is one. Tandoor keeps sixteen decimal
-/// places and shows three, so a decimal keeps three: `0.375 kg`, where the
-/// two [`crate::units::as_decimal`] writes would make it `0.38`.
-fn amount_text(amount: f64, metric: bool) -> String {
-    if !metric {
-        let fraction = crate::units::as_fraction(amount);
-        if !fraction.is_ascii() {
-            return fraction;
-        }
-    }
-    let rendered = format!("{amount:.3}");
-    rendered
-        .trim_end_matches('0')
-        .trim_end_matches('.')
-        .to_string()
 }
 
 /// The Note: the description, then the nutrition the Nutrition field does not

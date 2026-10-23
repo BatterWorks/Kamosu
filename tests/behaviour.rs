@@ -43042,3 +43042,534 @@ mod a_demos_sample_library {
         );
     }
 }
+
+/// Bringing in recipe files in schema.org's format (#416): the real files in
+/// `tests/fixtures/schema-org/`, and Tandoor's in `tests/fixtures/tandoor/`,
+/// through "import from another app". Their photos given as web addresses are
+/// downloaded only from the local server below; every other test gives an
+/// import no time for downloads, so none reaches the internet.
+#[cfg(feature = "test-jobs")]
+mod recipe_files {
+    use super::*;
+
+    fn fixture(name: &str) -> Vec<u8> {
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(name),
+        )
+        .expect("the fixture")
+    }
+
+    fn spawn_app() -> support::TestApp {
+        let app = support::spawn_app();
+        app.core.download_photos_for(Duration::ZERO);
+        app
+    }
+
+    fn import(app: &support::TestApp, key: &str, file: &[u8]) -> Value {
+        let (status, staged) =
+            app.post_bytes("/api/uploads", Some(key), "application/octet-stream", file);
+        assert_eq!(status, 200, "{staged}");
+        let (status, ask) = app.post_op(
+            "import_from_another_app",
+            Some(key),
+            &json!({ "upload_id": staged["result"]["upload_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{ask}");
+        let finished =
+            support::wait_terminal(app, Some(key), ask["result"]["job_id"].as_str().unwrap());
+        assert_eq!(finished["status"], json!("completed"), "{finished}");
+        finished["result"].clone()
+    }
+
+    fn recipe(app: &support::TestApp, key: &str, report: &Value, title: &str) -> Value {
+        let row = report["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["title"] == title)
+            .unwrap_or_else(|| panic!("no {title}: {report}"));
+        let (status, recipe) = app.post_op(
+            "get_recipe",
+            Some(key),
+            &json!({ "branch_id": row["branch_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{recipe}");
+        recipe["result"].clone()
+    }
+
+    fn statuses(report: &Value) -> Vec<String> {
+        report["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["status"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn rows(content: &Value, field: &str) -> Vec<String> {
+        content[field]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let text = row["text"].as_str().unwrap();
+                if row["kind"] == "section" {
+                    format!("## {text}")
+                } else {
+                    text.to_string()
+                }
+            })
+            .collect()
+    }
+
+    fn tags(recipe: &Value) -> Vec<String> {
+        let mut tags: Vec<String> = recipe["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tag| tag["name"].as_str().unwrap().to_string())
+            .collect();
+        tags.sort_unstable();
+        tags
+    }
+
+    /// The Report's rows of what stayed behind for one recipe, as `what count`.
+    fn left_out_of(report: &Value, title: &str) -> Vec<String> {
+        report["left_out"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["title"] == title)
+            .map(|row| format!("{} {}", row["what"].as_str().unwrap(), row["count"]))
+            .collect()
+    }
+
+    fn not_downloaded(report: &Value) -> Vec<(String, String)> {
+        let mut rows: Vec<(String, String)> = report["left_out"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["what"] == "photos_not_downloaded")
+            .map(|row| {
+                (
+                    row["title"].as_str().unwrap().to_string(),
+                    row["address"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        rows.sort();
+        rows
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn every_real_file_lands_every_recipe_once_under_its_own_app() {
+        let app = spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let mut held = 0;
+        for (file, kind, count) in [
+            (
+                "schema-org/nextcloud-mealie-sample.zip",
+                "nextcloud_cookbook",
+                3,
+            ),
+            (
+                "schema-org/nextcloud-flutter-recipes.zip",
+                "nextcloud_cookbook",
+                19,
+            ),
+            ("schema-org/recipesage-4.0.13.json", "recipesage", 2),
+            ("schema-org/recipya-1.2.2.zip", "recipya", 2),
+            ("schema-org/cookcli-0.38.1.zip", "cookcli", 3),
+            (
+                "schema-org/bar-assistant-6.9.1-json-ld.zip",
+                "bar_assistant",
+                2,
+            ),
+            ("tandoor/v2-schema-org.json", "tandoor", 10),
+            ("tandoor/v2.6-schema-org.json", "tandoor", 2),
+        ] {
+            let report = import(&app, &key, &fixture(file));
+            assert_eq!(report["source_kind"], json!(kind), "{file}: {report}");
+            assert_eq!(report["unreadable"], json!([]), "{file}: {report}");
+            assert_eq!(
+                statuses(&report),
+                vec!["created"; count],
+                "{file}: {report}"
+            );
+            held += count;
+
+            // Importing the same file again shelves nothing twice, a recipe
+            // known by its link or its name as much as one known by an id.
+            let again = import(&app, &key, &fixture(file));
+            assert_eq!(
+                statuses(&again),
+                vec!["unchanged"; count],
+                "{file}: {again}"
+            );
+        }
+        // Bar Assistant's own format is the same cocktails as its JSON-LD,
+        // known by the same ids: what it adds is offered as a change.
+        let schema = import(
+            &app,
+            &key,
+            &fixture("schema-org/bar-assistant-6.9.1-schema.zip"),
+        );
+        assert_eq!(schema["arrived"], json!([]), "{schema}");
+        assert_eq!(schema["offered"].as_array().unwrap().len(), 2, "{schema}");
+
+        let (_, listed) = app.post_op("list_imports", Some(&key), "{}");
+        let held_rows: i64 = app
+            .core
+            .db()
+            .with_conn(|conn| {
+                Ok(conn
+                    .query_row("SELECT COUNT(*) FROM branches", [], |row| row.get(0))
+                    .unwrap())
+            })
+            .unwrap();
+        assert_eq!(held_rows, held as i64, "{listed}");
+        let mut kinds: Vec<&str> = listed["result"]["imports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|import| import["source_kind"].as_str().unwrap())
+            .collect();
+        kinds.sort_unstable();
+        kinds.dedup();
+        assert_eq!(
+            kinds,
+            [
+                "bar_assistant",
+                "cookcli",
+                "nextcloud_cookbook",
+                "recipesage",
+                "recipya",
+                "tandoor"
+            ]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_nextcloud_cookbook_recipe_arrives_field_by_field() {
+        let app = spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let report = import(
+            &app,
+            &key,
+            &fixture("schema-org/nextcloud-mealie-sample.zip"),
+        );
+        let shrimp = recipe(&app, &key, &report, "Air Fryer Shrimp");
+        let held = &shrimp["versions"][0]["content"];
+        assert_eq!(held["yield"], json!({ "amount": "4", "noun": "servings" }));
+        assert_eq!(held["prep_time_minutes"], json!(15));
+        assert_eq!(held["cook_time_minutes"], json!(8));
+        assert_eq!(
+            held["source"],
+            json!({ "text": "Anna", "link": "https://www.crunchycreamysweet.com/air-fryer-shrimp/" })
+        );
+        assert_eq!(
+            held["nutrition"],
+            json!({ "calories": 134.0, "basis": "per_serving" })
+        );
+        assert_eq!(
+            held["note"],
+            json!(
+                "These Air Fryer Shrimp are plump, juicy and perfectly seasoned! This healthy \
+                 dish is ready in just 8 minutes and requires pantry staples to make it.\n\n\
+                 Nutrition: serving size 1 serving, fat 4 g, saturated fat 1 g, cholesterol \
+                 286 mg, sodium 1172 mg, carbohydrates 1 g, fibre 1 g, sugar 1 g, protein 23 g"
+            )
+        );
+        assert!(held["main_photo"].is_string(), "{held}");
+        assert_eq!(
+            rows(held, "ingredients")[..3],
+            [
+                "1 lb shrimp",
+                "2 teaspoons olive oil",
+                "½ teaspoon garlic powder"
+            ]
+        );
+        assert_eq!(rows(held, "steps")[5], "Serve.");
+        assert_eq!(
+            tags(&shrimp),
+            ["American", "Main Course", "air fryer shrimp"]
+        );
+        // Every line is Kamosu's own reading.
+        let readings = &shrimp["versions"][0]["readings"];
+        assert_eq!(readings[0]["target"], json!("shrimp"), "{readings}");
+
+        // The website's rating and its reviews stayed behind, counted.
+        assert_eq!(left_out_of(&report, "Air Fryer Shrimp"), ["ratings 1"]);
+        assert_eq!(
+            left_out_of(&report, "Chicken Parmigiana"),
+            ["ratings 1", "comments 10"]
+        );
+        // A recipe with no picture beside it names one on the web, which this
+        // import had no time to download: it arrives without it, listed.
+        let pie = recipe(&app, &key, &report, "Skillet Shepherd's Pie");
+        assert_eq!(pie["versions"][0]["content"]["main_photo"], Value::Null);
+        assert_eq!(
+            not_downloaded(&report),
+            [(
+                "Skillet Shepherd's Pie".to_string(),
+                "https://www.jocooks.com/wp-content/uploads/2016/12/skillet-shepherds-pie-1-2-480x270.jpg"
+                    .to_string()
+            )]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipesage_recipe_arrives_field_by_field() {
+        let app = spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let report = import(&app, &key, &fixture("schema-org/recipesage-4.0.13.json"));
+        let cake = recipe(&app, &key, &report, "Orange cake");
+        let held = &cake["versions"][0]["content"];
+        assert_eq!(held["yield"], json!({ "amount": "8", "noun": "slices" }));
+        assert_eq!(held["prep_time_minutes"], json!(25));
+        assert_eq!(held["cook_time_minutes"], Value::Null);
+        assert_eq!(
+            held["source"],
+            json!({ "text": "A cook's notebook", "link": "https://example.com/orange-cake" })
+        );
+        assert_eq!(
+            held["note"],
+            json!(
+                "A moist cake soaked in a sticky orange syrup.\n\nKeeps three days in a tin.\n\n\
+                 Total time: 1 hour 10 minutes\n\n\
+                 Nutrition: serving size 1 slice, fat 16 g, sugar 30 g, protein 4 g, Calcium: 40 mg"
+            )
+        );
+        assert_eq!(
+            held["nutrition"],
+            json!({ "calories": 320.0, "basis": "per_serving" })
+        );
+        // Its photo was written into the file.
+        assert!(held["main_photo"].is_string(), "{held}");
+        assert_eq!(
+            rows(held, "ingredients"),
+            [
+                "## Cake",
+                "225 g butter, soft",
+                "225 g caster sugar",
+                "4 eggs",
+                "225 g self-raising flour",
+                "2 oranges",
+                "## Syrup",
+                "1/2 cup icing sugar",
+            ]
+        );
+        assert_eq!(
+            rows(held, "steps"),
+            [
+                "## Cake",
+                "Heat the oven to 180°C. Beat the butter and sugar until pale, then beat in the \
+                 eggs one at a time.",
+                "Fold in the flour and the zest. Bake in a lined 20 cm tin for 45 minutes.",
+                "## Syrup",
+                "Warm the juice with the icing sugar and pour it over the warm cake.",
+            ]
+        );
+        assert_eq!(tags(&cake), ["cake", "citrus"]);
+        assert_eq!(left_out_of(&report, "Orange cake"), ["ratings 1"]);
+        // The French recipe is worded in French.
+        let pasta = recipe(&app, &key, &report, "Pâtes à la tomate");
+        assert_eq!(
+            pasta["versions"][0]["content"]["note"],
+            json!("Temps total : 20 minutes")
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipya_cookcli_and_tandoor_recipe_each_arrive_field_by_field() {
+        let app = spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+
+        // Recipya keeps its photo on its own server, at an address this
+        // import had no time to download.
+        let report = import(&app, &key, &fixture("schema-org/recipya-1.2.2.zip"));
+        let cake = recipe(&app, &key, &report, "Orange cake");
+        let held = &cake["versions"][0]["content"];
+        assert_eq!(held["yield"], json!({ "amount": "8", "noun": "servings" }));
+        assert_eq!(
+            (&held["prep_time_minutes"], &held["cook_time_minutes"]),
+            (&json!(25), &json!(45))
+        );
+        assert_eq!(
+            held["source"],
+            json!({ "text": "example.com", "link": "https://example.com/orange-cake" })
+        );
+        assert_eq!(
+            held["note"],
+            json!(
+                "A moist cake soaked in a sticky orange syrup.\n\n\
+                 Nutrition: fat 16 g, sugar 30 g, protein 4 g"
+            )
+        );
+        assert_eq!(rows(held, "ingredients")[0], "225 g butter, soft");
+        assert_eq!(tags(&cake), ["cake", "citrus", "desserts"]);
+        assert_eq!(
+            not_downloaded(&report),
+            [(
+                "Orange cake".to_string(),
+                "http://127.0.0.1:8078/data/images/9e449f33-09b4-4c3f-b8cd-54386f5e05f7.webp"
+                    .to_string()
+            )]
+        );
+
+        let report = import(&app, &key, &fixture("schema-org/cookcli-0.38.1.zip"));
+        let cake = recipe(&app, &key, &report, "Orange cake");
+        let held = &cake["versions"][0]["content"];
+        assert_eq!(
+            rows(held, "steps")[..2],
+            [
+                "## Cake",
+                "Heat the oven to 180°C. Beat butter and caster sugar in a bowl until pale, then \
+                 beat in eggs one at a time.",
+            ]
+        );
+        assert_eq!(
+            held["note"],
+            json!("A moist cake soaked in a sticky orange syrup.\n\nEquipment: bowl, 20 cm tin.")
+        );
+        assert_eq!(
+            held["source"],
+            json!({ "text": "A cook", "link": "https://example.com/orange-cake" })
+        );
+        assert_eq!(tags(&cake), ["British", "cake", "citrus"]);
+        let pasta = recipe(&app, &key, &report, "Pâtes à la tomate");
+        assert_eq!(
+            pasta["versions"][0]["content"]["note"],
+            json!("Matériel : poêle.")
+        );
+
+        let report = import(&app, &key, &fixture("tandoor/v2.6-schema-org.json"));
+        let cake = recipe(&app, &key, &report, "Orange cake");
+        let held = &cake["versions"][0]["content"];
+        assert_eq!(
+            rows(held, "ingredients"),
+            [
+                "225 g butter",
+                "225 g caster sugar",
+                "4 egg",
+                "225 g self-raising flour",
+                "salt",
+                "2 orange",
+                "2 orange",
+                "½ cup icing sugar",
+            ]
+        );
+        assert_eq!(
+            (&held["prep_time_minutes"], &held["cook_time_minutes"]),
+            (&json!(25), &json!(45))
+        );
+        assert_eq!(held["yield"], json!({ "amount": "8", "noun": "servings" }));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_bar_assistant_cocktail_arrives_field_by_field() {
+        let app = spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let report = import(
+            &app,
+            &key,
+            &fixture("schema-org/bar-assistant-6.9.1-schema.zip"),
+        );
+        assert_eq!(report["source_kind"], json!("bar_assistant"));
+        let coffee = recipe(&app, &key, &report, "Vietnamese iced coffee");
+        let held = &coffee["versions"][0]["content"];
+        assert_eq!(held["yield"], json!({ "amount": "1", "noun": "drink" }));
+        assert_eq!(
+            rows(held, "ingredients"),
+            ["60 ml Espresso", "15-30 ml Simple Syrup, optional"]
+        );
+        assert_eq!(rows(held, "steps").len(), 3);
+        assert_eq!(
+            held["source"],
+            json!({ "text": "A cook", "link": "https://example.com/vietnamese-coffee" })
+        );
+        assert_eq!(
+            held["note"],
+            json!(
+                "Strong coffee over sweet condensed milk, the way the cafés in Hanoi make it.\n\n\
+                 Garnish: None\n\nGlass: Highball\n\nMethod: Build\n\n\
+                 Photo: Simon Law, CC BY-SA 2.0"
+            )
+        );
+        assert!(held["main_photo"].is_string(), "{held}");
+        assert_eq!(tags(&coffee), ["coffee", "non-alcoholic"]);
+        assert_eq!(report["left_out"], json!([]), "{report}");
+    }
+
+    /// A photo RecipeSage names by its web address, as RecipeSage's own
+    /// service writes them, downloaded from a local server standing in for
+    /// the web through the guarded fetch (ADR 0033).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_photo_named_by_its_address_is_downloaded_and_one_that_fails_is_listed() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        kamosu::web_import::allow_loopback_fetches_for_tests();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+        listener.set_nonblocking(true).unwrap();
+        let listener = tokio::net::TcpListener::from_std(listener).expect("async listener");
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let mut photo = Vec::new();
+        image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(20, 20, |x, y| {
+            image::Rgb([(x * 10) as u8, (y * 10) as u8, 128])
+        }))
+        .write_to(
+            &mut std::io::Cursor::new(&mut photo),
+            image::ImageFormat::Jpeg,
+        )
+        .unwrap();
+        let router = axum::Router::new().route(
+            "/photo.jpg",
+            axum::routing::get(move || {
+                let photo = photo.clone();
+                async move { ([("content-type", "image/jpeg")], photo) }
+            }),
+        );
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.expect("photo server");
+        });
+
+        let mut file: Value =
+            serde_json::from_slice(&fixture("schema-org/recipesage-4.0.13.json")).unwrap();
+        let gone = format!("{base}/gone.jpg");
+        file["recipes"][0]["image"] = json!([format!("{base}/photo.jpg")]);
+        file["recipes"][1]["image"] = json!([gone]);
+        let report = import(&app, &key, file.to_string().as_bytes());
+
+        let photo = |title: &str| {
+            recipe(&app, &key, &report, title)["versions"][0]["content"]["main_photo"].clone()
+        };
+        assert!(photo("Orange cake").is_string(), "{report}");
+        assert_eq!(photo("Pâtes à la tomate"), Value::Null);
+        assert_eq!(
+            not_downloaded(&report),
+            [("Pâtes à la tomate".to_string(), gone)]
+        );
+    }
+
+    /// A recipe a cook changed in the app before importing again is offered,
+    /// never written over, though it is known by nothing but its name.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_known_by_its_name_and_changed_is_offered_again() {
+        let app = spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let file = fixture("tandoor/v2.6-schema-org.json");
+        import(&app, &key, &file);
+        let mut changed: Value = serde_json::from_slice(&file).unwrap();
+        changed[1]["description"] = json!("Le plat du mercredi soir.");
+        let again = import(&app, &key, changed.to_string().as_bytes());
+        assert_eq!(statuses(&again), ["unchanged"], "{again}");
+        assert_eq!(
+            again["offered"][0]["title"],
+            json!("Pâtes à la tomate"),
+            "{again}"
+        );
+        assert_eq!(again["offered"].as_array().unwrap().len(), 1, "{again}");
+    }
+}

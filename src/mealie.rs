@@ -58,8 +58,8 @@ const MAX_FILE_BYTES: u64 = 128 * 1024 * 1024;
 type Archive = zip::ZipArchive<Box<dyn other_apps::ReadSeek>>;
 
 impl Reader for Mealie {
-    fn name(&self) -> &'static str {
-        APP
+    fn names(&self) -> &'static [&'static str] {
+        &[APP]
     }
 
     fn read(&self, handed: &Handed) -> Result<Option<other_apps::Export>, Refusal> {

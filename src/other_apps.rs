@@ -33,6 +33,10 @@ pub static READERS: &[&dyn Reader] = &[
     &crate::paprika::Paprika,
     &crate::tandoor::Tandoor,
     &crate::crouton::Crouton,
+    // Bar Assistant's JSON-LD export is recipe files too, so its reader is
+    // asked first.
+    &crate::bar_assistant::BarAssistant,
+    &crate::schema_org::SchemaOrg,
 ];
 
 /// What a cook handed over, which each reader opens afresh to look inside.
@@ -175,9 +179,10 @@ impl Budget {
 
 /// One app's export reader.
 pub trait Reader: Sync {
-    /// The app's name as a cook knows it, which the refusal of an unknown
-    /// file lists.
-    fn name(&self) -> &'static str;
+    /// The names of the apps it reads, as a cook knows them, which the
+    /// refusal of an unknown file lists. Most readers read one app's export;
+    /// a format several apps write is read by one reader (#416).
+    fn names(&self) -> &'static [&'static str];
 
     /// Look inside `handed`: `Ok(None)` when it is not this app's export, its
     /// recipes when it is, and a refusal when it is this app's but cannot be
@@ -223,7 +228,7 @@ impl Refusal {
                  It reads exports from {}",
                 READERS
                     .iter()
-                    .map(|reader| reader.name())
+                    .flat_map(|reader| reader.names().iter().copied())
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
@@ -412,8 +417,8 @@ mod tests {
     struct Versioned;
 
     impl Reader for Versioned {
-        fn name(&self) -> &'static str {
-            "Testapp"
+        fn names(&self) -> &'static [&'static str] {
+            &["Testapp"]
         }
 
         fn read(&self, handed: &Handed) -> Result<Option<Export>, Refusal> {
@@ -451,8 +456,8 @@ mod tests {
     }
 
     impl Reader for Nested {
-        fn name(&self) -> &'static str {
-            "Nested"
+        fn names(&self) -> &'static [&'static str] {
+            &["Nested"]
         }
 
         fn read(&self, handed: &Handed) -> Result<Option<Export>, Refusal> {

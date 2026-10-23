@@ -21,6 +21,17 @@ export const OTHER_APPS: OtherApp[] = [
 	{ kind: 'paprika', name: 'Paprika', where: m.other_app_where_paprika },
 	{ kind: 'tandoor', name: 'Tandoor', where: m.other_app_where_tandoor },
 	{ kind: 'crouton', name: 'Crouton', where: m.other_app_where_crouton },
+	// One reader reads the schema.org recipe files these four write, and each
+	// lands under its own kind (#416).
+	{
+		kind: 'nextcloud_cookbook',
+		name: 'Nextcloud Cookbook',
+		where: m.other_app_where_nextcloud_cookbook,
+	},
+	{ kind: 'recipesage', name: 'RecipeSage', where: m.other_app_where_recipesage },
+	{ kind: 'recipya', name: 'Recipya', where: m.other_app_where_recipya },
+	{ kind: 'cookcli', name: 'CookCLI', where: m.other_app_where_cookcli },
+	{ kind: 'bar_assistant', name: 'Bar Assistant', where: m.other_app_where_bar_assistant },
 ];
 
 /** Where a cook asks for another app. */
