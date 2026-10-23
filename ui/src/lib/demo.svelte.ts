@@ -4,7 +4,8 @@
  * both lead to.
  *
  * Whether this instance is a Demo is the Core's answer to `instance_status`,
- * heard by whichever of the shell or Home asks first. It is kept on the
+ * asked by the shell, and by the cards at the top of the page before they
+ * look at the library, which a Demo never copies by itself (#426). It is kept on the
  * device as well, as a hint for drawing only: a phone that cannot reach the
  * server just now still draws the strip it drew a minute ago.
  */

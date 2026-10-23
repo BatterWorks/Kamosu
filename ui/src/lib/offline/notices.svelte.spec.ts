@@ -26,6 +26,7 @@ import type { Device } from './device.svelte';
 import { sessionBegan } from './library.svelte';
 import { holdTheInstallOffer, reached } from './device.svelte';
 import { standing } from './standing.svelte';
+import { demo } from '$lib/demo.svelte';
 import { anInstallOffer, offerToInstall } from '../../testing/install';
 
 const entry = (branch_id: string, main_photo: string | null = null) => ({
@@ -104,8 +105,18 @@ const thread = (branch_id: string, others: string[] = []) => ({
 
 const kitchen = (id: string) => kitchenAnswer(id);
 
+/** An instance that is no Demo. */
+const ordinary = () => ({
+	version: '0.1.0',
+	setup_complete: true,
+	password_minimum: 15,
+	passkey_origin: null,
+	demo: false,
+});
+
 /** A Kitchen of two recipes, one with a picture. */
 const library = (): Answers => ({
+	instance_status: ordinary(),
 	search_recipes: { query: null, closest: false, recipes: [entry('b_1', 'p_1'), entry('b_2')] },
 	get_recipe: () => recipe('b_1'),
 	get_thread: () => thread('b_1'),
@@ -495,5 +506,60 @@ describe('when the browser offers to install Kamosu (#173)', () => {
 		show(library(), device({ apple: true }));
 		expect(await screen.findByText('Choose Add to Home Screen')).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'Install Kamosu' })).not.toBeInTheDocument();
+	});
+});
+
+describe('in a Demo (#426, option 1)', () => {
+	/** A Demo's library: put back every morning, so never worth keeping on a phone. */
+	const demoLibrary = (): Answers => ({
+		...library(),
+		instance_status: { ...ordinary(), demo: true, demo_access_key: 'k' },
+	});
+
+	// A first arrival: nothing on this device says it is a Demo yet.
+	beforeEach(() => {
+		demo.is = false;
+	});
+
+	/** Until the library has been looked at, and whatever that would start has had time to. */
+	async function libraryLookedAt(kamosu: ReturnType<typeof show>) {
+		await waitFor(() => expect(kamosu.calls.map((c) => c.operation)).toContain('search_recipes'));
+		await new Promise((settle) => setTimeout(settle, 50));
+	}
+
+	it('never offers the library, so the welcome card is the first thing a visitor reads', async () => {
+		const kamosu = show(demoLibrary());
+		await libraryLookedAt(kamosu);
+		expect(screen.queryByText("Your library isn't on this phone yet")).not.toBeInTheDocument();
+		expect(screen.queryByRole('status')).not.toBeInTheDocument();
+	});
+
+	it('copies nothing by itself, even on wifi, on a first arrival with no hint yet', async () => {
+		const kamosu = show(demoLibrary(), device({ wifi: () => true }));
+		await libraryLookedAt(kamosu);
+		expect(kamosu.calls.filter((c) => c.operation === 'get_recipe')).toHaveLength(0);
+		expect(screen.queryByText(/Fetching your library/)).not.toBeInTheDocument();
+	});
+
+	it('brings nothing level by itself after a fill asked for in Settings', async () => {
+		filled(['b_1']);
+		const kamosu = show(demoLibrary(), device({ wifi: () => true }));
+		await libraryLookedAt(kamosu);
+		expect(kamosu.calls.filter((c) => c.operation === 'get_recipe')).toHaveLength(0);
+	});
+
+	it('never asks to be kept on the Home Screen, not even before it knows it is a Demo', async () => {
+		filled(['b_1']);
+		const kamosu = show(demoLibrary(), device({ apple: true }));
+		expect(screen.queryByText('Keep Kamosu on your phone')).not.toBeInTheDocument();
+		await libraryLookedAt(kamosu);
+		expect(screen.queryByText('Keep Kamosu on your phone')).not.toBeInTheDocument();
+	});
+
+	it('still says it is offline, once it knows it is a Demo', async () => {
+		setOnline(false);
+		const kamosu = show(demoLibrary());
+		await libraryLookedAt(kamosu);
+		expect(screen.getByText("You're offline")).toBeInTheDocument();
 	});
 });
