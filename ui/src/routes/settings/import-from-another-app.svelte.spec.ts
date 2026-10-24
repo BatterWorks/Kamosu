@@ -270,4 +270,83 @@ describe('dropping an export on the place', () => {
 		sent('u_staged');
 		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/imports/j_7'));
 	});
+
+	describe('a Mealie backup of several households (#418, option B)', () => {
+		const households = [
+			{ name: 'Family', recipes: 3, cooks: ['Sam Cook'] },
+			{ name: 'Cabin', recipes: 1, cooks: ['Alex Baker'] },
+		];
+		const asked = () =>
+			job({
+				status: 'completed',
+				result: { which_household: { households, sentence: 'which one' } },
+			});
+
+		it('asks which is yours in a sheet, each with its cooks and recipes', async () => {
+			drawn({ get_job: asked() });
+			await choose();
+
+			const sheet = await screen.findByRole('dialog', { name: 'Which household is yours?' });
+			expect(sheet).toHaveTextContent('Recipes 2026-10-20.zip');
+			expect(sheet).toHaveTextContent('This Mealie backup holds the recipes of 2 households.');
+			expect(screen.getByRole('radio', { name: /Family/ })).toBeChecked();
+			expect(sheet).toHaveTextContent('Sam Cook · 3 recipes');
+			expect(sheet).toHaveTextContent('Alex Baker · 1 recipe');
+			expect(sheet).toHaveTextContent('import the same backup again and choose it');
+			expect(screen.getByRole('button', { name: 'Bring in its 3 recipes' })).toBeInTheDocument();
+			expect(went).not.toHaveBeenCalledWith('/imports/j_7');
+		});
+
+		it('brings in the household chosen from the same upload, and opens the Report', async () => {
+			let answered = false;
+			const { kamosu, upload } = drawn({
+				get_job: () =>
+					answered ? job({ progress: { done: 0, total: 1, message: '0 of 1' } }) : asked(),
+			});
+			await choose();
+			await fireEvent.click(await screen.findByRole('radio', { name: /Cabin/ }));
+			const bring = screen.getByRole('button', { name: 'Bring in its recipe' });
+			answered = true;
+			await fireEvent.click(bring);
+
+			await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/imports/j_7'));
+			expect(upload).toHaveBeenCalledOnce();
+			expect(
+				kamosu.calls
+					.filter((call) => call.operation === 'import_from_another_app')
+					.map((call) => call.input),
+			).toEqual([{ upload_id: 'u_staged' }, { upload_id: 'u_staged', mealie_household: 'Cabin' }]);
+			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		});
+
+		it('puts the question away on Not now, importing nothing', async () => {
+			const { kamosu } = drawn({ get_job: asked() });
+			await choose();
+			await fireEvent.click(await screen.findByRole('button', { name: 'Not now' }));
+
+			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+			expect(
+				kamosu.calls.filter((call) => call.operation === 'import_from_another_app'),
+			).toHaveLength(1);
+			// Its Report, which asks again, is the last import's link now.
+			expect(screen.getByRole('link', { name: "See the last import's report" })).toHaveAttribute(
+				'href',
+				'/imports/j_7',
+			);
+			expect(went).not.toHaveBeenCalledWith('/imports/j_7');
+		});
+
+		it('puts the question away when another file is brought', async () => {
+			let reads = 0;
+			drawn({
+				get_job: () =>
+					++reads === 1 ? asked() : job({ progress: { done: 0, total: 3, message: '0 of 3' } }),
+			});
+			await choose();
+			await screen.findByRole('dialog');
+			await choose();
+			await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/imports/j_7'));
+			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		});
+	});
 });

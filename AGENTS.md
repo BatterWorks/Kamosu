@@ -446,6 +446,14 @@ src/mealie.rs       Mealie's recipe export in that shape: each line as
                     Mealie's copy of it, a Step's picture. Its test files,
                     and where each came from, are in tests/fixtures/mealie/
                     (#413)
+src/mealie_backup.rs
+                    Mealie's backup in that shape: each recipe put back
+                    together from Mealie's tables and read by the export's
+                    reader, the households a cook chooses between, and each
+                    "I Made This" a cooking that lands as a finished Attempt
+                    naming its cook (ADR 0053). No password or token column
+                    is read. Mealie's own samples of every era are in
+                    tests/fixtures/mealie/anonymised/ (#418)
 src/paprika.rs      Paprika's export in that shape: a zip of one gzip per
                     recipe, its ingredients and directions split into lines
                     and Steps as written, its own photo before the website's.

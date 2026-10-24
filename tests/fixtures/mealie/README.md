@@ -12,6 +12,24 @@ here.
 | `pre-v1-export.zip` | An export from before Mealie 1, December 2021: three recipes copied from websites, with their pictures, made on a Mac | Mealie's own `tests/data/migrations/mealie.zip`, at commit `cb59fad8f0187b1972ac040bf06aca0a34967c44`. © the Mealie contributors, [AGPL-3.0](https://github.com/mealie-recipes/mealie/blob/mealie-next/LICENSE) |
 | `v2-export.zip` | An export of August 2025: ten recipes in French, German, Czech, English and Spanish, with pictures, step headings and a picture in a description | vanilla-cookbook's `src/lib/data/import/mealie.zip`, at commit `e842601e109adf63667bae84a5ff28c96a1b4345`. © the vanilla-cookbook contributors, [GPL-3.0](https://github.com/jt196/vanilla-cookbook/blob/main/LICENSE) |
 
+The backups Mealie's own tests restore, one or more of each era of its
+database, are in `anonymised/`, as Mealie publishes them: Mealie's
+`tests/data/backups/` at commit `89a14202dd8044749cce444147ea4b301c77af13`
+(v3.29.0), © the Mealie contributors,
+[AGPL-3.0](https://github.com/mealie-recipes/mealie/blob/mealie-next/LICENSE).
+Mealie scrambled every word in them, so they show that each era's tables are
+read, and say nothing about wording. Each file's name carries its database
+revision:
+
+| Revision | Era |
+|---|---|
+| `44e8d670719d` (four files) | August 2022, before the timeline, households and plural names |
+| `bcfdad6b7355` | August 2023, with the timeline |
+| `ba1e4a6cfe99` | October 2023, with plural names |
+| `09aba125b57a` | March 2024, zipped into a folder of its own by Safari |
+| `86054b40fd06` | October 2024, with households |
+| `1d9a002d7234` | September 2025, a line able to point at a recipe; no recipes |
+
 GPL-3.0 and AGPL-3.0 combine under section 13 of each. Mealie's sample holds
 recipes copied from websites, and it is kept here as Mealie publishes it.
 

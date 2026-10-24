@@ -18,6 +18,11 @@
 	the server by what is in it, never here by its name. Under it, the apps
 	Kamosu reads, each with where its export is, and where to ask for another.
 	Only apps Kamosu reads today are named.
+
+	A Mealie backup of several households is not refused but asked about
+	(#418): the sheet in `WhichHousehold.svelte` rises over the page, and the
+	same upload, which the server keeps for it, is imported again naming the
+	household chosen. Another file brought meanwhile puts the question away.
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
@@ -33,6 +38,7 @@
 	import { ICON } from '$lib/adding/sources';
 	import DropCover from '$lib/DropCover.svelte';
 	import RefusedExport from '$lib/RefusedExport.svelte';
+	import WhichHousehold from '$lib/WhichHousehold.svelte';
 	import { ASK_FOR_AN_APP, OTHER_APPS } from '$lib/other-apps';
 	import type { ImportFromAnotherAppOutput } from '$lib/api/catalogue';
 
@@ -51,6 +57,14 @@
 	let failed = $state<string | undefined>(undefined);
 	let refused = $state<
 		{ answer: NonNullable<ImportFromAnotherAppOutput['refused']>; file: string } | undefined
+	>(undefined);
+	let asking = $state<
+		| {
+				households: NonNullable<ImportFromAnotherAppOutput['which_household']>['households'];
+				uploadId: string;
+				file: string;
+		  }
+		| undefined
 	>(undefined);
 	let lastJob = $state<string | undefined>(undefined);
 	/** Whether the page is still open: one left while it looks moves nobody. */
@@ -89,40 +103,70 @@
 	async function bring(file: File) {
 		failed = undefined;
 		refused = undefined;
+		asking = undefined;
 		working = { sending: megabytes(file.size) };
 		try {
-			const uploadId = await upload(file);
-			const asked = await kamosu.importFromAnotherApp({ upload_id: uploadId });
-			working = 'looking';
-			let recognised = false;
-			const job = await waitForJob(kamosu, asked.job_id, {
-				every,
-				giveUpAfter: 60_000,
-				whileWaiting: (read) => {
-					recognised = read.progress.total !== null;
-				},
-				stopped: () => recognised || !open,
-				// A failure is the Report's to say, as for any import.
-				answersWhenFailed: () => true,
-			}).catch((error: unknown) => {
-				// Still waiting for its turn: the Report shows the wait.
-				if (error instanceof StillRunning) return undefined;
-				throw error;
-			});
-			if (!open) return;
-			const answer =
-				job?.status === 'completed' ? (job.result as ImportFromAnotherAppOutput) : null;
-			if (answer?.refused) {
-				refused = { answer: answer.refused, file: file.name };
-				return;
-			}
-			await goto(`/imports/${asked.job_id}`);
+			await look(await upload(file), file.name);
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			failed = error.message;
 		} finally {
 			working = undefined;
 		}
+	}
+
+	/** Bring in the household the cook chose, from the upload kept for it. */
+	async function chooseHousehold(household: string) {
+		const { uploadId, file } = asking!;
+		asking = undefined;
+		failed = undefined;
+		working = 'looking';
+		try {
+			await look(uploadId, file, household);
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			failed = error.message;
+		} finally {
+			working = undefined;
+		}
+	}
+
+	/** Ask for the upload to be imported, and wait until its file is recognised. */
+	async function look(uploadId: string, fileName: string, household?: string) {
+		const asked = await kamosu.importFromAnotherApp({
+			upload_id: uploadId,
+			...(household === undefined ? {} : { mealie_household: household }),
+		});
+		working = 'looking';
+		// This import is now the last, so its link leads back to a question
+		// put away with Not now.
+		lastJob = asked.job_id;
+		let recognised = false;
+		const job = await waitForJob(kamosu, asked.job_id, {
+			every,
+			giveUpAfter: 60_000,
+			whileWaiting: (read) => {
+				recognised = read.progress.total !== null;
+			},
+			stopped: () => recognised || !open,
+			// A failure is the Report's to say, as for any import.
+			answersWhenFailed: () => true,
+		}).catch((error: unknown) => {
+			// Still waiting for its turn: the Report shows the wait.
+			if (error instanceof StillRunning) return undefined;
+			throw error;
+		});
+		if (!open) return;
+		const answer = job?.status === 'completed' ? (job.result as ImportFromAnotherAppOutput) : null;
+		if (answer?.refused) {
+			refused = { answer: answer.refused, file: fileName };
+			return;
+		}
+		if (answer?.which_household) {
+			asking = { households: answer.which_household.households, uploadId, file: fileName };
+			return;
+		}
+		await goto(`/imports/${asked.job_id}`);
 	}
 
 	/** Any one file: which app made it is the server's to say, by what is in it. */
@@ -196,6 +240,14 @@
 	<div class="mt-4">
 		<RefusedExport refused={refused.answer} file={refused.file} />
 	</div>
+{/if}
+{#if asking}
+	<WhichHousehold
+		households={asking.households}
+		file={asking.file}
+		choose={(household) => void chooseHousehold(household)}
+		close={() => (asking = undefined)}
+	/>
 {/if}
 {#if lastJob}
 	<p class="mt-3 text-read">

@@ -59,7 +59,9 @@ impl Core {
     /// Bring in an export from another recipe app (#412): the first reader
     /// that knows the file reads it, and its recipes land as Crouton's do. A
     /// file no reader knows, or one a reader knows but cannot read, lands
-    /// nothing, and the answer is `refused` alone.
+    /// nothing, and the answer is `refused` alone. A Mealie backup of several
+    /// households lands nothing until one is named, and the answer is
+    /// `which_household` alone (#418).
     pub fn import_from_another_app(
         &self,
         caller: &Caller,
@@ -69,7 +71,7 @@ impl Core {
     ) -> Result<Value, OpError> {
         match other_apps::read(handed, other_apps::READERS) {
             Ok(export) => self.land_export(caller, export, into, progress),
-            Err(refusal) => Ok(json!({ "refused": refusal.to_value() })),
+            Err(refusal) => Ok(refusal.answer()),
         }
     }
 
@@ -91,13 +93,17 @@ impl Core {
         };
         let mut left_out_of_file = export.left_out;
         let mut pointing = VecDeque::new();
+        let mut cooked = Vec::new();
         let mut photos_not_in_export = 0;
         let incoming = export.recipes.map(|recipe| match recipe {
             Ok(recipe) => {
                 let foreign_id = recipe.foreign_id.clone();
                 let arriving = self.arriving(recipe, &downloads);
                 if !arriving.components.is_empty() {
-                    pointing.push_back((foreign_id, arriving.components));
+                    pointing.push_back((foreign_id.clone(), arriving.components));
+                }
+                if !arriving.cookings.is_empty() {
+                    cooked.push((foreign_id, arriving.cookings));
                 }
                 photos_not_in_export += usize::from(arriving.photo_not_in_export);
                 arriving.incoming
@@ -112,6 +118,7 @@ impl Core {
         let mut report =
             self.import_each(caller, export.app, into, export.total, incoming, progress)?;
         photos_not_in_export += self.land_components(caller, &mut report, pointing, &downloads)?;
+        self.land_cookings(caller, &report, cooked)?;
         if photos_not_in_export > 0 {
             match left_out_of_file.iter_mut().find_map(|left| match left {
                 other_apps::FileLeftOut::PhotosNotInExport(count) => Some(count),
@@ -183,6 +190,16 @@ impl Core {
                 step["photo"] = json!(photograph_id);
             }
         }
+        let cookings = recipe
+            .cookings
+            .into_iter()
+            .map(|cooking| StoredCooking {
+                photograph: cooking.photo.as_deref().and_then(&mut stored),
+                foreign_id: cooking.foreign_id,
+                cooked_at: cooking.cooked_at,
+                note: cooking.note,
+            })
+            .collect();
         if unreadable > 0 {
             match left_out.iter_mut().find_map(|left| match left {
                 LeftOut::UnreadablePhotos(count) => Some(count),
@@ -195,6 +212,7 @@ impl Core {
         candidate["foreign_id"] = json!(recipe.foreign_id);
         candidate["main_photo"] = json!(main_photo);
         Arriving {
+            cookings,
             incoming: Incoming {
                 candidate: Ok(candidate),
                 left_out,
@@ -364,6 +382,77 @@ impl Core {
             push_row(report, "left_out", left.row(foreign_id, &branch_id, &title));
         }
         Ok(Some(lineage_id))
+    }
+
+    /// Write each cooking the app recorded as a finished Attempt of the
+    /// importing Person (#418, ADR 0053), once every recipe of the file has
+    /// landed: on the Version that arrived, or the one offered where the
+    /// recipe was offered, dated as the app dated it. It is written whole and
+    /// finished, never started, so a cook's own Attempt In Progress on the
+    /// recipe is left as it is. A cooking an earlier import of this Import
+    /// brought in is never written twice, even where its Attempt was deleted
+    /// since. A recipe that landed nothing has no cookings.
+    fn land_cookings(
+        &self,
+        caller: &Caller,
+        report: &Value,
+        cooked: Vec<(String, Vec<StoredCooking>)>,
+    ) -> Result<(), OpError> {
+        let import_id = report["import_id"].as_str().unwrap_or_default();
+        for (foreign_id, cookings) in cooked {
+            let Some(lines_on) = LinesOn::of(report, &foreign_id) else {
+                continue;
+            };
+            self.db().with_conn(|conn| {
+                let failed = |e| OpError::internal(format!("cannot write the cooking: {e}"));
+                let (lineage_id, head): (String, String) = conn
+                    .query_row(
+                        "SELECT lineage_id, head_version_id FROM branches WHERE id = ?1",
+                        params![lines_on.branch_id],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .map_err(failed)?;
+                let version_id = lines_on.offered.clone().unwrap_or(head);
+                let tx = conn.unchecked_transaction().map_err(failed)?;
+                for cooking in &cookings {
+                    let known: bool = tx
+                        .query_row(
+                            "SELECT 1 FROM imported_attempts WHERE import_id = ?1 AND foreign_id = ?2",
+                            params![import_id, cooking.foreign_id],
+                            |_| Ok(()),
+                        )
+                        .optional()
+                        .map_err(failed)?
+                        .is_some();
+                    if known {
+                        continue;
+                    }
+                    // A time the app wrote that SQLite cannot read is the
+                    // moment of the import, as a cooking with no date is.
+                    let moment = written_moment(&tx, Some(&cooking.cooked_at))
+                        .or_else(|_| written_moment(&tx, None))?;
+                    let attempt_id = super::cooking::record_finished_attempt(
+                        &tx,
+                        super::cooking::FinishedAttempt {
+                            lineage_id: &lineage_id,
+                            person_id: &caller.person_id,
+                            version_id: &version_id,
+                            note: &cooking.note,
+                            photographs: cooking.photograph.as_slice(),
+                            finished_at: &moment,
+                        },
+                    )?;
+                    tx.execute(
+                        "INSERT INTO imported_attempts (import_id, foreign_id, branch_id, attempt_id) \
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![import_id, cooking.foreign_id, lines_on.branch_id, attempt_id],
+                    )
+                    .map_err(failed)?;
+                }
+                tx.commit().map_err(failed)
+            })?;
+        }
+        Ok(())
     }
 
     /// How long one import may spend downloading photos (#414).
@@ -1136,11 +1225,12 @@ impl LeftOut {
             LeftOut::ExtraPhotos(count) => ("extra_photos", *count),
             LeftOut::UnreadablePhotos(count) => ("unreadable_photos", *count),
             LeftOut::AttachedFiles(count) => ("attached_files", *count),
-            LeftOut::Rating => ("ratings", 1),
-            LeftOut::Favourite => ("favourites", 1),
+            LeftOut::Ratings(count) => ("ratings", *count),
+            LeftOut::Favourites(count) => ("favourites", *count),
             LeftOut::Comments(count) => ("comments", *count),
             LeftOut::PhotoNotDownloaded(_) => ("photos_not_downloaded", 1),
             LeftOut::Nutrition => ("nutrition", 1),
+            LeftOut::MealPlanTimeline(count) => ("meal_plan_timeline", *count),
         };
         let mut row = json!({
             "foreign_id": foreign_id, "branch_id": branch_id, "title": title,
@@ -1206,12 +1296,21 @@ impl Incoming {
 }
 
 /// One recipe from a reader, ready to land: what [`Core::import_each`] takes,
-/// the lines that point at another recipe, and whether the app had a photo
-/// of it that the file does not carry.
+/// the lines that point at another recipe, its cookings, and whether the app
+/// had a photo of it that the file does not carry.
 struct Arriving {
     incoming: Incoming,
     components: Vec<other_apps::Component>,
+    cookings: Vec<StoredCooking>,
     photo_not_in_export: bool,
+}
+
+/// A cooking a reader handed over, its photo stored as a Photograph.
+struct StoredCooking {
+    foreign_id: String,
+    cooked_at: String,
+    note: String,
+    photograph: Option<String>,
 }
 
 /// A recipe the Report lists as having arrived.

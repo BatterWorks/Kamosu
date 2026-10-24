@@ -2021,6 +2021,29 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 61,
+        description: "which cooking another app recorded made which Attempt (#418)",
+        sql: r#"
+        -- An Import from another app's file may bring its cooking history as
+        -- finished Attempts (ADR 0053), each from one record of the app's,
+        -- named by the app's own id for it. One row per record the Import has
+        -- brought in, so the same file imported again adds none twice, and the
+        -- ledger's own Import is what it hangs from: forgetting the Import
+        -- forgets these too. An Attempt its cook deleted keeps its row, with
+        -- no Attempt, so importing again never brings it back. `branch_id` is
+        -- the recipe it was cooked from, whose rows go with it when it moves
+        -- to another Cookbook, as its ledger row does.
+        CREATE TABLE imported_attempts (
+            import_id   TEXT NOT NULL REFERENCES imports(id) ON DELETE CASCADE,
+            foreign_id  TEXT NOT NULL,
+            branch_id   TEXT NOT NULL,
+            attempt_id  TEXT REFERENCES attempts(id) ON DELETE SET NULL,
+            PRIMARY KEY (import_id, foreign_id)
+        );
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

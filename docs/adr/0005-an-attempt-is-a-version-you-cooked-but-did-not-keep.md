@@ -4,6 +4,8 @@ An **Attempt** is one person's record of one cooking. Where the cook deviated, t
 
 _(Reopened by [ADR 0041](./0041-a-recipe-is-written-in-a-cookbook-and-seen-in-a-kitchen.md): a recipe is now seen in every Kitchen its Cookbook's Co-authors cook in, so "an Attempt inherits its recipe's visibility" would show a cook's Attempt in Kitchens they never joined. Who sees an Attempt is an open question on the build ticket.)_
 
+_(Amended by [ADR 0053](./0053-an-imported-attempt-names-its-cook-and-was-never-in-progress.md): an Attempt brought in from another app's cooking history belongs to the Person who imported it, and its text names who cooked it there, who may have no account here.)_
+
 **Promotion** is the deliberate act that moves something provisional out of an Attempt and into the recipe: an As Cooked becoming a Version, or an Attempt photograph becoming the Main Photo or a Step's photo. It is the boundary at which the recipe's rules — append-only history, and the right to edit — take over.
 
 ## Why

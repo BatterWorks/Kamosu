@@ -1238,13 +1238,14 @@ fn sent_file(
 /// A file sent to an import read from where it lies rather than into memory,
 /// since a library is gigabytes: the two ways `sent_file` takes, and run
 /// with the file handed over. A staged upload is used once, deleted whatever
-/// the outcome.
+/// the outcome, unless `keeps_upload` says the answer asks for it again.
 fn with_handed_file(
     core: &Core,
     caller: &crate::core::Caller,
     input: &Value,
     usage: &str,
-    run: impl FnOnce(&crate::other_apps::Handed) -> Result<Value, OpError>,
+    keeps_upload: impl FnOnce(&Value) -> bool,
+    run: impl FnOnce(crate::other_apps::Handed) -> Result<Value, OpError>,
 ) -> Result<Value, OpError> {
     match (
         input.get("upload_id").and_then(Value::as_str),
@@ -1252,8 +1253,10 @@ fn with_handed_file(
     ) {
         (Some(upload_id), None) => {
             let path = core.staged_upload(&caller.person_id, upload_id)?;
-            let outcome = run(&crate::other_apps::Handed::file(path.clone()));
-            let _ = std::fs::remove_file(&path);
+            let outcome = run(crate::other_apps::Handed::file(path.clone()));
+            if !outcome.as_ref().is_ok_and(keeps_upload) {
+                let _ = std::fs::remove_file(&path);
+            }
             outcome
         }
         (None, Some(data)) => {
@@ -1261,7 +1264,7 @@ fn with_handed_file(
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(data)
                 .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
-            run(&crate::other_apps::Handed::bytes(bytes))
+            run(crate::other_apps::Handed::bytes(bytes))
         }
         _ => Err(OpError::bad_request(usage)),
     }
@@ -1753,19 +1756,29 @@ pub fn import_crouton(
                        sent to POST /api/uploads, or base64-encoded";
     let caller = caller_of(invocation)?;
     let progress = invocation.job.as_ref();
-    with_handed_file(core, caller, &input, USAGE, |handed| {
-        handed
-            .open()
-            .map_err(|e| OpError::internal(format!("cannot open the upload: {e}")))
-            .and_then(crate::crouton::Export::open)
-            .and_then(|export| core.import_crouton(caller, export, landing(&input), progress))
-    })
+    with_handed_file(
+        core,
+        caller,
+        &input,
+        USAGE,
+        |_| false,
+        |handed| {
+            handed
+                .open()
+                .map_err(|e| OpError::internal(format!("cannot open the upload: {e}")))
+                .and_then(crate::crouton::Export::open)
+                .and_then(|export| core.import_crouton(caller, export, landing(&input), progress))
+        },
+    )
 }
 
 /// Bring in an export from another recipe app (#412), whichever app's
 /// reader knows it. The file arrives the two ways `import_crouton`'s does
 /// (ADR 0001), and a staged upload is used once: deleted whatever the
-/// outcome, a refusal included, so a retry sends the file again.
+/// outcome, a refusal included, so a retry sends the file again. A Mealie
+/// backup whose household is still to be chosen is the one exception (#418):
+/// its upload is kept for the call that names one, and swept a day later
+/// where none comes.
 pub fn import_from_another_app(
     core: &Core,
     invocation: &Invocation,
@@ -1775,9 +1788,27 @@ pub fn import_from_another_app(
                        export sent to POST /api/uploads, or base64-encoded";
     let caller = caller_of(invocation)?;
     let progress = invocation.job.as_ref();
-    with_handed_file(core, caller, &input, USAGE, |handed| {
-        core.import_from_another_app(caller, handed, landing(&input), progress)
-    })
+    let household = input.get("mealie_household").and_then(Value::as_str);
+    with_handed_file(
+        core,
+        caller,
+        &input,
+        USAGE,
+        |answer| answer.get("which_household").is_some(),
+        |handed| {
+            let handed = handed.in_household(household);
+            let mut answer =
+                core.import_from_another_app(caller, &handed, landing(&input), progress)?;
+            // The upload kept for the answer, so whoever reads the Job later,
+            // the Report page among them, can name a household.
+            if let (Some(question), Some(upload_id)) =
+                (answer.get_mut("which_household"), input.get("upload_id"))
+            {
+                question["upload_id"] = upload_id.clone();
+            }
+            Ok(answer)
+        },
+    )
 }
 
 /// What has been brought in from outside, by source, with every arrival (#108).

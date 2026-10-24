@@ -296,6 +296,7 @@ fn cocktail(
 
     other_apps::Recipe {
         foreign_id,
+        cookings: Vec::new(),
         candidate: json!({
             "title": title,
             "yield": { "amount": "1", "noun": words.drink },

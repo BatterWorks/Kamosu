@@ -30,6 +30,7 @@ pub mod kitchenowl;
 pub mod language;
 pub mod mcp_door;
 pub mod mealie;
+pub mod mealie_backup;
 pub mod meaning;
 pub mod model_relay;
 pub mod operations;
