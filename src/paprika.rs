@@ -22,8 +22,14 @@
 //!   first number is the Yield's amount, the lower end of a range, and the
 //!   words after it its noun, servings where they say no more.
 //! - **The description and the notes become the Note**, and categories Tags.
-//! - **Extra photos, the rating, the favourite mark and the free-text
-//!   nutrition are counted on the Report**, never written into the recipe.
+//! - **What a cook typed that no field holds goes into the Note** after them,
+//!   word for word, each a line of its own led in the recipe's Language
+//!   (#434): the total time, a time Kamosu cannot read (`1 day`) or reads
+//!   only in part (`35 to 40 mins`), servings with no count or a range's
+//!   upper end, the difficulty, and the free-text nutrition, which is never
+//!   read as a number.
+//! - **Extra photos, the rating and the favourite mark are counted on the
+//!   Report**, never written into the recipe.
 //!
 //! Every real file has one shape, the same from 2021 and 2023: the fields
 //! below, each recipe with its `uid`. A file of Paprika's in any other shape
@@ -261,7 +267,7 @@ fn read_recipe(recipe: &Value, foreign_id: String) -> other_apps::Recipe {
         "prep_time_minutes": minutes(recipe, "prep_time"),
         "cook_time_minutes": minutes(recipe, "cook_time"),
         "source": source,
-        "note": note(recipe),
+        "note": as_note(own_note(recipe)),
         "nutrition": null,
         "ingredients": ingredients,
         "steps": steps,
@@ -271,6 +277,9 @@ fn read_recipe(recipe: &Value, foreign_id: String) -> other_apps::Recipe {
     candidate["yield"] = text(recipe, "servings")
         .and_then(|servings| recipe_yield(&servings, language))
         .unwrap_or(Value::Null);
+    // The Note holds only the cook's own words until the Language is known,
+    // which words the lines added to it.
+    candidate["note"] = note(recipe, &candidate, language);
 
     let mut tags: Vec<String> = Vec::new();
     for category in recipe["categories"].as_array().into_iter().flatten() {
@@ -308,10 +317,6 @@ fn read_recipe(recipe: &Value, foreign_id: String) -> other_apps::Recipe {
     {
         left_out.push(LeftOut::Favourites(1));
     }
-    if text(recipe, "nutritional_info").is_some() {
-        left_out.push(LeftOut::Nutrition);
-    }
-
     other_apps::Recipe {
         foreign_id,
         cookings: Vec::new(),
@@ -357,7 +362,9 @@ fn minutes(recipe: &Value, field: &str) -> Option<i64> {
 /// `(1/2-cup servings)`, is no Yield.
 fn recipe_yield(written: &str, language: Option<&str>) -> Option<Value> {
     let (amount, rest) = first_count(written)?;
-    let noun = rest.trim_start_matches([':', ',', ')', ' ']).trim();
+    let noun = past_range(rest)
+        .trim_start_matches([':', ',', ')', ' '])
+        .trim();
     let servings = match language {
         Some("fr") => "portions",
         Some("es") => "raciones",
@@ -377,7 +384,8 @@ const COUNTING_WORDS: [&str; 12] = [
     "twelve",
 ];
 
-/// The first count in `written`, as the Yield's amount, and the text after it.
+/// The first count in `written`, as the Yield's amount, and the text after
+/// it, a range's upper end included.
 fn first_count(written: &str) -> Option<(String, &str)> {
     let figure_at = written.find(|c: char| c.is_ascii_digit());
     let word = written
@@ -396,7 +404,7 @@ fn first_count(written: &str) -> Option<(String, &str)> {
             Some((count + 1, &written[start + word.len()..]))
         });
     if let Some((count, rest)) = word {
-        return Some((count.to_string(), past_range(rest.trim_start())));
+        return Some((count.to_string(), rest.trim_start()));
     }
 
     let at = figure_at?;
@@ -425,7 +433,13 @@ fn first_count(written: &str) -> Option<(String, &str)> {
             rest = &after[fraction.len()..];
         }
     }
-    Some((amount, past_range(rest.trim_start())))
+    Some((amount, rest.trim_start()))
+}
+
+/// Whether the Yield read from `written` is the lower end of a range, whose
+/// upper end it cannot hold: `Serves 4 to 6`.
+fn is_a_range(written: &str) -> bool {
+    first_count(written).is_some_and(|(_, rest)| past_range(rest).len() != rest.len())
 }
 
 /// The text after the upper end of a range, where `rest` opens with one:
@@ -456,17 +470,111 @@ fn past_range(rest: &str) -> &str {
     rest
 }
 
-/// The Note: the description and Paprika's own notes, each a paragraph.
-fn note(recipe: &Value) -> Value {
-    let paragraphs: Vec<String> = ["description", "notes"]
+/// The description and Paprika's own notes, each a paragraph.
+fn own_note(recipe: &Value) -> Vec<String> {
+    ["description", "notes"]
         .iter()
         .filter_map(|field| text(recipe, field))
+        .collect()
+}
+
+/// The Note: the description and Paprika's own notes, and then each thing a
+/// cook typed that no field of `candidate` took (#434), worded in the
+/// recipe's Language: the total time, a prep or cook time Kamosu could not
+/// read, servings no Yield says whole, the difficulty and the nutrition. Each
+/// is a paragraph.
+fn note(recipe: &Value, candidate: &Value, language: Option<&str>) -> Value {
+    let words = crate::schema_org::words(language);
+    let mut paragraphs = own_note(recipe);
+    if let Some(total) = typed_time(recipe, "total_time") {
+        paragraphs.push(format!("{} {total}", words.total));
+    }
+    // A time that landed is said again only where its field could not hold
+    // all of it: `35 to 40 mins`, `40 mins (plus proving)`.
+    for (field, lead) in [("prep_time", words.prep), ("cook_time", words.cook)] {
+        if let Some(written) = typed_time(recipe, field)
+            && (candidate[format!("{field}_minutes")].is_null() || !is_only_a_duration(&written))
+        {
+            paragraphs.push(format!("{lead} {written}"));
+        }
+    }
+    if let Some(servings) = text(recipe, "servings")
+        && (candidate["yield"].is_null() || is_a_range(&servings))
+    {
+        paragraphs.push(format!("{} {servings}", words.servings_label));
+    }
+    if let Some(difficulty) = text(recipe, "difficulty") {
+        paragraphs.push(format!("{} {difficulty}", words.difficulty));
+    }
+    // Free text, written as it stands; a cook who labelled it is not
+    // labelled again.
+    if let Some(nutrition) = text(recipe, "nutritional_info") {
+        let labelled = nutrition
+            .lines()
+            .next()
+            .is_some_and(|first| first.to_lowercase().contains("nutri"));
+        paragraphs.push(if labelled {
+            nutrition
+        } else {
+            format!("{} {nutrition}", words.nutrition)
+        });
+    }
+    as_note(paragraphs)
+}
+
+/// The words a time is made of where it says nothing but its length.
+const DURATION_WORDS: [&str; 26] = [
+    "h", "hr", "hrs", "hour", "hours", "heure", "heures", "hora", "horas", "m", "min", "mins",
+    "minute", "minutes", "minuto", "minutos", "s", "sec", "secs", "second", "seconds", "and", "et",
+    "y", "seconde", "secondes",
+];
+
+/// Whether `written` says a length of time and nothing else, so the minutes
+/// read from it hold all of it: `1 hr 30 mins`, `1 1/2 hours`, `3 h, 30 m`.
+/// A range, a word such as `about` or `overnight`, or a note in brackets is
+/// more than the minutes hold.
+fn is_only_a_duration(written: &str) -> bool {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut numeric = false;
+    for c in written.chars() {
+        let is_numeric = c.is_ascii_digit() || c == '.' || c == '/';
+        if c.is_whitespace() || c == ',' {
+            words.push(std::mem::take(&mut word));
+        } else if !word.is_empty() && is_numeric != numeric {
+            words.push(std::mem::replace(&mut word, c.to_string()));
+        } else {
+            word.push(c);
+        }
+        numeric = is_numeric;
+    }
+    words.push(word);
+    let words: Vec<String> = words
+        .into_iter()
+        .filter(|word| !word.is_empty())
+        .map(|word| word.to_lowercase())
         .collect();
+    words.iter().all(|word| {
+        word.starts_with(|c: char| c.is_ascii_digit()) || DURATION_WORDS.contains(&word.as_str())
+    })
+}
+
+/// Paragraphs as a Note, or none.
+fn as_note(paragraphs: Vec<String>) -> Value {
     if paragraphs.is_empty() {
         Value::Null
     } else {
         json!(paragraphs.join("\n\n"))
     }
+}
+
+/// One of Paprika's times as the cook typed it, where it says anything: `0`
+/// and `0 minutes` are no time at all.
+fn typed_time(recipe: &Value, field: &str) -> Option<String> {
+    text(recipe, field).filter(|written| {
+        let mut digits = written.chars().filter(char::is_ascii_digit).peekable();
+        digits.peek().is_none() || digits.any(|digit| digit != '0')
+    })
 }
 
 /// A trimmed, non-empty text field.
@@ -698,11 +806,10 @@ mod tests {
     }
 
     #[test]
-    fn extra_photos_a_rating_a_favourite_and_nutrition_are_counted() {
+    fn extra_photos_a_rating_and_a_favourite_are_counted() {
         let recipes = read_all(sample_with("Zucchinipuffer", |recipe| {
             recipe["rating"] = json!(4);
             recipe["on_favorites"] = json!(true);
-            recipe["nutritional_info"] = json!("Calories: 250\nProtein: 8 g");
             let photo = recipe["photo_data"].clone();
             recipe["photos"] = json!([
                 { "name": "1", "filename": "a.jpg", "hash": "a", "data": photo },
@@ -710,11 +817,153 @@ mod tests {
             ]);
         }));
         let puffer = titled(&recipes, "Zucchinipuffer");
+        assert_eq!(left_out(puffer), ["extra photos 2", "rating", "favourite"]);
+    }
+
+    #[test]
+    fn a_difficulty_is_kept_in_the_note() {
+        let recipes = read_all(sample());
+        let frittata = titled(&recipes, "Zucchini-Kartoffel-Frittata");
+        assert_eq!(frittata.candidate["note"], json!("Difficulty: Easy"));
+    }
+
+    #[test]
+    fn what_no_field_holds_goes_into_the_note_word_for_word() {
+        let recipes = read_all(sample_with("Zucchinipuffer", |recipe| {
+            recipe["description"] = json!("Crisp and quick.");
+            recipe["notes"] = json!("Fry in batches.");
+            recipe["total_time"] = json!("1 hr 15 mins");
+            recipe["prep_time"] = json!("1 day");
+            recipe["cook_time"] = json!("20 mins");
+            recipe["difficulty"] = json!("Medium");
+            recipe["nutritional_info"] = json!("Calories: 250\nProtein: 8 g");
+        }));
+        let puffer = titled(&recipes, "Zucchinipuffer");
+        // A cook time that landed in its field is not said again.
+        assert_eq!(puffer.candidate["cook_time_minutes"], 20);
+        assert_eq!(puffer.candidate["prep_time_minutes"], Value::Null);
         assert_eq!(
-            left_out(puffer),
-            ["extra photos 2", "rating", "favourite", "nutrition"]
+            puffer.candidate["note"],
+            json!(
+                "Crisp and quick.\n\nFry in batches.\n\nTotal time: 1 hr 15 mins\n\n\
+                 Prep time: 1 day\n\nDifficulty: Medium\n\nNutrition: Calories: 250\n\
+                 Protein: 8 g"
+            )
         );
+        // Nothing of the nutrition stays in Paprika, so the Report counts none.
+        assert!(left_out(puffer).is_empty());
         assert_eq!(puffer.candidate["nutrition"], Value::Null);
+    }
+
+    #[test]
+    fn a_total_time_is_always_kept_as_typed() {
+        let recipes = read_all(sample_with(
+            "Zucchini Rolls with Goat Cheese and Mint",
+            |recipe| recipe["total_time"] = json!("60"),
+        ));
+        let rolls = titled(&recipes, "Zucchini Rolls with Goat Cheese and Mint");
+        // Prep and cook both landed, and the total is kept all the same.
+        assert_eq!(rolls.candidate["note"], json!("Total time: 60"));
+        let recipes = read_all(sample_with("Zucchinipuffer", |recipe| {
+            recipe["total_time"] = json!("0 minutes");
+            recipe["cook_time"] = json!("0");
+        }));
+        assert_eq!(
+            titled(&recipes, "Zucchinipuffer").candidate["note"],
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn a_time_that_landed_in_part_is_kept_whole_in_the_note() {
+        let recipes = read_all(sample_with("Zucchinipuffer", |recipe| {
+            recipe["prep_time"] = json!("40 mins (plus proving)");
+            recipe["cook_time"] = json!("35 to 40 mins");
+        }));
+        let puffer = titled(&recipes, "Zucchinipuffer");
+        assert_eq!(puffer.candidate["prep_time_minutes"], 40);
+        assert_eq!(puffer.candidate["cook_time_minutes"], 35);
+        assert_eq!(
+            puffer.candidate["note"],
+            json!("Prep time: 40 mins (plus proving)\n\nCook time: 35 to 40 mins")
+        );
+    }
+
+    #[test]
+    fn a_time_said_whole_is_only_a_duration() {
+        for whole in [
+            "30 minutes",
+            "1 hr 30 mins",
+            "1hr 20mins",
+            "4.5hrs",
+            "1 1/2 hours",
+            "3 h, 30 m",
+            "20",
+            "1 heure 30 minutes",
+        ] {
+            assert!(is_only_a_duration(whole), "{whole}");
+        }
+        for more in [
+            "about 1 1/2 hours",
+            "35 to 40 mins",
+            "1-2hrs",
+            "1 hour + salting",
+            "40 mins (plus proving)",
+            "10 servings 30 minutes",
+        ] {
+            assert!(!is_only_a_duration(more), "{more}");
+        }
+    }
+
+    #[test]
+    fn nutrition_already_labelled_is_not_labelled_twice() {
+        let recipes = read_all(sample_with("Zucchinipuffer", |recipe| {
+            recipe["nutritional_info"] = json!("Nutritional Info:\nCalories: 400");
+        }));
+        assert_eq!(
+            titled(&recipes, "Zucchinipuffer").candidate["note"],
+            json!("Nutritional Info:\nCalories: 400")
+        );
+    }
+
+    #[test]
+    fn servings_no_yield_says_whole_are_kept_as_written() {
+        let recipes = read_all(sample_with("Zucchinipuffer", |recipe| {
+            recipe["servings"] = json!("a big pot");
+        }));
+        let puffer = titled(&recipes, "Zucchinipuffer");
+        assert_eq!(puffer.candidate["yield"], Value::Null);
+        assert_eq!(puffer.candidate["note"], json!("Servings: a big pot"));
+        // A range's upper end has nowhere else to go.
+        let recipes = read_all(sample_with("Zucchinipuffer", |recipe| {
+            recipe["servings"] = json!("Serves 4 to 6");
+        }));
+        let puffer = titled(&recipes, "Zucchinipuffer");
+        assert_eq!(
+            puffer.candidate["yield"],
+            json!({ "amount": "4", "noun": "servings" })
+        );
+        assert_eq!(puffer.candidate["note"], json!("Servings: Serves 4 to 6"));
+    }
+
+    #[test]
+    fn a_french_recipes_lines_are_worded_in_french() {
+        let recipes = read_all(sample_with("Zucchinipuffer", |recipe| {
+            recipe["name"] = json!("Galettes de courgettes");
+            recipe["ingredients"] = json!(
+                "400 g de courgettes\n400 g de pommes de terre\n2 œufs\n2 cuillères à soupe de farine\nsel et poivre"
+            );
+            recipe["directions"] = json!(
+                "Râper les courgettes et les pommes de terre, puis bien les égoutter.\nAjouter les œufs et la farine, saler et poivrer, et faire cuire dans la poêle."
+            );
+            recipe["total_time"] = json!("50 minutes");
+            recipe["difficulty"] = json!("Facile");
+            recipe["servings"] = json!("pour une tablée");
+        }));
+        assert_eq!(
+            titled(&recipes, "Galettes de courgettes").candidate["note"],
+            json!("Temps total : 50 minutes\n\nPortions : pour une tablée\n\nDifficulté : Facile")
+        );
     }
 
     #[test]
