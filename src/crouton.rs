@@ -18,7 +18,8 @@
 //! - **`sourceImage` is dropped.** It is the source site's favicon, not a
 //!   photograph of the dish (ADR 0017); the Report says it was left out.
 //! - **`neutritionalInfo` is dropped.** It is unparsed scrape debris, and a
-//!   plausible wrong number is worse than an empty field (ADR 0025).
+//!   plausible wrong number is worse than an empty field (ADR 0025). The
+//!   Report counts it, so it is seen before Crouton is deleted (#434).
 //! - **A tag is kept by its name alone** (#128). The 20 August 2026 export
 //!   carried no tags; the 23 September one tags 64 of the 86 recipes. Each is
 //!   `{uuid, name, color}`, and only the name comes in: Kamosu Tags have no
@@ -64,6 +65,9 @@ pub struct Crumb {
     /// once, in Crouton's order. They are English words whatever the recipe's
     /// Language, and are filed as such (#128).
     pub tags: Vec<String>,
+    /// Whether the recipe held `neutritionalInfo`, which is dropped and only
+    /// counted on the Report.
+    pub nutrition_dropped: bool,
 }
 
 /// A readable Crouton export: one `.crumb`, or a zip of them. Entries are read
@@ -261,6 +265,9 @@ impl Export {
             if crumb.unreadable_photos > 0 {
                 left_out.push(LeftOut::UnreadablePhotos(crumb.unreadable_photos));
             }
+            if crumb.nutrition_dropped {
+                left_out.push(LeftOut::Nutrition);
+            }
             Ok(other_apps::Recipe {
                 foreign_id: crumb.foreign_id,
                 cookings: Vec::new(),
@@ -413,6 +420,7 @@ pub fn read_crumb(crumb: &Value) -> Result<Crumb, String> {
         unreadable_photos,
         site_icon,
         tags,
+        nutrition_dropped: text(crumb, "neutritionalInfo").is_some(),
     })
 }
 
@@ -714,6 +722,7 @@ mod tests {
             "zero is no time filled in"
         );
         assert_eq!(c["nutrition"], Value::Null, "Crouton's blob is dropped");
+        assert!(crumb.nutrition_dropped, "and counted on the Report");
         assert_eq!(
             c["source"],
             json!({ "text": "recipetineats.com", "link": "https://www.recipetineats.com/dan-dan-noodles/" })

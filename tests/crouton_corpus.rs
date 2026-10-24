@@ -200,6 +200,15 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
             .iter()
             .any(|row| row["what"] == json!("unreadable_photos"))
     );
+    // `neutritionalInfo` is dropped (ADR 0025), and counted where it holds
+    // anything (#434).
+    assert_eq!(
+        left_out
+            .iter()
+            .filter(|row| row["what"] == json!("nutrition"))
+            .count(),
+        17
+    );
 
     // --- Bare recipes arrive as recipes --------------------------------------
     let mut bare: Vec<&str> = arrived

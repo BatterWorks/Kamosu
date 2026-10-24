@@ -101,8 +101,63 @@ async fn a_whole_paprika_library_arrives_in_one_job() {
     // What stayed in Paprika, as the file holds it.
     assert_eq!(left_out(&report, "extra_photos"), (12, 13));
     assert_eq!(left_out(&report, "ratings"), (25, 25));
-    assert_eq!(left_out(&report, "nutrition"), (160, 160));
     assert_eq!(left_out(&report, "favourites"), (0, 0));
+    // The free-text nutrition is written into the Note, so none stays (#434).
+    assert_eq!(left_out(&report, "nutrition"), (0, 0));
+
+    // What no field holds is in the Note, a paragraph of its own (#434).
+    let mut paragraphs: std::collections::BTreeMap<&str, usize> = Default::default();
+    let leads = [
+        "Total time:",
+        "Prep time:",
+        "Cook time:",
+        "Servings:",
+        "Difficulty:",
+        "Nutrition:",
+    ];
+    let mut blueberry_pie = None;
+    for row in arrived {
+        let (status, recipe) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": row["branch_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{recipe}");
+        let content = &recipe["result"]["versions"][0]["content"];
+        let note = content["note"].as_str().unwrap_or("");
+        for lead in leads {
+            if note.split("\n\n").any(|p| p.starts_with(lead)) {
+                *paragraphs.entry(lead).or_default() += 1;
+            }
+        }
+        if content["title"] == "Blueberry Pie - Aeri’s Kitchen" {
+            blueberry_pie = Some(content.clone());
+        }
+    }
+    // 141 nutrition texts are led by the line, and the other 19 of the 160
+    // already name themselves on their first line. Most prep and cook times
+    // kept landed too but say more, `35 to 40 mins`. Most servings
+    // kept are a range, `Serves 4 to 6`, whose upper end no Yield holds.
+    assert_eq!(
+        paragraphs.into_iter().collect::<Vec<_>>(),
+        [
+            ("Cook time:", 29),
+            ("Difficulty:", 83),
+            ("Nutrition:", 141),
+            ("Prep time:", 8),
+            ("Servings:", 89),
+            ("Total time:", 30),
+        ]
+    );
+    // Its prep and cook times landed, so only the total and the difficulty
+    // are said again.
+    let pie = blueberry_pie.expect("the blueberry pie arrived");
+    assert_eq!(pie["prep_time_minutes"], json!(30));
+    assert_eq!(pie["cook_time_minutes"], json!(45));
+    assert_eq!(
+        pie["note"],
+        json!("Total time: 3 hours\n\nDifficulty: Medium")
+    );
 
     // Importing it again shelves nothing twice.
     let again = import(&app, &key, &file);

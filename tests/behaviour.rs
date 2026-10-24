@@ -32398,7 +32398,8 @@ mod crouton {
             "importing never joins two Lineages"
         );
 
-        // The favicon and the second photo are left out and said so.
+        // The favicon, the second photo and the nutrition text are left out
+        // and said so (#434).
         let left_out: Vec<(&str, u64)> = report["left_out"]
             .as_array()
             .unwrap()
@@ -32412,7 +32413,7 @@ mod crouton {
             .collect();
         assert_eq!(
             left_out,
-            vec![("site_icon", 1), ("extra_photos", 1)],
+            vec![("site_icon", 1), ("extra_photos", 1), ("nutrition", 1)],
             "{report}"
         );
 
@@ -38449,7 +38450,6 @@ mod paprika {
                 ("extra_photos".to_string(), 1),
                 ("ratings".to_string(), 1),
                 ("favourites".to_string(), 1),
-                ("nutrition".to_string(), 1),
             ]
         );
         let held = content(
@@ -38458,7 +38458,14 @@ mod paprika {
             &report,
             "Zwiebelrostbraten mit selbstgemachten Spätzle",
         );
-        assert_eq!(held["versions"][0]["content"]["nutrition"], Value::Null);
+        // The nutrition is written into the Note instead, after the
+        // difficulty, and nothing of it stays in Paprika (#434).
+        let held = &held["versions"][0]["content"];
+        assert_eq!(held["nutrition"], Value::Null);
+        assert_eq!(
+            held["note"],
+            json!("Difficulty: Easy\n\nNutrition: Calories: 640")
+        );
     }
 
     /// A photo the file gives only as an address, downloaded from a local

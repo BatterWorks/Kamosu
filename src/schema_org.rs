@@ -600,12 +600,16 @@ fn images(value: &Value) -> Vec<String> {
 }
 
 /// The words a recipe's Language puts around what the file kept, which the
-/// KitchenOwl and Mealie readers word their own with too.
+/// KitchenOwl, Mealie and Paprika readers word their own with too.
 pub(crate) struct Words {
     pub(crate) servings: &'static str,
     pub(crate) prep: &'static str,
     pub(crate) cook: &'static str,
     pub(crate) total: &'static str,
+    /// What leads servings no Yield says whole, and a difficulty, in the
+    /// Note (#434).
+    pub(crate) servings_label: &'static str,
+    pub(crate) difficulty: &'static str,
     equipment: &'static str,
     method: &'static str,
     pub(crate) nutrition: &'static str,
@@ -625,6 +629,8 @@ pub(crate) fn words(language: Option<&str>) -> Words {
             prep: "Temps de préparation :",
             cook: "Temps de cuisson :",
             total: "Temps total :",
+            servings_label: "Portions :",
+            difficulty: "Difficulté :",
             equipment: "Matériel :",
             method: "Méthode :",
             nutrition: "Valeurs nutritionnelles :",
@@ -653,6 +659,8 @@ pub(crate) fn words(language: Option<&str>) -> Words {
             prep: "Tiempo de preparación:",
             cook: "Tiempo de cocción:",
             total: "Tiempo total:",
+            servings_label: "Raciones:",
+            difficulty: "Dificultad:",
             equipment: "Utensilios:",
             method: "Método:",
             nutrition: "Nutrición:",
@@ -681,6 +689,8 @@ pub(crate) fn words(language: Option<&str>) -> Words {
             prep: "Prep time:",
             cook: "Cook time:",
             total: "Total time:",
+            servings_label: "Servings:",
+            difficulty: "Difficulty:",
             equipment: "Equipment:",
             method: "Method:",
             nutrition: "Nutrition:",
