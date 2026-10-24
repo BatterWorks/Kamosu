@@ -44,9 +44,9 @@ const STEPS = [
 const COOKING = {
 	steps: [
 		null,
-		{ uses: [1, 2], timer_seconds: null },
-		{ uses: [3], timer_seconds: 420 },
-		{ uses: [4], timer_seconds: null },
+		{ uses: [1, 2], by_hand: false, timer_seconds: null },
+		{ uses: [3], by_hand: false, timer_seconds: 420 },
+		{ uses: [4], by_hand: false, timer_seconds: null },
 	],
 };
 
@@ -327,7 +327,12 @@ describe('the cooking screen', () => {
 		await cook({
 			start_attempt: attempt({ current_step_index: 2 }),
 			get_recipe: withCooking({
-				steps: [null, { uses: [], timer_seconds: null }, { uses: [], timer_seconds: null }, null],
+				steps: [
+					null,
+					{ uses: [], by_hand: false, timer_seconds: null },
+					{ uses: [], by_hand: false, timer_seconds: null },
+					null,
+				],
 			}),
 		});
 		expect(await screen.findByText(/nothing new to add/i)).toBeInTheDocument();

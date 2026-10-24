@@ -83,6 +83,7 @@ fn arguments_for(name: &str) -> Value {
         "import_crouton" | "import_from_another_app" => json!({ "upload_id": "u_parity" }),
         "forget_import" => json!({ "import_id": "i_parity" }),
         "set_reading" => json!({ "branch_id": "b_parity", "line_index": 0 }),
+        "set_step_uses" => json!({ "branch_id": "b_parity", "step_index": 0, "uses": [] }),
         "get_food" => json!({ "food_id": "f_parity" }),
         "set_food_names" => json!({ "food_id": "f_parity", "language": "en", "names": ["parity"] }),
         "set_food_cup_weight" => json!({ "food_id": "f_parity", "cup_weight_grams": 100 }),
@@ -206,6 +207,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "divergence"
             | "changed_since"
             | "set_reading"
+            | "set_step_uses"
             | "read_ingredient_lines"
             | "reread_ingredient_lines"
             | "create_tag"
@@ -435,6 +437,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "divergence"
                 | "changed_since"
                 | "set_reading"
+                | "set_step_uses"
                 | "read_ingredient_lines"
                 | "reread_ingredient_lines"
                 | "create_tag"

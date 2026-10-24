@@ -3643,6 +3643,57 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::set_reading,
         },
         Operation {
+            name: "set_step_uses",
+            summary: "Correct which Ingredient Lines a Step uses. It is on a \
+                      Recipe's current state. Kamosu works this out of the \
+                      Step's words on every read, and get_recipe answers it \
+                      as cooking.steps[].uses; this sets it by hand, for a \
+                      Step it reads wrong. `uses` is the whole new list of \
+                      line indexes into content.ingredients, empty for a Step \
+                      that adds nothing, and each must be an Ingredient Line, \
+                      not a section. null takes the correction away, and the \
+                      Step goes back to what Kamosu reads. Mints no Version \
+                      and appears in no history, as set_reading does. A save \
+                      carries the correction onto the new Version while the \
+                      Step and every line it names stay word for word as they \
+                      were, wherever they now sit, and drops it once either \
+                      changes (ADR 0054).",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            in_demo: InDemo::Refused,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "step_index": { "type": "integer", "minimum": 0 },
+                    "uses": {
+                        "type": ["array", "null"],
+                        "items": { "type": "integer", "minimum": 0 },
+                    },
+                },
+                "required": ["branch_id", "step_index", "uses"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "step_index": { "type": "integer" },
+                    "uses": {
+                        "type": "array",
+                        "items": { "type": "integer", "minimum": 0 },
+                    },
+                    "by_hand": { "type": "boolean" },
+                },
+                "required": ["step_index", "uses", "by_hand"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::set_step_uses,
+        },
+        Operation {
             name: "read_ingredient_lines",
             summary: "Read every Ingredient Line nothing has read yet, as a \
                       Job. It covers every such line in the library, laying a \
@@ -7105,9 +7156,9 @@ fn measured_step_schema() -> Value {
     })
 }
 
-/// **What the cooking screen reads out of each Step**, and Kamosu stores
-/// nowhere (ADR 0011, GLOSSARY.md "Step"): which Ingredient Lines the Step uses,
-/// and the duration it offers as a timer.
+/// **What the cooking screen reads out of each Step** (ADR 0011, GLOSSARY.md
+/// "Step"): which Ingredient Lines the Step uses, whether a person corrected
+/// that, and the duration it offers as a timer.
 ///
 /// One slot per row of the Version's `steps`, in the same order `measured`
 /// takes, and `null` on a Section row — a Section is neither a Step nor
@@ -7117,9 +7168,11 @@ fn measured_step_schema() -> Value {
 /// `ingredients`, and an empty list is a real answer rather than a gap: it is
 /// the step that adds nothing new, where the panel says so. Which lines those
 /// are is worked out from their **Readings** on every read — nothing points at
-/// anything and nobody types a link (ADR 0019) — so a recipe Kamosu has read
-/// nothing on has a panel that is simply empty, per ADR 0002's rule that
-/// anything built on a Reading degrades politely.
+/// anything and nobody has to type a link (ADR 0019) — so a recipe Kamosu has
+/// read nothing on has a panel that is simply empty, per ADR 0002's rule that
+/// anything built on a Reading degrades politely. A Step a person corrected
+/// with `set_step_uses` answers their lines instead, with `by_hand` true
+/// (ADR 0054).
 ///
 /// `timer_seconds` is read out of the Step's own text at display time. Nothing
 /// is typed beside the sentence and nothing is written down: a range answers
@@ -7138,9 +7191,12 @@ fn cooking_schema() -> Value {
                             "type": "array",
                             "items": { "type": "integer", "minimum": 0 },
                         },
+                        // Whether `uses` is a person's correction, set with
+                        // set_step_uses, rather than read (ADR 0054).
+                        "by_hand": { "type": "boolean" },
                         "timer_seconds": { "type": ["integer", "null"], "minimum": 1 },
                     },
-                    "required": ["uses", "timer_seconds"],
+                    "required": ["uses", "by_hand", "timer_seconds"],
                     "additionalProperties": false,
                 },
             },

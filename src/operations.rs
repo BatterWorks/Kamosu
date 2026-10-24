@@ -1911,6 +1911,31 @@ pub fn set_reading(core: &Core, invocation: &Invocation, input: Value) -> Result
     )
 }
 
+pub fn set_step_uses(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let shape = || OpError::bad_request("set_step_uses takes { branch_id, step_index, uses }");
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(shape)?;
+    let step_index = input
+        .get("step_index")
+        .and_then(Value::as_i64)
+        .ok_or_else(shape)?;
+    let uses = match input.get("uses") {
+        Some(Value::Array(lines)) => Some(
+            lines
+                .iter()
+                .map(Value::as_i64)
+                .collect::<Option<Vec<i64>>>()
+                .ok_or_else(shape)?,
+        ),
+        Some(Value::Null) => None,
+        _ => return Err(shape()),
+    };
+    let caller = caller_of(invocation)?;
+    core.set_step_uses(caller, branch_id, step_index, uses)
+}
+
 pub fn start_attempt(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let branch_id = input
         .get("branch_id")

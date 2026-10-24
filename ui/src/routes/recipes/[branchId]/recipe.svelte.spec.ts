@@ -290,7 +290,9 @@ function forked(extra: Answers = {}) {
 						ingredients: MY_INGREDIENTS.map(() => null),
 						steps: MY_STEPS.map(() => null),
 					},
-					cooking: { steps: MY_STEPS.map(() => ({ uses: [], timer_seconds: null })) },
+					cooking: {
+						steps: MY_STEPS.map(() => ({ uses: [], by_hand: false, timer_seconds: null })),
+					},
 				},
 			],
 			tags: [],
@@ -347,7 +349,9 @@ function marcsRecipe(): GetRecipeOutput {
 					ingredients: THEIR_INGREDIENTS.map(() => null),
 					steps: THEIR_STEPS.map(() => null),
 				},
-				cooking: { steps: THEIR_STEPS.map(() => ({ uses: [], timer_seconds: null })) },
+				cooking: {
+					steps: THEIR_STEPS.map(() => ({ uses: [], by_hand: false, timer_seconds: null })),
+				},
 			},
 		],
 	};
@@ -1223,7 +1227,7 @@ describe('the recipe screen', () => {
 					// has one declared shape wherever it is served.
 					cooking: {
 						steps: SECTIONED_STEPS.map((row) =>
-							row.kind === 'step' ? { uses: [], timer_seconds: null } : null,
+							row.kind === 'step' ? { uses: [], by_hand: false, timer_seconds: null } : null,
 						),
 					},
 				},

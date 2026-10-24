@@ -54,6 +54,43 @@ use crate::reading;
 /// straight after one, past an `a`, opens no such clause.
 const UNTIL: &[&str] = &["until", "till", "jusqu", "hasta"];
 
+/// The words that open a clause saying when to do the next thing, which holds
+/// nothing going in either: *when the rice and chicken are ready, remove the
+/// chicken* (#439). It ends where an [`UNTIL`] clause does. One before a word
+/// ending in *-ing* opens none, since *whisk while adding the oil* adds the
+/// oil. French *lorsqu'* is folded to `lorsqu`.
+const WHEN: &[&str] = &[
+    "when", "once", "while", "quand", "lorsque", "lorsqu", "cuando", "mientras",
+];
+
+/// The words before which a food is what something is for, not what goes in:
+/// *reserving 1 tablespoon for the rice* (#439). French *pour* is also
+/// English *pour*, so it counts only on a Branch written in French.
+const FOR: &[&str] = &["for", "para"];
+
+/// Whether a folded word is one of [`FOR`] on a Branch in `language`.
+fn opens_a_purpose(word: &str, language: Option<&str>) -> bool {
+    FOR.contains(&word) || (language == Some("fr") && word == "pour")
+}
+
+/// The words for a stock, which a food named beside it describes: *chicken
+/// stock*, *bouillon de poulet*, *caldo de pollo* (#439).
+const STOCKS: &[&str] = &["stock", "broth", "bouillon", "fond", "caldo"];
+
+/// What joins a French or Spanish thing to the food that describes it, as
+/// *de* does in *le mélange de tomates*.
+const OF: &[&str] = &["de", "d", "du", "des", "del"];
+
+/// What follows a section's heading, or comes before it, where a Step names
+/// the section whole: *all the spice blend ingredients* (#439). Folded, so
+/// French *ingrédients* is here too.
+const INGREDIENTS: &[&str] = &["ingredient", "ingredients", "ingrediente", "ingredientes"];
+
+/// The articles that may stand between [`FOR`] and its food.
+const ARTICLES: &[&str] = &[
+    "the", "a", "an", "le", "la", "les", "l", "un", "une", "el", "los", "las", "una",
+];
+
 /// What ends such a clause: a comma, the end of a sentence, or anything that
 /// sets words apart as firmly as one.
 const CLAUSE_ENDS: &[char] = &[',', '.', ';', ':', '!', '?', '(', ')', '\n'];
@@ -116,10 +153,12 @@ fn one_of(list: &[&str], word: &str) -> bool {
     list.iter().any(|listed| folded_for_search(listed) == word)
 }
 
-/// One word of folded text, and whether it sits in an *until* clause.
+/// One word of folded text, whether it sits in an *until* or a *when* clause,
+/// and the clause it sits in.
 struct Word {
     text: String,
-    until: bool,
+    not_going_in: bool,
+    clause: usize,
 }
 
 /// What sets two foods apart inside one name, as *salt & pepper* and
@@ -174,22 +213,28 @@ fn kept_its_accent(word: &str) -> bool {
     reading::accented_name(word).is_some() || reading::accented_name(singular(word)).is_some()
 }
 
-/// The folded words of a Step, each marked with whether an [`UNTIL`] clause
-/// holds it.
+/// The folded words of a Step, each marked with whether an [`UNTIL`] or a
+/// [`WHEN`] clause holds it.
 fn words_of(text: &str) -> Vec<Word> {
     // Each word, and the clause it sits in.
     let words = split_words(text, CLAUSE_ENDS);
 
     let mut marked = Vec::with_capacity(words.len());
     let mut until_in: Option<usize> = None;
+    // Whether the clause open is a *when* clause, which also ends at the next
+    // thing to do with no comma before it: *when the butter melts add the
+    // flour* (#439).
+    let mut when_open = false;
     for (at, (text, clause)) in words.iter().enumerate() {
         let next_action = one_of(THEN, text)
+            || (when_open && one_of(NEXT_ACTIONS, text))
             || (one_of(AND, text)
                 && words
                     .get(at + 1)
                     .is_some_and(|(next, _)| one_of(NEXT_ACTIONS, next)));
         if until_in.is_some_and(|open| open != *clause) || next_action {
             until_in = None;
+            when_open = false;
         }
         if until_in.is_none() && UNTIL.contains(&text.as_str()) {
             let next = words[at + 1..]
@@ -201,9 +246,19 @@ fn words_of(text: &str) -> Vec<Word> {
                 until_in = Some(*clause);
             }
         }
+        if until_in.is_none() && WHEN.contains(&text.as_str()) {
+            let doing = words
+                .get(at + 1)
+                .is_some_and(|(next, _)| next.ends_with("ing"));
+            if !doing {
+                until_in = Some(*clause);
+                when_open = true;
+            }
+        }
         marked.push(Word {
             text: text.clone(),
-            until: until_in.is_some(),
+            not_going_in: until_in.is_some(),
+            clause: *clause,
         });
     }
     marked
@@ -224,7 +279,13 @@ fn same_word(a: &str, b: &str) -> bool {
 /// [`folded_word`] kept counting as a difference: *thé* and *thés* are one
 /// word here, and *the* is another.
 fn same_to_the_accent(a: &str, b: &str) -> bool {
-    a == b || a.strip_suffix('s') == Some(b) || b.strip_suffix('s') == Some(a)
+    a == b || singular(a) == b || singular(b) == a || plural_in_oes(a, b) || plural_in_oes(b, a)
+}
+
+/// Whether `plural` is `word` written with English's `-oes`: *tomatoes* is
+/// *tomato*, though *sloes* is still *sloe* by its `s` (#439).
+fn plural_in_oes(plural: &str, word: &str) -> bool {
+    word.ends_with('o') && plural.strip_suffix("es") == Some(word)
 }
 
 /// A word with one trailing `s` taken off, for telling whether two lines hold
@@ -236,12 +297,24 @@ fn singular(word: &str) -> &str {
 }
 
 /// One Ingredient Line a Step could name: its index, every run of its name's
-/// folded words that may stand for it (with whether the run is the whole
-/// name), and the key two lines holding the same food share.
+/// folded words that may stand for it, the key two lines holding the same
+/// food share, and the section of the list it sits in.
 struct Line {
     index: usize,
-    runs: Vec<(Vec<String>, bool)>,
+    runs: Vec<Run>,
     food: String,
+    section: usize,
+    /// Whether the name holds one food, where *salt and pepper* holds two.
+    one_food: bool,
+}
+
+/// A run of a name's words that may stand for the line: whether it is the
+/// whole name, and whether a word of the name it leaves out makes the line
+/// something [`reading::made_from`] the food the run names (#439).
+struct Run {
+    words: Vec<String>,
+    whole: bool,
+    made_from: bool,
 }
 
 /// The folded words of a name, and where each food in it begins and ends: a
@@ -330,7 +403,7 @@ fn main_words(words: &[String], foods: &[Range<usize>], language: Option<&str>) 
 /// every shorter run that [`names_the_food`] allows and that holds one of the
 /// name's [`main_words`]. Worked out once per line rather than once per Step,
 /// since it depends on nothing a Step says.
-fn runs_of(target: &str, language: Option<&str>) -> (Vec<String>, Vec<(Vec<String>, bool)>) {
+fn runs_of(target: &str, language: Option<&str>) -> (Vec<String>, Vec<Run>) {
     let (words, foods) = name_words(target);
     let n = words.len();
     let main = main_words(&words, &foods, language);
@@ -340,21 +413,28 @@ fn runs_of(target: &str, language: Option<&str>) -> (Vec<String>, Vec<(Vec<Strin
             let run = &words[from..to];
             let whole = from == 0 && to == n;
             if whole || (main[from..to].contains(&true) && names_the_food(run)) {
-                runs.push((run.to_vec(), whole));
+                let mut left_out = words[..from].iter().chain(&words[to..]);
+                runs.push(Run {
+                    words: run.to_vec(),
+                    whole,
+                    made_from: left_out.any(|word| reading::made_from(word)),
+                });
             }
         }
     }
     (words, runs)
 }
 
-/// One place a Step names a line: the words `start..start + len`, and whether
-/// that was the line's whole name.
+/// One place a Step names a line: the words `start..start + len`, whether
+/// that was the line's whole name, and whether the line is something
+/// [`reading::made_from`] what those words name.
 #[derive(Clone, Copy)]
 struct Mention {
     line: usize,
     start: usize,
     len: usize,
     whole: bool,
+    made_from: bool,
 }
 
 impl Mention {
@@ -373,8 +453,17 @@ impl Mention {
 /// Whether a run of a name's words may stand for the whole name: it holds a
 /// word a cook would call the food by, and neither begins nor ends on a word
 /// that only joins two others. *Shredded coconut* may stand for *unsweetened
-/// shredded coconut*; *de coco* may not stand for anything.
+/// shredded coconut*; *de coco* may not stand for anything. Nor may a word a
+/// recipe uses for what it makes itself, so *the sauce* is no soy sauce
+/// (#439).
 fn names_the_food(run: &[String]) -> bool {
+    let only_made_here = run
+        .iter()
+        .filter(|word| !reading::names_nothing_alone(word))
+        .all(|word| reading::made_here(word));
+    if only_made_here {
+        return false;
+    }
     match run {
         [] => false,
         [only] => {
@@ -392,27 +481,28 @@ fn names_the_food(run: &[String]) -> bool {
 /// Every place in `step` this line is named, whole or by a part of its name.
 fn mentions_of(line: &Line, step: &[Word]) -> Vec<Mention> {
     let mut found = Vec::new();
-    for (run, whole) in &line.runs {
+    for run in &line.runs {
         // A run of nothing but words an accent sets apart from a joining
         // word is named only with the accent: *the* alone is no tea (#230).
-        let by_accent = run.iter().all(|word| kept_its_accent(word));
+        let by_accent = run.words.iter().all(|word| kept_its_accent(word));
         let same = if by_accent {
             same_to_the_accent
         } else {
             same_word
         };
-        for start in 0..step.len().saturating_sub(run.len() - 1) {
-            let there = &step[start..start + run.len()];
+        for start in 0..step.len().saturating_sub(run.words.len() - 1) {
+            let there = &step[start..start + run.words.len()];
             if there
                 .iter()
-                .zip(run)
+                .zip(&run.words)
                 .all(|(word, want)| same(&word.text, want))
             {
                 found.push(Mention {
                     line: line.index,
                     start,
-                    len: run.len(),
-                    whole: *whole,
+                    len: run.words.len(),
+                    whole: run.whole,
+                    made_from: run.made_from,
                 });
             }
         }
@@ -422,11 +512,13 @@ fn mentions_of(line: &Line, step: &[Word]) -> Vec<Mention> {
 
 /// **Which Ingredient Lines each Step uses**: one slot per row of `steps`,
 /// `None` on a row that is not a Step, and otherwise the lines' indices in
-/// order. `readings` is one slot per Ingredient Line, a Reading or null,
-/// `language` is the Branch's, which says where a name's main word sits, and
-/// `title` is the recipe's, whose words name the dish.
+/// order. `ingredients` is the list as written, whose section rows say which
+/// section each line sits in, and `readings` is one slot per row of it, a
+/// Reading or null. `language` is the Branch's, which says where a name's
+/// main word sits, and `title` is the recipe's, whose words name the dish.
 pub fn step_uses(
     steps: &[Value],
+    ingredients: &[Value],
     readings: &[Value],
     language: Option<&str>,
     title: &str,
@@ -435,25 +527,69 @@ pub fn step_uses(
         .into_iter()
         .map(|(word, _)| word)
         .collect();
-    let lines: Vec<Line> = readings
-        .iter()
-        .enumerate()
-        .filter_map(|(index, reading)| {
-            let target = reading.get("target")?.as_str()?;
-            let (words, runs) = runs_of(target, language);
-            (!words.is_empty()).then(|| Line {
-                index,
-                food: words
-                    .iter()
-                    .map(|w| singular(w))
-                    .collect::<Vec<_>>()
-                    .join(" "),
-                runs,
-            })
+    let mut section = 0;
+    let sections: Vec<usize> = (0..readings.len())
+        .map(|index| {
+            if ingredients
+                .get(index)
+                .is_some_and(|row| row["kind"] == "section")
+            {
+                section += 1;
+            }
+            section
         })
         .collect();
+    // Each section's heading, less the *for the* it is often written with.
+    let mut numbered = 0;
+    let headings: Vec<(usize, Vec<String>)> = ingredients
+        .iter()
+        .filter(|row| row["kind"] == "section")
+        .map(|row| {
+            numbered += 1;
+            let words: Vec<String> = split_words(row["text"].as_str().unwrap_or_default(), &[])
+                .into_iter()
+                .map(|(word, _)| word)
+                .skip_while(|word| {
+                    opens_a_purpose(word, language) || ARTICLES.contains(&word.as_str())
+                })
+                .collect();
+            // *Marinade ingredients* is named as *the marinade ingredients*.
+            let words = match words.split_last() {
+                Some((last, rest)) if INGREDIENTS.contains(&last.as_str()) => rest.to_vec(),
+                _ => words,
+            };
+            (numbered, words)
+        })
+        .filter(|(_, words)| !words.is_empty())
+        .collect();
+    let recipe = Recipe {
+        dish,
+        language,
+        has_sections: section > 0,
+        headings,
+        lines: readings
+            .iter()
+            .enumerate()
+            .filter_map(|(index, reading)| {
+                let target = reading.get("target")?.as_str()?;
+                let (words, runs) = runs_of(target, language);
+                (!words.is_empty()).then(|| Line {
+                    index,
+                    food: words
+                        .iter()
+                        .map(|w| singular(w))
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                    runs,
+                    section: sections[index],
+                    one_food: name_words(target).1.len() == 1,
+                })
+            })
+            .collect(),
+    };
 
     let mut used_before: Vec<usize> = Vec::new();
+    let mut own_section = None;
     steps
         .iter()
         .map(|row| {
@@ -461,11 +597,22 @@ pub fn step_uses(
                 return None;
             }
             let text = row["text"].as_str()?;
-            let uses = uses_of(&words_of(text), &lines, &dish, &used_before);
+            let uses = recipe.uses_of(&words_of(text), &used_before, &mut own_section);
             used_before.extend(&uses);
             Some(uses)
         })
         .collect()
+}
+
+/// What every Step of one recipe is read against: the words of its title,
+/// its Language, whether its list has sections and what each is headed, and
+/// its lines.
+struct Recipe<'a> {
+    dish: Vec<String>,
+    language: Option<&'a str>,
+    has_sections: bool,
+    headings: Vec<(usize, Vec<String>)>,
+    lines: Vec<Line>,
 }
 
 /// Whether the title's words hold `words` as a run, one trailing `s`
@@ -480,53 +627,312 @@ fn names_the_dish(words: &[Word], dish: &[String]) -> bool {
     })
 }
 
-/// The lines one Step uses, given the words of the recipe's title and the
-/// lines earlier Steps already used.
-fn uses_of(step: &[Word], lines: &[Line], dish: &[String], used_before: &[usize]) -> Vec<usize> {
-    let mentions: Vec<Mention> = lines
-        .iter()
-        .flat_map(|line| mentions_of(line, step))
-        .filter(|mention| !step[mention.start].until)
-        .collect();
-    // A part naming the dish still claims its words from a shorter mention it
-    // overlaps, and only then links nothing itself.
-    let kept = mentions
-        .iter()
-        .filter(|mention| {
-            mention.whole
-                || !mentions.iter().any(|other| {
+/// One place a Step names a food, and every line it may mean there.
+struct Named {
+    lines: Vec<usize>,
+    /// The lines among them named by a part of the name the title holds,
+    /// which name the dish unless the Step works in their section.
+    by_the_dish: Vec<usize>,
+}
+
+impl Recipe<'_> {
+    fn line(&self, index: usize) -> &Line {
+        self.lines
+            .iter()
+            .find(|line| line.index == index)
+            .expect("a mention names a line of the recipe")
+    }
+
+    /// The sections a Step names whole, as *all the spice blend ingredients*
+    /// or *les ingrédients de la sauce*, and the words that name each (#439).
+    fn sections_named(&self, step: &[Word]) -> Vec<(usize, Range<usize>)> {
+        // A heading is named whole, or by its main word where no other
+        // heading holds that word there: *the sauce ingredients* of a list
+        // headed *Teriyaki sauce*.
+        let main_word = |heading: &[String]| match self.language {
+            Some("fr" | "es") => heading.first().cloned(),
+            _ => heading.last().cloned(),
+        };
+        let mut forms: Vec<(usize, Vec<String>)> = self.headings.clone();
+        for (section, heading) in &self.headings {
+            let Some(word) = main_word(heading).filter(|_| heading.len() > 1) else {
+                continue;
+            };
+            let shared = self
+                .headings
+                .iter()
+                .filter(|(_, other)| main_word(other).is_some_and(|w| same_word(&w, &word)))
+                .count()
+                > 1;
+            if !shared {
+                forms.push((*section, vec![word]));
+            }
+        }
+        let mut named = Vec::new();
+        for (section, heading) in &forms {
+            for start in 0..step.len().saturating_sub(heading.len() - 1) {
+                let end = start + heading.len();
+                let there = &step[start..end];
+                if !there
+                    .iter()
+                    .zip(heading)
+                    .all(|(word, want)| same_word(&word.text, want))
+                {
+                    continue;
+                }
+                let after = step
+                    .get(end)
+                    .is_some_and(|word| INGREDIENTS.contains(&word.text.as_str()));
+                let before = step[..start]
+                    .iter()
+                    .rev()
+                    .find(|word| {
+                        !ARTICLES.contains(&word.text.as_str())
+                            && !OF.contains(&word.text.as_str())
+                            && !opens_a_purpose(&word.text, self.language)
+                    })
+                    .is_some_and(|word| INGREDIENTS.contains(&word.text.as_str()));
+                if after || before {
+                    named.push((*section, start..end));
+                }
+            }
+        }
+        named
+    }
+
+    /// Whether this mention names what something is for rather than what goes
+    /// in: *for the rice*, *para el arroz*, *pour le riz* (#439).
+    fn is_for(&self, step: &[Word], mention: &Mention) -> bool {
+        let before = step[..mention.start]
+            .iter()
+            .rev()
+            .find(|word| !ARTICLES.contains(&word.text.as_str()));
+        before.is_some_and(|word| {
+            word.clause == step[mention.start].clause && opens_a_purpose(&word.text, self.language)
+        })
+    }
+
+    /// Whether this mention only describes a thing the recipe makes, named
+    /// beside it: *the tomato-spice mixture*, *le mélange de tomates* (#439).
+    /// English writes the thing after, French and Spanish before, and a
+    /// Branch with no Language is read both ways.
+    fn describes_what_is_made(&self, step: &[Word], mention: &Mention) -> bool {
+        let clause = step[mention.start].clause;
+        let made_here = |word: &Word| word.clause == clause && reading::made_here(&word.text);
+        // A stock is made from what is named beside it, and holds none of
+        // the line: *the chicken stock* is no chicken thighs.
+        let a_stock = |word: &Word| word.clause == clause && STOCKS.contains(&word.text.as_str());
+        let after = || {
+            let next = &step[mention.start + mention.len..];
+            next.first().is_some_and(a_stock)
+                || next
+                    .iter()
+                    .take(2)
+                    .take_while(|word| !reading::only_joins(&word.text))
+                    .any(made_here)
+        };
+        let before = || {
+            step[..mention.start]
+                .iter()
+                .rev()
+                .take(2)
+                .skip_while(|word| OF.contains(&word.text.as_str()))
+                .take(1)
+                .any(|word| made_here(word) || a_stock(word))
+        };
+        match self.language {
+            Some("en") => after(),
+            Some("fr" | "es") => before(),
+            _ => after() || before(),
+        }
+    }
+
+    /// The lines one Step uses, given the lines earlier Steps already used
+    /// and the section the Step before worked in, which this updates to the
+    /// section this Step works in.
+    fn uses_of(
+        &self,
+        step: &[Word],
+        used_before: &[usize],
+        own_section: &mut Option<usize>,
+    ) -> Vec<usize> {
+        let sections_named = self.sections_named(step);
+        let mentions: Vec<Mention> = self
+            .lines
+            .iter()
+            .flat_map(|line| mentions_of(line, step))
+            .filter(|mention| !step[mention.start].not_going_in)
+            .filter(|mention| !self.is_for(step, mention))
+            .filter(|mention| !self.describes_what_is_made(step, mention))
+            .filter(|mention| {
+                !sections_named.iter().any(|(_, words)| {
+                    words.start < mention.start + mention.len && mention.start < words.end
+                })
+            })
+            .collect();
+        // A part naming the dish still claims its words from a shorter
+        // mention it overlaps, and only then is weighed itself. A whole name
+        // gives way only to a longer whole name of one food: *the tomato
+        // paste* is no mention of the line *Tomatoes*, though *salt and
+        // pepper* is still one of *Salt* (#439).
+        let kept: Vec<(Mention, bool)> = mentions
+            .iter()
+            .filter(|mention| {
+                !mentions.iter().any(|other| {
                     other.line != mention.line
                         && mention.overlaps(other)
                         && mention.beaten_by(other)
+                        && (!mention.whole
+                            || (other.whole
+                                && other.len > mention.len
+                                && self.line(other.line).one_food))
                 })
-        })
-        .filter(|mention| {
-            mention.whole || !names_the_dish(&step[mention.start..][..mention.len], dish)
-        });
-
-    let mut named: Vec<usize> = kept.map(|mention| mention.line).collect();
-    named.sort_unstable();
-    named.dedup();
-
-    // One food on several named lines: keep the first no earlier Step used.
-    let food_of = |index: usize| &lines.iter().find(|line| line.index == index).unwrap().food;
-    let mut uses = Vec::new();
-    for &index in &named {
-        let same: Vec<usize> = named
-            .iter()
-            .copied()
-            .filter(|&other| food_of(other) == food_of(index))
+            })
+            .map(|mention| {
+                let by_the_dish = !mention.whole
+                    && names_the_dish(&step[mention.start..][..mention.len], &self.dish);
+                (*mention, by_the_dish)
+            })
+            // Curry powder is no curry: a part of its name the title holds
+            // names the dish (#357). The food itself in the title still
+            // links, as chicken thighs do in a chicken dish (#439).
+            .filter(|(mention, by_the_dish)| !(*by_the_dish && mention.made_from))
             .collect();
-        let chosen = same
-            .iter()
-            .copied()
-            .find(|line| !used_before.contains(line))
-            .unwrap_or(same[0]);
-        if chosen == index {
-            uses.push(index);
+
+        // Each place a food is named, and the lines it may mean there: the
+        // food itself before something made from it, so *the garlic* is the
+        // cloves and not the powder (#439).
+        let mut places: Vec<((usize, usize), Named)> = Vec::new();
+        for (mention, by_the_dish) in &kept {
+            let at = (mention.start, mention.len);
+            let place = match places.iter().position(|(there, _)| *there == at) {
+                Some(found) => &mut places[found].1,
+                None => {
+                    places.push((
+                        at,
+                        Named {
+                            lines: Vec::new(),
+                            by_the_dish: Vec::new(),
+                        },
+                    ));
+                    &mut places.last_mut().expect("just pushed").1
+                }
+            };
+            if !place.lines.contains(&mention.line) {
+                place.lines.push(mention.line);
+            }
+            if *by_the_dish {
+                place.by_the_dish.push(mention.line);
+            }
         }
+        for (at, place) in &mut places {
+            let itself: Vec<usize> = kept
+                .iter()
+                .filter(|(mention, _)| (mention.start, mention.len) == *at && !mention.made_from)
+                .map(|(mention, _)| mention.line)
+                .collect();
+            if !itself.is_empty() {
+                place.lines.retain(|line| itself.contains(line));
+            }
+        }
+
+        // The section this Step works in: the one most of the places it names
+        // a food point to, or the last Step's where no one section leads
+        // (#439). A place points to each section holding a line it may mean
+        // that no earlier Step used, or to every such section when all are
+        // used, so *the garlic* of the roasted garlic is the second garlic.
+        if self.has_sections {
+            let mut votes: Vec<(usize, usize)> = Vec::new();
+            for (_, place) in &places {
+                let unused: Vec<usize> = place
+                    .lines
+                    .iter()
+                    .copied()
+                    .filter(|line| !used_before.contains(line))
+                    .collect();
+                let lines = if unused.is_empty() {
+                    &place.lines
+                } else {
+                    &unused
+                };
+                let mut sections: Vec<usize> =
+                    lines.iter().map(|&line| self.line(line).section).collect();
+                sections.sort_unstable();
+                sections.dedup();
+                for section in sections {
+                    match votes.iter_mut().find(|(there, _)| *there == section) {
+                        Some((_, count)) => *count += 1,
+                        None => votes.push((section, 1)),
+                    }
+                }
+            }
+            let most = votes.iter().map(|&(_, count)| count).max();
+            let leading: Vec<usize> = votes
+                .iter()
+                .filter(|&&(_, count)| Some(count) == most)
+                .map(|&(section, _)| section)
+                .collect();
+            if let [only] = leading[..] {
+                *own_section = Some(only);
+            }
+        }
+
+        // A section named whole: every line it holds.
+        let mut uses: Vec<usize> = self
+            .lines
+            .iter()
+            .filter(|line| {
+                sections_named
+                    .iter()
+                    .any(|(section, _)| *section == line.section)
+            })
+            .map(|line| line.index)
+            .collect();
+        if let Some((section, _)) = sections_named.first() {
+            *own_section = Some(*section);
+        }
+        let own = own_section.filter(|_| self.has_sections);
+        for (_, place) in &mut places {
+            if let Some(own) = own {
+                // A word of the title names the dish outside the section
+                // its line sits in: the serving Step's *bed of rice* is the
+                // cooked rice, not the cup of basmati.
+                let by_the_dish = std::mem::take(&mut place.by_the_dish);
+                place
+                    .lines
+                    .retain(|&line| self.line(line).section == own || !by_the_dish.contains(&line));
+                // Two lines named alike: the one in this Step's own section.
+                if place
+                    .lines
+                    .iter()
+                    .any(|&line| self.line(line).section == own)
+                {
+                    place.lines.retain(|&line| self.line(line).section == own);
+                }
+            }
+            // One food on several lines: the first no earlier Step used.
+            for &index in &place.lines {
+                let food = &self.line(index).food;
+                let same: Vec<usize> = place
+                    .lines
+                    .iter()
+                    .copied()
+                    .filter(|&other| self.line(other).food == *food)
+                    .collect();
+                let chosen = same
+                    .iter()
+                    .copied()
+                    .find(|line| !used_before.contains(line))
+                    .unwrap_or(same[0]);
+                if chosen == index {
+                    uses.push(index);
+                }
+            }
+        }
+        uses.sort_unstable();
+        uses.dedup();
+        uses
     }
-    uses
 }
 
 #[cfg(test)]
@@ -535,8 +941,8 @@ mod tests {
     use serde_json::json;
 
     /// A recipe's Steps and Readings as `step_uses` takes them: every step a
-    /// Step (a `#` prefix makes a Section), and every target a Reading (an
-    /// empty one leaves the line unread).
+    /// Step and every target a Reading (a `#` prefix makes either a Section,
+    /// and an empty target leaves the line unread).
     fn uses(steps: &[&str], targets: &[&str]) -> Vec<Option<Vec<usize>>> {
         uses_in(None, steps, targets)
     }
@@ -568,17 +974,24 @@ mod tests {
                 None => json!({ "kind": "step", "text": text }),
             })
             .collect();
+        let ingredients: Vec<Value> = targets
+            .iter()
+            .map(|target| match target.strip_prefix('#') {
+                Some(section) => json!({ "kind": "section", "text": section }),
+                None => json!({ "kind": "ingredient", "text": target }),
+            })
+            .collect();
         let readings: Vec<Value> = targets
             .iter()
             .map(|target| {
-                if target.is_empty() {
+                if target.is_empty() || target.starts_with('#') {
                     Value::Null
                 } else {
                     json!({ "target": target })
                 }
             })
             .collect();
-        step_uses(&steps, &readings, language, title)
+        step_uses(&steps, &ingredients, &readings, language, title)
     }
 
     fn step(indices: &[usize]) -> Option<Vec<usize>> {
@@ -1375,6 +1788,377 @@ mod tests {
                 &["pâte à pizza", "pâte de miso"]
             ),
             [step(&[]), step(&[1])],
+        );
+    }
+
+    /// One-pot spicy halal cart chicken over rice, as imported on 2026-10-23:
+    /// one food on lines of several sections, and a title holding the rice
+    /// and the chicken (#439).
+    const HALAL_TITLE: &str = "One-pot spicy halal cart chicken over rice";
+    const HALAL_TARGETS: &[&str] = &[
+        "#Spice blend",
+        "cumin",
+        "ground coriander",
+        "smoked paprika",
+        "curry powder",
+        "cayenne pepper",
+        "dried oregano",
+        "dried parsley flakes",
+        "black pepper",
+        "#For the chicken",
+        "boneless skinless chicken thighs",
+        "Kosher salt",
+        "olive oil",
+        "lemon juice",
+        "spice blend",
+        "#For the rice",
+        "basmati rice",
+        "tomato paste",
+        "smoked paprika",
+        "spice blend",
+        "chicken bouillon cubes",
+        "water",
+        "Neutral oil",
+        "#For the white sauce",
+        "mayo",
+        "fresh dill",
+        "fresh parsley",
+        "garlic",
+        "lemon zest",
+        "Lemon juice",
+        "water",
+        "Salt",
+        "Black pepper",
+        "#For serving",
+        "Tomatoes",
+        "shredded iceberg lettuce",
+        "red onion",
+        "Hot sauce",
+    ];
+    const HALAL_STEPS: &[&str] = &[
+        "Combine all the spice blend ingredients in a small bowl and mix well, then set aside.",
+        "Coat the chicken thighs in the olive oil, lemon juice and all of the spice blend, reserving 1 tablespoon for the rice.",
+        "For deeper flavor, refrigerate for 30 minutes or longer (overnight is even better). If you're short on time, proceed straight to searing.",
+        "Heat a generous drizzle of neutral oil in a large heavy-bottomed pot over high heat.",
+        "Sear the chicken thighs until deeply caramelized, about 4 to 5 minutes per side, cooking them about 70% of the way through.",
+        "Remove the chicken and set aside.",
+        "Turn the heat down to medium.",
+        "Add the tomato paste to the same pot and fry, stirring constantly, for 2 to 3 minutes until it darkens slightly.",
+        "Add the reserved spice blend and the extra smoked paprika and cook for another minute until fragrant.",
+        "Add the bouillon cubes and stir to combine.",
+        "Add the washed and drained rice and stir to coat in the tomato-spice mixture.",
+        "Add the water. Once the water level is even with the rice, nestle the chicken thighs back in, cover, and reduce to the lowest heat.",
+        "Cook for 20 minutes, then remove from the heat and let steam, covered, for another 10 minutes.",
+        "While the rice and chicken cook, make the white sauce: whisk together the mayo, dill, parsley, grated garlic, lemon zest and lemon juice.",
+        "Add the water a tablespoon at a time until pourable but still creamy. Season with salt and pepper.",
+        "Refrigerate until ready to serve.",
+        "When the rice and chicken are ready, remove the chicken and chop into small pieces.",
+        "Fluff the rice with a fork.",
+        "To serve: a bed of rice, chicken on top, with shredded lettuce, diced tomato and sliced red onion on the side.",
+        "Drizzle generously with white sauce and hot sauce.",
+    ];
+
+    #[test]
+    fn a_step_links_the_line_of_the_section_it_works_in() {
+        assert_eq!(
+            uses_titled(HALAL_TITLE, Some("en"), HALAL_STEPS, HALAL_TARGETS),
+            [
+                step(&[1, 2, 3, 4, 5, 6, 7, 8]),
+                step(&[10, 12, 13, 14]),
+                step(&[]),
+                step(&[22]),
+                step(&[10]),
+                step(&[10]),
+                step(&[]),
+                step(&[17]),
+                step(&[18, 19]),
+                step(&[20]),
+                step(&[16]),
+                step(&[10, 21]),
+                step(&[]),
+                step(&[24, 25, 26, 27, 28, 29]),
+                step(&[30, 31, 32]),
+                step(&[]),
+                step(&[10]),
+                step(&[16]),
+                step(&[34, 35, 36]),
+                step(&[37]),
+            ]
+        );
+    }
+
+    /// Honey lemon garlic chicken, as imported on 2026-10-23 (#439).
+    #[test]
+    fn a_title_word_links_the_food_itself_and_the_sauce_is_the_recipes_own() {
+        let targets = [
+            "#Chicken",
+            "chicken thighs",
+            "Salt",
+            "Black pepper",
+            "Cornstarch",
+            "Neutral oil",
+            "#Sauce",
+            "butter",
+            "garlic",
+            "soy sauce",
+            "mirin",
+            "honey",
+            "lemon",
+            "lemon zest",
+            "paprika",
+            "chili flakes",
+            "black pepper",
+            "#Garnish",
+            "Sesame seeds",
+            "Chives",
+        ];
+        let steps = [
+            "Season the chicken thighs with salt and pepper.",
+            "Coat the chicken with cornstarch and shake off the excess.",
+            "Heat the oil in a pan over medium-high heat.",
+            "Add the chicken skin side down and fry each side for 7 minutes or until golden brown.",
+            "Set the chicken aside.",
+            "Melt the butter in a clean pan over medium heat.",
+            "Sauté the garlic until fragrant, for 1 minute.",
+            "Add the soy sauce, mirin, honey, lemon juice, lemon zest, paprika, chili flakes and black pepper.",
+            "Cook the sauce until it thickens.",
+            "Add the chicken back to the pan and baste it with the sauce.",
+            "Serve with hot steamed rice.",
+            "Garnish with sesame seeds and chives.",
+        ];
+        assert_eq!(
+            uses_titled("Honey lemon garlic chicken", Some("en"), &steps, &targets),
+            [
+                step(&[1, 2, 3]),
+                step(&[1, 4]),
+                step(&[5]),
+                step(&[1]),
+                step(&[1]),
+                step(&[7]),
+                step(&[8]),
+                step(&[9, 10, 11, 12, 13, 14, 15, 16]),
+                step(&[]),
+                step(&[1]),
+                step(&[]),
+                step(&[18, 19]),
+            ]
+        );
+    }
+
+    /// Beef and broccoli, as imported on 2026-10-23 (#439).
+    #[test]
+    fn a_word_links_the_food_itself_before_what_is_made_from_it() {
+        let targets = [
+            "beef",
+            "cornstarch",
+            "paprika",
+            "Garlic powder",
+            "Black pepper",
+            "olive oil",
+            "garlic cloves",
+            "honey",
+            "soy sauce",
+            "Broccoli",
+        ];
+        let steps = [
+            "Toss the shaved steak with the cornstarch, paprika, garlic powder and black pepper until it is lightly coated.",
+            "Preheat the olive oil in a pan, then add the beef.",
+            "Add three cloves of garlic.",
+            "Once the beef is almost fully cooked, add the soy sauce and honey.",
+        ];
+        assert_eq!(
+            uses_titled("Beef and broccoli", Some("en"), &steps, &targets),
+            [
+                step(&[1, 2, 3, 4]),
+                step(&[0, 5]),
+                step(&[6]),
+                step(&[7, 8]),
+            ]
+        );
+        // With only the powder in the list, the garlic is the powder.
+        assert_eq!(
+            uses_in(Some("en"), &["Add the garlic."], &["Garlic powder", "salt"]),
+            [step(&[0])]
+        );
+    }
+
+    /// Red curry cabbage cups, as imported on 2026-10-23 (#439).
+    #[test]
+    fn a_step_naming_a_section_s_ingredients_links_every_line_of_it() {
+        let targets = [
+            "#Cabbage",
+            "cabbage",
+            "salt",
+            "#Chicken filling",
+            "ground chicken",
+            "panko",
+            "spring onion",
+            "coriander",
+            "red curry paste",
+            "ginger",
+            "brown sugar",
+            "fish sauce",
+            "lime",
+            "egg",
+            "#Red curry sauce",
+            "red curry paste",
+            "coconut milk",
+            "soy sauce",
+            "rice vinegar",
+        ];
+        let steps = [
+            "In a bowl, mix all chicken filling ingredients until just combined.",
+            "Whisk all red curry sauce ingredients and pour over cabbage cups.",
+            "Spoon sauce over to serve.",
+        ];
+        assert_eq!(
+            uses_titled("Red curry cabbage cups", Some("en"), &steps, &targets),
+            [
+                step(&[4, 5, 6, 7, 8, 9, 10, 11, 12, 13]),
+                step(&[1, 15, 16, 17, 18]),
+                step(&[]),
+            ]
+        );
+        assert_eq!(
+            uses_in(
+                Some("fr"),
+                &["Fouettez les ingrédients de la sauce."],
+                &[
+                    "#Pour la sauce",
+                    "sauce soja",
+                    "miel",
+                    "#Garniture",
+                    "sésame"
+                ]
+            ),
+            [step(&[1, 2])]
+        );
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &["Mix all the marinade ingredients."],
+                &[
+                    "#Marinade ingredients",
+                    "soy sauce",
+                    "honey",
+                    "#To serve",
+                    "rice"
+                ]
+            ),
+            [step(&[1, 2])]
+        );
+    }
+
+    #[test]
+    fn a_when_clause_ends_at_the_next_thing_to_do() {
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &[
+                    "When the butter melts add the flour.",
+                    "Once cool, stir in the butter."
+                ],
+                &["butter", "flour"]
+            ),
+            [step(&[1]), step(&[0])]
+        );
+    }
+
+    /// Cases a library of 171 recipes showed while #439 was built.
+    #[test]
+    fn what_a_real_library_showed() {
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &["Add the sauce ingredients and the sugar."],
+                &[
+                    "chicken thighs",
+                    "#Teriyaki sauce",
+                    "soy sauce",
+                    "mirin",
+                    "#To serve",
+                    "rice"
+                ]
+            ),
+            [step(&[2, 3])],
+            "a heading named by its main word"
+        );
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &[
+                    "Mix the soy sauce, salt, and pepper.",
+                    "Fry the salmon with salt and pepper."
+                ],
+                &[
+                    "soy sauce",
+                    "Salt",
+                    "Pepper",
+                    "Salmon fillet",
+                    "Salt and pepper"
+                ]
+            ),
+            [step(&[0, 1, 2, 4]), step(&[1, 2, 3, 4])],
+            "a name holding two foods beats neither, as before #439"
+        );
+        assert_eq!(
+            uses_titled(
+                "Coq au vin",
+                None,
+                &["Add the chicken stock.", "Ajoutez le bouillon de poulet."],
+                &["chicken drumsticks", "poulet"]
+            ),
+            [step(&[]), step(&[])],
+            "a stock holds none of what it is made from"
+        );
+        assert_eq!(
+            uses_in(Some("fr"), &["Étaler la pâte."], &["pâte brisée", "pommes"]),
+            [step(&[0])],
+            "la pâte is the bought pastry"
+        );
+    }
+
+    #[test]
+    fn a_plural_in_oes_is_its_singular() {
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &["Add the diced tomato.", "Peel the potatoes."],
+                &["Tomatoes", "tomato paste", "potato"]
+            ),
+            [step(&[0]), step(&[2])]
+        );
+        assert_eq!(
+            uses_in(Some("en"), &["Prick each sloe."], &["sloes"]),
+            [step(&[0])],
+            "a singular in -oe keeps its plural in -s"
+        );
+    }
+
+    #[test]
+    fn a_food_naming_what_the_recipe_makes_or_what_it_is_for_is_not_going_in() {
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &[
+                    "Pour the egg mixture into the pan.",
+                    "Keep the butter for the rice.",
+                    "Whisk while adding the oil.",
+                ],
+                &["eggs", "butter", "rice", "oil"]
+            ),
+            [step(&[]), step(&[1]), step(&[3])]
+        );
+        assert_eq!(
+            uses_in(
+                Some("fr"),
+                &[
+                    "Versez le mélange de tomates.",
+                    "Gardez le beurre pour le riz."
+                ],
+                &["tomates", "beurre", "riz"]
+            ),
+            [step(&[]), step(&[1])]
         );
     }
 

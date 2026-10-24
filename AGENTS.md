@@ -387,7 +387,8 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     acting as one on a call that says `as_operator`
                     among them (ADR 0041, ADR 0049, #131, #302)
   recipes.rs        creating, saving, reading a recipe; threads and divergence;
-                    unfolding components; `parse_recipe_content`
+                    unfolding components; `parse_recipe_content`; a Step's
+                    lines corrected by hand (ADR 0054)
   tags.rs           Tags, and putting one on a recipe
   related.rs        Related Recipes (#105)
   runners.rs        Runner Keys, a Runner taking a Job, renewing its hold and
@@ -504,7 +505,9 @@ src/reading.rs      reading an Ingredient Line into a Reading — where the
 src/step_uses.rs    which Ingredient Lines a Step uses, by the short names
                     recipes call them after the list (#184). A short name
                     holds the name's main word, which sits at the end the
-                    Branch's Language puts it (#212)
+                    Branch's Language puts it (#212). A line is taken from
+                    the section the Step works in, and the food itself
+                    before what is made from it (#439)
 src/page_text.rs    the text of a page's own article, found as a reader
                     would and written out as a browser copies it, for a
                     link with no recipe data on an instance with no

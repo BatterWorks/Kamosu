@@ -79,7 +79,7 @@ export function recipeAnswer(
 				measured: { ingredients: [], steps: (content.steps ?? STEPS).map(() => null) },
 				cooking: {
 					steps: (content.steps ?? STEPS).map((row) =>
-						row.kind === 'step' ? { uses: [], timer_seconds: null } : null,
+						row.kind === 'step' ? { uses: [], by_hand: false, timer_seconds: null } : null,
 					),
 				},
 			},

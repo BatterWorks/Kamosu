@@ -2044,6 +2044,26 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 62,
+        description: "a Step's Ingredient Lines corrected by hand (#439, ADR 0054)",
+        sql: r#"
+        -- Which Ingredient Lines a Step uses is worked out on every read
+        -- (`step_uses.rs`). A row here is a person's correction of it, for
+        -- one Step of one Version: `uses` is a JSON list of line indexes,
+        -- empty for a Step that uses none. A save carries it onto the next
+        -- Version while the Step and every line it names stay word for word
+        -- as they were, as a Reading is carried, and drops it otherwise.
+        CREATE TABLE step_uses_by_hand (
+            version_id  TEXT NOT NULL REFERENCES versions(id),
+            step_index  INTEGER NOT NULL,
+            uses        TEXT NOT NULL,
+            updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (version_id, step_index)
+        );
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.
