@@ -768,6 +768,15 @@
   border-radius: 50%;
 }
 
+/* A small round mark (#452): the numbers of the steps that set a phone up,
+   the number on each page of a recipe sent as photos, and the cross that
+   takes a page out. Round as chosen on the prototype (options B and A of 24
+   October 2026), against the near-square everything else is, which is why
+   its radius is written here and is no token, as the back arrow's is. */
+@utility round-mark {
+  border-radius: 50%;
+}
+
 /* The same arrow on the phone (#219): in the page's flow at the top left, a
    step below the header, and sticking to the top of the window once the page
    has scrolled past it. In flow rather than fixed so the page's first card

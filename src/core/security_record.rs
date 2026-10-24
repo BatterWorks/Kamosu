@@ -196,7 +196,10 @@ impl Core {
             },
             name: key.name.clone(),
         };
-        let detail = json!({ "read_only": key.read_only, "operator": key.operator });
+        let mut detail = json!({ "read_only": key.read_only, "operator": key.operator });
+        if key.add_only {
+            detail["add_only"] = json!(true);
+        }
         self.note(
             Event::theirs("access_key_minted", person_id)
                 .naming(Some(named.clone()))

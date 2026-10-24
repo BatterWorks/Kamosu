@@ -406,7 +406,8 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   passkeys.rs       passkeys: signing in with one, adding one after the
                     password, the list a Person keeps, and the address each
                     works at (#370)
-  originals.rs      pasted text, a PDF or a picture handed to an agent,
+  originals.rs      pasted text, a PDF or a picture handed to an agent, or
+                    several pictures as the pages of one recipe (#452),
                     kept under originals/ for its Job's Job Key alone and
                     in no Backup, and deleted 30 days after its Job ended.
                     The same file handed over again is known by its
@@ -422,6 +423,11 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   carrying_bundles.rs
                     Bundles out and in: writing one, previewing and
                     receiving one (ADR 0020)
+  sharing.rs        adding from a phone's Share menu: `add_this`, which
+                    decides where a link, text, photos or a PDF go, waits
+                    for a link's page, and words the answer in the asker's
+                    Reading Language, and the Shortcut versions it serves
+                    (ADR 0055, #452)
   shopping_list.rs  the shopping list
   search.rs         word search and Meaning Search
   security_record.rs
@@ -575,6 +581,10 @@ agent-image/        the agent beside a Runner, in an Alpine image of its own,
                     keeps it off the host's network (#315, #317, #345,
                     #372, docs/runner.md)
 docs/releasing.md   the release runbook
+docs/sharing-from-an-iphone.md
+                    the iPhone Shortcut, built from these steps on an iPhone
+                    and published as an iCloud link, and its setup code
+                    (#452)
 docs/docker-hub/    the Docker Hub page of the image: its overview and its one-line
                     description, published by a release and never edited on
                     Docker Hub (#235)
@@ -606,7 +616,15 @@ Catalogue and both Doors grow it in the same commit.
   would start a Copy, the write is refused and the Job fails. No Operation
   decides what a Job may reach. A Job Key may use two routes outside the
   Catalogue: `POST /api/photographs`, by the mark on `upload_photograph`, and
-  `GET /api/originals/<job_id>` for its own Job's Original.
+  `GET /api/originals/<job_id>` for its own Job's Original, with
+  `/api/originals/<job_id>/<page>` for each later page of several pictures.
+- **What an Add-only key may call is the `add_only_key` mark on each
+  declaration, and that mark is a security boundary too** (ADR 0055). A phone's
+  Shortcut keeps the key in plain view. A new Operation is `false`, and
+  `the_add_only_keys_list_is_these_operations` in `tests/behaviour.rs` holds
+  the list, `add_this` and `get_job`, by name. Its one route outside the
+  Catalogue is `POST /api/uploads`, through `authenticate_to_stage_upload`;
+  every other route refuses it in the Core.
 - **A save knows which Job is writing, and that is all any Operation knows of
   Jobs** (#265). `save_onto_branch` writes it on the Version's row beside the
   Access Key, folds a Job's saves into the one Version that Job wrote, and

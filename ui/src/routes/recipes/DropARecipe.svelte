@@ -21,8 +21,10 @@
 	ask only for "a recipe" where the type is empty. What was dropped is
 	judged again by its name once it is here.
 
-	More than one file is refused like anything else that is no recipe: every
-	row under the + takes one.
+	More than one file is refused like anything else that is no recipe, but
+	for photos where there is a Runner: several are the pages of one recipe
+	(#452, ADR 0055, which amends ADR 0044 for pictures), and the cover counts
+	them. A PDF or a zip among them is refused with the rest.
 
 	**On an instance with a Runner a photo of a page is taken too** (#278), and
 	a photo and a PDF go to Kamosu's AI agent, shown once on the sheet that
@@ -46,8 +48,8 @@
 
 	/** The four acts a drop can be. A photo only where there is a Runner (#278). */
 	type DropAct = Extract<Act, 'pdf' | 'file' | 'link' | 'picture'>;
-	/** What the page says while something is held over it. */
-	type Held = DropAct | 'unsure' | 'photo' | 'no';
+	/** What the page says while something is held over it. `pictures` is several photos. */
+	type Held = DropAct | 'pictures' | 'unsure' | 'photo' | 'no';
 
 	interface Props {
 		adding: Adding;
@@ -77,6 +79,10 @@
 	/** What the browser admits to, before the name is known. */
 	function held(carried: Carried): Held {
 		if (carried.link) return 'link';
+		if (carried.files.length > 1) {
+			const photos = carried.files.every((type) => sourceOf(type) === 'picture');
+			return photos ? (runner ? 'pictures' : 'photo') : 'no';
+		}
 		if (carried.files.length !== 1) return 'no';
 		const type = carried.files[0];
 		if (type === '') return 'unsure';
@@ -92,12 +98,19 @@
 			if (!url || !/^https?:\/\//i.test(url)) return undefined;
 			return { source: 'link', run: () => void adding.link(url) };
 		}
+		if (dropped.files.length > 1) {
+			const photos = dropped.files.every((file) => sourceOf(file.type, file.name) === 'picture');
+			const files = dropped.files;
+			return photos
+				? { source: 'picture', run: () => void adding.pictureChosen(files) }
+				: undefined;
+		}
 		if (dropped.files.length !== 1) return undefined;
 		const file = dropped.files[0];
 		const source = sourceOf(file.type, file.name);
 		if (source === 'pdf') return { source, run: () => void adding.pdfChosen(file) };
 		// Refused without a Runner, once that has been read again (#278).
-		if (source === 'picture') return { source, run: () => void adding.pictureChosen(file) };
+		if (source === 'picture') return { source, run: () => void adding.pictureChosen([file]) };
 		return source && { source, run: () => void adding[source](file) };
 	}
 
@@ -121,12 +134,15 @@
 
 	const showing = $derived(zone.over ? held(zone.over) : null);
 	const refuses = $derived(showing === 'photo' || showing === 'no');
+	/** How many photos are held, for the words over several. */
+	const count = $derived(zone.over?.files.length ?? 0);
 
 	const ICONS: Record<Held, string> = {
 		link: ICON.link,
 		file: ICON.file,
 		pdf: ICON.pdf,
 		picture: ICON.picture,
+		pictures: ICON.picture,
 		unsure: DRAWN.unsure,
 		photo: DRAWN.no,
 		no: DRAWN.no,
@@ -140,6 +156,7 @@
 				? [m.drop_recipes_agent_pdf, m.drop_recipes_agent_then]
 				: [m.drop_recipes_pdf, m.drop_recipes_pdf_then],
 			picture: [m.drop_recipes_picture, m.drop_recipes_agent_then],
+			pictures: [() => m.drop_recipes_pictures({ count }), m.drop_recipes_pictures_then],
 			file: [m.drop_recipes_bundle, m.drop_recipes_bundle_then],
 			link: [m.drop_recipes_link, m.drop_recipes_link_then],
 			unsure: [m.drop_recipes_unsure, takes],
@@ -155,8 +172,12 @@
 	 */
 	const waitsFor = $derived(
 		offline &&
-			(showing === 'pdf' || showing === 'file' || showing === 'link' || showing === 'picture')
-			? waitsForServer(showing, runner)
+			(showing === 'pdf' ||
+				showing === 'file' ||
+				showing === 'link' ||
+				showing === 'picture' ||
+				showing === 'pictures')
+			? waitsForServer(showing === 'pictures' ? 'picture' : showing, runner)
 			: null,
 	);
 </script>

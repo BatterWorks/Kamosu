@@ -67,7 +67,13 @@
 	const room = useRoom();
 	const kamosu = useKamosu();
 
-	const bare = $derived(pathname.startsWith('/cook/') || pathname === '/about' || story.showing);
+	// What Android's Share menu answers is a quiet page of its own too (#452).
+	const bare = $derived(
+		pathname.startsWith('/cook/') ||
+			pathname === '/about' ||
+			pathname === '/shared' ||
+			story.showing,
+	);
 
 	/**
 	 * A page somebody may be reading before they are in the app: the account

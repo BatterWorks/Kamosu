@@ -155,6 +155,8 @@ pub struct JobRecord {
     /// Why it failed: one sentence and the JSON-RPC code that carries it.
     pub error: Option<String>,
     pub error_code: Option<i64>,
+    /// Which refusal it failed with, where it has a name (`OpError::reason`).
+    pub error_reason: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -341,6 +343,9 @@ impl crate::core::Core {
                         // act as an Operator is asked of the account as it
                         // stands now (`looks_after`).
                         as_operator: crate::core::asks_as_operator(&record.input),
+                        // What a Job does was decided when it was asked for,
+                        // which is where an Add-only key is held (ADR 0055).
+                        add_only: false,
                     });
                     let invocation = Invocation {
                         // A Job Kamosu does itself was asked for by a Person
@@ -365,15 +370,19 @@ impl crate::core::Core {
                 Some(value.to_string()),
                 None,
                 None,
-            ),
-            Ok(Err(err)) => finish(
-                self,
-                job_id,
-                JobStatus::Failed,
                 None,
-                Some(err.to_sentence()),
-                Some(rpc_code(err.kind)),
             ),
+            Ok(Err(err)) => {
+                finish(
+                    self,
+                    job_id,
+                    JobStatus::Failed,
+                    None,
+                    Some(err.to_sentence()),
+                    Some(rpc_code(err.kind)),
+                    err.reason,
+                );
+            }
             // A panic is a failure like any other: reported through the same
             // Operations rather than vanishing with the request.
             Err(_) => finish(
@@ -383,6 +392,7 @@ impl crate::core::Core {
                 None,
                 Some("this Operation failed unexpectedly".to_string()),
                 Some(-32603),
+                None,
             ),
         }
     }
@@ -579,6 +589,7 @@ pub fn wait_for_agent_to_read_original_again(
     caller: &Caller,
     branch_id: &str,
     kind: OriginalKind,
+    pages: usize,
 ) -> Result<String, OpError> {
     let job_id = insert(
         conn,
@@ -587,8 +598,9 @@ pub fn wait_for_agent_to_read_original_again(
         &json!({ "source_kind": READ_AGAIN }),
     )?;
     conn.execute(
-        "INSERT INTO agent_jobs (job_id, branch_id, original) VALUES (?1, ?2, ?3)",
-        params![job_id, branch_id, kind.as_str()],
+        "INSERT INTO agent_jobs (job_id, branch_id, original, original_pages)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![job_id, branch_id, kind.as_str(), pages as i64],
     )
     .map_err(|e| OpError::internal(format!("cannot record the agent's Job: {e}")))?;
     Ok(job_id)
@@ -599,6 +611,8 @@ pub fn wait_for_agent_to_read_original_again(
 pub struct RecipesOriginal {
     pub job_id: String,
     pub kind: OriginalKind,
+    /// How many files it is: several pictures are the pages of one recipe.
+    pub pages: usize,
     pub deleted: bool,
 }
 
@@ -611,10 +625,10 @@ pub fn original_of_recipe(
     conn: &Connection,
     branch_id: &str,
 ) -> Result<Option<RecipesOriginal>, OpError> {
-    let found: Option<(String, String, bool)> = conn
+    let found: Option<(String, String, bool, i64)> = conn
         .query_row(
             "SELECT agent_jobs.job_id, agent_jobs.original,
-                    agent_jobs.original_deleted_at IS NOT NULL
+                    agent_jobs.original_deleted_at IS NOT NULL, agent_jobs.original_pages
                FROM agent_jobs
                JOIN jobs ON jobs.id = agent_jobs.job_id
                JOIN imports ON imports.id = json_extract(jobs.result, '$.import_id')
@@ -622,14 +636,15 @@ pub fn original_of_recipe(
               ORDER BY jobs.created_at DESC, jobs.rowid DESC
               LIMIT 1",
             params![branch_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read the recipe's Original: {e}")))?;
-    Ok(found.and_then(|(job_id, kind, deleted)| {
+    Ok(found.and_then(|(job_id, kind, deleted, pages)| {
         OriginalKind::named(&kind).map(|kind| RecipesOriginal {
             job_id,
             kind,
+            pages: pages as usize,
             deleted,
         })
     }))
@@ -658,6 +673,7 @@ pub struct JobOnAnOriginal {
     pub status: JobStatus,
     pub branch_id: Option<String>,
     pub kind: OriginalKind,
+    pub pages: usize,
     pub digest: Option<String>,
     pub deleted: bool,
 }
@@ -674,11 +690,13 @@ pub fn job_on_an_original(
         String,
         Option<String>,
         bool,
+        i64,
     );
     let found: Option<Row> = conn
         .query_row(
             "SELECT jobs.person_id, jobs.status, agent_jobs.branch_id, agent_jobs.original,
-                    agent_jobs.original_digest, agent_jobs.original_deleted_at IS NOT NULL
+                    agent_jobs.original_digest, agent_jobs.original_deleted_at IS NOT NULL,
+                    agent_jobs.original_pages
                FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
               WHERE jobs.id = ?1 AND agent_jobs.original IS NOT NULL",
             params![job_id],
@@ -690,18 +708,20 @@ pub fn job_on_an_original(
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
+                    row.get(6)?,
                 ))
             },
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read the Job: {e}")))?;
     Ok(
-        found.and_then(|(asker, status, branch_id, kind, digest, deleted)| {
+        found.and_then(|(asker, status, branch_id, kind, digest, deleted, pages)| {
             OriginalKind::named(&kind).map(|kind| JobOnAnOriginal {
                 asker,
                 status: JobStatus::from_column(status),
                 branch_id,
                 kind,
+                pages: pages as usize,
                 digest,
                 deleted,
             })
@@ -781,6 +801,7 @@ pub fn wait_for_agent_on_original(
     conn: &Connection,
     caller: &Caller,
     kind: OriginalKind,
+    pages: usize,
     digest: Option<&str>,
     again_of: Option<&str>,
     cookbook_id: Option<&str>,
@@ -794,8 +815,9 @@ pub fn wait_for_agent_on_original(
     }
     let job_id = insert(conn, AGENT_OPERATION, Some(caller), &input)?;
     conn.execute(
-        "INSERT INTO agent_jobs (job_id, original, original_digest) VALUES (?1, ?2, ?3)",
-        params![job_id, kind.as_str(), digest],
+        "INSERT INTO agent_jobs (job_id, original, original_digest, original_pages)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![job_id, kind.as_str(), digest, pages as i64],
     )
     .map_err(|e| OpError::internal(format!("cannot record the agent's Job: {e}")))?;
     Ok(job_id)
@@ -908,19 +930,25 @@ pub fn set_result(conn: &Connection, job_id: &str, result: &Value) -> Result<(),
     Ok(())
 }
 
-/// The kind of Original an agent's Job reads, or none where it reads a link
-/// or is no agent's Job.
-pub fn original_of(conn: &Connection, job_id: &str) -> Result<Option<OriginalKind>, OpError> {
+/// The kind of Original an agent's Job reads and how many files it is, or
+/// none where it reads a link or is no agent's Job.
+pub fn original_of(
+    conn: &Connection,
+    job_id: &str,
+) -> Result<Option<(OriginalKind, usize)>, OpError> {
     Ok(conn
         .query_row(
-            "SELECT original FROM agent_jobs WHERE job_id = ?1",
+            "SELECT original, original_pages FROM agent_jobs WHERE job_id = ?1",
             params![job_id],
-            |row| row.get::<_, Option<String>>(0),
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)?)),
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read the Job's Original: {e}")))?
-        .flatten()
-        .and_then(|name| OriginalKind::named(&name)))
+        .and_then(|(name, pages)| {
+            name.as_deref()
+                .and_then(OriginalKind::named)
+                .map(|kind| (kind, pages as usize))
+        }))
 }
 
 /// Whether an agent's Job waits or is being worked, and the recipe it is for
@@ -1205,6 +1233,8 @@ pub struct AgentWork {
     pub branch_id: Option<String>,
     pub link: Option<String>,
     pub original: Option<OriginalKind>,
+    /// How many files the Original is, in order.
+    pub original_pages: usize,
     /// The Job Key's raw Secret. Only its hash is kept, so this is the one
     /// time it is known.
     pub job_key: String,
@@ -1213,7 +1243,7 @@ pub struct AgentWork {
 
 /// A Job a Runner may be handed, as read: its id, its recipe, its link and
 /// the kind of its Original.
-type WaitingJob = (String, Option<String>, Option<String>, Option<String>);
+type WaitingJob = (String, Option<String>, Option<String>, Option<String>, i64);
 
 /// Hand the Runner holding `runner_key_id` a Job to do (ADR 0048, #262).
 ///
@@ -1242,7 +1272,8 @@ pub fn take_for_runner(
     // oldest first.
     let found: Option<WaitingJob> = conn
         .query_row(
-            "SELECT jobs.id, agent_jobs.branch_id, agent_jobs.link, agent_jobs.original
+            "SELECT jobs.id, agent_jobs.branch_id, agent_jobs.link, agent_jobs.original,
+                    agent_jobs.original_pages
                FROM agent_jobs
                JOIN jobs ON jobs.id = agent_jobs.job_id
                JOIN people ON people.id = jobs.person_id
@@ -1251,11 +1282,19 @@ pub fn take_for_runner(
               ORDER BY jobs.status = 'running' DESC, jobs.created_at, jobs.rowid
               LIMIT 1",
             params![runner_key_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .optional()
         .map_err(failed)?;
-    let Some((job_id, branch_id, link, original)) = found else {
+    let Some((job_id, branch_id, link, original, original_pages)) = found else {
         return Ok(None);
     };
     let job_key = generate_secret();
@@ -1294,6 +1333,7 @@ pub fn take_for_runner(
         branch_id,
         link,
         original: original.as_deref().and_then(OriginalKind::named),
+        original_pages: original_pages as usize,
         job_key,
         held_until,
     }))
@@ -1593,7 +1633,7 @@ pub fn read(core: &crate::core::Core, job_id: &str) -> Result<Option<JobRecord>,
         conn.prepare(
             "SELECT id, person_id, read_only, via_access_key, operation, input, status,
                         progress_done, progress_total, progress_message,
-                        result, error, error_code, created_at, updated_at
+                        result, error, error_code, created_at, updated_at, error_reason
                  FROM jobs WHERE id = ?1",
         )
         .map_err(|e| OpError::internal(format!("cannot read Job: {e}")))?
@@ -1613,7 +1653,7 @@ pub fn read_of_person(
             .prepare(
                 "SELECT id, person_id, read_only, via_access_key, operation, input, status,
                         progress_done, progress_total, progress_message,
-                        result, error, error_code, created_at, updated_at
+                        result, error, error_code, created_at, updated_at, error_reason
                  FROM jobs WHERE person_id = ?1
                  ORDER BY created_at DESC LIMIT 100",
             )
@@ -1646,6 +1686,7 @@ fn map_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<JobRecord> {
         error_code: row.get(12)?,
         created_at: row.get(13)?,
         updated_at: row.get(14)?,
+        error_reason: row.get(15)?,
     })
 }
 
@@ -1773,10 +1814,14 @@ fn finish(
     result: Option<String>,
     error: Option<String>,
     error_code: Option<i64>,
+    // Which refusal it failed with, written with the rest so that nobody
+    // reads the failure without it (`add_this` waits on it).
+    error_reason: Option<&str>,
 ) {
     let _ = core.db().with_conn(|conn| {
         conn.execute(
             "UPDATE jobs SET status = ?2, result = ?3, error = ?4, error_code = ?5,
+             error_reason = ?7,
              progress_done = CASE WHEN ?6 AND progress_total IS NOT NULL
                              THEN progress_total ELSE progress_done END,
              progress_message = CASE WHEN ?6 AND progress_total IS NOT NULL
@@ -1789,7 +1834,8 @@ fn finish(
                 result,
                 error,
                 error_code,
-                status == JobStatus::Completed
+                status == JobStatus::Completed,
+                error_reason
             ],
         )
         .map_err(|e| OpError::internal(format!("cannot finish Job: {e}")))?;

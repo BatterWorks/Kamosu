@@ -24,6 +24,7 @@
  *   recipes. Ending another device's Session leaves it.
  */
 
+import { SHARED_PATH, receiveShare } from './shared';
 import {
 	ASSETS_CACHE,
 	KEPT_HEADER,
@@ -365,6 +366,8 @@ export function createWorker(world: WorkerWorld) {
 		if (request.method === 'POST') {
 			if (path.startsWith('/api/op/'))
 				return answer(request, path.slice('/api/op/'.length), waitUntil);
+			// Something shared from Android's Share menu (#452).
+			if (path === SHARED_PATH) return receiveShare(request, toServer, world.origin, world.caches);
 			// A new Session, whoever it belongs to: nothing kept for the last one
 			// may be shown to it.
 			if (path.startsWith('/auth/')) {

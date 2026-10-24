@@ -1708,6 +1708,84 @@ describe('the + for every new recipe (#174)', () => {
 			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 		});
 
+		it('sends several photos picked together as the pages of one recipe, in order (#452)', async () => {
+			const { upload, kamosu } = shelfWithAgent({ import_by_agent: sentAs('picture') });
+			const page = (name: string) => new File(['jpeg bytes'], name, { type: 'image/jpeg' });
+			const [first, second, third, fourth] = ['p1.jpg', 'p2.jpg', 'p3.jpg', 'p4.jpg'].map(page);
+
+			await openThePlus();
+			await fireEvent.click(screen.getByRole('button', { name: /From a photo of a page/ }));
+			const field = screen.getByLabelText("Send a photo of a page to Kamosu's AI agent");
+			expect(field).toHaveAttribute('multiple');
+			await fireEvent.change(field, { target: { files: [first, second, third] } });
+
+			const sheet = await screen.findByRole('dialog', {
+				name: "Send these 3 photos to Kamosu's AI agent?",
+			});
+			expect(
+				within(sheet)
+					.getAllByRole('img')
+					.map((img) => img.getAttribute('alt')),
+			).toEqual(['Page 1', 'Page 2', 'Page 3']);
+			expect(sheet).toHaveTextContent('3 pages, in the order you picked them');
+			expect(sheet).toHaveTextContent(
+				"Kamosu's AI agent reads the pages as one recipe, in this order",
+			);
+
+			// The second taken out, and one more added at the end.
+			await fireEvent.click(within(sheet).getByRole('button', { name: 'Take out page 2' }));
+			await fireEvent.change(screen.getByLabelText('Add a page'), {
+				target: { files: [fourth] },
+			});
+			expect(sheet).toHaveTextContent('3 pages, in the order you picked them');
+			expect(upload).not.toHaveBeenCalled();
+
+			await fireEvent.click(within(sheet).getByRole('button', { name: 'Send' }));
+			await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/imports/j_agent'));
+			expect(upload.mock.calls.map((call) => ((call as unknown[])[0] as File).name)).toEqual([
+				'p1.jpg',
+				'p3.jpg',
+				'p4.jpg',
+			]);
+			expect(kamosu.calls.find((call) => call.operation === 'import_by_agent')?.input).toEqual({
+				pictures: [{ upload_id: 'u_handed' }, { upload_id: 'u_handed' }, { upload_id: 'u_handed' }],
+			});
+		});
+
+		it('says so when more photos are picked than one recipe may be (#452)', async () => {
+			shelfWithAgent();
+			await openThePlus();
+			await fireEvent.click(screen.getByRole('button', { name: /From a photo of a page/ }));
+			const twelve = Array.from(
+				{ length: 12 },
+				(_, at) => new File(['x'], `p${at}.jpg`, { type: 'image/jpeg' }),
+			);
+			await fireEvent.change(screen.getByLabelText("Send a photo of a page to Kamosu's AI agent"), {
+				target: { files: twelve },
+			});
+			const sheet = await screen.findByRole('dialog', {
+				name: "Send these 10 photos to Kamosu's AI agent?",
+			});
+			expect(within(sheet).getByRole('alert')).toHaveTextContent(
+				'One recipe is at most 10 photos, so only the first 10 are here.',
+			);
+		});
+
+		it('offers a second page under one photo, which makes it a row of pages (#452)', async () => {
+			shelfWithAgent();
+			await pick(/From a photo of a page/, "Send a photo of a page to Kamosu's AI agent", aPhoto());
+			const sheet = await screen.findByRole('dialog', {
+				name: "Send this photo to Kamosu's AI agent?",
+			});
+			expect(within(sheet).getByRole('button', { name: 'Add another page' })).toBeInTheDocument();
+			await fireEvent.change(screen.getByLabelText('Add a page'), {
+				target: { files: [aPhoto()] },
+			});
+			expect(
+				await screen.findByRole('dialog', { name: "Send these 2 photos to Kamosu's AI agent?" }),
+			).toBeInTheDocument();
+		});
+
 		it('sends nothing when Back is pressed on the sheet', async () => {
 			const { upload, kamosu } = shelfWithAgent();
 			await pick(/From a photo of a page/, "Send a photo of a page to Kamosu's AI agent", aPhoto());
@@ -2092,6 +2170,28 @@ describe('the + for every new recipe (#174)', () => {
 
 				await screen.findByRole('dialog', { name: "Send this photo to Kamosu's AI agent?" });
 				expect(kamosu.calls.some((call) => call.operation === 'import_by_agent')).toBe(false);
+			});
+
+			it('takes several photos dropped together as the pages of one recipe (#452)', async () => {
+				shelfWithAgent();
+				await screen.findByText('Chicken katsu curry');
+				const dataTransfer = carrying({ files: [aPhoto(), aPhoto(), aPhoto()] });
+
+				await fireEvent.dragEnter(document.body, { dataTransfer });
+				expect(
+					await screen.findByText("Drop to send these 3 photos to Kamosu's AI agent"),
+				).toBeInTheDocument();
+				await fireEvent.drop(document.body, { dataTransfer });
+				await screen.findByRole('dialog', { name: "Send these 3 photos to Kamosu's AI agent?" });
+			});
+
+			it('refuses a PDF dropped among photos, as anything that is no recipe', async () => {
+				shelfWithAgent();
+				await screen.findByText('Chicken katsu curry');
+				const dataTransfer = carrying({ files: [aPhoto(), aScan()] });
+				await fireEvent.dragEnter(document.body, { dataTransfer });
+				await fireEvent.drop(document.body, { dataTransfer });
+				expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 			});
 
 			it('sends a dropped PDF to the agent rather than reading it', async () => {

@@ -6,14 +6,17 @@
  * sections it names. The sections' own words did not change; this is where
  * they live, not what they say. The fifth, the Security Record, came with
  * #371 (choice A of 20 October 2026), and Import from another app, first on
- * the menu, with #412 (option B of 23 October 2026).
+ * the menu, with #412 (option B of 23 October 2026), and Share from your
+ * phone, second, with #452 (option B of 24 October 2026).
  */
 
 import { m } from '$lib/paraglide/messages';
 import { KEPT_FOR_DAYS } from '$lib/security-record';
 import { appsInBrief } from '$lib/other-apps';
+import { demo } from '$lib/demo.svelte';
 
-export type SettingsPage = 'import' | 'account' | 'device' | 'kitchens' | 'instance' | 'security';
+export type SettingsPage =
+	'import' | 'share' | 'account' | 'device' | 'kitchens' | 'instance' | 'security';
 
 export interface PageEntry {
 	page: SettingsPage;
@@ -21,6 +24,8 @@ export interface PageEntry {
 	title: () => string;
 	/** What the page holds, in one line under its name on the menu. */
 	inside: () => string;
+	/** Whether the menu offers it here, where it is not offered everywhere. */
+	offered?: () => boolean;
 }
 
 export const PAGES: PageEntry[] = [
@@ -31,6 +36,15 @@ export const PAGES: PageEntry[] = [
 		href: '/settings/import',
 		title: m.settings_import_page,
 		inside: appsInBrief,
+	},
+	// Second on the menu (#452, option B of 24 October 2026). A Demo refuses
+	// imports, so it does not offer the page (ADR 0055).
+	{
+		page: 'share',
+		href: '/settings/share',
+		title: m.settings_share_page,
+		inside: m.settings_share_inside,
+		offered: () => !demo.is,
 	},
 	{
 		page: 'account',

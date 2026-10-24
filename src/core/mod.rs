@@ -71,6 +71,7 @@ mod search;
 mod security_record;
 mod share_links;
 mod shared;
+mod sharing;
 mod sheets;
 mod shelves;
 mod shopping_list;
@@ -96,6 +97,7 @@ pub use runners::*;
 pub use search::*;
 pub use security_record::*;
 pub(crate) use shared::*;
+pub use sharing::*;
 pub use sheets::*;
 use shelves::*;
 use tags::*;
@@ -257,6 +259,11 @@ pub struct Caller {
     /// `as_operator`, and may (#302, ADR 0049). Only then does an Operator
     /// reach a recipe beyond what they see as a Person.
     pub as_operator: bool,
+    /// True when the Credential came from an Add-only key (ADR 0055).
+    /// `Core::execute` refuses a caller carrying this every Operation not
+    /// marked `add_only_key`, and every route outside the Catalogue refuses
+    /// it but staging an upload.
+    pub add_only: bool,
 }
 
 /// A Runner, known by the Runner Key it presented. It is no Person and acts as
@@ -297,6 +304,15 @@ fn nothing_here_for_a_job_key() -> OpError {
     OpError::not_found("nothing is at this address")
 }
 
+/// What an Add-only key is answered on a route outside the Catalogue, all
+/// but staging an upload (ADR 0055).
+fn nothing_here_for_an_add_only_key() -> OpError {
+    OpError::unauthorized(
+        "this route is not for an Add-only key, which may add a recipe with add_this and \
+         stage the files it reads, and nothing else",
+    )
+}
+
 /// A Runner Key was presented where only a Person may act.
 fn runner_key_out_of_place(what: &str) -> OpError {
     OpError::unauthorized(format!(
@@ -310,9 +326,17 @@ struct Session {
     secret: String,
 }
 
-/// One row `lookup_credential` can find: `(person_id, read_only, is_session,
-/// is_operator, access_key_id, session_id)`.
-type CredentialLookup = (String, bool, bool, bool, Option<String>, Option<String>);
+/// One row `lookup_credential` can find.
+struct CredentialLookup {
+    person_id: String,
+    read_only: bool,
+    is_session: bool,
+    is_operator: bool,
+    access_key_id: Option<String>,
+    session_id: Option<String>,
+    /// An Add-only key (ADR 0055).
+    add_only: bool,
+}
 
 /// One asking of an Operation: who is acting, and (when the Operation runs as a
 /// Job) the handle through which the running work reports its progress.
@@ -384,6 +408,9 @@ pub struct Core {
     /// that the Job has none to the moment the new one is made its own, so
     /// that two creates at once cannot both find it has none.
     job_key_creates: std::sync::Mutex<()>,
+    /// The Shortcut versions `add_this` serves, and how long a shared link
+    /// waits for its page (ADR 0055).
+    sharing: sharing::Sharing,
     /// The public address as last read from the database, or nothing until
     /// it is first asked for (#368). Every answer asks, to know whether it
     /// came over HTTPS and which `Origin` is the instance's own, and taking
@@ -422,6 +449,7 @@ impl Core {
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             photo_download_millis: AtomicU64::new(imports::PHOTO_DOWNLOAD_TIME.as_millis() as u64),
             job_key_creates: Default::default(),
+            sharing: Default::default(),
             public_address: Default::default(),
             #[cfg(feature = "test-jobs")]
             shelf_seed: Default::default(),
@@ -464,6 +492,7 @@ impl Core {
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             photo_download_millis: AtomicU64::new(imports::PHOTO_DOWNLOAD_TIME.as_millis() as u64),
             job_key_creates: Default::default(),
+            sharing: Default::default(),
             public_address: Default::default(),
             #[cfg(feature = "test-jobs")]
             shelf_seed: Default::default(),
@@ -534,6 +563,19 @@ impl Core {
             && op.job_key == JobKey::Never
         {
             return Err(OpError::unknown_operation(op.name));
+        }
+
+        // An Add-only key reaches the Operations marked for it and no other
+        // (ADR 0055), the ones open to anyone included, as a Job Key does.
+        if let Asker::Person(caller) = &asker
+            && caller.add_only
+            && !op.add_only_key
+        {
+            return Err(OpError::unauthorized(format!(
+                "Operation '{}' is not one an Add-only key may call: it may add a \
+                 recipe with add_this and read how that went",
+                op.name
+            )));
         }
 
         // Who is asking, against the level the Operation is declared with. A
@@ -748,24 +790,25 @@ impl Core {
         }
         self.db().with_conn(|conn| {
             conn.query_row(
-                "SELECT access_keys.person_id, access_keys.read_only, 0, people.is_operator AND access_keys.acts_as_operator, access_keys.id, NULL
+                "SELECT access_keys.person_id, access_keys.read_only, 0, people.is_operator AND access_keys.acts_as_operator, access_keys.id, NULL, access_keys.add_only
                    FROM access_keys JOIN people ON people.id = access_keys.person_id
                    WHERE access_keys.secret_hash = ?1 AND access_keys.revoked = 0 AND people.disabled = 0 AND people.deleted = 0
                  UNION ALL
-                 SELECT sessions.person_id, 0, 1, people.is_operator, NULL, sessions.id
+                 SELECT sessions.person_id, 0, 1, people.is_operator, NULL, sessions.id, 0
                    FROM sessions JOIN people ON people.id = sessions.person_id
                    WHERE sessions.secret_hash = ?1 AND sessions.revoked = 0 AND people.disabled = 0 AND people.deleted = 0
                  LIMIT 1",
                 params![hash],
                 |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                    ))
+                    Ok(CredentialLookup {
+                        person_id: row.get(0)?,
+                        read_only: row.get(1)?,
+                        is_session: row.get(2)?,
+                        is_operator: row.get(3)?,
+                        access_key_id: row.get(4)?,
+                        session_id: row.get(5)?,
+                        add_only: row.get(6)?,
+                    })
                 },
             )
             .optional()
@@ -798,10 +841,12 @@ impl Core {
     /// Person, so it is refused here whatever the route. So is a Job Key,
     /// whose reach is its list in the Catalogue and the two routes opened to
     /// it: `authenticate_to_store_photograph`, and `read_original` for its own
-    /// Job's Original.
+    /// Job's Original. An Add-only key is refused too, whose one route
+    /// outside the Catalogue is `authenticate_to_stage_upload` (ADR 0055).
     fn resolve_credential(&self, secret: &str) -> Result<Caller, OpError> {
         match self.resolve_person(secret)? {
             caller if caller.job_id.is_some() => Err(nothing_here_for_a_job_key()),
+            caller if caller.add_only => Err(nothing_here_for_an_add_only_key()),
             caller => Ok(caller),
         }
     }
@@ -822,7 +867,15 @@ impl Core {
     fn present(&self, secret: &str) -> Result<Asker, OpError> {
         let hash = hash_secret(secret);
         match self.lookup_credential(&hash)? {
-            Some((person_id, read_only, is_session, is_operator, access_key_id, session_id)) => {
+            Some(CredentialLookup {
+                person_id,
+                read_only,
+                is_session,
+                is_operator,
+                access_key_id,
+                session_id,
+                add_only,
+            }) => {
                 self.record_use(
                     if is_session {
                         "sessions"
@@ -840,6 +893,7 @@ impl Core {
                     session_id,
                     job_id: None,
                     as_operator: false,
+                    add_only,
                 }))
             }
             None => {
@@ -861,6 +915,7 @@ impl Core {
                         session_id: None,
                         job_id: Some(job_id),
                         as_operator: false,
+                        add_only: false,
                     })),
                     // Unknown, revoked or spent: the same answer each way,
                     // saying nothing about which. Marked, so the web door can
@@ -893,6 +948,8 @@ impl Core {
     ///
     /// - a Runner Key is listed the Runner's own Operations and no other;
     /// - a Job Key is listed the Operations marked for it and no other;
+    /// - an Add-only key is listed the Operations marked for it and no other
+    ///   (ADR 0055);
     /// - everyone else is listed every Operation but the Runner's, an Access
     ///   Key none that is `session_only`, and a read-only one none that
     ///   writes either (ADR 0031, #347).
@@ -904,12 +961,9 @@ impl Core {
         let credential = hash
             .as_deref()
             .and_then(|hash| self.lookup_credential(hash).ok().flatten());
-        let read_only = credential
-            .as_ref()
-            .is_some_and(|(_, read_only, _, _, _, _)| *read_only);
-        let is_access_key = credential
-            .as_ref()
-            .is_some_and(|(_, _, is_session, _, _, _)| !is_session);
+        let read_only = credential.as_ref().is_some_and(|found| found.read_only);
+        let is_access_key = credential.as_ref().is_some_and(|found| !found.is_session);
+        let add_only = credential.as_ref().is_some_and(|found| found.add_only);
         let is_runner = hash
             .as_deref()
             .is_some_and(|hash| matches!(self.lookup_runner_key(hash), Ok(Some(_))));
@@ -923,6 +977,8 @@ impl Core {
                     op.permission != Permission::Runner
                 } else if is_job_key {
                     op.job_key == JobKey::Never
+                } else if add_only {
+                    !op.add_only_key
                 } else {
                     op.permission == Permission::Runner
                         || (read_only && op.write)
@@ -974,6 +1030,28 @@ impl Core {
         Ok(caller)
     }
 
+    /// Resolve a Credential for `POST /api/uploads`, which stages a file for
+    /// an Operation to read next. It admits whoever `authenticate_for_write`
+    /// admits, and an Add-only key too, since `add_this` reads the files a
+    /// Shortcut sends there one at a time (ADR 0055). It is that key's one
+    /// route outside the Catalogue.
+    pub fn authenticate_to_stage_upload(&self, secret: Option<&str>) -> Result<Caller, OpError> {
+        let secret = secret.filter(|s| !s.is_empty()).ok_or_else(|| {
+            OpError::unauthorized("this route requires a Credential naming a Person")
+        })?;
+        let caller = match self.resolve_person(secret)? {
+            caller if caller.job_id.is_some() => return Err(nothing_here_for_a_job_key()),
+            caller => caller,
+        };
+        self.refuse_in_a_demo()?;
+        if caller.read_only {
+            return Err(OpError::unauthorized(
+                "this route writes, and this Credential is a read-only Access Key",
+            ));
+        }
+        Ok(caller)
+    }
+
     /// Resolve a Credential for `POST /api/photographs`, which is
     /// `upload_photograph` in every way but how its bytes travel. So it
     /// admits whoever that Operation admits, by that Operation's own
@@ -989,6 +1067,9 @@ impl Core {
             OpError::unauthorized("this route requires a Credential naming a Person")
         })?;
         let caller = self.resolve_person(secret)?;
+        if caller.add_only {
+            return Err(nothing_here_for_an_add_only_key());
+        }
         // Nobody stores a Photograph in a Demo, a cooking's included (#403).
         self.refuse_in_a_demo()?;
         if let Some(job_id) = &caller.job_id {
