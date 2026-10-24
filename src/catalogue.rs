@@ -2803,7 +2803,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     // Not the `mine` each entry answers with (#177).
                     "mine": {
                         "type": "boolean",
-                        "description": "Only recipes this Person created, branched or cooked: a history, not ownership. Not the same as the `mine` on each entry, which says whether their own Cookbook holds the recipe.",
+                        "description": "Only recipes this Person created, branched or cooked: a history, not ownership. Not the same as the `mine` on each entry, which says whether their own Cookbook holds the recipe. Beside `cooking`, it says instead that only their own cookings judge it, across the whole shelf.",
                     },
                     // The third filter, and the one that makes a Tag something
                     // a person can browse by rather than a word that happens to
@@ -2811,6 +2811,16 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     // narrows the shelf before the query runs, so a Tag and a
                     // search compose rather than compete.
                     "tag_id": { "type": ["string", "null"] },
+                    // How it has been cooked (#445), any of the choices held.
+                    // Held nowhere, like the others.
+                    "cooking": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["never_cooked", "cooked_unrated", "again", "tweak", "no"],
+                        },
+                        "description": "Only recipes cooked as any of these says: never cooked, cooked with no rating, or a rating word as some Person's latest rating on it. Read across everyone this Person cooks with, or across this Person alone when `mine` is true. With `mine`, the whole shelf is judged, not only their history: `never_cooked` is every recipe they have not cooked. Empty or absent filters nothing.",
+                    },
                 },
                 "additionalProperties": false,
             }),

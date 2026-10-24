@@ -18991,6 +18991,219 @@ async fn my_recipes_means_created_branched_or_cooked() {
     assert_eq!(shelf(&app, &mine_key, json!({ "mine": true })).len(), 2);
 }
 
+/// One cooking of `branch` by the holder of `key`, finished with `rating`, or
+/// left In Progress where `rating` is `None`.
+fn cook(app: &support::TestApp, key: &str, branch: &str, rating: Option<Option<&str>>) {
+    let (status, attempt) = app.post_op(
+        "start_attempt",
+        Some(key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    assert_eq!(status, 200, "{attempt}");
+    if let Some(rating) = rating {
+        let (status, finished) = app.post_op(
+            "finish_attempt",
+            Some(key),
+            &json!({ "attempt_id": attempt["result"]["id"], "rating": rating }).to_string(),
+        );
+        assert_eq!(status, 200, "{finished}");
+    }
+    // Each Person's latest rating is picked by when the cooking started, to
+    // the millisecond; two cookings in one would tie.
+    std::thread::sleep(std::time::Duration::from_millis(5));
+}
+
+/// The shelf narrowed by how it has been cooked (#445): never, cooked with no
+/// rating, or by each rating word, read across everyone the reader cooks with,
+/// or across the reader alone once `mine` is on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_shelf_filters_by_how_a_recipe_was_cooked_and_rated() {
+    let app = support::spawn_app();
+    let (_stephane, mine_key, kitchen_id) = person_with_kitchen(&app, "Stéphane");
+    let camille = app.core.create_person("Camille").expect("person");
+    let camille_key = app
+        .core
+        .mint_access_key(&camille, "browser", false)
+        .unwrap()
+        .secret;
+    let (_, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&mine_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&camille_key),
+        &json!({ "secret": invite["result"]["secret"].as_str().unwrap() }).to_string(),
+    );
+
+    // Stéphane says again and Camille says no: the two disagree.
+    let disputed = shelve(&app, &mine_key, "Disputed Dal");
+    cook(&app, &mine_key, &disputed, Some(Some("again")));
+    cook(&app, &camille_key, &disputed, Some(Some("no")));
+    // Stéphane's first verdict was no, and his latest is tweak.
+    let mended = shelve(&app, &mine_key, "Mended Miso");
+    cook(&app, &mine_key, &mended, Some(Some("no")));
+    cook(&app, &mine_key, &mended, Some(Some("tweak")));
+    // Started and never finished: a cooking all the same (ADR 0010).
+    let started = shelve(&app, &mine_key, "Started Stew");
+    cook(&app, &mine_key, &started, None);
+    // Finished without a word.
+    let silent = shelve(&app, &mine_key, "Silent Soba");
+    cook(&app, &mine_key, &silent, Some(None));
+    // Only Camille has cooked it, and she said again.
+    let hers = shelve(&app, &mine_key, "Her Hummus");
+    cook(&app, &camille_key, &hers, Some(Some("again")));
+    // Stéphane said nothing and Camille said tweak: unrated by him alone.
+    let quiet = shelve(&app, &mine_key, "Quiet Quiche");
+    cook(&app, &mine_key, &quiet, Some(None));
+    cook(&app, &camille_key, &quiet, Some(Some("tweak")));
+    let untouched = shelve(&app, &mine_key, "Untouched Udon");
+
+    // Odile cooked it while she was in the Kitchen, and has left: nobody
+    // Stéphane cooks with now, so her cooking and her verdict count for nothing.
+    let odile = app.core.create_person("Odile").expect("person");
+    let odile_key = app
+        .core
+        .mint_access_key(&odile, "browser", false)
+        .unwrap()
+        .secret;
+    let (_, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&mine_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&odile_key),
+        &json!({ "secret": invite["result"]["secret"].as_str().unwrap() }).to_string(),
+    );
+    cook(&app, &odile_key, &untouched, Some(Some("no")));
+    let (status, removed) = app.post_op(
+        "remove_kitchen_member",
+        Some(&mine_key),
+        &json!({ "kitchen_id": kitchen_id, "person_id": odile }).to_string(),
+    );
+    assert_eq!(status, 200, "{removed}");
+
+    let by = |key: &str, input: Value| -> Vec<String> {
+        let mut found: Vec<String> = titles(&shelf(&app, key, input))
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        found.sort();
+        found
+    };
+
+    // Read across everyone Stéphane cooks with.
+    assert_eq!(
+        by(&mine_key, json!({ "cooking": ["never_cooked"] })),
+        ["Untouched Udon"],
+        "Odile's cooking left with her"
+    );
+    assert_eq!(
+        by(&mine_key, json!({ "cooking": ["cooked_unrated"] })),
+        ["Silent Soba", "Started Stew"],
+        "Quiet Quiche has Camille's verdict"
+    );
+    assert_eq!(
+        by(&mine_key, json!({ "cooking": ["again"] })),
+        ["Disputed Dal", "Her Hummus"]
+    );
+    assert_eq!(
+        by(&mine_key, json!({ "cooking": ["no"] })),
+        ["Disputed Dal"],
+        "a superseded no counts no longer, and a disagreement counts both ways"
+    );
+    assert_eq!(
+        by(&mine_key, json!({ "cooking": ["tweak"] })),
+        ["Mended Miso", "Quiet Quiche"]
+    );
+    assert_eq!(
+        by(&mine_key, json!({ "cooking": ["again", "tweak"] })),
+        ["Disputed Dal", "Her Hummus", "Mended Miso", "Quiet Quiche"],
+        "two held choices answer either"
+    );
+    assert_eq!(
+        by(
+            &mine_key,
+            json!({ "cooking": ["never_cooked", "cooked_unrated"] })
+        ),
+        ["Silent Soba", "Started Stew", "Untouched Udon"]
+    );
+
+    // Read across Stéphane alone.
+    assert_eq!(
+        by(
+            &mine_key,
+            json!({ "cooking": ["never_cooked"], "mine": true })
+        ),
+        ["Her Hummus", "Untouched Udon"],
+        "every recipe he never cooked, Camille's cooking of one notwithstanding"
+    );
+    assert_eq!(
+        by(&mine_key, json!({ "cooking": ["no"], "mine": true })),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        by(&mine_key, json!({ "cooking": ["again"], "mine": true })),
+        ["Disputed Dal"]
+    );
+    assert_eq!(
+        by(&mine_key, json!({ "cooking": ["tweak"], "mine": true })),
+        ["Mended Miso"]
+    );
+    assert_eq!(
+        by(
+            &mine_key,
+            json!({ "cooking": ["cooked_unrated"], "mine": true })
+        ),
+        ["Quiet Quiche", "Silent Soba", "Started Stew"],
+        "Camille's tweak is not his"
+    );
+
+    // Camille has cooked three and written none: her own never-cooked is the
+    // other four, though Stéphane cooked three of them.
+    assert_eq!(
+        by(
+            &camille_key,
+            json!({ "cooking": ["never_cooked"], "mine": true })
+        ),
+        [
+            "Mended Miso",
+            "Silent Soba",
+            "Started Stew",
+            "Untouched Udon"
+        ]
+    );
+    assert_eq!(
+        by(&camille_key, json!({ "cooking": ["no"], "mine": true })),
+        ["Disputed Dal"]
+    );
+
+    // Nothing held is the shelf as it was, the history filter included.
+    assert_eq!(by(&mine_key, json!({ "cooking": [] })).len(), 7);
+    assert_eq!(
+        by(&camille_key, json!({ "cooking": [], "mine": true })),
+        ["Disputed Dal", "Her Hummus", "Quiet Quiche"],
+        "her history: the three she cooked"
+    );
+    assert_eq!(
+        by(&mine_key, json!({ "mine": true })).len(),
+        7,
+        "he wrote all seven"
+    );
+
+    // The choices compose with the words typed.
+    assert_eq!(
+        by(
+            &mine_key,
+            json!({ "cooking": ["again"], "query": "hummus" })
+        ),
+        ["Her Hummus"]
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nothing_found_answers_no_entries_and_the_query_it_was_asked() {
     let app = support::spawn_app();
