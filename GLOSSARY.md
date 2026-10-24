@@ -65,12 +65,16 @@ A one-use link that turns a stranger into a Person, adds a Person to a Kitchen, 
 _Avoid_: Signup, registration, join code, magic link
 
 **Access Key**:
-A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account. An Operator's Access Key acts as an ordinary Person unless it is an **Operator key**. Setting a new password through a recovery link ends every Access Key and Session the account held.
+A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only or an **Add-only key**, and never expiring. One of the sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account. An Operator's Access Key acts as an ordinary Person unless it is an **Operator key**. Setting a new password through a recovery link ends every Access Key and Session the account held.
 _Avoid_: API key, token, secret, password, Credential
 
 **Operator key**:
 An **Access Key** an Operator mints to act as an Operator too, chosen when it is minted and only from a Session. It reaches everything the Operator reaches, `as_operator` included, and acts as an ordinary Person's key for good once its Person stops being an Operator. Keys an Operator minted before Operator keys existed became ones (#369, ADR 0049).
 _Avoid_: admin key, admin token
+
+**Add-only key**:
+An **Access Key** that can only hand something to Kamosu to be added and see how that went, chosen when it is minted. It is the key a phone's Shortcut carries, so a leaked one can add recipes and never change or delete one. It also keeps whether what it adds goes to the **Agent** every time or only when Kamosu cannot read it alone (ADR 0054).
+_Avoid_: Shortcut key, inbox key, upload token, write-only key
 
 **Runner Key**:
 A **Secret** an Operator mints for a **Runner**. It can ask for a **Job**, keep hold of it and report how it ended, and nothing else. It never acts as a Person and it cannot touch a recipe (ADR 0048). Setting a new password through a recovery link ends every Runner Key that account minted, and an Operator's also ends those minted before Kamosu recorded who mints them (#378).
@@ -137,7 +141,7 @@ What an **Import** made, as a person reads it — and it does not go away when t
 _Avoid_: Log, error list, summary, receipt, job output
 
 **Original**:
-What an agent's **Job** reads when that is not a link: a PDF, a picture or pasted text. It is kept for 30 days so the recipe can be read again, and it is never part of the recipe. It is read and never shown, which is what sets it apart from a **Photograph**.
+What an agent's **Job** reads when that is not a link: a PDF, pasted text, or one or more pictures of one recipe, in order. It is kept for 30 days so the recipe can be read again, and it is never part of the recipe. It is read and never shown, which is what sets it apart from a **Photograph**.
 _Avoid_: Attachment, upload, source file, scan
 
 **Read Again**:
