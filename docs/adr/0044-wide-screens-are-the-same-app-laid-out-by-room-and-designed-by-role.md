@@ -2,6 +2,8 @@
 
 Kamosu on a tablet or a computer is the phone's app, the same installed PWA, laid out again when the window has room. There is no tablet app and no desktop app. Which layout a window gets depends on its size alone, and how much design a screen gets depends on what each device is for. Settled on 2026-09-28, in a grilling session held before any wide-screen code existed. Until then every screen was a 672px column centred in whatever window it was given.
 
+_(Amended by [ADR 0054](./0054-a-phone-shares-into-kamosu-through-one-operation-and-an-add-only-key.md), 2026-10-24: Recipes takes several pictures dropped at once, as the pages of one recipe. Any other drop of more than one file is still refused.)_
+
 ## What was decided
 
 - **One PWA everywhere.** Installed from Safari on an iPad, from Chrome on an Android tablet, and from Chrome on a computer (in a tab or as an installed app window). Native apps were never on the table once this was settled: they would bring packaging, signing and updates, and a second codebase to keep level with the Catalogue.

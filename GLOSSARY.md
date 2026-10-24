@@ -65,7 +65,7 @@ A one-use link that turns a stranger into a Person, adds a Person to a Kitchen, 
 _Avoid_: Signup, registration, join code, magic link
 
 **Access Key**:
-A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only or an **Add-only key**, and never expiring. One of the sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account. An Operator's Access Key acts as an ordinary Person unless it is an **Operator key**. Setting a new password through a recovery link ends every Access Key and Session the account held.
+A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only or add-only (an **Add-only key**), and never expiring. One of the sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account. An Operator's Access Key acts as an ordinary Person unless it is an **Operator key**. Setting a new password through a recovery link ends every Access Key and Session the account held.
 _Avoid_: API key, token, secret, password, Credential
 
 **Operator key**:
@@ -99,7 +99,7 @@ A long random string where holding it *is* the permission — a **Share Link** t
 _Avoid_: Token, key, credential, nonce, bearer token
 
 **Session**:
-The Secret a browser holds after a Person logs in, so they stay logged in. Ends when it is revoked and at no other time. The browser keeps it for 400 days, counted again each time it is used, so a device opened at least that often never forgets it (#137). A Person sees their own beside their Access Keys, each named for the device it signed in on (and renamable), marking the one in hand and showing when it was last used, and ends any of them from any device. It carries a Person's full powers, which is what keeps it distinct from an Access Key despite the shared shape.
+The Secret a browser holds after a Person logs in, so they stay logged in. Ends when it is revoked and at no other time. The browser keeps it for 400 days, counted again each time it is used, so a device opened at least that often never forgets it (#137). It also keeps whether what that device shares goes to the **Agent** every time (ADR 0054). A Person sees their own beside their Access Keys, each named for the device it signed in on (and renamable), marking the one in hand and showing when it was last used, and ends any of them from any device. It carries a Person's full powers, which is what keeps it distinct from an Access Key despite the shared shape.
 _Avoid_: Cookie, login, token, sign-in
 
 **Passkey**:

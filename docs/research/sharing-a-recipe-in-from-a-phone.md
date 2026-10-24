@@ -1,7 +1,7 @@
 # Sending a recipe into an app from the iPhone share sheet: prior art
 
 Researched 2026-10-23 for Kamosu (self-hosted, PWA, no native iOS app, imports handed to an agent).
-The question: how do other recipe apps let someone on an iPhone send a recipe in with one tap from
+The question was how other recipe apps let someone on an iPhone send a recipe in with one tap from
 Safari, Instagram, TikTok, Photos or copied text, and what does iOS allow a web app to do?
 
 Claims are cited inline. "Decoded" means I downloaded the shared shortcut from Apple's iCloud record
@@ -17,8 +17,8 @@ Share button reaches the system Share menu through "Share to…", so a Shortcut 
 1. **A web app on iOS cannot be a share target.** Safari and Home Screen web apps do not support the
    Web Share Target API (`share_target` in the manifest), as of October 2026. Mealie, Tandoor and
    RecipeSage all declare `share_target`, and it does nothing on an iPhone.
-2. **So every self-hosted app without a native iOS app uses an Apple Shortcut, and almost every one
-   of those Shortcuts was written by a user rather than the project.** The projects document it in
+2. **So the self-hosted apps without a native iOS app that offer an iPhone way in at all use an Apple
+   Shortcut, and almost every one of those Shortcuts was written by a user rather than the project.** The projects document it in
    "community guide" pages, or not at all, and the Shortcuts break whenever an endpoint moves.
 3. **Two Shortcut shapes exist**:
    - **Token shape.** The Shortcut holds an API key and calls the HTTP API itself with "Get Contents
@@ -365,7 +365,7 @@ search snippet only, not fetched).
 
 ## What this means for Kamosu (inference, not finding)
 
-- The current lean, "an iOS Shortcut that calls Kamosu's HTTP API", is the **token shape** that
+- The lean going in, "an iOS Shortcut that calls Kamosu's HTTP API", is the **token shape** that
   Mealie, Norish, Tandoor and Nextcloud Cookbook use. It is the established pattern for self-hosted
   apps with no native app, because a PWA cannot appear in the iOS share sheet.
 - The failures above share two causes. First, the shortcut lives outside the project, so an endpoint
@@ -374,8 +374,8 @@ search snippet only, not fetched).
   first by keeping one stable Operation for "an agent, read this". The second is where the
   non-technical person gets stuck.
 - The **browser shape** removes the token entirely, and Recipe Filer recommends it for exactly that
-  reason. Its cost: it opens Safari, needs a live Safari Session, and does not reach the Home Screen
-  web app. Its strength: the person sees Kamosu's own page saying what happened, in Kamosu's words
+  reason. It costs three things. It opens Safari, needs a live Safari Session, and does not reach the Home Screen
+  web app. In its favour, the person sees Kamosu's own page saying what happened, in Kamosu's words
   and languages, instead of a notification.
 - For **photos** (a cookbook page), only the token shape works, since a URL cannot carry an image.
   Mealie's shortcut is the worked example: a multipart form with one file per field, and several
