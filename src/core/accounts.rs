@@ -17,6 +17,17 @@ pub struct AccessKey {
     pub read_only: bool,
     /// Whether the Key acts as an Operator: an Operator key (#369).
     pub operator: bool,
+    /// Whether the Key may only add recipes: an Add-only key (ADR 0055).
+    pub add_only: bool,
+    /// Whether what it adds goes to the agent every time (ADR 0055).
+    pub everything_to_agent: bool,
+}
+
+/// Which of the three kinds of Access Key is minted (ADR 0055).
+enum KeyKind {
+    Ordinary { read_only: bool },
+    Operator { read_only: bool },
+    AddOnly { everything_to_agent: bool },
 }
 
 impl Core {
@@ -30,7 +41,27 @@ impl Core {
         key_name: &str,
         read_only: bool,
     ) -> Result<AccessKey, OpError> {
-        self.mint_key(None, person_id, key_name, read_only, false)
+        self.mint_key(None, person_id, key_name, KeyKind::Ordinary { read_only })
+    }
+
+    /// Mint an Add-only key (ADR 0055): the key a phone's Shortcut carries,
+    /// which may add a recipe with `add_this`, stage the files it reads and
+    /// read a Job as its Person may, and nothing else. It keeps whether
+    /// what it adds goes to the agent every time.
+    pub fn mint_add_only_key(
+        &self,
+        person_id: &str,
+        key_name: &str,
+        everything_to_agent: bool,
+    ) -> Result<AccessKey, OpError> {
+        self.mint_key(
+            None,
+            person_id,
+            key_name,
+            KeyKind::AddOnly {
+                everything_to_agent,
+            },
+        )
     }
 
     /// Mint an Operator key: an Access Key that carries its Person's powers as
@@ -44,7 +75,7 @@ impl Core {
         key_name: &str,
         read_only: bool,
     ) -> Result<AccessKey, OpError> {
-        self.mint_key(by, person_id, key_name, read_only, true)
+        self.mint_key(by, person_id, key_name, KeyKind::Operator { read_only })
     }
 
     fn mint_key(
@@ -52,9 +83,15 @@ impl Core {
         by: Option<&Caller>,
         person_id: &str,
         key_name: &str,
-        read_only: bool,
-        operator: bool,
+        kind: KeyKind,
     ) -> Result<AccessKey, OpError> {
+        let (read_only, operator, add_only, everything_to_agent) = match kind {
+            KeyKind::Ordinary { read_only } => (read_only, false, false, false),
+            KeyKind::Operator { read_only } => (read_only, true, false, false),
+            KeyKind::AddOnly {
+                everything_to_agent,
+            } => (false, false, true, everything_to_agent),
+        };
         let key_name = required_text(key_name, "name")?.to_string();
         let secret = generate_secret();
         let hash = hash_secret(&secret);
@@ -73,8 +110,8 @@ impl Core {
                 ));
             }
             conn.execute(
-                "INSERT INTO access_keys (id, secret_hash, person_id, name, read_only, acts_as_operator) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![id, hash, person_id, key_name, read_only as i64, operator as i64],
+                "INSERT INTO access_keys (id, secret_hash, person_id, name, read_only, acts_as_operator, add_only, everything_to_agent) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![id, hash, person_id, key_name, read_only as i64, operator as i64, add_only as i64, everything_to_agent as i64],
             )
             .map_err(|e| OpError::internal(format!("cannot mint access key: {e}")))?;
             Ok(())
@@ -85,6 +122,8 @@ impl Core {
             name: key_name,
             read_only,
             operator,
+            add_only,
+            everything_to_agent,
         };
         self.note_key_minted(by, person_id, &key);
         Ok(key)
@@ -96,18 +135,75 @@ impl Core {
     pub fn access_keys_of(&self, person_id: &str) -> Result<Vec<Value>, OpError> {
         self.db().with_conn(|conn| {
             let mut statement = conn.prepare(
-                "SELECT id, name, read_only, created_at, last_used_at, revoked, acts_as_operator FROM access_keys WHERE person_id = ?1 ORDER BY created_at DESC",
+                "SELECT id, name, read_only, created_at, last_used_at, revoked, acts_as_operator, add_only, everything_to_agent FROM access_keys WHERE person_id = ?1 ORDER BY created_at DESC",
             ).map_err(|e| OpError::internal(format!("cannot list Access Keys: {e}")))?;
             statement.query_map(params![person_id], |row| Ok(json!({
                 "id": row.get::<_, String>(0)?, "name": row.get::<_, String>(1)?,
                 "read_only": row.get::<_, i64>(2)? != 0,
                 "operator": row.get::<_, i64>(6)? != 0,
+                "add_only": row.get::<_, i64>(7)? != 0,
+                "everything_to_agent": row.get::<_, i64>(8)? != 0,
                 "created_at": row.get::<_, String>(3)?, "last_used_at": row.get::<_, Option<String>>(4)?,
                 "revoked": row.get::<_, i64>(5)? != 0,
             }))).map_err(|e| OpError::internal(format!("cannot read Access Keys: {e}")))?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| OpError::internal(format!("cannot read Access Keys: {e}")))
         })
+    }
+
+    /// Whether what the Credential in hand shares goes to the agent every
+    /// time, or only what Kamosu cannot read alone (ADR 0055). A Session
+    /// keeps it for its device, an Access Key for whatever holds it. A Job
+    /// Key shares nothing, and keeps nothing.
+    pub fn everything_to_agent(&self, caller: &Caller) -> Result<bool, OpError> {
+        let (table, id) = setting_row_of(caller)?;
+        self.db().with_conn(|conn| {
+            conn.query_row(
+                &format!("SELECT everything_to_agent FROM {table} WHERE id = ?1"),
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|on| on != 0)
+            .map_err(|e| OpError::internal(format!("cannot read the agent choice: {e}")))
+        })
+    }
+
+    /// Set that choice for the Credential in hand.
+    pub fn set_everything_to_agent(&self, caller: &Caller, on: bool) -> Result<(), OpError> {
+        let (table, id) = setting_row_of(caller)?;
+        self.db().with_conn(|conn| {
+            conn.execute(
+                &format!("UPDATE {table} SET everything_to_agent = ?2 WHERE id = ?1"),
+                params![id, on as i64],
+            )
+            .map_err(|e| OpError::internal(format!("cannot keep the agent choice: {e}")))?;
+            Ok(())
+        })
+    }
+
+    /// Set that choice on one of the caller's own Add-only keys, so the key
+    /// list changes it without the phone that holds it (ADR 0055). Any other
+    /// key, someone else's included, is not there.
+    pub fn set_key_everything_to_agent(
+        &self,
+        person_id: &str,
+        key_id: &str,
+        on: bool,
+    ) -> Result<(), OpError> {
+        let changed = self.db().with_conn(|conn| {
+            conn.execute(
+                "UPDATE access_keys SET everything_to_agent = ?3
+                  WHERE id = ?1 AND person_id = ?2 AND add_only = 1 AND revoked = 0",
+                params![key_id, person_id, on as i64],
+            )
+            .map_err(|e| OpError::internal(format!("cannot keep the agent choice: {e}")))
+        })?;
+        if changed == 0 {
+            return Err(OpError::not_found(
+                "no live Add-only key with that id belongs to this Person",
+            ));
+        }
+        Ok(())
     }
 
     pub fn revoke_access_key(&self, person_id: &str, key_id: &str) -> Result<(), OpError> {
@@ -1469,6 +1565,18 @@ fn new_password(password: &str) -> Result<&str, OpError> {
         )));
     }
     Ok(password)
+}
+
+/// Where the Credential in hand keeps its agent choice: its Session's row or
+/// its Access Key's.
+fn setting_row_of(caller: &Caller) -> Result<(&'static str, &str), OpError> {
+    match (&caller.session_id, &caller.access_key_id) {
+        (Some(session_id), _) => Ok(("sessions", session_id)),
+        (None, Some(key_id)) => Ok(("access_keys", key_id)),
+        (None, None) => Err(OpError::unauthorized(
+            "a Job Key shares nothing, so it keeps no agent choice",
+        )),
+    }
 }
 
 #[cfg(test)]

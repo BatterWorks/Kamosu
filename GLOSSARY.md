@@ -73,7 +73,7 @@ An **Access Key** an Operator mints to act as an Operator too, chosen when it is
 _Avoid_: admin key, admin token
 
 **Add-only key**:
-An **Access Key** that can only hand something to Kamosu to be added and see how that went, chosen when it is minted. It is the key a phone's Shortcut carries, so a leaked one can add recipes and never change or delete one. It also keeps whether what it adds goes to the **Agent** every time or only when Kamosu cannot read it alone (ADR 0054).
+An **Access Key** that can only hand something to Kamosu to be added and see how that went, chosen when it is minted. It is the key a phone's Shortcut carries, so a leaked one can add recipes and never change or delete one. It also keeps whether what it adds goes to the **Agent** every time or only when Kamosu cannot read it alone (ADR 0055).
 _Avoid_: Shortcut key, inbox key, upload token, write-only key
 
 **Runner Key**:
@@ -99,7 +99,7 @@ A long random string where holding it *is* the permission — a **Share Link** t
 _Avoid_: Token, key, credential, nonce, bearer token
 
 **Session**:
-The Secret a browser holds after a Person logs in, so they stay logged in. Ends when it is revoked and at no other time. The browser keeps it for 400 days, counted again each time it is used, so a device opened at least that often never forgets it (#137). It also keeps whether what that device shares goes to the **Agent** every time (ADR 0054). A Person sees their own beside their Access Keys, each named for the device it signed in on (and renamable), marking the one in hand and showing when it was last used, and ends any of them from any device. It carries a Person's full powers, which is what keeps it distinct from an Access Key despite the shared shape.
+The Secret a browser holds after a Person logs in, so they stay logged in. Ends when it is revoked and at no other time. The browser keeps it for 400 days, counted again each time it is used, so a device opened at least that often never forgets it (#137). It also keeps whether what that device shares goes to the **Agent** every time (ADR 0055). A Person sees their own beside their Access Keys, each named for the device it signed in on (and renamable), marking the one in hand and showing when it was last used, and ends any of them from any device. It carries a Person's full powers, which is what keeps it distinct from an Access Key despite the shared shape.
 _Avoid_: Cookie, login, token, sign-in
 
 **Passkey**:

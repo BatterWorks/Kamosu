@@ -72,7 +72,13 @@ export function say(event: SecurityEvent): Said {
 		case 'access_key_minted':
 			return {
 				line: operatorKey ? m.security_operator_key_made({ name }) : m.security_key_made({ name }),
-				under: under(detail.read_only ? m.security_reads_only() : undefined),
+				under: under(
+					detail.add_only
+						? m.security_adds_only()
+						: detail.read_only
+							? m.security_reads_only()
+							: undefined,
+				),
 				warn: false,
 			};
 		case 'access_key_ended':

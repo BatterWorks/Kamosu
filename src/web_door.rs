@@ -195,14 +195,28 @@ pub fn router(core: Arc<Core>) -> Router {
     );
     // An Original travels as its own bytes too (#269), to the one Credential
     // that may read it: its Job's own Job Key, which the Core checks.
+    // Several pictures are the pages of one recipe (ADR 0055): the first is
+    // at the Job's own address, as one picture always was, and the rest at
+    // their page's number after it.
     let original_core = core.clone();
-    router = router.route(
-        "/api/originals/{job_id}",
-        get(move |Path(job_id): Path<String>, headers: HeaderMap| {
-            let core = original_core.clone();
-            async move { get_original(core, headers, job_id).await }
-        }),
-    );
+    let page_core = core.clone();
+    router = router
+        .route(
+            "/api/originals/{job_id}",
+            get(move |Path(job_id): Path<String>, headers: HeaderMap| {
+                let core = original_core.clone();
+                async move { get_original(core, headers, job_id, 1).await }
+            }),
+        )
+        .route(
+            "/api/originals/{job_id}/{page}",
+            get(
+                move |Path((job_id, page)): Path<(String, usize)>, headers: HeaderMap| {
+                    let core = page_core.clone();
+                    async move { get_original(core, headers, job_id, page).await }
+                },
+            ),
+        );
     for op in catalogue::OPERATIONS.iter() {
         let origin_core = core.clone();
         let core = core.clone();
@@ -446,7 +460,7 @@ const MAX_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 async fn stage_upload(core: &Core, headers: &HeaderMap, body: Body) -> Response {
     let secret = bearer_from_headers(headers);
     let staged = match core
-        .authenticate_for_write(secret.as_deref())
+        .authenticate_to_stage_upload(secret.as_deref())
         .and_then(|caller| core.begin_upload(&caller.person_id))
     {
         Ok(staged) => staged,
@@ -614,12 +628,19 @@ async fn get_sheet(core: Arc<Core>, headers: HeaderMap, job_id: String) -> Respo
     }
 }
 
-/// `GET /api/originals/{job_id}`: what an agent's Job reads, for its Job Key.
+/// `GET /api/originals/{job_id}` and `/{page}`: what an agent's Job reads, for
+/// its Job Key, one page at a time.
 /// Read off the disk on the blocking pool, as a Sheet is.
-async fn get_original(core: Arc<Core>, headers: HeaderMap, job_id: String) -> Response {
+async fn get_original(
+    core: Arc<Core>,
+    headers: HeaderMap,
+    job_id: String,
+    page: usize,
+) -> Response {
     let secret = bearer_from_headers(&headers);
     let read =
-        tokio::task::spawn_blocking(move || core.read_original(secret.as_deref(), &job_id)).await;
+        tokio::task::spawn_blocking(move || core.read_original(secret.as_deref(), &job_id, page))
+            .await;
     match read {
         Ok(Ok((kind, bytes))) => (
             StatusCode::OK,

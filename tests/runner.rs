@@ -28,6 +28,8 @@ use url::Url;
 /// The stand-in agent. The pasted text it fetches as its Original says which
 /// thing it does, so that one Runner can be handed several kinds of Job:
 ///
+/// - a picture, or several: fetches every page in order, notes their sizes,
+///   and writes as `writes` does.
 /// - `writes`: creates the recipe with its Job Key, after waiting
 ///   `STAND_IN_SLEEP_S`, and leaves a report saying it completed.
 /// - `errors`: ends in an error. `silent`: ends with no report. `pipe`: leaves
@@ -64,7 +66,19 @@ for name in os.listdir("."):
     with open(name) as f:
         note("folder." + name, f.read())
 
-mode = ask(job["original"]["address"]).split(":", 1)[1].strip()
+if job["original"]["kind"] == "picture":
+    # Several pictures are the pages of one recipe, each fetched in order.
+    sizes = []
+    for page in job["original"].get("pages") or [job["original"]["address"]]:
+        request = urllib.request.Request(
+            urllib.parse.urljoin(handed["kamosu"], page),
+            headers={"Authorization": "Bearer " + key},
+        )
+        sizes.append(len(urllib.request.urlopen(request).read()))
+    note("pages", json.dumps(sizes))
+    mode = "writes"
+else:
+    mode = ask(job["original"]["address"]).split(":", 1)[1].strip()
 
 if mode == "writes":
     time.sleep(float(os.environ.get("STAND_IN_SLEEP_S", "0")))
@@ -576,6 +590,55 @@ async fn a_runner_hands_a_job_to_its_command_and_reports_what_the_agent_did() {
         "{}",
         runner.said()
     );
+}
+
+/// Three pictures handed over together reach the agent as three pages, in
+/// order, each fetched with the Job Key (#452).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agent_fetches_every_page_of_three_pictures() {
+    let app = support::spawn_app();
+    let (key, runner_key) = cook_and_runner(&app);
+    let data_dir = tempfile::tempdir().unwrap();
+    let picture = |width: u32| {
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            width,
+            40,
+            image::Rgb([200, 120, 40]),
+        ))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+        use base64::Engine;
+        json!({ "data": base64::engine::general_purpose::STANDARD.encode(png) })
+    };
+    let (status, asked) = app.post_op(
+        "import_by_agent",
+        Some(&key),
+        &json!({ "pictures": [picture(40), picture(400), picture(80)] }).to_string(),
+    );
+    assert_eq!(status, 200, "{asked}");
+    let job_id = asked["result"]["job_id"].as_str().unwrap().to_string();
+
+    let runner = start_runner(Start {
+        kamosu: format!("http://{}", app.addr),
+        runner_key: &runner_key,
+        extra_env: vec![],
+        data_dir: data_dir.path(),
+    });
+    let finished = ended(&app, &key, &job_id, &runner);
+    assert_eq!(
+        finished["status"],
+        json!("completed"),
+        "{finished}\n{}",
+        runner.said()
+    );
+    let sizes: Vec<usize> = serde_json::from_str(
+        &std::fs::read_to_string(runner.seen().join(&job_id).join("pages")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(sizes.len(), 3, "{sizes:?}");
+    // The widest is the second, as it was handed over.
+    assert!(sizes[1] > sizes[0] && sizes[1] > sizes[2], "{sizes:?}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -164,6 +164,12 @@ pub struct Operation {
     /// Whether a Job Key may call this Operation. Enforced by the Core, and
     /// the MCP door lists a Job Key no Operation marked `Never`.
     pub job_key: JobKey,
+    /// Whether an Add-only key may call this Operation (ADR 0055). Enforced by
+    /// the Core, and the MCP door lists such a key no Operation without it.
+    /// `the_add_only_keys_list_is_these_operations` in `tests/behaviour.rs`
+    /// holds the list by name, as the Job Key's is held: a phone's Shortcut
+    /// keeps its key in plain view, so this is a security boundary too.
+    pub add_only_key: bool,
     /// Whether a Demo answers this Operation. Enforced by the Core, and the
     /// MCP door lists a Demo's callers no Operation it refuses.
     pub in_demo: InDemo,
@@ -271,6 +277,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -310,6 +317,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "reading_language": { "enum": ["en", "fr", "es"] }, "reading_measures": { "enum": ["us", "metric", "as_written"] } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
@@ -331,6 +339,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -352,6 +361,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -372,6 +382,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
@@ -394,6 +405,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             // borrowed Access Key does on their behalf (ADR 0007).
             session_only: true,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -431,6 +443,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: true,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "is_operator": { "type": "boolean", "default": false } }, "additionalProperties": false }),
@@ -445,6 +458,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: true,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
@@ -462,6 +476,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: true,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
@@ -477,6 +492,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: true,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
@@ -494,6 +510,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: true,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -526,6 +543,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -547,6 +565,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -561,6 +580,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -579,6 +599,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: true,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -607,6 +628,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -643,6 +665,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "runner_key_id": { "type": "string" } }, "required": ["runner_key_id"], "additionalProperties": false }),
@@ -659,6 +682,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -690,6 +714,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -740,6 +765,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -761,6 +787,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -791,6 +818,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -831,6 +859,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -931,6 +960,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -971,6 +1001,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -1002,6 +1033,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -1018,6 +1050,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "session_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["session_id", "name"], "additionalProperties": false }),
@@ -1034,6 +1067,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             // Signing out, and only that: ending any other Session is refused.
             in_demo: InDemo::OnTheSessionInHand,
             job_lane: JobLane::ByCaller,
@@ -1046,12 +1080,18 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Mint an Access Key for an agent to act as you. You may \
                       make it read-only. An Operator may make it an Operator \
                       key, which acts as an Operator too; any other key acts \
-                      as an ordinary Person.",
+                      as an ordinary Person. Or make it an Add-only key, the \
+                      key a phone's Share menu carries: it may call add_this \
+                      and get_job and stage files at POST /api/uploads, and \
+                      nothing else. An Add-only key is neither read-only nor \
+                      an Operator key, and keeps everything_to_agent: \
+                      whether what it adds goes to the agent every time.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
             session_only: true,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -1060,6 +1100,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     "name": { "type": "string" },
                     "read_only": { "type": "boolean", "default": false },
                     "operator": { "type": "boolean", "default": false },
+                    "add_only": { "type": "boolean", "default": false },
+                    "everything_to_agent": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "For an Add-only key alone: send everything it \
+                                         adds to the agent, recipe sites too, rather than \
+                                         only what Kamosu cannot read on its own.",
+                    },
                 },
                 "required": ["name"],
                 "additionalProperties": false,
@@ -1071,9 +1119,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     "name": { "type": "string" },
                     "read_only": { "type": "boolean" },
                     "operator": { "type": "boolean" },
+                    "add_only": { "type": "boolean" },
+                    "everything_to_agent": { "type": "boolean" },
                     "secret": { "type": "string" },
                 },
-                "required": ["id", "name", "read_only", "operator", "secret"],
+                "required": ["id", "name", "read_only", "operator", "add_only", "everything_to_agent", "secret"],
                 "additionalProperties": false,
             }),
             handler: crate::operations::mint_access_key,
@@ -1081,12 +1131,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "list_access_keys",
             summary: "List this Person's Access Keys by name and last use. \
-                      Each says whether it acts as an Operator.",
+                      Each says whether it acts as an Operator, or is an \
+                      Add-only key and where what it adds goes.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -1102,11 +1154,13 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                                 "name": { "type": "string" },
                                 "read_only": { "type": "boolean" },
                                 "operator": { "type": "boolean" },
+                                "add_only": { "type": "boolean" },
+                                "everything_to_agent": { "type": "boolean" },
                                 "created_at": { "type": "string" },
                                 "last_used_at": { "type": ["string", "null"] },
                                 "revoked": { "type": "boolean" },
                             },
-                            "required": ["id", "name", "read_only", "operator", "created_at", "last_used_at", "revoked"],
+                            "required": ["id", "name", "read_only", "operator", "add_only", "everything_to_agent", "created_at", "last_used_at", "revoked"],
                             "additionalProperties": false,
                         },
                     },
@@ -1117,6 +1171,69 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::list_access_keys,
         },
         Operation {
+            name: "get_agent_choice",
+            summary: "Where what the Credential in hand shares goes. True \
+                      sends it to the agent every time, recipe sites \
+                      included; false sends only what Kamosu cannot read on \
+                      its own. A Session keeps it for \
+                      its device and an Access Key for whatever holds it. \
+                      add_this reads it.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::GoesThrough,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: agent_choice_schema(),
+            handler: crate::operations::get_agent_choice,
+        },
+        Operation {
+            name: "set_agent_choice",
+            summary: "Set where what the Credential in hand shares goes. To \
+                      the agent every time, or only what Kamosu cannot read \
+                      on its own.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::Refused,
+            job_lane: JobLane::ByCaller,
+            input_schema: agent_choice_schema(),
+            output_schema: agent_choice_schema(),
+            handler: crate::operations::set_agent_choice,
+        },
+        Operation {
+            name: "set_key_agent_choice",
+            summary: "Set where what one of your Add-only keys adds goes. \
+                      To the agent every time, or only what Kamosu cannot \
+                      read on its own, changed without the phone that holds \
+                      it.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::Refused,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "access_key_id": { "type": "string" },
+                    "everything_to_agent": { "type": "boolean" },
+                },
+                "required": ["access_key_id", "everything_to_agent"],
+                "additionalProperties": false,
+            }),
+            output_schema: agent_choice_schema(),
+            handler: crate::operations::set_key_agent_choice,
+        },
+        Operation {
             name: "revoke_access_key",
             summary: "End one of your Access Keys.",
             permission: Permission::Person,
@@ -1124,6 +1241,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "access_key_id": { "type": "string" } }, "required": ["access_key_id"], "additionalProperties": false }),
@@ -1147,6 +1265,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -1164,6 +1283,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -1189,6 +1309,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "passkey_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["passkey_id", "name"], "additionalProperties": false }),
@@ -1204,6 +1325,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "passkey_id": { "type": "string" } }, "required": ["passkey_id"], "additionalProperties": false }),
@@ -1219,6 +1341,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: true,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "password": { "type": "string" } }, "required": ["password"], "additionalProperties": false }),
@@ -1240,6 +1363,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: true,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "ceremony_id": { "type": "string" }, "credential": { "type": "string" }, "name": { "type": "string" } }, "required": ["ceremony_id", "credential", "name"], "additionalProperties": false }),
@@ -1256,6 +1380,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: true,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -1290,6 +1415,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
@@ -1304,6 +1430,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -1323,6 +1450,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["kitchen_id", "name"], "additionalProperties": false }),
@@ -1339,6 +1467,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "nickname": { "type": ["string", "null"] } }, "required": ["kitchen_id", "nickname"], "additionalProperties": false }),
@@ -1354,6 +1483,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
@@ -1369,6 +1499,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "secret": { "type": "string" } }, "required": ["secret"], "additionalProperties": false }),
@@ -1387,6 +1518,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "person_id": { "type": "string" } }, "required": ["kitchen_id", "person_id"], "additionalProperties": false }),
@@ -1403,6 +1535,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
@@ -1420,6 +1553,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "person_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
@@ -1436,6 +1570,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -1461,6 +1596,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -1510,6 +1646,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": ["string", "null"] } }, "required": ["name"], "additionalProperties": false }),
@@ -1527,6 +1664,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -1541,6 +1679,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" } }, "required": ["invite_id"], "additionalProperties": false }),
@@ -1557,6 +1696,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "secret": { "type": "string" } }, "required": ["secret"], "additionalProperties": false }),
@@ -1600,6 +1740,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "secret": { "type": "string" } }, "required": ["secret"], "additionalProperties": false }),
@@ -1618,6 +1759,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "join_id": { "type": "string" }, "yes": { "type": "boolean" } }, "required": ["join_id", "yes"], "additionalProperties": false }),
@@ -1635,6 +1777,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -1651,6 +1794,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "person_id": { "type": "string" } }, "required": ["person_id"], "additionalProperties": false }),
@@ -1667,6 +1811,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" }, "kitchen_id": ignored_kitchen_id(), "cookbook_id": landing_cookbook_id() }, "required": ["language", "name"], "additionalProperties": false }),
@@ -1686,6 +1831,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Reads,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "everywhere": { "type": "boolean" }, "kitchen_id": { "type": "string", "description": "One of your Kitchens: every word its Cookbooks file by, one entry per word." }, "cookbook_id": { "type": "string", "description": "One Cookbook you can see, or any for an Operator with as_operator: the words it files by. One you cannot see is answered as not found." } }, "additionalProperties": false }),
@@ -1707,6 +1853,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "tag_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" } }, "required": ["tag_id", "language", "name"], "additionalProperties": false }),
@@ -1723,6 +1870,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "keep_tag_id": { "type": "string" }, "merge_tag_id": { "type": "string" } }, "required": ["keep_tag_id", "merge_tag_id"], "additionalProperties": false }),
@@ -1739,6 +1887,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "tag_id": { "type": "string" } }, "required": ["tag_id"], "additionalProperties": false }),
@@ -1755,6 +1904,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::WritesItsRecipe,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "tag_id": { "type": "string" }, "carried": { "type": "boolean" } }, "required": ["branch_id", "tag_id", "carried"], "additionalProperties": false }),
@@ -1781,6 +1931,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -1829,6 +1980,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::CreatesItsRecipe,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: create_recipe_input_schema(),
@@ -1870,6 +2022,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::WritesItsRecipe,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: save_recipe_version_input_schema(),
@@ -1910,6 +2063,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::WritesItsRecipe,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: edit_recipe_input_schema(),
@@ -1930,6 +2084,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "name": { "type": "string" }, "version_id": { "type": "string" } }, "required": ["branch_id", "name"], "additionalProperties": false }),
@@ -1952,6 +2107,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "version_id": { "type": "string" } }, "required": ["branch_id", "version_id"], "additionalProperties": false }),
@@ -1974,6 +2130,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "version_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["branch_id", "version_id"], "additionalProperties": false }),
@@ -1990,6 +2147,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "name": { "type": ["string", "null"] } }, "required": ["branch_id", "name"], "additionalProperties": false }),
@@ -2017,6 +2175,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -2054,6 +2213,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             // It writes nothing, and is refused all the same: it is the start of
             // importing, and reads whatever a stranger hands it (ADR 0052).
             in_demo: InDemo::Refused,
@@ -2088,6 +2248,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             // It writes nothing, and is refused all the same: it is the start of
             // importing, and reads whatever a stranger hands it (ADR 0052).
             in_demo: InDemo::Refused,
@@ -2130,8 +2291,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       known by its contents: while your Job on it waits or is \
                       worked, the answer is that Job, and once its recipe \
                       exists the answer is that recipe as `branch_id` and \
-                      `title`, with no Job. Pasted text is never matched. No \
-                      recipe exists until the agent creates \
+                      `title`, with no Job. Pasted text is never matched. \
+                      Several pictures of one recipe go as `pictures`, in \
+                      order, and are known again by all of them in that \
+                      order. No recipe exists until the agent creates \
                       one, under your Hand. Read the Job with `get_job`: its \
                       result is the Import Report, which lists the recipe as \
                       arrived once it exists and says what the agent left \
@@ -2143,6 +2306,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -2168,6 +2332,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                         "description": "A PDF or a picture, base64-encoded, for a Door \
                                          that can send only JSON.",
                     },
+                    "pictures": pictures_input(),
                 },
                 "additionalProperties": false,
             }),
@@ -2217,6 +2382,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: start_translation_input_schema(),
@@ -2240,6 +2406,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -2281,6 +2448,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: import_input_schema(),
@@ -2304,6 +2472,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -2359,6 +2528,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             // A file can hold photos only as web addresses, which are
             // somebody else's, so this takes the lane `import_web_link` takes
@@ -2409,6 +2579,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -2513,6 +2684,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -2534,6 +2706,117 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "additionalProperties": false,
             }),
             handler: crate::operations::forget_import,
+        },
+        Operation {
+            name: "add_this",
+            summary: "Add a recipe from whatever a phone's Share menu sent. \
+                      It takes a link, text, a PDF, or one or more pictures, \
+                      the pages of one recipe in order. An agent may call it \
+                      too, rather than choose the route itself. \
+                      Kamosu decides: a link goes to Kamosu's own reader, or \
+                      to the agent where the Credential in hand sends \
+                      everything there (`get_agent_choice`), and text that \
+                      is only a link is that link. Text, pictures and a PDF \
+                      go to the agent, and are refused in the answer where \
+                      this Kamosu has none. One file that is text is text. A link already the Source of a \
+                      recipe you can see, or one of your imports still \
+                      reading, adds nothing. A link waits for its page to be \
+                      read, about 10 seconds at most; anything else answers \
+                      at once. The answer is `message`, in your Reading \
+                      Language, to show as it is, and `outcome`. A failure \
+                      later shows on the Imports screen as any import's \
+                      does. Send files to POST /api/uploads first, one per \
+                      request, and pass their ids in order as `files`. A \
+                      Shortcut sends its own `shortcut_version`, and hears \
+                      when a newer one is available.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: true,
+            in_demo: InDemo::Refused,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "link": {
+                        "type": "string",
+                        "description": "A web page or a post, as an http:// or https:// \
+                                         address.",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Text that was shared: a recipe, or a link alone.",
+                    },
+                    "files": {
+                        "type": "array",
+                        "description": "One PDF, or one or more pictures of one recipe in \
+                                         order, at most 10: each { upload_id } from POST \
+                                         /api/uploads, or { data }, base64-encoded.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "upload_id": { "type": "string" },
+                                "data": { "type": "string" },
+                            },
+                            "additionalProperties": false,
+                        },
+                    },
+                    "upload_ids": {
+                        "type": "string",
+                        "description": "The same as `files`, for a client that sends only \
+                                         flat fields, as a Shortcut does: the ids POST \
+                                         /api/uploads answered, in order, separated by \
+                                         commas.",
+                    },
+                    "shortcut_version": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The asking Shortcut's own version, which it \
+                                         sends with every call.",
+                    },
+                },
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "outcome": {
+                        "enum": ["added", "sent", "already", "not_added"],
+                        "description": "added: the recipe is on your shelf. sent: it is \
+                                         being read and arrives later. already: it was \
+                                         on your shelf, or being added, and nothing new \
+                                         was. not_added: nothing was, and message says \
+                                         why and what to do instead.",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "What to show the person who shared, in their \
+                                         Reading Language.",
+                    },
+                    "job_id": {
+                        "type": "string",
+                        "description": "The import reading it, where one was started or \
+                                         stands, as get_job reads it.",
+                    },
+                    "branch_id": {
+                        "type": "string",
+                        "description": "The recipe added, or already on your shelf.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "That recipe's name.",
+                    },
+                    "shortcut_version": {
+                        "type": "integer",
+                        "description": "The Shortcut version this Kamosu publishes now.",
+                    },
+                },
+                "required": ["outcome", "message", "shortcut_version"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::add_this,
         },
         Operation {
             name: "import_web_link",
@@ -2568,6 +2851,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::AlwaysSingle,
             input_schema: json!({
@@ -2579,6 +2863,15 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                         "description": "The recipe page's address. Fetched \
                                          through the guarded client; only \
                                          http:// and https:// are accepted.",
+                    },
+                    "refuse_unread": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Without a Runner, land nothing Kamosu cannot \
+                                         read on its own: a page with no recipe data \
+                                         fails with reason `not_read_alone`, and one \
+                                         that refused the fetch with `page_refused`. \
+                                         add_this asks this way.",
                     },
                 },
                 "required": ["url"],
@@ -2610,6 +2903,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             // The same lane `import_web_link` takes, for the same reason: the
             // address is somebody else's, and a page can ask for another.
@@ -2709,6 +3003,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -2741,6 +3036,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::StoresPhotographs,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -2777,6 +3073,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Reads,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -2847,6 +3144,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -2910,6 +3208,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -2943,6 +3242,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -2967,6 +3267,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             // a write, so no new guard was needed for that half.
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -2988,6 +3289,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -3012,6 +3314,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             // The ordinary rule: an Operator's own lane. The risk here is size,
             // not the fetch — the address is a constant in this binary, not
@@ -3045,6 +3348,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -3068,6 +3372,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -3094,6 +3399,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Reads,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3125,6 +3431,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Reads,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3157,6 +3464,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3190,6 +3498,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3213,6 +3522,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3237,6 +3547,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -3271,6 +3582,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3304,6 +3616,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3354,6 +3667,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3384,6 +3698,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3418,6 +3733,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             // Two ways in, the pair `import_crouton` already takes (#69, #93):
@@ -3458,6 +3774,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3487,6 +3804,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Reads,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3529,6 +3847,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Reads,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3566,6 +3885,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Reads,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3606,6 +3926,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::CorrectsItsReadings,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3663,6 +3984,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3710,6 +4032,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -3742,6 +4065,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -3804,6 +4128,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3837,6 +4162,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3869,6 +4195,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3905,6 +4232,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3941,6 +4269,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -3973,6 +4302,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4018,6 +4348,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: set_as_cooked_input_schema(),
@@ -4036,6 +4367,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4068,6 +4400,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4098,6 +4431,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4129,6 +4463,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -4166,6 +4501,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -4191,6 +4527,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4218,6 +4555,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4249,6 +4587,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4275,6 +4614,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4313,6 +4653,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -4336,6 +4677,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4358,6 +4700,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4385,6 +4728,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4408,6 +4752,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Reads,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -4428,6 +4773,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Reads,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "food_id": { "type": "string" } }, "required": ["food_id"], "additionalProperties": false }),
@@ -4449,6 +4795,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4474,6 +4821,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4499,6 +4847,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -4525,6 +4874,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4555,6 +4905,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4583,6 +4934,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "food_id": { "type": "string" } }, "required": ["food_id"], "additionalProperties": false }),
@@ -4603,6 +4955,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: true,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4623,6 +4976,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4655,6 +5009,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4695,7 +5050,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       what Kamosu kept of it. Kamosu deletes that 30 days \
                       after its Job ended, and then the ask is refused with \
                       reason `needs_the_file`: ask again handing the file over, \
-                      as `upload_id` or `data`, or the text as `text`. Any \
+                      as `upload_id` or `data`, several pictures as \
+                      `pictures`, or the text as `text`. Any \
                       other recipe is read from its Source link, whichever way \
                       it arrived, and takes nothing handed over. It makes a \
                       Job that waits for a Runner. Only a Co-author of the \
@@ -4719,6 +5075,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4742,6 +5099,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                                          base64-encoded, for a Door that can send only \
                                          JSON.",
                     },
+                    "pictures": pictures_input(),
                 },
                 "required": ["branch_id"],
                 "additionalProperties": false,
@@ -4783,6 +5141,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4849,6 +5208,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({
@@ -4899,6 +5259,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: false,
             session_only: false,
             job_key: JobKey::Never,
+            add_only_key: false,
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
@@ -4948,6 +5309,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         write: true,
         session_only: false,
         job_key: JobKey::Never,
+        add_only_key: false,
         in_demo: InDemo::Refused,
         job_lane: JobLane::ByCaller,
         input_schema: json!({
@@ -6354,6 +6716,40 @@ fn pasted_recipe_schema() -> Value {
 /// page was read from its own text and nothing landed, `to_check` alone. A
 /// declaration says one shape, so the Report's fields are all optional here
 /// and the description says which of the two came back.
+/// Where what one Credential shares goes (ADR 0055).
+fn pictures_input() -> Value {
+    json!({
+        "type": "array",
+        "description": "Several pictures of one recipe, its pages in order, at most \
+                         10: each { upload_id } from POST /api/uploads, or { data }, \
+                         base64-encoded. The agent reads them as one recipe.",
+        "items": {
+            "type": "object",
+            "properties": {
+                "upload_id": { "type": "string" },
+                "data": { "type": "string" },
+            },
+            "additionalProperties": false,
+        },
+    })
+}
+
+fn agent_choice_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "everything_to_agent": {
+                "type": "boolean",
+                "description": "True: everything goes to the agent, recipe sites too. \
+                                 False: Kamosu reads a recipe site itself, and the agent \
+                                 reads the rest.",
+            },
+        },
+        "required": ["everything_to_agent"],
+        "additionalProperties": false,
+    })
+}
+
 fn web_link_answer_schema() -> Value {
     let mut schema = import_report_schema();
     let mut to_check = pasted_recipe_schema();
@@ -7924,6 +8320,10 @@ fn security_record_output() -> Value {
                                 },
                                 "read_only": { "type": "boolean" },
                                 "operator": { "type": "boolean" },
+                                "add_only": {
+                                    "type": "boolean",
+                                    "description": "The key minted adds recipes and nothing else.",
+                                },
                                 "taken_away": {
                                     "type": "boolean",
                                     "description": "The House Notes were emptied.",

@@ -17,7 +17,8 @@ first, so the recipe you leave is the one they cook from.
 - `job.original`: what to read when that is not a link, or null. It is
   already fetched into this folder as `original.txt` (pasted text),
   `original.pdf`, or `original.jpg`, `original.png` or `original.webp` (a
-  picture).
+  picture). Several pictures arrive as `original-1.webp`, `original-2.webp`
+  and so on: the pages of one recipe, in order.
 - `job.branch_id`: the recipe this Job writes. When it is null, no recipe
   exists yet: create it once, with `create_recipe`, and write only that one.
 
@@ -148,9 +149,12 @@ pdftoppm -r 150 -png original.pdf page
 
 `pdftotext -layout original.pdf -` gives the text of a PDF that holds some.
 
-### A picture
+### A picture, or several
 
-Look at the picture: a cookbook page, a card or a handwritten note. Read
+Look at the picture: a cookbook page, a card or a handwritten note. Several
+pictures are the pages of **one** recipe, in the order of their numbers: a
+list of ingredients on one and the method on the next, or a recipe that runs
+over a page. Read them all before you write, and make one recipe of them. Read
 every number exactly as written. A line you cannot make out stays out of the
 recipe and goes in `unsure` or `left_undone` as you read it.
 

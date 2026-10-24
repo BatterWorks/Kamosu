@@ -2,7 +2,7 @@
 
 Kamosu's importer reads a recipe out of a page's structured data and out of nothing else. A page without that data, a picture, a scanned PDF and a video all need a model to read them, and Kamosu calls none. Settled on 2026-10-13: Kamosu ships a **Runner**, a program that runs beside it, asks it for work and has an agent do each **Job**. Kamosu itself calls no model and holds no provider's key.
 
-_(Amended by [ADR 0054](./0054-a-phone-shares-into-kamosu-through-one-operation-and-an-add-only-key.md), 2026-10-24: an Original may be several pictures of one recipe, in order, which the agent reads as one recipe.)_
+_(Amended by [ADR 0055](./0055-a-phone-shares-into-kamosu-through-one-operation-and-an-add-only-key.md), 2026-10-24: an Original may be several pictures of one recipe, in order, which the agent reads as one recipe.)_
 
 The survey behind this is in [`docs/research/ai-recipe-import-in-other-apps.md`](../research/ai-recipe-import-in-other-apps.md).
 

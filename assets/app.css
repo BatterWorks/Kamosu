@@ -422,6 +422,9 @@
   .top-0 {
     top: var(--spacing-0);
   }
+  .top-1 {
+    top: var(--spacing-1);
+  }
   .top-1\/2 {
     top: calc(1 / 2 * 100%);
   }
@@ -461,6 +464,9 @@
   .bottom-0 {
     bottom: var(--spacing-0);
   }
+  .bottom-\[6px\] {
+    bottom: 6px;
+  }
   .beside-rail {
     padding-left: var(--spacing-rail);
     & .fixed.inset-x-0 {
@@ -472,6 +478,9 @@
   }
   .left-\[-1px\] {
     left: -1px;
+  }
+  .left-\[6px\] {
+    left: 6px;
   }
   .left-\[calc\(50\%\+8px\)\] {
     left: calc(50% + 8px);
@@ -558,6 +567,9 @@
   }
   .mt-8 {
     margin-top: var(--spacing-8);
+  }
+  .mt-12 {
+    margin-top: var(--spacing-12);
   }
   .mt-\[18px\] {
     margin-top: 18px;
@@ -798,14 +810,29 @@
   .h-\[22px\] {
     height: 22px;
   }
+  .h-\[26px\] {
+    height: 26px;
+  }
   .h-\[28px\] {
     height: 28px;
+  }
+  .h-\[36px\] {
+    height: 36px;
   }
   .h-\[40px\] {
     height: 40px;
   }
+  .h-\[64px\] {
+    height: 64px;
+  }
   .h-\[72px\] {
     height: 72px;
+  }
+  .h-\[132px\] {
+    height: 132px;
+  }
+  .h-\[176px\] {
+    height: 176px;
   }
   .h-\[260px\] {
     height: 260px;
@@ -873,6 +900,9 @@
   .min-h-\[68px\] {
     min-height: 68px;
   }
+  .min-h-dvh {
+    min-height: 100dvh;
+  }
   .w-2 {
     width: var(--spacing-2);
   }
@@ -903,17 +933,32 @@
   .w-\[22px\] {
     width: 22px;
   }
+  .w-\[26px\] {
+    width: 26px;
+  }
   .w-\[28px\] {
     width: 28px;
   }
+  .w-\[36px\] {
+    width: 36px;
+  }
   .w-\[40px\] {
     width: 40px;
+  }
+  .w-\[64px\] {
+    width: 64px;
   }
   .w-\[72px\] {
     width: 72px;
   }
   .w-\[88px\] {
     width: 88px;
+  }
+  .w-\[99px\] {
+    width: 99px;
+  }
+  .w-\[132px\] {
+    width: 132px;
   }
   .w-\[300px\] {
     width: 300px;
@@ -956,6 +1001,9 @@
   .max-w-\[60vw\] {
     max-width: 60vw;
   }
+  .max-w-\[520px\] {
+    max-width: 520px;
+  }
   .max-w-\[544px\] {
     max-width: 544px;
   }
@@ -970,6 +1018,9 @@
   }
   .min-w-0 {
     min-width: var(--spacing-0);
+  }
+  .min-w-6 {
+    min-width: var(--spacing-6);
   }
   .min-w-\[88px\] {
     min-width: 88px;
@@ -1159,6 +1210,9 @@
   }
   .overflow-y-auto {
     overflow-y: auto;
+  }
+  .round-mark {
+    border-radius: 50%;
   }
   .rounded-\[50\%\] {
     border-radius: 50%;
@@ -1354,6 +1408,12 @@
     background-color: color-mix(in srgb, #1a1a1c 40%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-ink) 40%, transparent);
+    }
+  }
+  .bg-ink\/70 {
+    background-color: color-mix(in srgb, #1a1a1c 70%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-ink) 70%, transparent);
     }
   }
   .bg-on-accent {
