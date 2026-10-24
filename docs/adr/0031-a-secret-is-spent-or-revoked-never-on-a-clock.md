@@ -4,6 +4,8 @@ _(Amended by [#171](https://github.com/BatterWorks/Kamosu/issues/171), 2026-09-2
 
 _(Amended by [#373](https://github.com/BatterWorks/Kamosu/issues/373), 2026-10-19: a count of wrong passwords is forgotten an hour after its last, at every name alike. The password is not a Secret, so the title's rule is untouched.)_
 
+_(Amended by [ADR 0054](./0054-a-phone-shares-into-kamosu-through-one-operation-and-an-add-only-key.md), 2026-10-24: an **Add-only key** is a kind of Access Key chosen at minting that may call only a short list of Operations, decided once per declaration as a Job Key's are. That is not the scoping turned down in "A leaked Key is answered by visibility": it puts no wall in front of any Operation.)_
+
 Kamosu has one kind of secret and one rule for it. A **Secret** is a long random string where holding it *is* the permission — the **Share Link** token, the **Access Key**, the **Invite**, the recovery link, and the **Session** a browser holds after logging in. Every one is **256 bits from the operating system's random source, stored hashed, revocable on its own, and never on a clock**, save that a Share Link is also kept readable (#171, below). A Secret ends one of exactly two ways: it is **spent** (an Invite and a recovery link die on first use) or it is **revoked** (you turn it off). Time never kills one.
 
 The password is the sole exception, and it is not a Secret: it is short, human-chosen, and never stored — only an **Argon2id** hash of it is, tuned to roughly a tenth of a second and ~20 MB per check. Argon2id salts every password separately and stores the salt inside the hash; that is automatic and is recorded here so it is not later mistaken for an oversight.
