@@ -263,6 +263,7 @@ impl Export {
             }
             Ok(other_apps::Recipe {
                 foreign_id: crumb.foreign_id,
+                cookings: Vec::new(),
                 candidate: crumb.candidate,
                 tags: crumb.tags,
                 photo: crumb

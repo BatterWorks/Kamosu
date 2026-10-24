@@ -2334,7 +2334,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       through the same ledger `import` uses, keyed by that \
                       app's own id, so running it again matches instead of \
                       doubling. The apps it reads: Mealie (its recipe export \
-                      zip), Paprika (.paprikarecipes), Tandoor (its Default \
+                      zip, or an administrator's backup zip, which brings each \
+                      recipe's \"I Made This\" history as finished Attempts of \
+                      yours, each naming who cooked it), Paprika (.paprikarecipes), Tandoor (its Default \
                       export zip, or its Recipe Sage .json), Crouton (its \
                       library zip of .crumb files, or one .crumb), Nextcloud \
                       Cookbook (its folder of recipes as a zip), RecipeSage (its \
@@ -2344,7 +2346,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       export zip). A file it does not know, a \
                       known app's export in a shape Kamosu was not tested \
                       with, or archives nested too deep, land nothing: the \
-                      answer is then `refused` alone, with its reason. Send the \
+                      answer is then `refused` alone, with its reason. A \
+                      Mealie backup holding the recipes of several households \
+                      lands nothing until one is named: the answer is then \
+                      `which_household` alone, and the same upload is kept a \
+                      day for a second call naming one as `mealie_household`. \
+                      Send the \
                       file to POST /api/uploads and pass the `upload_id` it \
                       answers, or pass it base64-encoded as `data`.",
             permission: Permission::Person,
@@ -2373,9 +2380,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     },
                     "mealie_household": {
                         "type": "string",
-                        "description": "For a Mealie backup holding more than one \
-                                         household: which one to import. No app read \
-                                         today asks for it.",
+                        "description": "For a Mealie backup holding the recipes of \
+                                         more than one household: which one to import, \
+                                         by a `name` the `which_household` answer \
+                                         gave. Only its recipes land.",
                     },
                 },
                 "additionalProperties": false,
@@ -6321,6 +6329,49 @@ fn web_link_answer_schema() -> Value {
 /// says which of the two came back.
 fn another_app_answer_schema() -> Value {
     let mut schema = import_report_schema();
+    schema["properties"]["which_household"] = json!({
+        "type": "object",
+        "description": "Present alone when the file is a Mealie backup holding the \
+                         recipes of several households and none was named, or one it \
+                         does not hold (#418). Nothing landed: ask again with the same \
+                         `upload_id`, kept a day for it, or the same `data`, and one \
+                         household's `name` as `mealie_household`.",
+        "properties": {
+            "households": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "What to send as `mealie_household`: the \
+                                             household's name, with its group's after \
+                                             it where two groups use the same name.",
+                        },
+                        "recipes": {
+                            "type": "integer",
+                            "description": "How many of its recipes the backup holds.",
+                        },
+                        "cooks": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "The full names of the cooks in it.",
+                        },
+                    },
+                    "required": ["name", "recipes", "cooks"],
+                    "additionalProperties": false,
+                },
+            },
+            "sentence": { "type": "string" },
+            "upload_id": {
+                "type": "string",
+                "description": "The upload kept for the second call, where the file \
+                                 was sent as one.",
+            },
+        },
+        "required": ["households", "sentence"],
+        "additionalProperties": false,
+    });
     schema["properties"]["refused"] = json!({
         "type": "object",
         "description": "Present alone when the file landed nothing, and why: \
@@ -6483,7 +6534,10 @@ fn import_report_schema() -> Value {
                                  the `address` named, which was not downloaded: the \
                                  address failed, was one Kamosu does not fetch, or came \
                                  after the import's time for downloads ran out; \
-                                 `nutrition` is nutrition the app kept as free text.",
+                                 `nutrition` is nutrition the app kept as free text; \
+                                 `meal_plan_timeline` are entries the app wrote on the \
+                                 recipe's timeline from its meal plan, which say it was \
+                                 planned rather than cooked.",
                 "items": {
                     "type": "object",
                     "properties": {
@@ -6494,7 +6548,7 @@ fn import_report_schema() -> Value {
                             "enum": [
                                 "site_icon", "extra_photos", "unreadable_photos",
                                 "attached_files", "ratings", "favourites", "comments",
-                                "photos_not_downloaded", "nutrition"
+                                "photos_not_downloaded", "nutrition", "meal_plan_timeline"
                             ],
                         },
                         "count": { "type": "integer" },

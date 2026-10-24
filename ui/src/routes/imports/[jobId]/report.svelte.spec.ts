@@ -359,6 +359,7 @@ describe('the Import Report', () => {
 						{ ...dan, what: 'favourites', count: 1 },
 						{ ...ribs, what: 'ratings', count: 1 },
 						{ ...dan, what: 'ratings', count: 1 },
+						{ ...ribs, what: 'meal_plan_timeline', count: 4 },
 					],
 					left_out_of_file: [
 						{ what: 'meal_plans', count: 41 },
@@ -390,6 +391,7 @@ describe('the Import Report', () => {
 			'Attached files 2',
 			'Comments 3',
 			'Nutrition notes 1',
+			"Meal plan entries in a recipe's timeline 4",
 			'Meal plan entries 41',
 			'Shopping lists 2',
 			'Photos not in the export 6',
@@ -400,12 +402,13 @@ describe('the Import Report', () => {
 		expect(rows[2]).toHaveTextContent('Beef Short Ribs: 2 · Dan Dan Noodles: 1.');
 		expect(rows[3]).toHaveTextContent('https://example.com/dan.jpg');
 		expect(rows[6]).toHaveTextContent('Dan Dan Noodles.');
+		expect(rows[7]).toHaveTextContent('Beef Short Ribs: 4.');
 		expect(within(rows[3]).getByRole('link', { name: 'Dan Dan Noodles' })).toHaveAttribute(
 			'href',
 			'/recipes/b_dan',
 		);
 		// What belongs to the whole file names no recipe and opens to nothing.
-		for (const row of rows.slice(7)) expect(row.querySelector('details')).toBeNull();
+		for (const row of rows.slice(8)) expect(row.querySelector('details')).toBeNull();
 	});
 
 	it('names five recipes, then how many more', async () => {
@@ -421,6 +424,33 @@ describe('the Import Report', () => {
 		expect(ratings).toHaveTextContent(
 			'Recipe 0, Recipe 1, Recipe 2, Recipe 3, Recipe 4 and 7 more.',
 		);
+	});
+
+	it('asks which household a backup still waiting for one is, and brings it in (#418)', async () => {
+		const kamosu = open({
+			get_job: job({
+				operation: 'import_from_another_app',
+				progress: { done: 0, total: null, message: null },
+				result: {
+					which_household: {
+						households: [
+							{ name: 'Family', recipes: 3, cooks: ['Sam Cook'] },
+							{ name: 'Cabin', recipes: 1, cooks: ['Alex Baker'] },
+						],
+						sentence: 'which one',
+						upload_id: 'u_kept',
+					},
+				},
+			}),
+			import_from_another_app: { job_id: 'j_2' },
+		});
+		const sheet = await screen.findByRole('dialog', { name: 'Which household is yours?' });
+		expect(sheet).toHaveTextContent('Sam Cook · 3 recipes');
+		await fireEvent.click(screen.getByRole('button', { name: 'Bring in its 3 recipes' }));
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/imports/j_2'));
+		expect(
+			kamosu.calls.find((call) => call.operation === 'import_from_another_app')?.input,
+		).toEqual({ upload_id: 'u_kept', mealie_household: 'Family' });
 	});
 
 	it('draws no such section when nothing stayed behind', async () => {

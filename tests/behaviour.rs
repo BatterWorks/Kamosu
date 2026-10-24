@@ -37577,7 +37577,8 @@ mod mealie {
             content["note"],
             json!(
                 "The pizza we make every Friday.\n\nOven\nA home oven at its hottest, with the \
-                 stone heated an hour.\n\nEquipment: Pizza peel, Pizza stone."
+                 stone heated an hour.\n\nEquipment: Pizza peel, Pizza stone.\n\nTotal time: 1 \
+                 hour\n\nNutrition: protein 30"
             )
         );
         assert_eq!(
@@ -37841,24 +37842,368 @@ mod mealie {
         assert_eq!(recipes_held(&app), 13);
     }
 
+    /// Ask `import_from_another_app` about a file already staged, naming a
+    /// household or none, and answer what the Job ended with.
+    fn ask(app: &support::TestApp, key: &str, upload_id: &Value, household: Option<&str>) -> Value {
+        let mut input = json!({ "upload_id": upload_id });
+        if let Some(household) = household {
+            input["mealie_household"] = json!(household);
+        }
+        let (status, ask) = app.post_op("import_from_another_app", Some(key), &input.to_string());
+        assert_eq!(status, 200, "{ask}");
+        let finished =
+            support::wait_terminal(app, Some(key), ask["result"]["job_id"].as_str().unwrap());
+        assert_eq!(finished["status"], json!("completed"), "{finished}");
+        finished["result"].clone()
+    }
+
+    fn stage(app: &support::TestApp, key: &str, bytes: &[u8]) -> Value {
+        let (status, staged) = app.post_bytes("/api/uploads", Some(key), "application/zip", bytes);
+        assert_eq!(status, 200, "{staged}");
+        staged["result"]["upload_id"].clone()
+    }
+
+    fn staged_uploads(app: &support::TestApp) -> usize {
+        walk(&app.core.data_dir().join("uploads")).len()
+    }
+
+    /// Every file under `dir`, at any depth.
+    fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .flat_map(|entry| {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path)
+                } else {
+                    vec![path]
+                }
+            })
+            .collect()
+    }
+
+    /// The caller's diary, oldest cooking first.
+    fn diary(app: &support::TestApp, key: &str) -> Vec<Value> {
+        let (status, listed) = app.post_op("list_attempts", Some(key), "{}");
+        assert_eq!(status, 200, "{listed}");
+        let mut attempts = listed["result"]["attempts"].as_array().unwrap().clone();
+        attempts.sort_by_key(|attempt| attempt["created_at"].as_str().unwrap().to_string());
+        attempts
+    }
+
+    /// The administrator's backup holds two households, the Family's and the
+    /// Cabin's (#418): nothing lands until one is named, and then only its
+    /// recipes, with every cook's "I Made This" as the importer's Attempts.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_mealie_backup_is_not_read_as_an_export() {
+    async fn a_backup_of_two_households_asks_which_then_lands_that_ones_history() {
         let app = support::spawn_app();
         let (key, _) = operator_with_kitchen(&app);
-        let answer = import(&app, &key, "v3-backup.zip");
+        let (_, me) = app.post_op("get_person", Some(&key), "{}");
+        let person = me["result"]["person_id"].as_str().unwrap().to_string();
+        let upload_id = stage(&app, &key, &fixture("v3-backup.zip"));
+
+        let asked = ask(&app, &key, &upload_id, None);
         assert_eq!(
-            answer["refused"]["reason"],
-            json!("unrecognised"),
-            "{answer}"
-        );
-        assert!(
-            answer["refused"]["sentence"]
-                .as_str()
-                .unwrap()
-                .contains("Mealie"),
-            "{answer}"
+            asked,
+            json!({ "which_household": {
+                "households": [
+                    { "name": "Family", "recipes": 3, "cooks": ["Sam Cook"] },
+                    { "name": "Cabin", "recipes": 1, "cooks": ["Alex Baker"] },
+                ],
+                "sentence": asked["which_household"]["sentence"],
+                "upload_id": upload_id,
+            } })
         );
         assert_eq!(recipes_held(&app), 0);
+        assert_eq!(staged_uploads(&app), 1, "the upload waits for the answer");
+
+        let report = ask(&app, &key, &upload_id, Some("Family"));
+        assert_eq!(
+            staged_uploads(&app),
+            0,
+            "the upload is used once it is answered"
+        );
+        assert_eq!(report["source_kind"], json!("mealie"));
+        assert_eq!(
+            statuses(&report),
+            [
+                "Margherita pizza created",
+                "Pizza dough created",
+                "Tarte aux pommes created"
+            ]
+        );
+        assert_eq!(report["unreadable"], json!([]), "{report}");
+        assert_eq!(
+            report["left_out_of_file"],
+            json!([{ "what": "meal_plans", "count": 1 }])
+        );
+        assert_eq!(
+            left_out_of(&report, "Margherita pizza"),
+            [
+                ("extra_photos".to_string(), 1),
+                ("attached_files".to_string(), 1),
+                ("ratings".to_string(), 1),
+                ("favourites".to_string(), 1),
+                ("comments".to_string(), 2),
+            ]
+        );
+
+        // The lines read as the export of the same Mealie reads them.
+        let pizza_row = row(&report, "arrived", "Margherita pizza");
+        let pizza = recipe(&app, &key, pizza_row["branch_id"].as_str().unwrap(), None);
+        let lines: Vec<&str> = pizza["versions"][0]["content"]["ingredients"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| line["text"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "Base",
+                "1 batch Pizza dough",
+                "1 tbsp semolina for dusting",
+                "Toppings",
+                "200 g tomato passata",
+                "125 g mozzarella torn",
+                "A few basil leaves",
+                "1½ tbsp olive oil",
+            ]
+        );
+        // The dough inside the pizza is a Component, as from an export.
+        assert_eq!(
+            pizza["versions"][0]["readings"][1]["lineage_id"],
+            row(&report, "arrived", "Pizza dough")["lineage_id"]
+        );
+
+        // Both cooks made the pizza, Sam with a photo; each Attempt is the
+        // importer's, finished on the day Mealie recorded, and says who cooked.
+        let attempts = diary(&app, &key);
+        let made: Vec<(&str, &str, &str, usize)> = attempts
+            .iter()
+            .map(|attempt| {
+                (
+                    attempt["note"].as_str().unwrap(),
+                    attempt["finished_at"].as_str().unwrap(),
+                    attempt["person_id"].as_str().unwrap(),
+                    attempt["photographs"].as_array().unwrap().len(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            made,
+            [
+                (
+                    "Cooked by Sam Cook in Mealie.\n\nCrisp base, needed more salt.",
+                    "2026-10-09T19:30:00.000Z",
+                    person.as_str(),
+                    1
+                ),
+                (
+                    "Cooked by Alex Baker in Mealie.\n\nMade it at the cabin.",
+                    "2026-10-15T18:00:00.000Z",
+                    person.as_str(),
+                    0
+                ),
+            ]
+        );
+        for attempt in &attempts {
+            assert_eq!(attempt["lineage_id"], pizza_row["lineage_id"]);
+            assert_eq!(attempt["version_id"], pizza["versions"][0]["version_id"]);
+            assert_eq!(attempt["resumable"], json!(false));
+        }
+
+        // The Cabin's cake stayed in the file.
+        assert_eq!(recipes_held(&app), 3);
+    }
+
+    /// A cook who imported the export first and the backup later gets the
+    /// history added to the recipes already there, and none of them twice; a
+    /// second import of the backup adds no cooking twice.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_backup_after_the_export_adds_the_history_and_no_recipe_twice() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let exported = import(&app, &key, "v3-export.zip");
+        let pizza_id = row(&exported, "arrived", "Margherita pizza")["branch_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // The cook is halfway through the pizza in Kamosu.
+        let (status, started) = app.post_op(
+            "start_attempt",
+            Some(&key),
+            &json!({ "branch_id": pizza_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{started}");
+        let cooking = started["result"]["id"].clone();
+
+        let upload_id = stage(&app, &key, &fixture("v3-backup.zip"));
+        let report = ask(&app, &key, &upload_id, Some("Family"));
+        // The pizza bakes 7 minutes in the backup, so it is offered.
+        assert_eq!(
+            statuses(&report),
+            ["Pizza dough unchanged", "Tarte aux pommes unchanged"]
+        );
+        let offered = row(&report, "offered", "Margherita pizza");
+        assert_eq!(offered["branch_id"], json!(pizza_id));
+        assert_eq!(recipes_held(&app), 3);
+
+        let finished: Vec<Value> = diary(&app, &key)
+            .into_iter()
+            .filter(|attempt| attempt["finished_at"].is_string())
+            .collect();
+        assert_eq!(finished.len(), 2);
+        for attempt in &finished {
+            assert_eq!(attempt["version_id"], offered["candidate_version_id"]);
+        }
+        let (status, current) = app.post_op(
+            "get_current_attempt",
+            Some(&key),
+            &json!({ "lineage_id": offered["lineage_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{current}");
+        assert_eq!(current["result"]["attempt"]["id"], cooking, "{current}");
+        assert_eq!(current["result"]["attempt"]["finished_at"], Value::Null);
+
+        let upload_id = stage(&app, &key, &fixture("v3-backup.zip"));
+        let again = ask(&app, &key, &upload_id, Some("Family"));
+        assert_eq!(
+            statuses(&again),
+            ["Pizza dough unchanged", "Tarte aux pommes unchanged"]
+        );
+        assert_eq!(diary(&app, &key).len(), 3, "no cooking twice");
+        assert_eq!(recipes_held(&app), 3);
+
+        // A recipe deleted comes back with its cookings, as the ledger
+        // brings the recipe back; the old cookings stay in the diary.
+        let (status, deleted) = app.post_op(
+            "delete_recipe",
+            Some(&key),
+            &json!({ "branch_id": pizza_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{deleted}");
+        let upload_id = stage(&app, &key, &fixture("v3-backup.zip"));
+        let back = ask(&app, &key, &upload_id, Some("Family"));
+        assert!(
+            statuses(&back).contains(&"Margherita pizza created".to_string()),
+            "{back}"
+        );
+        assert_eq!(diary(&app, &key).len(), 5);
+    }
+
+    /// A backup whose recipes are all one household's is read with no
+    /// question: here Mealie's own anonymised sample of August 2022, from
+    /// before Mealie had households, whose one group is the household.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_backup_of_one_household_asks_nothing() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let report = import(&app, &key, "anonymised/backup-version-44e8d670719d-4.zip");
+        assert_eq!(report["source_kind"], json!("mealie"), "{report}");
+        assert_eq!(report["arrived"].as_array().unwrap().len(), 44);
+        assert_eq!(report["unreadable"], json!([]));
+        assert_eq!(recipes_held(&app), 44);
+    }
+
+    /// Nothing a backup holds of its users' passwords and tokens, or of the
+    /// instance's secret, reaches Kamosu: a marker planted in each is found
+    /// nowhere afterwards. The upload is gone once the import is done, and a
+    /// day after a question nobody answered.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_backups_secrets_are_never_read() {
+        use std::io::{Read, Write};
+        const MARKER: &str = "planted-secret-7f3a9c";
+
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let mut original =
+            zip::ZipArchive::new(std::io::Cursor::new(fixture("v3-backup.zip"))).unwrap();
+        let mut planted = std::io::Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut planted);
+            for index in 0..original.len() {
+                let mut entry = original.by_index(index).unwrap();
+                let name = entry.name().to_string();
+                let mut bytes = Vec::new();
+                entry.read_to_end(&mut bytes).unwrap();
+                if name == "database.json" {
+                    let mut database: Value = serde_json::from_slice(&bytes).unwrap();
+                    for user in database["users"].as_array_mut().unwrap() {
+                        user["password"] = json!(MARKER);
+                        user["cache_key"] = json!(MARKER);
+                        user["email"] = json!(format!("{MARKER}@example.com"));
+                    }
+                    database["long_live_tokens"] = json!([{
+                        "id": 1, "name": MARKER, "token": MARKER,
+                        "user_id": "57760dc4df3c42f5be3328554572d5ca",
+                    }]);
+                    database["password_reset_tokens"] = json!([{ "id": 1, "token": MARKER }]);
+                    database["invite_tokens"] = json!([{ "id": 1, "token": MARKER }]);
+                    database["recipe_share_tokens"] = json!([{ "id": MARKER }]);
+                    bytes = serde_json::to_vec(&database).unwrap();
+                }
+                if name.ends_with("secret") {
+                    bytes = MARKER.as_bytes().to_vec();
+                }
+                writer
+                    .start_file(name, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                writer.write_all(&bytes).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+        let planted = planted.into_inner();
+
+        // A question nobody answers: the upload is kept, then swept.
+        let upload_id = stage(&app, &key, &planted);
+        let asked = ask(&app, &key, &upload_id, None);
+        assert!(asked["which_household"].is_object(), "{asked}");
+        assert_eq!(staged_uploads(&app), 1);
+        for file in walk(&app.core.data_dir().join("uploads")) {
+            std::fs::File::options()
+                .write(true)
+                .open(&file)
+                .unwrap()
+                .set_modified(
+                    std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 24 * 60 * 60),
+                )
+                .unwrap();
+        }
+        assert_eq!(app.core.sweep_uploads().unwrap(), 1);
+        assert_eq!(staged_uploads(&app), 0);
+
+        // Answered, the backup lands, and the upload goes.
+        let upload_id = stage(&app, &key, &planted);
+        let report = ask(&app, &key, &upload_id, Some("Family"));
+        assert_eq!(report["arrived"].as_array().unwrap().len(), 3, "{report}");
+        assert_eq!(staged_uploads(&app), 0);
+
+        assert!(!report.to_string().contains(MARKER));
+        let (_, listed) = app.post_op("list_jobs", Some(&key), "{}");
+        assert!(!listed.to_string().contains(MARKER));
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+                    .unwrap();
+                Ok(())
+            })
+            .unwrap();
+        for file in walk(&app.core.data_dir()) {
+            let bytes = std::fs::read(&file).unwrap();
+            assert!(
+                !bytes
+                    .windows(MARKER.len())
+                    .any(|window| window == MARKER.as_bytes()),
+                "the marker is in {}",
+                file.display()
+            );
+        }
     }
 }
 

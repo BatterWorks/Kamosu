@@ -2299,7 +2299,7 @@ export type ImportOutput = {
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition" | "meal_plan_timeline";
 	}[];
 	left_out_of_file?: {
 		count: number;
@@ -2378,7 +2378,7 @@ export type ImportCroutonOutput = {
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition" | "meal_plan_timeline";
 	}[];
 	left_out_of_file?: {
 		count: number;
@@ -2415,7 +2415,7 @@ export type ImportCroutonOutput = {
 	}[];
 };
 
-/** Bring in the export file of another recipe app, as a Job. Kamosu looks inside the file, works out which app made it, and lands every recipe in your own Cookbook through the same ledger `import` uses, keyed by that app's own id, so running it again matches instead of doubling. The apps it reads: Mealie (its recipe export zip), Paprika (.paprikarecipes), Tandoor (its Default export zip, or its Recipe Sage .json), Crouton (its library zip of .crumb files, or one .crumb), Nextcloud Cookbook (its folder of recipes as a zip), RecipeSage (its JSON-LD .json), Recipya (its JSON export zip), CookCLI (its schema.org .json files, zipped together or one alone) and Bar Assistant (its JSON Schema or JSON-LD export zip). A file it does not know, a known app's export in a shape Kamosu was not tested with, or archives nested too deep, land nothing: the answer is then `refused` alone, with its reason. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+/** Bring in the export file of another recipe app, as a Job. Kamosu looks inside the file, works out which app made it, and lands every recipe in your own Cookbook through the same ledger `import` uses, keyed by that app's own id, so running it again matches instead of doubling. The apps it reads: Mealie (its recipe export zip, or an administrator's backup zip, which brings each recipe's "I Made This" history as finished Attempts of yours, each naming who cooked it), Paprika (.paprikarecipes), Tandoor (its Default export zip, or its Recipe Sage .json), Crouton (its library zip of .crumb files, or one .crumb), Nextcloud Cookbook (its folder of recipes as a zip), RecipeSage (its JSON-LD .json), Recipya (its JSON export zip), CookCLI (its schema.org .json files, zipped together or one alone) and Bar Assistant (its JSON Schema or JSON-LD export zip). A file it does not know, a known app's export in a shape Kamosu was not tested with, or archives nested too deep, land nothing: the answer is then `refused` alone, with its reason. A Mealie backup holding the recipes of several households lands nothing until one is named: the answer is then `which_household` alone, and the same upload is kept a day for a second call naming one as `mealie_household`. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 export type ImportFromAnotherAppInput = {
 	as_operator?: boolean;
 	cookbook_id?: string;
@@ -2458,7 +2458,7 @@ export type ImportFromAnotherAppOutput = {
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition" | "meal_plan_timeline";
 	}[];
 	left_out_of_file?: {
 		count: number;
@@ -2498,6 +2498,15 @@ export type ImportFromAnotherAppOutput = {
 		name?: string;
 		reason: string;
 	}[];
+	which_household?: {
+		households: {
+			cooks: string[];
+			name: string;
+			recipes: number;
+		}[];
+		sentence: string;
+		upload_id?: string;
+	};
 };
 
 /** List every Import, and what happened each time. It covers what has been brought into your Kitchens from outside. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025). */
@@ -2577,7 +2586,7 @@ export type ImportWebLinkOutput = {
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition" | "meal_plan_timeline";
 	}[];
 	left_out_of_file?: {
 		count: number;
@@ -3296,7 +3305,7 @@ export type ImportBundleOutput = {
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition" | "meal_plan_timeline";
 	}[];
 	left_out_of_file?: {
 		count: number;
@@ -17835,7 +17844,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text; `meal_plan_timeline` are entries the app wrote on the recipe's timeline from its meal plan, which say it was planned rather than cooked.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -17869,7 +17878,8 @@ export const CATALOGUE = [
 									"favourites",
 									"comments",
 									"photos_not_downloaded",
-									"nutrition"
+									"nutrition",
+									"meal_plan_timeline"
 								]
 							}
 						},
@@ -18239,7 +18249,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text; `meal_plan_timeline` are entries the app wrote on the recipe's timeline from its meal plan, which say it was planned rather than cooked.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -18273,7 +18283,8 @@ export const CATALOGUE = [
 									"favourites",
 									"comments",
 									"photos_not_downloaded",
-									"nutrition"
+									"nutrition",
+									"meal_plan_timeline"
 								]
 							}
 						},
@@ -18473,7 +18484,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "import_from_another_app",
-		"summary": "Bring in the export file of another recipe app, as a Job. Kamosu looks inside the file, works out which app made it, and lands every recipe in your own Cookbook through the same ledger `import` uses, keyed by that app's own id, so running it again matches instead of doubling. The apps it reads: Mealie (its recipe export zip), Paprika (.paprikarecipes), Tandoor (its Default export zip, or its Recipe Sage .json), Crouton (its library zip of .crumb files, or one .crumb), Nextcloud Cookbook (its folder of recipes as a zip), RecipeSage (its JSON-LD .json), Recipya (its JSON export zip), CookCLI (its schema.org .json files, zipped together or one alone) and Bar Assistant (its JSON Schema or JSON-LD export zip). A file it does not know, a known app's export in a shape Kamosu was not tested with, or archives nested too deep, land nothing: the answer is then `refused` alone, with its reason. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
+		"summary": "Bring in the export file of another recipe app, as a Job. Kamosu looks inside the file, works out which app made it, and lands every recipe in your own Cookbook through the same ledger `import` uses, keyed by that app's own id, so running it again matches instead of doubling. The apps it reads: Mealie (its recipe export zip, or an administrator's backup zip, which brings each recipe's \"I Made This\" history as finished Attempts of yours, each naming who cooked it), Paprika (.paprikarecipes), Tandoor (its Default export zip, or its Recipe Sage .json), Crouton (its library zip of .crumb files, or one .crumb), Nextcloud Cookbook (its folder of recipes as a zip), RecipeSage (its JSON-LD .json), Recipya (its JSON export zip), CookCLI (its schema.org .json files, zipped together or one alone) and Bar Assistant (its JSON Schema or JSON-LD export zip). A file it does not know, a known app's export in a shape Kamosu was not tested with, or archives nested too deep, land nothing: the answer is then `refused` alone, with its reason. A Mealie backup holding the recipes of several households lands nothing until one is named: the answer is then `which_household` alone, and the same upload is kept a day for a second call naming one as `mealie_household`. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
@@ -18492,7 +18503,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"mealie_household": {
-					"description": "For a Mealie backup holding more than one household: which one to import. No app read today asks for it.",
+					"description": "For a Mealie backup holding the recipes of more than one household: which one to import, by a `name` the `which_household` answer gave. Only its recipes land.",
 					"type": "string"
 				},
 				"upload_id": {
@@ -18647,7 +18658,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text; `meal_plan_timeline` are entries the app wrote on the recipe's timeline from its meal plan, which say it was planned rather than cooked.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -18681,7 +18692,8 @@ export const CATALOGUE = [
 									"favourites",
 									"comments",
 									"photos_not_downloaded",
-									"nutrition"
+									"nutrition",
+									"meal_plan_timeline"
 								]
 							}
 						},
@@ -18889,6 +18901,53 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"which_household": {
+					"additionalProperties": false,
+					"description": "Present alone when the file is a Mealie backup holding the recipes of several households and none was named, or one it does not hold (#418). Nothing landed: ask again with the same `upload_id`, kept a day for it, or the same `data`, and one household's `name` as `mealie_household`.",
+					"properties": {
+						"households": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"cooks": {
+										"description": "The full names of the cooks in it.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"name": {
+										"description": "What to send as `mealie_household`: the household's name, with its group's after it where two groups use the same name.",
+										"type": "string"
+									},
+									"recipes": {
+										"description": "How many of its recipes the backup holds.",
+										"type": "integer"
+									}
+								},
+								"required": [
+									"name",
+									"recipes",
+									"cooks"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"sentence": {
+							"type": "string"
+						},
+						"upload_id": {
+							"description": "The upload kept for the second call, where the file was sent as one.",
+							"type": "string"
+						}
+					},
+					"required": [
+						"households",
+						"sentence"
+					],
+					"type": "object"
 				}
 			},
 			"required": [],
@@ -19236,7 +19295,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text; `meal_plan_timeline` are entries the app wrote on the recipe's timeline from its meal plan, which say it was planned rather than cooked.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -19270,7 +19329,8 @@ export const CATALOGUE = [
 									"favourites",
 									"comments",
 									"photos_not_downloaded",
-									"nutrition"
+									"nutrition",
+									"meal_plan_timeline"
 								]
 							}
 						},
@@ -22860,7 +22920,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text; `meal_plan_timeline` are entries the app wrote on the recipe's timeline from its meal plan, which say it was planned rather than cooked.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -22894,7 +22954,8 @@ export const CATALOGUE = [
 									"favourites",
 									"comments",
 									"photos_not_downloaded",
-									"nutrition"
+									"nutrition",
+									"meal_plan_timeline"
 								]
 							}
 						},
@@ -35842,7 +35903,7 @@ export interface KamosuClient {
 	import(input: ImportInput): Promise<Answer<'import'>>;
 	/** Bring in a Crouton library, as a Job. It takes the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your own Cookbook through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 	importCrouton(input: ImportCroutonInput): Promise<Answer<'import_crouton'>>;
-	/** Bring in the export file of another recipe app, as a Job. Kamosu looks inside the file, works out which app made it, and lands every recipe in your own Cookbook through the same ledger `import` uses, keyed by that app's own id, so running it again matches instead of doubling. The apps it reads: Mealie (its recipe export zip), Paprika (.paprikarecipes), Tandoor (its Default export zip, or its Recipe Sage .json), Crouton (its library zip of .crumb files, or one .crumb), Nextcloud Cookbook (its folder of recipes as a zip), RecipeSage (its JSON-LD .json), Recipya (its JSON export zip), CookCLI (its schema.org .json files, zipped together or one alone) and Bar Assistant (its JSON Schema or JSON-LD export zip). A file it does not know, a known app's export in a shape Kamosu was not tested with, or archives nested too deep, land nothing: the answer is then `refused` alone, with its reason. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+	/** Bring in the export file of another recipe app, as a Job. Kamosu looks inside the file, works out which app made it, and lands every recipe in your own Cookbook through the same ledger `import` uses, keyed by that app's own id, so running it again matches instead of doubling. The apps it reads: Mealie (its recipe export zip, or an administrator's backup zip, which brings each recipe's "I Made This" history as finished Attempts of yours, each naming who cooked it), Paprika (.paprikarecipes), Tandoor (its Default export zip, or its Recipe Sage .json), Crouton (its library zip of .crumb files, or one .crumb), Nextcloud Cookbook (its folder of recipes as a zip), RecipeSage (its JSON-LD .json), Recipya (its JSON export zip), CookCLI (its schema.org .json files, zipped together or one alone) and Bar Assistant (its JSON Schema or JSON-LD export zip). A file it does not know, a known app's export in a shape Kamosu was not tested with, or archives nested too deep, land nothing: the answer is then `refused` alone, with its reason. A Mealie backup holding the recipes of several households lands nothing until one is named: the answer is then `which_household` alone, and the same upload is kept a day for a second call naming one as `mealie_household`. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 	importFromAnotherApp(input: ImportFromAnotherAppInput): Promise<Answer<'import_from_another_app'>>;
 	/** List every Import, and what happened each time. It covers what has been brought into your Kitchens from outside. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025). */
 	listImports(input?: ListImportsInput): Promise<Answer<'list_imports'>>;

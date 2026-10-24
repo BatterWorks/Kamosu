@@ -30,6 +30,7 @@ use serde_json::{Value, json};
 /// The readers, asked in this order. Each later ticket of #411 adds its app.
 pub static READERS: &[&dyn Reader] = &[
     &crate::mealie::Mealie,
+    &crate::mealie_backup::MealieBackup,
     &crate::paprika::Paprika,
     &crate::tandoor::Tandoor,
     &crate::crouton::Crouton,
@@ -43,6 +44,9 @@ pub static READERS: &[&dyn Reader] = &[
 /// What a cook handed over, which each reader opens afresh to look inside.
 pub struct Handed {
     source: HandedSource,
+    /// The Mealie household the cook chose, for a backup holding several
+    /// (#418).
+    household: Option<String>,
 }
 
 enum HandedSource {
@@ -58,6 +62,7 @@ impl Handed {
     pub fn file(path: PathBuf) -> Self {
         Handed {
             source: HandedSource::File(path),
+            household: None,
         }
     }
 
@@ -65,7 +70,19 @@ impl Handed {
     pub fn bytes(bytes: Vec<u8>) -> Self {
         Handed {
             source: HandedSource::Bytes(Arc::new(bytes)),
+            household: None,
         }
+    }
+
+    /// The same file, with the household the cook chose in it (#418).
+    pub fn in_household(mut self, household: Option<&str>) -> Self {
+        self.household = household.map(str::to_string);
+        self
+    }
+
+    /// The household the cook chose, where they chose one.
+    pub fn household(&self) -> Option<&str> {
+        self.household.as_deref()
     }
 
     /// The file from its first byte.
@@ -233,6 +250,27 @@ pub enum Refusal {
     UntestedShape { app: &'static str },
     /// The file nests archives deeper than [`MOST_NESTED`].
     NestedTooDeep,
+    /// A Mealie backup holding recipes of several households, none of them
+    /// chosen, or one it does not hold (#418). Nothing is refused for good:
+    /// the answer names them, and the same file comes in once one is.
+    WhichHousehold(Vec<Household>),
+}
+
+/// One household of a Mealie backup, as the cook chooses between them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Household {
+    /// What the cook names it by, and calls again with.
+    pub name: String,
+    /// How many of its recipes the file holds.
+    pub recipes: usize,
+    /// The full names of the cooks in it, as Mealie keeps them.
+    pub cooks: Vec<String>,
+}
+
+impl Household {
+    pub fn to_value(&self) -> Value {
+        json!({ "name": self.name, "recipes": self.recipes, "cooks": self.cooks })
+    }
 }
 
 impl Refusal {
@@ -241,6 +279,7 @@ impl Refusal {
             Refusal::Unrecognised => "unrecognised",
             Refusal::UntestedShape { .. } => "untested_shape",
             Refusal::NestedTooDeep => "nested_too_deep",
+            Refusal::WhichHousehold(_) => "which_household",
         }
     }
 
@@ -263,6 +302,23 @@ impl Refusal {
                 "this file holds archives nested more than {MOST_NESTED} deep, which no app's \
                  export does, so it was not unpacked and nothing was imported"
             ),
+            Refusal::WhichHousehold(households) => format!(
+                "this Mealie backup holds the recipes of {} households, so nothing was imported \
+                 yet: import the same file again, naming one of them as mealie_household",
+                households.len()
+            ),
+        }
+    }
+
+    /// What `import_from_another_app` answers: `which_household` alone for a
+    /// backup whose household is to be chosen, and `refused` alone otherwise.
+    pub fn answer(&self) -> Value {
+        match self {
+            Refusal::WhichHousehold(households) => json!({ "which_household": {
+                "households": households.iter().map(Household::to_value).collect::<Vec<_>>(),
+                "sentence": self.sentence(),
+            } }),
+            _ => json!({ "refused": self.to_value() }),
         }
     }
 
@@ -291,6 +347,8 @@ pub struct Export {
 pub struct Recipe {
     /// What the app calls it, the ledger's key.
     pub foreign_id: String,
+    /// Each time somebody cooked it, as the app recorded it (#418).
+    pub cookings: Vec<Cooking>,
     /// Recipe content in the shape `create_recipe` accepts, `main_photo` absent:
     /// storing the photo is the Core's work.
     pub candidate: Value,
@@ -306,6 +364,18 @@ pub struct Recipe {
     /// Components once the whole file has landed (#413).
     pub components: Vec<Component>,
     pub left_out: Vec<LeftOut>,
+}
+
+/// A cooking the app recorded, which lands as a finished Attempt of the
+/// importing Person (#418, ADR 0053).
+pub struct Cooking {
+    /// What the app calls the record, so a second import adds none twice.
+    pub foreign_id: String,
+    /// When it was cooked, as the app wrote it; the Core reads it as a time.
+    pub cooked_at: String,
+    /// The Attempt's note, which begins by naming who cooked it.
+    pub note: String,
+    pub photo: Option<Vec<u8>>,
 }
 
 /// A picture the app placed in one Step.
@@ -396,10 +466,11 @@ pub enum LeftOut {
     UnreadablePhotos(usize),
     /// Files the app kept beside the recipe that are not its photos.
     AttachedFiles(usize),
-    /// A score the app kept, which no cooking in Kamosu stands behind.
-    Rating,
-    /// The app's favourite mark.
-    Favourite,
+    /// Scores the app kept, which no cooking in Kamosu stands behind: one,
+    /// or one for each cook who scored it (#418).
+    Ratings(usize),
+    /// The app's favourite marks, one for each cook who set one.
+    Favourites(usize),
     /// Comments people wrote on the recipe in the app.
     Comments(usize),
     /// A Main Photo the file holds only as an address, which was not downloaded.
@@ -407,6 +478,9 @@ pub enum LeftOut {
     /// Nutrition the app kept as free text, which Kamosu cannot be sure of a
     /// number in (#414).
     Nutrition,
+    /// Entries the app wrote on the recipe's timeline from its meal plan,
+    /// which say it was planned, not that anyone cooked it (#418).
+    MealPlanTimeline(usize),
 }
 
 /// Something the whole file held that belongs to no recipe, named in the

@@ -42,6 +42,8 @@
 		ImportFromAnotherAppOutput,
 	} from '$lib/api/catalogue';
 	import RefusedExport from '$lib/RefusedExport.svelte';
+	import WhichHousehold from '$lib/WhichHousehold.svelte';
+	import { goto } from '$app/navigation';
 	import { appNamed } from '$lib/other-apps';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Section from '$lib/shell/Section.svelte';
@@ -130,7 +132,7 @@
 	 */
 	const report = $derived.by(() => {
 		const result = job?.result as Report | undefined;
-		if (job?.status === 'completed') return refused ? undefined : result;
+		if (job?.status === 'completed') return refused || asking ? undefined : result;
 		if (job?.status === 'failed' && holdsAReport(job)) return result;
 		return undefined;
 	});
@@ -141,6 +143,37 @@
 			? (job.result as ImportFromAnotherAppOutput | null)?.refused
 			: undefined,
 	);
+	/**
+	 * A Mealie backup of several households, whose Job ended asking which
+	 * (#418): the import page's sheet, risen here for a cook who came by the
+	 * last import's link or after the page stopped waiting.
+	 */
+	const asking = $derived(
+		job?.status === 'completed'
+			? (job.result as ImportFromAnotherAppOutput | null)?.which_household
+			: undefined,
+	);
+	let choosing = $state(false);
+	let choiceFailed = $state<string | undefined>(undefined);
+
+	async function chooseHousehold(household: string) {
+		if (!asking?.upload_id) return;
+		choosing = true;
+		choiceFailed = undefined;
+		try {
+			const asked = await kamosu.importFromAnotherApp({
+				upload_id: asking.upload_id,
+				mealie_household: household,
+			});
+			await goto(`/imports/${asked.job_id}`);
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			choiceFailed = error.message;
+		} finally {
+			choosing = false;
+		}
+	}
+
 	/**
 	 * This Report is an agent's own Import (#269, #272). Its Job carries the
 	 * Report from the start, naming what was handed over, so the page is
@@ -225,6 +258,8 @@
 		{ what: 'attached_files', label: m.report_stayed_attached_files, each: true },
 		{ what: 'comments', label: m.report_stayed_comments, each: true },
 		{ what: 'nutrition', label: m.report_stayed_nutrition },
+		// Mealie's backup (#418): planned, which is not cooked.
+		{ what: 'meal_plan_timeline', label: m.report_stayed_meal_plan_timeline, each: true },
 	];
 	const OF_THE_FILE: Record<OfTheFile, () => string> = {
 		meal_plans: m.report_stayed_meal_plans,
@@ -388,7 +423,9 @@
 	);
 	/** An import from another app before it knows which, or one turned away. */
 	const unnamedExport = $derived(
-		refused !== undefined || (job?.operation === 'import_from_another_app' && !source),
+		refused !== undefined ||
+			asking !== undefined ||
+			(job?.operation === 'import_from_another_app' && !source),
 	);
 	const TITLED: Record<string, () => string> = {
 		bundle: () => m.report_title_file(),
@@ -679,6 +716,19 @@
 		</Section>
 	{:else if refused}
 		<div class="mt-4"><RefusedExport {refused} {panel} /></div>
+	{:else if asking}
+		{#if choiceFailed}
+			<p class={['mt-4 border-l-3 border-support px-3 py-2 text-body', panel]} role="alert">
+				<Refusal words={choiceFailed} />
+			</p>
+		{/if}
+		{#if asking.upload_id && !choosing && !choiceFailed}
+			<WhichHousehold
+				households={asking.households}
+				choose={(household) => void chooseHousehold(household)}
+				close={() => void goto('/settings/import')}
+			/>
+		{/if}
 	{:else if !report}
 		<p class={['mt-4 border-l-3 border-support px-3 py-2 text-body', panel]} role="alert">
 			{m.report_stopped({ reason: job.error ?? job.status })}

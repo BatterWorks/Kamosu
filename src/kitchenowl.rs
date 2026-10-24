@@ -229,6 +229,7 @@ fn read_recipe(recipe: &Value, foreign_id: String) -> other_apps::Recipe {
 
     other_apps::Recipe {
         foreign_id,
+        cookings: Vec::new(),
         candidate,
         tags,
         photo: text(recipe, "photo").map(|_| other_apps::Photo::NotInExport),

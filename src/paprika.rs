@@ -301,12 +301,12 @@ fn read_recipe(recipe: &Value, foreign_id: String) -> other_apps::Recipe {
         left_out.push(LeftOut::ExtraPhotos(extra_photos));
     }
     if recipe["rating"].as_f64().is_some_and(|rating| rating > 0.0) {
-        left_out.push(LeftOut::Rating);
+        left_out.push(LeftOut::Ratings(1));
     }
     if recipe["on_favorites"].as_bool() == Some(true)
         || recipe["on_favorites"].as_i64().is_some_and(|mark| mark > 0)
     {
-        left_out.push(LeftOut::Favourite);
+        left_out.push(LeftOut::Favourites(1));
     }
     if text(recipe, "nutritional_info").is_some() {
         left_out.push(LeftOut::Nutrition);
@@ -314,6 +314,7 @@ fn read_recipe(recipe: &Value, foreign_id: String) -> other_apps::Recipe {
 
     other_apps::Recipe {
         foreign_id,
+        cookings: Vec::new(),
         candidate,
         tags,
         photo,
@@ -564,8 +565,8 @@ mod tests {
             .map(|left| match left {
                 LeftOut::ExtraPhotos(n) => format!("extra photos {n}"),
                 LeftOut::UnreadablePhotos(n) => format!("unreadable photos {n}"),
-                LeftOut::Rating => "rating".to_string(),
-                LeftOut::Favourite => "favourite".to_string(),
+                LeftOut::Ratings(1) => "rating".to_string(),
+                LeftOut::Favourites(1) => "favourite".to_string(),
                 LeftOut::Nutrition => "nutrition".to_string(),
                 _ => "something else".to_string(),
             })

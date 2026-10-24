@@ -229,6 +229,7 @@ describe('every sheet in Kamosu', () => {
 			'TagSheet.svelte',
 			'Thread.svelte',
 			'UseVersion.svelte',
+			'WhichHousehold.svelte',
 			'Writing.svelte',
 		]);
 	});

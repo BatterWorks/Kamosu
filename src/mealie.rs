@@ -26,10 +26,14 @@
 //! - **Tools become an "Equipment:" line in the Note**, after the description
 //!   and Mealie's own notes. Categories and tags both become Tags.
 //! - **A time is Mealie's free text**, read the way a Step's timer is
-//!   ([`crate::units::step_duration`]): a range at its lower end, and nothing
-//!   where the text names no duration Kamosu reads, such as `1 day`.
-//! - **Nutrition keeps the calories alone**, per serving as Mealie counts it,
-//!   and only where they are a number.
+//!   ([`crate::units::step_duration`]): a range at its lower end. One that
+//!   names no duration Kamosu reads, such as `1 day` or `15 Minuten`, goes
+//!   into the Note as written, and so does the total time, which no field
+//!   holds (#434).
+//! - **Calories land in the Nutrition field**, per serving as Mealie counts
+//!   them, where they are a number. Every other figure, and calories that are
+//!   not a number, go into the Note on one line, each named as schema.org
+//!   names it in the recipe's Language (#434).
 //! - **Rating and comments are counted on the Report**, never written into the
 //!   recipe. The export holds no cooking history: Mealie's backup does (#418).
 //!
@@ -55,7 +59,7 @@ const APP: &str = "Mealie";
 /// claims to be enormous.
 const MAX_FILE_BYTES: u64 = 128 * 1024 * 1024;
 
-type Archive = zip::ZipArchive<Box<dyn other_apps::ReadSeek>>;
+pub(crate) type Archive = zip::ZipArchive<Box<dyn other_apps::ReadSeek>>;
 
 impl Reader for Mealie {
     fn names(&self) -> &'static [&'static str] {
@@ -77,7 +81,7 @@ impl Reader for Mealie {
         // The first recipe that reads says whose file this is, and in which
         // shape. One damaged recipe is that recipe's loss, not the file's.
         let Some(first) = folders.iter().find_map(|folder| {
-            unpack(&mut archive, folder.json, &mut budget)
+            unpack(&mut archive, folder.json, &mut budget, Made::Export)
                 .ok()
                 .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
         }) else {
@@ -165,36 +169,85 @@ fn recipe_folders(archive: &Archive) -> Vec<Folder> {
     folders
 }
 
-const DAMAGED: &str = "the file is damaged and none of it could be read; export the \
-                       recipes from Mealie again and import that";
+/// Which of Mealie's two files is being read, which its sentences name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Made {
+    /// The recipe export any cook makes.
+    Export,
+    /// The administrator's backup of the whole instance (#418).
+    Backup,
+}
 
-/// One file of the zip, through the export's budget.
-fn unpack(archive: &mut Archive, index: usize, budget: &mut Budget) -> Result<Vec<u8>, String> {
-    let mut entry = archive.by_index(index).map_err(|_| DAMAGED.to_string())?;
-    match budget.unpack(&mut entry, MAX_FILE_BYTES) {
+impl Made {
+    /// Why a file of it that could not be unpacked was not read.
+    pub(crate) fn damaged(self) -> &'static str {
+        match self {
+            Made::Export => {
+                "the file is damaged and none of it could be read; export the recipes from \
+                 Mealie again and import that"
+            }
+            Made::Backup => {
+                "the file is damaged and none of it could be read; make the backup in Mealie \
+                 again and import that"
+            }
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Made::Export => "export",
+            Made::Backup => "backup",
+        }
+    }
+}
+
+/// One file of the zip, through the file's budget.
+pub(crate) fn unpack(
+    archive: &mut Archive,
+    index: usize,
+    budget: &mut Budget,
+    made: Made,
+) -> Result<Vec<u8>, String> {
+    unpack_at_most(archive, index, budget, made, MAX_FILE_BYTES)
+}
+
+/// One file of the zip of at most `most` bytes, through the file's budget.
+pub(crate) fn unpack_at_most(
+    archive: &mut Archive,
+    index: usize,
+    budget: &mut Budget,
+    made: Made,
+    most: u64,
+) -> Result<Vec<u8>, String> {
+    let mut entry = archive
+        .by_index(index)
+        .map_err(|_| made.damaged().to_string())?;
+    match budget.unpack(&mut entry, most) {
         Err(other_apps::TooMuch) => Err(format!(
-            "the export unpacks to more than {} GB in all, more than any Mealie export \
+            "the {made} unpacks to more than {} GB in all, more than any Mealie {made} \
              holds, so this recipe and those after it were not read",
-            budget.most() / (1000 * 1000 * 1000)
+            budget.most() / (1000 * 1000 * 1000),
+            made = made.name(),
         )),
-        Ok((_, false)) => Err(DAMAGED.to_string()),
-        Ok((bytes, true)) if bytes.len() as u64 > MAX_FILE_BYTES => {
+        Ok((_, false)) => Err(made.damaged().to_string()),
+        Ok((bytes, true)) if bytes.len() as u64 > most => {
             Err("a file in it is too large to belong to one recipe".to_string())
         }
         Ok((bytes, true)) => Ok(bytes),
     }
 }
 
-/// One file of the recipe's folder by its name there, or nothing where the
-/// folder has no such file.
+/// One file under `prefix` by its name there, or nothing where there is no
+/// such file.
 fn unpack_named(
     archive: &mut Archive,
-    folder: &Folder,
+    prefix: &str,
     name: &str,
     budget: &mut Budget,
+    made: Made,
 ) -> Option<Result<Vec<u8>, String>> {
-    let index = archive.index_for_name(&format!("{}{name}", folder.prefix))?;
-    Some(unpack(archive, index, budget))
+    let index = archive.index_for_name(&format!("{prefix}{name}"))?;
+    Some(unpack(archive, index, budget, made))
 }
 
 /// Read one recipe's folder: its JSON, its Main Photo and its Steps' photos.
@@ -209,7 +262,8 @@ fn read_folder(
         name: Some(folder.slug.clone()),
         reason,
     };
-    let bytes = unpack(archive, folder.json, budget).map_err(|reason| unread(None, reason))?;
+    let bytes = unpack(archive, folder.json, budget, Made::Export)
+        .map_err(|reason| unread(None, reason))?;
     let recipe: Value = serde_json::from_slice(&bytes).map_err(|_| {
         unread(
             None,
@@ -225,28 +279,9 @@ fn read_folder(
             Refusal::UntestedShape { app: APP }.sentence(),
         ));
     }
-    let ReadRecipe {
-        mut recipe,
-        step_pictures,
-    } = read_recipe(&recipe, shape).map_err(|reason| unread(foreign_id.clone(), reason))?;
-
-    let mut unreadable = 0;
-    match unpack_named(archive, folder, "images/original.webp", budget) {
-        Some(Ok(bytes)) => recipe.photo = Some(other_apps::Photo::Bytes(bytes)),
-        Some(Err(reason)) if reason != DAMAGED => return Err(unread(foreign_id, reason)),
-        Some(Err(_)) => unreadable += 1,
-        None => {}
-    }
-    for (step, file_name) in step_pictures {
-        match unpack_named(archive, folder, &format!("assets/{file_name}"), budget) {
-            Some(Ok(bytes)) => recipe.step_photos.push(StepPhoto { step, bytes }),
-            Some(Err(reason)) if reason != DAMAGED => return Err(unread(foreign_id, reason)),
-            _ => unreadable += 1,
-        }
-    }
-    if unreadable > 0 {
-        recipe.left_out.push(LeftOut::UnreadablePhotos(unreadable));
-    }
+    let read = read_recipe(&recipe, shape).map_err(|reason| unread(foreign_id.clone(), reason))?;
+    let mut recipe = with_photos(archive, &folder.prefix, read, budget, Made::Export)
+        .map_err(|reason| unread(foreign_id, reason))?;
     // The export carries each "I Made This" picture under `images/timeline/`,
     // without the entry it belongs to (Mealie's backup has those, #418): an
     // extra photo of the recipe, counted with the others.
@@ -267,6 +302,47 @@ fn read_folder(
     Ok(recipe)
 }
 
+/// A recipe read from its JSON, with its Main Photo and its Steps' photos
+/// from the folder whose files start with `prefix`: `images/original.webp`,
+/// and each Step's picture under `assets/`. A picture that does not unpack is
+/// counted on the Report; a file past the budget fails the recipe.
+pub(crate) fn with_photos(
+    archive: &mut Archive,
+    prefix: &str,
+    read: ReadRecipe,
+    budget: &mut Budget,
+    made: Made,
+) -> Result<other_apps::Recipe, String> {
+    let ReadRecipe {
+        mut recipe,
+        step_pictures,
+    } = read;
+    let mut unreadable = 0;
+    match unpack_named(archive, prefix, "images/original.webp", budget, made) {
+        Some(Ok(bytes)) => recipe.photo = Some(other_apps::Photo::Bytes(bytes)),
+        Some(Err(reason)) if reason != made.damaged() => return Err(reason),
+        Some(Err(_)) => unreadable += 1,
+        None => {}
+    }
+    for (step, file_name) in step_pictures {
+        match unpack_named(
+            archive,
+            prefix,
+            &format!("assets/{file_name}"),
+            budget,
+            made,
+        ) {
+            Some(Ok(bytes)) => recipe.step_photos.push(StepPhoto { step, bytes }),
+            Some(Err(reason)) if reason != made.damaged() => return Err(reason),
+            _ => unreadable += 1,
+        }
+    }
+    if unreadable > 0 {
+        recipe.left_out.push(LeftOut::UnreadablePhotos(unreadable));
+    }
+    Ok(recipe)
+}
+
 /// Mealie's id for a recipe: a UUID, or before Mealie 1 a number.
 fn id_of(recipe: &Value) -> Option<String> {
     match recipe.get("id")? {
@@ -277,11 +353,20 @@ fn id_of(recipe: &Value) -> Option<String> {
 }
 
 /// A recipe read from its JSON, before any file of its folder is opened.
-struct ReadRecipe {
+pub(crate) struct ReadRecipe {
     /// With no photo of any kind yet.
-    recipe: other_apps::Recipe,
+    pub(crate) recipe: other_apps::Recipe,
     /// Each Step's picture, by the Step's place and the asset's file name.
     step_pictures: Vec<(usize, String)>,
+}
+
+/// One recipe in the shape of Mealie 1 and later, as its export writes it,
+/// which the backup reader builds from Mealie's tables (#418).
+pub(crate) fn read_current(recipe: &Value) -> Result<ReadRecipe, String> {
+    match Shape::of(recipe) {
+        Some(Shape::Current) => read_recipe(recipe, Shape::Current),
+        _ => Err(Refusal::UntestedShape { app: APP }.sentence()),
+    }
 }
 
 /// One recipe as Kamosu's content. The error is a sentence for the Report.
@@ -358,7 +443,7 @@ fn read_recipe(recipe: &Value, shape: Shape) -> Result<ReadRecipe, String> {
     // The recipe's own Language words its Yield and its Equipment line.
     let language = crate::language::detect_content(&candidate);
     candidate["yield"] = recipe_yield(recipe, language);
-    candidate["note"] = note(recipe, language);
+    candidate["note"] = note(recipe, language, &candidate);
 
     let mut tags: Vec<String> = Vec::new();
     for tag in items(recipe, "recipe_category").chain(items(recipe, "tags")) {
@@ -385,7 +470,7 @@ fn read_recipe(recipe: &Value, shape: Shape) -> Result<ReadRecipe, String> {
         left_out.push(LeftOut::AttachedFiles(attached));
     }
     if recipe["rating"].as_f64().is_some_and(|rating| rating > 0.0) {
-        left_out.push(LeftOut::Rating);
+        left_out.push(LeftOut::Ratings(1));
     }
     let comments = items(recipe, "comments").count();
     if comments > 0 {
@@ -395,6 +480,7 @@ fn read_recipe(recipe: &Value, shape: Shape) -> Result<ReadRecipe, String> {
     Ok(ReadRecipe {
         recipe: other_apps::Recipe {
             foreign_id,
+            cookings: Vec::new(),
             candidate,
             tags,
             photo: None,
@@ -658,9 +744,11 @@ fn recipe_yield(recipe: &Value, language: Option<&str>) -> Value {
     json!({ "amount": crate::units::as_decimal(amount), "noun": noun })
 }
 
-/// The Note: the description, Mealie's own notes, and the Equipment line from
-/// its tools, each a paragraph.
-fn note(recipe: &Value, language: Option<&str>) -> Value {
+/// The Note: the description, Mealie's own notes, the Equipment line from
+/// its tools, and then each thing a cook typed that no field of `candidate`
+/// took (#434): the total time, a prep or cook time Kamosu could not read, and
+/// the nutrition beyond the calories. Each is a paragraph.
+fn note(recipe: &Value, language: Option<&str>, candidate: &Value) -> Value {
     let mut paragraphs = Vec::new();
     if let Some(description) = recipe["description"].as_str() {
         let (words, _) = without_asset_pictures(description);
@@ -686,11 +774,92 @@ fn note(recipe: &Value, language: Option<&str>) -> Value {
         };
         paragraphs.push(format!("{lead} {}.", tools.join(", ")));
     }
+    let words = crate::schema_org::words(language);
+    // Mealie 3 keeps a time in seconds beside its text; one held only in
+    // seconds is said in the recipe's own words.
+    let total = typed_time(recipe, "total_time").or_else(|| {
+        let seconds = recipe["total_time_seconds"].as_f64().filter(|s| *s > 0.0)?;
+        Some(crate::schema_org::spoken(
+            (seconds / 60.0).round() as i64,
+            &words,
+        ))
+    });
+    if let Some(total) = total {
+        paragraphs.push(format!("{} {total}", words.total));
+    }
+    if candidate["prep_time_minutes"].is_null()
+        && let Some(prep) = typed_time(recipe, "prep_time")
+    {
+        paragraphs.push(format!("{} {prep}", words.prep));
+    }
+    if candidate["cook_time_minutes"].is_null()
+        && let Some(cook) =
+            typed_time(recipe, "perform_time").or_else(|| typed_time(recipe, "cook_time"))
+    {
+        paragraphs.push(format!("{} {cook}", words.cook));
+    }
+    if let Some(line) = nutrition_line(recipe, candidate, &words) {
+        paragraphs.push(line);
+    }
     if paragraphs.is_empty() {
         Value::Null
     } else {
         json!(paragraphs.join("\n\n"))
     }
+}
+
+/// One of Mealie's times as the cook typed it, where it says anything: a time
+/// of `0` is no time at all.
+fn typed_time(recipe: &Value, field: &str) -> Option<String> {
+    text(recipe, field).filter(|written| !written.chars().all(|c| c == '0'))
+}
+
+/// The nutrition the Nutrition field does not hold, as one line: each figure
+/// Mealie kept, named as schema.org names it in the recipe's Language and
+/// written as Mealie holds it, which is with no unit. Mealie's own field is
+/// schema.org's in snake case, `protein_content` for `proteinContent`.
+fn nutrition_line(
+    recipe: &Value,
+    candidate: &Value,
+    words: &crate::schema_org::Words,
+) -> Option<String> {
+    let nutrition = recipe["nutrition"].as_object()?;
+    let figure = |field: &str| match nutrition.get(field)? {
+        Value::String(written) => Some(written.trim().to_string()).filter(|w| !w.is_empty()),
+        Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    };
+    let snake = |camel: &str| {
+        camel.chars().fold(String::new(), |mut field, c| {
+            if c.is_ascii_uppercase() {
+                field.push('_');
+            }
+            field.push(c.to_ascii_lowercase());
+            field
+        })
+    };
+    let mut figures = Vec::new();
+    for (named, name) in words.figures {
+        let field = snake(named);
+        if field == "calories" && !candidate["nutrition"].is_null() {
+            continue;
+        }
+        if let Some(written) = figure(&field) {
+            figures.push(format!("{name} {written}"));
+        }
+    }
+    // A figure schema.org does not name is written by Mealie's own name for
+    // it, so nothing is dropped.
+    for field in nutrition.keys() {
+        let known = words
+            .figures
+            .iter()
+            .any(|(named, _)| snake(named) == *field);
+        if !known && let Some(written) = figure(field) {
+            figures.push(format!("{} {written}", field.replace('_', " ")));
+        }
+    }
+    (!figures.is_empty()).then(|| format!("{} {}", words.nutrition, figures.join(", ")))
 }
 
 /// The calories per serving, where Mealie holds them as a number.
@@ -796,7 +965,7 @@ mod tests {
             .map(|left| match left {
                 LeftOut::ExtraPhotos(n) => format!("extra photos {n}"),
                 LeftOut::AttachedFiles(n) => format!("attached files {n}"),
-                LeftOut::Rating => "rating".to_string(),
+                LeftOut::Ratings(1) => "rating".to_string(),
                 LeftOut::Comments(n) => format!("comments {n}"),
                 LeftOut::UnreadablePhotos(n) => format!("unreadable photos {n}"),
                 _ => "something else".to_string(),
@@ -850,7 +1019,8 @@ mod tests {
             c["note"],
             json!(
                 "The pizza we make every Friday.\n\nOven\nA home oven at its hottest, with the \
-                 stone heated an hour.\n\nEquipment: Pizza peel, Pizza stone."
+                 stone heated an hour.\n\nEquipment: Pizza peel, Pizza stone.\n\nTotal time: 1 \
+                 hour\n\nNutrition: protein 30"
             )
         );
         assert_eq!(pizza.tags, ["Dinner", "Italian", "Weeknight"]);
@@ -882,9 +1052,16 @@ mod tests {
             dough.candidate["yield"],
             json!({ "amount": "2", "noun": "balls" })
         );
-        // `1 day` is no duration Kamosu reads, and the dough has no cook time.
+        // `1 day` is no duration Kamosu reads, so it is the Note's, as the
+        // total time always is; the dough has no cook time.
         assert_eq!(dough.candidate["prep_time_minutes"], json!(20));
         assert_eq!(dough.candidate["cook_time_minutes"], Value::Null);
+        assert!(
+            dough.candidate["note"]
+                .as_str()
+                .unwrap()
+                .ends_with("\n\nTotal time: 1 day")
+        );
         assert!(dough.photo.is_none());
 
         let tarte = titled(&recipes, "Tarte aux pommes");
@@ -928,6 +1105,50 @@ mod tests {
         );
         let bowl = titled(&recipes, "Griechenland Bowl");
         assert_eq!(bowl.tags, ["Hauptgang", "Salat", "Fleisch"]);
+
+        // What no field took goes into the Note as written (#434).
+        let ends = |recipe: &Recipe| {
+            const LEADS: [&str; 5] = [
+                "Total time:",
+                "Prep time:",
+                "Cook time:",
+                "Nutrition:",
+                "Temps",
+            ];
+            let note = recipe.candidate["note"].as_str().unwrap_or("");
+            note.split("\n\n")
+                .filter(|paragraph| LEADS.iter().any(|lead| paragraph.starts_with(lead)))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            ends(bowl),
+            [
+                "Total time: 1 Stunde 30 Minuten",
+                "Prep time: 45 Minuten",
+                "Nutrition: fat 37, carbohydrates 49, protein 41",
+            ]
+        );
+        let cheese = titled(
+            &recipes,
+            "Gegrillter Schafskäse mit Knoblauchtomaten von Tickerix",
+        );
+        assert_eq!(cheese.candidate["prep_time_minutes"], Value::Null);
+        assert_eq!(cheese.candidate["cook_time_minutes"], Value::Null);
+        assert!(ends(cheese).contains(&"Cook time: 15 Minuten".to_string()));
+        // A time that landed in its field is not said again, and a French
+        // recipe's lines are in French.
+        let quiche = titled(&recipes, "Quiche à l'oseille");
+        assert_eq!(quiche.candidate["prep_time_minutes"], json!(15));
+        assert_eq!(quiche.candidate["cook_time_minutes"], json!(35));
+        assert_eq!(ends(quiche), ["Temps total : 50 minutes"]);
+        // A bare `2` is no time Kamosu reads; a `0` is no time at all. Kamosu
+        // takes this Czech recipe for a Spanish one, and words it so.
+        let rohlik = titled(&recipes, "Rohlik s maslem");
+        assert_eq!(
+            rohlik.candidate["note"],
+            json!("Tiempo total: 2\n\nTiempo de preparación: 2")
+        );
     }
 
     #[test]
@@ -936,6 +1157,17 @@ mod tests {
         assert_eq!(recipes.len(), 3);
         let stew = titled(&recipes, "Old-Fashioned Beef Stew");
         assert_eq!(stew.foreign_id, "3");
+        // Its total time is its only time, and its six figures have no
+        // calories among them (#434).
+        let stew_note = stew.candidate["note"].as_str().unwrap();
+        assert!(
+            stew_note.ends_with(
+                "Total time: 2 Hours 30 Minutes\n\nNutrition: fat 12, sodium 1604, \
+                 carbohydrates 54, fibre 5, sugar 7, protein 35"
+            ),
+            "{stew_note}"
+        );
+        assert_eq!(stew.candidate["nutrition"], Value::Null);
         assert_eq!(
             stew.candidate["yield"],
             json!({ "amount": "4", "noun": "servings" })
@@ -955,6 +1187,12 @@ mod tests {
         );
         assert_eq!(pizza.candidate["prep_time_minutes"], Value::Null);
         assert_eq!(pizza.candidate["cook_time_minutes"], json!(10));
+        assert!(
+            pizza.candidate["note"]
+                .as_str()
+                .unwrap()
+                .ends_with("Prep time: 1 Day")
+        );
         assert_eq!(pizza.tags, ["babish"]);
         let cookies = titled(&recipes, "Levain Chocolate Chip Cookies");
         assert_eq!(cookies.tags, ["Dessert", "Cookies"]);
@@ -1046,6 +1284,23 @@ mod tests {
         assert_eq!(calories("850")["calories"], json!(850.0));
         assert_eq!(calories("1,5"), Value::Null);
         assert_eq!(calories("about 300"), Value::Null);
+    }
+
+    #[test]
+    fn a_total_time_held_in_seconds_alone_is_said_in_words() {
+        let candidate = json!({ "prep_time_minutes": null, "cook_time_minutes": null });
+        assert_eq!(
+            note(&json!({ "total_time_seconds": 5400 }), None, &candidate),
+            json!("Total time: 1 hour 30 minutes")
+        );
+        assert_eq!(
+            note(
+                &json!({ "total_time": "1 day", "total_time_seconds": 60 }),
+                None,
+                &candidate
+            ),
+            json!("Total time: 1 day")
+        );
     }
 
     #[test]

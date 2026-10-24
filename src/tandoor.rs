@@ -328,6 +328,7 @@ fn read_recipe(recipe: &Value, foreign_id: String, picture: Picture) -> other_ap
 
     other_apps::Recipe {
         foreign_id,
+        cookings: Vec::new(),
         candidate,
         tags,
         photo,

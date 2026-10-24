@@ -529,7 +529,7 @@ pub(crate) fn recipe(
         .get("aggregateRating")
         .is_some_and(|rating| !is_empty(rating));
     if ratings {
-        left_out.push(LeftOut::Rating);
+        left_out.push(LeftOut::Ratings(1));
     }
     let reviews = count(&node["review"]) + count(&node["reviews"]) + others_comments(node);
     if reviews > 0 {
@@ -538,6 +538,7 @@ pub(crate) fn recipe(
 
     other_apps::Recipe {
         foreign_id,
+        cookings: Vec::new(),
         candidate: content(node, app, &parsed, link),
         tags: tags(node),
         photo,
@@ -599,22 +600,22 @@ fn images(value: &Value) -> Vec<String> {
 }
 
 /// The words a recipe's Language puts around what the file kept, which the
-/// KitchenOwl reader words its own with too.
+/// KitchenOwl and Mealie readers word their own with too.
 pub(crate) struct Words {
     pub(crate) servings: &'static str,
-    prep: &'static str,
-    cook: &'static str,
+    pub(crate) prep: &'static str,
+    pub(crate) cook: &'static str,
     pub(crate) total: &'static str,
     equipment: &'static str,
     method: &'static str,
-    nutrition: &'static str,
+    pub(crate) nutrition: &'static str,
     video: &'static str,
     photo: &'static str,
     hour: (&'static str, &'static str),
     minute: (&'static str, &'static str),
     /// schema.org's name for each figure of its nutrition, as this Language
     /// says it, in the order they are written.
-    figures: [(&'static str, &'static str); 13],
+    pub(crate) figures: [(&'static str, &'static str); 13],
 }
 
 pub(crate) fn words(language: Option<&str>) -> Words {
@@ -1316,7 +1317,7 @@ mod tests {
         );
         // Its own picture, `full.jpg`, and never its thumbnail.
         assert!(matches!(&shrimp.photo, Some(Photo::Bytes(bytes)) if bytes.len() == 40193));
-        assert!(matches!(shrimp.left_out[..], [LeftOut::Rating]));
+        assert!(matches!(shrimp.left_out[..], [LeftOut::Ratings(1)]));
 
         // With no picture beside it, the one it names is downloaded.
         let pie = named(&recipes, "Skillet Shepherd's Pie");
@@ -1329,7 +1330,7 @@ mod tests {
         let chicken = named(&recipes, "Chicken Parmigiana");
         assert!(matches!(
             chicken.left_out[..],
-            [LeftOut::Rating, LeftOut::Comments(10)]
+            [LeftOut::Ratings(1), LeftOut::Comments(10)]
         ));
         assert_eq!(
             paragraphs(chicken).last().unwrap(),
@@ -1402,7 +1403,7 @@ mod tests {
         assert!(
             matches!(&cake.photo, Some(Photo::Bytes(bytes)) if bytes.starts_with(&[0xFF, 0xD8]))
         );
-        assert!(matches!(cake.left_out[..], [LeftOut::Rating]));
+        assert!(matches!(cake.left_out[..], [LeftOut::Ratings(1)]));
     }
 
     #[test]
