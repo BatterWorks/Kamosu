@@ -1680,6 +1680,11 @@ pub fn search_recipes(
     let cookbook_id = input.get("cookbook_id").and_then(Value::as_str);
     let mine = input.get("mine").and_then(Value::as_bool).unwrap_or(false);
     let tag_id = input.get("tag_id").and_then(Value::as_str);
+    let cooking: Vec<&str> = input
+        .get("cooking")
+        .and_then(Value::as_array)
+        .map(|held| held.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
     let caller = caller_of(invocation)?;
     core.search_recipes(
         &caller.person_id,
@@ -1688,6 +1693,7 @@ pub fn search_recipes(
         cookbook_id,
         mine,
         tag_id,
+        &cooking,
     )
 }
 

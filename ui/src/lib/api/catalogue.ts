@@ -2684,6 +2684,7 @@ export type UploadPhotographOutput = {
 /** The shelf, and searching it. With no query: everything the Kitchens this Person cooks in hold, merged, alphabetical, one entry per Lineage, each titled in the reader's Reading Language with a marked fallback. With a query: the same shelf narrowed to what matched, an exact title first, every entry quoting the line that matched. One Operation either way — Meaning Search arrives here rather than beside it (ADR 0027, ADR 0029). */
 export type SearchRecipesInput = {
 	cookbook_id?: string | null;
+	cooking?: ("never_cooked" | "cooked_unrated" | "again" | "tweak" | "no")[];
 	kitchen_id?: string | null;
 	mine?: boolean;
 	query?: string | null;
@@ -19806,6 +19807,20 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"cooking": {
+					"description": "Only recipes cooked as any of these says: never cooked, cooked with no rating, or a rating word as some Person's latest rating on it. Read across everyone this Person cooks with, or across this Person alone when `mine` is true. With `mine`, the whole shelf is judged, not only their history: `never_cooked` is every recipe they have not cooked. Empty or absent filters nothing.",
+					"items": {
+						"enum": [
+							"never_cooked",
+							"cooked_unrated",
+							"again",
+							"tweak",
+							"no"
+						],
+						"type": "string"
+					},
+					"type": "array"
+				},
 				"kitchen_id": {
 					"type": [
 						"string",
@@ -19813,7 +19828,7 @@ export const CATALOGUE = [
 					]
 				},
 				"mine": {
-					"description": "Only recipes this Person created, branched or cooked: a history, not ownership. Not the same as the `mine` on each entry, which says whether their own Cookbook holds the recipe.",
+					"description": "Only recipes this Person created, branched or cooked: a history, not ownership. Not the same as the `mine` on each entry, which says whether their own Cookbook holds the recipe. Beside `cooking`, it says instead that only their own cookings judge it, across the whole shelf.",
 					"type": "boolean"
 				},
 				"query": {

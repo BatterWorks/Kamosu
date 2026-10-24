@@ -292,6 +292,7 @@ impl Core {
     /// Kamosu uses. The meaning half scans its whole index for the same reason:
     /// a couple of megabytes of vectors cost less to walk than the one model
     /// inference that produced the query.
+    #[allow(clippy::too_many_arguments)]
     pub fn search_recipes(
         &self,
         person_id: &str,
@@ -300,6 +301,7 @@ impl Core {
         cookbook_id: Option<&str>,
         mine: bool,
         tag_id: Option<&str>,
+        cooking: &[&str],
     ) -> Result<Value, OpError> {
         let query = query.map(str::trim).filter(|q| !q.is_empty());
         let needle = query.map(folded_for_search);
@@ -372,7 +374,21 @@ impl Core {
                 // branched or cooked. The first two are one fact — this
                 // Person's Hand on a Version of this Lineage — and the third
                 // is an Attempt of their own (ADR 0027).
-                if mine && !written_or_cooked_by(conn, &lineage_id, person_id)? {
+                //
+                // Held beside a cooking choice it means something else: judge
+                // that choice by this Person's cookings alone, across the
+                // whole shelf (#445). Cutting the shelf to their history first
+                // would leave *never cooked* only the recipes they wrote, and
+                // hide every one in another Cookbook they have yet to try.
+                if mine
+                    && cooking.is_empty()
+                    && !written_or_cooked_by(conn, &lineage_id, person_id)?
+                {
+                    continue;
+                }
+                if !cooking.is_empty()
+                    && !cooked_as_asked(conn, &lineage_id, person_id, mine, cooking)?
+                {
                     continue;
                 }
 
@@ -660,6 +676,68 @@ fn written_or_cooked_by(
         |row| row.get(0),
     )
     .map_err(|e| OpError::internal(format!("cannot read what this Person has cooked: {e}")))
+}
+
+/// Whether a Lineage was cooked as one of `cooking` says (#445): `never_cooked`,
+/// `cooked_unrated`, or a rating word. Read across everyone the reader cooks
+/// with, the company the recipe page's cooking record counts, or across the
+/// reader alone where `alone` is set.
+///
+/// A rating is each Person's latest one, picked as the cooking record picks it:
+/// the newest of their cookings that carries a rating, so a cooking left
+/// unrated takes back nothing they said before. Two cooks who disagree put the
+/// recipe under both words, since nothing here averages one verdict against
+/// another (ADR 0015). An unfinished cooking is a cooking (ADR 0010), so a
+/// recipe only ever started is *cooked, not rated*.
+fn cooked_as_asked(
+    conn: &rusqlite::Connection,
+    lineage_id: &str,
+    person_id: &str,
+    alone: bool,
+    cooking: &[&str],
+) -> Result<bool, OpError> {
+    let whose = if alone {
+        "?2".to_string()
+    } else {
+        super::recipes::company_of("?2")
+    };
+    let failed =
+        |e: rusqlite::Error| OpError::internal(format!("cannot read how a recipe was cooked: {e}"));
+    let cooked: bool = conn
+        .query_row(
+            &format!(
+                "SELECT EXISTS (SELECT 1 FROM attempts \
+                                 WHERE lineage_id = ?1 AND person_id IN ({whose}))"
+            ),
+            params![lineage_id, person_id],
+            |row| row.get(0),
+        )
+        .map_err(failed)?;
+    if !cooked {
+        return Ok(cooking.contains(&"never_cooked"));
+    }
+    let mut statement = conn
+        .prepare(&format!(
+            "SELECT DISTINCT attempts.rating FROM attempts \
+              WHERE attempts.lineage_id = ?1 AND attempts.person_id IN ({whose}) \
+                AND attempts.id = ( \
+                    SELECT newer.id FROM attempts AS newer \
+                     WHERE newer.person_id = attempts.person_id \
+                       AND newer.lineage_id = ?1 \
+                       AND newer.rating IS NOT NULL \
+                     ORDER BY newer.created_at DESC, newer.id DESC LIMIT 1)"
+        ))
+        .map_err(failed)?;
+    let ratings: Vec<String> = statement
+        .query_map(params![lineage_id, person_id], |row| row.get(0))
+        .map_err(failed)?
+        .collect::<Result<_, _>>()
+        .map_err(failed)?;
+    Ok(cooking.iter().any(|asked| match *asked {
+        "never_cooked" => false,
+        "cooked_unrated" => ratings.is_empty(),
+        word => ratings.iter().any(|rating| rating == word),
+    }))
 }
 
 /// How many recipes *nothing found* shows anyway, when Meaning Search is on and
