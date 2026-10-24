@@ -23342,6 +23342,218 @@ async fn a_step_naming_the_dish_by_its_title_links_no_ingredient() {
     );
 }
 
+/// A person corrects which lines a Step uses, at either Door, and the
+/// correction is kept by a save that leaves the Step and its lines alone,
+/// wherever they move, and dropped by one that changes a line it names
+/// (#439, ADR 0054).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_step_s_lines_corrected_by_hand_are_kept_while_its_words_are() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Glazed chicken",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 chicken thighs" },
+                { "kind": "ingredient", "text": "1 tbsp soy sauce" },
+                { "kind": "section", "text": "To serve" },
+                { "kind": "ingredient", "text": "salt" },
+            ],
+            "steps": [
+                { "kind": "step", "text": "Fry the chicken." },
+                { "kind": "step", "text": "Cook the glaze until it thickens." },
+                { "kind": "section", "text": "Serve" },
+                { "kind": "step", "text": "Season to taste." },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let cooking = |app: &support::TestApp| {
+        let (_, fetched) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        fetched["result"]["versions"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["cooking"]["steps"]
+            .clone()
+    };
+    let read = cooking(&app);
+    assert_eq!(read[1]["uses"], json!([]), "the glaze names no line");
+    assert_eq!(read[1]["by_hand"], json!(false));
+
+    // At the web Door: the glaze is the soy sauce.
+    let (status, set) = app.post_op(
+        "set_step_uses",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "step_index": 1, "uses": [1] }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+    assert_eq!(
+        set["result"],
+        json!({ "step_index": 1, "uses": [1], "by_hand": true })
+    );
+    // At the MCP Door: seasoning takes the salt.
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "set_step_uses",
+            "arguments": { "branch_id": branch_id, "step_index": 3, "uses": [3] },
+        },
+    });
+    let (status, over_mcp) = app.post_mcp(&call.to_string(), Some(&key));
+    assert_eq!(status, 200, "{over_mcp}");
+    assert_eq!(
+        over_mcp["result"]["structuredContent"]["by_hand"],
+        json!(true)
+    );
+    let corrected = cooking(&app);
+    assert_eq!(
+        corrected[1],
+        json!({ "uses": [1], "by_hand": true, "timer_seconds": null })
+    );
+    assert_eq!(corrected[3]["uses"], json!([3]));
+    assert_eq!(
+        corrected[0]["by_hand"],
+        json!(false),
+        "the other Steps are read"
+    );
+
+    // A save that puts a line above them and rewords the first Step keeps
+    // both corrections, on the lines where they now sit.
+    let (status, saved) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "ingredients": [
+                { "kind": "ingredient", "text": "1 tbsp oil" },
+                { "kind": "ingredient", "text": "2 chicken thighs" },
+                { "kind": "ingredient", "text": "1 tbsp soy sauce" },
+                { "kind": "section", "text": "To serve" },
+                { "kind": "ingredient", "text": "salt" },
+            ],
+            "steps": [
+                { "kind": "step", "text": "Fry the chicken in the oil." },
+                { "kind": "step", "text": "Cook the glaze until it thickens." },
+                { "kind": "section", "text": "Serve" },
+                { "kind": "step", "text": "Season to taste." },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    let carried = cooking(&app);
+    assert_eq!(
+        carried[1]["uses"],
+        json!([2]),
+        "the soy sauce moved down one"
+    );
+    assert_eq!(carried[1]["by_hand"], json!(true));
+    assert_eq!(carried[3]["uses"], json!([4]));
+    assert_eq!(carried[0]["by_hand"], json!(false));
+
+    // A save that changes the soy sauce drops the correction naming it.
+    let (status, saved) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "ingredients": [
+                { "kind": "ingredient", "text": "1 tbsp oil" },
+                { "kind": "ingredient", "text": "2 chicken thighs" },
+                { "kind": "ingredient", "text": "2 tbsp soy sauce" },
+                { "kind": "section", "text": "To serve" },
+                { "kind": "ingredient", "text": "salt" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    let dropped = cooking(&app);
+    assert_eq!(
+        dropped[1],
+        json!({ "uses": [], "by_hand": false, "timer_seconds": null })
+    );
+    assert_eq!(
+        dropped[3]["by_hand"],
+        json!(true),
+        "the salt was left alone"
+    );
+
+    // A save that rewords the corrected Step drops its correction too.
+    let (status, set) = app.post_op(
+        "set_step_uses",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "step_index": 1, "uses": [2] }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+    let (status, saved) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "steps": [
+                { "kind": "step", "text": "Fry the chicken in the oil." },
+                { "kind": "step", "text": "Cook the glaze until it is sticky." },
+                { "kind": "section", "text": "Serve" },
+                { "kind": "step", "text": "Season to taste." },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    let reworded = cooking(&app);
+    assert_eq!(reworded[1]["by_hand"], json!(false));
+    assert_eq!(
+        reworded[3]["by_hand"],
+        json!(true),
+        "the salt was left alone"
+    );
+
+    // null takes a correction away.
+    let (status, cleared) = app.post_op(
+        "set_step_uses",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "step_index": 3, "uses": null }).to_string(),
+    );
+    assert_eq!(status, 200, "{cleared}");
+    assert_eq!(cleared["result"]["by_hand"], json!(false));
+    assert_eq!(cooking(&app)[3]["by_hand"], json!(false));
+
+    // A section is neither a Step to correct nor a line to name.
+    for (step_index, uses) in [
+        (2, json!([1])),
+        (1, json!([3])),
+        (1, json!([9])),
+        (9, json!([])),
+    ] {
+        let (status, refused) = app.post_op(
+            "set_step_uses",
+            Some(&key),
+            &json!({ "branch_id": branch_id, "step_index": step_index, "uses": uses }).to_string(),
+        );
+        assert_eq!(status, 400, "{step_index} {uses}: {refused}");
+    }
+
+    // Nobody who cannot see the recipe may correct it.
+    let (_stranger, stranger_key, _) = person_with_kitchen(&app, "Marc");
+    let (status, _) = app.post_op(
+        "set_step_uses",
+        Some(&stranger_key),
+        &json!({ "branch_id": branch_id, "step_index": 1, "uses": [] }).to_string(),
+    );
+    assert_eq!(status, 404);
+}
+
 /// A duration is read out of the Step's own text and stored nowhere — and a
 /// Step with no duration offers no timer, which is three Steps in four.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

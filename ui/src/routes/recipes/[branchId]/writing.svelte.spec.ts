@@ -181,7 +181,9 @@ const READ_BACK = {
 					ingredients: content().ingredients.map(() => null),
 					steps: content().steps.map(() => null),
 				},
-				cooking: { steps: content().steps.map(() => ({ uses: [], timer_seconds: null })) },
+				cooking: {
+					steps: content().steps.map(() => ({ uses: [], by_hand: false, timer_seconds: null })),
+				},
 			},
 		],
 		tags: [],

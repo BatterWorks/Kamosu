@@ -2,6 +2,8 @@
 
 _(Amended by [ADR 0050](./0050-a-translations-line-takes-the-food-of-the-line-in-its-place.md): a Translation's Ingredient Line is matched with its source line by place, for its Food alone, since Pairing cannot cross a Language. Pairing itself is unchanged.)_
 
+_(Amended by [ADR 0054](./0054-a-step-s-lines-may-be-corrected-by-hand.md): a person may correct which lines one Step uses. The correction names lines by their place in one Version and lasts while the Step and those lines stay word for word the same, so no line or Step carries an id.)_
+
 Nothing is stapled to a line of a recipe. An Ingredient Line and a Step carry no id, no key and no serial number — not in the database, not in the share bundle, not in the Vault's `.kamosu/` sidecar. When Kamosu needs to know that your `1 cup potato starch (or corn starch)` and Marc's `¾ cup potato starch` are the same line changed rather than one line removed and another added, it works it out by reading, against the **Branch Point** — the last Version the two Branches shared.
 
 That act has a name: a **Pairing**. Two lines are paired, or one is left unpaired and becomes a **Ghost**.

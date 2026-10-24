@@ -1660,6 +1660,127 @@ const NAMED_KINDS: &[&str] = &[
     "miso",
 ];
 
+/// Words that make a name **something made from a food** rather than the food:
+/// curry *powder* is no curry, and lemon *zest* is no lemon. A word of the
+/// title that a Step names a line by still names the dish where the line is
+/// one of these, and a Step naming the food links the food itself before
+/// something made from it, so *the garlic* is the cloves and not the powder
+/// (#439). [`CUTS_AND_PARTS`] holds the other kind, the food itself in
+/// pieces.
+///
+/// French *pâte* and Spanish *pasta* are left out for the reason they are left
+/// out there.
+const MADE_FROM: &[&str] = &[
+    // English
+    "powder",
+    "paste",
+    "extract",
+    "essence",
+    "zest",
+    "juice",
+    "stock",
+    "broth",
+    "bouillon",
+    "sauce",
+    "flour",
+    "meal",
+    "oil",
+    "butter",
+    "milk",
+    "cream",
+    "syrup",
+    "vinegar",
+    "purée",
+    "puree",
+    "concentrate",
+    "jam",
+    "jelly",
+    "water",
+    // French
+    "poudre",
+    "extrait",
+    "zeste",
+    "jus",
+    "fond",
+    "farine",
+    "huile",
+    "beurre",
+    "lait",
+    "crème",
+    "sirop",
+    "vinaigre",
+    "concentré",
+    "confiture",
+    "eau",
+    // Spanish
+    "polvo",
+    "extracto",
+    "esencia",
+    "ralladura",
+    "jugo",
+    "zumo",
+    "caldo",
+    "salsa",
+    "harina",
+    "aceite",
+    "mantequilla",
+    "leche",
+    "crema",
+    "nata",
+    "jarabe",
+    "sirope",
+    "vinagre",
+    "puré",
+    "concentrado",
+    "mermelada",
+    "agua",
+];
+
+/// Words a recipe calls something it makes itself: *the sauce* is the one in
+/// the pan, not the soy sauce in the list. French *pâte* and Spanish *masa*
+/// are left out, since *la pâte* is as often the *pâte brisée* the list buys. Such a word never names a line on
+/// its own, though a line's whole name still does, and a food named just
+/// before it is describing it: *the tomato-spice mixture* adds no tomato
+/// (#439).
+const MADE_HERE: &[&str] = &[
+    // English
+    "sauce",
+    "mixture",
+    "marinade",
+    "dressing",
+    "batter",
+    "dough",
+    "glaze",
+    "filling",
+    // French
+    "mélange",
+    "marinade",
+    "vinaigrette",
+    "glaçage",
+    "garniture",
+    "farce",
+    "appareil",
+    // Spanish
+    "salsa",
+    "mezcla",
+    "marinada",
+    "aliño",
+    "glaseado",
+    "relleno",
+];
+
+/// **Whether a word makes a name something made from a food**, as *powder*
+/// does in *curry powder* (#439).
+pub fn made_from(word: &str) -> bool {
+    listed(MADE_FROM, word)
+}
+
+/// **Whether a recipe uses this word for something it makes itself**, as
+/// *the sauce* (#439).
+pub fn made_here(word: &str) -> bool {
+    listed(MADE_HERE, word)
+}
+
 /// **Whether a word gives way to the word beside it as a name's main word**:
 /// a cut, a part or a form of a food, or a word that names nothing alone.
 /// *Thighs* gives way to *chicken*, *extrait* to *vanille*, and *fresh* to
