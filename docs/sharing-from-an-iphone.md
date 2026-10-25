@@ -42,10 +42,14 @@ so it waits for a new Shortcut version, and its name becomes `kamosu2`.
 
 ## Why photos are converted
 
-An iPhone keeps its photos as HEIC, which Kamosu does not read. Safari turns
-one into a JPEG when a page asks for a file; a Shortcut hands over the photo
-as it is kept. So the Shortcut converts each photo to JPEG first, and drops
-where it was taken while it does.
+An iPhone keeps its photos as HEIC, which Kamosu does not read: `add_this`
+refuses one as neither text, a PDF nor a picture. Safari turns one into a JPEG
+when a page asks for a file; a Shortcut hands over the photo as it is kept. So
+the Shortcut converts each HEIC or HEIF to JPEG first, and drops where it was
+taken while it does.
+
+It converts nothing else. JPEG has no transparency, so a PNG with a clear
+background, a recipe card with dark text on nothing, would arrive black.
 
 ## The version
 
@@ -99,11 +103,17 @@ to **Stop and Respond**, with the response
 ### A link, or files
 
 6. **Get Type** of Shortcut Input. Set Variable **Type**.
-7. **If** Type **is** `URL`. Inside it:
-   1. **Get URLs from Input**: Shortcut Input.
-   2. **Get Item from List**: **First Item**. Set Variable **Link**.
-8. **Otherwise**: **If** Type **is** `Safari web page`. Inside it, the same
-   two actions as 7.1 and 7.2, setting Link. **End If**, then **End If**.
+7. **If** Type **is** `URL`. Inside it: **Get Item from List**: **First
+   Item** of Shortcut Input. Set Variable **Link**.
+8. **Otherwise**: **If** Type **contains** `Safari`. Inside it: **Get Details
+   of Safari Web Page**: **Page URL** of Shortcut Input. Set Variable **Link**.
+   **End If**, then **End If**.
+
+   Get Type's names are translated and the comparison minds capitals: in
+   English a Safari page is `Safari Web Page`, not `Safari web page`, and every
+   language keeps the word `Safari`. **Get URLs from Input** finds nothing in a
+   Safari page, and **Get Details of Safari Web Page** stops the Shortcut on
+   anything else, which is why it waits behind the test.
 9. **If** Link **has any value**:
    1. **Get Contents of URL**: the Text `Address/api/op/add_this` (the
       variable Address, then `/api/op/add_this`). **Method** POST.
@@ -114,15 +124,31 @@ to **Stop and Respond**, with the response
     1. **Repeat with Each** item in Shortcut Input. Inside it:
        1. **Get Type** of Repeat Item. Set Variable **Item Type**.
        2. **If** Item Type **contains** `Image`, and **Otherwise**, **If**
-          Item Type **contains** `Photo`: **Convert Image** Repeat Item to
-          **JPEG**, with **Preserve Metadata** off, and Set Variable
-          **Page** to the Converted Image. **Otherwise**: Set Variable
-          **Page** to Repeat Item. **End If**, **End If**.
+          Item Type **contains** `Photo`:
+          1. **Get Details of Files**: **File Extension** of Repeat Item,
+             then **Change Case** to **lowercase**.
+          2. **If** the Updated Text **contains** `hei`: **Convert Image**
+             Repeat Item to **JPEG**, with **Preserve Metadata** off, and Set
+             Variable **Page** to the Converted Image. **Otherwise**: Set
+             Variable **Page** to Repeat Item. **End If**.
+
+          **Otherwise**: Set Variable **Page** to Repeat Item. **End If**,
+          **End If**.
        3. **Get Contents of URL**: `Address/api/uploads`. **Method** POST.
           **Headers**: `Authorization` set to Authorization. **Request
           Body** File, set to Page.
-       4. **Get Dictionary Value**: **Value** for key `result.upload_id` in
-          Contents of URL.
+       4. **Get Dictionary Value**: **Value** for key `result` in Contents
+          of URL.
+       5. **If** Dictionary Value **has any value**: **Get Dictionary
+          Value**: **Value** for key `upload_id` in it. **Otherwise**: **Get
+          Dictionary Value** `error` in Contents of URL, then `message` in
+          that, **Show Notification** with it, and **Stop This Shortcut**.
+          **End If**.
+
+          One key at a time, here and in steps 12 to 14: a key path such as
+          `result.upload_id` that misses stops the Shortcut with Apple's own
+          "Could not evaluate the key path", where a single missing key is
+          only empty. Kamosu's refusal carries `error`, not `result`.
     2. **End Repeat**.
     3. **Combine Text**: Repeat Results, with **Custom** separator `,`.
     4. **Get Contents of URL**: `Address/api/op/add_this`. **Method** POST.
@@ -133,12 +159,13 @@ to **Stop and Respond**, with the response
 
 ### The message
 
-12. **Get Dictionary Value**: **Value** for key `result.message` in the
-    **If Result** of step 9 to 11.
-13. **If** Dictionary Value **has any value**: **Show Notification** with the
-    Dictionary Value as its body and `Kamosu` as its title.
-14. **Otherwise**: **Get Dictionary Value**: **Value** for key
-    `error.message` in the If Result, then **Show Notification** with it.
+12. **Get Dictionary Value**: **Value** for key `result` in the **If
+    Result** of step 9 to 11.
+13. **If** Dictionary Value **has any value**: **Get Dictionary Value**
+    `message` in it, and **Show Notification** with that as its body and
+    `Kamosu` as its title.
+14. **Otherwise**: **Get Dictionary Value** `error` in the If Result, then
+    `message` in that, and **Show Notification** with it.
 15. **End If**.
 
 That is the whole Shortcut. It holds no other rule.
@@ -156,8 +183,9 @@ and a PDF from Files. Each should arrive on the shelf, and each notification
 should be Kamosu's message.
 
 Where a link from Safari is sent as a file instead, look at what **Get Type**
-calls a Safari page on that iOS: Apple's tip is a Shortcut that takes
-Anything and holds only **View Content Graph**. Put that name in step 8.
+calls a Safari page on that iOS: a Shortcut that takes the same input and
+shows **Get Type** of it in an alert says. Step 8 needs only a word that name
+always holds.
 
 ## Publishing it
 
@@ -168,4 +196,4 @@ Anything and holds only **View Content Graph**. Put that name in step 8.
    repository is public: the page must name no person and no Apple account.
 3. Put the link in `SHORTCUT_URL` in `ui/src/lib/sharing.ts` and below.
 
-The published Shortcut: _not published yet._
+The published Shortcut: <https://www.icloud.com/shortcuts/4e9859c8609a4221846f0f55915c6423>
