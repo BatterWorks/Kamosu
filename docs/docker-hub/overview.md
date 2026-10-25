@@ -21,6 +21,7 @@ Everything you can do in the web app, an agent can do over MCP (the Model Contex
 | ![Cooking mode on one step, with its ingredients to tick off](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/cooking.png) | ![A cooking in the diary: more garlic, basil added and a reworded step, each above the line it replaced, and a button to keep them as a new version](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/cooked-changed.png) |
 | **Cooking mode**: one step and what it uses | **Cooked**: what you changed at the stove, to keep as a new version |
 
+- **Try the live demo:** https://kamosu.battercloud.cc, a family's library of about 40 recipes, where you arrive signed in and can cook and shop. It goes back to how it was every morning.
 - **Source and full README:** https://github.com/BatterWorks/Kamosu
 - **Changelog:** https://github.com/BatterWorks/Kamosu/blob/main/CHANGELOG.md
 
@@ -122,7 +123,7 @@ No environment variable is required.
 | `KAMOSU_DEMO_UMAMI_SCRIPT` | unset | In a demo only, the address of an Umami script to count visits with, such as `https://umami.example.com/script.js`. The demo's pages load it and let its address through their security policy. It must send its counts to its own address, as a self-hosted Umami does. Without demo mode, Kamosu ignores it and sends nothing anywhere. |
 | `KAMOSU_DEMO_UMAMI_WEBSITE_ID` | unset | The website id Umami gave the demo. Needed with `KAMOSU_DEMO_UMAMI_SCRIPT`; one without the other counts nothing. |
 
-The [GitHub README](https://github.com/BatterWorks/Kamosu#readme) covers Meaning Search, troubleshooting and security.
+The [GitHub README](https://github.com/BatterWorks/Kamosu#readme) covers Meaning Search, running a demo of your own, troubleshooting and security.
 
 ## License
 
