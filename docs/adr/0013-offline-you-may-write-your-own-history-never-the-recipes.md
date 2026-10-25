@@ -1,5 +1,7 @@
 # Offline, you may write your own history, never the recipe's
 
+_(Amended by [ADR 0052](./0052-a-demo-refuses-what-a-stranger-could-misuse.md): a Demo copies nothing to a phone unasked and offers no install card ([#426](https://github.com/BatterWorks/Kamosu/issues/426)).)_
+
 Kamosu works without a network, and the line between what it will and will not do is not drawn at convenience. **Everything on an Attempt's side of Promotion works offline; nothing on the recipe's side does.** Read any recipe, start cooking it, advance steps, tick ingredients, deviate, photograph it, finish, rate it, write a note — all with no server, syncing when one returns. Editing a recipe, promoting an **As Cooked** into a **Version**, or taking a **Copy** requires the server, and the interface says so rather than failing.
 
 The boundary already had a name. [ADR 0005](./0005-an-attempt-is-a-version-you-cooked-but-did-not-keep.md) defines **Promotion** as "the point at which an Attempt's freedoms end and the recipe's rules begin" — written about a quite different problem, and describing this one exactly.

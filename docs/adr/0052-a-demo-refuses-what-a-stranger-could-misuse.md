@@ -41,4 +41,5 @@ The README had pictures and nothing to try. A stranger deciding whether to insta
 - **Some screens are not in the Demo.** The sign-in screen, passkeys and the page that shows a new Key once have no way in, and a cooking's photographs are refused with every other upload.
 - **Every Session and Security Record row a visitor makes is in Camille's lists until the cleaning.** Settings shows them and ending them is refused.
 - **The Sample Library is kept working at every release.** It is built through Operations, so a change to an Operation it calls breaks its build, on purpose, before the release.
+- **A Demo's library stays off the visitor's phone** ([#426](https://github.com/BatterWorks/Kamosu/issues/426)). It offers neither the library card nor the install card, and copies nothing to the device unless the visitor asks in Settings, since the cleaning would change it under them. This is the one place [ADR 0013](./0013-offline-you-may-write-your-own-history-never-the-recipes.md)'s "cached in full, always" does not hold.
 - **An instance that turns demo mode on loses its library every day.** The variable is named for what it does, and the README says so beside it.

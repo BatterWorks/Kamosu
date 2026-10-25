@@ -119,10 +119,15 @@ port, and it sends your data nowhere.
   Turn on Meaning Search and "that thing with aubergines" finds a recipe that
   never says aubergine. See [Meaning Search](#meaning-search).
 - **Bring your recipes in.** A web page (from its schema.org recipe data, or
-  its own text where it has none), a pasted recipe or a recipe PDF, a Crouton
-  export, or a recipe from another Kamosu. With a
+  its own text where it has none), a pasted recipe or a recipe PDF, or a recipe
+  from another Kamosu. **Settings › Import from another app** takes the export
+  of Mealie (or a Mealie backup), Paprika, Tandoor, KitchenOwl, Nextcloud
+  Cookbook, RecipeSage, Recipya, CookCLI, Bar Assistant or Crouton, and works
+  out which app made it. On a phone, send a page, a post, photos, text or a PDF
+  from any app's Share menu. With a
   [Runner](#a-runner-an-agent-that-reads-what-kamosu-cannot), also a photo of
-  a cookbook page, a scanned PDF or a cooking video. On a computer, drop the file or the link onto Recipes. Importing the
+  a cookbook page, or several photos of one recipe, a scanned PDF or a cooking
+  video. On a computer, drop the file or the link onto Recipes. Importing the
   same thing twice matches what is already there instead of doubling it.
 - **Share with anyone.** A Share Link shows one recipe to whoever holds it, no
   account needed, with a printable PDF and a file another Kamosu can import
@@ -182,7 +187,7 @@ It is not:
   figure you typed. Kamosu never calculates nutrition from ingredients.
 - **A public recipe site.** There is no signup. Every account starts from an
   invite, and nothing is visible to strangers unless you share a link.
-- **Finished.** This is 0.3.0. It is used in one kitchen, and nobody else has
+- **Finished.** This is 0.4.0. It is used in one kitchen, and nobody else has
   run it yet.
 
 ## Quick start
@@ -240,7 +245,8 @@ The proxy only needs to pass requests through, with the `Host` header as the
 browser sent it: Caddy and Traefik do this as they are, and nginx needs
 `proxy_set_header Host $host;`. Kamosu refuses a browser's request from a page
 on another address, and the `Host` is how it knows its own. Kamosu reads no
-forwarded headers and trusts nothing a proxy adds.
+forwarded headers and trusts nothing a proxy adds. It speaks HTTP/1.1 only, so
+a proxy must not speak HTTP/2 to it in the clear.
 
 ## Connecting an agent
 
@@ -317,6 +323,9 @@ when it is created. Only an Operator key can do what an Operator does, such as
 changing the House Notes every agent reads or taking a Backup. Give one only to
 an agent that looks after the instance.
 
+An Add-only key, made in **Settings › Share from your phone** for the iPhone
+Shortcut, can add recipes and nothing else.
+
 An agent that reads a web page or someone else's recipe can be given
 instructions by that text. A read-only key limits what that can cost.
 
@@ -377,7 +386,9 @@ account, recipe history and shopping list.
   the machine with whatever already backs it up.
 - **Restoring.** Stop Kamosu, delete `kamosu.db`, `kamosu.db-wal` and
   `kamosu.db-shm` from the folder, unzip a Backup over it, and start again.
-- **Upgrading.** Pull the new image and restart. Kamosu copies the database to
+- **Upgrading.** Read the release's *After upgrading* notes in the
+  [changelog](CHANGELOG.md) first: some ask something of you. Then pull the
+  new image and restart. Kamosu copies the database to
   a Snapshot before it migrates, and migrations only go forward. There is no
   downgrade, so a Snapshot is the way back.
 - **Taking recipes elsewhere.** Any recipe exports as a zip of readable
@@ -422,7 +433,9 @@ docker exec kamosu /app/kamosu recover "Your Name"
 ```
 
 It prints a path starting `/recover/`. Open it after your Kamosu's address
-(`https://your-kamosu/recover/...`) and choose a new password. Another
+(`https://your-kamosu/recover/...`) and choose a new password. Setting it signs
+out every device and ends every Access Key and Runner Key you held, so a
+Runner needs a new key afterwards. Another
 Operator can also send you one from the Operator screen.
 
 **Podman shows no health status.** The `podman-*` images are built in
@@ -445,7 +458,12 @@ date** refreshes them.
 Authorisation happens in one place and depends only on who you signed in as.
 Every secret is 256 bits and revocable one at a time, passwords need 15
 characters, and URLs Kamosu fetches for you can only reach public addresses.
-Kamosu has not been audited by anyone.
+You can sign in with a passkey where the public address is `https://`, and
+change your own password in **Settings › Account**. Kamosu keeps a Security
+Record of sign-ins, keys and changes to the instance for 90 days, in Settings
+and as `kamosu-security` lines in its log
+([docs/security-record.md](docs/security-record.md)). Kamosu has not been
+audited by anyone.
 
 [SECURITY.md](SECURITY.md) has how to report a vulnerability, the full list of
 what Kamosu defends, and the plain list of what it does not.
