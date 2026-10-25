@@ -6,6 +6,7 @@ use std::sync::{Condvar, LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use super::*;
+use crate::slow_work::off_the_request_workers;
 
 /// The answer to minting an Access Key: the raw Secret, shown once and never
 /// stored, alongside what the Key is known by afterwards.
@@ -14,43 +15,118 @@ pub struct AccessKey {
     pub secret: String,
     pub name: String,
     pub read_only: bool,
+    /// Whether the Key acts as an Operator: an Operator key (#369).
+    pub operator: bool,
+    /// Whether the Key may only add recipes: an Add-only key (ADR 0055).
+    pub add_only: bool,
+    /// Whether what it adds goes to the agent every time (ADR 0055).
+    pub everything_to_agent: bool,
+}
+
+/// Which of the three kinds of Access Key is minted (ADR 0055).
+enum KeyKind {
+    Ordinary { read_only: bool },
+    Operator { read_only: bool },
+    AddOnly { everything_to_agent: bool },
 }
 
 impl Core {
-    /// Mint an Access Key for a Person. Plumbing beneath both Doors and the
-    /// terminal — obtaining a Credential is not an Operation. The raw Secret is
-    /// returned once and stored only as its hash.
+    /// Mint an Access Key for a Person, one that acts as an ordinary Person
+    /// whoever they are. Plumbing beneath both Doors and the terminal —
+    /// obtaining a Credential is not an Operation. The raw Secret is returned
+    /// once and stored only as its hash.
     pub fn mint_access_key(
         &self,
         person_id: &str,
         key_name: &str,
         read_only: bool,
     ) -> Result<AccessKey, OpError> {
+        self.mint_key(None, person_id, key_name, KeyKind::Ordinary { read_only })
+    }
+
+    /// Mint an Add-only key (ADR 0055): the key a phone's Shortcut carries,
+    /// which may add a recipe with `add_this`, stage the files it reads and
+    /// read a Job as its Person may, and nothing else. It keeps whether
+    /// what it adds goes to the agent every time.
+    pub fn mint_add_only_key(
+        &self,
+        person_id: &str,
+        key_name: &str,
+        everything_to_agent: bool,
+    ) -> Result<AccessKey, OpError> {
+        self.mint_key(
+            None,
+            person_id,
+            key_name,
+            KeyKind::AddOnly {
+                everything_to_agent,
+            },
+        )
+    }
+
+    /// Mint an Operator key: an Access Key that carries its Person's powers as
+    /// an Operator for as long as they are one (#369). Refused for a Person who
+    /// is not an Operator now. `by` is the Credential that minted it, which
+    /// every Operator's Security Record names (#371); nobody for plumbing.
+    pub fn mint_operator_key(
+        &self,
+        by: Option<&Caller>,
+        person_id: &str,
+        key_name: &str,
+        read_only: bool,
+    ) -> Result<AccessKey, OpError> {
+        self.mint_key(by, person_id, key_name, KeyKind::Operator { read_only })
+    }
+
+    fn mint_key(
+        &self,
+        by: Option<&Caller>,
+        person_id: &str,
+        key_name: &str,
+        kind: KeyKind,
+    ) -> Result<AccessKey, OpError> {
+        let (read_only, operator, add_only, everything_to_agent) = match kind {
+            KeyKind::Ordinary { read_only } => (read_only, false, false, false),
+            KeyKind::Operator { read_only } => (read_only, true, false, false),
+            KeyKind::AddOnly {
+                everything_to_agent,
+            } => (false, false, true, everything_to_agent),
+        };
         let key_name = required_text(key_name, "name")?.to_string();
         let secret = generate_secret();
         let hash = hash_secret(&secret);
         let id = format!("ak_{}", hex::encode(random_bytes(8)));
         self.db().with_conn(|conn| {
-            let exists: bool = conn
-                .query_row("SELECT COUNT(*) FROM people WHERE id = ?1", params![person_id], |r| r.get(0))
-                .map(|n: i64| n > 0)
+            let is_operator: Option<bool> = conn
+                .query_row("SELECT is_operator FROM people WHERE id = ?1", params![person_id], |r| r.get(0))
+                .optional()
                 .map_err(|e| OpError::internal(e.to_string()))?;
-            if !exists {
+            let Some(is_operator) = is_operator else {
                 return Err(OpError::bad_request(format!("no Person '{person_id}'")));
+            };
+            if operator && !is_operator {
+                return Err(OpError::unauthorized(
+                    "only an Operator can mint an Operator key",
+                ));
             }
             conn.execute(
-                "INSERT INTO access_keys (id, secret_hash, person_id, name, read_only) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![id, hash, person_id, key_name, read_only as i64],
+                "INSERT INTO access_keys (id, secret_hash, person_id, name, read_only, acts_as_operator, add_only, everything_to_agent) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![id, hash, person_id, key_name, read_only as i64, operator as i64, add_only as i64, everything_to_agent as i64],
             )
             .map_err(|e| OpError::internal(format!("cannot mint access key: {e}")))?;
             Ok(())
         })?;
-        Ok(AccessKey {
+        let key = AccessKey {
             id,
             secret,
             name: key_name,
             read_only,
-        })
+            operator,
+            add_only,
+            everything_to_agent,
+        };
+        self.note_key_minted(by, person_id, &key);
+        Ok(key)
     }
 
     /// Access Keys remain knowable by their name and last use until revoked;
@@ -59,11 +135,14 @@ impl Core {
     pub fn access_keys_of(&self, person_id: &str) -> Result<Vec<Value>, OpError> {
         self.db().with_conn(|conn| {
             let mut statement = conn.prepare(
-                "SELECT id, name, read_only, created_at, last_used_at, revoked FROM access_keys WHERE person_id = ?1 ORDER BY created_at DESC",
+                "SELECT id, name, read_only, created_at, last_used_at, revoked, acts_as_operator, add_only, everything_to_agent FROM access_keys WHERE person_id = ?1 ORDER BY created_at DESC",
             ).map_err(|e| OpError::internal(format!("cannot list Access Keys: {e}")))?;
             statement.query_map(params![person_id], |row| Ok(json!({
                 "id": row.get::<_, String>(0)?, "name": row.get::<_, String>(1)?,
                 "read_only": row.get::<_, i64>(2)? != 0,
+                "operator": row.get::<_, i64>(6)? != 0,
+                "add_only": row.get::<_, i64>(7)? != 0,
+                "everything_to_agent": row.get::<_, i64>(8)? != 0,
                 "created_at": row.get::<_, String>(3)?, "last_used_at": row.get::<_, Option<String>>(4)?,
                 "revoked": row.get::<_, i64>(5)? != 0,
             }))).map_err(|e| OpError::internal(format!("cannot read Access Keys: {e}")))?
@@ -72,19 +151,87 @@ impl Core {
         })
     }
 
-    pub fn revoke_access_key(&self, person_id: &str, key_id: &str) -> Result<(), OpError> {
+    /// Whether what the Credential in hand shares goes to the agent every
+    /// time, or only what Kamosu cannot read alone (ADR 0055). A Session
+    /// keeps it for its device, an Access Key for whatever holds it. A Job
+    /// Key shares nothing, and keeps nothing.
+    pub fn everything_to_agent(&self, caller: &Caller) -> Result<bool, OpError> {
+        let (table, id) = setting_row_of(caller)?;
+        self.db().with_conn(|conn| {
+            conn.query_row(
+                &format!("SELECT everything_to_agent FROM {table} WHERE id = ?1"),
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|on| on != 0)
+            .map_err(|e| OpError::internal(format!("cannot read the agent choice: {e}")))
+        })
+    }
+
+    /// Set that choice for the Credential in hand.
+    pub fn set_everything_to_agent(&self, caller: &Caller, on: bool) -> Result<(), OpError> {
+        let (table, id) = setting_row_of(caller)?;
+        self.db().with_conn(|conn| {
+            conn.execute(
+                &format!("UPDATE {table} SET everything_to_agent = ?2 WHERE id = ?1"),
+                params![id, on as i64],
+            )
+            .map_err(|e| OpError::internal(format!("cannot keep the agent choice: {e}")))?;
+            Ok(())
+        })
+    }
+
+    /// Set that choice on one of the caller's own Add-only keys, so the key
+    /// list changes it without the phone that holds it (ADR 0055). Any other
+    /// key, someone else's included, is not there.
+    pub fn set_key_everything_to_agent(
+        &self,
+        person_id: &str,
+        key_id: &str,
+        on: bool,
+    ) -> Result<(), OpError> {
         let changed = self.db().with_conn(|conn| {
             conn.execute(
-                "UPDATE access_keys SET revoked = 1 WHERE id = ?1 AND person_id = ?2 AND revoked = 0",
-                params![key_id, person_id],
+                "UPDATE access_keys SET everything_to_agent = ?3
+                  WHERE id = ?1 AND person_id = ?2 AND add_only = 1 AND revoked = 0",
+                params![key_id, person_id, on as i64],
             )
-            .map_err(|e| OpError::internal(format!("cannot revoke Access Key: {e}")))
+            .map_err(|e| OpError::internal(format!("cannot keep the agent choice: {e}")))
         })?;
         if changed == 0 {
             return Err(OpError::not_found(
-                "no live Access Key with that id belongs to this Person",
+                "no live Add-only key with that id belongs to this Person",
             ));
         }
+        Ok(())
+    }
+
+    pub fn revoke_access_key(&self, person_id: &str, key_id: &str) -> Result<(), OpError> {
+        let ended: Option<(String, bool)> = self.db().with_conn(|conn| {
+            conn.query_row(
+                "UPDATE access_keys SET revoked = 1 WHERE id = ?1 AND person_id = ?2 AND revoked = 0 \
+                 RETURNING name, acts_as_operator",
+                params![key_id, person_id],
+                |row| Ok((row.get(0)?, row.get::<_, i64>(1)? != 0)),
+            )
+            .optional()
+            .map_err(|e| OpError::internal(format!("cannot revoke Access Key: {e}")))
+        })?;
+        let Some((name, operator)) = ended else {
+            return Err(OpError::not_found(
+                "no live Access Key with that id belongs to this Person",
+            ));
+        };
+        self.note(
+            Event::theirs("access_key_ended", person_id).naming(Some(Named {
+                kind: if operator {
+                    "operator_key"
+                } else {
+                    "access_key"
+                },
+                name,
+            })),
+        );
         Ok(())
     }
 
@@ -96,6 +243,8 @@ impl Core {
         password: &str,
         session_name: &str,
     ) -> Result<Value, OpError> {
+        // Nobody signs in to a Demo; every visitor arrives (ADR 0052).
+        self.refuse_in_a_demo()?;
         let name = required_text(name, "name")?;
         let session_name = required_text(session_name, "session_name")?;
         // Refused before the hash, which is the costly part (#138). The
@@ -106,7 +255,8 @@ impl Core {
                 "this instance already has its first Person",
             ));
         }
-        let password_hash = self.passwords.work.hash(new_password(password)?)?;
+        let password_hash =
+            self.noting_a_crowd(self.passwords.work.hash(new_password(password)?))?;
         let person_id = format!("p_{}", hex::encode(random_bytes(8)));
         let session = Session {
             id: format!("s_{}", hex::encode(random_bytes(8))),
@@ -151,6 +301,7 @@ impl Core {
                 }
             }
         })?;
+        self.note_signed_in(&person_id, session_name, "setup", None);
 
         Ok(json!({
             "person": {
@@ -173,6 +324,8 @@ impl Core {
     /// out its wrong passwords: those are refused at once as busy, with the
     /// seconds left (#138). Nothing here sleeps.
     pub fn log_in(&self, name: &str, password: &str, session_name: &str) -> Result<Value, OpError> {
+        // Nobody signs in to a Demo; every visitor arrives (ADR 0052).
+        self.refuse_in_a_demo()?;
         let name = required_text(name, "name")?;
         let session_name = required_text(session_name, "session_name")?;
         let turn = self.passwords.take_turn(name)?;
@@ -186,10 +339,10 @@ impl Core {
             .optional()
             .map_err(|e| OpError::internal(format!("cannot read Person for login: {e}")))
         })?;
-        let verified = self.passwords.work.verify(
+        let verified = self.noting_a_crowd(self.passwords.work.verify(
             what_counts(password),
             person.as_ref().map(|(_, hash)| hash.as_str()),
-        )?;
+        ))?;
         let Some((person_id, _)) = person.filter(|_| verified) else {
             turn.missed(self.record_login_failure(name)?);
             return Err(OpError::unauthorized("that name and password do not match"));
@@ -200,7 +353,7 @@ impl Core {
             Ok(())
         })?;
         turn.matched();
-        let session = self.mint_session(&person_id, session_name)?;
+        let session = self.mint_session(&person_id, session_name, "password")?;
         Ok(json!({ "session_id": session.id, "_session_secret": session.secret }))
     }
 
@@ -328,22 +481,64 @@ impl Core {
     }
 
     pub fn revoke_session(&self, person_id: &str, session_id: &str) -> Result<(), OpError> {
-        let changed = self.db().with_conn(|conn| {
-            conn.execute(
-                "UPDATE sessions SET revoked = 1 WHERE id = ?1 AND person_id = ?2 AND revoked = 0",
+        let ended: Option<String> = self.db().with_conn(|conn| {
+            conn.query_row(
+                "UPDATE sessions SET revoked = 1 WHERE id = ?1 AND person_id = ?2 AND revoked = 0 \
+                 RETURNING name",
                 params![session_id, person_id],
+                |row| row.get(0),
             )
+            .optional()
             .map_err(|e| OpError::internal(format!("cannot revoke Session: {e}")))
         })?;
-        if changed == 0 {
+        let Some(name) = ended else {
             return Err(OpError::not_found(
                 "no live Session by that name belongs to this Person",
             ));
-        }
+        };
+        self.note(
+            Event::theirs("session_ended", person_id).naming(Some(Named {
+                kind: "session",
+                name,
+            })),
+        );
         Ok(())
     }
 
-    fn mint_session(&self, person_id: &str, name: &str) -> Result<Session, OpError> {
+    /// Note a sign-in in its Person's record: the Session it made, and how
+    /// it was made. `ended` says what a recovery link ended with it: Sessions,
+    /// Access Keys and Runner Keys.
+    fn note_signed_in(
+        &self,
+        person_id: &str,
+        session_name: &str,
+        how: &str,
+        ended: Option<(usize, usize, usize)>,
+    ) {
+        let mut detail = json!({ "how": how });
+        if let Some((sessions, access_keys, runner_keys)) = ended {
+            detail["ended_sessions"] = json!(sessions);
+            detail["ended_access_keys"] = json!(access_keys);
+            detail["ended_runner_keys"] = json!(runner_keys);
+        }
+        self.note(
+            Event::theirs("signed_in", person_id)
+                .naming(Some(Named {
+                    kind: "session",
+                    name: session_name.to_string(),
+                }))
+                .saying(detail),
+        );
+    }
+
+    /// Mint the Session a sign-in unlocks, and note it in the Security
+    /// Record with `how` it was signed in: `password` or `passkey`.
+    pub(super) fn mint_session(
+        &self,
+        person_id: &str,
+        name: &str,
+        how: &str,
+    ) -> Result<Session, OpError> {
         let secret = generate_secret();
         let id = format!("s_{}", hex::encode(random_bytes(8)));
         self.db().with_conn(|conn| {
@@ -354,23 +549,164 @@ impl Core {
             .map_err(|e| OpError::internal(format!("cannot mint Session: {e}")))?;
             Ok(())
         })?;
+        self.note_signed_in(person_id, name, how, None);
         Ok(Session { id, secret })
+    }
+
+    /// Check a signed-in Person's own password before what only they may do
+    /// with it: changing it, or adding a passkey (#370). A wrong one counts
+    /// against their name exactly as at sign-in, so an unlocked phone left
+    /// on the table guesses no faster here than at the door.
+    pub(super) fn check_own_password(
+        &self,
+        person_id: &str,
+        password: &str,
+    ) -> Result<(), OpError> {
+        let (name, hash): (String, Option<String>) = self.db().with_conn(|conn| {
+            conn.query_row(
+                "SELECT name, password_hash FROM people WHERE id = ?1 AND disabled = 0 AND deleted = 0",
+                params![person_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| OpError::internal(format!("cannot read this Person: {e}")))
+        })?;
+        let turn = self.passwords.take_turn(&name)?;
+        let verified = self.noting_a_crowd(off_the_request_workers(|| {
+            self.passwords
+                .work
+                .verify(what_counts(password), hash.as_deref())
+        }))?;
+        if !verified {
+            turn.missed(self.record_login_failure(&name)?);
+            return Err(OpError::refused_because(
+                "wrong_password",
+                "that is not your current password",
+            ));
+        }
+        self.db().with_conn(|conn| {
+            conn.execute("DELETE FROM login_failures WHERE name = ?1", params![name])
+                .map_err(|e| OpError::internal(format!("cannot clear login throttle: {e}")))?;
+            Ok(())
+        })?;
+        turn.matched();
+        Ok(())
+    }
+
+    /// A signed-in Person changes their own password (#370), under the rules
+    /// of a new one. They choose whether their other Sessions end with it, and
+    /// whether their Access Keys do; the Session asking stays signed in, and
+    /// their passkeys are left alone.
+    pub fn change_password(
+        &self,
+        caller: &Caller,
+        current: &str,
+        new: &str,
+        sign_out_other_devices: bool,
+        end_access_keys: bool,
+    ) -> Result<Value, OpError> {
+        let new = new_password(new)?;
+        self.check_own_password(&caller.person_id, current)?;
+        let password_hash =
+            self.noting_a_crowd(off_the_request_workers(|| self.passwords.work.hash(new)))?;
+        let (ended_sessions, ended_access_keys) = self.db().with_conn(|conn| {
+            conn.execute_batch("BEGIN IMMEDIATE")
+                .map_err(|e| OpError::internal(e.to_string()))?;
+            let result = (|| -> Result<(usize, usize), OpError> {
+                conn.execute(
+                    "UPDATE people SET password_hash = ?1 WHERE id = ?2",
+                    params![password_hash, caller.person_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot change the password: {e}")))?;
+                let ended_sessions = if sign_out_other_devices {
+                    conn.execute(
+                        "UPDATE sessions SET revoked = 1 \
+                          WHERE person_id = ?1 AND revoked = 0 AND id IS NOT ?2",
+                        params![caller.person_id, caller.session_id],
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot end Sessions: {e}")))?
+                } else {
+                    0
+                };
+                let ended_access_keys = if end_access_keys {
+                    conn.execute(
+                        "UPDATE access_keys SET revoked = 1 WHERE person_id = ?1 AND revoked = 0",
+                        params![caller.person_id],
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot end Access Keys: {e}")))?
+                } else {
+                    0
+                };
+                Ok((ended_sessions, ended_access_keys))
+            })();
+            match result {
+                Ok(ended) => {
+                    conn.execute_batch("COMMIT")
+                        .map_err(|e| OpError::internal(e.to_string()))?;
+                    Ok(ended)
+                }
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    Err(e)
+                }
+            }
+        })?;
+        self.note(
+            Event::theirs("password_changed", &caller.person_id)
+                .naming(self.named_credential(caller))
+                .saying(json!({
+                    "ended_sessions": ended_sessions,
+                    "ended_access_keys": ended_access_keys,
+                })),
+        );
+        Ok(json!({ "ended_sessions": ended_sessions, "ended_access_keys": ended_access_keys }))
     }
 
     /// Count one more wrong password for this name, and answer how many there
     /// have been since its last right one. A correct password deletes the
     /// count (ADR 0031).
+    ///
+    /// A count whose last miss is [`FORGOTTEN_AFTER`] old is deleted first,
+    /// so guesses at made-up names cannot grow the table without end (#373).
+    /// It is every name alike, because forgetting made-up names alone would
+    /// say which are real; ADR 0031 says why that costs nothing.
+    ///
+    /// A wrong password at a Person's name is noted in their Security Record
+    /// (#371), as one more in a run. A name nobody holds is noted nowhere:
+    /// it is somebody's typing, and there is nobody to tell.
     fn record_login_failure(&self, name: &str) -> Result<i64, OpError> {
-        self.db().with_conn(|conn| {
-            conn.query_row(
-                "INSERT INTO login_failures(name, consecutive_failures) VALUES (?1, 1) \
-                 ON CONFLICT(name) DO UPDATE SET consecutive_failures = consecutive_failures + 1 \
-                 RETURNING consecutive_failures",
-                params![name],
-                |row| row.get(0),
+        let (in_a_row, person_id) = self.db().with_conn(|conn| {
+            conn.execute(
+                "DELETE FROM login_failures \
+                  WHERE last_failed_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?1)",
+                params![format!("-{} seconds", FORGOTTEN_AFTER.as_secs())],
             )
-            .map_err(|e| OpError::internal(format!("cannot record login failure: {e}")))
-        })
+            .map_err(|e| OpError::internal(format!("cannot forget old login failures: {e}")))?;
+            let in_a_row: i64 = conn
+                .query_row(
+                    "INSERT INTO login_failures(name, consecutive_failures, last_failed_at) \
+                 VALUES (?1, 1, strftime('%Y-%m-%dT%H:%M:%fZ','now')) \
+                 ON CONFLICT(name) DO UPDATE SET consecutive_failures = consecutive_failures + 1, \
+                 last_failed_at = excluded.last_failed_at \
+                 RETURNING consecutive_failures",
+                    params![name],
+                    |row| row.get(0),
+                )
+                .map_err(|e| OpError::internal(format!("cannot record login failure: {e}")))?;
+            let person_id: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM people \
+                      WHERE name = ?1 AND password_hash IS NOT NULL AND deleted = 0",
+                    params![name],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Person for login: {e}")))?;
+            Ok((in_a_row, person_id))
+        })?;
+        if let Some(person_id) = person_id {
+            self.note_wrong_password(&person_id, in_a_row);
+        }
+        Ok(in_a_row)
     }
 
     pub fn mint_invite(&self, is_operator: bool) -> Result<String, OpError> {
@@ -390,6 +726,8 @@ impl Core {
         password: &str,
         session_name: &str,
     ) -> Result<Value, OpError> {
+        // Nobody signs in to a Demo; every visitor arrives (ADR 0052).
+        self.refuse_in_a_demo()?;
         let secret = link
             .strip_prefix("/invite/")
             .filter(|s| !s.is_empty())
@@ -402,7 +740,8 @@ impl Core {
                 "this Invite has already been spent or revoked",
             ));
         }
-        let password_hash = self.passwords.work.hash(new_password(password)?)?;
+        let password_hash =
+            self.noting_a_crowd(self.passwords.work.hash(new_password(password)?))?;
         let person_id = format!("p_{}", hex::encode(random_bytes(8)));
         let session = Session {
             id: format!("s_{}", hex::encode(random_bytes(8))),
@@ -421,6 +760,16 @@ impl Core {
             })();
             match result { Ok(v) => { conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string()))?; Ok(v) }, Err(e) => { let _=conn.execute_batch("ROLLBACK"); Err(e) } }
         })?;
+        self.note_signed_in(&person_id, session_name, "invite", None);
+        // An Operator Invite makes an Operator, which every Operator's record
+        // says, as it says one raised (#371).
+        if operator {
+            self.note(
+                Event::instance("operator_raised", None)
+                    .about(&person_id)
+                    .saying(json!({ "how": "invite" })),
+            );
+        }
         Ok(
             json!({"person":{"id":person_id,"name":name,"hand_id":person_id,"cookbook_id":cookbook_id,"reading_language":"en","reading_measures":"us","is_operator":operator},"session_id":session.id,"_session_secret":session.secret}),
         )
@@ -463,6 +812,8 @@ impl Core {
         password: &str,
         session_name: &str,
     ) -> Result<Value, OpError> {
+        // Nobody signs in to a Demo; every visitor arrives (ADR 0052).
+        self.refuse_in_a_demo()?;
         let secret = link
             .strip_prefix("/recover/")
             .filter(|s| !s.is_empty())
@@ -474,24 +825,40 @@ impl Core {
                 "this recovery link has already been spent or revoked",
             ));
         }
-        let password_hash = self.passwords.work.hash(new_password(password)?)?;
+        let password_hash =
+            self.noting_a_crowd(self.passwords.work.hash(new_password(password)?))?;
         let session = Session {
             id: format!("s_{}", hex::encode(random_bytes(8))),
             secret: generate_secret(),
         };
-        self.db().with_conn(|conn| {
+        let (person_id, ended_sessions, ended_access_keys, ended_runner_keys) = self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| OpError::internal(e.to_string()))?;
-            let result = (|| -> Result<(), OpError> {
+            let result = (|| -> Result<(String, usize, usize, Vec<String>), OpError> {
                 let person_id: Option<String> = conn.query_row("SELECT people.id FROM account_links JOIN people ON people.id=account_links.person_id WHERE secret_hash=?1 AND kind='recovery' AND spent=0 AND revoked=0 AND disabled=0 AND deleted=0", params![hash_secret(secret)], |r| r.get(0)).optional().map_err(|e| OpError::internal(e.to_string()))?;
                 let person_id=person_id.ok_or_else(|| OpError::unauthorized("this recovery link has already been spent or revoked"))?;
                 conn.execute("UPDATE account_links SET spent=1 WHERE secret_hash=?1 AND spent=0",params![hash_secret(secret)]).map_err(|e| OpError::internal(e.to_string()))?;
                 conn.execute("UPDATE people SET password_hash=?1 WHERE id=?2",params![password_hash,person_id]).map_err(|e| OpError::internal(e.to_string()))?;
+                // Whoever took the old password stays signed in no longer, in a
+                // browser or through a key (#369).
+                let ended_sessions = conn.execute("UPDATE sessions SET revoked=1 WHERE person_id=?1 AND revoked=0",params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
+                let ended_access_keys = conn.execute("UPDATE access_keys SET revoked=1 WHERE person_id=?1 AND revoked=0",params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
+                // Nor through a Runner Key minted with it (#378).
+                let ended_runner_keys = Core::end_runner_keys_of_recovered(conn, &person_id)?;
                 conn.execute("INSERT INTO sessions (id,secret_hash,person_id,name) VALUES (?1,?2,?3,?4)",params![session.id,hash_secret(&session.secret),person_id,session_name]).map_err(|e| OpError::internal(e.to_string()))?;
-                Ok(())
+                Ok((person_id, ended_sessions, ended_access_keys, ended_runner_keys))
             })();
-            match result { Ok(()) => conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string())), Err(e) => { let _=conn.execute_batch("ROLLBACK"); Err(e) } }
+            match result { Ok(ended) => { conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string()))?; Ok(ended) }, Err(e) => { let _=conn.execute_batch("ROLLBACK"); Err(e) } }
         })?;
-        Ok(json!({"session_id":session.id,"_session_secret":session.secret}))
+        self.note_signed_in(
+            &person_id,
+            session_name,
+            "recovery_link",
+            Some((ended_sessions, ended_access_keys, ended_runner_keys.len())),
+        );
+        self.note_runner_keys_recovery_ended(&person_id, session_name, &ended_runner_keys);
+        Ok(
+            json!({"session_id":session.id,"_session_secret":session.secret,"ended_sessions":ended_sessions,"ended_access_keys":ended_access_keys,"ended_runner_keys":ended_runner_keys.len()}),
+        )
     }
 
     /// Who holds an account here (#103). Names only, with the two facts an
@@ -536,9 +903,15 @@ impl Core {
     /// raced: two Operators standing each other down at the same instant would
     /// both read "somebody else remains" and both be right, and the instance
     /// would end up with nobody.
-    pub fn set_operator(&self, name: &str, is_operator: bool) -> Result<Value, OpError> {
+    pub fn set_operator(
+        &self,
+        by: &Caller,
+        name: &str,
+        is_operator: bool,
+    ) -> Result<Value, OpError> {
         let name = required_text(name, "name")?;
-        self.db().with_conn(|conn| {
+        let mut changed = None;
+        let answer = self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE")
                 .map_err(|e| OpError::internal(e.to_string()))?;
             let result = (|| -> Result<Value, OpError> {
@@ -546,11 +919,32 @@ impl Core {
                 if !is_operator {
                     ensure_an_operator_remains(conn, &person_id, name, "standing them down")?;
                 }
+                let was: bool = conn
+                    .query_row(
+                        "SELECT is_operator FROM people WHERE id = ?1",
+                        params![person_id],
+                        |row| row.get::<_, i64>(0).map(|held| held != 0),
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot read who administers: {e}")))?;
+                if was != is_operator {
+                    changed = Some(person_id.clone());
+                }
                 conn.execute(
                     "UPDATE people SET is_operator = ?1 WHERE id = ?2",
                     params![is_operator as i64, person_id],
                 )
                 .map_err(|e| OpError::internal(format!("cannot change who administers: {e}")))?;
+                // An Operator key acts as one no longer, and stays an ordinary
+                // key if they are made Operator again (#369).
+                if !is_operator {
+                    conn.execute(
+                        "UPDATE access_keys SET acts_as_operator = 0 WHERE person_id = ?1",
+                        params![person_id],
+                    )
+                    .map_err(|e| {
+                        OpError::internal(format!("cannot end their Operator keys: {e}"))
+                    })?;
+                }
                 Ok(json!({ "name": name, "is_operator": is_operator }))
             })();
             match result {
@@ -564,14 +958,32 @@ impl Core {
                     Err(error)
                 }
             }
-        })
+        })?;
+        if let Some(person_id) = changed {
+            self.note(
+                Event::instance(
+                    if is_operator {
+                        "operator_raised"
+                    } else {
+                        "operator_stood_down"
+                    },
+                    Some(by),
+                )
+                .naming(self.named_credential(by))
+                .about(&person_id),
+            );
+        }
+        Ok(answer)
     }
 
-    pub fn end_account(&self, name: &str, deleted: bool) -> Result<(), OpError> {
+    /// Disable an account, or delete it. A deleted Person's own Security
+    /// Record goes with them, since nobody can read it again; every
+    /// Operator's record keeps that it happened (#371).
+    pub fn end_account(&self, by: &Caller, name: &str, deleted: bool) -> Result<(), OpError> {
         let name = required_text(name, "name")?;
-        self.db().with_conn(|conn| {
+        let person_id = self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| OpError::internal(e.to_string()))?;
-            let result = (|| -> Result<(), OpError> {
+            let result = (|| -> Result<String, OpError> {
                 // #101: a deleted namesake may share this Name, so the Person
                 // is found once and every write below is keyed on their id.
                 let person_id = undeleted_person_named(conn, name)?;
@@ -594,22 +1006,39 @@ impl Core {
                     .map_err(|e| OpError::internal(format!("cannot end account: {e}")))?;
                 conn.execute("UPDATE sessions SET revoked = 1 WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 conn.execute("UPDATE access_keys SET revoked = 1 WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
+                // A deleted account's passkeys are forgotten; a disabled one
+                // keeps them, and they sign in again once it is enabled (#370).
                 if deleted {
+                    conn.execute("DELETE FROM passkeys WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                     jobs::end_for_deleted_asker(conn, &person_id)?;
                     forget_cookbook_of(conn, &person_id)?;
+                    conn.execute("DELETE FROM security_record WHERE account_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 } else {
                     // A disabled account is no longer asked about a waiting
                     // join, and may have been the last one it waited for (#135).
                     let cookbook_id = cookbook_of_person(conn, &person_id)?;
                     settle_joins_of(conn, &cookbook_id)?;
                 }
-                Ok(())
+                Ok(person_id)
             })();
             match result {
-                Ok(()) => conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string())),
+                Ok(person_id) => conn.execute_batch("COMMIT").map(|()| person_id).map_err(|e| OpError::internal(e.to_string())),
                 Err(error) => { let _ = conn.execute_batch("ROLLBACK"); Err(error) }
             }
-        })
+        })?;
+        self.note(
+            Event::instance(
+                if deleted {
+                    "account_deleted"
+                } else {
+                    "account_disabled"
+                },
+                Some(by),
+            )
+            .naming(self.named_credential(by))
+            .about(&person_id),
+        );
+        Ok(())
     }
 
     /// Create a Person with their own Cookbook. Test plumbing uses this;
@@ -865,6 +1294,13 @@ const PASSWORD_LINE: usize = 32;
 
 /// The longest a name waits after its wrong passwords, per ADR 0031.
 const LONGEST_WAIT: Duration = Duration::from_secs(30);
+
+/// How long after its last wrong password a name's count is kept (#373). A
+/// person who mistyped and comes back within it waits as their misses
+/// earned; past it they start again. Guesses are checked two at a time and
+/// take about a tenth of a second each, so this keeps at most some seventy
+/// thousand short rows.
+const FORGOTTEN_AFTER: Duration = Duration::from_secs(60 * 60);
 
 /// Password state that is not in the database: whose login tries are waiting
 /// or being checked right now, and the few threads allowed to hash or check a
@@ -1131,6 +1567,18 @@ fn new_password(password: &str) -> Result<&str, OpError> {
     Ok(password)
 }
 
+/// Where the Credential in hand keeps its agent choice: its Session's row or
+/// its Access Key's.
+fn setting_row_of(caller: &Caller) -> Result<(&'static str, &str), OpError> {
+    match (&caller.session_id, &caller.access_key_id) {
+        (Some(session_id), _) => Ok(("sessions", session_id)),
+        (None, Some(key_id)) => Ok(("access_keys", key_id)),
+        (None, None) => Err(OpError::unauthorized(
+            "a Job Key shares nothing, so it keeps no agent choice",
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1207,6 +1655,72 @@ mod tests {
         assert_eq!(refused.message, "that name and password do not match");
         // And the stand-in never lets anyone in, whatever they type.
         core.log_in("nobody at all", "", "x").unwrap_err();
+    }
+
+    /// A count of wrong passwords is forgotten an hour after its last miss
+    /// (#373), for a name nobody holds as for one somebody does: a crowd of
+    /// made-up names cannot grow the table without end, and when a count is
+    /// forgotten says nothing about who has an account here (ADR 0031).
+    #[test]
+    fn a_count_of_misses_is_forgotten_an_hour_after_the_last_for_every_name_alike() {
+        let (_dir, core) = a_core();
+        core.create_first_person("cook", PASSWORD, "laptop")
+            .unwrap();
+        let counts = |core: &Core| -> Vec<(String, i64)> {
+            core.db()
+                .with_conn(|conn| {
+                    let mut rows = conn
+                        .prepare(
+                            "SELECT name, consecutive_failures FROM login_failures ORDER BY name",
+                        )
+                        .unwrap();
+                    Ok(rows
+                        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                        .unwrap()
+                        .map(Result::unwrap)
+                        .collect())
+                })
+                .unwrap()
+        };
+        let age = |core: &Core, name: &str, minutes: i64| {
+            core.db()
+                .with_conn(|conn| {
+                    conn.execute(
+                        "UPDATE login_failures SET last_failed_at = \
+                         strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?2) WHERE name = ?1",
+                        params![name, format!("-{minutes} minutes")],
+                    )
+                    .map_err(|e| OpError::internal(e.to_string()))
+                })
+                .unwrap();
+        };
+        core.log_in("cook", "not the password", "x").unwrap_err();
+        core.log_in("nobody here", "not the password", "x")
+            .unwrap_err();
+        assert_eq!(
+            counts(&core),
+            [("cook".to_string(), 1), ("nobody here".to_string(), 1)]
+        );
+
+        // Within the hour a count stands, whoever's name it is.
+        age(&core, "cook", 59);
+        age(&core, "nobody here", 59);
+        core.log_in("a third name", "not the password", "x")
+            .unwrap_err();
+        assert_eq!(counts(&core).len(), 3);
+
+        // Past it, both are gone at the next miss of any name.
+        age(&core, "cook", 61);
+        age(&core, "nobody here", 61);
+        core.log_in("a fourth name", "not the password", "x")
+            .unwrap_err();
+        assert_eq!(
+            counts(&core),
+            [
+                ("a fourth name".to_string(), 1),
+                ("a third name".to_string(), 1)
+            ]
+        );
     }
 
     /// The minimum is for a password being set. One set before it existed

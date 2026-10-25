@@ -1,0 +1,4 @@
+{
+	"about": "npm advisories read and judged not to apply to Kamosu, each with its reason: deny.toml's ignore list for the interface's tree, read by tools/npm-audit.mjs when `just audit` runs. An id belongs here only when the advisory has been read and the real fix tried first, never to quiet a build. Re-read an entry whenever the package it names moves.",
+	"ignore": []
+}

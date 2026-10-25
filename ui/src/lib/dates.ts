@@ -4,8 +4,8 @@
  * The audit of 9 October 2026 found five ways of writing a date on one visit:
  * some calls passed the app's locale and the rest took the browser's, so a
  * French interface could show an English date, and a Session's time carried
- * seconds. Four styles, named for what they are for, and nothing else calls
- * `toLocaleDateString` directly. A fifth, `howLongAgo`, is for the one time
+ * seconds. One style per use, each named for what it is for, and nothing
+ * else calls `toLocaleDateString` directly. `howLongAgo` is for the one time
  * whose point is how recent it is (#275).
  */
 
@@ -52,6 +52,14 @@ export const aTime = (when: string | Date, now: Date = new Date()): string =>
 				hourCycle: 'h23',
 			})
 		: aMoment(when);
+
+/** A time of day alone, `13:10`, under a heading that already names the day (#371). */
+export const aClock = (when: string | Date): string =>
+	at(when).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+
+/** A day of the week and its date, as the Security Record heads one: `Mon 13 Oct` (#371). */
+export const aWeekday = (when: string | Date): string =>
+	at(when).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' });
 
 /** A month, as the diary heads one: `September 2026`. */
 export const aMonth = (when: string | Date): string =>

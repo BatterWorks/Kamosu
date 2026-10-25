@@ -145,7 +145,7 @@
 
 					     Not on the cooking screen, for the same reason as everything else
 					     here (ADR 0011) — and, drawn there, not even visible: that screen is
-					     `fixed inset-0 z-30`, so a card in ordinary flow is painted
+					     fixed over the window at `z-30`, so a card in ordinary flow is painted
 					     underneath it, unseen by the cook while a screen reader still
 					     announces the alert. The cooking screen says it in two words of its
 					     own instead, on the row it already has, and opens this card only on

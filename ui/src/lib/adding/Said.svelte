@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import type { Adding } from './adding.svelte';
 
 	interface Props {
@@ -14,7 +15,7 @@
 </script>
 
 {#if adding.failed}
-	<p class="mt-2 text-read text-support" role="alert">{adding.failed}</p>
+	<p class="mt-2 text-read text-support" role="alert"><Refusal words={adding.failed} /></p>
 {:else if adding.waiting}
 	<p class="mt-2 text-read text-ink-2" role="status">{adding.waiting}</p>
 {:else if adding.stillGoing}

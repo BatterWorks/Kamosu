@@ -1,10 +1,11 @@
 //! Reading a Crouton export (#69): the whole library, a zip of `.crumb` files,
 //! turned into candidates the shared `import` machinery lands (ADR 0025).
 //!
-//! **This is the parser and nothing else.** Matching against the ledger,
-//! making Lineages and writing the Import Report all belong to
-//! [`crate::core::Core::import_each`]; what lives here is what a `.crumb`
-//! means. `docs/research/crouton-real-export.md` measured the format against
+//! **This is the parser and nothing else.** It hands its recipes over in the
+//! shape every app's reader does ([`crate::other_apps`], #412). Matching
+//! against the ledger, making Lineages and writing the Import Report all
+//! belong to [`crate::core::Core::import_each`]; what lives here is what a
+//! `.crumb` means. `docs/research/crouton-real-export.md` measured the format against
 //! a real library of 86 recipes, and every rule below comes from that measurement.
 //!
 //! - **The Crouton UUID is the foreign id, never the filename.** Crouton names
@@ -17,7 +18,8 @@
 //! - **`sourceImage` is dropped.** It is the source site's favicon, not a
 //!   photograph of the dish (ADR 0017); the Report says it was left out.
 //! - **`neutritionalInfo` is dropped.** It is unparsed scrape debris, and a
-//!   plausible wrong number is worse than an empty field (ADR 0025).
+//!   plausible wrong number is worse than an empty field (ADR 0025). The
+//!   Report counts it, so it is seen before Crouton is deleted (#434).
 //! - **A tag is kept by its name alone** (#128). The 20 August 2026 export
 //!   carried no tags; the 23 September one tags 64 of the 86 recipes. Each is
 //!   `{uuid, name, color}`, and only the name comes in: Kamosu Tags have no
@@ -34,6 +36,7 @@ use serde_json::{Value, json};
 
 use crate::core::OpError;
 use crate::entities::decode_entities;
+use crate::other_apps::{self, LeftOut};
 
 /// The largest single `.crumb` read out of a zip. The corpus's largest is
 /// 8.5 MB — one recipe with a camera-original photo inline — so this leaves
@@ -62,12 +65,17 @@ pub struct Crumb {
     /// once, in Crouton's order. They are English words whatever the recipe's
     /// Language, and are filed as such (#128).
     pub tags: Vec<String>,
+    /// Whether the recipe held `neutritionalInfo`, which is dropped and only
+    /// counted on the Report.
+    pub nutrition_dropped: bool,
 }
 
 /// A readable Crouton export: one `.crumb`, or a zip of them. Entries are read
 /// one at a time, so a library is never held in memory decoded all at once.
 pub struct Export {
     entries: Entries,
+    /// How much more the zip may unpack before the rest of it is not read.
+    budget: other_apps::Budget,
 }
 
 enum Entries {
@@ -86,7 +94,16 @@ impl Export {
     /// Open what a person handed over. A zip is read as Crouton's whole-library
     /// export; anything else is taken to be a single `.crumb`, which is what
     /// Crouton shares one recipe as.
-    pub fn open<R: Read + Seek + Send + 'static>(mut reader: R) -> Result<Export, OpError> {
+    pub fn open<R: Read + Seek + Send + 'static>(reader: R) -> Result<Export, OpError> {
+        Export::open_within(reader, other_apps::MOST_UNPACKED)
+    }
+
+    /// [`Export::open`], unpacking at most `most` across the whole export:
+    /// the ceiling a test can reach.
+    fn open_within<R: Read + Seek + Send + 'static>(
+        mut reader: R,
+        most: u64,
+    ) -> Result<Export, OpError> {
         let mut magic = [0u8; 4];
         let read = read_up_to(&mut reader, &mut magic)
             .map_err(|e| OpError::bad_request(format!("cannot read the file: {e}")))?;
@@ -123,6 +140,7 @@ impl Export {
                     archive: Box::new(archive),
                     crumbs: crumbs.into_iter().map(|(_, index)| index).collect(),
                 },
+                budget: other_apps::Budget::new(most),
             })
         } else {
             let mut bytes = Vec::new();
@@ -132,6 +150,7 @@ impl Export {
                 .map_err(|e| OpError::bad_request(format!("cannot read the file: {e}")))?;
             Ok(Export {
                 entries: Entries::One(Some(bytes)),
+                budget: other_apps::Budget::new(most),
             })
         }
     }
@@ -165,16 +184,110 @@ impl Export {
                     Err(_) => return (None, Err(DAMAGED.to_string())),
                 };
                 let name = file_name(&entry);
-                let mut bytes = Vec::new();
-                if (&mut entry)
-                    .take(MAX_CRUMB_BYTES + 1)
-                    .read_to_end(&mut bytes)
-                    .is_err()
-                {
-                    return (Some(name), Err(DAMAGED.to_string()));
+                match self.budget.unpack(&mut entry, MAX_CRUMB_BYTES) {
+                    Err(other_apps::TooMuch) => {
+                        let too_much = format!(
+                            "the export unpacks to more than {} GB in all, more than any \
+                             Crouton library holds, so this recipe and those after it were \
+                             not read",
+                            self.budget.most() / (1000 * 1000 * 1000)
+                        );
+                        (Some(name), Err(too_much))
+                    }
+                    Ok((_, false)) => (Some(name), Err(DAMAGED.to_string())),
+                    Ok((bytes, true)) => (Some(name), read_bytes(&bytes)),
                 }
-                (Some(name), read_bytes(&bytes))
             }
+        }
+    }
+}
+
+/// Crouton among the readers of another app's export (#412). A zip is
+/// Crouton's when it holds a `.crumb`, and any other file when it parses as
+/// one recipe that carries Crouton's id: the export is known by what is in
+/// it, never by its name.
+pub struct Crouton;
+
+impl other_apps::Reader for Crouton {
+    fn names(&self) -> &'static [&'static str] {
+        &["Crouton"]
+    }
+
+    fn read(
+        &self,
+        handed: &other_apps::Handed,
+    ) -> Result<Option<other_apps::Export>, other_apps::Refusal> {
+        let Ok(file) = handed.open() else {
+            return Ok(None);
+        };
+        if !handed.is_zip() {
+            let mut bytes = Vec::new();
+            if file
+                .take(MAX_CRUMB_BYTES + 1)
+                .read_to_end(&mut bytes)
+                .is_err()
+            {
+                return Ok(None);
+            }
+            let one: Option<Value> = serde_json::from_slice(&bytes).ok();
+            if !one.is_some_and(|crumb| crumb.get("uuid").is_some_and(Value::is_string)) {
+                return Ok(None);
+            }
+            return Ok(Export::open(std::io::Cursor::new(bytes))
+                .ok()
+                .map(Export::into_recipes));
+        }
+        // Not a Crouton zip is not a refusal: another reader may know it.
+        Ok(Export::open(file).ok().map(Export::into_recipes))
+    }
+}
+
+impl Export {
+    /// This export as the recipes every reader hands over (#412): each
+    /// `.crumb` read as it is pulled, its first picture the Main Photo, and
+    /// the favicon and the pictures past the first named as left out.
+    pub fn into_recipes(mut self) -> other_apps::Export {
+        let total = self.len();
+        let recipes = (0..total).map(move |index| {
+            let (name, read) = self.read(index);
+            let crumb = read.map_err(|reason| other_apps::Unread {
+                foreign_id: None,
+                name,
+                reason,
+            })?;
+            let mut left_out = Vec::new();
+            if let Some(icon) = crumb.site_icon {
+                left_out.push(LeftOut::SiteIcon(icon));
+            }
+            if crumb.photos.len() > 1 {
+                left_out.push(LeftOut::ExtraPhotos(crumb.photos.len() - 1));
+            }
+            if crumb.unreadable_photos > 0 {
+                left_out.push(LeftOut::UnreadablePhotos(crumb.unreadable_photos));
+            }
+            if crumb.nutrition_dropped {
+                left_out.push(LeftOut::Nutrition);
+            }
+            Ok(other_apps::Recipe {
+                foreign_id: crumb.foreign_id,
+                cookings: Vec::new(),
+                candidate: crumb.candidate,
+                tags: crumb.tags,
+                photo: crumb
+                    .photos
+                    .into_iter()
+                    .next()
+                    .map(other_apps::Photo::Bytes),
+                step_photos: Vec::new(),
+                components: Vec::new(),
+                left_out,
+            })
+        });
+        other_apps::Export {
+            app: "crouton",
+            total,
+            recipes: Box::new(recipes),
+            left_out: Vec::new(),
         }
     }
 }
@@ -307,6 +420,7 @@ pub fn read_crumb(crumb: &Value) -> Result<Crumb, String> {
         unreadable_photos,
         site_icon,
         tags,
+        nutrition_dropped: text(crumb, "neutritionalInfo").is_some(),
     })
 }
 
@@ -334,18 +448,11 @@ fn minutes(value: Option<&Value>) -> Value {
 /// kept only the link, or nothing where it kept neither.
 fn source(crumb: &Value) -> Value {
     let link = text(crumb, "webLink");
-    let name = text(crumb, "sourceName").or_else(|| link.as_deref().and_then(host));
+    let name = text(crumb, "sourceName").or_else(|| link.as_deref().and_then(other_apps::host));
     match name {
         Some(name) => json!({ "text": name, "link": link }),
         None => Value::Null,
     }
-}
-
-fn host(link: &str) -> Option<String> {
-    let rest = link.split_once("://").map_or(link, |(_, rest)| rest);
-    let host = rest.split(['/', '?', '#']).next()?;
-    let host = host.strip_prefix("www.").unwrap_or(host);
-    (!host.is_empty()).then(|| host.to_string())
 }
 
 /// Items of a Crouton list, in the order Crouton says rather than the order
@@ -557,7 +664,8 @@ mod tests {
             (q(1.0, "LITRES"), "milk", 1.0, "l"),
         ] {
             let line = rebuild_line(Some(&quantity), name);
-            let reading = crate::reading::read_line(&line).expect("a reading");
+            let reading =
+                crate::reading::read_line(&line, crate::language::UNKNOWN).expect("a reading");
             let read = crate::units::parse_amount(reading.amount.as_deref().unwrap()).unwrap();
             assert!((read - amount).abs() < 1e-9, "{line}: read {read}");
             assert_eq!(reading.unit.as_deref(), Some(unit), "{line}");
@@ -614,6 +722,7 @@ mod tests {
             "zero is no time filled in"
         );
         assert_eq!(c["nutrition"], Value::Null, "Crouton's blob is dropped");
+        assert!(crumb.nutrition_dropped, "and counted on the Report");
         assert_eq!(
             c["source"],
             json!({ "text": "recipetineats.com", "link": "https://www.recipetineats.com/dan-dan-noodles/" })
@@ -732,6 +841,72 @@ mod tests {
         let (name, second) = export.read(1);
         assert_eq!(name.as_deref(), Some("b.crumb"));
         assert_eq!(second.unwrap().title, "Bee");
+    }
+
+    /// A zip can name thousands of files that each unpack to the most one
+    /// recipe may, so the whole export has a ceiling too (#373). What it
+    /// reached before the ceiling is read, and every file after it is named
+    /// in the Report as not read.
+    #[test]
+    fn an_export_stops_unpacking_at_its_ceiling() {
+        use std::io::Write;
+        let crumb = |id: &str| format!(r#"{{"uuid":"{id}","name":"Recipe {id}"}}"#);
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buffer);
+            let options = zip::write::SimpleFileOptions::default();
+            for id in ["A", "B", "C", "D"] {
+                zip.start_file(format!("{id}.crumb"), options).unwrap();
+                zip.write_all(crumb(id).as_bytes()).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        buffer.set_position(0);
+        let one = crumb("A").len() as u64;
+        let mut export = Export::open_within(buffer, 2 * one + one / 2).expect("opens");
+        assert_eq!(export.len(), 4);
+        assert_eq!(export.read(0).1.unwrap().foreign_id, "A");
+        assert_eq!(export.read(1).1.unwrap().foreign_id, "B");
+        for index in [2, 3] {
+            let (name, refused) = export.read(index);
+            assert!(name.is_some(), "the Report names the file it did not read");
+            let reason = refused.unwrap_err();
+            assert!(reason.contains("unpacks to more than"), "{reason}");
+        }
+    }
+
+    /// A damaged file is unpacked to its end before the zip says so, so what
+    /// it unpacked counts against the ceiling as any other file's does.
+    /// Otherwise a zip of damaged files would unpack without end.
+    #[test]
+    fn a_damaged_file_counts_against_the_ceiling() {
+        use std::io::Write;
+        let crumb = |id: &str| format!(r#"{{"uuid":"{id}","name":"Recipe {id}"}}"#);
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buffer);
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            for id in ["A", "B", "C"] {
+                zip.start_file(format!("{id}.crumb"), options).unwrap();
+                zip.write_all(crumb(id).as_bytes()).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        // Change A's contents behind its checksum's back.
+        let mut bytes = buffer.into_inner();
+        let at = bytes
+            .windows(8)
+            .position(|window| window == b"Recipe A")
+            .unwrap();
+        bytes[at + 7] = b'Z';
+        let one = crumb("A").len() as u64;
+        let mut export =
+            Export::open_within(std::io::Cursor::new(bytes), 2 * one + one / 2).expect("opens");
+        assert!(export.read(0).1.unwrap_err().contains("damaged"));
+        assert_eq!(export.read(1).1.unwrap().foreign_id, "B");
+        let reason = export.read(2).1.unwrap_err();
+        assert!(reason.contains("unpacks to more than"), "{reason}");
     }
 
     #[test]

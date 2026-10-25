@@ -34,6 +34,15 @@ vi.mock('$lib/paraglide/runtime', async (original) => ({
 	setLocale,
 }));
 
+/** An instance at an https:// name where nobody has added a passkey yet (#370). */
+const NO_PASSKEYS = {
+	public_address: 'https://kamosu.example',
+	available: true,
+	unavailable_because: null,
+	origin: 'https://kamosu.example',
+	passkeys: [],
+};
+
 /** Every screen visit asks for Sessions and Access Keys beside instance_status
  * (ADR 0031). Tests unconcerned with Access answer both as an anonymous
  * visitor would be refused — the same shape a stranger meets at either Door. */
@@ -43,6 +52,7 @@ const anonymous: Answers = {
 	// something only an Operator may ask (#103). A stranger is refused, and the
 	// way into the Operator's screen is simply not there.
 	list_accounts: { refuse: 'unauthorized' },
+	list_passkeys: { refuse: 'unauthorized' },
 	list_access_keys: { refuse: 'unauthorized' },
 	get_reading_preferences: { refuse: 'unauthorized' },
 	get_person: { refuse: 'unauthorized' },
@@ -112,7 +122,13 @@ const readsInAmerican: Answers = {
 describe('the settings screen', () => {
 	it('asks the instance what it is, and says so', async () => {
 		const { kamosu } = renderScreen(Instance, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			...anonymous,
 		});
 
@@ -124,7 +140,13 @@ describe('the settings screen', () => {
 	// The story (#158), for showing somebody what Kamosu is.
 	it('leads to the story of what Kamosu is', async () => {
 		renderScreen(Instance, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			...anonymous,
 		});
 
@@ -136,7 +158,13 @@ describe('the settings screen', () => {
 
 	it("offers the Operator's screen only to somebody who administers the instance", async () => {
 		renderScreen(Instance, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			...anonymous,
 		});
 		expect(await screen.findByText(/Version 0\.1\.0/)).toBeInTheDocument();
@@ -147,7 +175,13 @@ describe('the settings screen', () => {
 
 	it("shows the way into the Operator's screen to an Operator", async () => {
 		renderScreen(Instance, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			...anonymous,
 			list_accounts: {
 				accounts: [
@@ -169,7 +203,13 @@ describe('the settings screen', () => {
 
 	it('says setup has not happened when it has not', async () => {
 		renderScreen(Instance, {
-			instance_status: { version: '0.1.0', setup_complete: false, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: false,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			...anonymous,
 		});
 
@@ -187,7 +227,13 @@ describe('the settings screen', () => {
 
 	it('offers every language Paraglide compiled, with the current one pressed', () => {
 		renderScreen(Account, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			...anonymous,
 		});
 
@@ -199,7 +245,13 @@ describe('the settings screen', () => {
 
 	it('shows nothing about Access when the visitor is not signed in', async () => {
 		renderScreen(Account, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			...anonymous,
 		});
 
@@ -207,9 +259,58 @@ describe('the settings screen', () => {
 		expect(screen.queryByText('Access')).not.toBeInTheDocument();
 	});
 
+	it("marks a phone's Add-only key, and changes where what it shares goes (#452)", async () => {
+		const phoneKey = {
+			id: 'ak_phone',
+			name: 'iPhone',
+			read_only: false,
+			operator: false,
+			add_only: true,
+			everything_to_agent: false,
+			created_at: '2026-01-01T00:00:00Z',
+			last_used_at: null,
+			revoked: false,
+		};
+		const { kamosu } = renderScreen(Account, {
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
+			list_accounts: { refuse: 'unauthorized' },
+			list_sessions: { sessions: [] },
+			...readsInAmerican,
+			list_passkeys: NO_PASSKEYS,
+			list_access_keys: { access_keys: [phoneKey] },
+			set_key_agent_choice: { everything_to_agent: true },
+			runner_status: { has_runner: true, last_asked_at: null },
+		});
+
+		const row = (await screen.findByText('iPhone')).closest('li')!;
+		expect(row).toHaveTextContent('Add-only');
+		const choice = within(row).getByRole('checkbox', {
+			name: "Send everything it shares to Kamosu's AI agent, recipe sites too",
+		});
+		expect(choice).not.toBeChecked();
+		await fireEvent.click(choice);
+		await vi.waitFor(() =>
+			expect(kamosu.calls.find((call) => call.operation === 'set_key_agent_choice')?.input).toEqual(
+				{ access_key_id: 'ak_phone', everything_to_agent: true },
+			),
+		);
+	});
+
 	it("lists a signed-in Person's Sessions and Access Keys together, each ending on its own", async () => {
 		const { kamosu } = renderScreen(Account, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			list_accounts: { refuse: 'unauthorized' },
 			list_sessions: {
 				sessions: [
@@ -224,12 +325,16 @@ describe('the settings screen', () => {
 				],
 			},
 			...readsInAmerican,
+			list_passkeys: NO_PASSKEYS,
 			list_access_keys: {
 				access_keys: [
 					{
 						id: 'ak_1',
 						name: 'my agent',
 						read_only: true,
+						operator: false,
+						add_only: false,
+						everything_to_agent: false,
 						created_at: '2026-01-01T00:00:00Z',
 						last_used_at: null,
 						revoked: false,
@@ -256,8 +361,15 @@ describe('the settings screen', () => {
 
 	it('offers Reading Measures on the account, defaulting to American', async () => {
 		const { kamosu } = renderScreen(Device, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			list_sessions: { sessions: [] },
+			list_passkeys: NO_PASSKEYS,
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
 			list_kitchens: { kitchens: [] },
@@ -282,14 +394,24 @@ describe('the settings screen', () => {
 
 	it("shows a minted Access Key's secret where the form was, once, then never again (#142)", async () => {
 		const { kamosu } = renderScreen(Account, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			list_sessions: { sessions: [] },
+			list_passkeys: NO_PASSKEYS,
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
 			mint_access_key: {
 				id: 'ak_new',
 				name: 'a new agent',
 				read_only: false,
+				operator: false,
+				add_only: false,
+				everything_to_agent: false,
 				secret: 'the-one-time-secret',
 			},
 			list_kitchens: { kitchens: [] },
@@ -316,16 +438,127 @@ describe('the settings screen', () => {
 		expect(screen.getByRole('button', { name: 'Create Access Key' })).toBeInTheDocument();
 	});
 
+	it('offers an Operator, and nobody else, a key that acts as Operator, and warns when it is chosen (#369)', async () => {
+		const { kamosu } = renderScreen(Account, {
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
+			list_sessions: { sessions: [] },
+			...readsInAmerican,
+			list_accounts: {
+				accounts: [
+					{
+						name: 'Stéphane',
+						is_operator: true,
+						disabled: false,
+						is_you: true,
+						created_at: '2026-01-04T10:00:00Z',
+					},
+				],
+			},
+			list_passkeys: NO_PASSKEYS,
+			list_access_keys: {
+				access_keys: [
+					{
+						id: 'ak_1',
+						name: 'house agent',
+						read_only: false,
+						operator: true,
+						add_only: false,
+						everything_to_agent: false,
+						created_at: '2026-01-01T00:00:00Z',
+						last_used_at: null,
+						revoked: false,
+					},
+				],
+			},
+			mint_access_key: {
+				id: 'ak_new',
+				name: 'a new agent',
+				read_only: false,
+				operator: true,
+				add_only: false,
+				everything_to_agent: false,
+				secret: 'the-one-time-secret',
+			},
+			list_kitchens: { kitchens: [] },
+		});
+
+		expect(await screen.findByText('Acts as Operator')).toBeInTheDocument();
+		const asCook = await screen.findByRole('radio', { name: /You, as a cook/ });
+		expect(asCook).toBeChecked();
+		const warning = /House Notes every agent reads/;
+		expect(screen.queryByText(warning)).not.toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('radio', { name: /You, as Operator too/ }));
+		expect(screen.getByText(warning)).toBeInTheDocument();
+
+		await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'a new agent' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Create Access Key' }));
+		await screen.findByText('the-one-time-secret');
+		const sent = kamosu.calls.find((call) => call.operation === 'mint_access_key');
+		expect(sent?.input).toEqual({ name: 'a new agent', read_only: false, operator: true });
+	});
+
+	it('offers a Person who is no Operator no choice, and mints them an ordinary key (#369)', async () => {
+		const { kamosu } = renderScreen(Account, {
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
+			list_sessions: { sessions: [] },
+			...readsInAmerican,
+			list_accounts: { refuse: 'unauthorized' },
+			list_passkeys: NO_PASSKEYS,
+			list_access_keys: { access_keys: [] },
+			mint_access_key: {
+				id: 'ak_new',
+				name: 'a new agent',
+				read_only: false,
+				operator: false,
+				add_only: false,
+				everything_to_agent: false,
+				secret: 'the-one-time-secret',
+			},
+			list_kitchens: { kitchens: [] },
+		});
+
+		await screen.findByText('No Access Keys yet.');
+		expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+		await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'a new agent' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Create Access Key' }));
+		await screen.findByText('the-one-time-secret');
+		const sent = kamosu.calls.find((call) => call.operation === 'mint_access_key');
+		expect(sent?.input).toEqual({ name: 'a new agent', read_only: false, operator: false });
+	});
+
 	it('copies a minted Access Key, and still shows it when the browser will not copy (#142)', async () => {
 		renderScreen(Account, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			list_sessions: { sessions: [] },
+			list_passkeys: NO_PASSKEYS,
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
 			mint_access_key: {
 				id: 'ak_new',
 				name: 'a new agent',
 				read_only: false,
+				operator: false,
+				add_only: false,
+				everything_to_agent: false,
 				secret: 'the-one-time-secret',
 			},
 			list_kitchens: { kitchens: [] },
@@ -350,8 +583,15 @@ describe('the settings screen', () => {
 
 	it("lists a signed-in Person's Kitchens, whose recipes each shows, and lets a member be removed", async () => {
 		const { kamosu } = renderScreen(Kitchens, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			list_sessions: { sessions: [] },
+			list_passkeys: NO_PASSKEYS,
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
 			list_tags: { tags: [] },
@@ -405,8 +645,15 @@ describe('the settings screen', () => {
 				members: members.map(([person_id, name]) => ({ person_id, name })),
 			});
 		const signedIn = (kitchens: ReturnType<typeof kitchen>[], over: Answers = {}): Answers => ({
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			list_sessions: { sessions: [] },
+			list_passkeys: NO_PASSKEYS,
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
 			list_tags: { tags: [] },
@@ -514,8 +761,15 @@ describe('the settings screen', () => {
 
 	it('creates a Kitchen from the form', async () => {
 		const { kamosu } = renderScreen(Kitchens, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			list_sessions: { sessions: [] },
+			list_passkeys: NO_PASSKEYS,
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
 			list_kitchens: { kitchens: [] },
@@ -542,8 +796,15 @@ describe('the settings screen', () => {
 
 	it('mints a Kitchen Invite and shows its secret once', async () => {
 		const { kamosu } = renderScreen(Kitchens, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			list_sessions: { sessions: [] },
+			list_passkeys: NO_PASSKEYS,
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
 			list_tags: { tags: [] },
@@ -580,8 +841,15 @@ describe('the settings screen', () => {
 
 	it('joins a Kitchen through a pasted Invite', async () => {
 		const { kamosu } = renderScreen(Kitchens, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			list_sessions: { sessions: [] },
+			list_passkeys: NO_PASSKEYS,
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
 			list_kitchens: { kitchens: [] },
@@ -615,8 +883,15 @@ describe('the settings screen', () => {
 		// opens onto still says *Settings* and still carries the one name that
 		// makes the card grow into it.
 		renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			list_sessions: { sessions: [] },
+			list_passkeys: NO_PASSKEYS,
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
 			list_tags: { tags: [] },
@@ -650,8 +925,13 @@ describe('the settings screen', () => {
 	});
 
 	it('draws the menu and a page on the wide layout too (#221)', async () => {
-		renderScreen(Settings, {}, undefined, 'wide');
-		expect(await screen.findAllByRole('link')).toHaveLength(4);
+		renderScreen(
+			Settings,
+			{ get_person: { person_id: 'p_1', name: 'Stéphane' } },
+			undefined,
+			'wide',
+		);
+		expect(await screen.findAllByRole('link')).toHaveLength(7);
 		cleanup();
 
 		renderScreen(
@@ -659,6 +939,7 @@ describe('the settings screen', () => {
 			{
 				...readsInAmerican,
 				list_sessions: { sessions: [] },
+				list_passkeys: NO_PASSKEYS,
 				list_access_keys: { access_keys: [] },
 			},
 			undefined,
@@ -668,26 +949,45 @@ describe('the settings screen', () => {
 		expect(screen.queryByRole('heading', { name: 'Kitchens' })).not.toBeInTheDocument();
 	});
 
-	it('is a menu of four pages, each named with what it holds (#221)', async () => {
-		const { kamosu } = renderScreen(Settings, {});
+	it('is a menu of seven pages, each named with what it holds (#221, #371, #412, #452)', async () => {
+		const { kamosu } = renderScreen(Settings, {
+			get_person: { person_id: 'p_1', name: 'Stéphane' },
+		});
 
 		const rows = await screen.findAllByRole('link');
 		expect(rows.map((row) => row.getAttribute('href'))).toEqual([
+			'/settings/import',
+			'/settings/share',
 			'/settings/account',
 			'/settings/device',
 			'/settings/kitchens',
 			'/settings/instance',
+			'/settings/security',
 		]);
-		expect(rows[0]).toHaveTextContent('Account');
-		expect(rows[0]).toHaveTextContent('Your name, the language, who is signed in, your password');
-		expect(rows[2]).toHaveTextContent('Kitchens and cookbooks');
-		// The menu reads nothing: every page reads what its own sections need.
-		expect(kamosu.calls).toEqual([]);
+		// Import from another app comes first, naming the apps it reads (#412).
+		expect(rows[0]).toHaveTextContent('Import from another app');
+		expect(rows[0]).toHaveTextContent('Crouton');
+		// Setting a phone up comes second (#452, option B).
+		expect(rows[1]).toHaveTextContent('Share from your phone');
+		expect(rows[1]).toHaveTextContent("Add a recipe from any app's Share menu");
+		expect(rows[2]).toHaveTextContent('Account');
+		expect(rows[2]).toHaveTextContent('Your name, the language, who is signed in, your password');
+		expect(rows[4]).toHaveTextContent('Kitchens and cookbooks');
+		expect(rows[5]).toHaveTextContent('What arrived, Meaning Search, the version');
+		// The menu reads who is signed in, for the foot of it (#380), and nothing
+		// else: every page reads what its own sections need.
+		expect(kamosu.calls).toEqual([{ operation: 'get_person', input: {} }]);
 	});
 
 	it('keeps the "not right now" facts once their cards are put away (#76)', async () => {
 		renderScreen(Device, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			...anonymous,
 		});
 		// The test browser is not a secure page, so this device can keep nothing.
@@ -710,7 +1010,13 @@ describe('the settings screen', () => {
 		});
 		const showSettings = () =>
 			renderScreen(Device, {
-				instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+				instance_status: {
+					version: '0.1.0',
+					setup_complete: true,
+					password_minimum: 15,
+					passkey_origin: null,
+					demo: false,
+				},
 				...anonymous,
 			});
 
@@ -754,8 +1060,15 @@ describe('the settings screen', () => {
 
 	/** One signed-in Person with one Kitchen and a Cookbook of their own, the ordinary case. */
 	const withKitchen: Answers = {
-		instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+		instance_status: {
+			version: '0.1.0',
+			setup_complete: true,
+			password_minimum: 15,
+			passkey_origin: null,
+			demo: false,
+		},
 		list_sessions: { sessions: [] },
+		list_passkeys: NO_PASSKEYS,
 		list_access_keys: { access_keys: [] },
 		...readsInAmerican,
 		list_kitchens: {
@@ -952,8 +1265,15 @@ describe('the settings screen', () => {
 	 */
 	it('offers the way into the Foods, to every Person and not only an Operator', async () => {
 		renderScreen(Kitchens, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			list_sessions: { sessions: [] },
+			list_passkeys: NO_PASSKEYS,
 			list_access_keys: { access_keys: [] },
 			list_kitchens: { kitchens: [] },
 			...readsInAmerican,
@@ -974,8 +1294,15 @@ describe('the Reading Language (#112)', () => {
 	 * Kamosu in one Language and their recipes in another.
 	 */
 	const signedIn = (reading_language: 'en' | 'fr' | 'es'): Answers => ({
-		instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+		instance_status: {
+			version: '0.1.0',
+			setup_complete: true,
+			password_minimum: 15,
+			passkey_origin: null,
+			demo: false,
+		},
 		list_sessions: { sessions: [] },
+		list_passkeys: NO_PASSKEYS,
 		list_access_keys: { access_keys: [] },
 		list_kitchens: { kitchens: [] },
 		...readsInAmerican,
@@ -1166,7 +1493,13 @@ describe('the Reading Language (#112)', () => {
 
 	it('tells a stranger only what the words control does, since there is no account to follow', async () => {
 		renderScreen(Account, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			...anonymous,
 		});
 
@@ -1203,8 +1536,15 @@ describe('your own name (#113)', () => {
 	});
 
 	const signedIn = (over: Answers = {}): Answers => ({
-		instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+		instance_status: {
+			version: '0.1.0',
+			setup_complete: true,
+			password_minimum: 15,
+			passkey_origin: null,
+			demo: false,
+		},
 		list_sessions: { sessions: [] },
+		list_passkeys: NO_PASSKEYS,
 		list_access_keys: { access_keys: [] },
 		...readsInAmerican,
 		list_tags: { tags: [] },
@@ -1330,7 +1670,13 @@ describe('your own name (#113)', () => {
 
 	it('shows a stranger no name to change', async () => {
 		renderScreen(Account, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 			...anonymous,
 		});
 
@@ -1358,8 +1704,15 @@ describe('telling your Sessions apart (#114)', () => {
 	];
 
 	const signedIn = (over: Answers = {}): Answers => ({
-		instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+		instance_status: {
+			version: '0.1.0',
+			setup_complete: true,
+			password_minimum: 15,
+			passkey_origin: null,
+			demo: false,
+		},
 		list_sessions: { sessions: three },
+		list_passkeys: NO_PASSKEYS,
 		list_access_keys: { access_keys: [] },
 		...readsInAmerican,
 		list_tags: { tags: [] },
@@ -1425,12 +1778,16 @@ describe('telling your Sessions apart (#114)', () => {
 		);
 
 		await fireEvent.click(within((await rows())[0]).getByRole('button', { name: 'Sign out' }));
+		// It asks first, as the foot of the Settings menu does (#380).
+		await fireEvent.click(
+			within(await screen.findByRole('dialog')).getByRole('button', { name: 'Sign out' }),
+		);
 
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/'));
 		expect(kamosu.calls).toContainEqual({
 			operation: 'revoke_session',
 			input: { session_id: 's_phone' },
 		});
-		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/'));
 		// So the sidebar is gone before Home is drawn, not a moment after (#194).
 		expect(signingIn.signedIn).toBe(false);
 	});
@@ -1503,8 +1860,15 @@ describe('telling your Sessions apart (#114)', () => {
 // one-use link that makes it a Cookbook you write with somebody.
 describe('your Cookbook (#131)', () => {
 	const signedIn = (over: Answers = {}): Answers => ({
-		instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+		instance_status: {
+			version: '0.1.0',
+			setup_complete: true,
+			password_minimum: 15,
+			passkey_origin: null,
+			demo: false,
+		},
 		list_sessions: { sessions: [] },
+		list_passkeys: NO_PASSKEYS,
 		list_access_keys: { access_keys: [] },
 		...readsInAmerican,
 		list_kitchens: { kitchens: [] },

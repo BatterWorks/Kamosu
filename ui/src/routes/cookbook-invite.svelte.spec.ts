@@ -25,7 +25,13 @@ const ALREADY = {
 
 function open(answers: Answers) {
 	const kamosu = standIn({
-		instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+		instance_status: {
+			version: '0.1.0',
+			setup_complete: true,
+			password_minimum: 15,
+			passkey_origin: null,
+			demo: false,
+		},
 		...answers,
 	});
 	const authenticate = vi.fn<AuthClient['authenticate']>(async () => {});
@@ -34,7 +40,12 @@ function open(answers: Answers) {
 			route: CookbookInviteRoute,
 			secret: 'the-cookbook-secret',
 			client: kamosu.client,
-			auth: { authenticate },
+			auth: {
+				authenticate,
+				signInWithPasskey: async () => 'declined' as const,
+				readyPasskey: () => {},
+				arrive: async () => {},
+			},
 		},
 	});
 	return { kamosu, authenticate };

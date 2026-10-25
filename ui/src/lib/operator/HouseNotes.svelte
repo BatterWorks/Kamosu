@@ -15,6 +15,7 @@
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import Refusal from '$lib/Refusal.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -90,7 +91,7 @@
 		</button>
 	</form>
 	{#if said}
-		<p class="mt-2 text-read text-support" role="alert">{said}</p>
+		<p class="mt-2 text-read text-support" role="alert"><Refusal words={said} /></p>
 	{/if}
 	<p class="mt-2 text-read text-ink-2">
 		{notes.notes ? savedLine(notes) : m.operator_notes_none()}

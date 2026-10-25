@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""The fence: keeps the agent's container off the host's network (#372).
+
+The agent reads pages strangers wrote, and a page that tricks it can have it
+fetch any address it reaches. Kamosu's own fetches refuse the host and the
+LAN (ADR 0033); an agent that reaches them steps around that guard. So the
+agent's container shares the network of this one, which sets firewall rules
+there and does nothing else.
+
+Started as root with NET_ADMIN, SETUID and SETGID alone, it allows the
+loopback, the container's DNS server and the addresses named in
+KAMOSU_AGENT_FENCE_ALLOW, refuses every private, loopback, link-local and
+shared address beyond those, and lets the rest of the internet through. Then
+it becomes the agent's user, which leaves it no capability, and sleeps. The
+agent's container joins its network with every capability dropped, so it
+lives inside those rules and cannot change them.
+
+KAMOSU_AGENT_FENCE_ALLOW names what the agent must still reach on a private
+address, which is Kamosu: `host:port` or `address:port`, several apart by
+spaces or commas, such as `kamosu:5266`. A name is looked up once, when the
+fence starts.
+"""
+
+import ipaddress
+import os
+import re
+import signal
+import socket
+import subprocess
+import sys
+import time
+
+AGENT_UID = 1000
+
+# What the fence refuses unless it is allowed above. Every address of the
+# host, the LAN, a container network or a VPN falls in one of these.
+REFUSED_V4 = [
+    "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
+    "172.16.0.0/12", "192.0.0.0/24", "192.168.0.0/16", "198.18.0.0/15",
+    "224.0.0.0/3",
+]
+REFUSED_V6 = ["::/127", "::ffff:0:0/96", "64:ff9b::/96", "fc00::/7", "fe80::/10", "ff00::/8"]
+
+
+def say(text):
+    print(text, file=sys.stderr, flush=True)
+
+
+def refuse(*lines):
+    """End for a fault in how the fence was started. Its restart policy
+    starts it again regardless, so it waits a minute first."""
+    for text in lines:
+        say(text)
+    time.sleep(60)
+    sys.exit(2)
+
+
+for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    signal.signal(signum, lambda signum, _frame: os._exit(128 + signum))
+
+if os.getuid() != 0:
+    refuse(
+        "The fence starts as root, user 0, to set its rules, and becomes the agent's",
+        "user once they are set. Start it with `user: \"0:0\"`. See docs/runner.md.",
+    )
+
+
+def allowed():
+    """Each (address, port) KAMOSU_AGENT_FENCE_ALLOW names, names looked up."""
+    found = []
+    for entry in re.split(r"[\s,]+", os.environ.get("KAMOSU_AGENT_FENCE_ALLOW", "").strip()):
+        if not entry:
+            continue
+        host, _, port = entry.rpartition(":")
+        host = host.strip("[]")
+        if not host or not port.isdigit() or not 0 < int(port) < 65536:
+            refuse(
+                f"KAMOSU_AGENT_FENCE_ALLOW holds `{entry}`. Give each address with its",
+                "port, such as kamosu:5266. See docs/runner.md.",
+            )
+        try:
+            addresses = {info[4][0] for info in socket.getaddrinfo(host, int(port), proto=socket.IPPROTO_TCP)}
+        except OSError as e:
+            refuse(f"The fence cannot look up {host}, from KAMOSU_AGENT_FENCE_ALLOW: {e}.")
+        found += [(ipaddress.ip_address(a), int(port)) for a in sorted(addresses)]
+    return found
+
+
+def nameservers():
+    """The DNS servers the container was given."""
+    found = []
+    try:
+        with open("/etc/resolv.conf") as f:
+            for line in f:
+                words = line.split()
+                if len(words) >= 2 and words[0] == "nameserver":
+                    try:
+                        found.append(ipaddress.ip_address(words[1].split("%")[0]))
+                    except ValueError:
+                        pass
+    except OSError:
+        pass
+    return found
+
+
+def family(address):
+    return "ip" if address.version == 4 else "ip6"
+
+
+def fence(rules, policy):
+    """Put these rules in place of any the fence set before, in one step, so
+    the network is never left without them. Answers nft's complaint, or None."""
+    ruleset = (
+        "table inet kamosu_fence\n"
+        "delete table inet kamosu_fence\n"
+        "table inet kamosu_fence {\n"
+        "  chain out {\n"
+        f"    type filter hook output priority 0; policy {policy};\n"
+        + "".join(f"    {rule}\n" for rule in rules)
+        + "  }\n}\n"
+    )
+    applied = subprocess.run(["nft", "-f", "-"], input=ruleset, text=True, capture_output=True)
+    return applied.stderr.strip() if applied.returncode else None
+
+
+# Closed first, but for the loopback and DNS, so that a fence still looking
+# up Kamosu's address, or refusing to start, never leaves the network open.
+dns = nameservers()
+rules = ['oifname "lo" accept'] + [
+    f"{family(server)} daddr {server} meta l4proto {{ tcp, udp }} th dport 53 accept"
+    for server in dns
+]
+complaint = fence(rules, "drop")
+if complaint:
+    refuse(
+        f"The fence could not set its rules: {complaint}",
+        "Start it with the NET_ADMIN capability. Until it is up, the agent's network",
+        "is not fenced. See docs/runner.md.",
+    )
+reachable = allowed()
+for address, port in reachable:
+    rules.append(f"{family(address)} daddr {address} tcp dport {port} accept")
+rules.append(f"ip daddr {{ {', '.join(REFUSED_V4)} }} reject")
+rules.append(f"ip6 daddr {{ {', '.join(REFUSED_V6)} }} reject")
+complaint = fence(rules, "accept")
+if complaint:
+    refuse(f"The fence could not set its rules: {complaint}", "See docs/runner.md.")
+
+# Root no longer: the agent's user keeps no capability, and the rules stay.
+os.setgroups([])
+os.setgid(AGENT_UID)
+os.setuid(AGENT_UID)
+
+say(
+    "The fence is up: this network reaches the internet, "
+    + (", ".join(f"{a}:{p}" for a, p in reachable) or "no private address")
+    + (f", and DNS at {', '.join(map(str, dns))}" if dns else "")
+    + ". Every other private, loopback, link-local or shared address is refused."
+)
+while True:
+    signal.pause()

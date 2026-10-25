@@ -22,7 +22,9 @@
 	Offline, every button says what it waits for, as the other acts do.
 -->
 <script lang="ts">
+	import { MOST_PAGES } from '$lib/adding/adding.svelte';
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { useUpload } from '$lib/api/upload';
 	import { OperationError } from '$lib/api/client';
@@ -69,7 +71,8 @@
 	/** Where the panel is: at rest, asking, or taking what was read again. */
 	type Step = 'rest' | 'asking' | 'choosing' | 'pasting';
 	let step = $state<Step>('rest');
-	let chosen = $state<File | null>(null);
+	/** What is handed over again: a PDF, or the photos, the pages in order (#452). */
+	let chosen = $state<File[] | null>(null);
 	let pasted = $state('');
 	let sending = $state(false);
 	let said = $state<string | undefined>(undefined);
@@ -117,12 +120,14 @@
 				: m.read_again_gone_pasted_text(),
 	);
 
-	/** The photo as the browser holds it, let go when it is put away. */
-	const shown = $derived(chosen && original === 'picture' ? URL.createObjectURL(chosen) : null);
+	/** Each photo as the browser holds it, let go when it is put away. */
+	const shown = $derived(
+		chosen && original === 'picture' ? chosen.map((file) => URL.createObjectURL(file)) : [],
+	);
 	$effect(() => {
-		const url = shown;
+		const urls = shown;
 		return () => {
-			if (url) URL.revokeObjectURL(url);
+			for (const url of urls) URL.revokeObjectURL(url);
 		};
 	});
 
@@ -143,12 +148,20 @@
 		said = undefined;
 	}
 
+	/** One file as itself, several photos in order as the pages of one recipe. */
+	async function handOver(files: File[]) {
+		const ids: string[] = [];
+		for (const file of files) ids.push(await upload(file));
+		return ids.length === 1
+			? { upload_id: ids[0] }
+			: { pictures: ids.map((upload_id) => ({ upload_id })) };
+	}
+
 	async function send() {
 		sending = true;
 		said = undefined;
 		try {
-			const handed =
-				step === 'pasting' ? { text: pasted } : chosen ? { upload_id: await upload(chosen) } : {};
+			const handed = step === 'pasting' ? { text: pasted } : chosen ? await handOver(chosen) : {};
 			const answered = await kamosu.readRecipeAgain({ branch_id: branchId, ...handed });
 			step = 'rest';
 			chosen = null;
@@ -195,14 +208,31 @@
 					<p class="mt-2 text-read">{m.read_again_keeps()} {m.read_again_cost()}</p>
 				{:else if step === 'choosing' && chosen}
 					<div class="mt-3">
-						{#if shown}
+						{#if shown.length === 1}
 							<img
-								src={shown}
+								src={shown[0]}
 								alt={m.send_photo_alt()}
 								class="block max-h-[30vh] w-full rounded-sm bg-ground-2 object-contain"
 							/>
+							<p class="mt-1 text-read break-words text-ink-2">{chosen[0].name}</p>
+						{:else if shown.length > 1}
+							<ul class="flex [scrollbar-width:none] gap-2 overflow-x-auto">
+								{#each shown as url, at (url)}
+									<li class="h-[132px] w-[99px] shrink-0 overflow-hidden rounded-sm bg-ground-2">
+										<img
+											src={url}
+											alt={m.send_page_alt({ number: at + 1 })}
+											class="block h-full w-full object-cover"
+										/>
+									</li>
+								{/each}
+							</ul>
+							<p class="mt-1 text-read text-ink-2">
+								{m.send_pages_order({ count: shown.length })}
+							</p>
+						{:else}
+							<p class="mt-1 text-read break-words text-ink-2">{chosen[0].name}</p>
 						{/if}
-						<p class="mt-1 text-read break-words text-ink-2">{chosen.name}</p>
 					</div>
 					<p class="mt-2 text-read">{m.read_again_keeps()} {m.read_again_cost()}</p>
 				{:else if step === 'pasting'}
@@ -217,7 +247,7 @@
 				{/if}
 
 				{#if said}
-					<p class="mt-2 text-read text-support" role="alert">{said}</p>
+					<p class="mt-2 text-read text-support" role="alert"><Refusal words={said} /></p>
 				{/if}
 
 				{#if step === 'asking'}
@@ -238,6 +268,7 @@
 					<input
 						type="file"
 						accept={original === 'pdf' ? '.pdf,application/pdf' : 'image/*'}
+						multiple={original === 'picture'}
 						class="hidden"
 						aria-hidden="true"
 						tabindex="-1"
@@ -246,10 +277,12 @@
 							: m.read_again_choose_picture()}
 						bind:this={field}
 						onchange={(event) => {
-							const file = event.currentTarget.files?.[0];
+							// Several photos are the pages of one recipe, at most as many as
+							// the server keeps for one (#452).
+							const files = [...(event.currentTarget.files ?? [])].slice(0, MOST_PAGES);
 							// Cleared at once, so choosing the same file twice is two choices.
 							event.currentTarget.value = '';
-							if (file) chosen = file;
+							if (files.length > 0) chosen = original === 'picture' ? files : files.slice(0, 1);
 						}}
 					/>
 					<div class="mt-3 grid gap-2">

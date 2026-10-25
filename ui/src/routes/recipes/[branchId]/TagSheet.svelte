@@ -26,6 +26,7 @@
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import Refusal from '$lib/Refusal.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { useKamosu } from '$lib/kamosu';
@@ -200,7 +201,7 @@
 
 	<div class="min-h-0 flex-1 overflow-y-auto">
 		{#if refused}
-			<p class="px-gutter pt-3 text-read text-support" role="alert">{refused}</p>
+			<p class="px-gutter pt-3 text-read text-support" role="alert"><Refusal words={refused} /></p>
 		{/if}
 
 		{#if failed}

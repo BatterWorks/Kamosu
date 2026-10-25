@@ -165,7 +165,10 @@ fn find_recipe_node(document: &Html) -> Option<Value> {
     None
 }
 
-fn search_for_recipe(value: &Value) -> Option<Value> {
+/// The first node in `value` whose `@type` names `Recipe`: `value` itself, a
+/// member of an array, or one inside `@graph`. A page's ld+json block is
+/// searched this way, and so is a recipe file another app wrote (#416).
+pub fn search_for_recipe(value: &Value) -> Option<Value> {
     match value {
         Value::Array(items) => items.iter().find_map(search_for_recipe),
         Value::Object(map) => {
@@ -191,7 +194,10 @@ fn is_recipe_type(type_field: Option<&Value>) -> bool {
     }
 }
 
-fn from_recipe_node(node: &Value, hostname: &str) -> ParsedRecipe {
+/// Read a Recipe node, a page's or a file's (#416), into what an importer
+/// lands. `hostname` names the Source where the node names no author or
+/// publisher, and the recipe where it has no name.
+pub fn from_recipe_node(node: &Value, hostname: &str) -> ParsedRecipe {
     let title = text_field(node, "name").unwrap_or_else(|| hostname.to_string());
     let ingredients = string_array(node.get("recipeIngredient"));
     let steps = extract_steps(node.get("recipeInstructions"));
@@ -553,13 +559,15 @@ fn guarded_answer(
 }
 
 /// [`guarded_answer`], for a caller that wants only a success.
-fn guarded_get(url: &str, noun: &str, cap: usize) -> Result<(Vec<u8>, String), OpError> {
-    let answered = guarded_answer(
-        url,
-        noun,
-        Duration::from_secs(FETCH_TIMEOUT_SECS),
-        |status| status.is_success().then_some(cap),
-    )?;
+fn guarded_get(
+    url: &str,
+    noun: &str,
+    cap: usize,
+    timeout: Duration,
+) -> Result<(Vec<u8>, String), OpError> {
+    let answered = guarded_answer(url, noun, timeout, |status| {
+        status.is_success().then_some(cap)
+    })?;
     if !answered.status.is_success() {
         return Err(OpError::bad_request(format!(
             "{noun} answered with {}",
@@ -623,7 +631,15 @@ pub fn fetch_page(url: &str) -> Result<Page, OpError> {
 
 /// Fetch a candidate photo's bytes, under the same guard as the page itself.
 pub fn fetch_photo(url: &str) -> Result<Vec<u8>, OpError> {
-    let (bytes, _effective_url) = guarded_get(url, "that photo", MAX_IMAGE_BYTES)?;
+    fetch_photo_within(url, Duration::from_secs(FETCH_TIMEOUT_SECS))
+}
+
+/// [`fetch_photo`], given up after `time`, or after the usual time for one
+/// fetch where that is shorter: an import from another app's export shares
+/// one time between every photo it downloads (#414).
+pub fn fetch_photo_within(url: &str, time: Duration) -> Result<Vec<u8>, OpError> {
+    let time = time.min(Duration::from_secs(FETCH_TIMEOUT_SECS));
+    let (bytes, _effective_url) = guarded_get(url, "that photo", MAX_IMAGE_BYTES, time)?;
     Ok(bytes)
 }
 
@@ -750,7 +766,13 @@ pub fn fetch_shared_recipe(bundle_url: &str) -> Result<SharedRecipe, OpError> {
 /// one, which a Kamosu from before #170 never does: a preview then shows no
 /// sharer rather than failing over a courtesy.
 pub fn fetch_shared_by(page_url: &str) -> Option<String> {
-    let (body, _) = guarded_get(page_url, "that shared page", MAX_HTML_BYTES).ok()?;
+    let (body, _) = guarded_get(
+        page_url,
+        "that shared page",
+        MAX_HTML_BYTES,
+        Duration::from_secs(FETCH_TIMEOUT_SECS),
+    )
+    .ok()?;
     let page = String::from_utf8_lossy(&body);
     let document = Html::parse_document(&page);
     let selector = Selector::parse(&format!(

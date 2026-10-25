@@ -17,7 +17,8 @@ first, so the recipe you leave is the one they cook from.
 - `job.original`: what to read when that is not a link, or null. It is
   already fetched into this folder as `original.txt` (pasted text),
   `original.pdf`, or `original.jpg`, `original.png` or `original.webp` (a
-  picture).
+  picture). Several pictures arrive as `original-1.webp`, `original-2.webp`
+  and so on: the pages of one recipe, in order.
 - `job.branch_id`: the recipe this Job writes. When it is null, no recipe
   exists yet: create it once, with `create_recipe`, and write only that one.
 
@@ -148,9 +149,12 @@ pdftoppm -r 150 -png original.pdf page
 
 `pdftotext -layout original.pdf -` gives the text of a PDF that holds some.
 
-### A picture
+### A picture, or several
 
-Look at the picture: a cookbook page, a card or a handwritten note. Read
+Look at the picture: a cookbook page, a card or a handwritten note. Several
+pictures are the pages of **one** recipe, in the order of their numbers: a
+list of ingredients on one and the method on the next, or a recipe that runs
+over a page. Read them all before you write, and make one recipe of them. Read
 every number exactly as written. A line you cannot make out stays out of the
 recipe and goes in `unsure` or `left_undone` as you read it.
 
@@ -222,6 +226,35 @@ A Job writes one recipe, whatever the source holds.
   send. Every save in this Job shapes one Version of the recipe, so saving
   again to correct it is fine.
 
+## Filing it under the Cookbook's Tags
+
+A Tag is a word the Cookbook files its recipes by, such as Fish, Dessert or
+One pot. Once the recipe exists, file it under every Tag that fits.
+
+1. Read the Cookbook's Tags with `list_tags`, sending as `cookbook_id` the
+   `cookbook.id` that `get_recipe` gives for this recipe. A Tag goes only on a
+   recipe in its own Cookbook, and the person's own Cookbook may not be the
+   one holding this recipe. A Tag may carry a name in more than one language,
+   in `names`: read them all.
+2. Put on, with `set_recipe_tag` and `carried: true`, every Tag that plainly
+   fits the dish as you saved it: its cuisine, its course, its main
+   ingredient, how it is cooked, who it is for. Plainly means a cook filing
+   it by hand would agree without a second look. A Tag that might fit stays
+   off.
+3. A dish with any meat in it, however little, such as ham in an omelette's
+   filling, takes Meat and the Tag of its animal, such as Pork, Beef or
+   Chicken, where the Cookbook has them, under whatever name it gives them.
+   How much of the dish the meat is does not matter: a little meat plainly
+   fits. Fish and seafood are not meat: they take Fish, or its like, and not
+   Meat.
+4. Never make a Tag. Where the Cookbook has none that fits, put none on and
+   say nothing about it.
+5. The Tags already on the recipe are its `tags` in what `get_recipe`
+   answers. Note them before you file it, and leave each where it is, such
+   as on a recipe read again: a person put it there. Add the ones that fit
+   and are missing. Take off, with `carried: false`, only a Tag you put on
+   in this Job by mistake.
+
 ## Checking it
 
 1. Read the saved recipe back with `get_recipe`.
@@ -262,7 +295,11 @@ A Job writes one recipe, whatever the source holds.
 4. A recipe from a video has a main photograph and step photographs, all
    frames of the video ([A video](#a-video), step 4). Take them now if it
    has none.
-5. Correct what is wrong and read it back again, until it matches.
+5. The recipe's `tags` hold every Tag it carried before this Job and every
+   one you put on ([Filing it under the Cookbook's
+   Tags](#filing-it-under-the-cookbooks-tags)). Put on
+   any that is missing.
+6. Correct what is wrong and read it back again, until it matches.
 
 ## Looking for the same dish
 

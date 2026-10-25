@@ -290,7 +290,9 @@ function forked(extra: Answers = {}) {
 						ingredients: MY_INGREDIENTS.map(() => null),
 						steps: MY_STEPS.map(() => null),
 					},
-					cooking: { steps: MY_STEPS.map(() => ({ uses: [], timer_seconds: null })) },
+					cooking: {
+						steps: MY_STEPS.map(() => ({ uses: [], by_hand: false, timer_seconds: null })),
+					},
 				},
 			],
 			tags: [],
@@ -347,7 +349,9 @@ function marcsRecipe(): GetRecipeOutput {
 					ingredients: THEIR_INGREDIENTS.map(() => null),
 					steps: THEIR_STEPS.map(() => null),
 				},
-				cooking: { steps: THEIR_STEPS.map(() => ({ uses: [], timer_seconds: null })) },
+				cooking: {
+					steps: THEIR_STEPS.map(() => ({ uses: [], by_hand: false, timer_seconds: null })),
+				},
 			},
 		],
 	};
@@ -1223,7 +1227,7 @@ describe('the recipe screen', () => {
 					// has one declared shape wherever it is served.
 					cooking: {
 						steps: SECTIONED_STEPS.map((row) =>
-							row.kind === 'step' ? { uses: [], timer_seconds: null } : null,
+							row.kind === 'step' ? { uses: [], by_hand: false, timer_seconds: null } : null,
 						),
 					},
 				},
@@ -1954,6 +1958,26 @@ describe('the recipe screen', () => {
 		expect(kamosu.calls.filter((call) => call.operation === 'get_recipe').length).toBeGreaterThan(
 			1,
 		);
+	});
+
+	it('hands the edit screen what each Step uses, and says when a tick did not take (#456)', async () => {
+		renderRecipe({
+			...solo(),
+			...SAVED_ONTO_MINE,
+			set_step_uses: { refuse: 'internal' },
+		} as Answers);
+		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		const buttons = await screen.findAllByRole('button', { name: 'Ingredients · none' });
+		await fireEvent.click(buttons[0] as HTMLElement);
+		const sheet = screen.getByRole('dialog');
+		await fireEvent.click(within(sheet).getAllByRole('checkbox')[0] as HTMLElement);
+		await fireEvent.click(within(sheet).getByRole('button', { name: m.step_uses_done() }));
+		const save = await screen.findAllByRole('button', { name: /Save onto mine/ });
+		await fireEvent.click(save[0] as HTMLElement);
+		const inSheet = await screen.findAllByRole('button', { name: /Save onto mine/ });
+		await fireEvent.click(inSheet[inSheet.length - 1] as HTMLElement);
+		expect(await screen.findByText('Saved.')).toBeInTheDocument();
+		expect(screen.getByRole('alert')).toHaveTextContent(m.write_step_uses_failed());
 	});
 
 	it('leaves what a save did behind when you walk to another recipe', async () => {
@@ -3057,6 +3081,44 @@ describe('a Copy started from a draft that changed nothing (#329)', () => {
 
 		expect(await screen.findByText('Nothing changed, so no copy was made.')).toBeInTheDocument();
 		expect(screen.queryByText(/^Saved\./)).not.toBeInTheDocument();
+	});
+
+	it('says Saved where the draft changed nothing but which lines a Step uses (#456)', async () => {
+		// The ticks go on the Version the recipe already holds, which anyone
+		// who can see it may correct (ADR 0054): that is a change, if no Copy.
+		renderRecipe(
+			onTheirs({
+				save_recipe_version: {
+					branch_id: 'theirs',
+					version_id: 'v_theirs',
+					parent_version_id: null,
+					sequence: 1,
+					collapsed: false,
+					copied: false,
+					language: 'en',
+					language_offer: null,
+					translates_version_id: null,
+					foods_created: [],
+				},
+				set_step_uses: { step_index: 0, uses: [], by_hand: true },
+			}),
+			'theirs',
+		);
+		await compared();
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		const buttons = await screen.findAllByRole('button', { name: /^Ingredients ·/ });
+		await fireEvent.click(buttons[0] as HTMLElement);
+		const sheet = screen.getByRole('dialog');
+		await fireEvent.click(within(sheet).getAllByRole('checkbox')[0] as HTMLElement);
+		await fireEvent.click(within(sheet).getByRole('button', { name: m.step_uses_done() }));
+		const act = /Start my own copy/;
+		await fireEvent.click((await screen.findAllByRole('button', { name: act }))[0] as HTMLElement);
+		const inSheet = await screen.findAllByRole('button', { name: act });
+		await fireEvent.click(inSheet[inSheet.length - 1] as HTMLElement);
+
+		expect(await screen.findByText('Saved.')).toBeInTheDocument();
+		expect(screen.queryByText('Nothing changed, so no copy was made.')).not.toBeInTheDocument();
 	});
 
 	it('still says Saved where the save wrote a Version the page did not hold', async () => {

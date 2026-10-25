@@ -67,7 +67,7 @@ const quiet: Answers = {
 	},
 	list_merge_suggestions: { suggestions: [] },
 	list_foods: { foods: [flour, farine] },
-	get_public_address: { public_address: 'https://kamosu.example' },
+	get_public_address: { public_address: 'https://kamosu.example', passkeys: 0 },
 	list_runner_keys: { runner_keys: [] },
 	runner_status: { has_runner: false, last_asked_at: null },
 	get_house_notes: { notes: null, saved_by: null, saved_at: null },

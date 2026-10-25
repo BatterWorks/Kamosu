@@ -11,12 +11,20 @@
 
 	Nothing here ever stands between a person and the page: a stranger arriving
 	from a Share Link must not meet a wall (ADR 0013).
+
+	A Demo offers neither the library nor the Home Screen, and copies nothing
+	onto the phone by itself (#426, option 1, chosen 23 October 2026): its
+	library goes back every morning, and its welcome card is the first thing a
+	visitor reads. Settings still offers both, as on any instance, and says how
+	far a fill asked for there has got.
 -->
 <script lang="ts">
 	import { useRoom } from '$lib/room.svelte';
 	import { signingIn } from '$lib/shell/signing-in.svelte';
 	import { aDate } from '$lib/dates';
 	import { untrack } from 'svelte';
+	import { useKamosu } from '$lib/kamosu';
+	import { demo, learnWhetherADemo } from '$lib/demo.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import Notice from './Notice.svelte';
 	import InstallSteps from './InstallSteps.svelte';
@@ -32,6 +40,7 @@
 
 	let { device = thisDevice() }: Props = $props();
 
+	const kamosu = useKamosu();
 	const online = new Online();
 	const room = useRoom();
 	const library = useLibrary();
@@ -41,20 +50,35 @@
 	let insecureAway = $state(wasPutAway('insecure'));
 	let installAway = $state(wasPutAway('install'));
 	let libraryLater = $state(false);
+	/** Whether this device has heard if it is a Demo, which a first arrival has not. */
+	let asked = $state(false);
 
 	$effect(() => {
 		// Looked at again whenever a Session begins here.
 		void sessions.began;
-		untrack(() => void library.start(device.wifi()));
+		untrack(() => void startLibrary());
 		// Where the phone says when it reaches wifi, a waiting library starts then.
 		return onNetworkChange(() => {
-			if (library.phase === 'absent' && device.wifi() === true) void library.fill();
+			if (library.phase === 'absent' && !demo.is && device.wifi() === true) void library.fill();
 		});
 	});
+
+	/**
+	 * Look at the library, and bring it over by itself, but never in a Demo.
+	 * Whether this is one is asked first: a first arrival has no hint on the
+	 * device yet, and a fill started meanwhile would not stop.
+	 */
+	async function startLibrary() {
+		await learnWhetherADemo(kamosu);
+		asked = true;
+		await library.start(device.wifi(), { byItself: !demo.is });
+	}
 
 	const card = $derived.by(() => {
 		if (!online.current) return offlineAway === online.spell ? undefined : 'offline';
 		if (!device.secure) return insecureAway ? undefined : 'insecure';
+		// Nothing below on a first arrival until it is known not to be a Demo.
+		if (demo.is || !asked) return undefined;
 		if (library.phase === 'filling') return 'filling';
 		if (library.phase === 'absent' && !libraryLater) return 'library';
 		// Not on the wide layout, where "keep Kamosu on your phone" means nothing

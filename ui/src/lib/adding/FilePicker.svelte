@@ -27,7 +27,7 @@
 	interface Props {
 		adding: Adding;
 		/** What it picks. A Bundle unless said otherwise. */
-		kind?: 'bundle' | 'pdf' | 'picture';
+		kind?: 'bundle' | 'pdf' | 'picture' | 'page';
 	}
 
 	let { adding, kind = 'bundle' }: Props = $props();
@@ -37,18 +37,29 @@
 		bundle: {
 			accept: '.zip,application/zip',
 			label: m.bring_in_file_full,
-			take: (file: File) => adding.file(file),
+			multiple: false,
+			take: (files: File[]) => adding.file(files[0]),
 		},
 		pdf: {
 			accept: '.pdf,application/pdf',
 			label: m.plus_pdf_full,
+			multiple: false,
 			// To the agent where there is one, read into a draft where not.
-			take: (file: File) => adding.pdfChosen(file),
+			take: (files: File[]) => adding.pdfChosen(files[0]),
 		},
+		// Several at once are the pages of one recipe (#452).
 		picture: {
 			accept: 'image/*',
 			label: m.plus_picture_full,
-			take: (file: File) => adding.pictureChosen(file),
+			multiple: true,
+			take: (files: File[]) => adding.pictureChosen(files),
+		},
+		// More pages, from the sheet that shows the ones chosen (#452).
+		page: {
+			accept: 'image/*',
+			label: m.send_add_page,
+			multiple: true,
+			take: (files: File[]) => adding.addPages(files),
 		},
 	};
 	const picks = $derived(KINDS[kind]);
@@ -64,6 +75,7 @@
 <input
 	type="file"
 	accept={picks.accept}
+	multiple={picks.multiple}
 	class="hidden"
 	aria-label={picks.label()}
 	aria-hidden="true"
@@ -71,9 +83,9 @@
 	bind:this={field}
 	disabled={adding.working !== null}
 	onchange={(event) => {
-		const file = event.currentTarget.files?.[0];
+		const files = [...(event.currentTarget.files ?? [])];
 		// Cleared at once, so choosing the same file twice is two choices.
 		event.currentTarget.value = '';
-		if (file) picks.take(file);
+		if (files.length > 0) picks.take(files);
 	}}
 />

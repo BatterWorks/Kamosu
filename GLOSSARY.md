@@ -65,11 +65,19 @@ A one-use link that turns a stranger into a Person, adds a Person to a Kitchen, 
 _Avoid_: Signup, registration, join code, magic link
 
 **Access Key**:
-A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account.
+A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only or add-only (an **Add-only key**), and never expiring. One of the sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account. An Operator's Access Key acts as an ordinary Person unless it is an **Operator key**. Setting a new password through a recovery link ends every Access Key and Session the account held.
 _Avoid_: API key, token, secret, password, Credential
 
+**Operator key**:
+An **Access Key** an Operator mints to act as an Operator too, chosen when it is minted and only from a Session. It reaches everything the Operator reaches, `as_operator` included, and acts as an ordinary Person's key for good once its Person stops being an Operator. Keys an Operator minted before Operator keys existed became ones (#369, ADR 0049).
+_Avoid_: admin key, admin token
+
+**Add-only key**:
+An **Access Key** that can only hand something to Kamosu to be added and see how that went, chosen when it is minted. It is the key a phone's Shortcut carries, so a leaked one can add recipes and never change or delete one. It also keeps whether what it adds goes to the **Agent** every time or only when Kamosu cannot read it alone (ADR 0055).
+_Avoid_: Shortcut key, inbox key, upload token, write-only key
+
 **Runner Key**:
-A **Secret** an Operator mints for a **Runner**. It can ask for a **Job**, keep hold of it and report how it ended, and nothing else. It never acts as a Person and it cannot touch a recipe (ADR 0048).
+A **Secret** an Operator mints for a **Runner**. It can ask for a **Job**, keep hold of it and report how it ended, and nothing else. It never acts as a Person and it cannot touch a recipe (ADR 0048). Setting a new password through a recovery link ends every Runner Key that account minted, and an Operator's also ends those minted before Kamosu recorded who mints them (#378).
 _Avoid_: Agent key, API key, token, service account, Access Key
 
 **Job Key**:
@@ -77,13 +85,13 @@ A **Secret** that comes with one **Job** a **Runner** takes, for the agent that 
 _Avoid_: Job token, session, Runner Key, Access Key
 
 **Operator**:
-A Person who also administers the instance: seeing who holds an account, minting Invites, raising a Person to Operator and standing one down, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, changing the instance's public address, merging Foods and deleting one nothing points at, sweeping Photographs nothing points at, deleting a Kitchen nobody is left in, taking and fetching a **Backup**, minting and revoking **Runner Keys**, writing the **House Notes**, and looking after any **Cookbook**: reading, changing, creating and deleting its recipes, and their Tags and Related Recipes, under the Operator's own **Hand**, on a call that says so (ADR 0049). Otherwise an Operator is a Person like any other. Nothing beyond that list. No Operator reaches another Person's Attempts or shopping list, and seeing who holds an account is a list of names and nothing about what they cook. More than one is allowed and the last cannot be demoted, disabled or deleted, because an instance with nobody to administer it can never appoint anybody. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
+A Person who also administers the instance: seeing who holds an account, minting Invites, raising a Person to Operator and standing one down, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, changing the instance's public address, merging Foods and deleting one nothing points at, sweeping Photographs nothing points at, deleting a Kitchen nobody is left in, taking and fetching a **Backup**, minting and revoking **Runner Keys**, minting **Operator keys**, reading the instance's **Security Record**, reading every Ingredient Line again, writing the **House Notes**, and looking after any **Cookbook**: reading, changing, creating and deleting its recipes, and their Tags and Related Recipes, under the Operator's own **Hand**, on a call that says so (ADR 0049). Otherwise an Operator is a Person like any other. Nothing beyond that list. No Operator reaches another Person's Attempts or shopping list, and seeing who holds an account is a list of names and nothing about what they cook. More than one is allowed and the last cannot be demoted, disabled or deleted, because an instance with nobody to administer it can never appoint anybody. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
 _Avoid_: Admin, root, superuser, owner, host
 
 ### Doing and permission
 
 **Credential**:
-What a request presents to prove who is acting. It comes from one of four places. A Person logging in and an Access Key they minted both act as that Person. A **Job Key** acts as the Person who asked for its Job. A **Runner Key** acts as no Person, and can only take Jobs, keep hold of them and report on them. Every Door resolves one before the Core runs anything, so the same permissions apply whether a person or an agent is asking. Obtaining a Credential is not an Operation.
+What a request presents to prove who is acting. It comes from one of four places. A Person logging in and an Access Key they minted both act as that Person, and only a Session or an **Operator key** acts as an Operator. A **Job Key** acts as the Person who asked for its Job. A **Runner Key** acts as no Person, and can only take Jobs, keep hold of them and report on them. Every Door resolves one before the Core runs anything, so the same permissions apply whether a person or an agent is asking. Obtaining a Credential is not an Operation.
 _Avoid_: Token, session, auth, API key, login
 
 **Secret**:
@@ -91,8 +99,16 @@ A long random string where holding it *is* the permission — a **Share Link** t
 _Avoid_: Token, key, credential, nonce, bearer token
 
 **Session**:
-The Secret a browser holds after a Person logs in, so they stay logged in. Ends when it is revoked and at no other time. The browser keeps it for 400 days, counted again each time it is used, so a device opened at least that often never forgets it (#137). A Person sees their own beside their Access Keys, each named for the device it signed in on (and renamable), marking the one in hand and showing when it was last used, and ends any of them from any device. It carries a Person's full powers, which is what keeps it distinct from an Access Key despite the shared shape.
+The Secret a browser holds after a Person logs in, so they stay logged in. Ends when it is revoked and at no other time. The browser keeps it for 400 days, counted again each time it is used, so a device opened at least that often never forgets it (#137). It also keeps whether what that device shares goes to the **Agent** every time (ADR 0055). A Person sees their own beside their Access Keys, each named for the device it signed in on (and renamable), marking the one in hand and showing when it was last used, and ends any of them from any device. It carries a Person's full powers, which is what keeps it distinct from an Access Key despite the shared shape.
 _Avoid_: Cookie, login, token, sign-in
+
+**Passkey**:
+A way for a Person to log in with their device's face, fingerprint or screen lock, offered beside the password and never in its place. It is the WebAuthn credential the device keeps; Kamosu keeps only its public half, so it is not a **Secret** and nothing Kamosu stores signs anyone in. It works only at the public address it was made at, and only where that address is an `https://` name. Logging in with one mints a **Session**, as a password does, and a passkey is added only from a Session, after the password (#370).
+_Avoid_: WebAuthn key, security key, biometric login, FIDO credential
+
+**Security Record**:
+What Kamosu notes of what happens at its doors, kept 90 days (#371). A Person reads their own: each sign-in and how it was made, a run of wrong passwords at their name as one entry, their passkeys, password, Access Keys and Sessions ended. Every Operator reads the instance's: changes to the House Notes and the public address, who administers, accounts ended, Operator keys, Runner Keys, Backups fetched and a crowd at the sign-in, each with who did it through which Credential. Every entry is also one line of the log, in a fixed format (`docs/security-record.md`). It names Credentials, never an address, and is sent nowhere.
+_Avoid_: Audit log, activity log, history
 
 **Immediate Operation**:
 An Operation that answers within a single request.
@@ -103,7 +119,7 @@ An Operation too slow to answer within a single request — importing a library,
 _Avoid_: Task, background job, async operation, queue item
 
 **Runner**:
-A program beside Kamosu that takes the **Jobs** meant for an agent and has an agent do each one. Kamosu ships it, and every release also publishes an **Agent** to run beside it. Whoever runs the Runner chooses that Agent or one of their own, and the provider and model it uses. It asks Kamosu for work and Kamosu never calls it, so an instance with no Runner is complete and simply reads less (ADR 0048).
+A program beside Kamosu that takes the **Jobs** meant for an agent and has an agent do each one. Kamosu ships it, and every release also publishes an **Agent** to run beside it. Whoever runs the Runner chooses that Agent or one of their own, and the provider and model it uses. It asks Kamosu for work and Kamosu never calls it, so an instance with no Runner is complete and simply reads less (ADR 0048). A Runner given the model provider's key holds it in the agent's place: for each Job it opens a *model relay* that adds the key to that agent's model requests and sends them to the one provider address it was given, so the agent holds a stand-in worth nothing. The published **Agent** runs behind a *fence*, its own image started as `fence`, which keeps it off the host and the LAN (ADR 0048, as amended by #372).
 _Avoid_: Worker, companion, sidecar, bot, AI import, scraper
 
 **Agent**:
@@ -120,12 +136,16 @@ _Avoid_: Custom prompt, system prompt, agent settings, house rules
 Bringing recipes into Kamosu from elsewhere — another app's export, a web page, or a **Bundle**. Where that takes reading Kamosu cannot do itself, such as a picture, a video or a page with no recipe data, it is a **Job** for a **Runner**. An Operation like any other, available at both Doors, and held in the **Cookbook** of the Person who asked for it. What it produces is an ordinary Recipe: nothing about where it came from is kept on it, no line is marked as one Kamosu had to write rather than read, and the **Hand** on its first **Version** is that Person's, where it came from being a matter for its **Source**. The Import itself remembers what it made — the id a recipe had in the place it came from, against the **Lineage** it became — so importing the same file again matches what is already there instead of shelving it twice. That memory belongs to the Import and never to the recipe, so it is in no fingerprint and no Bundle, and it can be thrown away whole once the place it names is gone.
 _Avoid_: Migration, sync, ingest
 
+**Shortcut**:
+The Apple Shortcut *Add to Kamosu*, which puts Kamosu in an iPhone's Share menu. It holds as little as it can: it sends whatever was shared to `add_this` with an **Add-only key** and shows the message Kamosu answers with, so every rule stays in Kamosu. It is set up once by pasting a *setup code*, shown once in Settings › Share from your phone, which holds the instance's address and a new Add-only key. Android needs none, since Kamosu installed from Chrome is in the Share menu itself (ADR 0055).
+_Avoid_: Shortcut key, iOS app, share extension, integration
+
 **Import Report**:
 What an **Import** made, as a person reads it — and it does not go away when the screen does. It says what arrived, including which recipes came as a bare name and a link; what is waiting for a tap, which is where a recipe the Import has seen before and found changed is offered rather than written over, and where **Related Recipe** candidates sharing a **Source** are ticked; and what could not be read at all, named with the reason, a damaged **Bundle** among them. It is read through ordinary Operations, so an agent asking how an import went is answered from the same place. Where an agent made a recipe, the Report says so, with what the agent left undone or was unsure of.
 _Avoid_: Log, error list, summary, receipt, job output
 
 **Original**:
-What an agent's **Job** reads when that is not a link: a PDF, a picture or pasted text. It is kept for 30 days so the recipe can be read again, and it is never part of the recipe. It is read and never shown, which is what sets it apart from a **Photograph**.
+What an agent's **Job** reads when that is not a link: a PDF, pasted text, or one or more pictures of one recipe, in order. It is kept for 30 days so the recipe can be read again, and it is never part of the recipe. It is read and never shown, which is what sets it apart from a **Photograph**.
 _Avoid_: Attachment, upload, source file, scan
 
 **Read Again**:
@@ -207,7 +227,7 @@ What one cup of a Food weighs, about — the one figure that lets a volume becom
 _Avoid_: Density, specific gravity, conversion factor, weight, gram weight
 
 **Step**:
-One instruction in a recipe, in order. Its truth is its text. It may also carry a photo of what the step should look like. A recipe's Steps together are headed *Method* on screen. Which Ingredients it uses is worked out from their Readings rather than carried — nothing points at anything and nobody types a link. A duration, a temperature or an amount is read out of that text, never typed beside it — a duration becoming a timer that can be started, and a temperature in the other system or an amount with a convertible Unit ("425°", "1 lb.") becoming its conversion, drawn straight after what it converts; an amount's is scaled to the Yield being cooked. None of them is ever written into the text.
+One instruction in a recipe, in order. Its truth is its text. It may also carry a photo of what the step should look like. A recipe's Steps together are headed *Method* on screen. Which Ingredients it uses is worked out from their Readings rather than carried — nothing points at anything and nobody has to type a link. A person may correct what was worked out for one Step, and the correction is kept while the Step and those lines stay as they are (ADR 0054). A duration, a temperature or an amount is read out of that text, never typed beside it — a duration becoming a timer that can be started, and a temperature in the other system or an amount with a convertible Unit ("425°", "1 lb.") becoming its conversion, drawn straight after what it converts; an amount's is scaled to the Yield being cooked. None of them is ever written into the text.
 _Avoid_: Instruction, direction, method, procedure
 
 **Section**:
@@ -329,7 +349,7 @@ _Avoid_: Units preference, locale, metric toggle, unit system
 ### Cooking it
 
 **Attempt**:
-One person's record of one cooking — dated, pinned by fingerprint to the Version that was on screen at the time, and never travelling off the instance. Belongs to a Lineage rather than to a Branch, so cooking the dish is remembered however the recipe later diverges. It holds free text, an optional rating, photographs, and an optional As Cooked. It counts for the recipe that was eaten: once its As Cooked has been promoted, the cooking and its rating are shown under that Version, while the Attempt goes on saying which Version it started from. Recording one never changes the recipe. It begins when the cooking begins, not when it is written up: cooking mode is an Attempt In Progress rather than a thing of its own, and one that is never finished still counts as a cooking that happened. Deleting is how a false start is undone.
+One person's record of one cooking — dated, pinned by fingerprint to the Version that was on screen at the time, and never travelling off the instance. Belongs to a Lineage rather than to a Branch, so cooking the dish is remembered however the recipe later diverges. It holds free text, an optional rating, photographs, and an optional As Cooked. It counts for the recipe that was eaten: once its As Cooked has been promoted, the cooking and its rating are shown under that Version, while the Attempt goes on saying which Version it started from. Recording one never changes the recipe. It begins when the cooking begins, not when it is written up: cooking mode is an Attempt In Progress rather than a thing of its own, and one that is never finished still counts as a cooking that happened. Deleting is how a false start is undone. One brought in from another app's cooking history is the exception: it belongs to the Person who imported it, was never In Progress, and its text begins by naming who cooked it there (ADR 0053).
 _Avoid_: Cook, log entry, session, make, bake, journal entry
 
 **In Progress**:
@@ -357,6 +377,20 @@ _Avoid_: Item, entry, line, aggregate, shopping item
 **Loose Item**:
 A line typed straight onto a **Shopping List** that belongs to no recipe — bin bags, coffee. Kept exactly as typed and never interpreted, so it has no **Food**, no quantity and merges with nothing: typing *flour* beside a recipe that wants flour gives two lines. Reading it would mean guessing at a number about to be shopped by, where a **Shopping Row** is built on **Reading**s that already exist. An **Ingredient Line** nobody ever read appears on a list the same way.
 _Avoid_: Extra, manual item, custom item, note
+
+### Showing Kamosu
+
+**Demo**:
+An instance anyone may open without signing in, to see what Kamosu is before installing it, where every screen opens and only cooking and shopping save. Every visitor is the same Person, in a **Sample Library** put back every day (ADR 0052).
+_Avoid_: Sandbox, trial, guest access, read-only mode, playground
+
+**Sample Library**:
+The recipes, cooks, Kitchens and Threads a **Demo** holds, written for it and kept with each release, their dates always recent.
+_Avoid_: Seed data, fixtures, demo data, test library
+
+**Replay**:
+An agent's reading of a ready example played in a **Demo**, step by step, ending on a recipe and **Import Report** the **Sample Library** already holds. No model runs and nothing is written.
+_Avoid_: Simulation, fake import, mock agent
 
 ### Laying out the app
 

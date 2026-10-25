@@ -12,10 +12,15 @@
 //! None of this is an Operation. Nothing here enters the Catalogue and Parity
 //! is untouched — these routes carry no Credential, only pixels.
 
+use std::sync::Arc;
+
 use axum::Router;
+use axum::extract::State;
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use rust_embed::Embed;
+
+use crate::core::Core;
 
 /// The output of `npm run build` in `ui/`: SvelteKit on `adapter-static` with
 /// `fallback: index.html`, so the whole app is one shell plus its chunks.
@@ -33,11 +38,11 @@ const SHELL: &str = "index.html";
 ///
 /// Merged **last**, after both Doors and the design tokens, because it owns the
 /// fallback — a path is a screen only once nothing else has claimed it.
-pub fn router() -> Router {
-    Router::new().fallback(serve)
+pub fn router(core: Arc<Core>) -> Router {
+    Router::new().fallback(serve).with_state(core)
 }
 
-async fn serve(uri: Uri) -> Response {
+async fn serve(State(core): State<Arc<Core>>, uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
 
     if path.is_empty() {
@@ -46,12 +51,16 @@ async fn serve(uri: Uri) -> Response {
 
     if let Some(file) = Built::get(path) {
         let content_type = content_type_for(path);
+        let mut body = file.data.into_owned();
+        if path == SERVICE_WORKER {
+            body.extend_from_slice(counted_by(core.analytics()).as_bytes());
+        }
         return (
             [
                 (header::CONTENT_TYPE, content_type),
                 (header::CACHE_CONTROL, cache_control_for(path)),
             ],
-            file.data.into_owned(),
+            body,
         )
             .into_response();
     }
@@ -88,6 +97,26 @@ fn shell() -> Response {
         )
             .into_response(),
     }
+}
+
+/// The service worker, which keeps the shell on the phone with the headers it
+/// came with, its Content-Security-Policy included.
+const SERVICE_WORKER: &str = "service-worker.js";
+
+/// What a Demo adds to the service worker it serves: the Umami it counts its
+/// visits with, and nothing on any other instance (#408). The policy names
+/// that Umami, and a phone keeps the shell it was served under one policy
+/// until a different worker installs. A worker that differs by this line is
+/// installed by the next visit, and keeps the shell again under the policy
+/// as it stands, so a Demo that starts or stops counting is not held to the
+/// policy a returning visitor's phone first kept.
+fn counted_by(analytics: Option<&crate::config::Analytics>) -> String {
+    analytics.map_or_else(String::new, |a| {
+        format!(
+            "\n// This Demo counts its visits with the Umami at {}\n",
+            a.origin
+        )
+    })
 }
 
 /// Every inline `<script>` the shell carries, as the `'sha256-…'` source a
@@ -160,7 +189,7 @@ fn content_type_for(path: &str) -> &'static str {
 /// build a phone runs, so an hour-old copy of it would hold an old interface in
 /// place for an hour after an upgrade. It is always asked for again.
 fn cache_control_for(path: &str) -> &'static str {
-    if path == "service-worker.js" {
+    if path == SERVICE_WORKER {
         "no-cache"
     } else if path.starts_with("_app/immutable/") {
         "public, max-age=31536000, immutable"
@@ -183,6 +212,18 @@ mod tests {
             cache_control_for("manifest.webmanifest"),
             "public, max-age=3600"
         );
+    }
+
+    #[test]
+    fn a_worker_names_the_umami_it_is_kept_under_and_nothing_elsewhere() {
+        let umami = crate::config::Analytics {
+            script: "https://umami.example.com/script.js".into(),
+            website_id: "94db1cb1-74f4-4a40-ad6c-962362670409".into(),
+            origin: "https://umami.example.com".into(),
+        };
+        assert_eq!(counted_by(None), "");
+        assert!(counted_by(Some(&umami)).contains("https://umami.example.com"));
+        assert!(counted_by(Some(&umami)).starts_with("\n//"));
     }
 
     #[test]

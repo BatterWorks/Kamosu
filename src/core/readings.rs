@@ -137,7 +137,8 @@ impl Core {
                             COALESCE(branch_versions.language, branches.language), \
                             branches.head_version_id = branch_versions.version_id \
                        FROM branch_versions JOIN branches ON branches.id = branch_versions.branch_id \
-                      ORDER BY branch_versions.version_id, branch_versions.branch_id",
+                      ORDER BY branch_versions.version_id, branch_versions.branch_id, \
+                               branch_versions.sequence DESC",
                 )
                 .map_err(|e| OpError::internal(format!("cannot read the library: {e}")))?;
             let rows = statement
@@ -155,7 +156,9 @@ impl Core {
             Ok(rows)
         })?;
         // One entry per Version, however many Branches hold it: its Readings
-        // are shared, so it is read once.
+        // are shared, so it is read once, in the Language its latest
+        // occurrence stands in. A Language set by the cook occurs the same
+        // Version again (#383).
         let mut versions: Vec<HeldVersion> = Vec::new();
         for (version_id, branch_id, language, is_head) in held {
             if versions
@@ -194,7 +197,9 @@ impl Core {
                     format!("reading again the lines of {done} of {total} versions"),
                 );
             }
-            let reread = self.db().with_conn(|conn| reread_version(conn, version))?;
+            let reread = self
+                .db()
+                .with_conn(|conn| reread_version(conn, version, &|_, _| true))?;
             if !version.head_of.is_empty() {
                 kept_by_hand += reread.kept_by_hand;
             }
@@ -1024,6 +1029,52 @@ struct HeldVersion {
     head_of: Vec<String>,
 }
 
+/// **Read again the lines a new Language reads differently** (#397), when a
+/// cook says what Language a recipe is in: `1,020 g` is 1.02 g in French and
+/// 1020 g in English. Only those lines are read, in the new Language. Every
+/// other line keeps the Reading it has, because a Reading is never silently
+/// recomputed (ADR 0021). A Reading a person set is kept, and so is a line
+/// whose Reading somebody cleared.
+///
+/// **A Reading belongs to the Version, and every Branch holding it reads it.**
+/// So where another Branch holds this Version in another Language, nothing is
+/// read: a cook saying what their own recipe is in never changes the amounts
+/// of somebody else's, as a Kitchen-mate's Copy would the recipe it came from.
+/// That Branch reads the Version as before until either is saved again.
+pub(super) fn read_again_in_language(
+    conn: &Connection,
+    branch_id: &str,
+    version_id: &str,
+    old_language: &str,
+    new_language: &str,
+) -> Result<(), OpError> {
+    let held_in_another_language: bool = conn
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM branch_versions \
+                 JOIN branches ON branches.id = branch_versions.branch_id \
+                WHERE branch_versions.version_id = ?1 AND branch_versions.branch_id <> ?2 \
+                  AND COALESCE(branch_versions.language, branches.language) <> ?3)",
+            params![version_id, branch_id, new_language],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read who holds a Version: {e}")))?;
+    if held_in_another_language {
+        return Ok(());
+    }
+    let version = HeldVersion {
+        version_id: version_id.to_string(),
+        language: new_language.to_string(),
+        held_by: Vec::new(),
+        head_of: Vec::new(),
+    };
+    let differs = |text: &str, has_reading: bool| {
+        has_reading
+            && crate::reading::read_line(text, old_language)
+                != crate::reading::read_line(text, new_language)
+    };
+    reread_version(conn, &version, &differs).map(|_| ())
+}
+
 /// What reading one Version's lines again did.
 struct Reread {
     /// One entry per line whose Reading changed: its title, line and the
@@ -1037,7 +1088,13 @@ struct Reread {
 
 /// Read one Version's Ingredient Lines again, all under one hold of the lock
 /// so a correction cannot land between reading a row and replacing it.
-fn reread_version(conn: &Connection, version: &HeldVersion) -> Result<Reread, OpError> {
+/// `reads_again` says which lines may be read, from each line's text and
+/// whether it has a Reading; the Operator's re-read reads every one.
+fn reread_version(
+    conn: &Connection,
+    version: &HeldVersion,
+    reads_again: &dyn Fn(&str, bool) -> bool,
+) -> Result<Reread, OpError> {
     let fail = |e: rusqlite::Error| OpError::internal(format!("cannot read a line again: {e}"));
     let mut reread = Reread {
         changes: Vec::new(),
@@ -1096,13 +1153,16 @@ fn reread_version(conn: &Connection, version: &HeldVersion) -> Result<Reread, Op
             )
             .optional()
             .map_err(fail)?;
+        if !reads_again(text, held.is_some()) {
+            continue;
+        }
         if let Some((_, _, _, lineage_id, _, by_hand)) = &held
             && (*by_hand || lineage_id.is_some())
         {
             reread.kept_by_hand += 1;
             continue;
         }
-        let now = crate::reading::read_line(text);
+        let now = crate::reading::read_line(text, &version.language);
         let before = held
             .as_ref()
             .map(|(amount, unit, target, ..)| (amount.clone(), unit.clone(), target.clone()));
@@ -1233,7 +1293,7 @@ pub(super) fn read_unread_lines(
         if already_read.unwrap_or(true) {
             continue;
         }
-        let Some(reading) = crate::reading::read_line(text) else {
+        let Some(reading) = crate::reading::read_line(text, language) else {
             continue;
         };
         let taken = rendered
@@ -1344,7 +1404,8 @@ pub(super) fn foods_created_json(foods: &[CreatedFood]) -> Value {
 /// - the two lines read the same amount and the same Unit: `2 tbsp` and
 ///   `2 c. à soupe` agree, `2 cups` and `250 g` do not. A line with no amount
 ///   has nothing to agree on, and a unit outside the closed set cannot be
-///   known to be another, so both decline.
+///   known to be another, so both decline. A source line's Reading set by
+///   hand with an amount is measured as it was set (#444).
 ///
 /// Only the Food is taken. The Reading stays the line's own words, and no
 /// Food learns a name from them, so a wrong match misreads one line and
@@ -1353,8 +1414,7 @@ pub(super) fn foods_created_json(foods: &[CreatedFood]) -> Value {
 /// its own words like any other.
 struct RenderedFoods(Vec<Option<SourceLine>>);
 
-/// One source line as the reader reads it afresh, and the Food its Reading
-/// points at.
+/// One source line as it is measured, and the Food its Reading points at.
 struct SourceLine {
     read: crate::reading::Reading,
     food_id: String,
@@ -1374,6 +1434,28 @@ impl RenderedFoods {
         if !same_shape {
             return None;
         }
+        // The source is read in its own Language, which a Translation's is
+        // not: `1,020 g` is a thousand grams only in English (#383).
+        let source_language: String = conn
+            .query_row(
+                "SELECT COALESCE(branch_versions.language, branches.language) \
+                   FROM branch_versions JOIN branches ON branches.id = branch_versions.branch_id \
+                  WHERE branch_versions.version_id = ?1 \
+                  ORDER BY branch_versions.sequence DESC LIMIT 1",
+                params![source_version_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .inspect_err(|error| {
+                tracing::warn!(
+                    target: "kamosu::reading",
+                    %error, source_version_id,
+                    "a Translation's source lines were read with no Language"
+                )
+            })
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| crate::language::UNKNOWN.to_string());
         let foods = source_foods(conn, source_version_id)
             .inspect_err(|error| {
                 tracing::warn!(
@@ -1388,12 +1470,21 @@ impl RenderedFoods {
                 .iter()
                 .enumerate()
                 .map(|(index, line)| {
-                    let food_id = foods.get(&(index as i64))?.clone();
-                    // The source line read afresh, not its Reading: a hand
-                    // correction says which Food, and the amounts are
-                    // compared as the reader writes both of them.
-                    let read = crate::reading::read_line(line["text"].as_str()?)?;
-                    Some(SourceLine { read, food_id })
+                    let food = foods.get(&(index as i64))?;
+                    // A Reading a person set is the amount and Unit they
+                    // meant, and `2 heads` corrected to two broccoli agrees
+                    // with `2 têtes` (#444). Any other is the line read
+                    // afresh, so both sides are written by the same reader.
+                    let read = match &food.set_by_hand {
+                        Some(set) => set.clone(),
+                        None => {
+                            crate::reading::read_line(line["text"].as_str()?, &source_language)?
+                        }
+                    };
+                    Some(SourceLine {
+                        read,
+                        food_id: food.food_id.clone(),
+                    })
                 })
                 .collect(),
         ))
@@ -1407,16 +1498,43 @@ impl RenderedFoods {
     }
 }
 
+/// The Food a source line's Reading points at, and that Reading where a
+/// person set it with an amount. One set with none corrected the Food and
+/// says nothing of the measure, so its line is read afresh as before (#444).
+struct SourceFood {
+    food_id: String,
+    set_by_hand: Option<crate::reading::Reading>,
+}
+
 /// The Food of each of a Version's lines that points at one, by line.
 fn source_foods(
     conn: &Connection,
     version_id: &str,
-) -> Result<HashMap<i64, String>, rusqlite::Error> {
+) -> Result<HashMap<i64, SourceFood>, rusqlite::Error> {
     conn.prepare_cached(
-        "SELECT line_index, food_id FROM readings \
+        "SELECT line_index, food_id, by_hand, amount, unit, target FROM readings \
           WHERE version_id = ?1 AND food_id IS NOT NULL AND lineage_id IS NULL",
     )?
-    .query_map(params![version_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+    .query_map(params![version_id], |row| {
+        let set_by_hand = row
+            .get::<_, bool>(2)?
+            .then(|| {
+                Ok::<_, rusqlite::Error>(crate::reading::Reading {
+                    amount: row.get(3)?,
+                    unit: row.get(4)?,
+                    target: row.get(5)?,
+                })
+            })
+            .transpose()?
+            .filter(|set| set.amount.is_some());
+        Ok((
+            row.get(0)?,
+            SourceFood {
+                food_id: row.get(1)?,
+                set_by_hand,
+            },
+        ))
+    })?
     .collect()
 }
 
@@ -1515,6 +1633,7 @@ pub(super) fn measured_for_version(
     conn: &Connection,
     content: &Value,
     version_id: &str,
+    written_in_language: &str,
     reader: &Reader,
     scale: f64,
 ) -> Result<Value, OpError> {
@@ -1546,7 +1665,9 @@ pub(super) fn measured_for_version(
             };
             let oven = units::step_temperature(text, measures, language, written_in)
                 .map(|oven| (oven.start, oven.written(text), oven.measured));
-            let amounts = crate::reading::amounts_in_step(text)
+            // The Step is read in the Language it is written in, and the
+            // additions worded in the reader's (#397).
+            let amounts = crate::reading::amounts_in_step(text, written_in_language)
                 .into_iter()
                 .filter_map(|amount| {
                     let cup_weight = amount

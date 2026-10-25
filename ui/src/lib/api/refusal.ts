@@ -11,6 +11,8 @@
  * still one way a screen reaches Kamosu, and this is not a second one.
  */
 
+import { m } from '../paraglide/messages';
+
 /** The kinds of refusal the Core distinguishes, as the web door names them. */
 export type ErrorKind =
 	'unauthorized' | 'unknown_operation' | 'not_found' | 'busy' | 'bad_request' | 'internal';
@@ -50,7 +52,9 @@ export class OperationError extends Error {
 		message: string,
 		options?: ErrorOptions & { reached?: boolean; retryAfterSeconds?: number; reason?: string },
 	) {
-		super(message, options);
+		// A Demo's refusal is said in the reader's own Language, in the one
+		// wording chosen for it (#407), wherever a screen shows a refusal.
+		super(options?.reason === 'demo' ? m.demo_refused() : message, options);
 		this.name = 'OperationError';
 		this.kind = kind;
 		this.operation = operation;

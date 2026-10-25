@@ -19,14 +19,25 @@ not a company with a response time.
 
 - **Put Kamosu behind a reverse proxy that terminates HTTPS.** Kamosu speaks
   plain HTTP and never handles a certificate. Sign-in cookies only travel over
-  HTTPS, so without one nobody can stay signed in.
+  HTTPS, so without one nobody can stay signed in. The proxy must pass the
+  `Host` header on as the browser sent it, or Kamosu cannot tell its own pages
+  from another site's; nginx needs `proxy_set_header Host $host;`.
 - **Set it up yourself, straight after the first start.** Until the first
   Person exists, whoever reaches the setup page becomes the Operator. See
   "A web page opened on your network before you set up a new instance" below.
 - **Mint read-only Access Keys for agents that do not need to write.** An agent
   reads text other people wrote, and that text can carry instructions.
+- **Make an Operator key only for an agent that looks after the instance.** An
+  Operator's other keys act as an ordinary cook's, so an agent tricked by what
+  it reads cannot rewrite the House Notes every later agent follows.
 - **Back up `/data`.** Kamosu keeps three Backups under `/data/backups` and
   never sends one anywhere. Getting them off the machine is your job.
+- **Read the Security Record now and then, or watch its log lines.**
+  Settings › Security record lists each sign-in, wrong passwords at your
+  name, and every change an Operator or an Operator key made to the
+  instance, for 90 days. Each is also a `kamosu-security` line on standard
+  output for a log watcher to match; `docs/security-record.md` describes
+  the format.
 
 ## What Kamosu does not defend
 
@@ -54,7 +65,8 @@ is never behind it.
 **A stolen unlocked phone is a logged-in phone.** Sessions do not expire,
 because an expiry fires on a phone that spent a fortnight offline at the stove
 rather than on a thief. End the session from another device instead. That works
-immediately, which a timer would not have.
+immediately, which a timer would not have. The Security Record lists each
+sign-in with the device's name, which is how you learn there is one to end.
 
 **Someone who knows your name here can keep you from signing in while they keep
 guessing.** Each wrong password makes the next try at that name wait, up to 30
@@ -85,6 +97,14 @@ the recipe and delete everything" is a sentence somebody can put on a web page.
 A read-only Key limits what that costs. Nothing prevents it. Every other recipe
 app has a human sitting between the page and the action, and by design this one
 does not, so mint Keys accordingly.
+
+The agent beside a Runner reads such text with nobody watching, and holds a
+Job Key for one Job. A page that tricks it can have it write that Job's one
+recipe wrong, send away what the Job Key reads, the library as the person who
+asked sees it, until the Job ends, and spend on the model for the length of
+the Job. It does not hold the model provider's key, which stays with the
+Runner, and the fence in `docs/runner.md` keeps its container off your own
+network. Set a spending limit at your provider all the same.
 
 **Kamosu has not been audited by anyone.** It is a recipe app written for one
 household and shared.
@@ -121,8 +141,31 @@ network.
 Uploaded pictures are checked by their header before anything decodes them. SVG
 is refused, being a document that can carry script rather than a picture.
 
+A stranger cannot make Kamosu hold much memory, or hold your requests up for
+long, without a proxy's help. A request with no credential carries at most 64
+KB, and one whose credential names nobody is answered before its body is read.
+A connection gets 20 seconds to send its headers, a stranger's body 30 seconds,
+and any request ten minutes, except an upload streamed to disk under its own 2
+GB cap. At most 64 strangers' bodies are read at once, apart from everyone
+else's requests, so a crowd of slow strangers delays only other strangers. Past
+256 requests at once, Kamosu answers busy rather than queueing them. One gap
+remains: an answer is not given up on when the far end stops reading it, so a
+client can keep a connection open by never reading what it asked for.
+
+A page on another site cannot act as you, even one on a sibling subdomain of
+your own domain that the browser counts as the same site. A request that
+changes something is refused when it comes from a page on another address, and
+an Operation sent without a JSON content type is refused rather than run with
+no input. The sign-in cookie is a `__Host-` cookie, so a sibling subdomain can
+neither set it nor shadow it.
+
 Every answer tells the browser to run only Kamosu's own scripts, to refuse to
 show Kamosu inside another site's frame, and to pass none of a link's address,
-a Share Link's secret included, to the site it leads to.
+a Share Link's secret included, to the site it leads to. It also denies what
+Kamosu never asks for, such as the microphone and location, keeps Kamosu's
+pages out of reach of a window another site opened, and lets no other site
+load Kamosu's answers, except what a Share Link hands to anyone. An answer
+sent to an `https://` public address tells the browser to use only HTTPS there
+for a year.
 
 `tests/defences.rs` asserts all of the above against a running instance.

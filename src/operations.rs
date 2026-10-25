@@ -38,11 +38,32 @@ pub fn instance_status(
     _invocation: &Invocation,
     _input: Value,
 ) -> Result<Value, OpError> {
-    Ok(json!({
+    let mut status = json!({
         "version": env!("CARGO_PKG_VERSION"),
         "setup_complete": core.setup_complete()?,
         "password_minimum": crate::core::PASSWORD_MINIMUM,
-    }))
+        // Where a passkey signs in, so the sign-in screen offers one only
+        // there (#370). The public address is no secret: every Share Link
+        // carries it.
+        "passkey_origin": core.passkey_place().ok().map(|place| place.origin_text()),
+        // A Demo's visitor arrives rather than signs in (ADR 0052), and the
+        // interface asks here which of the two it is doing.
+        "demo": core.is_demo(),
+    });
+    // The key a Demo publishes on its welcome card (#407). It is the same on
+    // every Demo and names nothing anywhere else, so it is no secret here.
+    if core.is_demo() {
+        status["demo_access_key"] = json!(crate::core::DEMO_ACCESS_KEY);
+    }
+    // The Umami a Demo counts its visits with (#408), which the interface
+    // loads. Both halves are in the script tag of any page it counts.
+    if let Some(analytics) = core.analytics() {
+        status["analytics"] = json!({
+            "script": analytics.script,
+            "website_id": analytics.website_id,
+        });
+    }
+    Ok(status)
 }
 
 pub fn set_reading_preferences(
@@ -111,7 +132,7 @@ pub fn list_accounts(
 
 /// Make a Person an Operator, or stand them down (#103). The refusal that
 /// protects the last one lives in the Core, under both Doors.
-pub fn set_operator(core: &Core, _invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+pub fn set_operator(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let takes = "set_operator takes { name, is_operator }";
     let name = input
         .get("name")
@@ -121,7 +142,7 @@ pub fn set_operator(core: &Core, _invocation: &Invocation, input: Value) -> Resu
         .get("is_operator")
         .and_then(Value::as_bool)
         .ok_or_else(|| OpError::bad_request(takes))?;
-    core.set_operator(name, is_operator)
+    core.set_operator(caller_of(invocation)?, name, is_operator)
 }
 
 /// Mint a one-use Invite. The Operator receives the link once; its Secret is
@@ -141,27 +162,27 @@ pub fn mint_invite(core: &Core, _invocation: &Invocation, input: Value) -> Resul
 
 pub fn disable_account(
     core: &Core,
-    _invocation: &Invocation,
+    invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
     let name = input
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("disable_account takes { name }"))?;
-    core.end_account(name, false)?;
+    core.end_account(caller_of(invocation)?, name, false)?;
     Ok(json!({ "disabled": true }))
 }
 
 pub fn delete_account(
     core: &Core,
-    _invocation: &Invocation,
+    invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
     let name = input
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("delete_account takes { name }"))?;
-    core.end_account(name, true)?;
+    core.end_account(caller_of(invocation)?, name, true)?;
     Ok(json!({ "deleted": true }))
 }
 
@@ -228,20 +249,44 @@ pub fn mint_access_key(
     invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
-    let name = input
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("mint_access_key takes { name, read_only? }"))?;
-    let read_only = input
-        .get("read_only")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let name = input.get("name").and_then(Value::as_str).ok_or_else(|| {
+        OpError::bad_request(
+            "mint_access_key takes { name, read_only?, operator?, add_only?, everything_to_agent? }",
+        )
+    })?;
+    let flag = |field| input.get(field).and_then(Value::as_bool).unwrap_or(false);
+    let (read_only, operator, add_only) = (flag("read_only"), flag("operator"), flag("add_only"));
+    let everything_to_agent = flag("everything_to_agent");
+    // An Add-only key may do less than a read-only one in one way and more
+    // in another, and is no Operator's (ADR 0055): the kinds do not mix.
+    if add_only && (read_only || operator) {
+        return Err(OpError::bad_request(
+            "an Add-only key is its own kind: it is neither read-only nor an Operator key",
+        ));
+    }
+    if everything_to_agent && !add_only {
+        return Err(OpError::bad_request(
+            "everything_to_agent is kept by an Add-only key, and this one is not",
+        ));
+    }
     let caller = caller_of(invocation)?;
-    let key = core.mint_access_key(&caller.person_id, name, read_only)?;
+    // `mint_access_key` is declared `session_only`, so the caller here is a
+    // Session. The Core refuses an Operator key to anybody not an Operator
+    // (#369).
+    let key = if add_only {
+        core.mint_add_only_key(&caller.person_id, name, everything_to_agent)?
+    } else if operator {
+        core.mint_operator_key(Some(caller), &caller.person_id, name, read_only)?
+    } else {
+        core.mint_access_key(&caller.person_id, name, read_only)?
+    };
     Ok(json!({
         "id": key.id,
         "name": key.name,
         "read_only": key.read_only,
+        "operator": key.operator,
+        "add_only": key.add_only,
+        "everything_to_agent": key.everything_to_agent,
         "secret": key.secret,
     }))
 }
@@ -253,6 +298,45 @@ pub fn list_access_keys(
 ) -> Result<Value, OpError> {
     let caller = caller_of(invocation)?;
     Ok(json!({ "access_keys": core.access_keys_of(&caller.person_id)? }))
+}
+
+pub fn get_agent_choice(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    Ok(json!({ "everything_to_agent": core.everything_to_agent(caller)? }))
+}
+
+pub fn set_agent_choice(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    let on = input["everything_to_agent"]
+        .as_bool()
+        .ok_or_else(|| OpError::bad_request("set_agent_choice takes { everything_to_agent }"))?;
+    core.set_everything_to_agent(caller, on)?;
+    Ok(json!({ "everything_to_agent": on }))
+}
+
+pub fn set_key_agent_choice(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    const USAGE: &str = "set_key_agent_choice takes { access_key_id, everything_to_agent }";
+    let caller = caller_of(invocation)?;
+    let key_id = input["access_key_id"]
+        .as_str()
+        .ok_or_else(|| OpError::bad_request(USAGE))?;
+    let on = input["everything_to_agent"]
+        .as_bool()
+        .ok_or_else(|| OpError::bad_request(USAGE))?;
+    core.set_key_everything_to_agent(&caller.person_id, key_id, on)?;
+    Ok(json!({ "everything_to_agent": on }))
 }
 
 pub fn revoke_access_key(
@@ -267,6 +351,98 @@ pub fn revoke_access_key(
     let caller = caller_of(invocation)?;
     core.revoke_access_key(&caller.person_id, access_key_id)?;
     Ok(json!({ "revoked": true }))
+}
+
+/// A text field an Operation needs, or the sentence saying what it takes.
+fn text_in<'a>(input: &'a Value, field: &str, takes: &str) -> Result<&'a str, OpError> {
+    input
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes.to_string()))
+}
+
+pub fn list_passkeys(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.list_passkeys(&caller_of(invocation)?.person_id)
+}
+
+pub fn rename_passkey(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    const TAKES: &str = "rename_passkey takes { passkey_id, name }";
+    let passkey_id = text_in(&input, "passkey_id", TAKES)?;
+    let name = text_in(&input, "name", TAKES)?;
+    let name = core.rename_passkey(&caller_of(invocation)?.person_id, passkey_id, name)?;
+    Ok(json!({ "name": name }))
+}
+
+pub fn remove_passkey(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let passkey_id = text_in(&input, "passkey_id", "remove_passkey takes { passkey_id }")?;
+    core.remove_passkey(&caller_of(invocation)?.person_id, passkey_id)?;
+    Ok(json!({ "removed": true }))
+}
+
+pub fn start_adding_passkey(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let password = text_in(
+        &input,
+        "password",
+        "start_adding_passkey takes { password }",
+    )?;
+    core.start_adding_passkey(&caller_of(invocation)?.person_id, password)
+}
+
+pub fn finish_adding_passkey(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    const TAKES: &str = "finish_adding_passkey takes { ceremony_id, credential, name }";
+    let ceremony_id = text_in(&input, "ceremony_id", TAKES)?;
+    let name = text_in(&input, "name", TAKES)?;
+    let credential = text_in(&input, "credential", TAKES)?;
+    core.finish_adding_passkey(
+        &caller_of(invocation)?.person_id,
+        ceremony_id,
+        credential,
+        name,
+    )
+}
+
+pub fn change_password(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    const TAKES: &str = "change_password takes { current_password, new_password, \
+                         sign_out_other_devices, end_access_keys }";
+    let current = text_in(&input, "current_password", TAKES)?;
+    let new = text_in(&input, "new_password", TAKES)?;
+    let flag = |field: &str| {
+        input
+            .get(field)
+            .and_then(Value::as_bool)
+            .ok_or_else(|| OpError::bad_request(TAKES))
+    };
+    core.change_password(
+        caller_of(invocation)?,
+        current,
+        new,
+        flag("sign_out_other_devices")?,
+        flag("end_access_keys")?,
+    )
 }
 
 /// Read one Job back: its state, its progress, and its result or the reason it
@@ -307,17 +483,33 @@ pub fn read_recipe_again(
     const USAGE: &str = "read_recipe_again takes { branch_id }, and with it { text }, the \
                          recipe pasted again, or { upload_id } or { data }: the PDF or the \
                          picture handed over again, sent to POST /api/uploads or \
-                         base64-encoded";
+                         base64-encoded, or { pictures }, several in order";
     let caller = caller_of(invocation)?;
     let branch_id = input
         .get("branch_id")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request(USAGE))?;
     let handed = match input.get("text").and_then(Value::as_str) {
-        Some(_) if input.get("upload_id").is_some() || input.get("data").is_some() => {
+        Some(_)
+            if input.get("upload_id").is_some()
+                || input.get("data").is_some()
+                || input.get("pictures").is_some() =>
+        {
             return Err(OpError::bad_request(USAGE));
         }
         Some(text) => Some(crate::core::Handed::Text(text.to_string())),
+        None if input.get("pictures").is_some() => {
+            if input.get("upload_id").is_some() || input.get("data").is_some() {
+                return Err(OpError::bad_request(USAGE));
+            }
+            core.ensure_may_hand_over_to_read_again(caller, branch_id)?;
+            Some(crate::core::Handed::Pages(sent_pictures(
+                core,
+                caller,
+                &input["pictures"],
+                USAGE,
+            )?))
+        }
         None if input.get("upload_id").is_some() || input.get("data").is_some() => {
             // Asked before the staged file is read, which uses it up.
             core.ensure_may_hand_over_to_read_again(caller, branch_id)?;
@@ -512,7 +704,7 @@ pub fn delete_kitchen(
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("delete_kitchen takes { kitchen_id }"))?;
     let caller = caller_of(invocation)?;
-    core.delete_kitchen(&caller.person_id, kitchen_id)?;
+    core.delete_kitchen(caller, kitchen_id)?;
     Ok(json!({ "deleted": true }))
 }
 
@@ -989,7 +1181,7 @@ pub fn read_recipe_pdf(
     let caller = caller_of(invocation)?;
     let bytes = sent_file(core, caller, &input, USAGE, Some(crate::pdf::LARGEST_PDF))?;
 
-    let text = crate::pdf::text_of(&bytes)?;
+    let text = core.pdf_readers().text_of(&bytes)?;
     // The same bound as a paste, for the same reason: past it the text is a
     // book, not a recipe somebody printed.
     if text.len() > crate::pasting::LONGEST_PASTE {
@@ -1011,7 +1203,7 @@ pub fn read_recipe_pdf(
 /// The longest link handed to an agent, in bytes. A browser's address bar
 /// holds far more, but a recipe's page or video is never that long, and the
 /// link is held in a Job's row for as long as the Job is kept.
-const LONGEST_LINK: usize = 2048;
+pub(crate) const LONGEST_LINK: usize = 2048;
 
 /// Hand pasted text, a link, a PDF or a picture to an agent (#269, #349).
 /// The text comes as `text`, the link as `link`, and a file the two ways
@@ -1023,12 +1215,13 @@ pub fn import_by_agent(
     input: Value,
 ) -> Result<Value, OpError> {
     const USAGE: &str = "import_by_agent takes { text }, the recipe pasted, { link }, a web \
-                         page or a video, or { upload_id } or { data }: a PDF or a picture \
-                         sent to POST /api/uploads, or base64-encoded";
+                         page or a video, { upload_id } or { data }: a PDF or a picture \
+                         sent to POST /api/uploads, or base64-encoded, or { pictures }: \
+                         several pictures in order, each { upload_id } or { data }";
     let caller = caller_of(invocation)?;
     core.ensure_has_runner()?;
     if let Some(link) = input.get("link").and_then(Value::as_str) {
-        if ["text", "upload_id", "data"]
+        if ["text", "upload_id", "data", "pictures"]
             .iter()
             .any(|field| input.get(field).is_some())
         {
@@ -1046,11 +1239,18 @@ pub fn import_by_agent(
         }
         return core.import_link_by_agent(caller, link, landing(&input));
     }
+    let given = ["text", "upload_id", "data", "pictures"]
+        .iter()
+        .filter(|field| input.get(**field).is_some())
+        .count();
+    if given > 1 {
+        return Err(OpError::bad_request(USAGE));
+    }
     let handed = match input.get("text").and_then(Value::as_str) {
-        Some(_) if input.get("upload_id").is_some() || input.get("data").is_some() => {
-            return Err(OpError::bad_request(USAGE));
-        }
         Some(text) => crate::core::Handed::Text(text.to_string()),
+        None if input.get("pictures").is_some() => {
+            crate::core::Handed::Pages(sent_pictures(core, caller, &input["pictures"], USAGE)?)
+        }
         None => crate::core::Handed::File(sent_file(
             core,
             caller,
@@ -1060,6 +1260,98 @@ pub fn import_by_agent(
         )?),
     };
     core.import_by_agent(caller, handed, landing(&input))
+}
+
+/// Several pictures sent to an Operation in order (ADR 0055), each the way
+/// one file arrives: `{ upload_id }` or `{ data }`. Every staged one is used
+/// up, whatever becomes of the rest, as one file's is.
+pub(crate) fn sent_pictures(
+    core: &Core,
+    caller: &crate::core::Caller,
+    pictures: &Value,
+    usage: &str,
+) -> Result<Vec<Vec<u8>>, OpError> {
+    let pictures = pictures
+        .as_array()
+        .ok_or_else(|| OpError::bad_request(usage.to_string()))?;
+    if pictures.len() > crate::core::MOST_PAGES {
+        // Refused before anything is read, the staged files left for nothing.
+        return Err(OpError::bad_request(format!(
+            "one recipe is at most {} pictures, and that is {}",
+            crate::core::MOST_PAGES,
+            pictures.len()
+        )));
+    }
+    let mut read = Vec::with_capacity(pictures.len());
+    let mut refused = None;
+    for picture in pictures {
+        match sent_file(
+            core,
+            caller,
+            picture,
+            usage,
+            Some(crate::photographs::MAX_PICTURE_BYTES as u64),
+        ) {
+            Ok(bytes) => read.push(bytes),
+            Err(err) => {
+                refused.get_or_insert(err);
+            }
+        }
+    }
+    match refused {
+        Some(err) => Err(err),
+        None => Ok(read),
+    }
+}
+
+/// Add whatever a phone shared (ADR 0055): exactly one of a link, text or
+/// files, and the asking Shortcut's version.
+pub fn add_this(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    const USAGE: &str = "add_this takes exactly one of { link }, { text }, { files }: one PDF \
+                         or one or more pictures in order, each { upload_id } or { data }, or \
+                         { upload_ids }, the same ids separated by commas, and the Shortcut's \
+                         own shortcut_version";
+    let caller = caller_of(invocation)?;
+    let given = ["link", "text", "files", "upload_ids"]
+        .iter()
+        .filter(|field| input.get(**field).is_some())
+        .count();
+    if given != 1 {
+        return Err(OpError::bad_request(USAGE));
+    }
+    // A Shortcut sends flat fields: its ids are one string, read as `files`.
+    let listed = input["upload_ids"].as_str().map(|ids| {
+        json!(
+            ids.split(',')
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(|id| json!({ "upload_id": id }))
+                .collect::<Vec<_>>()
+        )
+    });
+    let shared = if let Some(link) = input["link"].as_str() {
+        crate::core::Shared::Link(link.to_string())
+    } else if let Some(text) = input["text"].as_str() {
+        crate::core::Shared::Text(text.to_string())
+    } else {
+        let files = listed.as_ref().unwrap_or(&input["files"]);
+        if files.as_array().is_none_or(|files| files.is_empty()) {
+            return Err(OpError::bad_request(USAGE));
+        }
+        crate::core::Shared::Files(if files.as_array().is_some_and(|files| files.len() == 1) {
+            // One file may be a PDF, which is larger than any picture.
+            vec![sent_file(
+                core,
+                caller,
+                &files[0],
+                USAGE,
+                Some(crate::core::LARGEST_HANDED_FILE),
+            )?]
+        } else {
+            sent_pictures(core, caller, files, USAGE)?
+        })
+    };
+    core.add_this(caller, shared, input["shortcut_version"].as_u64())
 }
 
 /// The bytes of a file sent to an Operation, the two ways a file arrives
@@ -1106,6 +1398,41 @@ fn sent_file(
                 Some(limit) if bytes.len() as u64 > limit => Err(too_large(limit)),
                 _ => Ok(bytes),
             }
+        }
+        _ => Err(OpError::bad_request(usage)),
+    }
+}
+
+/// A file sent to an import read from where it lies rather than into memory,
+/// since a library is gigabytes: the two ways `sent_file` takes, and run
+/// with the file handed over. A staged upload is used once, deleted whatever
+/// the outcome, unless `keeps_upload` says the answer asks for it again.
+fn with_handed_file(
+    core: &Core,
+    caller: &crate::core::Caller,
+    input: &Value,
+    usage: &str,
+    keeps_upload: impl FnOnce(&Value) -> bool,
+    run: impl FnOnce(crate::other_apps::Handed) -> Result<Value, OpError>,
+) -> Result<Value, OpError> {
+    match (
+        input.get("upload_id").and_then(Value::as_str),
+        input.get("data").and_then(Value::as_str),
+    ) {
+        (Some(upload_id), None) => {
+            let path = core.staged_upload(&caller.person_id, upload_id)?;
+            let outcome = run(crate::other_apps::Handed::file(path.clone()));
+            if !outcome.as_ref().is_ok_and(keeps_upload) {
+                let _ = std::fs::remove_file(&path);
+            }
+            outcome
+        }
+        (None, Some(data)) => {
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
+            run(crate::other_apps::Handed::bytes(bytes))
         }
         _ => Err(OpError::bad_request(usage)),
     }
@@ -1245,12 +1572,23 @@ pub fn import_web_link(
     // Asked once, before the fetch, so one answer decides both what a refusal
     // lands and whether a Job follows.
     let has_runner = core.has_runner()?;
+    // A phone's `add_this` lands nothing Kamosu cannot read alone, where
+    // nobody could check it (ADR 0055): that is for Kamosu itself.
+    let refuse_unread = !has_runner && input["refuse_unread"] == json!(true);
     let (parsed, effective_url) = match crate::web_import::fetch_page(url)? {
         crate::web_import::Page::Read {
             html,
             effective_url,
         } => {
             let parsed = crate::web_import::extract_recipe(&html, &effective_url);
+            if refuse_unread && !parsed.found_recipe {
+                return Err(OpError::refused_because(
+                    crate::core::NOT_READ_ALONE,
+                    "this page holds no recipe data, and with no agent Kamosu cannot read it \
+                     on its own. Add the link in Kamosu itself, where what it reads can be \
+                     checked before it is saved",
+                ));
+            }
             // With no agent to hand it to, a page with no recipe data is
             // read from its own text, and nothing lands until a person has
             // checked what was made of it (#301).
@@ -1271,9 +1609,10 @@ pub fn import_web_link(
             effective_url,
         ),
         crate::web_import::Page::Refused { status, .. } => {
-            return Err(OpError::bad_request(format!(
-                "that page answered with {status}"
-            )));
+            return Err(OpError::refused_because(
+                crate::core::PAGE_REFUSED,
+                format!("that page answered with {status}"),
+            ));
         }
     };
 
@@ -1521,6 +1860,11 @@ pub fn search_recipes(
     let cookbook_id = input.get("cookbook_id").and_then(Value::as_str);
     let mine = input.get("mine").and_then(Value::as_bool).unwrap_or(false);
     let tag_id = input.get("tag_id").and_then(Value::as_str);
+    let cooking: Vec<&str> = input
+        .get("cooking")
+        .and_then(Value::as_array)
+        .map(|held| held.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
     let caller = caller_of(invocation)?;
     core.search_recipes(
         &caller.person_id,
@@ -1529,6 +1873,7 @@ pub fn search_recipes(
         cookbook_id,
         mine,
         tag_id,
+        &cooking,
     )
 }
 
@@ -1597,29 +1942,59 @@ pub fn import_crouton(
                        sent to POST /api/uploads, or base64-encoded";
     let caller = caller_of(invocation)?;
     let progress = invocation.job.as_ref();
-    match (
-        input.get("upload_id").and_then(Value::as_str),
-        input.get("data").and_then(Value::as_str),
-    ) {
-        (Some(upload_id), None) => {
-            let path = core.staged_upload(&caller.person_id, upload_id)?;
-            let outcome = std::fs::File::open(&path)
+    with_handed_file(
+        core,
+        caller,
+        &input,
+        USAGE,
+        |_| false,
+        |handed| {
+            handed
+                .open()
                 .map_err(|e| OpError::internal(format!("cannot open the upload: {e}")))
                 .and_then(crate::crouton::Export::open)
-                .and_then(|export| core.import_crouton(caller, export, landing(&input), progress));
-            let _ = std::fs::remove_file(&path);
-            outcome
-        }
-        (None, Some(data)) => {
-            use base64::Engine;
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(data)
-                .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
-            let export = crate::crouton::Export::open(std::io::Cursor::new(bytes))?;
-            core.import_crouton(caller, export, landing(&input), progress)
-        }
-        _ => Err(OpError::bad_request(USAGE)),
-    }
+                .and_then(|export| core.import_crouton(caller, export, landing(&input), progress))
+        },
+    )
+}
+
+/// Bring in an export from another recipe app (#412), whichever app's
+/// reader knows it. The file arrives the two ways `import_crouton`'s does
+/// (ADR 0001), and a staged upload is used once: deleted whatever the
+/// outcome, a refusal included, so a retry sends the file again. A Mealie
+/// backup whose household is still to be chosen is the one exception (#418):
+/// its upload is kept for the call that names one, and swept a day later
+/// where none comes.
+pub fn import_from_another_app(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    const USAGE: &str = "import_from_another_app takes { upload_id } or { data }: the \
+                       export sent to POST /api/uploads, or base64-encoded";
+    let caller = caller_of(invocation)?;
+    let progress = invocation.job.as_ref();
+    let household = input.get("mealie_household").and_then(Value::as_str);
+    with_handed_file(
+        core,
+        caller,
+        &input,
+        USAGE,
+        |answer| answer.get("which_household").is_some(),
+        |handed| {
+            let handed = handed.in_household(household);
+            let mut answer =
+                core.import_from_another_app(caller, &handed, landing(&input), progress)?;
+            // The upload kept for the answer, so whoever reads the Job later,
+            // the Report page among them, can name a household.
+            if let (Some(question), Some(upload_id)) =
+                (answer.get_mut("which_household"), input.get("upload_id"))
+            {
+                question["upload_id"] = upload_id.clone();
+            }
+            Ok(answer)
+        },
+    )
 }
 
 /// What has been brought in from outside, by source, with every arrival (#108).
@@ -1716,6 +2091,31 @@ pub fn set_reading(core: &Core, invocation: &Invocation, input: Value) -> Result
     )
 }
 
+pub fn set_step_uses(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let shape = || OpError::bad_request("set_step_uses takes { branch_id, step_index, uses }");
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(shape)?;
+    let step_index = input
+        .get("step_index")
+        .and_then(Value::as_i64)
+        .ok_or_else(shape)?;
+    let uses = match input.get("uses") {
+        Some(Value::Array(lines)) => Some(
+            lines
+                .iter()
+                .map(Value::as_i64)
+                .collect::<Option<Vec<i64>>>()
+                .ok_or_else(shape)?,
+        ),
+        Some(Value::Null) => None,
+        _ => return Err(shape()),
+    };
+    let caller = caller_of(invocation)?;
+    core.set_step_uses(caller, branch_id, step_index, uses)
+}
+
 pub fn start_attempt(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let branch_id = input
         .get("branch_id")
@@ -1793,19 +2193,23 @@ pub fn get_public_address(
     _invocation: &Invocation,
     _input: Value,
 ) -> Result<Value, OpError> {
-    core.get_public_address()
+    let mut answer = core.get_public_address()?;
+    // What moving the address would strand: passkeys work at one address
+    // alone (#370).
+    answer["passkeys"] = json!(core.passkeys_here()?);
+    Ok(answer)
 }
 
 pub fn set_public_address(
     core: &Core,
-    _invocation: &Invocation,
+    invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
     let address = input
         .get("public_address")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("set_public_address takes { public_address }"))?;
-    core.set_public_address(address)
+    core.set_public_address(caller_of(invocation)?, address)
 }
 
 /// What the Share Link page consumes. Public: holding the token is the whole
@@ -2311,14 +2715,14 @@ pub fn turn_off_meaning_search(
 
 pub fn mint_runner_key(
     core: &Core,
-    _invocation: &Invocation,
+    invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
     let name = input
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("mint_runner_key takes { name }"))?;
-    let key = core.mint_runner_key(name)?;
+    let key = core.mint_runner_key(Some(caller_of(invocation)?), name)?;
     Ok(json!({ "id": key.id, "name": key.name, "secret": key.secret }))
 }
 
@@ -2332,14 +2736,14 @@ pub fn list_runner_keys(
 
 pub fn revoke_runner_key(
     core: &Core,
-    _invocation: &Invocation,
+    invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
     let runner_key_id = input
         .get("runner_key_id")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("revoke_runner_key takes { runner_key_id }"))?;
-    core.revoke_runner_key(runner_key_id)?;
+    core.revoke_runner_key(Some(caller_of(invocation)?), runner_key_id)?;
     Ok(json!({ "revoked": true }))
 }
 
@@ -2349,6 +2753,14 @@ pub fn runner_status(
     _input: Value,
 ) -> Result<Value, OpError> {
     core.runner_status()
+}
+
+pub fn list_replays(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    Ok(json!({ "replays": core.replays() }))
 }
 
 pub fn get_house_notes(
@@ -2369,7 +2781,26 @@ pub fn set_house_notes(
         .get("notes")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("set_house_notes takes { notes }"))?;
-    core.set_house_notes(&caller.person_id, notes)
+    core.set_house_notes(caller, notes)
+}
+
+/// Your own Security Record (#371): signing in, wrong passwords at your
+/// name, your passkeys, password, Access Keys and Sessions.
+pub fn list_security_record(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.security_record_of(&caller_of(invocation)?.person_id)
+}
+
+/// The instance's Security Record, which every Operator reads (#371).
+pub fn list_instance_security_record(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.instance_security_record()
 }
 
 pub fn ask_for_work(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {

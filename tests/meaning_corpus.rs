@@ -183,7 +183,7 @@ fn library_with_meaning_search() -> Option<Library> {
     let operator_id = created["result"]["person"]["id"].as_str().unwrap();
     let key = app
         .core
-        .mint_access_key(operator_id, "corpus meaning", false)
+        .mint_operator_key(None, operator_id, "corpus meaning", false)
         .unwrap()
         .secret;
     // A Kitchen of the Operator's own, for a Kitchen-mate to be asked into:

@@ -9,7 +9,7 @@
 //! so the cook reads what the agent did in an Import Report, where the
 //! recipe is listed as an arrival.
 
-use super::originals::{Keeping, keep_original, kept_as, original_is_kept};
+use super::originals::{Keeping, keep_original, kept_as, original_is_kept, remove_original};
 use super::*;
 use crate::jobs::OriginalKind;
 
@@ -95,7 +95,11 @@ enum ReadFrom {
     /// The link in its Source (#272).
     Link(String),
     /// The Original it came from, kept under the Job that read it (#273).
-    KeptOriginal { job_id: String, kind: OriginalKind },
+    KeptOriginal {
+        job_id: String,
+        kind: OriginalKind,
+        pages: usize,
+    },
 }
 
 /// Whether a recipe can be read again by the Person asking, and from what.
@@ -204,16 +208,26 @@ impl Core {
             // the link it reads, or, for an Original, which has no name, the
             // Job itself.
             let original = match (&handed, &what.from) {
-                (Some((kind, bytes)), _) => Some((*kind, Keeping::Bytes(bytes))),
-                (None, Some(ReadFrom::KeptOriginal { job_id, kind })) => {
-                    Some((*kind, Keeping::From(job_id)))
-                }
+                (Some((kind, pages)), _) => Some((*kind, Keeping::Bytes(pages))),
+                (
+                    None,
+                    Some(ReadFrom::KeptOriginal {
+                        job_id,
+                        kind,
+                        pages,
+                    }),
+                ) => Some((*kind, Keeping::From(job_id, *pages))),
                 _ => None,
             };
             let (job_id, foreign_id, keeping) = match (original, &what.from) {
                 (Some((kind, keeping)), _) => {
-                    let job_id =
-                        jobs::wait_for_agent_to_read_original_again(&tx, caller, branch_id, kind)?;
+                    let job_id = jobs::wait_for_agent_to_read_original_again(
+                        &tx,
+                        caller,
+                        branch_id,
+                        kind,
+                        keeping.pages(),
+                    )?;
                     (job_id.clone(), job_id, Some(keeping))
                 }
                 (None, Some(ReadFrom::Link(link))) => {
@@ -242,14 +256,12 @@ impl Core {
             )?;
             // Kept last, so that nothing above can fail and leave a file no
             // Job names, which no sweep would ever find.
-            let kept = keeping.is_some();
+            let kept = keeping.as_ref().map_or(0, Keeping::pages);
             if let Some(keeping) = keeping {
                 keep_original(&dir, &job_id, keeping)?;
             }
             if let Err(e) = tx.commit() {
-                if kept {
-                    let _ = std::fs::remove_file(dir.join(&job_id));
-                }
+                remove_original(&dir, &job_id, kept);
                 return Err(failed(e));
             }
             Ok(json!({ "job_id": job_id, "branch_id": branch_id }))
@@ -303,6 +315,7 @@ fn what_to_read_again(
             Some(ReadFrom::KeptOriginal {
                 job_id: original.job_id.clone(),
                 kind: original.kind,
+                pages: original.pages,
             })
         }
         Some(_) => None,

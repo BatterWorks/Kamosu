@@ -4,7 +4,8 @@
 //! again keeps it as its own, under its own id (#273).
 //!
 //! An Original is a file under `originals/` in the data directory, named by
-//! its Job's id. It is no Photograph: no recipe names it, and the Photograph
+//! its Job's id. Several pictures handed over together are the pages of one
+//! recipe (ADR 0055), kept in order as `<job_id>`, `<job_id>.2`, `<job_id>.3`. It is no Photograph: no recipe names it, and the Photograph
 //! sweep never looks in its directory. It is in no Backup, since a Backup
 //! carries the database and the Photographs and nothing else, and it is no
 //! part of a Version. The Job's own record says what kind of thing it is and
@@ -18,11 +19,55 @@ use crate::jobs::OriginalKind;
 pub enum Handed {
     Text(String),
     File(Vec<u8>),
+    /// Several pictures, the pages of one recipe in order (ADR 0055).
+    Pages(Vec<Vec<u8>>),
 }
 
-/// Where a Job's Original is fetched, by its Job Key.
+/// The most pictures one Original may be: a recipe across many pages is a
+/// PDF's work, and a phone's Share menu sends one file at a time.
+pub const MOST_PAGES: usize = 10;
+
+/// Where a Job's Original is fetched, by its Job Key: its first page, and
+/// every page in order.
 pub fn original_address(job_id: &str) -> String {
     format!("/api/originals/{job_id}")
+}
+
+/// Where each page of a Job's Original is fetched, in order. The first is
+/// [`original_address`] itself, which an agent written before several pages
+/// still fetches.
+pub fn page_addresses(job_id: &str, pages: usize) -> Vec<String> {
+    (1..=pages.max(1))
+        .map(|page| match page {
+            1 => original_address(job_id),
+            page => format!("/api/originals/{job_id}/{page}"),
+        })
+        .collect()
+}
+
+/// The file one page of a Job's Original is kept in.
+fn page_path(dir: &std::path::Path, job_id: &str, page: usize) -> std::path::PathBuf {
+    match page {
+        1 => dir.join(job_id),
+        page => dir.join(format!("{job_id}.{page}")),
+    }
+}
+
+/// What a file handed over is known by again (#271): the digest of its bytes
+/// as handed over, or, for several pictures, of their digests in order, so
+/// the same pages in another order are another Original. One picture is
+/// known as it always was.
+fn digest_of(handed: &Handed) -> Option<String> {
+    let one = |bytes: &[u8]| hex::encode(sha2::Sha256::digest(bytes));
+    match handed {
+        Handed::Text(_) => None,
+        Handed::File(bytes) => Some(one(bytes)),
+        Handed::Pages(pages) if pages.len() == 1 => Some(one(&pages[0])),
+        Handed::Pages(pages) => {
+            let listed: String = pages.iter().map(|page| one(page) + "\n").collect();
+            Some(one(format!("pages\n{listed}").as_bytes()))
+        }
+    }
 }
 
 /// The most bytes a file handed to an agent may be read as before it is known
@@ -59,16 +104,13 @@ impl Core {
     ) -> Result<Value, OpError> {
         self.ensure_has_runner()?;
         // As handed over, since a picture is remade before it is kept.
-        let digest = match &handed {
-            Handed::File(bytes) => Some(hex::encode(sha2::Sha256::digest(bytes))),
-            Handed::Text(_) => None,
-        };
-        let (kind, bytes) = kept_as(handed)?;
+        let digest = digest_of(&handed);
+        let (kind, pages) = kept_as(handed)?;
         self.hand_to_agent(
             caller,
             kind,
             digest.as_deref(),
-            Keeping::Bytes(&bytes),
+            Keeping::Bytes(&pages),
             None,
             into,
         )
@@ -116,7 +158,7 @@ impl Core {
             caller,
             job.kind,
             job.digest.as_deref(),
-            Keeping::From(job_id),
+            Keeping::From(job_id, job.pages),
             Some(job_id),
             into.as_deref(),
         )
@@ -166,16 +208,24 @@ impl Core {
             // The Job and its Original appear together or not at all: no
             // Runner is handed a Job whose file is not there yet.
             let tx = conn.unchecked_transaction().map_err(failed)?;
-            let job_id =
-                jobs::wait_for_agent_on_original(&tx, caller, kind, digest, again_of, elsewhere)?;
+            let job_id = jobs::wait_for_agent_on_original(
+                &tx,
+                caller,
+                kind,
+                keeping.pages(),
+                digest,
+                again_of,
+                elsewhere,
+            )?;
             jobs::set_result(
                 &tx,
                 &job_id,
                 &imports::report_before_its_agent(&import_id, &cookbook_id, kind.as_str(), &job_id),
             )?;
+            let pages = keeping.pages();
             keep_original(&dir, &job_id, keeping)?;
             if let Err(e) = tx.commit() {
-                let _ = std::fs::remove_file(dir.join(&job_id));
+                remove_original(&dir, &job_id, pages);
                 return Err(failed(e));
             }
             Ok(json!({ "job_id": job_id, "source_kind": kind.as_str() }))
@@ -196,8 +246,9 @@ impl Core {
         ))
     }
 
-    /// A Job's Original, for `GET /api/originals/<job_id>`: what kind it is and
-    /// its bytes. Only that Job's own Job Key fetches it, while the Job waits
+    /// One page of a Job's Original, for `GET /api/originals/<job_id>` (the
+    /// first) and `/api/originals/<job_id>/<page>`: what kind it is and its
+    /// bytes. A page past the last is not there. Only that Job's own Job Key fetches it, while the Job waits
     /// or is being worked. An Original is read and never shown, so anyone else
     /// who names a Person is answered as if nothing were there, the Person who
     /// asked included (ADR 0040). A Runner Key is refused as on every route
@@ -206,6 +257,7 @@ impl Core {
         &self,
         secret: Option<&str>,
         job_id: &str,
+        page: usize,
     ) -> Result<(OriginalKind, Vec<u8>), OpError> {
         let secret = secret.filter(|s| !s.is_empty()).ok_or_else(|| {
             OpError::unauthorized("this route requires the Job Key of the Job it names")
@@ -214,11 +266,14 @@ impl Core {
         if caller.job_id.as_deref() != Some(job_id) {
             return Err(nothing_here_for_a_job_key());
         }
-        let kind = self
+        let (kind, pages) = self
             .db()
             .with_conn(|conn| jobs::original_of(conn, job_id))?
             .ok_or_else(nothing_here_for_a_job_key)?;
-        let bytes = std::fs::read(originals_dir(&self.data_dir()).join(job_id))
+        if page == 0 || page > pages {
+            return Err(nothing_here_for_a_job_key());
+        }
+        let bytes = std::fs::read(page_path(&originals_dir(&self.data_dir()), job_id, page))
             .map_err(|_| nothing_here_for_a_job_key())?;
         Ok((kind, bytes))
     }
@@ -239,9 +294,9 @@ impl Core {
     /// answer is how many Originals were deleted.
     pub fn sweep_originals(&self) -> Result<usize, OpError> {
         let failed = |e| OpError::internal(format!("cannot sweep the Originals: {e}"));
-        let due: Vec<String> = self.db().with_conn(|conn| {
+        let due: Vec<(String, i64)> = self.db().with_conn(|conn| {
             conn.prepare(
-                "SELECT agent_jobs.job_id
+                "SELECT agent_jobs.job_id, agent_jobs.original_pages
                    FROM agent_jobs JOIN jobs ON jobs.id = agent_jobs.job_id
                   WHERE agent_jobs.original IS NOT NULL
                     AND agent_jobs.original_deleted_at IS NULL
@@ -250,7 +305,7 @@ impl Core {
             )
             .map_err(failed)?
             .query_map(params![format!("-{ORIGINAL_KEPT_DAYS} days")], |row| {
-                row.get(0)
+                Ok((row.get(0)?, row.get(1)?))
             })
             .map_err(failed)?
             .collect::<Result<_, _>>()
@@ -259,7 +314,17 @@ impl Core {
 
         let dir = originals_dir(&self.data_dir());
         let mut swept = 0;
-        for job_id in due {
+        for (job_id, pages) in due {
+            // The later pages first, so that a sweep stopped partway leaves
+            // the first, which is what says the Original is still there.
+            for page in (2..=pages as usize).rev() {
+                match std::fs::remove_file(page_path(&dir, &job_id, page)) {
+                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                        tracing::warn!(target: "kamosu::sweep", %job_id, %e, "cannot delete an Original");
+                    }
+                    _ => {}
+                }
+            }
             match std::fs::remove_file(dir.join(&job_id)) {
                 Ok(()) => swept += 1,
                 // Already gone, as on an instance restored from a Backup,
@@ -308,30 +373,58 @@ fn recipe_in_ledger(
     .map_err(|e| OpError::internal(format!("cannot read the Import ledger: {e}")))
 }
 
-/// What a Job's Original is kept from: bytes handed over now, or the kept
-/// Original of an earlier Job, which the new Job keeps as its own (#273).
+/// What a Job's Original is kept from: the pages handed over now, or the
+/// kept Original of an earlier Job and how many pages it is, which the new
+/// Job keeps as its own (#273).
 pub(super) enum Keeping<'a> {
-    Bytes(&'a [u8]),
-    From(&'a str),
+    Bytes(&'a [Vec<u8>]),
+    From(&'a str, usize),
 }
 
-/// Keep `job_id`'s Original in `dir`. One kept already is linked rather than
-/// copied, so the bytes are on the disk once while each Job's 30 days are
-/// its own, and copied where the disk cannot link.
+impl Keeping<'_> {
+    /// How many files the Original is.
+    pub(super) fn pages(&self) -> usize {
+        match self {
+            Keeping::Bytes(pages) => pages.len(),
+            Keeping::From(_, pages) => *pages,
+        }
+    }
+}
+
+/// Keep `job_id`'s Original in `dir`, every page of it. One kept already is
+/// linked rather than copied, so the bytes are on the disk once while each
+/// Job's 30 days are its own, and copied where the disk cannot link. Where a
+/// page cannot be kept, none is.
 pub(super) fn keep_original(
     dir: &std::path::Path,
     job_id: &str,
     keeping: Keeping,
 ) -> Result<(), OpError> {
-    let path = dir.join(job_id);
-    let kept = match keeping {
-        Keeping::Bytes(bytes) => std::fs::write(&path, bytes),
-        Keeping::From(earlier) => {
-            let from = dir.join(earlier);
-            std::fs::hard_link(&from, &path).or_else(|_| std::fs::copy(&from, &path).map(|_| ()))
+    let pages = keeping.pages();
+    for page in 1..=pages {
+        let path = page_path(dir, job_id, page);
+        let kept = match &keeping {
+            Keeping::Bytes(bytes) => std::fs::write(&path, &bytes[page - 1]),
+            Keeping::From(earlier, _) => {
+                let from = page_path(dir, earlier, page);
+                std::fs::hard_link(&from, &path)
+                    .or_else(|_| std::fs::copy(&from, &path).map(|_| ()))
+            }
+        };
+        if let Err(e) = kept {
+            remove_original(dir, job_id, pages);
+            return Err(OpError::internal(format!("cannot keep the Original: {e}")));
         }
-    };
-    kept.map_err(|e| OpError::internal(format!("cannot keep the Original: {e}")))
+    }
+    Ok(())
+}
+
+/// Take every page of `job_id`'s Original off the disk, as far as it is
+/// there: a Job that could not be recorded keeps none.
+pub(super) fn remove_original(dir: &std::path::Path, job_id: &str, pages: usize) {
+    for page in 1..=pages {
+        let _ = std::fs::remove_file(page_path(dir, job_id, page));
+    }
 }
 
 /// Whether a Job's Original is still on the disk: not deleted by the sweep,
@@ -359,7 +452,46 @@ pub fn originals_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
 /// What is kept of what was handed over, and as what kind. Each kind is held
 /// to the limit Kamosu already sets for it, and a file that is neither a PDF
 /// nor a picture is refused.
-pub(super) fn kept_as(handed: Handed) -> Result<(OriginalKind, Vec<u8>), OpError> {
+pub(super) fn kept_as(handed: Handed) -> Result<(OriginalKind, Vec<Vec<u8>>), OpError> {
+    let (kind, bytes) = match handed {
+        Handed::Pages(mut pages) if pages.len() == 1 => kept_one(Handed::File(pages.remove(0)))?,
+        Handed::Pages(pages) => return kept_pages(pages),
+        one => kept_one(one)?,
+    };
+    Ok((kind, vec![bytes]))
+}
+
+/// Several pictures, kept as the pages of one recipe in order (ADR 0055).
+/// Each is held to what one picture is held to, and nothing but pictures
+/// goes together: a PDF has pages of its own.
+fn kept_pages(pages: Vec<Vec<u8>>) -> Result<(OriginalKind, Vec<Vec<u8>>), OpError> {
+    if pages.is_empty() {
+        return Err(OpError::bad_request("pictures holds no picture"));
+    }
+    if pages.len() > MOST_PAGES {
+        return Err(OpError::bad_request(format!(
+            "one recipe is at most {MOST_PAGES} pictures, and that is {}",
+            pages.len()
+        )));
+    }
+    pages
+        .into_iter()
+        .enumerate()
+        .map(|(at, bytes)| {
+            if !photographs::looks_like_a_picture(&bytes) {
+                return Err(OpError::bad_request(format!(
+                    "several files handed over together are pictures, the pages of one \
+                     recipe, and file {} is not one",
+                    at + 1
+                )));
+            }
+            photographs::remake_original(&bytes)
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(|kept| (OriginalKind::Picture, kept))
+}
+
+fn kept_one(handed: Handed) -> Result<(OriginalKind, Vec<u8>), OpError> {
     match handed {
         Handed::Text(text) => {
             if text.trim().is_empty() {
@@ -395,5 +527,6 @@ pub(super) fn kept_as(handed: Handed) -> Result<(OriginalKind, Vec<u8>), OpError
             "an agent is handed pasted text, a PDF or a picture, and this file is none of \
              them",
         )),
+        Handed::Pages(_) => unreachable!("kept_as keeps several pictures itself"),
     }
 }

@@ -1573,6 +1573,7 @@ fn keep_words_as_new_recipe(
         &version_id,
         &content_text,
         caller,
+        &[],
     )?;
     Ok(Fate::Kept {
         reason: said(&named),

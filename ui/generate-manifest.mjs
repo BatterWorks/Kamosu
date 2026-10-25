@@ -38,6 +38,20 @@ const manifest = {
 		// purposes; the OS does the masking.
 		{ src: '/assets/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
 	],
+	// Kamosu in Android's Share menu once installed (#452, ADR 0055): what is
+	// shared arrives at /shared, which the service worker answers
+	// (`ui/src/lib/offline/shared.ts`). An iPhone lists no web app there.
+	share_target: {
+		action: '/shared',
+		method: 'POST',
+		enctype: 'multipart/form-data',
+		params: {
+			title: 'title',
+			text: 'text',
+			url: 'url',
+			files: [{ name: 'files', accept: ['image/*', 'application/pdf'] }],
+		},
+	},
 };
 
 writeFileSync(outFile, JSON.stringify(manifest, null, '\t') + '\n');

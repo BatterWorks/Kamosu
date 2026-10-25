@@ -40,6 +40,9 @@ A test needs a cook with a name. That cook is invented, and where one stands
 for "you" it is Stéphane: `Stéphane Dupont`, `p_stephane`, `stephane.example`.
 A finding is any first name in a comment, a record or a message that belongs
 to somebody real.
+Credit for published work is not a finding: the photographer a licence asks
+to be named, or the cook whose video a sample recipe's Source links
+(`sample-library/CREDITS.md`).
 
 This covers what is committed. `AGENTS.local.md`, `.env` and `.dev/` stay on
 one machine and may say who works there.

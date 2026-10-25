@@ -74,6 +74,11 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// it beside the buttons that change it, and a kept answer is wrong at
 	// exactly the moment it matters: a Kitchen joined or left on another
 	// device, or another member removing you. Found in live acceptance (#111).
+	// The Security Record (#371). Read to learn whether somebody else is
+	// signing in or changing things, so a kept answer would hide the very
+	// event it is read for.
+	list_security_record: 'server-first',
+	list_instance_security_record: 'server-first',
 	list_kitchens: 'server-first',
 	// Your Cookbook, who writes it and the Invites still waiting (#131). The
 	// same reason: joining, leaving and renaming happen on other devices and
@@ -91,13 +96,22 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// before a change made on another device shows the two folded when they
 	// are not, and writes the old Measures back over the new ones.
 	get_reading_preferences: 'server-first',
+	// Where what this phone shares goes (#452). Shown beside the choice that
+	// changes it, so a kept answer would put back the old choice on sight.
+	get_agent_choice: 'server-first',
 	// Who you are called (#113). Settings shows it beside the button that
 	// changes it, and a kept answer from before a rename on another device
 	// would offer to change a name you no longer have.
 	get_person: 'server-first',
+	// Whether this is a Demo, and the Umami it counts with (#408). A kept
+	// answer from before the instance stopped counting, or stopped being a
+	// Demo, would load the script on a Kamosu that sends nothing anywhere.
+	instance_status: 'server-first',
 	// Who can get in. Ending a Session on another device must show at once.
 	list_sessions: 'server-first',
 	list_access_keys: 'server-first',
+	// A passkey removed on another device must not still show here (#370).
+	list_passkeys: 'server-first',
 	// Whether a recipe is shared, and at what address (#171). The share screen
 	// offers that address to copy, so a kept answer from before the link was
 	// ended, here or on another device, would hand out one that no longer opens.
@@ -109,6 +123,10 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// say a Runner is there after its Key was revoked, or silent while it works.
 	runner_status: 'never',
 	list_runner_keys: 'never',
+	// The examples a Demo replays (#406) name Jobs of the library a Demo
+	// builds when it starts, so a kept answer from before a restart names
+	// Jobs that are gone. Kept for offline, where their row says it waits.
+	list_replays: 'server-first',
 	// The agent's house notes (#344) are edited in the box that shows them,
 	// and a kept answer from before a save on another device would put the
 	// old notes back over the new ones at the next Save.

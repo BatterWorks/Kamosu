@@ -312,11 +312,168 @@ describe('the Import Report', () => {
 		expect(
 			screen.getByText(/1 came as just a name and a link: Dan Dan Noodles/),
 		).toBeInTheDocument();
-		expect(screen.getByText(/Left out: 2 website icons/)).toBeInTheDocument();
+		expect(screen.getByText('Show all 6')).toBeInTheDocument();
+	});
+
+	it('says what arrived, and the website icons left out, under Arrived', async () => {
+		open({ get_job: job() });
+		expect(await screen.findByText(/Left out: 2 website icons/)).toBeInTheDocument();
 		// The two recipes share one icon, so it is drawn once.
 		expect(document.querySelectorAll('img[src^="data:image/png"]')).toHaveLength(1);
-		expect(screen.getByText(/one extra photo from Beef Short Ribs/)).toBeInTheDocument();
-		expect(screen.getByText('Show all 6')).toBeInTheDocument();
+	});
+
+	it('counts what stayed in the app in a section of its own (#412)', async () => {
+		open({ get_job: job() });
+		const stayed = within(
+			(await screen.findByRole('heading', { name: 'Stayed in Crouton' })).closest('section')!,
+		);
+		expect(stayed.getByText(/no place in Kamosu/)).toBeInTheDocument();
+		const extra = stayed.getByText('Extra photos').closest('details')!;
+		expect(extra.querySelector('summary')).toHaveTextContent('1');
+		expect(extra).toHaveTextContent(
+			'Beef Short Ribs: 1. A recipe keeps one photo; add the others to a step by hand.',
+		);
+		// A website's icon is not something the app kept.
+		expect(stayed.queryByText(/icon/i)).not.toBeInTheDocument();
+	});
+
+	it('names every kind an app can leave behind, in the chosen order, the whole file apart', async () => {
+		const ribs = { foreign_id: 'p-ribs', branch_id: 'b_ribs', title: 'Beef Short Ribs' };
+		const dan = { foreign_id: 'p-dan', branch_id: 'b_dan', title: 'Dan Dan Noodles' };
+		open({
+			get_job: job({
+				operation: 'import_from_another_app',
+				result: report({
+					left_out: [
+						{ ...ribs, what: 'comments', count: 3 },
+						{ ...dan, what: 'nutrition', count: 1 },
+						{ ...ribs, what: 'attached_files', count: 2 },
+						{
+							...dan,
+							what: 'photos_not_downloaded',
+							count: 1,
+							address: 'https://example.com/dan.jpg',
+						},
+						{ ...ribs, what: 'extra_photos', count: 2 },
+						{ ...dan, what: 'extra_photos', count: 1 },
+						{ ...dan, what: 'favourites', count: 1 },
+						{ ...ribs, what: 'ratings', count: 1 },
+						{ ...dan, what: 'ratings', count: 1 },
+						{ ...ribs, what: 'meal_plan_timeline', count: 4 },
+					],
+					left_out_of_file: [
+						{ what: 'meal_plans', count: 41 },
+						{ what: 'shopping_lists', count: 2 },
+						{ what: 'photos_not_in_export', count: 6 },
+						{ what: 'items', count: 660 },
+						{ what: 'expenses', count: 1 },
+					],
+				}),
+			}),
+		});
+		const section = (await screen.findByRole('heading', { name: 'Stayed in Crouton' })).closest(
+			'section',
+		)!;
+		const rows = [...section.querySelectorAll('li')];
+		expect(
+			rows.map(
+				(row) =>
+					row.textContent
+						?.replace(/\s+/g, ' ')
+						.trim()
+						.split(/(?<=\d) /)[0],
+			),
+		).toEqual([
+			'Ratings 2',
+			'Favourites 1',
+			'Extra photos 3',
+			'Photos that could not be downloaded 1',
+			'Attached files 2',
+			'Comments 3',
+			'Nutrition notes 1',
+			"Meal plan entries in a recipe's timeline 4",
+			'Meal plan entries 41',
+			'Shopping lists 2',
+			'Photos not in the export 6',
+			'Shopping items 660',
+			'Expenses 1',
+		]);
+		expect(rows[0]).toHaveTextContent('Beef Short Ribs, Dan Dan Noodles.');
+		expect(rows[2]).toHaveTextContent('Beef Short Ribs: 2 · Dan Dan Noodles: 1.');
+		expect(rows[3]).toHaveTextContent('https://example.com/dan.jpg');
+		expect(rows[6]).toHaveTextContent('Dan Dan Noodles.');
+		expect(rows[7]).toHaveTextContent('Beef Short Ribs: 4.');
+		expect(within(rows[3]).getByRole('link', { name: 'Dan Dan Noodles' })).toHaveAttribute(
+			'href',
+			'/recipes/b_dan',
+		);
+		// What belongs to the whole file names no recipe and opens to nothing.
+		for (const row of rows.slice(8)) expect(row.querySelector('details')).toBeNull();
+	});
+
+	it('names five recipes, then how many more', async () => {
+		const many = Array.from({ length: 12 }, (_, index) => ({
+			foreign_id: `p-${index}`,
+			branch_id: `b_${index}`,
+			title: `Recipe ${index}`,
+			what: 'ratings' as const,
+			count: 1,
+		}));
+		open({ get_job: job({ result: report({ left_out: many }) }) });
+		const ratings = (await screen.findByText('Ratings')).closest('li')!;
+		expect(ratings).toHaveTextContent(
+			'Recipe 0, Recipe 1, Recipe 2, Recipe 3, Recipe 4 and 7 more.',
+		);
+	});
+
+	it('asks which household a backup still waiting for one is, and brings it in (#418)', async () => {
+		const kamosu = open({
+			get_job: job({
+				operation: 'import_from_another_app',
+				progress: { done: 0, total: null, message: null },
+				result: {
+					which_household: {
+						households: [
+							{ name: 'Family', recipes: 3, cooks: ['Sam Cook'] },
+							{ name: 'Cabin', recipes: 1, cooks: ['Alex Baker'] },
+						],
+						sentence: 'which one',
+						upload_id: 'u_kept',
+					},
+				},
+			}),
+			import_from_another_app: { job_id: 'j_2' },
+		});
+		const sheet = await screen.findByRole('dialog', { name: 'Which household is yours?' });
+		expect(sheet).toHaveTextContent('Sam Cook · 3 recipes');
+		await fireEvent.click(screen.getByRole('button', { name: 'Bring in its 3 recipes' }));
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/imports/j_2'));
+		expect(
+			kamosu.calls.find((call) => call.operation === 'import_from_another_app')?.input,
+		).toEqual({ upload_id: 'u_kept', mealie_household: 'Family' });
+	});
+
+	it('draws no such section when nothing stayed behind', async () => {
+		open({ get_job: job({ result: report({ left_out: [] }) }) });
+		await screen.findByText('Every file could be read.');
+		expect(screen.queryByRole('heading', { name: /Stayed in/ })).not.toBeInTheDocument();
+	});
+
+	it('says an export from another app was turned away, and what to do (#412)', async () => {
+		open({
+			get_job: job({
+				operation: 'import_from_another_app',
+				result: { refused: { reason: 'unrecognised', sentence: 'not known' } },
+			}),
+			runner_status: { has_runner: false, last_asked_at: null },
+		});
+		expect(
+			await screen.findByRole('heading', { name: 'An export from another app' }),
+		).toBeInTheDocument();
+		expect(screen.getByRole('alert')).toHaveTextContent(
+			'Kamosu could not tell which app made this file.',
+		);
+		expect(screen.getByRole('link', { name: 'Pasted text' })).toBeInTheDocument();
 	});
 
 	it('says why an import stopped', async () => {
@@ -905,4 +1062,137 @@ describe('the Import Report while an agent waits or reads', () => {
 		expect(screen.getByRole('heading', { name: m.report_title_picture() })).toBeInTheDocument();
 		expect(screen.queryByRole('alert')).toBeNull();
 	});
+});
+
+/**
+ * A Replay in a Demo (#406): an example's ended Job played through Sent,
+ * Waiting and Reading in a few seconds, then its Report as the agent left it.
+ */
+describe('a Replay of an example', () => {
+	const HEARD = { has_runner: true, last_asked_at: new Date().toISOString() };
+	/** The example as the Sample Library holds it: a card the agent read into Orange Cake. */
+	const example = job({
+		operation: 'read_by_agent',
+		status: 'completed',
+		progress: { done: null, total: null, message: null },
+		result: report({
+			source_kind: 'picture',
+			arrived: [arrived('orange', 'Orange Cake', { foreign_id: 'j_1', main_photo: null })],
+			left_out: [],
+			related_candidates: [],
+			agent_jobs: [
+				{
+					job_id: 'j_1',
+					branch_id: 'b_orange',
+					status: 'completed',
+					made_by_agent: true,
+					agent_report: { left_undone: ['The card gives no yield.'] },
+				},
+			],
+		}),
+	});
+
+	/** The Report replayed from `ago` milliseconds before now. */
+	function replay(ago: number) {
+		localStorage.clear();
+		const kamosu = standIn({
+			get_job: example,
+			runner_status: HEARD,
+			cancel_job: { cancelled: true },
+		});
+		render(ReportTestHarness, {
+			props: {
+				client: kamosu.client,
+				jobId: 'j_1',
+				replay: { jobId: 'j_1', startedAt: Date.now() - ago },
+			},
+		});
+		return kamosu;
+	}
+
+	const step = () => document.querySelector('[aria-current="step"]')?.textContent ?? '';
+
+	it('waits first, saying it is sped up, with nothing arrived yet', async () => {
+		replay(0);
+		expect(await screen.findByText(m.agent_replay())).toBeInTheDocument();
+		expect(step()).toContain(m.agent_step_waiting());
+		expect(screen.getByRole('heading', { name: m.report_title_picture() })).toBeInTheDocument();
+		expect(screen.getByText(m.report_agent_nothing_yet())).toBeInTheDocument();
+		expect(screen.queryByText('Orange Cake')).toBeNull();
+		expect(screen.queryByText(m.agent_leave_report())).toBeNull();
+	});
+
+	it('is read, then turns into the Report the agent left', async () => {
+		replay(4500);
+		await vi.waitFor(() => expect(step()).toContain(m.agent_step_reading()));
+		expect(screen.getByText(m.agent_replay())).toBeInTheDocument();
+
+		expect(
+			await screen.findByText('The card gives no yield.', {}, { timeout: 4000 }),
+		).toBeInTheDocument();
+		for (const link of screen.getAllByRole('link', { name: 'Orange Cake' })) {
+			expect(link).toHaveAttribute('href', '/recipes/b_orange');
+		}
+		// The tracker reads on its own beat, and goes at its next reading.
+		await vi.waitFor(() => expect(screen.queryByText(m.agent_replay())).toBeNull());
+		expect(screen.queryByRole('alert')).toBeNull();
+	});
+
+	it('keeps the row beside it in step on the wide layout', async () => {
+		localStorage.clear();
+		const kamosu = standIn({
+			get_job: example,
+			runner_status: HEARD,
+			list_imports: {
+				imports: [
+					{
+						import_id: 'i_1',
+						source_kind: 'picture',
+						created_at: '2026-09-30T10:00:00.000Z',
+						remembered: 1,
+						arrivals: [
+							{
+								job_id: 'j_1',
+								status: 'completed',
+								created_at: '2026-09-30T10:00:00.000Z',
+								arrived: 1,
+								created: 1,
+								offered: 0,
+								unreadable: 0,
+								agent_jobs: [{ job_id: 'j_1', branch_id: 'b_orange', status: 'completed' }],
+							},
+						],
+					},
+				],
+			},
+		});
+		render(ReportTestHarness, {
+			props: {
+				client: kamosu.client,
+				jobId: 'j_1',
+				room: 'wide',
+				beside: true,
+				replay: { jobId: 'j_1', startedAt: Date.now() - 1000 },
+			},
+		});
+		const row = () => document.querySelector('a[aria-current="page"]');
+		await vi.waitFor(() => expect(row()).toHaveTextContent(m.agent_step_waiting()));
+		// Read again within the Replay's own beat, not the three seconds a real Job waits.
+		await vi.waitFor(() => expect(row()).toHaveTextContent(m.agent_step_reading()), {
+			timeout: 1500,
+		});
+	});
+
+	it('is stopped here alone, as a Job that had made nothing is', async () => {
+		const kamosu = replay(0);
+		await fireEvent.click(await screen.findByRole('button', { name: m.agent_stop() }));
+		await fireEvent.click(screen.getByRole('button', { name: m.agent_stop_yes() }));
+
+		expect(await screen.findByText(m.agent_stopped_nothing())).toBeInTheDocument();
+		expect(kamosu.calls.some((call) => call.operation === 'cancel_job')).toBe(false);
+		// Past the moment it would have been Ready, it stays stopped.
+		await new Promise((wake) => setTimeout(wake, 6500));
+		expect(screen.getByText(m.agent_stopped_nothing())).toBeInTheDocument();
+		expect(screen.queryByText('The card gives no yield.')).toBeNull();
+	}, 10_000);
 });

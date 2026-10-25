@@ -11,6 +11,7 @@ use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, imageops::Filt
 use sha2::{Digest, Sha256};
 
 use crate::core::OpError;
+use crate::slow_work::off_the_request_workers;
 
 /// A Photograph's long edge, capped in pixels — the one dimension every
 /// remade picture is measured against (ADR 0017). Never upscaled: a picture
@@ -150,17 +151,22 @@ pub fn remake(bytes: &[u8]) -> Result<Vec<u8>, OpError> {
 }
 
 /// Remake at a given long edge and quality: the one path every picture
-/// handed to Kamosu is decoded through.
+/// handed to Kamosu is decoded through. Decoding, resizing and encoding a
+/// camera's picture holds a thread far longer than a request should, so it is
+/// done off the request workers whichever Door it came through (#373).
 fn remake_at(bytes: &[u8], long_edge: u32, quality: f32) -> Result<Vec<u8>, OpError> {
-    let mut decoder = checked_decoder(bytes)?;
-    // Cameras stamp rotation into Exif rather than the pixels (eight of
-    // the sixty in the real export do). Reading it now and baking it in before
-    // the metadata is stripped below is the only chance to keep it upright.
-    let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
-    let mut image = DynamicImage::from_decoder(decoder)
-        .map_err(|e| OpError::bad_request(format!("cannot read this picture: {e}")))?;
-    image.apply_orientation(orientation);
-    encode_at(&downscale(image, long_edge), quality)
+    off_the_request_workers(|| {
+        let mut decoder = checked_decoder(bytes)?;
+        // Cameras stamp rotation into Exif rather than the pixels (eight of
+        // the sixty in the real export do). Reading it now and baking it in
+        // before the metadata is stripped below is the only chance to keep
+        // it upright.
+        let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+        let mut image = DynamicImage::from_decoder(decoder)
+            .map_err(|e| OpError::bad_request(format!("cannot read this picture: {e}")))?;
+        image.apply_orientation(orientation);
+        encode_at(&downscale(image, long_edge), quality)
+    })
 }
 
 /// Remake a picture handed to an agent as its Original (#269): checked and
@@ -179,11 +185,14 @@ pub fn looks_like_a_picture(bytes: &[u8]) -> bool {
 
 /// Work out one Display Copy from an already-remade Photograph. No
 /// orientation handling needed: a Photograph's own bytes already carry it
-/// correctly and nothing else remains in them to strip.
+/// correctly and nothing else remains in them to strip. Made when a screen
+/// first asks for it, so off the request workers as a remake is.
 pub fn display_copy(photograph_bytes: &[u8], long_edge: u32) -> Result<Vec<u8>, OpError> {
-    let image = image::load_from_memory_with_format(photograph_bytes, ImageFormat::WebP)
-        .map_err(|e| OpError::internal(format!("cannot read stored Photograph: {e}")))?;
-    encode(&downscale(image, long_edge))
+    off_the_request_workers(|| {
+        let image = image::load_from_memory_with_format(photograph_bytes, ImageFormat::WebP)
+            .map_err(|e| OpError::internal(format!("cannot read stored Photograph: {e}")))?;
+        encode(&downscale(image, long_edge))
+    })
 }
 
 /// Scale down to fit within `max_long_edge`, preserving aspect ratio, and
@@ -205,9 +214,28 @@ fn encode(image: &DynamicImage) -> Result<Vec<u8>, OpError> {
 }
 
 fn encode_at(image: &DynamicImage, quality: f32) -> Result<Vec<u8>, OpError> {
-    let rgb = image.to_rgb8();
+    let rgb = on_white(image);
     let encoder = webp::Encoder::from_rgb(rgb.as_raw(), rgb.width(), rgb.height());
     Ok(encoder.encode(quality).to_vec())
+}
+
+/// The picture as a page shows it, its clear parts white. WebP is encoded
+/// here without transparency, and dropping it outright leaves each clear pixel
+/// the colour it stores, which is black in most PNGs: a recipe card of dark
+/// text on nothing became a black square.
+fn on_white(image: &DynamicImage) -> image::RgbImage {
+    if !image.color().has_alpha() {
+        return image.to_rgb8();
+    }
+    let rgba = image.to_rgba8();
+    image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
+        let [r, g, b, a] = rgba.get_pixel(x, y).0;
+        let over_white = |c: u8| {
+            let (c, a) = (u32::from(c), u32::from(a));
+            ((c * a + 255 * (255 - a) + 127) / 255) as u8
+        };
+        image::Rgb([over_white(r), over_white(g), over_white(b)])
+    })
 }
 
 /// Check a picture that is being kept exactly as it arrived, without remaking
@@ -320,6 +348,41 @@ mod tests {
             image::load_from_memory_with_format(&remade, ImageFormat::WebP).expect("valid webp");
         assert_eq!(decoded.width(), MAX_LONG_EDGE);
         assert_eq!(decoded.height(), 1280);
+    }
+
+    /// A PNG with an opaque black square in its middle and a clear border,
+    /// each clear pixel storing black, as most PNGs with clear parts do.
+    fn see_through_png(width: u32, height: u32) -> Vec<u8> {
+        let image = DynamicImage::ImageRgba8(image::RgbaImage::from_fn(width, height, |x, y| {
+            let inside = (width / 4..width * 3 / 4).contains(&x)
+                && (height / 4..height * 3 / 4).contains(&y);
+            image::Rgba([0, 0, 0, if inside { 255 } else { 0 }])
+        }));
+        let mut bytes = Vec::new();
+        image
+            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+            .expect("encodes");
+        bytes
+    }
+
+    #[test]
+    fn a_picture_with_clear_parts_is_laid_on_white() {
+        // A recipe card of dark text on nothing arrived as a black square: the
+        // clear pixels kept the black they stored, and the text was lost in it.
+        let remade = remake(&see_through_png(40, 40)).expect("remakes");
+        let decoded = image::load_from_memory_with_format(&remade, ImageFormat::WebP)
+            .expect("valid webp")
+            .to_rgb8();
+        let clear = decoded.get_pixel(0, 0).0;
+        assert!(
+            clear.iter().all(|&c| c > 240),
+            "a clear pixel should come out white, got {clear:?}"
+        );
+        let opaque = decoded.get_pixel(20, 20).0;
+        assert!(
+            opaque.iter().all(|&c| c < 15),
+            "an opaque pixel should keep its own colour, got {opaque:?}"
+        );
     }
 
     /// CRC-32, as PNG defines it over a chunk's type and data. Written out

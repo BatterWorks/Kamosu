@@ -32,6 +32,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { languageName, type BranchLanguage } from '$lib/language';
@@ -107,7 +108,7 @@
 			})}
 		</p>
 		{#if failed}
-			<p class="mt-2 text-read text-support" role="alert">{failed}</p>
+			<p class="mt-2 text-read text-support" role="alert"><Refusal words={failed} /></p>
 		{/if}
 		<div class="mt-3 flex gap-2">
 			<!--

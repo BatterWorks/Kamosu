@@ -17,6 +17,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import type { MeaningSearch } from '$lib/meaning.svelte';
 
 	interface Props {
@@ -94,6 +95,6 @@
 	{/if}
 
 	{#if meaning.failed}
-		<p class="mt-2 text-read text-support" role="alert">{meaning.failed}</p>
+		<p class="mt-2 text-read text-support" role="alert"><Refusal words={meaning.failed} /></p>
 	{/if}
 </div>

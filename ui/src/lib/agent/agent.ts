@@ -33,8 +33,8 @@ export const AGENTS_OWN = 'read_by_agent';
 /** Where on the Operator's screen the Runner Keys are, which a notice links to. */
 export const RUNNER_KEYS = 'runner-keys';
 
-/** Which sentence goes under the steps. */
-export type Saying = 'leave' | 'report' | 'updating';
+/** Which sentence goes under the steps. A Replay says it is sped up (#406). */
+export type Saying = 'leave' | 'report' | 'updating' | 'replay';
 
 /** The tracker's state for a Job, or none once it has ended. */
 export const working = (status: GetJobOutput['status'] | undefined): Working | undefined =>

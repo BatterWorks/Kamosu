@@ -432,9 +432,14 @@ pub(super) fn spawn_orphan_sweep(core: Arc<Core>) {
                     tracing::warn!(target: "kamosu::sweep", %error, "Originals sweep failed");
                     0
                 });
+                let security_events = core.sweep_security_record().unwrap_or_else(|error| {
+                    tracing::warn!(target: "kamosu::sweep", %error, "Security Record sweep failed");
+                    0
+                });
                 let mut report = core.sweep_photographs()?;
                 report["uploads_swept"] = json!(uploads);
                 report["originals_swept"] = json!(originals);
+                report["security_events_swept"] = json!(security_events);
                 Ok::<_, OpError>(report)
             })
             .await;
@@ -467,7 +472,11 @@ fn no_such_photograph() -> OpError {
 /// row rather than a parse of the whole library. What `instr` finds is then
 /// confirmed field by field: a hash typed into a recipe's words is not a
 /// picture the recipe shows.
-fn photograph_seen_by(conn: &Connection, person_id: &str, hash: &str) -> Result<bool, OpError> {
+pub(crate) fn photograph_seen_by(
+    conn: &Connection,
+    person_id: &str,
+    hash: &str,
+) -> Result<bool, OpError> {
     let failed = |e: rusqlite::Error| OpError::internal(format!("cannot read who sees it: {e}"));
 
     let uploaded: bool = conn

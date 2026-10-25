@@ -53,6 +53,21 @@ pub const TERMS_VERSION: &str = "2026-04-01";
 pub const DIMENSIONS: usize = 768;
 const MAX_LENGTH: usize = 2048;
 
+/// How much one call into the model may hold: the number of inputs times the
+/// longest input's length in tokens. The tokenizer pads every input in a call
+/// to the longest one, so this is what the call costs, not the sum of the
+/// inputs (#389). Counted in tokens rather than characters because the two part
+/// ways by script: 1,758 characters of English came to 278 tokens, 1,808 of
+/// French to 484, and 2,285 of Chinese to 2,047.
+///
+/// Measured on the dev host (amd64), memory added above the loaded model's
+/// ~430 MB: 64 inputs of 33 tokens, 8 of 258 and 2 of 1,023 (each about 2,048
+/// padded) added 2 to 10 MB, and one input of 2,048 added 53 MB. Twice that,
+/// 4,096 padded, added 40 MB as 16 of 263 but 198 MB as 2 of 2,048, and 8,192
+/// added 273 to 575 MB. One call never holds more than one input could on its
+/// own, so a long Note costs what it costs alone.
+const BATCH_BUDGET: usize = MAX_LENGTH;
+
 /// The artefacts FastEmbed needs to load `EmbeddingGemma300MQ4`. Downloaded
 /// through the pinned revision below, because FastEmbed itself only ever asks
 /// for `main`.
@@ -110,8 +125,32 @@ impl Embedder {
     }
 
     /// Embed documents — one vector per input, in order.
+    ///
+    /// The inputs go to the model in groups of about one length, each held
+    /// under [`BATCH_BUDGET`], so one long Note is never padded onto every
+    /// short line of its recipe (#389).
     pub fn embed_documents(&self, documents: &[String]) -> Result<Vec<Vec<f32>>, String> {
-        self.embed(documents)
+        let tokens = self.tokens(documents)?;
+        in_groups(documents, &tokens, BATCH_BUDGET, &|texts| self.embed(texts))
+    }
+
+    /// How many tokens each input is, as the model will be handed it: special
+    /// tokens added and cut at [`MAX_LENGTH`].
+    fn tokens(&self, texts: &[String]) -> Result<Vec<usize>, String> {
+        let model = self
+            .model
+            .lock()
+            .map_err(|_| "the Meaning Search model is in a broken state".to_string())?;
+        texts
+            .iter()
+            .map(|text| {
+                model
+                    .tokenizer
+                    .encode(text.as_str(), true)
+                    .map(|encoding| encoding.len())
+                    .map_err(|error| format!("cannot read meaning: {error}"))
+            })
+            .collect()
     }
 
     /// Embed one query, wrapped in the template Gemma expects on the asking side.
@@ -133,6 +172,57 @@ impl Embedder {
             .embed(texts, None)
             .map_err(|error| format!("cannot read meaning: {error}"))
     }
+}
+
+/// What turns text into vectors: the model, or a stand-in in a test.
+type Embed<'a> = &'a dyn Fn(&[String]) -> Result<Vec<Vec<f32>>, String>;
+
+/// Embed `texts` in the groups [`batches`] cuts from their `lengths`, and put
+/// the vectors back in the order the texts came in.
+fn in_groups(
+    texts: &[String],
+    lengths: &[usize],
+    budget: usize,
+    embed: Embed<'_>,
+) -> Result<Vec<Vec<f32>>, String> {
+    let mut vectors: Vec<Vec<f32>> = vec![Vec::new(); texts.len()];
+    for group in batches(lengths, budget) {
+        let some: Vec<String> = group.iter().map(|&i| texts[i].clone()).collect();
+        let embedded = embed(&some)?;
+        if embedded.len() != group.len() {
+            return Err(format!(
+                "cannot read meaning: {} inputs came back as {} vectors",
+                group.len(),
+                embedded.len()
+            ));
+        }
+        for (i, vector) in group.into_iter().zip(embedded) {
+            vectors[i] = vector;
+        }
+    }
+    Ok(vectors)
+}
+
+/// Inputs of these lengths, cut into groups for the model: each group a list
+/// of indices into `lengths`, shortest first. A group costs its size times its
+/// longest member, and stays at or under `budget` unless it holds a single
+/// input longer than that on its own.
+fn batches(lengths: &[usize], budget: usize) -> Vec<Vec<usize>> {
+    let mut order: Vec<usize> = (0..lengths.len()).collect();
+    order.sort_by_key(|&i| lengths[i]);
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut group: Vec<usize> = Vec::new();
+    for i in order {
+        // Sorted shortest first, so the input arriving is the group's longest.
+        if !group.is_empty() && (group.len() + 1) * lengths[i].max(1) > budget {
+            groups.push(std::mem::take(&mut group));
+        }
+        group.push(i);
+    }
+    if !group.is_empty() {
+        groups.push(group);
+    }
+    groups
 }
 
 /// The document side of Gemma's retrieval template: the recipe's title in front
@@ -530,6 +620,10 @@ pub struct Line {
 /// Note, split per Section where the recipe has Sections, plus the recipe as a
 /// whole. It is a dial, not a promise — what is promised is that a result can
 /// say what matched, and that survives any cut (ADR 0027).
+///
+/// A cut that starts reading a field it did not read before has to empty
+/// `meaning_nothing_to_embed` in a migration: a recipe recorded there as
+/// holding nothing is not looked at again until its head Version moves (#391).
 pub fn blocks_of(content: &Value) -> Vec<Block> {
     let mut blocks: Vec<Block> = Vec::new();
 
@@ -942,6 +1036,8 @@ pub fn fell_back(conn: &Connection) -> Result<(), OpError> {
 pub fn discard_index(conn: &Connection) -> Result<(), OpError> {
     conn.execute("DELETE FROM meaning_vectors", [])
         .map_err(write)?;
+    conn.execute("DELETE FROM meaning_nothing_to_embed", [])
+        .map_err(write)?;
     Ok(())
 }
 
@@ -960,7 +1056,8 @@ struct Owed {
 /// Everything the index owes the library right now: a Branch whose head Version
 /// has no rows (or rows from an older Version, or from another embedding
 /// space), and an Attempt whose note has none — or has rows made from a
-/// sentence its writer has since corrected.
+/// sentence its writer has since corrected. A head Version already found to
+/// hold nothing to embed is not owed again (#391).
 ///
 /// A Branch is caught by its head Version moving, because an edit always makes
 /// one. An Attempt is not: correcting a cooking note leaves the Attempt's id
@@ -978,7 +1075,12 @@ fn owed(conn: &Connection) -> Result<Vec<Owed>, OpError> {
                         SELECT 1 FROM meaning_vectors \
                          WHERE meaning_vectors.branch_id = branches.id \
                            AND meaning_vectors.version_id = branches.head_version_id \
-                           AND meaning_vectors.embedding_space = ?1)",
+                           AND meaning_vectors.embedding_space = ?1) \
+                    AND NOT EXISTS ( \
+                        SELECT 1 FROM meaning_nothing_to_embed \
+                         WHERE meaning_nothing_to_embed.branch_id = branches.id \
+                           AND meaning_nothing_to_embed.version_id = branches.head_version_id \
+                           AND meaning_nothing_to_embed.embedding_space = ?1)",
             )
             .map_err(read)?;
         let rows: Vec<(String, String, String, String)> = statement
@@ -1059,6 +1161,15 @@ fn prune(conn: &Connection) -> Result<(), OpError> {
         params![embedding_space()],
     )
     .map_err(write)?;
+    conn.execute(
+        "DELETE FROM meaning_nothing_to_embed WHERE embedding_space <> ?1 \
+            OR NOT EXISTS ( \
+                    SELECT 1 FROM branches \
+                     WHERE branches.id = meaning_nothing_to_embed.branch_id \
+                       AND branches.head_version_id = meaning_nothing_to_embed.version_id)",
+        params![embedding_space()],
+    )
+    .map_err(write)?;
     Ok(())
 }
 
@@ -1068,7 +1179,8 @@ pub fn behind(conn: &Connection) -> Result<usize, OpError> {
     Ok(owed(conn)?.len())
 }
 
-/// Bring the index up to date, embedding only what has actually changed.
+/// Bring the index up to date, embedding only what has actually changed, and
+/// answer how many recipes and Attempts it embedded.
 ///
 /// Rebuilding the whole library is what happens the first time and after a
 /// model change, because then every row is owed. Afterwards this is the cheap
@@ -1080,21 +1192,51 @@ pub fn build(
     embedder: &Embedder,
     progress: &(dyn Fn(usize, usize) + Send + Sync),
 ) -> Result<usize, OpError> {
+    build_with(db, &|texts| embedder.embed_documents(texts), progress)
+}
+
+/// [`build`], with what turns text into vectors handed in, so a test can build
+/// an index without the model.
+fn build_with(
+    db: &crate::db::Db,
+    embed: Embed<'_>,
+    progress: &(dyn Fn(usize, usize) + Send + Sync),
+) -> Result<usize, OpError> {
     // The database lock is taken to read what is owed, released while the model
     // runs, and taken again to write one recipe's rows. Holding it across
     // inference would freeze every other Operation for as long as an index
     // build takes, which is minutes on a first run.
-    let owed = db.with_conn(|conn| {
+    let space = embedding_space();
+    let (owed, left) = db.with_conn(|conn| {
         prune(conn)?;
-        owed(conn)
+        Ok((owed(conn)?, take_embedding_left(conn)?))
     })?;
+    if let Some(item) = left {
+        // The last build stopped inside the model with this item and never
+        // came back to say so: the process died, most likely killed for its
+        // memory. A start that keeps dying here would otherwise look like any
+        // other, so it says so before it goes near the model again.
+        if owed.iter().any(|one| one.label(&space) == item) {
+            tracing::warn!(
+                target: "kamosu::meaning",
+                item = %item,
+                "the last index build stopped while embedding this; trying it again"
+            );
+        } else {
+            tracing::warn!(
+                target: "kamosu::meaning",
+                item = %item,
+                "the last index build stopped while embedding this; it has changed since and is not owed"
+            );
+        }
+    }
     let total = owed.len();
     progress(0, total);
     if total == 0 {
         return Ok(0);
     }
+    let mut embedded_count = 0;
 
-    let space = embedding_space();
     for (done, one) in owed.into_iter().enumerate() {
         // One recipe (or one Attempt) at a time: a whole library in one batch
         // would hold every vector in memory before a single row landed, and a
@@ -1118,6 +1260,20 @@ pub fn build(
             // A recipe of nothing but a title has nothing to embed — which is a
             // perfectly ordinary recipe (#6), not a failure. Its title is still
             // found by words, which is how a title is looked for anyway.
+            // Noted, so the next `owed` does not ask for it again until its
+            // head Version moves (#391). Only a recipe gets here: an Attempt
+            // with no note is never owed.
+            if let (Some(branch_id), Some(version_id)) = (&one.branch_id, &one.version_id) {
+                db.with_conn(|conn| {
+                    conn.execute(
+                        "INSERT OR IGNORE INTO meaning_nothing_to_embed \
+                            (branch_id, version_id, embedding_space) VALUES (?1, ?2, ?3)",
+                        params![branch_id, version_id, space],
+                    )
+                    .map_err(write)?;
+                    Ok(())
+                })?;
+            }
             progress(done + 1, total);
             continue;
         }
@@ -1127,7 +1283,9 @@ pub fn build(
         // its longest member, so putting a whole recipe in with its own
         // one-line ingredients makes the model chew through a full recipe's
         // worth of padding for every `2 aubergines` in it. Splitting them keeps
-        // short inputs batched with short ones.
+        // short inputs batched with short ones. The lines themselves are not
+        // all short — a Note is one line, whole — so the embedder groups each
+        // call by length again inside it (#389).
         let block_inputs: Vec<String> = blocks
             .iter()
             .map(|block| document_text(&one.title, block.section.as_deref(), &block.body))
@@ -1150,12 +1308,19 @@ pub fn build(
             }
         }
 
-        let block_vectors = embedder
-            .embed_documents(&block_inputs)
-            .map_err(OpError::internal)?;
-        let line_vectors = embedder
-            .embed_documents(&line_inputs)
-            .map_err(OpError::internal)?;
+        let label = one.label(&space);
+        db.with_conn(|conn| set_embedding_now(conn, Some(&label)))?;
+        let embedded = embed(&block_inputs).and_then(|blocks| Ok((blocks, embed(&line_inputs)?)));
+        let (block_vectors, line_vectors) = match embedded {
+            Ok(vectors) => vectors,
+            Err(error) => {
+                // A failure that came back is not a build that died: the note
+                // is only for what never returned. The model's error is the
+                // one worth answering, so a note left behind is left.
+                let _ = db.with_conn(|conn| set_embedding_now(conn, None));
+                return Err(OpError::internal(error));
+            }
+        };
 
         db.with_conn(|conn| {
             let mut block_ids: Vec<String> = Vec::new();
@@ -1190,13 +1355,55 @@ pub fn build(
                     &line_vectors[offset],
                 )?;
             }
-            Ok(())
+            set_embedding_now(conn, None)
         })?;
 
+        embedded_count += 1;
         progress(done + 1, total);
     }
 
-    Ok(total)
+    Ok(embedded_count)
+}
+
+impl Owed {
+    /// What this is and into which embedding space, for a log line: ids,
+    /// never the recipe's text.
+    fn label(&self, space: &str) -> String {
+        let what = match (&self.attempt_id, &self.version_id, &self.branch_id) {
+            (Some(attempt), _, _) => format!("Attempt {attempt}"),
+            (None, Some(version), Some(branch)) => format!("Version {version} of Branch {branch}"),
+            _ => format!("Lineage {}", self.lineage_id),
+        };
+        format!("{what} in {space}")
+    }
+}
+
+/// Note, before it goes into the model, which item a build is embedding, or
+/// clear the note once its rows are written (#389).
+fn set_embedding_now(conn: &Connection, item: Option<&str>) -> Result<(), OpError> {
+    conn.execute(
+        "UPDATE meaning_search SET embedding_now = ?1 WHERE id = 1",
+        params![item],
+    )
+    .map_err(write)?;
+    Ok(())
+}
+
+/// The item a build was embedding when it last stopped without clearing its
+/// note, if any, and the note cleared. A build that died leaves one; a build
+/// that finished, or failed and returned, leaves none.
+fn take_embedding_left(conn: &Connection) -> Result<Option<String>, OpError> {
+    let item: Option<String> = conn
+        .query_row(
+            "SELECT embedding_now FROM meaning_search WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(read)?;
+    if item.is_some() {
+        set_embedding_now(conn, None)?;
+    }
+    Ok(item)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1489,6 +1696,326 @@ mod tests {
     fn a_vector_survives_the_round_trip_into_a_blob() {
         let vector = vec![0.5_f32, -0.25, 0.125];
         assert_eq!(unpack(&pack(&vector)), vector);
+    }
+
+    #[test]
+    fn inputs_are_grouped_by_length_under_the_budget() {
+        // Forty short lines and one long Note, the Note in the middle.
+        let mut lengths = vec![20; 40];
+        lengths.insert(17, 1_800);
+        let groups = batches(&lengths, 1_000);
+
+        let mut seen: Vec<usize> = groups.iter().flatten().copied().collect();
+        seen.sort();
+        assert_eq!(seen, (0..41).collect::<Vec<_>>(), "every input once");
+        assert!(
+            groups.contains(&vec![17]),
+            "the Note goes alone, never with a short line: {groups:?}"
+        );
+        for group in &groups {
+            let longest = group.iter().map(|&i| lengths[i]).max().unwrap();
+            assert!(
+                group.len() == 1 || group.len() * longest <= 1_000,
+                "{group:?} costs more than the budget"
+            );
+        }
+        assert_eq!(groups.len(), 2, "forty lines of 20 fit one group of 800");
+    }
+
+    #[test]
+    fn a_long_input_among_mid_length_ones_is_not_padded_onto_them() {
+        let lengths = vec![300, 9_000, 300, 300, 2_000, 2_000];
+        let groups = batches(&lengths, 4_000);
+        assert_eq!(groups, vec![vec![0, 2, 3], vec![4, 5], vec![1]]);
+        assert!(batches(&[], 4_000).is_empty());
+    }
+
+    #[test]
+    fn vectors_come_back_in_the_order_the_texts_went_in() {
+        let texts: Vec<String> = ["a long Note, whole", "salt", "two eggs", "flour"]
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        let lengths: Vec<usize> = texts.iter().map(|t| t.len()).collect();
+        let calls = Mutex::new(Vec::new());
+        // A stand-in that answers each text with its own length, so a vector
+        // put back in the wrong place shows.
+        let tagged = |some: &[String]| -> Result<Vec<Vec<f32>>, String> {
+            calls.lock().unwrap().push(some.to_vec());
+            Ok(some.iter().map(|t| vec![t.len() as f32]).collect())
+        };
+        let vectors = in_groups(&texts, &lengths, 20, &tagged).unwrap();
+        assert_eq!(vectors, vec![vec![18.0], vec![4.0], vec![8.0], vec![5.0]]);
+        assert_eq!(
+            calls.into_inner().unwrap(),
+            vec![
+                vec!["salt".to_string(), "flour".to_string()],
+                vec!["two eggs".to_string()],
+                vec!["a long Note, whole".to_string()],
+            ],
+            "shortest first, none over the budget of 20"
+        );
+
+        let short = |some: &[String]| -> Result<Vec<Vec<f32>>, String> {
+            Ok(some.iter().skip(1).map(|_| vec![0.0]).collect())
+        };
+        assert!(
+            in_groups(&texts, &lengths, 20, &short).is_err(),
+            "a vector missing is an error, never an empty row"
+        );
+    }
+
+    /// A Core with one recipe in it, and Meaning Search's index empty.
+    fn one_recipe_owed() -> (tempfile::TempDir, crate::core::Core) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = std::sync::Arc::new(crate::db::Db::open(dir.path()).unwrap());
+        let core = crate::core::Core::open(db);
+        let first = core
+            .create_first_person("cook", "a password only its person knows", "laptop")
+            .unwrap();
+        let caller = core
+            .authenticate(first["_session_secret"].as_str())
+            .unwrap();
+        core.create_recipe(&caller, &recipe(), None, None).unwrap();
+        (dir, core)
+    }
+
+    fn fake_vectors(texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+        Ok(vec![vec![0.5; DIMENSIONS]; texts.len()])
+    }
+
+    fn embedding_now(core: &crate::core::Core) -> Option<String> {
+        core.db()
+            .with_conn(|conn| {
+                conn.query_row("SELECT embedding_now FROM meaning_search", [], |row| {
+                    row.get(0)
+                })
+                .map_err(read)
+            })
+            .unwrap()
+    }
+
+    /// What a closure logged, as text.
+    fn logged(during: impl FnOnce()) -> String {
+        #[derive(Clone, Default)]
+        struct Lines(std::sync::Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Lines {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let lines = Lines::default();
+        let writer = lines.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, during);
+        String::from_utf8(lines.0.lock().unwrap().clone()).unwrap()
+    }
+
+    #[test]
+    fn a_build_that_died_inside_the_model_is_named_when_the_next_one_starts() {
+        let (_dir, core) = one_recipe_owed();
+        let db = core.db();
+
+        // The process dying inside the model, as far as the database can
+        // tell: the build never comes back.
+        let died = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = build_with(&db, &|_| panic!("killed for its memory"), &|_, _| {});
+        }));
+        assert!(died.is_err());
+        let item = embedding_now(&core).expect("the build noted what it was embedding");
+        assert!(item.starts_with("Version "), "{item}");
+
+        let mut built = None;
+        let log = logged(|| {
+            let embed = |texts: &[String]| {
+                tracing::info!("into the model");
+                fake_vectors(texts)
+            };
+            built = Some(build_with(&db, &embed, &|_, _| {}));
+        });
+        assert_eq!(built.unwrap().unwrap(), 1, "the recipe is tried again");
+        let warned = log.find("WARN").expect("the next build warns: {log}");
+        assert!(
+            log[warned..].contains(&item) && log.contains("trying it again"),
+            "it names the item: {log}"
+        );
+        assert!(
+            warned < log.find("into the model").unwrap(),
+            "before it goes near the model: {log}"
+        );
+        assert_eq!(embedding_now(&core), None);
+
+        // And it is indexed now, so the build after that has nothing to say.
+        let mut built = None;
+        let log = logged(|| built = Some(build_with(&db, &fake_vectors, &|_, _| {})));
+        assert_eq!(built.unwrap().unwrap(), 0);
+        assert!(!log.contains("WARN"), "{log}");
+    }
+
+    #[test]
+    fn a_note_for_something_no_longer_owed_says_so() {
+        let (_dir, core) = one_recipe_owed();
+        let db = core.db();
+        db.with_conn(|conn| set_embedding_now(conn, Some("Version gone of Branch gone in x")))
+            .unwrap();
+        let log = logged(|| {
+            build_with(&db, &fake_vectors, &|_, _| {}).unwrap();
+        });
+        assert!(
+            log.contains("Version gone") && log.contains("not owed"),
+            "{log}"
+        );
+        assert!(!log.contains("trying it again"), "{log}");
+    }
+
+    #[test]
+    fn a_build_that_finishes_or_fails_leaves_no_note() {
+        let (_dir, core) = one_recipe_owed();
+        let db = core.db();
+
+        let failed = build_with(&db, &|_| Err("the model said no".to_string()), &|_, _| {});
+        assert!(failed.is_err());
+        assert_eq!(
+            embedding_now(&core),
+            None,
+            "a failure that returned is not a death"
+        );
+
+        assert_eq!(build_with(&db, &fake_vectors, &|_, _| {}).unwrap(), 1);
+        assert_eq!(embedding_now(&core), None);
+    }
+
+    /// A Core with one recipe holding a title and nothing else, its Branch, and
+    /// a Caller who may change it.
+    fn one_title_only_recipe() -> (
+        tempfile::TempDir,
+        crate::core::Core,
+        String,
+        crate::core::Caller,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = std::sync::Arc::new(crate::db::Db::open(dir.path()).unwrap());
+        let core = crate::core::Core::open(db);
+        let first = core
+            .create_first_person("cook", "a password only its person knows", "laptop")
+            .unwrap();
+        let caller = core
+            .authenticate(first["_session_secret"].as_str())
+            .unwrap();
+        let created = core
+            .create_recipe(&caller, &json!({ "title": "Toast" }), None, None)
+            .unwrap();
+        let branch_id = created["branch_id"].as_str().unwrap().to_string();
+        (dir, core, branch_id, caller)
+    }
+
+    fn behind_now(core: &crate::core::Core) -> usize {
+        core.db().with_conn(behind).unwrap()
+    }
+
+    #[test]
+    fn a_recipe_with_only_a_title_is_not_owed_once_it_has_been_looked_at() {
+        let (_dir, core, _branch, _caller) = one_title_only_recipe();
+        let db = core.db();
+        assert_eq!(behind_now(&core), 1, "never looked at, so owed");
+
+        assert_eq!(
+            build_with(&db, &fake_vectors, &|_, _| {}).unwrap(),
+            0,
+            "nothing was embedded, so nothing counts as indexed"
+        );
+        assert_eq!(
+            behind_now(&core),
+            0,
+            "looked at, and holds nothing to embed"
+        );
+        assert_eq!(build_with(&db, &fake_vectors, &|_, _| {}).unwrap(), 0);
+    }
+
+    fn nothing_to_embed_rows(core: &crate::core::Core) -> i64 {
+        core.db()
+            .with_conn(|conn| {
+                conn.query_row("SELECT COUNT(*) FROM meaning_nothing_to_embed", [], |row| {
+                    row.get(0)
+                })
+                .map_err(read)
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn a_title_only_recipe_given_an_ingredient_is_owed_and_indexed_as_usual() {
+        let (_dir, core, branch, caller) = one_title_only_recipe();
+        let db = core.db();
+        build_with(&db, &fake_vectors, &|_, _| {}).unwrap();
+
+        core.edit_recipe(
+            &caller,
+            &branch,
+            &json!({ "ingredients": [{ "kind": "ingredient", "text": "2 slices of bread" }] }),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(behind_now(&core), 1, "its head Version moved");
+        assert_eq!(build_with(&db, &fake_vectors, &|_, _| {}).unwrap(), 1);
+        assert_eq!(behind_now(&core), 0);
+        assert_eq!(
+            nothing_to_embed_rows(&core),
+            0,
+            "the old Version's record went with it"
+        );
+    }
+
+    #[test]
+    fn a_deleted_title_only_recipe_leaves_no_record_behind() {
+        let (_dir, core, branch, caller) = one_title_only_recipe();
+        build_with(&core.db(), &fake_vectors, &|_, _| {}).unwrap();
+        assert_eq!(nothing_to_embed_rows(&core), 1);
+
+        core.delete_recipe(&caller, &branch).unwrap();
+        assert_eq!(nothing_to_embed_rows(&core), 0);
+    }
+
+    #[test]
+    fn a_title_only_recipe_is_owed_again_in_another_embedding_space() {
+        let (_dir, core, _branch, _caller) = one_title_only_recipe();
+        let db = core.db();
+        build_with(&db, &fake_vectors, &|_, _| {}).unwrap();
+        // As if it had been looked at under weights this build does not use.
+        db.with_conn(|conn| {
+            conn.execute(
+                "UPDATE meaning_nothing_to_embed SET embedding_space = 'older weights'",
+                [],
+            )
+            .map_err(write)
+        })
+        .unwrap();
+
+        assert_eq!(behind_now(&core), 1);
+        build_with(&db, &fake_vectors, &|_, _| {}).unwrap();
+        assert_eq!(behind_now(&core), 0);
+        assert_eq!(
+            nothing_to_embed_rows(&core),
+            1,
+            "the older space's record was pruned, today's written"
+        );
+    }
+
+    #[test]
+    fn turning_meaning_search_off_forgets_what_held_nothing() {
+        let (_dir, core, _branch, _caller) = one_title_only_recipe();
+        build_with(&core.db(), &fake_vectors, &|_, _| {}).unwrap();
+        core.db().with_conn(turn_off).unwrap();
+        assert_eq!(nothing_to_embed_rows(&core), 0);
     }
 
     #[test]

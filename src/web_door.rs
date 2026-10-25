@@ -7,13 +7,16 @@
 use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
-use axum::extract::Path;
+use axum::extract::rejection::JsonRejection;
+use axum::extract::{Path, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use serde_json::{Value, json};
 
+use crate::admission;
 use crate::catalogue;
 use crate::core::{Core, ErrorKind, OpError};
 use crate::photographs::DisplaySize;
@@ -29,10 +32,14 @@ pub fn router(core: Arc<Core>) -> Router {
     let login_core = core.clone();
     let invite_core = core.clone();
     let recovery_core = core.clone();
-    let mut router = Router::new()
-        .route("/api/op/{*name}", any(unknown_operation))
-        // Credential minting is deliberately outside the Catalogue: it precedes
-        // every Operation, then the cookie becomes the Credential the Door carries.
+    let passkey_start_core = core.clone();
+    let passkey_finish_core = core.clone();
+    let demo_core = core.clone();
+    // Credential minting is deliberately outside the Catalogue: it precedes
+    // every Operation, then the cookie becomes the Credential the Door carries.
+    // Whoever signs in has no Credential yet, so every one of these is read as
+    // a stranger's request is (`admission::meet`, #368).
+    let signing_in = Router::new()
         .route(
             "/auth/first-person",
             post(move |body: Option<Json<Value>>| {
@@ -64,7 +71,41 @@ pub fn router(core: Arc<Core>) -> Router {
                     authenticate_recovery(core, body)
                 })
             }),
-        );
+        )
+        // A passkey signs in with no password, so neither route waits on
+        // password work (#370). The challenge is kept by the Core between them.
+        .route(
+            "/auth/passkey/start",
+            post(move || {
+                let core = passkey_start_core.clone();
+                async move { respond(core.start_passkey_sign_in()) }
+            }),
+        )
+        .route(
+            "/auth/passkey/finish",
+            post(move |body: Option<Json<Value>>| {
+                let core = passkey_finish_core.clone();
+                async move { respond(authenticate_passkey(&core, body)) }
+            }),
+        )
+        // A Demo's visitor arrives with no password at all (ADR 0052). Only
+        // here, so only a browser at this Door is handed a Session, as a
+        // cookie its pages cannot read. On any other instance the Core
+        // answers that nothing is here.
+        .route(
+            "/auth/demo",
+            post(move |body: Option<Json<Value>>| {
+                let core = demo_core.clone();
+                async move { respond(arrive_in_demo(&core, body)) }
+            }),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            core.clone(),
+            admit_from_our_own_origin,
+        ));
+    let mut router = Router::new()
+        .route("/api/op/{*name}", any(unknown_operation))
+        .merge(signing_in);
     // Photographs travel out of band, authenticated with the same Credential
     // as any Operation (ADR 0001) — raw bytes rather than a JSON envelope, so
     // they never pass through the Catalogue's dispatch. `upload_photograph`
@@ -78,7 +119,11 @@ pub fn router(core: Arc<Core>) -> Router {
             post(move |headers: HeaderMap, body: Bytes| {
                 let core = upload_core.clone();
                 async move { upload_photograph(&core, &headers, &body) }
-            }),
+            })
+            .route_layer(middleware::from_fn_with_state(
+                core.clone(),
+                admit_from_our_own_origin,
+            )),
         )
         .route(
             "/api/photographs/{hash}",
@@ -107,7 +152,11 @@ pub fn router(core: Arc<Core>) -> Router {
             let core = staging_core.clone();
             async move { stage_upload(&core, &headers, body).await }
         })
-        .layer(axum::extract::DefaultBodyLimit::disable()),
+        .layer(axum::extract::DefaultBodyLimit::disable())
+        .route_layer(middleware::from_fn_with_state(
+            core.clone(),
+            admit_from_our_own_origin,
+        )),
     );
     // A Backup travels the same way and for the same reason (#78): it is one
     // archive of the whole instance, far past anything a JSON envelope should
@@ -146,24 +195,47 @@ pub fn router(core: Arc<Core>) -> Router {
     );
     // An Original travels as its own bytes too (#269), to the one Credential
     // that may read it: its Job's own Job Key, which the Core checks.
+    // Several pictures are the pages of one recipe (ADR 0055): the first is
+    // at the Job's own address, as one picture always was, and the rest at
+    // their page's number after it.
     let original_core = core.clone();
-    router = router.route(
-        "/api/originals/{job_id}",
-        get(move |Path(job_id): Path<String>, headers: HeaderMap| {
-            let core = original_core.clone();
-            async move { get_original(core, headers, job_id).await }
-        }),
-    );
+    let page_core = core.clone();
+    router = router
+        .route(
+            "/api/originals/{job_id}",
+            get(move |Path(job_id): Path<String>, headers: HeaderMap| {
+                let core = original_core.clone();
+                async move { get_original(core, headers, job_id, 1).await }
+            }),
+        )
+        .route(
+            "/api/originals/{job_id}/{page}",
+            get(
+                move |Path((job_id, page)): Path<(String, usize)>, headers: HeaderMap| {
+                    let core = page_core.clone();
+                    async move { get_original(core, headers, job_id, page).await }
+                },
+            ),
+        );
     for op in catalogue::OPERATIONS.iter() {
+        let origin_core = core.clone();
         let core = core.clone();
         router = router.route(
             &format!("/api/op/{}", op.name),
             post(
-                move |headers: HeaderMap, body: Option<Json<Value>>| async move {
-                    let answered = call_operation(&core, op.name, &headers, body);
+                move |headers: HeaderMap, body: Result<Json<Value>, JsonRejection>| async move {
+                    let input = match body {
+                        Ok(Json(input)) => input,
+                        Err(rejection) => return refused_input(rejection),
+                    };
+                    let answered = call_operation(&core, op.name, &headers, input);
                     respond_to(&headers, answered)
                 },
-            ),
+            )
+            .route_layer(middleware::from_fn_with_state(
+                origin_core,
+                admit_from_our_own_origin,
+            )),
         );
     }
     router
@@ -174,8 +246,57 @@ pub fn router(core: Arc<Core>) -> Router {
 /// Axum's own default body limit is 2 MB — plenty for a recipe, nowhere near
 /// enough for a camera-original photograph carried as base64 (a third larger
 /// again than its own bytes) or raw. 40 MB comfortably covers a modern phone's
-/// photo either way, with room to spare.
+/// photo either way, with room to spare. It is a member's: a request with no
+/// Credential carries `admission::STRANGER_BODY_BYTES` (#368).
 const MAX_BODY_BYTES: usize = 40 * 1024 * 1024;
+
+/// Every route that changes something meets its `Origin` first (#368). A
+/// stranger's body was read small before it got here, and a Secret naming
+/// nobody was answered (`admission::meet`).
+async fn admit_from_our_own_origin(
+    State(core): State<Arc<Core>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if let Some(refused) = refuse_another_origin(&core, request.headers()) {
+        return refused;
+    }
+    next.run(request).await
+}
+
+/// A page on another site is refused before a member's body is read (#368).
+/// The browser sends its Session cookie along with a request from a sibling
+/// subdomain, which counts as the same site, so `SameSite` alone does not
+/// keep that page out. Refused as a bad request rather than as unauthorized,
+/// which the interface reads as a Session that has ended and signs out.
+fn refuse_another_origin(core: &Core, headers: &HeaderMap) -> Option<Response> {
+    if admission::from_our_own_origin(headers, core.public_address().as_deref()) {
+        return None;
+    }
+    Some(refusal_at(
+        StatusCode::FORBIDDEN,
+        OpError::bad_request(
+            "this request came from a page on another address, and Kamosu answers only its own \
+             pages. If a proxy stands in front of Kamosu, it must pass the Host header on \
+             unchanged, or the public address must be set",
+        ),
+    ))
+}
+
+/// An Operation's input that could not be read as JSON. Sending it with any
+/// `Content-Type` but `application/json` is refused too, rather than run with
+/// an empty input (#368): a page on another site can send a body with no
+/// type at all, and that must not reach an Operation that takes none.
+fn refused_input(rejection: JsonRejection) -> Response {
+    let status = rejection.status();
+    let sentence = match rejection {
+        JsonRejection::MissingJsonContentType(_) => {
+            "an Operation's input is JSON, sent with `Content-Type: application/json`".to_string()
+        }
+        other => other.body_text(),
+    };
+    refusal_at(status, OpError::bad_request(sentence))
+}
 
 /// Reached only when no exact route claimed the path, so the name is one the
 /// Catalogue does not declare. Naming it back is the whole of the answer.
@@ -274,23 +395,42 @@ fn authenticate_recovery(core: &Core, body: Option<Json<Value>>) -> Result<Value
     core.redeem_recovery(link, password, session_name)
 }
 
+fn authenticate_passkey(core: &Core, body: Option<Json<Value>>) -> Result<Value, OpError> {
+    const TAKES: &str = "a passkey sign-in takes { ceremony_id, credential, session_name }";
+    let input = body.map(|Json(value)| value).unwrap_or_default();
+    let ceremony_id = input
+        .get("ceremony_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(TAKES))?;
+    let credential = input
+        .get("credential")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(TAKES))?;
+    let session_name = input
+        .get("session_name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(TAKES))?;
+    core.finish_passkey_sign_in(ceremony_id, credential, session_name)
+}
+
+fn arrive_in_demo(core: &Core, body: Option<Json<Value>>) -> Result<Value, OpError> {
+    let input = body.map(|Json(value)| value).unwrap_or_default();
+    let session_name = input
+        .get("session_name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("arriving takes { session_name }"))?;
+    core.arrive_in_demo(session_name)
+}
+
 fn call_operation(
     core: &Core,
     operation_name: &str,
     headers: &HeaderMap,
-    body: Option<Json<Value>>,
+    input: Value,
 ) -> Result<Value, OpError> {
     // Transport concern only: carry the Secret to the Core. Deciding anything
     // about it here would be a permission check inside a Door.
     let secret = bearer_from_headers(headers);
-
-    // An absent body is an empty envelope; the Core still checks the input against
-    // what the Catalogue declared.
-    let input = match body {
-        Some(Json(value)) => value,
-        None => Value::Object(serde_json::Map::new()),
-    };
-
     core.execute(secret.as_deref(), operation_name, input)
 }
 
@@ -320,7 +460,7 @@ const MAX_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 async fn stage_upload(core: &Core, headers: &HeaderMap, body: Body) -> Response {
     let secret = bearer_from_headers(headers);
     let staged = match core
-        .authenticate_for_write(secret.as_deref())
+        .authenticate_to_stage_upload(secret.as_deref())
         .and_then(|caller| core.begin_upload(&caller.person_id))
     {
         Ok(staged) => staged,
@@ -410,7 +550,7 @@ async fn get_backup(core: &Core, headers: &HeaderMap, name: &str) -> Response {
     let secret = bearer_from_headers(headers);
     let path = match core
         .authenticate_for_operator(secret.as_deref())
-        .and_then(|_| core.backup_path(name))
+        .and_then(|caller| core.fetch_backup(&caller, name))
     {
         Ok(path) => path,
         Err(err) => return respond_to(headers, Err(err)),
@@ -488,12 +628,19 @@ async fn get_sheet(core: Arc<Core>, headers: HeaderMap, job_id: String) -> Respo
     }
 }
 
-/// `GET /api/originals/{job_id}`: what an agent's Job reads, for its Job Key.
+/// `GET /api/originals/{job_id}` and `/{page}`: what an agent's Job reads, for
+/// its Job Key, one page at a time.
 /// Read off the disk on the blocking pool, as a Sheet is.
-async fn get_original(core: Arc<Core>, headers: HeaderMap, job_id: String) -> Response {
+async fn get_original(
+    core: Arc<Core>,
+    headers: HeaderMap,
+    job_id: String,
+    page: usize,
+) -> Response {
     let secret = bearer_from_headers(&headers);
     let read =
-        tokio::task::spawn_blocking(move || core.read_original(secret.as_deref(), &job_id)).await;
+        tokio::task::spawn_blocking(move || core.read_original(secret.as_deref(), &job_id, page))
+            .await;
     match read {
         Ok(Ok((kind, bytes))) => (
             StatusCode::OK,
@@ -596,6 +743,13 @@ fn image_response(bytes: Vec<u8>) -> Response {
 /// leave the fault in place while looking fixed.
 const SESSION_COOKIE_ATTRIBUTES: &str = "Path=/; HttpOnly; Secure; SameSite=Lax";
 
+/// The Session cookie's name. The `__Host-` prefix makes a browser refuse it
+/// unless it is Secure, set for the whole of this host and for no domain
+/// around it (#368), so a page on a sibling subdomain can neither set one
+/// nor shadow it with its own. It was `kamosu_session` until then, and the
+/// rename signed every browser out once.
+const SESSION_COOKIE: &str = "__Host-kamosu_session";
+
 /// How long a browser keeps the Session cookie: 400 days, the most RFC 6265bis
 /// lets a cookie ask for and the cap Chrome enforces. Without it the cookie
 /// lasts only as long as the browser's own session, which on an iPhone ends
@@ -606,13 +760,13 @@ const SESSION_COOKIE_MAX_AGE: &str = "Max-Age=34560000";
 /// The `Set-Cookie` that hands a browser its Session, or hands it back renewed.
 fn issued_session_cookie(secret: &str) -> HeaderValue {
     let cookie =
-        format!("kamosu_session={secret}; {SESSION_COOKIE_ATTRIBUTES}; {SESSION_COOKIE_MAX_AGE}");
+        format!("{SESSION_COOKIE}={secret}; {SESSION_COOKIE_ATTRIBUTES}; {SESSION_COOKIE_MAX_AGE}");
     HeaderValue::from_str(&cookie).expect("safe session cookie")
 }
 
 /// The `Set-Cookie` that takes a Session cookie back (#91).
 fn expired_session_cookie() -> HeaderValue {
-    let expired = format!("kamosu_session=; {SESSION_COOKIE_ATTRIBUTES}; Max-Age=0");
+    let expired = format!("{SESSION_COOKIE}=; {SESSION_COOKIE_ATTRIBUTES}; Max-Age=0");
     HeaderValue::from_str(&expired).expect("safe expiring session cookie")
 }
 
@@ -622,6 +776,22 @@ fn expired_session_cookie() -> HeaderValue {
 /// say what is true of both — there is no cookie here to take back.
 fn respond(result: Result<Value, OpError>) -> Response {
     respond_to(&HeaderMap::new(), result)
+}
+
+/// A refusal in this Door's envelope at a status of its own, for an answer
+/// given before any Door has read the request: busy, too slow, too large, or
+/// from another site (#368). No cookie is taken back by one.
+pub fn refusal_at(status: StatusCode, err: OpError) -> Response {
+    let mut response = respond(Err(err));
+    *response.status_mut() = status;
+    response
+}
+
+/// The Core's refusal of a request's Secret, answered before its body is
+/// read (#368), taking back a Session cookie that names nobody as any
+/// refused Operation does (#91).
+pub fn refusal_of_secret(headers: &HeaderMap, err: OpError) -> Response {
+    respond_to(headers, Err(err))
 }
 
 /// Answer one request, taking back its Session cookie where the Core says that
@@ -747,7 +917,7 @@ fn bearer_token(headers: &HeaderMap) -> Option<String> {
     Some(rest.trim().to_string())
 }
 
-/// The Secret this Door itself put in a `kamosu_session` cookie, if the request
+/// The Secret this Door itself put in its Session cookie, if the request
 /// carried one back. Kept apart from a bearer token because the two are the
 /// Door's business to different degrees: this cookie is Kamosu's own to set and
 /// to take back, while a bearer token belongs to whoever sent it and the Door
@@ -758,5 +928,9 @@ fn session_cookie(headers: &HeaderMap) -> Option<String> {
         .and_then(|value| value.to_str().ok())?
         .split(';')
         .map(str::trim)
-        .find_map(|part| part.strip_prefix("kamosu_session=").map(str::to_owned))
+        .find_map(|part| {
+            part.strip_prefix(SESSION_COOKIE)
+                .and_then(|rest| rest.strip_prefix('='))
+                .map(str::to_owned)
+        })
 }

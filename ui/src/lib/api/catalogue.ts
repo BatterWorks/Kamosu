@@ -8,10 +8,17 @@
 
 import type { JobAsk } from './job';
 
-/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts. */
+/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes, and the Umami script it counts its visits with, if any. */
 export type InstanceStatusInput = Record<string, never>;
 /** What instance_status answers. */
 export type InstanceStatusOutput = {
+	analytics?: {
+		script: string;
+		website_id: string;
+	};
+	demo: boolean;
+	demo_access_key?: string;
+	passkey_origin: string | null;
 	password_minimum: number;
 	setup_complete: boolean;
 	version: string;
@@ -190,6 +197,18 @@ export type RunnerStatusOutput = {
 	last_asked_at: string | null;
 };
 
+/** List the examples a Demo replays the agent's work on. Each is an agent's Import, ended, which the interface plays through Sent, Waiting and Reading before its Report. Empty on an instance that is no Demo. */
+export type ListReplaysInput = Record<string, never>;
+/** What list_replays answers. */
+export type ListReplaysOutput = {
+	replays: {
+		excerpt: string | null;
+		job_id: string;
+		kind: "picture" | "pdf" | "pasted_text" | "video";
+		photograph_id: string | null;
+	}[];
+};
+
 /** Read the agent's House Notes. They are what an Operator adds to the end of the instructions the agent follows, handed over with every Job. Null when none are written, and the agent follows its own instructions alone. Says who saved them last and when. */
 export type GetHouseNotesInput = Record<string, never>;
 /** What get_house_notes answers. */
@@ -208,6 +227,40 @@ export type SetHouseNotesOutput = {
 	notes: string | null;
 	saved_at: string | null;
 	saved_by: string | null;
+};
+
+/** Read the instance's Security Record, newest first. Every Operator reads it. It holds the House Notes and the public address changed, a Person made an Operator or stood down, an account disabled or deleted, an Operator key minted, a crowd of sign-ins refused because the line for them was full (counted as one row while it lasts), Runner Keys minted and revoked, and Backups fetched. Each row says who did it and through which Session or key. Kept for `kept_for_days` days. A change you did not make, made through an Operator key, may be an agent tricked by what it read: end that key. */
+export type ListInstanceSecurityRecordInput = Record<string, never>;
+/** What list_instance_security_record answers. */
+export type ListInstanceSecurityRecordOutput = {
+	events: {
+		about: string | null;
+		at: string;
+		by: string | null;
+		count: number;
+		credential: {
+			kind: "session" | "access_key" | "operator_key" | "job_key" | "passkey";
+			name: string;
+		} | null;
+		detail: {
+			add_only?: boolean;
+			address?: string;
+			backup?: string;
+			ended_access_keys?: number;
+			ended_runner_keys?: number;
+			ended_sessions?: number;
+			how?: "password" | "passkey" | "invite" | "recovery_link" | "setup" | "demo";
+			key?: string;
+			operator?: boolean;
+			read_only?: boolean;
+			runner_key?: string;
+			taken_away?: boolean;
+		};
+		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched";
+		first_at: string;
+		id: number;
+	}[];
+	kept_for_days: number;
 };
 
 /** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it with reason `another_version`. */
@@ -294,31 +347,66 @@ export type RevokeSessionOutput = {
 	revoked: boolean;
 };
 
-/** Mint an Access Key for an agent to act as you. You may make it read-only. */
+/** Mint an Access Key for an agent to act as you. You may make it read-only. An Operator may make it an Operator key, which acts as an Operator too; any other key acts as an ordinary Person. Or make it an Add-only key, the key a phone's Share menu carries: it may call add_this and get_job and stage files at POST /api/uploads, and nothing else. An Add-only key is neither read-only nor an Operator key, and keeps everything_to_agent: whether what it adds goes to the agent every time. */
 export type MintAccessKeyInput = {
+	add_only?: boolean;
+	everything_to_agent?: boolean;
 	name: string;
+	operator?: boolean;
 	read_only?: boolean;
 };
 /** What mint_access_key answers. */
 export type MintAccessKeyOutput = {
+	add_only: boolean;
+	everything_to_agent: boolean;
 	id: string;
 	name: string;
+	operator: boolean;
 	read_only: boolean;
 	secret: string;
 };
 
-/** List this Person's Access Keys by name and last use. */
+/** List this Person's Access Keys by name and last use. Each says whether it acts as an Operator, or is an Add-only key and where what it adds goes. */
 export type ListAccessKeysInput = Record<string, never>;
 /** What list_access_keys answers. */
 export type ListAccessKeysOutput = {
 	access_keys: {
+		add_only: boolean;
 		created_at: string;
+		everything_to_agent: boolean;
 		id: string;
 		last_used_at: string | null;
 		name: string;
+		operator: boolean;
 		read_only: boolean;
 		revoked: boolean;
 	}[];
+};
+
+/** Where what the Credential in hand shares goes. True sends it to the agent every time, recipe sites included; false sends only what Kamosu cannot read on its own. A Session keeps it for its device and an Access Key for whatever holds it. add_this reads it. */
+export type GetAgentChoiceInput = Record<string, never>;
+/** What get_agent_choice answers. */
+export type GetAgentChoiceOutput = {
+	everything_to_agent: boolean;
+};
+
+/** Set where what the Credential in hand shares goes. To the agent every time, or only what Kamosu cannot read on its own. */
+export type SetAgentChoiceInput = {
+	everything_to_agent: boolean;
+};
+/** What set_agent_choice answers. */
+export type SetAgentChoiceOutput = {
+	everything_to_agent: boolean;
+};
+
+/** Set where what one of your Add-only keys adds goes. To the agent every time, or only what Kamosu cannot read on its own, changed without the phone that holds it. */
+export type SetKeyAgentChoiceInput = {
+	access_key_id: string;
+	everything_to_agent: boolean;
+};
+/** What set_key_agent_choice answers. */
+export type SetKeyAgentChoiceOutput = {
+	everything_to_agent: boolean;
 };
 
 /** End one of your Access Keys. */
@@ -328,6 +416,116 @@ export type RevokeAccessKeyInput = {
 /** What revoke_access_key answers. */
 export type RevokeAccessKeyOutput = {
 	revoked: boolean;
+};
+
+/** Read your own Security Record, newest first. It holds each time you signed in and how, wrong passwords at your name counted as one row per run, passkeys added and removed, your password changed, Access Keys minted and ended, and Sessions ended. Each row names the Session or key it is about, never an address. Kept for `kept_for_days` days. What to look for: a sign-in on a device you do not know, wrong passwords you did not type, or a key you did not mint. End that Session or key and change your password. */
+export type ListSecurityRecordInput = Record<string, never>;
+/** What list_security_record answers. */
+export type ListSecurityRecordOutput = {
+	events: {
+		about: string | null;
+		at: string;
+		by: string | null;
+		count: number;
+		credential: {
+			kind: "session" | "access_key" | "operator_key" | "job_key" | "passkey";
+			name: string;
+		} | null;
+		detail: {
+			add_only?: boolean;
+			address?: string;
+			backup?: string;
+			ended_access_keys?: number;
+			ended_runner_keys?: number;
+			ended_sessions?: number;
+			how?: "password" | "passkey" | "invite" | "recovery_link" | "setup" | "demo";
+			key?: string;
+			operator?: boolean;
+			read_only?: boolean;
+			runner_key?: string;
+			taken_away?: boolean;
+		};
+		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched";
+		first_at: string;
+		id: number;
+	}[];
+	kept_for_days: number;
+};
+
+/** List your passkeys. Each says when it was added and last used, and whether it works at this instance's address. Also whether this instance offers passkeys at all, and if not, why. */
+export type ListPasskeysInput = Record<string, never>;
+/** What list_passkeys answers. */
+export type ListPasskeysOutput = {
+	available: boolean;
+	origin: string | null;
+	passkeys: {
+		created_at: string;
+		id: string;
+		last_used_at: string | null;
+		made_for: string;
+		name: string;
+		works_here: boolean;
+	}[];
+	public_address: string | null;
+	unavailable_because: "no_public_address" | "not_https" | "ip_address" | null;
+};
+
+/** Rename one of your passkeys. */
+export type RenamePasskeyInput = {
+	name: string;
+	passkey_id: string;
+};
+/** What rename_passkey answers. */
+export type RenamePasskeyOutput = {
+	name: string;
+};
+
+/** Remove one of your passkeys. It no longer signs in here; the device keeps it until it is deleted there. */
+export type RemovePasskeyInput = {
+	passkey_id: string;
+};
+/** What remove_passkey answers. */
+export type RemovePasskeyOutput = {
+	removed: boolean;
+};
+
+/** Begin adding a passkey, with your password. Answers the options a browser hands its device. */
+export type StartAddingPasskeyInput = {
+	password: string;
+};
+/** What start_adding_passkey answers. */
+export type StartAddingPasskeyOutput = {
+	ceremony_id: string;
+	options: Record<string, never>;
+};
+
+/** Finish adding a passkey the device made. The credential is the JSON text a browser writes of it, and the name is the one it is listed under. */
+export type FinishAddingPasskeyInput = {
+	ceremony_id: string;
+	credential: string;
+	name: string;
+};
+/** What finish_adding_passkey answers. */
+export type FinishAddingPasskeyOutput = {
+	created_at: string;
+	id: string;
+	last_used_at: string | null;
+	made_for: string;
+	name: string;
+	works_here: boolean;
+};
+
+/** Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working. */
+export type ChangePasswordInput = {
+	current_password: string;
+	end_access_keys: boolean;
+	new_password: string;
+	sign_out_other_devices: boolean;
+};
+/** What change_password answers. */
+export type ChangePasswordOutput = {
+	ended_access_keys: number;
+	ended_sessions: number;
 };
 
 /** Create a Kitchen, with its creator as its first member. A Kitchen is a group of People who see and cook from each other's Cookbooks. */
@@ -1256,6 +1454,8 @@ export type CreateRecipeOutput = {
 		};
 		cooking: {
 			steps: ({
+				as_read?: number[];
+				by_hand: boolean;
 				timer_seconds: number | null;
 				uses: number[];
 			} | null)[];
@@ -1541,6 +1741,8 @@ export type StartVariationOutput = {
 		};
 		cooking: {
 			steps: ({
+				as_read?: number[];
+				by_hand: boolean;
 				timer_seconds: number | null;
 				uses: number[];
 			} | null)[];
@@ -1737,6 +1939,8 @@ export type KeepVersionAsCopyOutput = {
 		};
 		cooking: {
 			steps: ({
+				as_read?: number[];
+				by_hand: boolean;
 				timer_seconds: number | null;
 				uses: number[];
 			} | null)[];
@@ -1822,12 +2026,16 @@ export type ReadRecipePdfOutput = {
 	title: string | null;
 };
 
-/** Have an agent make a recipe from text, a link or a file. The file is a PDF or a picture, and the recipe lands in your own Cookbook. Only on an instance with a Runner: without one it is refused with reason `no_runner`. A PDF may be a scan. Pass pasted text as `text`. Pass a web page or a video as `link`: Kamosu does not read it first, so nothing lands before the agent's recipe, and the Job is listed under the source `web`. A link sent again is never matched. Send a file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. Answers the id of a Job that waits for a Runner, as `get_job` reads it, and what it was taken as. A PDF or a picture handed over before is known by its contents: while your Job on it waits or is worked, the answer is that Job, and once its recipe exists the answer is that recipe as `branch_id` and `title`, with no Job. Pasted text is never matched. No recipe exists until the agent creates one, under your Hand. Read the Job with `get_job`: its result is the Import Report, which lists the recipe as arrived once it exists and says what the agent left undone, or why it could not be read. Cancel it with `cancel_job`. Kamosu keeps what was handed over for the agent to fetch and never shows it. */
+/** Have an agent make a recipe from text, a link or a file. The file is a PDF or a picture, and the recipe lands in your own Cookbook. Only on an instance with a Runner: without one it is refused with reason `no_runner`. A PDF may be a scan. Pass pasted text as `text`. Pass a web page or a video as `link`: Kamosu does not read it first, so nothing lands before the agent's recipe, and the Job is listed under the source `web`. A link sent again is never matched. Send a file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. Answers the id of a Job that waits for a Runner, as `get_job` reads it, and what it was taken as. A PDF or a picture handed over before is known by its contents: while your Job on it waits or is worked, the answer is that Job, and once its recipe exists the answer is that recipe as `branch_id` and `title`, with no Job. Pasted text is never matched. Several pictures of one recipe go as `pictures`, in order, and are known again by all of them in that order. No recipe exists until the agent creates one, under your Hand. Read the Job with `get_job`: its result is the Import Report, which lists the recipe as arrived once it exists and says what the agent left undone, or why it could not be read. Cancel it with `cancel_job`. Kamosu keeps what was handed over for the agent to fetch and never shows it. */
 export type ImportByAgentInput = {
 	as_operator?: boolean;
 	cookbook_id?: string;
 	data?: string;
 	link?: string;
+	pictures?: {
+		data?: string;
+		upload_id?: string;
+	}[];
 	text?: string;
 	upload_id?: string;
 };
@@ -2019,6 +2227,8 @@ export type StartTranslationOutput = {
 		};
 		cooking: {
 			steps: ({
+				as_read?: number[];
+				by_hand: boolean;
 				timer_seconds: number | null;
 				uses: number[];
 			} | null)[];
@@ -2129,12 +2339,17 @@ export type ImportOutput = {
 	cookbook_id: string;
 	import_id: string;
 	left_out: {
+		address?: string;
 		branch_id: string;
 		count: number;
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition" | "meal_plan_timeline";
+	}[];
+	left_out_of_file?: {
+		count: number;
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
 	offered: {
 		branch_id: string;
@@ -2203,12 +2418,17 @@ export type ImportCroutonOutput = {
 	cookbook_id: string;
 	import_id: string;
 	left_out: {
+		address?: string;
 		branch_id: string;
 		count: number;
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition" | "meal_plan_timeline";
+	}[];
+	left_out_of_file?: {
+		count: number;
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
 	offered: {
 		branch_id: string;
@@ -2239,6 +2459,100 @@ export type ImportCroutonOutput = {
 		name?: string;
 		reason: string;
 	}[];
+};
+
+/** Bring in the export file of another recipe app, as a Job. Kamosu looks inside the file, works out which app made it, and lands every recipe in your own Cookbook through the same ledger `import` uses, keyed by that app's own id, so running it again matches instead of doubling. The apps it reads: Mealie (its recipe export zip, or an administrator's backup zip, which brings each recipe's "I Made This" history as finished Attempts of yours, each naming who cooked it), Paprika (.paprikarecipes), Tandoor (its Default export zip, or its Recipe Sage .json), Crouton (its library zip of .crumb files, or one .crumb), Nextcloud Cookbook (its folder of recipes as a zip), RecipeSage (its JSON-LD .json), Recipya (its JSON export zip), CookCLI (its schema.org .json files, zipped together or one alone) and Bar Assistant (its JSON Schema or JSON-LD export zip). A file it does not know, a known app's export in a shape Kamosu was not tested with, or archives nested too deep, land nothing: the answer is then `refused` alone, with its reason. A Mealie backup holding the recipes of several households lands nothing until one is named: the answer is then `which_household` alone, and the same upload is kept a day for a second call naming one as `mealie_household`. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+export type ImportFromAnotherAppInput = {
+	as_operator?: boolean;
+	cookbook_id?: string;
+	data?: string;
+	mealie_household?: string;
+	upload_id?: string;
+};
+/** What import_from_another_app eventually produces, read back through `get_job`. */
+export type ImportFromAnotherAppOutput = {
+	agent_jobs?: {
+		agent_report?: {
+			left_undone?: string[];
+			likely_duplicates?: string[];
+			unsure?: string[];
+			unused_foods?: string[];
+		};
+		branch_id: string | null;
+		could_not_be_read?: boolean;
+		job_id: string;
+		made_by_agent?: boolean;
+		original_gone?: boolean;
+		status?: "queued" | "running" | "completed" | "failed" | "cancelled";
+	}[];
+	arrived?: {
+		bare?: boolean;
+		branch_id: string;
+		foreign_id: string;
+		lineage_id: string;
+		main_photo?: string | null;
+		status: "created" | "extended" | "unchanged" | "read_again";
+		subject?: boolean;
+		title: string;
+	}[];
+	cookbook_id?: string;
+	import_id?: string;
+	left_out?: {
+		address?: string;
+		branch_id: string;
+		count: number;
+		foreign_id: string;
+		icon?: string;
+		title: string;
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition" | "meal_plan_timeline";
+	}[];
+	left_out_of_file?: {
+		count: number;
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
+	}[];
+	offered?: {
+		branch_id: string;
+		candidate_version_id: string;
+		foreign_id: string;
+		lineage_id: string;
+		title: string;
+	}[];
+	refused?: {
+		app?: string;
+		reason: "unrecognised" | "untested_shape" | "nested_too_deep";
+		sentence: string;
+	};
+	related_candidates?: {
+		recipes: {
+			branch_id: string;
+			ingredients: number;
+			lineage_id: string;
+			main_photo: string | null;
+			title: string;
+		}[];
+		shared: ("name" | "page")[];
+	}[];
+	source_kind?: string;
+	unreadable?: {
+		branch_id?: string;
+		foreign_id: string | null;
+		kept_as?: {
+			branch_id: string;
+			lineage_id: string;
+			title: string;
+		};
+		name?: string;
+		reason: string;
+	}[];
+	which_household?: {
+		households: {
+			cooks: string[];
+			name: string;
+			recipes: number;
+		}[];
+		sentence: string;
+		upload_id?: string;
+	};
 };
 
 /** List every Import, and what happened each time. It covers what has been brought into your Kitchens from outside. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025). */
@@ -2277,10 +2591,32 @@ export type ForgetImportOutput = {
 	import_id: string;
 };
 
+/** Add a recipe from whatever a phone's Share menu sent. It takes a link, text, a PDF, or one or more pictures, the pages of one recipe in order. An agent may call it too, rather than choose the route itself. Kamosu decides: a link goes to Kamosu's own reader, or to the agent where the Credential in hand sends everything there (`get_agent_choice`), and text that is only a link is that link. Text, pictures and a PDF go to the agent, and are refused in the answer where this Kamosu has none. One file that is text is text. A link already the Source of a recipe you can see, or one of your imports still reading, adds nothing. A link waits for its page to be read, about 10 seconds at most; anything else answers at once. The answer is `message`, in your Reading Language, to show as it is, and `outcome`. A failure later shows on the Imports screen as any import's does. Send files to POST /api/uploads first, one per request, and pass their ids in order as `files`. A Shortcut sends its own `shortcut_version`, and hears when a newer one is available. */
+export type AddThisInput = {
+	files?: {
+		data?: string;
+		upload_id?: string;
+	}[];
+	link?: string;
+	shortcut_version?: number;
+	text?: string;
+	upload_ids?: string;
+};
+/** What add_this answers. */
+export type AddThisOutput = {
+	branch_id?: string;
+	job_id?: string;
+	message: string;
+	outcome: "added" | "sent" | "already" | "not_added";
+	shortcut_version: number;
+	title?: string;
+};
+
 /** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Without a Runner, a page with no recipe data is read from its own article text the way `read_pasted_recipe` reads a paste, and when that finds Ingredient Lines nothing lands: the answer is `to_check` alone, for a person to check and save, with the page as its Source (#301). Where it finds none, the page lands bare as before. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 export type ImportWebLinkInput = {
 	as_operator?: boolean;
 	cookbook_id?: string;
+	refuse_unread?: boolean;
 	url: string;
 };
 /** What import_web_link eventually produces, read back through `get_job`. */
@@ -2312,12 +2648,17 @@ export type ImportWebLinkOutput = {
 	cookbook_id?: string;
 	import_id?: string;
 	left_out?: {
+		address?: string;
 		branch_id: string;
 		count: number;
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition" | "meal_plan_timeline";
+	}[];
+	left_out_of_file?: {
+		count: number;
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
 	offered?: {
 		branch_id: string;
@@ -2411,6 +2752,7 @@ export type UploadPhotographOutput = {
 /** The shelf, and searching it. With no query: everything the Kitchens this Person cooks in hold, merged, alphabetical, one entry per Lineage, each titled in the reader's Reading Language with a marked fallback. With a query: the same shelf narrowed to what matched, an exact title first, every entry quoting the line that matched. One Operation either way — Meaning Search arrives here rather than beside it (ADR 0027, ADR 0029). */
 export type SearchRecipesInput = {
 	cookbook_id?: string | null;
+	cooking?: ("never_cooked" | "cooked_unrated" | "again" | "tweak" | "no")[];
 	kitchen_id?: string | null;
 	mine?: boolean;
 	query?: string | null;
@@ -2704,6 +3046,8 @@ export type GetRecipeOutput = {
 		};
 		cooking: {
 			steps: ({
+				as_read?: number[];
+				by_hand: boolean;
 				timer_seconds: number | null;
 				uses: number[];
 			} | null)[];
@@ -2920,14 +3264,15 @@ export type GetShareLinkOutput = {
 	url: string | null;
 };
 
-/** Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. */
+/** Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. Also how many passkeys work at it, which a new address would leave unable to sign in. */
 export type GetPublicAddressInput = Record<string, never>;
 /** What get_public_address answers. */
 export type GetPublicAddressOutput = {
+	passkeys: number;
 	public_address: string | null;
 };
 
-/** Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. */
+/** Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. A passkey works only at the address it was made at: `get_public_address` says how many work at the current one and would stop at a new one. */
 export type SetPublicAddressInput = {
 	public_address: string;
 };
@@ -3025,12 +3370,17 @@ export type ImportBundleOutput = {
 	cookbook_id: string;
 	import_id: string;
 	left_out: {
+		address?: string;
 		branch_id: string;
 		count: number;
 		foreign_id: string;
 		icon?: string;
 		title: string;
-		what: "site_icon" | "extra_photos" | "unreadable_photos";
+		what: "site_icon" | "extra_photos" | "unreadable_photos" | "attached_files" | "ratings" | "favourites" | "comments" | "photos_not_downloaded" | "nutrition" | "meal_plan_timeline";
+	}[];
+	left_out_of_file?: {
+		count: number;
+		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
 	offered: {
 		branch_id: string;
@@ -3915,6 +4265,19 @@ export type SetReadingOutput = {
 		target: string | null;
 		unit: string | null;
 	} | null;
+};
+
+/** Correct which Ingredient Lines a Step uses. It is on a Recipe's current state. Kamosu works this out of the Step's words on every read, and get_recipe answers it as cooking.steps[].uses; this sets it by hand, for a Step it reads wrong. `uses` is the whole new list of line indexes into content.ingredients, empty for a Step that adds nothing, and each must be an Ingredient Line, not a section. null takes the correction away, and the Step goes back to what Kamosu reads, which get_recipe answers on a corrected Step as cooking.steps[].as_read. Mints no Version and appears in no history, as set_reading does. A save carries the correction onto the new Version while the Step and every line it names stay word for word as they were, wherever they now sit, and drops it once either changes (ADR 0054). */
+export type SetStepUsesInput = {
+	branch_id: string;
+	step_index: number;
+	uses: number[] | null;
+};
+/** What set_step_uses answers. */
+export type SetStepUsesOutput = {
+	by_hand: boolean;
+	step_index: number;
+	uses: number[];
 };
 
 /** Read every Ingredient Line nothing has read yet, as a Job. It covers every such line in the library, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it. */
@@ -5389,10 +5752,14 @@ export type GetRecipeJobOutput = {
 	} | null;
 };
 
-/** Have an agent read a recipe again. A recipe an agent read from a PDF, a picture or pasted text is read from what Kamosu kept of it. Kamosu deletes that 30 days after its Job ended, and then the ask is refused with reason `needs_the_file`: ask again handing the file over, as `upload_id` or `data`, or the text as `text`. Any other recipe is read from its Source link, whichever way it arrived, and takes nothing handed over. It makes a Job that waits for a Runner. Only a Co-author of the Cookbook that holds the recipe may ask, on a Kamosu with a Runner. A recipe is read again once: after a reading that finished, or one stopped while a Runner held it, the ask is refused with reason `already_read_again`. One that failed, or was stopped while it waited, does not count. A variation is a recipe of its own, read again once too. The agent's saves become one new Version under your Hand, so the earlier one stays in the History. Where a Job already waits or is being worked on the recipe, that Job is the answer, and nothing handed over is kept. Its result is an Import Report under the source `read_again`, which says what the agent left undone or was unsure of. Ask `can_read_recipe_again` first to know what it would read, or why it would be refused. */
+/** Have an agent read a recipe again. A recipe an agent read from a PDF, a picture or pasted text is read from what Kamosu kept of it. Kamosu deletes that 30 days after its Job ended, and then the ask is refused with reason `needs_the_file`: ask again handing the file over, as `upload_id` or `data`, several pictures as `pictures`, or the text as `text`. Any other recipe is read from its Source link, whichever way it arrived, and takes nothing handed over. It makes a Job that waits for a Runner. Only a Co-author of the Cookbook that holds the recipe may ask, on a Kamosu with a Runner. A recipe is read again once: after a reading that finished, or one stopped while a Runner held it, the ask is refused with reason `already_read_again`. One that failed, or was stopped while it waited, does not count. A variation is a recipe of its own, read again once too. The agent's saves become one new Version under your Hand, so the earlier one stays in the History. Where a Job already waits or is being worked on the recipe, that Job is the answer, and nothing handed over is kept. Its result is an Import Report under the source `read_again`, which says what the agent left undone or was unsure of. Ask `can_read_recipe_again` first to know what it would read, or why it would be refused. */
 export type ReadRecipeAgainInput = {
 	branch_id: string;
 	data?: string;
+	pictures?: {
+		data?: string;
+		upload_id?: string;
+	}[];
 	text?: string;
 	upload_id?: string;
 };
@@ -5553,6 +5920,12 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	list_replays: {
+		input: ListReplaysInput;
+		output: ListReplaysOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	get_house_notes: {
 		input: GetHouseNotesInput;
 		output: GetHouseNotesOutput;
@@ -5562,6 +5935,12 @@ export interface Operations {
 	set_house_notes: {
 		input: SetHouseNotesInput;
 		output: SetHouseNotesOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	list_instance_security_record: {
+		input: ListInstanceSecurityRecordInput;
+		output: ListInstanceSecurityRecordOutput;
 		kind: 'immediate';
 		permission: 'operator';
 	};
@@ -5613,9 +5992,69 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	get_agent_choice: {
+		input: GetAgentChoiceInput;
+		output: GetAgentChoiceOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_agent_choice: {
+		input: SetAgentChoiceInput;
+		output: SetAgentChoiceOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_key_agent_choice: {
+		input: SetKeyAgentChoiceInput;
+		output: SetKeyAgentChoiceOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	revoke_access_key: {
 		input: RevokeAccessKeyInput;
 		output: RevokeAccessKeyOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	list_security_record: {
+		input: ListSecurityRecordInput;
+		output: ListSecurityRecordOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	list_passkeys: {
+		input: ListPasskeysInput;
+		output: ListPasskeysOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	rename_passkey: {
+		input: RenamePasskeyInput;
+		output: RenamePasskeyOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	remove_passkey: {
+		input: RemovePasskeyInput;
+		output: RemovePasskeyOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	start_adding_passkey: {
+		input: StartAddingPasskeyInput;
+		output: StartAddingPasskeyOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	finish_adding_passkey: {
+		input: FinishAddingPasskeyInput;
+		output: FinishAddingPasskeyOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	change_password: {
+		input: ChangePasswordInput;
+		output: ChangePasswordOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -5865,6 +6304,12 @@ export interface Operations {
 		kind: 'job';
 		permission: 'person';
 	};
+	import_from_another_app: {
+		input: ImportFromAnotherAppInput;
+		output: ImportFromAnotherAppOutput;
+		kind: 'job';
+		permission: 'person';
+	};
 	list_imports: {
 		input: ListImportsInput;
 		output: ListImportsOutput;
@@ -5874,6 +6319,12 @@ export interface Operations {
 	forget_import: {
 		input: ForgetImportInput;
 		output: ForgetImportOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	add_this: {
+		input: AddThisInput;
+		output: AddThisOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -6048,6 +6499,12 @@ export interface Operations {
 	set_reading: {
 		input: SetReadingInput;
 		output: SetReadingOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_step_uses: {
+		input: SetStepUsesInput;
+		output: SetStepUsesOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -6288,7 +6745,7 @@ export type Answer<N extends OperationName> =
 export const CATALOGUE = [
 	{
 		"name": "instance_status",
-		"summary": "Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts.",
+		"summary": "Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes, and the Umami script it counts its visits with, if any.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -6299,6 +6756,34 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"analytics": {
+					"additionalProperties": false,
+					"properties": {
+						"script": {
+							"type": "string"
+						},
+						"website_id": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"script",
+						"website_id"
+					],
+					"type": "object"
+				},
+				"demo": {
+					"type": "boolean"
+				},
+				"demo_access_key": {
+					"type": "string"
+				},
+				"passkey_origin": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
 				"password_minimum": {
 					"minimum": 1,
 					"type": "integer"
@@ -6313,7 +6798,9 @@ export const CATALOGUE = [
 			"required": [
 				"version",
 				"setup_complete",
-				"password_minimum"
+				"password_minimum",
+				"passkey_origin",
+				"demo"
 			],
 			"type": "object"
 		}
@@ -6977,6 +7464,68 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "list_replays",
+		"summary": "List the examples a Demo replays the agent's work on. Each is an agent's Import, ended, which the interface plays through Sent, Waiting and Reading before its Report. Empty on an instance that is no Demo.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"replays": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"excerpt": {
+								"description": "The start of the text handed over, or null where the example shows a picture.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"job_id": {
+								"description": "The agent's Job, its own Import, read with get_job.",
+								"type": "string"
+							},
+							"kind": {
+								"description": "What was handed to the agent.",
+								"enum": [
+									"picture",
+									"pdf",
+									"pasted_text",
+									"video"
+								]
+							},
+							"photograph_id": {
+								"description": "A Photograph of what was handed over, or null where the example shows its text.",
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"kind",
+							"job_id",
+							"photograph_id",
+							"excerpt"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"replays"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "get_house_notes",
 		"summary": "Read the agent's House Notes. They are what an Operator adds to the end of the instructions the agent follows, handed over with every Job. Null when none are written, and the agent follows its own instructions alone. Says who saved them last and when.",
 		"permission": "operator",
@@ -7061,6 +7610,183 @@ export const CATALOGUE = [
 				"notes",
 				"saved_by",
 				"saved_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_instance_security_record",
+		"summary": "Read the instance's Security Record, newest first. Every Operator reads it. It holds the House Notes and the public address changed, a Person made an Operator or stood down, an account disabled or deleted, an Operator key minted, a crowd of sign-ins refused because the line for them was full (counted as one row while it lasts), Runner Keys minted and revoked, and Backups fetched. Each row says who did it and through which Session or key. Kept for `kept_for_days` days. A change you did not make, made through an Operator key, may be an agent tricked by what it read: end that key.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"events": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"about": {
+								"description": "The Person it was done to: made an Operator, stood down, disabled or deleted.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"at": {
+								"description": "When it last happened.",
+								"type": "string"
+							},
+							"by": {
+								"description": "The name the Person who did it goes by now. Null when nobody signed in did it.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"count": {
+								"description": "How many times: above one only for wrong passwords and a crowd at the sign-in.",
+								"type": "integer"
+							},
+							"credential": {
+								"additionalProperties": false,
+								"description": "The Session, key or passkey it names, as it was called then: the one that acted, or the one it was about.",
+								"properties": {
+									"kind": {
+										"enum": [
+											"session",
+											"access_key",
+											"operator_key",
+											"job_key",
+											"passkey"
+										]
+									},
+									"name": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"name"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"detail": {
+								"additionalProperties": false,
+								"description": "What else the row says, by event.",
+								"properties": {
+									"add_only": {
+										"description": "The key minted adds recipes and nothing else.",
+										"type": "boolean"
+									},
+									"address": {
+										"type": "string"
+									},
+									"backup": {
+										"type": "string"
+									},
+									"ended_access_keys": {
+										"type": "integer"
+									},
+									"ended_runner_keys": {
+										"description": "Runner Keys a recovery link ended.",
+										"type": "integer"
+									},
+									"ended_sessions": {
+										"type": "integer"
+									},
+									"how": {
+										"description": "How a sign-in was made.",
+										"enum": [
+											"password",
+											"passkey",
+											"invite",
+											"recovery_link",
+											"setup",
+											"demo"
+										]
+									},
+									"key": {
+										"description": "The Operator key minted.",
+										"type": "string"
+									},
+									"operator": {
+										"type": "boolean"
+									},
+									"read_only": {
+										"type": "boolean"
+									},
+									"runner_key": {
+										"type": "string"
+									},
+									"taken_away": {
+										"description": "The House Notes were emptied.",
+										"type": "boolean"
+									}
+								},
+								"type": "object"
+							},
+							"event": {
+								"enum": [
+									"signed_in",
+									"sign_in_failed",
+									"passkey_added",
+									"passkey_removed",
+									"password_changed",
+									"access_key_minted",
+									"access_key_ended",
+									"session_ended",
+									"house_notes_changed",
+									"public_address_changed",
+									"operator_raised",
+									"operator_stood_down",
+									"account_disabled",
+									"account_deleted",
+									"operator_key_minted",
+									"sign_in_crowd",
+									"runner_key_minted",
+									"runner_key_revoked",
+									"backup_fetched"
+								]
+							},
+							"first_at": {
+								"description": "When it first happened. Earlier than `at` only on a row that counts a run.",
+								"type": "string"
+							},
+							"id": {
+								"type": "integer"
+							}
+						},
+						"required": [
+							"id",
+							"event",
+							"first_at",
+							"at",
+							"count",
+							"by",
+							"about",
+							"credential",
+							"detail"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"kept_for_days": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"events",
+				"kept_for_days"
 			],
 			"type": "object"
 		}
@@ -7418,14 +8144,27 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "mint_access_key",
-		"summary": "Mint an Access Key for an agent to act as you. You may make it read-only.",
+		"summary": "Mint an Access Key for an agent to act as you. You may make it read-only. An Operator may make it an Operator key, which acts as an Operator too; any other key acts as an ordinary Person. Or make it an Add-only key, the key a phone's Share menu carries: it may call add_this and get_job and stage files at POST /api/uploads, and nothing else. An Add-only key is neither read-only nor an Operator key, and keeps everything_to_agent: whether what it adds goes to the agent every time.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"add_only": {
+					"default": false,
+					"type": "boolean"
+				},
+				"everything_to_agent": {
+					"default": false,
+					"description": "For an Add-only key alone: send everything it adds to the agent, recipe sites too, rather than only what Kamosu cannot read on its own.",
+					"type": "boolean"
+				},
 				"name": {
 					"type": "string"
+				},
+				"operator": {
+					"default": false,
+					"type": "boolean"
 				},
 				"read_only": {
 					"default": false,
@@ -7440,11 +8179,20 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"add_only": {
+					"type": "boolean"
+				},
+				"everything_to_agent": {
+					"type": "boolean"
+				},
 				"id": {
 					"type": "string"
 				},
 				"name": {
 					"type": "string"
+				},
+				"operator": {
+					"type": "boolean"
 				},
 				"read_only": {
 					"type": "boolean"
@@ -7457,6 +8205,9 @@ export const CATALOGUE = [
 				"id",
 				"name",
 				"read_only",
+				"operator",
+				"add_only",
+				"everything_to_agent",
 				"secret"
 			],
 			"type": "object"
@@ -7464,7 +8215,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "list_access_keys",
-		"summary": "List this Person's Access Keys by name and last use.",
+		"summary": "List this Person's Access Keys by name and last use. Each says whether it acts as an Operator, or is an Add-only key and where what it adds goes.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -7479,8 +8230,14 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"add_only": {
+								"type": "boolean"
+							},
 							"created_at": {
 								"type": "string"
+							},
+							"everything_to_agent": {
+								"type": "boolean"
 							},
 							"id": {
 								"type": "string"
@@ -7494,6 +8251,9 @@ export const CATALOGUE = [
 							"name": {
 								"type": "string"
 							},
+							"operator": {
+								"type": "boolean"
+							},
 							"read_only": {
 								"type": "boolean"
 							},
@@ -7505,6 +8265,9 @@ export const CATALOGUE = [
 							"id",
 							"name",
 							"read_only",
+							"operator",
+							"add_only",
+							"everything_to_agent",
 							"created_at",
 							"last_used_at",
 							"revoked"
@@ -7516,6 +8279,97 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"access_keys"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "get_agent_choice",
+		"summary": "Where what the Credential in hand shares goes. True sends it to the agent every time, recipe sites included; false sends only what Kamosu cannot read on its own. A Session keeps it for its device and an Access Key for whatever holds it. add_this reads it.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"everything_to_agent": {
+					"description": "True: everything goes to the agent, recipe sites too. False: Kamosu reads a recipe site itself, and the agent reads the rest.",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"everything_to_agent"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_agent_choice",
+		"summary": "Set where what the Credential in hand shares goes. To the agent every time, or only what Kamosu cannot read on its own.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"everything_to_agent": {
+					"description": "True: everything goes to the agent, recipe sites too. False: Kamosu reads a recipe site itself, and the agent reads the rest.",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"everything_to_agent"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"everything_to_agent": {
+					"description": "True: everything goes to the agent, recipe sites too. False: Kamosu reads a recipe site itself, and the agent reads the rest.",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"everything_to_agent"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_key_agent_choice",
+		"summary": "Set where what one of your Add-only keys adds goes. To the agent every time, or only what Kamosu cannot read on its own, changed without the phone that holds it.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"access_key_id": {
+					"type": "string"
+				},
+				"everything_to_agent": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"access_key_id",
+				"everything_to_agent"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"everything_to_agent": {
+					"description": "True: everything goes to the agent, recipe sites too. False: Kamosu reads a recipe site itself, and the agent reads the rest.",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"everything_to_agent"
 			],
 			"type": "object"
 		}
@@ -7546,6 +8400,475 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"revoked"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_security_record",
+		"summary": "Read your own Security Record, newest first. It holds each time you signed in and how, wrong passwords at your name counted as one row per run, passkeys added and removed, your password changed, Access Keys minted and ended, and Sessions ended. Each row names the Session or key it is about, never an address. Kept for `kept_for_days` days. What to look for: a sign-in on a device you do not know, wrong passwords you did not type, or a key you did not mint. End that Session or key and change your password.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"events": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"about": {
+								"description": "The Person it was done to: made an Operator, stood down, disabled or deleted.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"at": {
+								"description": "When it last happened.",
+								"type": "string"
+							},
+							"by": {
+								"description": "The name the Person who did it goes by now. Null when nobody signed in did it.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"count": {
+								"description": "How many times: above one only for wrong passwords and a crowd at the sign-in.",
+								"type": "integer"
+							},
+							"credential": {
+								"additionalProperties": false,
+								"description": "The Session, key or passkey it names, as it was called then: the one that acted, or the one it was about.",
+								"properties": {
+									"kind": {
+										"enum": [
+											"session",
+											"access_key",
+											"operator_key",
+											"job_key",
+											"passkey"
+										]
+									},
+									"name": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"name"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"detail": {
+								"additionalProperties": false,
+								"description": "What else the row says, by event.",
+								"properties": {
+									"add_only": {
+										"description": "The key minted adds recipes and nothing else.",
+										"type": "boolean"
+									},
+									"address": {
+										"type": "string"
+									},
+									"backup": {
+										"type": "string"
+									},
+									"ended_access_keys": {
+										"type": "integer"
+									},
+									"ended_runner_keys": {
+										"description": "Runner Keys a recovery link ended.",
+										"type": "integer"
+									},
+									"ended_sessions": {
+										"type": "integer"
+									},
+									"how": {
+										"description": "How a sign-in was made.",
+										"enum": [
+											"password",
+											"passkey",
+											"invite",
+											"recovery_link",
+											"setup",
+											"demo"
+										]
+									},
+									"key": {
+										"description": "The Operator key minted.",
+										"type": "string"
+									},
+									"operator": {
+										"type": "boolean"
+									},
+									"read_only": {
+										"type": "boolean"
+									},
+									"runner_key": {
+										"type": "string"
+									},
+									"taken_away": {
+										"description": "The House Notes were emptied.",
+										"type": "boolean"
+									}
+								},
+								"type": "object"
+							},
+							"event": {
+								"enum": [
+									"signed_in",
+									"sign_in_failed",
+									"passkey_added",
+									"passkey_removed",
+									"password_changed",
+									"access_key_minted",
+									"access_key_ended",
+									"session_ended",
+									"house_notes_changed",
+									"public_address_changed",
+									"operator_raised",
+									"operator_stood_down",
+									"account_disabled",
+									"account_deleted",
+									"operator_key_minted",
+									"sign_in_crowd",
+									"runner_key_minted",
+									"runner_key_revoked",
+									"backup_fetched"
+								]
+							},
+							"first_at": {
+								"description": "When it first happened. Earlier than `at` only on a row that counts a run.",
+								"type": "string"
+							},
+							"id": {
+								"type": "integer"
+							}
+						},
+						"required": [
+							"id",
+							"event",
+							"first_at",
+							"at",
+							"count",
+							"by",
+							"about",
+							"credential",
+							"detail"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"kept_for_days": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"events",
+				"kept_for_days"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_passkeys",
+		"summary": "List your passkeys. Each says when it was added and last used, and whether it works at this instance's address. Also whether this instance offers passkeys at all, and if not, why.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"available": {
+					"type": "boolean"
+				},
+				"origin": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"passkeys": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"last_used_at": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"made_for": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							},
+							"works_here": {
+								"type": "boolean"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"made_for",
+							"works_here",
+							"created_at",
+							"last_used_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"public_address": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"unavailable_because": {
+					"enum": [
+						"no_public_address",
+						"not_https",
+						"ip_address",
+						null
+					]
+				}
+			},
+			"required": [
+				"public_address",
+				"available",
+				"unavailable_because",
+				"origin",
+				"passkeys"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "rename_passkey",
+		"summary": "Rename one of your passkeys.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"passkey_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"passkey_id",
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "remove_passkey",
+		"summary": "Remove one of your passkeys. It no longer signs in here; the device keeps it until it is deleted there.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"passkey_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"passkey_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"removed": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"removed"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "start_adding_passkey",
+		"summary": "Begin adding a passkey, with your password. Answers the options a browser hands its device.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"password": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"password"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"ceremony_id": {
+					"type": "string"
+				},
+				"options": {
+					"type": "object"
+				}
+			},
+			"required": [
+				"ceremony_id",
+				"options"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "finish_adding_passkey",
+		"summary": "Finish adding a passkey the device made. The credential is the JSON text a browser writes of it, and the name is the one it is listed under.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"ceremony_id": {
+					"type": "string"
+				},
+				"credential": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"ceremony_id",
+				"credential",
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"created_at": {
+					"type": "string"
+				},
+				"id": {
+					"type": "string"
+				},
+				"last_used_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"made_for": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				},
+				"works_here": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"made_for",
+				"works_here",
+				"created_at",
+				"last_used_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "change_password",
+		"summary": "Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"current_password": {
+					"type": "string"
+				},
+				"end_access_keys": {
+					"type": "boolean"
+				},
+				"new_password": {
+					"type": "string"
+				},
+				"sign_out_other_devices": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"current_password",
+				"new_password",
+				"sign_out_other_devices",
+				"end_access_keys"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"ended_access_keys": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"ended_sessions": {
+					"minimum": 0,
+					"type": "integer"
+				}
+			},
+			"required": [
+				"ended_sessions",
+				"ended_access_keys"
 			],
 			"type": "object"
 		}
@@ -11960,6 +13283,16 @@ export const CATALOGUE = [
 										"items": {
 											"additionalProperties": false,
 											"properties": {
+												"as_read": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												},
+												"by_hand": {
+													"type": "boolean"
+												},
 												"timer_seconds": {
 													"minimum": 1,
 													"type": [
@@ -11977,6 +13310,7 @@ export const CATALOGUE = [
 											},
 											"required": [
 												"uses",
+												"by_hand",
 												"timer_seconds"
 											],
 											"type": [
@@ -13534,6 +14868,16 @@ export const CATALOGUE = [
 										"items": {
 											"additionalProperties": false,
 											"properties": {
+												"as_read": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												},
+												"by_hand": {
+													"type": "boolean"
+												},
 												"timer_seconds": {
 													"minimum": 1,
 													"type": [
@@ -13551,6 +14895,7 @@ export const CATALOGUE = [
 											},
 											"required": [
 												"uses",
+												"by_hand",
 												"timer_seconds"
 											],
 											"type": [
@@ -14641,6 +15986,16 @@ export const CATALOGUE = [
 										"items": {
 											"additionalProperties": false,
 											"properties": {
+												"as_read": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												},
+												"by_hand": {
+													"type": "boolean"
+												},
 												"timer_seconds": {
 													"minimum": 1,
 													"type": [
@@ -14658,6 +16013,7 @@ export const CATALOGUE = [
 											},
 											"required": [
 												"uses",
+												"by_hand",
 												"timer_seconds"
 											],
 											"type": [
@@ -15081,7 +16437,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "import_by_agent",
-		"summary": "Have an agent make a recipe from text, a link or a file. The file is a PDF or a picture, and the recipe lands in your own Cookbook. Only on an instance with a Runner: without one it is refused with reason `no_runner`. A PDF may be a scan. Pass pasted text as `text`. Pass a web page or a video as `link`: Kamosu does not read it first, so nothing lands before the agent's recipe, and the Job is listed under the source `web`. A link sent again is never matched. Send a file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. Answers the id of a Job that waits for a Runner, as `get_job` reads it, and what it was taken as. A PDF or a picture handed over before is known by its contents: while your Job on it waits or is worked, the answer is that Job, and once its recipe exists the answer is that recipe as `branch_id` and `title`, with no Job. Pasted text is never matched. No recipe exists until the agent creates one, under your Hand. Read the Job with `get_job`: its result is the Import Report, which lists the recipe as arrived once it exists and says what the agent left undone, or why it could not be read. Cancel it with `cancel_job`. Kamosu keeps what was handed over for the agent to fetch and never shows it.",
+		"summary": "Have an agent make a recipe from text, a link or a file. The file is a PDF or a picture, and the recipe lands in your own Cookbook. Only on an instance with a Runner: without one it is refused with reason `no_runner`. A PDF may be a scan. Pass pasted text as `text`. Pass a web page or a video as `link`: Kamosu does not read it first, so nothing lands before the agent's recipe, and the Job is listed under the source `web`. A link sent again is never matched. Send a file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. Answers the id of a Job that waits for a Runner, as `get_job` reads it, and what it was taken as. A PDF or a picture handed over before is known by its contents: while your Job on it waits or is worked, the answer is that Job, and once its recipe exists the answer is that recipe as `branch_id` and `title`, with no Job. Pasted text is never matched. Several pictures of one recipe go as `pictures`, in order, and are known again by all of them in that order. No recipe exists until the agent creates one, under your Hand. Read the Job with `get_job`: its result is the Import Report, which lists the recipe as arrived once it exists and says what the agent left undone, or why it could not be read. Cancel it with `cancel_job`. Kamosu keeps what was handed over for the agent to fetch and never shows it.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -15102,6 +16458,22 @@ export const CATALOGUE = [
 				"link": {
 					"description": "A web page or a video with a recipe in it, as an http:// or https:// address.",
 					"type": "string"
+				},
+				"pictures": {
+					"description": "Several pictures of one recipe, its pages in order, at most 10: each { upload_id } from POST /api/uploads, or { data }, base64-encoded. The agent reads them as one recipe.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"data": {
+								"type": "string"
+							},
+							"upload_id": {
+								"type": "string"
+							}
+						},
+						"type": "object"
+					},
+					"type": "array"
 				},
 				"text": {
 					"description": "A recipe pasted as text.",
@@ -16146,6 +17518,16 @@ export const CATALOGUE = [
 										"items": {
 											"additionalProperties": false,
 											"properties": {
+												"as_read": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												},
+												"by_hand": {
+													"type": "boolean"
+												},
 												"timer_seconds": {
 													"minimum": 1,
 													"type": [
@@ -16163,6 +17545,7 @@ export const CATALOGUE = [
 											},
 											"required": [
 												"uses",
+												"by_hand",
 												"timer_seconds"
 											],
 											"type": [
@@ -16763,10 +18146,14 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text; `meal_plan_timeline` are entries the app wrote on the recipe's timeline from its meal plan, which say it was planned rather than cooked.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"address": {
+								"description": "For `photos_not_downloaded`: the photo's web address.",
+								"type": "string"
+							},
 							"branch_id": {
 								"type": "string"
 							},
@@ -16787,7 +18174,14 @@ export const CATALOGUE = [
 								"enum": [
 									"site_icon",
 									"extra_photos",
-									"unreadable_photos"
+									"unreadable_photos",
+									"attached_files",
+									"ratings",
+									"favourites",
+									"comments",
+									"photos_not_downloaded",
+									"nutrition",
+									"meal_plan_timeline"
 								]
 							}
 						},
@@ -16795,6 +18189,32 @@ export const CATALOGUE = [
 							"foreign_id",
 							"branch_id",
 							"title",
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"left_out_of_file": {
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"count": {
+								"type": "integer"
+							},
+							"what": {
+								"enum": [
+									"meal_plans",
+									"shopping_lists",
+									"photos_not_in_export",
+									"items",
+									"expenses"
+								]
+							}
+						},
+						"required": [
 							"what",
 							"count"
 						],
@@ -17131,10 +18551,14 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text; `meal_plan_timeline` are entries the app wrote on the recipe's timeline from its meal plan, which say it was planned rather than cooked.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"address": {
+								"description": "For `photos_not_downloaded`: the photo's web address.",
+								"type": "string"
+							},
 							"branch_id": {
 								"type": "string"
 							},
@@ -17155,7 +18579,14 @@ export const CATALOGUE = [
 								"enum": [
 									"site_icon",
 									"extra_photos",
-									"unreadable_photos"
+									"unreadable_photos",
+									"attached_files",
+									"ratings",
+									"favourites",
+									"comments",
+									"photos_not_downloaded",
+									"nutrition",
+									"meal_plan_timeline"
 								]
 							}
 						},
@@ -17163,6 +18594,32 @@ export const CATALOGUE = [
 							"foreign_id",
 							"branch_id",
 							"title",
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"left_out_of_file": {
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"count": {
+								"type": "integer"
+							},
+							"what": {
+								"enum": [
+									"meal_plans",
+									"shopping_lists",
+									"photos_not_in_export",
+									"items",
+									"expenses"
+								]
+							}
+						},
+						"required": [
 							"what",
 							"count"
 						],
@@ -17324,6 +18781,478 @@ export const CATALOGUE = [
 				"left_out",
 				"related_candidates"
 			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "import_from_another_app",
+		"summary": "Bring in the export file of another recipe app, as a Job. Kamosu looks inside the file, works out which app made it, and lands every recipe in your own Cookbook through the same ledger `import` uses, keyed by that app's own id, so running it again matches instead of doubling. The apps it reads: Mealie (its recipe export zip, or an administrator's backup zip, which brings each recipe's \"I Made This\" history as finished Attempts of yours, each naming who cooked it), Paprika (.paprikarecipes), Tandoor (its Default export zip, or its Recipe Sage .json), Crouton (its library zip of .crumb files, or one .crumb), Nextcloud Cookbook (its folder of recipes as a zip), RecipeSage (its JSON-LD .json), Recipya (its JSON export zip), CookCLI (its schema.org .json files, zipped together or one alone) and Bar Assistant (its JSON Schema or JSON-LD export zip). A file it does not know, a known app's export in a shape Kamosu was not tested with, or archives nested too deep, land nothing: the answer is then `refused` alone, with its reason. A Mealie backup holding the recipes of several households lands nothing until one is named: the answer is then `which_household` alone, and the same upload is kept a day for a second call naming one as `mealie_household`. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
+		"permission": "person",
+		"kind": "job",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"as_operator": {
+					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
+					"type": "boolean"
+				},
+				"cookbook_id": {
+					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
+					"type": "string"
+				},
+				"data": {
+					"description": "The export itself, base64-encoded — for a Door that can send only JSON.",
+					"type": "string"
+				},
+				"mealie_household": {
+					"description": "For a Mealie backup holding the recipes of more than one household: which one to import, by a `name` the `which_household` answer gave. Only its recipes land.",
+					"type": "string"
+				},
+				"upload_id": {
+					"description": "The id POST /api/uploads answered for the export. Used once, then deleted.",
+					"type": "string"
+				}
+			},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"agent_jobs": {
+					"description": "Present when a Runner's agent is to read what Kamosu could not: the Job on each such recipe, which is a second Job after this Import, done by that agent and not by Kamosu. It is read here as it stands now, so this part of the Report changes after the Import has ended. The bare recipe and the agent's work on it are one arrival. Read the Job itself with `get_job`, where its operation is `read_by_agent`, and cancel it with `cancel_job`, while it waits or while it is being worked. A recipe has one such Job at a time, so the same link imported again while it stands names the same Job.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"agent_report": {
+								"additionalProperties": false,
+								"description": "The agent's own report on its work, present once a Runner has passed one on.",
+								"properties": {
+									"left_undone": {
+										"description": "What the agent did not do, a sentence each: an Ingredient Line it could not read, a Step it left out, a photo it could not fetch.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"likely_duplicates": {
+										"description": "The Branch id of each recipe already in the library that this one is likely a duplicate of. The recipe is saved all the same. Kamosu does not check the ids, so read each with `get_recipe`.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unsure": {
+										"description": "What the agent wrote and was unsure of, a sentence each, so the cook knows where to look.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"unused_foods": {
+										"description": "The name of each Food the agent's corrections left with nothing pointing at it, for an Operator to tidy.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									}
+								},
+								"type": "object"
+							},
+							"branch_id": {
+								"description": "The recipe the agent is to write, which is listed under `arrived` or `offered`. Null while an agent reading pasted text, a PDF, a picture or a link handed to it alone has not created it yet.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"could_not_be_read": {
+								"description": "Present and true when the agent said what it was handed holds no recipe it can read. The reason under `unreadable` is then the agent's own words. A Job that failed any other way has Kamosu's reason there.",
+								"type": "boolean"
+							},
+							"job_id": {
+								"type": "string"
+							},
+							"made_by_agent": {
+								"description": "Present and true once the Job has completed: an agent made this recipe. Nothing on the recipe itself says so.",
+								"type": "boolean"
+							},
+							"original_gone": {
+								"description": "Present and true once the pasted text, PDF or picture this Job read has been deleted, which Kamosu does 30 days after the Job ended. `source_kind` still says which it was.",
+								"type": "boolean"
+							},
+							"status": {
+								"description": "`queued` is waiting for a Runner and `running` is held by one, its agent at work. A `failed` Job is also listed under `unreadable`, with the reason.",
+								"enum": [
+									"queued",
+									"running",
+									"completed",
+									"failed",
+									"cancelled"
+								]
+							}
+						},
+						"required": [
+							"job_id",
+							"branch_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"arrived": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"bare": {
+								"description": "It came as a bare name (and usually a link): no Ingredient Line and no Step. A real recipe that arrived correctly, not a failure.",
+								"type": "boolean"
+							},
+							"branch_id": {
+								"description": "The Branch as this instance holds it — the id every other Operation and every URL takes. On a recipe received from elsewhere it is not the id it travelled under.",
+								"type": "string"
+							},
+							"foreign_id": {
+								"description": "What the source called this recipe: from a Bundle, the Branch id it travels under, which is the sender's.",
+								"type": "string"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"main_photo": {
+								"description": "The Photograph the recipe arrived with as its Main Photo, or null.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"status": {
+								"description": "`read_again` is a recipe already held that a Co-author asked an agent to read again.",
+								"enum": [
+									"created",
+									"extended",
+									"unchanged",
+									"read_again"
+								]
+							},
+							"subject": {
+								"description": "From a Bundle: whether this recipe is what the Bundle is about, rather than a Passenger that travelled because something needed it.",
+								"type": "boolean"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"status",
+							"lineage_id",
+							"branch_id",
+							"title"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"cookbook_id": {
+					"type": "string"
+				},
+				"import_id": {
+					"type": "string"
+				},
+				"left_out": {
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text; `meal_plan_timeline` are entries the app wrote on the recipe's timeline from its meal plan, which say it was planned rather than cooked.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"address": {
+								"description": "For `photos_not_downloaded`: the photo's web address.",
+								"type": "string"
+							},
+							"branch_id": {
+								"type": "string"
+							},
+							"count": {
+								"type": "integer"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"icon": {
+								"description": "For a `site_icon`: the icon itself as a `data:` URI, so the Report can show what was left out. Carried only here, never stored as a Photograph.",
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							},
+							"what": {
+								"enum": [
+									"site_icon",
+									"extra_photos",
+									"unreadable_photos",
+									"attached_files",
+									"ratings",
+									"favourites",
+									"comments",
+									"photos_not_downloaded",
+									"nutrition",
+									"meal_plan_timeline"
+								]
+							}
+						},
+						"required": [
+							"foreign_id",
+							"branch_id",
+							"title",
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"left_out_of_file": {
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"count": {
+								"type": "integer"
+							},
+							"what": {
+								"enum": [
+									"meal_plans",
+									"shopping_lists",
+									"photos_not_in_export",
+									"items",
+									"expenses"
+								]
+							}
+						},
+						"required": [
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"offered": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"candidate_version_id": {
+								"description": "The Version this candidate's content became, held but not yet on the Branch.",
+								"type": "string"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"lineage_id",
+							"branch_id",
+							"title",
+							"candidate_version_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"refused": {
+					"additionalProperties": false,
+					"description": "Present alone when the file landed nothing, and why: `unrecognised` is a file no app's reader knows; `untested_shape` is an export from `app` in a shape Kamosu has not been tested with, so update that app, export again and import the new file; `nested_too_deep` is a file of archives nested deeper than any app's export, which was not unpacked.",
+					"properties": {
+						"app": {
+							"description": "For `untested_shape`: the app the file is from.",
+							"type": "string"
+						},
+						"reason": {
+							"enum": [
+								"unrecognised",
+								"untested_shape",
+								"nested_too_deep"
+							]
+						},
+						"sentence": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"reason",
+						"sentence"
+					],
+					"type": "object"
+				},
+				"related_candidates": {
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"recipes": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"ingredients": {
+											"type": "integer"
+										},
+										"lineage_id": {
+											"type": "string"
+										},
+										"main_photo": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"title": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"lineage_id",
+										"branch_id",
+										"title",
+										"main_photo",
+										"ingredients"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"shared": {
+								"items": {
+									"enum": [
+										"name",
+										"page"
+									]
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"recipes",
+							"shared"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"source_kind": {
+					"type": "string"
+				},
+				"unreadable": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"description": "Where an agent's Job failed on a recipe that had landed bare: that recipe. It stays, still listed under `arrived`, unless the Job failed because the recipe was deleted.",
+								"type": "string"
+							},
+							"foreign_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"kept_as": {
+								"additionalProperties": false,
+								"description": "From a damaged Bundle: the new recipe of your own its words were kept as, with no history and no link to the recipe it came from.",
+								"properties": {
+									"branch_id": {
+										"type": "string"
+									},
+									"lineage_id": {
+										"type": "string"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"lineage_id",
+									"branch_id",
+									"title"
+								],
+								"type": "object"
+							},
+							"name": {
+								"description": "What the source called it, where even its own id could not be read — a Crouton file's name.",
+								"type": "string"
+							},
+							"reason": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"reason"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"which_household": {
+					"additionalProperties": false,
+					"description": "Present alone when the file is a Mealie backup holding the recipes of several households and none was named, or one it does not hold (#418). Nothing landed: ask again with the same `upload_id`, kept a day for it, or the same `data`, and one household's `name` as `mealie_household`.",
+					"properties": {
+						"households": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"cooks": {
+										"description": "The full names of the cooks in it.",
+										"items": {
+											"type": "string"
+										},
+										"type": "array"
+									},
+									"name": {
+										"description": "What to send as `mealie_household`: the household's name, with its group's after it where two groups use the same name.",
+										"type": "string"
+									},
+									"recipes": {
+										"description": "How many of its recipes the backup holds.",
+										"type": "integer"
+									}
+								},
+								"required": [
+									"name",
+									"recipes",
+									"cooks"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"sentence": {
+							"type": "string"
+						},
+						"upload_id": {
+							"description": "The upload kept for the second call, where the file was sent as one.",
+							"type": "string"
+						}
+					},
+					"required": [
+						"households",
+						"sentence"
+					],
+					"type": "object"
+				}
+			},
+			"required": [],
 			"type": "object"
 		}
 	},
@@ -17498,6 +19427,91 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "add_this",
+		"summary": "Add a recipe from whatever a phone's Share menu sent. It takes a link, text, a PDF, or one or more pictures, the pages of one recipe in order. An agent may call it too, rather than choose the route itself. Kamosu decides: a link goes to Kamosu's own reader, or to the agent where the Credential in hand sends everything there (`get_agent_choice`), and text that is only a link is that link. Text, pictures and a PDF go to the agent, and are refused in the answer where this Kamosu has none. One file that is text is text. A link already the Source of a recipe you can see, or one of your imports still reading, adds nothing. A link waits for its page to be read, about 10 seconds at most; anything else answers at once. The answer is `message`, in your Reading Language, to show as it is, and `outcome`. A failure later shows on the Imports screen as any import's does. Send files to POST /api/uploads first, one per request, and pass their ids in order as `files`. A Shortcut sends its own `shortcut_version`, and hears when a newer one is available.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"files": {
+					"description": "One PDF, or one or more pictures of one recipe in order, at most 10: each { upload_id } from POST /api/uploads, or { data }, base64-encoded.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"data": {
+								"type": "string"
+							},
+							"upload_id": {
+								"type": "string"
+							}
+						},
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"link": {
+					"description": "A web page or a post, as an http:// or https:// address.",
+					"type": "string"
+				},
+				"shortcut_version": {
+					"description": "The asking Shortcut's own version, which it sends with every call.",
+					"minimum": 1,
+					"type": "integer"
+				},
+				"text": {
+					"description": "Text that was shared: a recipe, or a link alone.",
+					"type": "string"
+				},
+				"upload_ids": {
+					"description": "The same as `files`, for a client that sends only flat fields, as a Shortcut does: the ids POST /api/uploads answered, in order, separated by commas.",
+					"type": "string"
+				}
+			},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"description": "The recipe added, or already on your shelf.",
+					"type": "string"
+				},
+				"job_id": {
+					"description": "The import reading it, where one was started or stands, as get_job reads it.",
+					"type": "string"
+				},
+				"message": {
+					"description": "What to show the person who shared, in their Reading Language.",
+					"type": "string"
+				},
+				"outcome": {
+					"description": "added: the recipe is on your shelf. sent: it is being read and arrives later. already: it was on your shelf, or being added, and nothing new was. not_added: nothing was, and message says why and what to do instead.",
+					"enum": [
+						"added",
+						"sent",
+						"already",
+						"not_added"
+					]
+				},
+				"shortcut_version": {
+					"description": "The Shortcut version this Kamosu publishes now.",
+					"type": "integer"
+				},
+				"title": {
+					"description": "That recipe's name.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"outcome",
+				"message",
+				"shortcut_version"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "import_web_link",
 		"summary": "Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Without a Runner, a page with no recipe data is read from its own article text the way `read_pasted_recipe` reads a paste, and when that finds Ingredient Lines nothing lands: the answer is `to_check` alone, for a person to check and save, with the page as its Source (#301). Where it finds none, the page lands bare as before. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in.",
 		"permission": "person",
@@ -17512,6 +19526,11 @@ export const CATALOGUE = [
 				"cookbook_id": {
 					"description": "Operator only, with as_operator: the Cookbook to put it in, as list_cookbooks names it. Left out, it lands in your own. A Cookbook not your own is otherwise answered as not found.",
 					"type": "string"
+				},
+				"refuse_unread": {
+					"default": false,
+					"description": "Without a Runner, land nothing Kamosu cannot read on its own: a page with no recipe data fails with reason `not_read_alone`, and one that refused the fetch with `page_refused`. add_this asks this way.",
+					"type": "boolean"
 				},
 				"url": {
 					"description": "The recipe page's address. Fetched through the guarded client; only http:// and https:// are accepted.",
@@ -17668,10 +19687,14 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text; `meal_plan_timeline` are entries the app wrote on the recipe's timeline from its meal plan, which say it was planned rather than cooked.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"address": {
+								"description": "For `photos_not_downloaded`: the photo's web address.",
+								"type": "string"
+							},
 							"branch_id": {
 								"type": "string"
 							},
@@ -17692,7 +19715,14 @@ export const CATALOGUE = [
 								"enum": [
 									"site_icon",
 									"extra_photos",
-									"unreadable_photos"
+									"unreadable_photos",
+									"attached_files",
+									"ratings",
+									"favourites",
+									"comments",
+									"photos_not_downloaded",
+									"nutrition",
+									"meal_plan_timeline"
 								]
 							}
 						},
@@ -17700,6 +19730,32 @@ export const CATALOGUE = [
 							"foreign_id",
 							"branch_id",
 							"title",
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"left_out_of_file": {
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"count": {
+								"type": "integer"
+							},
+							"what": {
+								"enum": [
+									"meal_plans",
+									"shopping_lists",
+									"photos_not_in_export",
+									"items",
+									"expenses"
+								]
+							}
+						},
+						"required": [
 							"what",
 							"count"
 						],
@@ -18142,6 +20198,20 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"cooking": {
+					"description": "Only recipes cooked as any of these says: never cooked, cooked with no rating, or a rating word as some Person's latest rating on it. Read across everyone this Person cooks with, or across this Person alone when `mine` is true. With `mine`, the whole shelf is judged, not only their history: `never_cooked` is every recipe they have not cooked. Empty or absent filters nothing.",
+					"items": {
+						"enum": [
+							"never_cooked",
+							"cooked_unrated",
+							"again",
+							"tweak",
+							"no"
+						],
+						"type": "string"
+					},
+					"type": "array"
+				},
 				"kitchen_id": {
 					"type": [
 						"string",
@@ -18149,7 +20219,7 @@ export const CATALOGUE = [
 					]
 				},
 				"mine": {
-					"description": "Only recipes this Person created, branched or cooked: a history, not ownership. Not the same as the `mine` on each entry, which says whether their own Cookbook holds the recipe.",
+					"description": "Only recipes this Person created, branched or cooked: a history, not ownership. Not the same as the `mine` on each entry, which says whether their own Cookbook holds the recipe. Beside `cooking`, it says instead that only their own cookings judge it, across the whole shelf.",
 					"type": "boolean"
 				},
 				"query": {
@@ -19630,6 +21700,16 @@ export const CATALOGUE = [
 										"items": {
 											"additionalProperties": false,
 											"properties": {
+												"as_read": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												},
+												"by_hand": {
+													"type": "boolean"
+												},
 												"timer_seconds": {
 													"minimum": 1,
 													"type": [
@@ -19647,6 +21727,7 @@ export const CATALOGUE = [
 											},
 											"required": [
 												"uses",
+												"by_hand",
 												"timer_seconds"
 											],
 											"type": [
@@ -20801,7 +22882,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_public_address",
-		"summary": "Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess.",
+		"summary": "Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. Also how many passkeys work at it, which a new address would leave unable to sign in.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -20812,6 +22893,10 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"passkeys": {
+					"minimum": 0,
+					"type": "integer"
+				},
 				"public_address": {
 					"type": [
 						"string",
@@ -20820,14 +22905,15 @@ export const CATALOGUE = [
 				}
 			},
 			"required": [
-				"public_address"
+				"public_address",
+				"passkeys"
 			],
 			"type": "object"
 		}
 	},
 	{
 		"name": "set_public_address",
-		"summary": "Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show.",
+		"summary": "Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. A passkey works only at the address it was made at: `get_public_address` says how many work at the current one and would stop at a new one.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -21251,10 +23337,14 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"left_out": {
-					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded.",
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded; `attached_files` are files the app kept beside the recipe; `ratings`, `favourites` and `comments` are the app's, which no cooking in Kamosu stands behind; `photos_not_downloaded` is a photo the file held only as the `address` named, which was not downloaded: the address failed, was one Kamosu does not fetch, or came after the import's time for downloads ran out; `nutrition` is nutrition the app kept as free text; `meal_plan_timeline` are entries the app wrote on the recipe's timeline from its meal plan, which say it was planned rather than cooked.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"address": {
+								"description": "For `photos_not_downloaded`: the photo's web address.",
+								"type": "string"
+							},
 							"branch_id": {
 								"type": "string"
 							},
@@ -21275,7 +23365,14 @@ export const CATALOGUE = [
 								"enum": [
 									"site_icon",
 									"extra_photos",
-									"unreadable_photos"
+									"unreadable_photos",
+									"attached_files",
+									"ratings",
+									"favourites",
+									"comments",
+									"photos_not_downloaded",
+									"nutrition",
+									"meal_plan_timeline"
 								]
 							}
 						},
@@ -21283,6 +23380,32 @@ export const CATALOGUE = [
 							"foreign_id",
 							"branch_id",
 							"title",
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"left_out_of_file": {
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"count": {
+								"type": "integer"
+							},
+							"what": {
+								"enum": [
+									"meal_plans",
+									"shopping_lists",
+									"photos_not_in_export",
+									"items",
+									"expenses"
+								]
+							}
+						},
+						"required": [
 							"what",
 							"count"
 						],
@@ -26152,6 +28275,64 @@ export const CATALOGUE = [
 				"line_index",
 				"reading",
 				"measured"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_step_uses",
+		"summary": "Correct which Ingredient Lines a Step uses. It is on a Recipe's current state. Kamosu works this out of the Step's words on every read, and get_recipe answers it as cooking.steps[].uses; this sets it by hand, for a Step it reads wrong. `uses` is the whole new list of line indexes into content.ingredients, empty for a Step that adds nothing, and each must be an Ingredient Line, not a section. null takes the correction away, and the Step goes back to what Kamosu reads, which get_recipe answers on a corrected Step as cooking.steps[].as_read. Mints no Version and appears in no history, as set_reading does. A save carries the correction onto the new Version while the Step and every line it names stay word for word as they were, wherever they now sit, and drops it once either changes (ADR 0054).",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"step_index": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"uses": {
+					"items": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"type": [
+						"array",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"branch_id",
+				"step_index",
+				"uses"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"by_hand": {
+					"type": "boolean"
+				},
+				"step_index": {
+					"type": "integer"
+				},
+				"uses": {
+					"items": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"step_index",
+				"uses",
+				"by_hand"
 			],
 			"type": "object"
 		}
@@ -33611,7 +35792,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "read_recipe_again",
-		"summary": "Have an agent read a recipe again. A recipe an agent read from a PDF, a picture or pasted text is read from what Kamosu kept of it. Kamosu deletes that 30 days after its Job ended, and then the ask is refused with reason `needs_the_file`: ask again handing the file over, as `upload_id` or `data`, or the text as `text`. Any other recipe is read from its Source link, whichever way it arrived, and takes nothing handed over. It makes a Job that waits for a Runner. Only a Co-author of the Cookbook that holds the recipe may ask, on a Kamosu with a Runner. A recipe is read again once: after a reading that finished, or one stopped while a Runner held it, the ask is refused with reason `already_read_again`. One that failed, or was stopped while it waited, does not count. A variation is a recipe of its own, read again once too. The agent's saves become one new Version under your Hand, so the earlier one stays in the History. Where a Job already waits or is being worked on the recipe, that Job is the answer, and nothing handed over is kept. Its result is an Import Report under the source `read_again`, which says what the agent left undone or was unsure of. Ask `can_read_recipe_again` first to know what it would read, or why it would be refused.",
+		"summary": "Have an agent read a recipe again. A recipe an agent read from a PDF, a picture or pasted text is read from what Kamosu kept of it. Kamosu deletes that 30 days after its Job ended, and then the ask is refused with reason `needs_the_file`: ask again handing the file over, as `upload_id` or `data`, several pictures as `pictures`, or the text as `text`. Any other recipe is read from its Source link, whichever way it arrived, and takes nothing handed over. It makes a Job that waits for a Runner. Only a Co-author of the Cookbook that holds the recipe may ask, on a Kamosu with a Runner. A recipe is read again once: after a reading that finished, or one stopped while a Runner held it, the ask is refused with reason `already_read_again`. One that failed, or was stopped while it waited, does not count. A variation is a recipe of its own, read again once too. The agent's saves become one new Version under your Hand, so the earlier one stays in the History. Where a Job already waits or is being worked on the recipe, that Job is the answer, and nothing handed over is kept. Its result is an Import Report under the source `read_again`, which says what the agent left undone or was unsure of. Ask `can_read_recipe_again` first to know what it would read, or why it would be refused.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -33623,6 +35804,22 @@ export const CATALOGUE = [
 				"data": {
 					"description": "The PDF or the picture handed over again, base64-encoded, for a Door that can send only JSON.",
 					"type": "string"
+				},
+				"pictures": {
+					"description": "Several pictures of one recipe, its pages in order, at most 10: each { upload_id } from POST /api/uploads, or { data }, base64-encoded. The agent reads them as one recipe.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"data": {
+								"type": "string"
+							},
+							"upload_id": {
+								"type": "string"
+							}
+						},
+						"type": "object"
+					},
+					"type": "array"
 				},
 				"text": {
 					"description": "The recipe pasted again, where it was read from pasted text Kamosu no longer keeps.",
@@ -33842,9 +36039,14 @@ export const READS: readonly OperationName[] = [
 	'list_backups',
 	'list_runner_keys',
 	'runner_status',
+	'list_replays',
 	'get_house_notes',
+	'list_instance_security_record',
 	'list_sessions',
 	'list_access_keys',
+	'get_agent_choice',
+	'list_security_record',
+	'list_passkeys',
 	'list_kitchens',
 	'preview_leaving_kitchen',
 	'get_cookbook',
@@ -33901,8 +36103,10 @@ export const METHOD_NAMES = {
 	list_runner_keys: 'listRunnerKeys',
 	revoke_runner_key: 'revokeRunnerKey',
 	runner_status: 'runnerStatus',
+	list_replays: 'listReplays',
 	get_house_notes: 'getHouseNotes',
 	set_house_notes: 'setHouseNotes',
+	list_instance_security_record: 'listInstanceSecurityRecord',
 	ask_for_work: 'askForWork',
 	renew_hold: 'renewHold',
 	report_on_job: 'reportOnJob',
@@ -33911,7 +36115,17 @@ export const METHOD_NAMES = {
 	revoke_session: 'revokeSession',
 	mint_access_key: 'mintAccessKey',
 	list_access_keys: 'listAccessKeys',
+	get_agent_choice: 'getAgentChoice',
+	set_agent_choice: 'setAgentChoice',
+	set_key_agent_choice: 'setKeyAgentChoice',
 	revoke_access_key: 'revokeAccessKey',
+	list_security_record: 'listSecurityRecord',
+	list_passkeys: 'listPasskeys',
+	rename_passkey: 'renamePasskey',
+	remove_passkey: 'removePasskey',
+	start_adding_passkey: 'startAddingPasskey',
+	finish_adding_passkey: 'finishAddingPasskey',
+	change_password: 'changePassword',
 	create_kitchen: 'createKitchen',
 	list_kitchens: 'listKitchens',
 	rename_kitchen: 'renameKitchen',
@@ -33953,8 +36167,10 @@ export const METHOD_NAMES = {
 	set_recipe_language: 'setRecipeLanguage',
 	import: 'import',
 	import_crouton: 'importCrouton',
+	import_from_another_app: 'importFromAnotherApp',
 	list_imports: 'listImports',
 	forget_import: 'forgetImport',
+	add_this: 'addThis',
 	import_web_link: 'importWebLink',
 	preview_shared_recipe: 'previewSharedRecipe',
 	rename_version: 'renameVersion',
@@ -33984,6 +36200,7 @@ export const METHOD_NAMES = {
 	divergence: 'divergence',
 	changed_since: 'changedSince',
 	set_reading: 'setReading',
+	set_step_uses: 'setStepUses',
 	read_ingredient_lines: 'readIngredientLines',
 	reread_ingredient_lines: 'rereadIngredientLines',
 	start_attempt: 'startAttempt',
@@ -34025,7 +36242,7 @@ export const METHOD_NAMES = {
 
 /** The typed client: one method per Operation, named as the Catalogue names it. */
 export interface KamosuClient {
-	/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts. */
+	/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes, and the Umami script it counts its visits with, if any. */
 	instanceStatus(input?: InstanceStatusInput): Promise<Answer<'instance_status'>>;
 	/** Set the Language and measures this Person reads in. */
 	setReadingPreferences(input: SetReadingPreferencesInput): Promise<Answer<'set_reading_preferences'>>;
@@ -34061,10 +36278,14 @@ export interface KamosuClient {
 	revokeRunnerKey(input: RevokeRunnerKeyInput): Promise<Answer<'revoke_runner_key'>>;
 	/** Read whether this instance has a Runner. Also when one was last heard from, asking for work or renewing its hold on a Job. */
 	runnerStatus(input?: RunnerStatusInput): Promise<Answer<'runner_status'>>;
+	/** List the examples a Demo replays the agent's work on. Each is an agent's Import, ended, which the interface plays through Sent, Waiting and Reading before its Report. Empty on an instance that is no Demo. */
+	listReplays(input?: ListReplaysInput): Promise<Answer<'list_replays'>>;
 	/** Read the agent's House Notes. They are what an Operator adds to the end of the instructions the agent follows, handed over with every Job. Null when none are written, and the agent follows its own instructions alone. Says who saved them last and when. */
 	getHouseNotes(input?: GetHouseNotesInput): Promise<Answer<'get_house_notes'>>;
 	/** Save the agent's House Notes. They replace any there were, up to 4,000 characters. The agent reads them after its own instructions, as the Operator's, and follows them where the two disagree. A Job carries the notes as they stand when a Runner takes it. Blank text takes them away. Kamosu's own agent image follows them; another agent follows them only if it reads `house_notes` from each Job. */
 	setHouseNotes(input: SetHouseNotesInput): Promise<Answer<'set_house_notes'>>;
+	/** Read the instance's Security Record, newest first. Every Operator reads it. It holds the House Notes and the public address changed, a Person made an Operator or stood down, an account disabled or deleted, an Operator key minted, a crowd of sign-ins refused because the line for them was full (counted as one row while it lasts), Runner Keys minted and revoked, and Backups fetched. Each row says who did it and through which Session or key. Kept for `kept_for_days` days. A change you did not make, made through an Operator key, may be an agent tricked by what it read: end that key. */
+	listInstanceSecurityRecord(input?: ListInstanceSecurityRecordInput): Promise<Answer<'list_instance_security_record'>>;
 	/** Ask for a Job to do. For a Runner alone, with its Runner Key. Answers the oldest Job that waits for an agent: `link` or `original` is what to read and `branch_id` is the recipe it is for, null until the agent creates it with `create_recipe`. The Job is running from then on, held by this Runner Key and no other, until `report_on_job` says how it ended or `held_until` passes. Call `renew_hold` every `renew_within_seconds` to move that deadline on: a Job whose deadline passed waits again and goes to the next Runner that asks. A Runner holds one Job at a time, so asking again while holding one answers that same Job. `ask` is a mark the Runner makes up for each new ask, such as a random id, and sends again unchanged when it repeats an ask whose reply never arrived. `job_key` is the Job Key, for the agent: a Secret that reads the library as the Person who asked for the Job and writes the Job's one recipe under their Hand, until the Job ends. It is shown here and never again. An ask repeated under the same mark is handed a new one in place of the one that was lost, and an ask under a new mark is handed one more and spends none. `job` is null when nothing is waiting. `runner_version` is the Runner's own version, and a Kamosu of another version refuses it with reason `another_version`. */
 	askForWork(input: AskForWorkInput): Promise<Answer<'ask_for_work'>>;
 	/** Keep hold of the Job this Runner is working. For a Runner alone, with the Runner Key that took the Job. Moves the hold's deadline on and answers the new one in `held_until`. Call it again within `renew_within_seconds`, for as long as the agent works. Refused once the hold is gone, because the deadline passed or the Job ended: stop the agent then, and ask for work again. This is how a Runner learns that its Job was cancelled, and the refusal says so. */
@@ -34077,12 +36298,32 @@ export interface KamosuClient {
 	renameSession(input: RenameSessionInput): Promise<Answer<'rename_session'>>;
 	/** End one of your browser Sessions. `current` says whether it was the one this call was made with, as `list_sessions` marks it: a browser that ended its own is signed out. */
 	revokeSession(input: RevokeSessionInput): Promise<Answer<'revoke_session'>>;
-	/** Mint an Access Key for an agent to act as you. You may make it read-only. */
+	/** Mint an Access Key for an agent to act as you. You may make it read-only. An Operator may make it an Operator key, which acts as an Operator too; any other key acts as an ordinary Person. Or make it an Add-only key, the key a phone's Share menu carries: it may call add_this and get_job and stage files at POST /api/uploads, and nothing else. An Add-only key is neither read-only nor an Operator key, and keeps everything_to_agent: whether what it adds goes to the agent every time. */
 	mintAccessKey(input: MintAccessKeyInput): Promise<Answer<'mint_access_key'>>;
-	/** List this Person's Access Keys by name and last use. */
+	/** List this Person's Access Keys by name and last use. Each says whether it acts as an Operator, or is an Add-only key and where what it adds goes. */
 	listAccessKeys(input?: ListAccessKeysInput): Promise<Answer<'list_access_keys'>>;
+	/** Where what the Credential in hand shares goes. True sends it to the agent every time, recipe sites included; false sends only what Kamosu cannot read on its own. A Session keeps it for its device and an Access Key for whatever holds it. add_this reads it. */
+	getAgentChoice(input?: GetAgentChoiceInput): Promise<Answer<'get_agent_choice'>>;
+	/** Set where what the Credential in hand shares goes. To the agent every time, or only what Kamosu cannot read on its own. */
+	setAgentChoice(input: SetAgentChoiceInput): Promise<Answer<'set_agent_choice'>>;
+	/** Set where what one of your Add-only keys adds goes. To the agent every time, or only what Kamosu cannot read on its own, changed without the phone that holds it. */
+	setKeyAgentChoice(input: SetKeyAgentChoiceInput): Promise<Answer<'set_key_agent_choice'>>;
 	/** End one of your Access Keys. */
 	revokeAccessKey(input: RevokeAccessKeyInput): Promise<Answer<'revoke_access_key'>>;
+	/** Read your own Security Record, newest first. It holds each time you signed in and how, wrong passwords at your name counted as one row per run, passkeys added and removed, your password changed, Access Keys minted and ended, and Sessions ended. Each row names the Session or key it is about, never an address. Kept for `kept_for_days` days. What to look for: a sign-in on a device you do not know, wrong passwords you did not type, or a key you did not mint. End that Session or key and change your password. */
+	listSecurityRecord(input?: ListSecurityRecordInput): Promise<Answer<'list_security_record'>>;
+	/** List your passkeys. Each says when it was added and last used, and whether it works at this instance's address. Also whether this instance offers passkeys at all, and if not, why. */
+	listPasskeys(input?: ListPasskeysInput): Promise<Answer<'list_passkeys'>>;
+	/** Rename one of your passkeys. */
+	renamePasskey(input: RenamePasskeyInput): Promise<Answer<'rename_passkey'>>;
+	/** Remove one of your passkeys. It no longer signs in here; the device keeps it until it is deleted there. */
+	removePasskey(input: RemovePasskeyInput): Promise<Answer<'remove_passkey'>>;
+	/** Begin adding a passkey, with your password. Answers the options a browser hands its device. */
+	startAddingPasskey(input: StartAddingPasskeyInput): Promise<Answer<'start_adding_passkey'>>;
+	/** Finish adding a passkey the device made. The credential is the JSON text a browser writes of it, and the name is the one it is listed under. */
+	finishAddingPasskey(input: FinishAddingPasskeyInput): Promise<Answer<'finish_adding_passkey'>>;
+	/** Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working. */
+	changePassword(input: ChangePasswordInput): Promise<Answer<'change_password'>>;
 	/** Create a Kitchen, with its creator as its first member. A Kitchen is a group of People who see and cook from each other's Cookbooks. */
 	createKitchen(input: CreateKitchenInput): Promise<Answer<'create_kitchen'>>;
 	/** List every Kitchen this Person cooks in. */
@@ -34155,7 +36396,7 @@ export interface KamosuClient {
 	readPastedRecipe(input: ReadPastedRecipeInput): Promise<Answer<'read_pasted_recipe'>>;
 	/** Read a recipe PDF into title, ingredients and method. It takes one printed from a web page or a word processor, reads it the way read_pasted_recipe reads pasted text, and answers the same shape. A printed line that wrapped is joined back into one, and the first line is taken as the title. It writes nothing anywhere: what comes back is shown to whoever sent the PDF, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe. A scan or a photograph of a page holds no text and is refused with reason `pdf_has_no_text`; text is never read out of a picture. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 	readRecipePdf(input: ReadRecipePdfInput): Promise<Answer<'read_recipe_pdf'>>;
-	/** Have an agent make a recipe from text, a link or a file. The file is a PDF or a picture, and the recipe lands in your own Cookbook. Only on an instance with a Runner: without one it is refused with reason `no_runner`. A PDF may be a scan. Pass pasted text as `text`. Pass a web page or a video as `link`: Kamosu does not read it first, so nothing lands before the agent's recipe, and the Job is listed under the source `web`. A link sent again is never matched. Send a file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. Answers the id of a Job that waits for a Runner, as `get_job` reads it, and what it was taken as. A PDF or a picture handed over before is known by its contents: while your Job on it waits or is worked, the answer is that Job, and once its recipe exists the answer is that recipe as `branch_id` and `title`, with no Job. Pasted text is never matched. No recipe exists until the agent creates one, under your Hand. Read the Job with `get_job`: its result is the Import Report, which lists the recipe as arrived once it exists and says what the agent left undone, or why it could not be read. Cancel it with `cancel_job`. Kamosu keeps what was handed over for the agent to fetch and never shows it. */
+	/** Have an agent make a recipe from text, a link or a file. The file is a PDF or a picture, and the recipe lands in your own Cookbook. Only on an instance with a Runner: without one it is refused with reason `no_runner`. A PDF may be a scan. Pass pasted text as `text`. Pass a web page or a video as `link`: Kamosu does not read it first, so nothing lands before the agent's recipe, and the Job is listed under the source `web`. A link sent again is never matched. Send a file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. Answers the id of a Job that waits for a Runner, as `get_job` reads it, and what it was taken as. A PDF or a picture handed over before is known by its contents: while your Job on it waits or is worked, the answer is that Job, and once its recipe exists the answer is that recipe as `branch_id` and `title`, with no Job. Pasted text is never matched. Several pictures of one recipe go as `pictures`, in order, and are known again by all of them in that order. No recipe exists until the agent creates one, under your Hand. Read the Job with `get_job`: its result is the Import Report, which lists the recipe as arrived once it exists and says what the agent left undone, or why it could not be read. Cancel it with `cancel_job`. Kamosu keeps what was handed over for the agent to fetch and never shows it. */
 	importByAgent(input: ImportByAgentInput): Promise<Answer<'import_by_agent'>>;
 	/** Translate a recipe into another Language. It is an ordinary Branch of its Lineage. Its first Version records which Version of the source it renders, and its chain starts fresh, unlike a Copy's. An agent translating calls this under the Person's Credential. Keep each Ingredient Line and section heading in the source's place, with its amount and unit: such a line takes the source line's Food, here and on a save naming a newer translates_version_id. */
 	startTranslation(input: StartTranslationInput): Promise<Answer<'start_translation'>>;
@@ -34165,10 +36406,14 @@ export interface KamosuClient {
 	import(input: ImportInput): Promise<Answer<'import'>>;
 	/** Bring in a Crouton library, as a Job. It takes the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your own Cookbook through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 	importCrouton(input: ImportCroutonInput): Promise<Answer<'import_crouton'>>;
+	/** Bring in the export file of another recipe app, as a Job. Kamosu looks inside the file, works out which app made it, and lands every recipe in your own Cookbook through the same ledger `import` uses, keyed by that app's own id, so running it again matches instead of doubling. The apps it reads: Mealie (its recipe export zip, or an administrator's backup zip, which brings each recipe's "I Made This" history as finished Attempts of yours, each naming who cooked it), Paprika (.paprikarecipes), Tandoor (its Default export zip, or its Recipe Sage .json), Crouton (its library zip of .crumb files, or one .crumb), Nextcloud Cookbook (its folder of recipes as a zip), RecipeSage (its JSON-LD .json), Recipya (its JSON export zip), CookCLI (its schema.org .json files, zipped together or one alone) and Bar Assistant (its JSON Schema or JSON-LD export zip). A file it does not know, a known app's export in a shape Kamosu was not tested with, or archives nested too deep, land nothing: the answer is then `refused` alone, with its reason. A Mealie backup holding the recipes of several households lands nothing until one is named: the answer is then `which_household` alone, and the same upload is kept a day for a second call naming one as `mealie_household`. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+	importFromAnotherApp(input: ImportFromAnotherAppInput): Promise<Answer<'import_from_another_app'>>;
 	/** List every Import, and what happened each time. It covers what has been brought into your Kitchens from outside. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025). */
 	listImports(input?: ListImportsInput): Promise<Answer<'list_imports'>>;
 	/** Throw an Import's ledger away whole. The ledger is the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
 	forgetImport(input: ForgetImportInput): Promise<Answer<'forget_import'>>;
+	/** Add a recipe from whatever a phone's Share menu sent. It takes a link, text, a PDF, or one or more pictures, the pages of one recipe in order. An agent may call it too, rather than choose the route itself. Kamosu decides: a link goes to Kamosu's own reader, or to the agent where the Credential in hand sends everything there (`get_agent_choice`), and text that is only a link is that link. Text, pictures and a PDF go to the agent, and are refused in the answer where this Kamosu has none. One file that is text is text. A link already the Source of a recipe you can see, or one of your imports still reading, adds nothing. A link waits for its page to be read, about 10 seconds at most; anything else answers at once. The answer is `message`, in your Reading Language, to show as it is, and `outcome`. A failure later shows on the Imports screen as any import's does. Send files to POST /api/uploads first, one per request, and pass their ids in order as `files`. A Shortcut sends its own `shortcut_version`, and hears when a newer one is available. */
+	addThis(input: AddThisInput): Promise<Answer<'add_this'>>;
 	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). While the instance has a Runner, a page with no recipe data, or one that refused the fetch, lands as a bare recipe and `agent_jobs` names the Job waiting for an agent to read it. Without a Runner, a page with no recipe data is read from its own article text the way `read_pasted_recipe` reads a paste, and when that finds Ingredient Lines nothing lands: the answer is `to_check` alone, for a person to check and save, with the page as its Source (#301). Where it finds none, the page lands bare as before. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 	importWebLink(input: ImportWebLinkInput): Promise<Answer<'import_web_link'>>;
 	/** Preview what importing a Kamosu Share Link would do. It answers before anything is written, as a Job (#170). Reaches the recipe file exactly as `import_web_link` does — this instance's own link locally, another Kamosu's at a public address through the guarded client — and answers the shared recipe's title, Source, writer, how many Versions it carries and a small picture, and whether your own Cookbook holds it already, with how many newer Versions the file carries past yours. The file is staged: pass `upload_id` to `import_bundle` to import exactly what was previewed without fetching it again. An ended link, or an address that is no Share Link, is refused. */
@@ -34205,9 +36450,9 @@ export interface KamosuClient {
 	endShareLink(input: EndShareLinkInput): Promise<Answer<'end_share_link'>>;
 	/** Whether a Recipe is shared, by whom, and at what address. A live link answers its `url` for as long as it lives, to send again. A link minted before Kamosu kept its address answers none: ending it and sharing again mints one that does. */
 	getShareLink(input: GetShareLinkInput): Promise<Answer<'get_share_link'>>;
-	/** Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. */
+	/** Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. Also how many passkeys work at it, which a new address would leave unable to sign in. */
 	getPublicAddress(input?: GetPublicAddressInput): Promise<Answer<'get_public_address'>>;
-	/** Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. */
+	/** Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. A passkey works only at the address it was made at: `get_public_address` says how many work at the current one and would stop at a new one. */
 	setPublicAddress(input: SetPublicAddressInput): Promise<Answer<'set_public_address'>>;
 	/** Write a Bundle of one recipe. A Bundle is a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed. */
 	exportBundle(input: ExportBundleInput): Promise<Answer<'export_bundle'>>;
@@ -34227,6 +36472,8 @@ export interface KamosuClient {
 	changedSince(input: ChangedSinceInput): Promise<Answer<'changed_since'>>;
 	/** Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
 	setReading(input: SetReadingInput): Promise<Answer<'set_reading'>>;
+	/** Correct which Ingredient Lines a Step uses. It is on a Recipe's current state. Kamosu works this out of the Step's words on every read, and get_recipe answers it as cooking.steps[].uses; this sets it by hand, for a Step it reads wrong. `uses` is the whole new list of line indexes into content.ingredients, empty for a Step that adds nothing, and each must be an Ingredient Line, not a section. null takes the correction away, and the Step goes back to what Kamosu reads, which get_recipe answers on a corrected Step as cooking.steps[].as_read. Mints no Version and appears in no history, as set_reading does. A save carries the correction onto the new Version while the Step and every line it names stay word for word as they were, wherever they now sit, and drops it once either changes (ADR 0054). */
+	setStepUses(input: SetStepUsesInput): Promise<Answer<'set_step_uses'>>;
 	/** Read every Ingredient Line nothing has read yet, as a Job. It covers every such line in the library, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it. */
 	readIngredientLines(input?: ReadIngredientLinesInput): Promise<Answer<'read_ingredient_lines'>>;
 	/** Read every Ingredient Line again, as a Job. It reads every line in the library with the reader as it stands today, so a fix to the reader reaches lines it already misread. Covers every Version a recipe holds, its history too, and makes no Version. A Reading a person set, and every Component, is left exactly as it is; a line the reader can no longer read loses the reader's old guess. Reports each line whose Reading changed, before and after, once per recipe as it reads on the head, with how many older Versions changed the same way, and each line changed only in older Versions; the Foods now left with nothing pointing at them, which delete_food will take; and how many lines it left alone because a person set them. */
@@ -34293,7 +36540,7 @@ export interface KamosuClient {
 	cancelJob(input: CancelJobInput): Promise<Answer<'cancel_job'>>;
 	/** Read which agent's Job waits or is being worked on a recipe. `job` is null when none is, and once the Job has ended. Among those who see the recipe, it names the Job to the Person who asked for it and to the Co-authors of the recipe's Cookbook, who may read it with `get_job`. Anyone else who sees the recipe is answered null. */
 	getRecipeJob(input: GetRecipeJobInput): Promise<Answer<'get_recipe_job'>>;
-	/** Have an agent read a recipe again. A recipe an agent read from a PDF, a picture or pasted text is read from what Kamosu kept of it. Kamosu deletes that 30 days after its Job ended, and then the ask is refused with reason `needs_the_file`: ask again handing the file over, as `upload_id` or `data`, or the text as `text`. Any other recipe is read from its Source link, whichever way it arrived, and takes nothing handed over. It makes a Job that waits for a Runner. Only a Co-author of the Cookbook that holds the recipe may ask, on a Kamosu with a Runner. A recipe is read again once: after a reading that finished, or one stopped while a Runner held it, the ask is refused with reason `already_read_again`. One that failed, or was stopped while it waited, does not count. A variation is a recipe of its own, read again once too. The agent's saves become one new Version under your Hand, so the earlier one stays in the History. Where a Job already waits or is being worked on the recipe, that Job is the answer, and nothing handed over is kept. Its result is an Import Report under the source `read_again`, which says what the agent left undone or was unsure of. Ask `can_read_recipe_again` first to know what it would read, or why it would be refused. */
+	/** Have an agent read a recipe again. A recipe an agent read from a PDF, a picture or pasted text is read from what Kamosu kept of it. Kamosu deletes that 30 days after its Job ended, and then the ask is refused with reason `needs_the_file`: ask again handing the file over, as `upload_id` or `data`, several pictures as `pictures`, or the text as `text`. Any other recipe is read from its Source link, whichever way it arrived, and takes nothing handed over. It makes a Job that waits for a Runner. Only a Co-author of the Cookbook that holds the recipe may ask, on a Kamosu with a Runner. A recipe is read again once: after a reading that finished, or one stopped while a Runner held it, the ask is refused with reason `already_read_again`. One that failed, or was stopped while it waited, does not count. A variation is a recipe of its own, read again once too. The agent's saves become one new Version under your Hand, so the earlier one stays in the History. Where a Job already waits or is being worked on the recipe, that Job is the answer, and nothing handed over is kept. Its result is an Import Report under the source `read_again`, which says what the agent left undone or was unsure of. Ask `can_read_recipe_again` first to know what it would read, or why it would be refused. */
 	readRecipeAgain(input: ReadRecipeAgainInput): Promise<Answer<'read_recipe_again'>>;
 	/** Say whether a recipe can be read again, and from what. This is for you, as `read_recipe_again` would answer you. `from` is `original` for a recipe an agent read from a file or pasted text, and `link` for one read from its Source link. `reason` says why not: `not_a_co_author` when you see the recipe and do not write its Cookbook, `would_start_a_copy` when your Cookbook received it and did not write it, `no_runner` when no agent would read it, `already_read_again` when it has been read again already, which a recipe is once, `needs_the_file` when what it was read from is no longer kept and has to be handed over again, and `nothing_to_read` when it came from no file and its Source has no http or https link on the internet. */
 	canReadRecipeAgain(input: CanReadRecipeAgainInput): Promise<Answer<'can_read_recipe_again'>>;

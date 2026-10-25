@@ -40,7 +40,7 @@ use sha2::{Digest, Sha256};
 
 use crate::backups;
 use crate::bundles;
-use crate::catalogue::{self, JobKey, JobLane, Kind, Permission};
+use crate::catalogue::{self, InDemo, JobKey, JobLane, Kind, Permission};
 use crate::crouton;
 use crate::db::Db;
 use crate::fingerprint::{canonical_json, stored_version};
@@ -55,19 +55,23 @@ mod accounts;
 mod carrying_bundles;
 mod cookbooks;
 mod cooking;
+mod demo;
 mod imports;
 mod keeping_backups;
 mod keeping_photographs;
 mod kitchens;
 mod originals;
+mod passkeys;
 mod reading_again;
 mod readings;
 mod recipes;
 mod related;
 mod runners;
 mod search;
+mod security_record;
 mod share_links;
 mod shared;
+mod sharing;
 mod sheets;
 mod shelves;
 mod shopping_list;
@@ -77,8 +81,10 @@ mod translation;
 pub use accounts::*;
 use cookbooks::*;
 pub use cooking::*;
+pub use demo::{DEMO_ACCESS_KEY, DEMO_VISITOR, Mode, refused_in_demo, start_demo};
 pub use imports::*;
 use keeping_backups::*;
+pub(crate) use keeping_photographs::photograph_seen_by;
 use keeping_photographs::*;
 use kitchens::*;
 pub use originals::*;
@@ -89,7 +95,9 @@ pub use recipes::COLLAPSE_WINDOW_SECONDS;
 pub use related::*;
 pub use runners::*;
 pub use search::*;
+pub use security_record::*;
 pub(crate) use shared::*;
+pub use sharing::*;
 pub use sheets::*;
 use shelves::*;
 use tags::*;
@@ -227,7 +235,9 @@ pub struct Caller {
     /// Catalogue declares `session_only` to a caller carrying this, however
     /// unrestricted the Key.
     pub via_access_key: bool,
-    /// Whether this Person administers the instance.
+    /// Whether this Credential acts as an Operator: a Session or a Job Key of
+    /// a Person who administers the instance, or that Person's Operator key.
+    /// Any other Access Key of theirs acts as an ordinary Person (#369).
     pub is_operator: bool,
     /// The Access Key that resolved this Credential, if any — never set for a
     /// login Session. Local only: a Version records it (GLOSSARY.md, "Version")
@@ -249,6 +259,11 @@ pub struct Caller {
     /// `as_operator`, and may (#302, ADR 0049). Only then does an Operator
     /// reach a recipe beyond what they see as a Person.
     pub as_operator: bool,
+    /// True when the Credential came from an Add-only key (ADR 0055).
+    /// `Core::execute` refuses a caller carrying this every Operation not
+    /// marked `add_only_key`, and every route outside the Catalogue refuses
+    /// it but staging an upload.
+    pub add_only: bool,
 }
 
 /// A Runner, known by the Runner Key it presented. It is no Person and acts as
@@ -257,6 +272,14 @@ pub struct Caller {
 #[derive(Debug, Clone)]
 pub struct RunnerCaller {
     pub runner_key_id: String,
+}
+
+/// What a Secret came to before a request's body was read (#368): no Secret
+/// at all, or one that names somebody. One that names nobody is refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Knock {
+    Stranger,
+    Somebody,
 }
 
 /// Who is asking for an Operation: nobody Kamosu knows, a Person, or a Runner.
@@ -281,6 +304,15 @@ fn nothing_here_for_a_job_key() -> OpError {
     OpError::not_found("nothing is at this address")
 }
 
+/// What an Add-only key is answered on a route outside the Catalogue, all
+/// but staging an upload (ADR 0055).
+fn nothing_here_for_an_add_only_key() -> OpError {
+    OpError::unauthorized(
+        "this route is not for an Add-only key, which may add a recipe with add_this and \
+         stage the files it reads, and nothing else",
+    )
+}
+
 /// A Runner Key was presented where only a Person may act.
 fn runner_key_out_of_place(what: &str) -> OpError {
     OpError::unauthorized(format!(
@@ -294,9 +326,17 @@ struct Session {
     secret: String,
 }
 
-/// One row `lookup_credential` can find: `(person_id, read_only, is_session,
-/// is_operator, access_key_id, session_id)`.
-type CredentialLookup = (String, bool, bool, bool, Option<String>, Option<String>);
+/// One row `lookup_credential` can find.
+struct CredentialLookup {
+    person_id: String,
+    read_only: bool,
+    is_session: bool,
+    is_operator: bool,
+    access_key_id: Option<String>,
+    session_id: Option<String>,
+    /// An Add-only key (ADR 0055).
+    add_only: bool,
+}
 
 /// One asking of an Operation: who is acting, and (when the Operation runs as a
 /// Job) the handle through which the running work reports its progress.
@@ -329,6 +369,19 @@ impl Invocation {
 /// carry slow work (ADR 0032): one for members, one depth-one lane for strangers.
 pub struct Core {
     db: Arc<Db>,
+    /// Whether this instance is a Demo (ADR 0052), for the life of the Core.
+    mode: Mode,
+    /// The visitors who arrived in the last minute, in a Demo (#403).
+    arrivals: demo::Arrivals,
+    /// Whether what the Security Record notes is also said in the log. Not
+    /// by the Core that builds a Demo's Sample Library (#404), whose cooks'
+    /// sign-ins are the story's and thrown away with it.
+    says_security_lines: bool,
+    /// The Sample Library a Demo puts back, once it is built (#404).
+    sample_library: std::sync::OnceLock<crate::sample_library::Built>,
+    /// The Umami a Demo counts its visits with, given when it starts (#408).
+    /// Never set on an instance that is no Demo.
+    analytics: std::sync::OnceLock<crate::config::Analytics>,
     lanes: jobs::Lanes,
     /// Meaning Search, which on most instances is an empty slot and stays one
     /// (ADR 0029). Nothing branches on that outside the two places that must:
@@ -337,13 +390,34 @@ pub struct Core {
     /// Whose login is waiting, and the few threads that may hash or check a
     /// password at once (#138).
     passwords: accounts::Passwords,
+    /// Passkey exchanges begun and not yet finished (#370).
+    ceremonies: passkeys::Ceremonies,
+    /// A crowd at the sign-in, counted between the times it is written down
+    /// in the Security Record (#371).
+    security: security_record::Watch,
+    /// The PDFs being read now, each in a program of its own (#373).
+    pdf_readers: crate::pdf::Readers,
     /// How long a Runner's hold on a Job lasts unless renewed, in
     /// milliseconds: `jobs::HOLD`, until a test shortens it (#266).
     hold_millis: AtomicU64,
+    /// How long one import from another app's export may spend downloading
+    /// the photos its file holds only as addresses, in milliseconds:
+    /// `imports::PHOTO_DOWNLOAD_TIME`, until a test shortens it (#414).
+    photo_download_millis: AtomicU64,
     /// Held while a Job Key creates its Job's recipe (#269), from the check
     /// that the Job has none to the moment the new one is made its own, so
     /// that two creates at once cannot both find it has none.
     job_key_creates: std::sync::Mutex<()>,
+    /// The Shortcut versions `add_this` serves, and how long a shared link
+    /// waits for its page (ADR 0055).
+    sharing: sharing::Sharing,
+    /// The public address as last read from the database, or nothing until
+    /// it is first asked for (#368). Every answer asks, to know whether it
+    /// came over HTTPS and which `Origin` is the instance's own, and taking
+    /// the database lock for each picture and script would put a page load
+    /// behind whatever write holds it. Forgotten whenever the address is
+    /// stored, so the next ask reads it again.
+    public_address: std::sync::RwLock<Option<Option<String>>>,
     /// The seed Home shuffles *never cooked* by, once a test has pinned one
     /// (#151). Compiled only under `test-jobs`: a real instance draws a fresh
     /// seed each time Home is asked for, and carries nothing to pin it with.
@@ -361,11 +435,22 @@ impl Core {
         ));
         Core {
             db,
+            mode: Mode::Ordinary,
+            arrivals: Default::default(),
+            says_security_lines: true,
+            sample_library: Default::default(),
+            analytics: Default::default(),
             lanes,
             meaning,
             passwords: accounts::Passwords::default(),
+            ceremonies: Default::default(),
+            security: Default::default(),
+            pdf_readers: Default::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
+            photo_download_millis: AtomicU64::new(imports::PHOTO_DOWNLOAD_TIME.as_millis() as u64),
             job_key_creates: Default::default(),
+            sharing: Default::default(),
+            public_address: Default::default(),
             #[cfg(feature = "test-jobs")]
             shelf_seed: Default::default(),
         }
@@ -375,18 +460,40 @@ impl Core {
     /// The lanes exist from the moment the instance serves — and anything a
     /// previous process left behind is recovered before the first answer goes out.
     pub fn start(db: Arc<Db>) -> Arc<Core> {
+        Core::start_as(db, Mode::Ordinary)
+    }
+
+    /// Start as `start` does, as a Demo or not. A Demo takes no Backups: it
+    /// holds nothing worth keeping, and puts its library back every day.
+    pub fn start_as(db: Arc<Db>, mode: Mode) -> Arc<Core> {
         let (lanes, receivers) = jobs::lanes();
+        if mode == Mode::Demo
+            && let Err(err) = demo::fail_waiting_jobs_a_demo_refuses(&db)
+        {
+            tracing::warn!("cannot fail the Jobs a Demo refuses: {err}");
+        }
         jobs::recover_at_startup(&db, &lanes);
         let meaning = Arc::new(crate::meaning::MeaningSearch::new(
             db.data_dir().to_path_buf(),
         ));
         let core = Core {
             db,
+            mode,
+            arrivals: Default::default(),
+            says_security_lines: true,
+            sample_library: Default::default(),
+            analytics: Default::default(),
             lanes,
             meaning,
             passwords: accounts::Passwords::default(),
+            ceremonies: Default::default(),
+            security: Default::default(),
+            pdf_readers: Default::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
+            photo_download_millis: AtomicU64::new(imports::PHOTO_DOWNLOAD_TIME.as_millis() as u64),
             job_key_creates: Default::default(),
+            sharing: Default::default(),
+            public_address: Default::default(),
             #[cfg(feature = "test-jobs")]
             shelf_seed: Default::default(),
         };
@@ -395,14 +502,22 @@ impl Core {
         jobs::spawn_workers(core.clone(), receivers);
         spawn_orphan_sweep(core.clone());
         spawn_meaning_search(core.clone());
-        spawn_backups(core.clone());
+        if mode == Mode::Ordinary {
+            spawn_backups(core.clone());
+        }
         spawn_hold_watch(core.clone());
+        spawn_crowd_watch(core.clone());
         core
     }
 
     /// Meaning Search as this instance holds it.
     pub fn meaning(&self) -> Arc<crate::meaning::MeaningSearch> {
         self.meaning.clone()
+    }
+
+    /// What reads a PDF someone sent, no more than a few at once (#373).
+    pub fn pdf_readers(&self) -> &crate::pdf::Readers {
+        &self.pdf_readers
     }
 
     /// The database, shared. An Arc clone keeps Job progress reporting able to
@@ -450,6 +565,19 @@ impl Core {
             return Err(OpError::unknown_operation(op.name));
         }
 
+        // An Add-only key reaches the Operations marked for it and no other
+        // (ADR 0055), the ones open to anyone included, as a Job Key does.
+        if let Asker::Person(caller) = &asker
+            && caller.add_only
+            && !op.add_only_key
+        {
+            return Err(OpError::unauthorized(format!(
+                "Operation '{}' is not one an Add-only key may call: it may add a \
+                 recipe with add_this and read how that went",
+                op.name
+            )));
+        }
+
         // Who is asking, against the level the Operation is declared with. A
         // Runner Key reaches the Runner's own Operations and no other, the
         // ones open to anyone included (ADR 0048), so it is met first.
@@ -493,6 +621,26 @@ impl Core {
                      never by an Access Key",
                     op.name
                 )));
+            }
+        }
+
+        // A Demo refuses what a stranger could misuse (ADR 0052), whoever
+        // asks, by the mark on the declaration. Before the shape is checked,
+        // since a refused Operation's input is nobody's business.
+        if self.is_demo() {
+            let in_hand = match &asker {
+                Asker::Person(caller) => caller.session_id.as_deref(),
+                Asker::Nobody | Asker::Runner(_) => None,
+            };
+            let goes_through = match op.in_demo {
+                InDemo::GoesThrough => true,
+                InDemo::Refused => false,
+                InDemo::OnTheSessionInHand => {
+                    in_hand.is_some() && input.get("session_id").and_then(Value::as_str) == in_hand
+                }
+            };
+            if !goes_through {
+                return Err(refused_in_demo());
             }
         }
 
@@ -635,26 +783,32 @@ impl Core {
     /// `operations_listed_to` reads only, so a Door merely listing what a
     /// Key may do never counts as the Key being used.
     fn lookup_credential(&self, hash: &str) -> Result<Option<CredentialLookup>, OpError> {
+        // The key a Demo publishes stays in its library when demo mode goes
+        // off, and its Secret is in the open: it names nobody here then (#404).
+        if !self.is_demo() && hash == hash_secret(DEMO_ACCESS_KEY) {
+            return Ok(None);
+        }
         self.db().with_conn(|conn| {
             conn.query_row(
-                "SELECT access_keys.person_id, access_keys.read_only, 0, people.is_operator, access_keys.id, NULL
+                "SELECT access_keys.person_id, access_keys.read_only, 0, people.is_operator AND access_keys.acts_as_operator, access_keys.id, NULL, access_keys.add_only
                    FROM access_keys JOIN people ON people.id = access_keys.person_id
                    WHERE access_keys.secret_hash = ?1 AND access_keys.revoked = 0 AND people.disabled = 0 AND people.deleted = 0
                  UNION ALL
-                 SELECT sessions.person_id, 0, 1, people.is_operator, NULL, sessions.id
+                 SELECT sessions.person_id, 0, 1, people.is_operator, NULL, sessions.id, 0
                    FROM sessions JOIN people ON people.id = sessions.person_id
                    WHERE sessions.secret_hash = ?1 AND sessions.revoked = 0 AND people.disabled = 0 AND people.deleted = 0
                  LIMIT 1",
                 params![hash],
                 |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                    ))
+                    Ok(CredentialLookup {
+                        person_id: row.get(0)?,
+                        read_only: row.get(1)?,
+                        is_session: row.get(2)?,
+                        is_operator: row.get(3)?,
+                        access_key_id: row.get(4)?,
+                        session_id: row.get(5)?,
+                        add_only: row.get(6)?,
+                    })
                 },
             )
             .optional()
@@ -662,15 +816,37 @@ impl Core {
         })
     }
 
+    /// Whether a Secret names anyone, asked by a Door before it reads a
+    /// request's body (#368): somebody gets a body of the size the Door allows
+    /// its members, a stranger a small one, and a Secret that names nobody is
+    /// answered at once, with the refusal `execute` would give. Nothing is
+    /// recorded as used here; the call that follows does that.
+    pub fn knock(&self, secret: Option<&str>) -> Result<Knock, OpError> {
+        let Some(secret) = secret.filter(|secret| !secret.is_empty()) else {
+            return Ok(Knock::Stranger);
+        };
+        let hash = hash_secret(secret);
+        if self.lookup_credential(&hash)?.is_some()
+            || self.lookup_runner_key(&hash)?.is_some()
+            || self.lookup_job_key(&hash)?.is_some()
+        {
+            Ok(Knock::Somebody)
+        } else {
+            Err(OpError::credential_names_nobody())
+        }
+    }
+
     /// Resolve a raw Secret to the Person it acts as, for everything that is
     /// not `execute`: the routes outside the Catalogue. A Runner Key acts as no
     /// Person, so it is refused here whatever the route. So is a Job Key,
     /// whose reach is its list in the Catalogue and the two routes opened to
     /// it: `authenticate_to_store_photograph`, and `read_original` for its own
-    /// Job's Original.
+    /// Job's Original. An Add-only key is refused too, whose one route
+    /// outside the Catalogue is `authenticate_to_stage_upload` (ADR 0055).
     fn resolve_credential(&self, secret: &str) -> Result<Caller, OpError> {
         match self.resolve_person(secret)? {
             caller if caller.job_id.is_some() => Err(nothing_here_for_a_job_key()),
+            caller if caller.add_only => Err(nothing_here_for_an_add_only_key()),
             caller => Ok(caller),
         }
     }
@@ -691,7 +867,15 @@ impl Core {
     fn present(&self, secret: &str) -> Result<Asker, OpError> {
         let hash = hash_secret(secret);
         match self.lookup_credential(&hash)? {
-            Some((person_id, read_only, is_session, is_operator, access_key_id, session_id)) => {
+            Some(CredentialLookup {
+                person_id,
+                read_only,
+                is_session,
+                is_operator,
+                access_key_id,
+                session_id,
+                add_only,
+            }) => {
                 self.record_use(
                     if is_session {
                         "sessions"
@@ -709,6 +893,7 @@ impl Core {
                     session_id,
                     job_id: None,
                     as_operator: false,
+                    add_only,
                 }))
             }
             None => {
@@ -730,6 +915,7 @@ impl Core {
                         session_id: None,
                         job_id: Some(job_id),
                         as_operator: false,
+                        add_only: false,
                     })),
                     // Unknown, revoked or spent: the same answer each way,
                     // saying nothing about which. Marked, so the web door can
@@ -762,6 +948,8 @@ impl Core {
     ///
     /// - a Runner Key is listed the Runner's own Operations and no other;
     /// - a Job Key is listed the Operations marked for it and no other;
+    /// - an Add-only key is listed the Operations marked for it and no other
+    ///   (ADR 0055);
     /// - everyone else is listed every Operation but the Runner's, an Access
     ///   Key none that is `session_only`, and a read-only one none that
     ///   writes either (ADR 0031, #347).
@@ -773,12 +961,9 @@ impl Core {
         let credential = hash
             .as_deref()
             .and_then(|hash| self.lookup_credential(hash).ok().flatten());
-        let read_only = credential
-            .as_ref()
-            .is_some_and(|(_, read_only, _, _, _, _)| *read_only);
-        let is_access_key = credential
-            .as_ref()
-            .is_some_and(|(_, _, is_session, _, _, _)| !is_session);
+        let read_only = credential.as_ref().is_some_and(|found| found.read_only);
+        let is_access_key = credential.as_ref().is_some_and(|found| !found.is_session);
+        let add_only = credential.as_ref().is_some_and(|found| found.add_only);
         let is_runner = hash
             .as_deref()
             .is_some_and(|hash| matches!(self.lookup_runner_key(hash), Ok(Some(_))));
@@ -792,10 +977,18 @@ impl Core {
                     op.permission != Permission::Runner
                 } else if is_job_key {
                     op.job_key == JobKey::Never
+                } else if add_only {
+                    !op.add_only_key
                 } else {
                     op.permission == Permission::Runner
                         || (read_only && op.write)
                         || (is_access_key && op.session_only)
+                        // A Demo lists none it refuses. One that goes through
+                        // on the Session in hand is no Key's to call.
+                        || (self.is_demo() && op.in_demo == InDemo::Refused)
+                        || (self.is_demo()
+                            && is_access_key
+                            && op.in_demo == InDemo::OnTheSessionInHand)
                 };
                 !left_out
             })
@@ -824,8 +1017,33 @@ impl Core {
 
     /// The same resolution, additionally refusing a read-only Access Key — the
     /// out-of-band equivalent of a Catalogue Operation declared `write: true`.
+    /// A Demo refuses it, as it refuses every write it was not told to let
+    /// through (ADR 0052).
     pub fn authenticate_for_write(&self, secret: Option<&str>) -> Result<Caller, OpError> {
         let caller = self.authenticate(secret)?;
+        self.refuse_in_a_demo()?;
+        if caller.read_only {
+            return Err(OpError::unauthorized(
+                "this route writes, and this Credential is a read-only Access Key",
+            ));
+        }
+        Ok(caller)
+    }
+
+    /// Resolve a Credential for `POST /api/uploads`, which stages a file for
+    /// an Operation to read next. It admits whoever `authenticate_for_write`
+    /// admits, and an Add-only key too, since `add_this` reads the files a
+    /// Shortcut sends there one at a time (ADR 0055). It is that key's one
+    /// route outside the Catalogue.
+    pub fn authenticate_to_stage_upload(&self, secret: Option<&str>) -> Result<Caller, OpError> {
+        let secret = secret.filter(|s| !s.is_empty()).ok_or_else(|| {
+            OpError::unauthorized("this route requires a Credential naming a Person")
+        })?;
+        let caller = match self.resolve_person(secret)? {
+            caller if caller.job_id.is_some() => return Err(nothing_here_for_a_job_key()),
+            caller => caller,
+        };
+        self.refuse_in_a_demo()?;
         if caller.read_only {
             return Err(OpError::unauthorized(
                 "this route writes, and this Credential is a read-only Access Key",
@@ -849,6 +1067,11 @@ impl Core {
             OpError::unauthorized("this route requires a Credential naming a Person")
         })?;
         let caller = self.resolve_person(secret)?;
+        if caller.add_only {
+            return Err(nothing_here_for_an_add_only_key());
+        }
+        // Nobody stores a Photograph in a Demo, a cooking's included (#403).
+        self.refuse_in_a_demo()?;
         if let Some(job_id) = &caller.job_id {
             let upload = catalogue::find("upload_photograph")
                 .ok_or_else(|| OpError::internal("upload_photograph is not declared"))?;
@@ -873,9 +1096,20 @@ impl Core {
     /// (GLOSSARY.md, "Operator") and nobody else's.
     pub fn authenticate_for_operator(&self, secret: Option<&str>) -> Result<Caller, OpError> {
         let caller = self.authenticate(secret)?;
+        // A Demo takes no Backups, and one left from before it was a Demo
+        // holds what came before (ADR 0052).
+        self.refuse_in_a_demo()?;
         if !caller.is_operator {
             return Err(OpError::unauthorized(
                 "this route requires a Credential naming an Operator",
+            ));
+        }
+        // A Backup holds every password and Secret hash, which is more than a
+        // key minted to read recipes was handed (#369).
+        if caller.read_only {
+            return Err(OpError::unauthorized(
+                "this route requires a Credential naming an Operator, and this one is a \
+                 read-only Access Key",
             ));
         }
         Ok(caller)

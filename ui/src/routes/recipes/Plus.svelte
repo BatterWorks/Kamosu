@@ -43,12 +43,23 @@
 	list opens, never from what the phone kept, and the first time the list
 	waits for the answer rather than redraw under the finger. With no Runner the list is the five rows it always was.
 
+	**In a Demo the agent's group opens with "Watch it read an example"**
+	(#406, option B, chosen 22 October 2026), which raises the panel of the
+	examples a Demo replays (`Replays`). Which examples there are is read
+	each time the list opens, beside whether there is a Runner; on any other
+	instance there are none and the row is not drawn.
+
+	**`/recipes?add` arrives with the list open**, and `?add=paste` with the
+	box for pasted text (#412), for an export from another app turned away.
+
 	**A PDF, a Kamosu zip file or a link can be dropped on Recipes instead**
 	(#204), and is the same act as its row here: `DropARecipe` holds no act of
 	its own, only this +'s `adding`, and offline it says what the row says.
 -->
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages';
 	import { Online } from '$lib/offline/device.svelte';
 	import { useAdding, type Act } from '$lib/adding/adding.svelte';
@@ -59,7 +70,7 @@
 	import ToCheck from '$lib/adding/ToCheck.svelte';
 	import FilePicker from '$lib/adding/FilePicker.svelte';
 	import Said from '$lib/adding/Said.svelte';
-	import { ICON, waitsForServer, type Source } from '$lib/adding/sources';
+	import { ICON, WATCH_ICON, waitsForServer, type Source } from '$lib/adding/sources';
 	import DropARecipe from './DropARecipe.svelte';
 
 	interface Props {
@@ -111,10 +122,14 @@
 			return;
 		}
 		showing = null;
-		if (online.current) {
-			const reading = adding.readRunner();
-			if (adding.runner === null) await reading;
-		}
+		// The examples are read only where there is an agent, which every
+		// Demo has; offline from what the phone kept, so their row can say it
+		// waits for the server like the rest.
+		const first = adding.runner === null;
+		const reading = (
+			online.current ? adding.readRunner() : Promise.resolve(adding.runner === true)
+		).then((runner) => (runner ? adding.readReplays() : undefined));
+		if (online.current && first) await reading;
 		open = true;
 	}
 
@@ -157,7 +172,66 @@
 		open = false;
 		showing = null;
 	}
+
+	/**
+	 * Arriving at `/recipes?add` opens the list, and `?add=paste` the box for
+	 * pasted text (#412): where an export turned away sends the cook with one
+	 * recipe. A PDF and a photo stop at the list, since a browser opens its
+	 * picker only for a tap. The address is put back without it, so a reload
+	 * or a step back does not open the list again.
+	 */
+	onMount(() => {
+		const asked = page.url.searchParams.get('add');
+		if (asked === null) return;
+		const url = new URL(page.url);
+		url.searchParams.delete('add');
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+		if (asked === 'paste') choose('paste');
+		else void toggle();
+	});
+
+	/** The panel of examples a Demo replays (#406). */
+	function watch() {
+		open = false;
+		showing = null;
+		adding.quiet();
+		adding.watchExamples();
+	}
 </script>
+
+{#snippet row(icon: string, label: string, why: string, waits: string | null, onclick: () => void)}
+	<li class="border-b border-rule last:border-b-0">
+		<button
+			type="button"
+			disabled={waits !== null}
+			{onclick}
+			class="flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left disabled:opacity-55"
+		>
+			<span
+				class="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-rule bg-ground-2 text-accent"
+			>
+				<svg
+					viewBox="0 0 24 24"
+					aria-hidden="true"
+					class="h-6 w-6"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.5"
+					stroke-linecap="round"
+					stroke-linejoin="round"><path d={icon} /></svg
+				>
+			</span>
+			<span class="min-w-0">
+				{#if waits}
+					<span class="block text-body text-ink-2">{waits}</span>
+				{:else}
+					<span class="block font-display text-body text-accent">{label}</span>
+					<span class="block text-read text-ink-2">{why}</span>
+				{/if}
+			</span>
+		</button>
+	</li>
+{/snippet}
 
 <svelte:window
 	onkeydown={(event) => {
@@ -217,39 +291,23 @@
 						</p>
 					{/if}
 					<ul>
+						{#if at > 0 && adding.replays.length > 0}
+							{@render row(
+								WATCH_ICON,
+								m.plus_replays(),
+								m.plus_replays_why(),
+								online.current ? null : m.offline_waits_replays(),
+								watch,
+							)}
+						{/if}
 						{#each rows as source (source.act)}
-							{@const waits = online.current ? null : waitsForServer(source.act, at > 0)}
-							<li class="border-b border-rule last:border-b-0">
-								<button
-									type="button"
-									disabled={waits !== null}
-									onclick={() => choose(source.act)}
-									class="flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left disabled:opacity-55"
-								>
-									<span
-										class="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-rule bg-ground-2 text-accent"
-									>
-										<svg
-											viewBox="0 0 24 24"
-											aria-hidden="true"
-											class="h-6 w-6"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="1.5"
-											stroke-linecap="round"
-											stroke-linejoin="round"><path d={ICON[source.act]} /></svg
-										>
-									</span>
-									<span class="min-w-0">
-										{#if waits}
-											<span class="block text-body text-ink-2">{waits}</span>
-										{:else}
-											<span class="block font-display text-body text-accent">{source.label()}</span>
-											<span class="block text-read text-ink-2">{source.why()}</span>
-										{/if}
-									</span>
-								</button>
-							</li>
+							{@render row(
+								ICON[source.act],
+								source.label(),
+								source.why(),
+								online.current ? null : waitsForServer(source.act, at > 0),
+								() => choose(source.act),
+							)}
 						{/each}
 					</ul>
 				{/each}

@@ -27,7 +27,12 @@ import { useUpload, type Uploader } from '$lib/api/upload';
 import { OperationError } from '$lib/api/client';
 import { StillRunning, waitForJob } from '$lib/api/job';
 import { receiveStaged } from '$lib/receive';
-import type { ImportWebLinkOutput, KamosuClient, ReadPastedRecipeOutput } from '$lib/api/catalogue';
+import type {
+	ImportWebLinkOutput,
+	KamosuClient,
+	ListReplaysOutput,
+	ReadPastedRecipeOutput,
+} from '$lib/api/catalogue';
 import { holdPaste, readPdf, type PageReading, type PastedDraft } from '$lib/pasted.svelte';
 import { noteArrival } from '$lib/arrival.svelte';
 
@@ -37,11 +42,18 @@ import { noteArrival } from '$lib/arrival.svelte';
  */
 export type Act = 'link' | 'file' | 'pdf' | 'picture' | 'video' | 'write' | 'paste' | 'send';
 
-/** A photo or a PDF chosen or dropped, shown once before it goes to the agent (#278). */
+/**
+ * A photo or a PDF chosen or dropped, shown once before it goes to the agent
+ * (#278). Several photos are the pages of one recipe, in order (#452): a PDF
+ * is always one file.
+ */
 export interface ToSend {
-	file: File;
+	files: File[];
 	kind: 'picture' | 'pdf';
 }
+
+/** The most photos one recipe may be, as the server holds it (`MOST_PAGES`). */
+export const MOST_PAGES = 10;
 
 export class Adding {
 	/** The act running now, or none. Every button offering an act quiets while one runs. */
@@ -81,6 +93,19 @@ export class Adding {
 	runner = $state<boolean | null>(null);
 	/** A photo or a PDF waiting on the sheet that asks before it is sent, or none. */
 	toSend = $state<ToSend | null>(null);
+	/**
+	 * The examples a Demo replays the agent's work on (#406), or none on any
+	 * other instance. Read from the server each time the + opens, and from
+	 * what the phone kept when it is out of reach.
+	 */
+	replays = $state<ListReplaysOutput['replays']>([]);
+	/** Whether the panel of examples is showing. */
+	showingReplays = $state(false);
+	/**
+	 * A Demo refused what was sent to the agent, a visitor's own file, text or
+	 * link (#406): `failed` says so, and points at the examples.
+	 */
+	refusedInDemo = $state(false);
 
 	#kamosu: KamosuClient;
 	#upload: Uploader;
@@ -156,26 +181,72 @@ export class Adding {
 	}
 
 	/**
+	 * Read again which examples this instance replays, none but in a Demo
+	 * (#406). A refusal leaves what was known.
+	 */
+	async readReplays(): Promise<void> {
+		try {
+			this.replays = (await this.#kamosu.listReplays({})).replays;
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+		}
+	}
+
+	/** Put away whatever was being sent, and show the examples instead (#406). */
+	watchExamples() {
+		if (this.working) return;
+		this.toSend = null;
+		this.failed = undefined;
+		this.refusedInDemo = false;
+		this.showingReplays = true;
+	}
+
+	/**
 	 * A PDF was chosen or dropped. With a Runner it goes to the agent, a scan
 	 * included, once the sheet has shown it; without one it is read into a
 	 * draft as it always was (#176).
 	 */
 	pdfChosen = (file: File) =>
 		this.#chosen(async () => {
-			if (await this.readRunner()) this.offer({ file, kind: 'pdf' });
+			if (await this.readRunner()) this.offer({ files: [file], kind: 'pdf' });
 			else await this.pdf(file);
 		});
 
 	/**
-	 * A photo of a page was chosen or dropped (#278). Only an instance with a
+	 * A photo of a page was chosen or dropped (#278), or several: the pages of
+	 * one recipe, in the order they came (#452). Only an instance with a
 	 * Runner reads one, and a photo dropped on one without is refused in the
 	 * words a drop is refused with.
 	 */
-	pictureChosen = (file: File) =>
+	pictureChosen = (files: File[]) =>
 		this.#chosen(async () => {
-			if (await this.readRunner()) this.offer({ file, kind: 'picture' });
-			else this.refuse(m.drop_recipes_refused());
+			if (files.length === 0) return;
+			if (await this.readRunner()) {
+				this.offer({ files: files.slice(0, MOST_PAGES), kind: 'picture' });
+				if (files.length > MOST_PAGES) this.failed = m.send_too_many({ count: MOST_PAGES });
+			} else this.refuse(m.drop_recipes_refused());
 		});
+
+	/**
+	 * More pages added on the sheet, after the ones there, as many as one
+	 * recipe may be. The sheet stays the same sheet: only its photos change.
+	 */
+	addPages(files: File[]) {
+		const shown = this.toSend;
+		if (this.working || !shown || shown.kind !== 'picture') return;
+		const room = MOST_PAGES - shown.files.length;
+		shown.files.push(...files.slice(0, room));
+		// What did not fit is said, never dropped in silence.
+		this.failed = files.length > room ? m.send_too_many({ count: MOST_PAGES }) : undefined;
+	}
+
+	/** One page taken out of the sheet. The last one taken out puts the sheet away. */
+	takeOut(index: number) {
+		const shown = this.toSend;
+		if (this.working || !shown) return;
+		shown.files.splice(index, 1);
+		if (shown.files.length === 0) this.toSend = null;
+	}
 
 	/** A file chosen while whether there is a Runner is still being read. */
 	#choosing = false;
@@ -198,6 +269,7 @@ export class Adding {
 	quiet() {
 		if (this.working) return;
 		this.failed = undefined;
+		this.refusedInDemo = false;
 		this.waiting = undefined;
 		this.stillGoing = false;
 	}
@@ -205,6 +277,7 @@ export class Adding {
 	/** Show a photo or a PDF on the sheet that asks before it is sent. */
 	offer(chosen: ToSend) {
 		this.failed = undefined;
+		this.refusedInDemo = false;
 		this.waiting = undefined;
 		this.stillGoing = false;
 		this.toSend = chosen;
@@ -218,16 +291,38 @@ export class Adding {
 	 * made from it opens, saying it was read before. A link is never matched,
 	 * and Kamosu does not read it first, so nothing lands before the agent's
 	 * recipe.
+	 *
+	 * A Demo refuses it, whatever it is, and says so in words that point at
+	 * the examples it replays instead (#406). A file is refused at its
+	 * upload, which a Demo refuses as it refuses the Operation.
 	 */
-	send = (handed: { text: string } | { link: string } | { file: File }) =>
+	send = (handed: { text: string } | { link: string } | { files: File[] }) =>
 		this.#run('send', async () => {
-			const input =
+			// What was handed over, and the words a Demo refuses it in.
+			const [handOver, refused] =
 				'text' in handed
-					? { text: handed.text }
+					? [async () => ({ text: handed.text }), m.send_refused_text]
 					: 'link' in handed
-						? { link: handed.link.trim() }
-						: { upload_id: await this.#upload(handed.file) };
-			const answer = await this.#kamosu.importByAgent(input);
+						? [async () => ({ link: handed.link.trim() }), m.send_refused_link]
+						: [
+								async () => {
+									// One by one and in order, as the server reads them.
+									const ids: string[] = [];
+									for (const file of handed.files) ids.push(await this.#upload(file));
+									return ids.length === 1
+										? { upload_id: ids[0] }
+										: { pictures: ids.map((upload_id) => ({ upload_id })) };
+								},
+								this.toSend?.kind === 'pdf' ? m.send_refused_pdf : m.send_refused_picture,
+							];
+			let answer;
+			try {
+				answer = await this.#kamosu.importByAgent(await handOver());
+			} catch (error) {
+				if (!(error instanceof OperationError) || error.reason !== 'demo') throw error;
+				this.refusedInDemo = true;
+				return refused();
+			}
 			this.toSend = null;
 			if (answer.job_id) {
 				await goto(`/imports/${answer.job_id}`);
@@ -284,6 +379,7 @@ export class Adding {
 		if (this.working) return;
 		this.stillGoing = false;
 		this.waiting = undefined;
+		this.refusedInDemo = false;
 		this.failed = words;
 	}
 
@@ -292,6 +388,7 @@ export class Adding {
 		if (this.working) return;
 		this.stillGoing = false;
 		this.failed = undefined;
+		this.refusedInDemo = false;
 		this.waiting = words;
 	}
 
@@ -310,6 +407,7 @@ export class Adding {
 		if (this.working) return;
 		this.working = act;
 		this.failed = undefined;
+		this.refusedInDemo = false;
 		this.waiting = undefined;
 		this.stillGoing = false;
 		try {

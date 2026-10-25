@@ -23,6 +23,8 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
+	import { demoRefusalOr } from '$lib/demo.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import type { ListAttemptsOutput, PromoteAsCookedOutput } from '$lib/api/catalogue';
@@ -53,7 +55,8 @@
 
 	let confirming = $state(false);
 	let saving = $state(false);
-	let failed = $state(false);
+	/** What a failed keep said, a Demo's refusal or the screen's own words. */
+	let failed = $state<string | undefined>(undefined);
 
 	const marked = $derived(changedLines(entry.as_cooked?.against));
 
@@ -63,13 +66,13 @@
 	async function keep() {
 		if (!keeping) return;
 		saving = true;
-		failed = false;
+		failed = undefined;
 		try {
 			onKept(await kamosu.promoteAsCooked({ attempt_id: entry.id, branch_id: keeping.branch_id }));
 			confirming = false;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
-			failed = true;
+			failed = demoRefusalOr(error, m.recipe_promote_failed());
 		} finally {
 			saving = false;
 		}
@@ -122,7 +125,7 @@
 		{/if}
 
 		{#if failed}
-			<p class="mt-2 text-read text-support" role="alert">{m.recipe_promote_failed()}</p>
+			<p class="mt-2 text-read text-support" role="alert"><Refusal words={failed} /></p>
 		{/if}
 	{/if}
 </div>

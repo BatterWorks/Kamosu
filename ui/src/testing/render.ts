@@ -25,7 +25,7 @@ export interface Rendered {
  *
  * ```ts
  * const { kamosu } = renderScreen(Settings, {
- *   instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 }
+ *   instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15, passkey_origin: null, demo: false }
  * });
  * ```
  *
@@ -56,5 +56,6 @@ export function keepingForTests(): Keeping & { kept: Blob[] } {
 			return `local:${kept.length.toString(16).padStart(16, '0')}`;
 		},
 		photographSrc: async (id, size) => `/api/photographs/${id}/${size}`,
+		sendWaiting: async () => 0,
 	};
 }

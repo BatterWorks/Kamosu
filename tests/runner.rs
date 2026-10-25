@@ -23,17 +23,23 @@ use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+use url::Url;
 
 /// The stand-in agent. The pasted text it fetches as its Original says which
 /// thing it does, so that one Runner can be handed several kinds of Job:
 ///
+/// - a picture, or several: fetches every page in order, notes their sizes,
+///   and writes as `writes` does.
 /// - `writes`: creates the recipe with its Job Key, after waiting
 ///   `STAND_IN_SLEEP_S`, and leaves a report saying it completed.
 /// - `errors`: ends in an error. `silent`: ends with no report. `pipe`: leaves
 ///   a pipe as its report, which nothing will ever write to.
 /// - `lingers`: starts a child that would sleep for minutes, and sleeps too.
+/// - `asks-the-model`: sends one request through the Runner's model relay
+///   with the stand-in key it was handed and one with another key, notes what
+///   each was answered, and completes.
 const STAND_IN: &str = r#"#!/usr/bin/env python3
-import json, os, subprocess, sys, time, urllib.parse, urllib.request
+import json, os, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
 
 handed = json.load(open("job.json"))
 job = handed["job"]
@@ -60,7 +66,19 @@ for name in os.listdir("."):
     with open(name) as f:
         note("folder." + name, f.read())
 
-mode = ask(job["original"]["address"]).split(":", 1)[1].strip()
+if job["original"]["kind"] == "picture":
+    # Several pictures are the pages of one recipe, each fetched in order.
+    sizes = []
+    for page in job["original"].get("pages") or [job["original"]["address"]]:
+        request = urllib.request.Request(
+            urllib.parse.urljoin(handed["kamosu"], page),
+            headers={"Authorization": "Bearer " + key},
+        )
+        sizes.append(len(urllib.request.urlopen(request).read()))
+    note("pages", json.dumps(sizes))
+    mode = "writes"
+else:
+    mode = ask(job["original"]["address"]).split(":", 1)[1].strip()
 
 if mode == "writes":
     time.sleep(float(os.environ.get("STAND_IN_SLEEP_S", "0")))
@@ -75,6 +93,28 @@ elif mode == "silent":
     note("done", "")
 elif mode == "pipe":
     os.mkfifo("report.json")
+elif mode == "asks-the-model":
+    relay = handed["model_relay"]
+    def model(key):
+        request = urllib.request.Request(
+            relay["address"] + "chat/completions?stream=true", data=b'{"model": "m"}',
+            headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request) as answer:
+                first = answer.readline()
+                waited = time.monotonic()
+                rest = answer.read()
+                note("model.waited", str(time.monotonic() - waited))
+                return [answer.status, (first + rest).decode()]
+        except urllib.error.HTTPError as e:
+            return [e.code, e.read().decode()]
+    note("model.address", relay["address"])
+    note("model.right", json.dumps(model(relay["key"])))
+    note("model.wrong", json.dumps(model("kamosu-relay-of-another-job")))
+    ask("api/op/create_recipe", {"title": "The model's soup"})
+    with open("report.json", "w") as f:
+        json.dump({"outcome": "completed"}, f)
 elif mode == "lingers":
     child = subprocess.Popen(["sleep", "300"])
     note("child.pid", str(child.pid))
@@ -90,10 +130,13 @@ elif mode == "lingers":
 /// - `silent`: hangs up with no report. `garbage`: sends a report that is
 ///   not JSON.
 /// - `lingers`: waits for the Runner to hang up, and notes that it did.
+/// - `asks-the-model`: sends one request through the Runner's model relay
+///   socket with the stand-in key, in `x-api-key` as Anthropic's clients do,
+///   and one with another key, notes what each was answered, and completes.
 ///
 /// It notes what it was sent, and its pid, under `STAND_IN_SEEN`.
 const SOCKET_STAND_IN: &str = r#"#!/usr/bin/env python3
-import json, os, socket, sys, urllib.parse, urllib.request
+import http.client, json, os, socket, sys, urllib.parse, urllib.request
 
 path = sys.argv[1]
 if os.path.exists(path):
@@ -134,6 +177,23 @@ if mode == "writes":
     ask("api/op/create_recipe", {"title": "The stand-in's soup"})
     call.sendall(json.dumps({"outcome": "completed",
                              "report": {"unsure": ["The stand-in guessed the salt."]}}).encode())
+elif mode == "asks-the-model":
+    relay = handed["model_relay"]
+    class Relay(http.client.HTTPConnection):
+        def connect(self):
+            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.sock.connect(relay["socket"])
+    def model(key):
+        connection = Relay("relay")
+        connection.request("POST", "/messages", body=b"{}",
+                           headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
+        answer = connection.getresponse()
+        return [answer.status, answer.read().decode()]
+    note("model.socket", relay["socket"])
+    note("model.right", json.dumps(model(relay["key"])))
+    note("model.wrong", json.dumps(model("kamosu-relay-of-another-job")))
+    ask("api/op/create_recipe", {"title": "The model's soup"})
+    call.sendall(json.dumps({"outcome": "completed"}).encode())
 elif mode == "garbage":
     call.sendall(b"not a report")
 elif mode == "lingers":
@@ -296,6 +356,9 @@ fn start_runner_told(
         // Whatever the shell running the tests holds, a test says its own.
         .env_remove("KAMOSU_RUNNER_INSTANCE")
         .env_remove("KAMOSU_RUNNER_AGENT_SOCKET")
+        .env_remove("KAMOSU_RUNNER_MODEL_KEY")
+        .env_remove("KAMOSU_RUNNER_MODEL_ADDRESS")
+        .env_remove("KAMOSU_RUNNER_MODEL_SOCKET")
         .env("KAMOSU_RUNNER_KEY", start.runner_key)
         .env("KAMOSU_DATA_DIR", start.data_dir)
         .env("TMPDIR", place.path().join("folders"))
@@ -325,7 +388,7 @@ fn cook_and_runner(app: &support::TestApp) -> (String, String) {
         .secret;
     let runner = app
         .core
-        .mint_runner_key("the kitchen's Runner")
+        .mint_runner_key(None, "the kitchen's Runner")
         .unwrap()
         .secret;
     (key, runner)
@@ -521,6 +584,61 @@ async fn a_runner_hands_a_job_to_its_command_and_reports_what_the_agent_did() {
         runner.said()
     );
     assert!(alive(runner.pid()), "{}", runner.said());
+    // With no model key, the Runner says where the key belongs.
+    assert!(
+        runner.said().contains("The Runner holds no model key"),
+        "{}",
+        runner.said()
+    );
+}
+
+/// Three pictures handed over together reach the agent as three pages, in
+/// order, each fetched with the Job Key (#452).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_agent_fetches_every_page_of_three_pictures() {
+    let app = support::spawn_app();
+    let (key, runner_key) = cook_and_runner(&app);
+    let data_dir = tempfile::tempdir().unwrap();
+    let picture = |width: u32| {
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            width,
+            40,
+            image::Rgb([200, 120, 40]),
+        ))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+        use base64::Engine;
+        json!({ "data": base64::engine::general_purpose::STANDARD.encode(png) })
+    };
+    let (status, asked) = app.post_op(
+        "import_by_agent",
+        Some(&key),
+        &json!({ "pictures": [picture(40), picture(400), picture(80)] }).to_string(),
+    );
+    assert_eq!(status, 200, "{asked}");
+    let job_id = asked["result"]["job_id"].as_str().unwrap().to_string();
+
+    let runner = start_runner(Start {
+        kamosu: format!("http://{}", app.addr),
+        runner_key: &runner_key,
+        extra_env: vec![],
+        data_dir: data_dir.path(),
+    });
+    let finished = ended(&app, &key, &job_id, &runner);
+    assert_eq!(
+        finished["status"],
+        json!("completed"),
+        "{finished}\n{}",
+        runner.said()
+    );
+    let sizes: Vec<usize> = serde_json::from_str(
+        &std::fs::read_to_string(runner.seen().join(&job_id).join("pages")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(sizes.len(), 3, "{sizes:?}");
+    // The widest is the second, as it was handed over.
+    assert!(sizes[1] > sizes[0] && sizes[1] > sizes[2], "{sizes:?}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -688,8 +806,8 @@ async fn with_kamosu_out_of_reach_the_runner_says_so_and_tries_again() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_runner_whose_key_was_revoked_says_so() {
     let app = support::spawn_app();
-    let minted = app.core.mint_runner_key("gone").unwrap();
-    app.core.revoke_runner_key(&minted.id).unwrap();
+    let minted = app.core.mint_runner_key(None, "gone").unwrap();
+    app.core.revoke_runner_key(None, &minted.id).unwrap();
     let data_dir = tempfile::tempdir().unwrap();
 
     let mut runner = start_runner(Start {
@@ -1053,6 +1171,314 @@ async fn a_socket_that_does_not_greet_as_an_agent_is_handed_no_job() {
     });
     std::thread::sleep(Duration::from_millis(500));
     assert_eq!(job(&app, &key, &job_id)["status"], json!("queued"));
+}
+
+/// The key the tests give the Runner for the model's provider.
+const MODEL_KEY: &str = "sk-the-providers-own-key";
+
+/// One request a provider was sent: its path and its headers.
+type Sent = (String, Vec<(String, String)>);
+
+/// A model provider that writes down each request it is sent, its path and
+/// headers, and answers with a stream of two pieces a second apart, as a
+/// model streams.
+struct FakeProvider {
+    address: String,
+    seen: std::sync::Arc<std::sync::Mutex<Vec<Sent>>>,
+}
+
+impl FakeProvider {
+    fn start() -> FakeProvider {
+        use axum::body::Body;
+        use axum::extract::Request;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = format!("http://{}/v1", listener.local_addr().unwrap());
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let noted = seen.clone();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+            runtime.block_on(async move {
+                let app = axum::Router::new().fallback(move |request: Request| {
+                    let noted = noted.clone();
+                    async move {
+                        let headers = request
+                            .headers()
+                            .iter()
+                            .map(|(name, value)| {
+                                (name.to_string(), value.to_str().unwrap_or("").to_string())
+                            })
+                            .collect();
+                        let path = request
+                            .uri()
+                            .path_and_query()
+                            .map(|p| p.to_string())
+                            .unwrap_or_default();
+                        noted.lock().unwrap().push((path, headers));
+                        // The second piece a second after the first, so a
+                        // relay that held the answer back shows.
+                        let pieces = futures_util::stream::unfold(0, |sent| async move {
+                            match sent {
+                                0 => Some((Ok::<_, std::io::Error>("data: the model's\n"), 1)),
+                                1 => {
+                                    tokio::time::sleep(Duration::from_secs(1)).await;
+                                    Some((Ok("answer\n\n"), 2))
+                                }
+                                _ => None,
+                            }
+                        });
+                        Body::from_stream(pieces)
+                    }
+                });
+                let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+                axum::serve(listener, app).await.unwrap();
+            });
+        });
+        FakeProvider { address, seen }
+    }
+
+    /// What it was sent so far: each request's path and headers.
+    fn seen(&self) -> Vec<Sent> {
+        self.seen.lock().unwrap().clone()
+    }
+}
+
+fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, v)| v.as_str())
+}
+
+/// Whether any file the stand-in wrote holds `text`.
+fn seen_holds(seen: &Path, text: &str) -> bool {
+    std::fs::read_dir(seen).unwrap().any(|entry| {
+        std::fs::read_to_string(entry.unwrap().path()).is_ok_and(|file| file.contains(text))
+    })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_agent_command_reaches_its_model_through_the_runner_and_never_holds_the_key() {
+    let app = support::spawn_app();
+    let (key, runner_key) = cook_and_runner(&app);
+    let data_dir = tempfile::tempdir().unwrap();
+    let provider = FakeProvider::start();
+    let job_id = paste_for_the_agent(&app, &key, "asks-the-model");
+
+    let runner = start_runner(Start {
+        kamosu: format!("http://{}", app.addr),
+        runner_key: &runner_key,
+        extra_env: vec![
+            ("KAMOSU_RUNNER_MODEL_KEY", MODEL_KEY.to_string()),
+            ("KAMOSU_RUNNER_MODEL_ADDRESS", provider.address.clone()),
+        ],
+        data_dir: data_dir.path(),
+    });
+    let finished = ended(&app, &key, &job_id, &runner);
+    assert_eq!(
+        finished["status"],
+        json!("completed"),
+        "{finished}\n{}",
+        runner.said()
+    );
+    assert!(
+        runner.said().contains(&format!(
+            "Relaying the agent's model requests to {}/",
+            provider.address
+        )),
+        "{}",
+        runner.said()
+    );
+
+    // The request with the stand-in reached the provider under the same
+    // path, with the Runner's key in its place, and its answer streamed back.
+    let seen = runner.seen().join(&job_id);
+    let right: Value =
+        serde_json::from_str(&std::fs::read_to_string(seen.join("model.right")).unwrap()).unwrap();
+    assert_eq!(right, json!([200, "data: the model's\nanswer\n\n"]));
+    let sent = provider.seen();
+    // The first piece reached the agent before the provider sent the second.
+    let waited: f64 = std::fs::read_to_string(seen.join("model.waited"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(waited > 0.5, "the relay held the answer back: {waited} s");
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].0, "/v1/chat/completions?stream=true");
+    assert_eq!(
+        header(&sent[0].1, "authorization"),
+        Some(format!("Bearer {MODEL_KEY}").as_str())
+    );
+    assert_eq!(header(&sent[0].1, "content-type"), Some("application/json"));
+
+    // The agent is told where the relay sends, to check its own settings.
+    let handed: Value =
+        serde_json::from_str(&std::fs::read_to_string(seen.join("folder.job.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        handed["model_relay"]["provider"],
+        json!(format!("{}/", provider.address))
+    );
+
+    // Another key is refused and goes nowhere.
+    let wrong: Value =
+        serde_json::from_str(&std::fs::read_to_string(seen.join("model.wrong")).unwrap()).unwrap();
+    assert_eq!(wrong[0], json!(401), "{wrong}");
+
+    // The key is in no file of the folder, not in the command's environment,
+    // and blanked in the Runner's own.
+    assert!(
+        !seen_holds(&seen, MODEL_KEY),
+        "the agent held the model's key"
+    );
+    let environ: Value =
+        serde_json::from_str(&std::fs::read_to_string(seen.join("environ.json")).unwrap()).unwrap();
+    assert_eq!(environ.get("KAMOSU_RUNNER_MODEL_KEY"), None);
+    let runners_environment = std::fs::read(format!("/proc/{}/environ", runner.pid())).unwrap();
+    assert!(
+        !String::from_utf8_lossy(&runners_environment).contains(MODEL_KEY),
+        "the Runner's environment still shows the model's key"
+    );
+
+    // The relay was on the loopback for that Job alone: it is closed now,
+    // and the Runner listens on nothing between Jobs.
+    let address = std::fs::read_to_string(seen.join("model.address")).unwrap();
+    let port = Url::parse(&address).unwrap().socket_addrs(|| None).unwrap()[0];
+    assert!(port.ip().is_loopback(), "{address}");
+    wait_for("the relay closing", &runner, || {
+        std::net::TcpStream::connect(port).is_err()
+    });
+    assert_eq!(listening_sockets(runner.pid()), 0, "{}", runner.said());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_agent_at_a_socket_reaches_its_model_through_the_runners_socket() {
+    let app = support::spawn_app();
+    let (key, runner_key) = cook_and_runner(&app);
+    let data_dir = tempfile::tempdir().unwrap();
+    let provider = FakeProvider::start();
+    let job_id = paste_for_the_agent(&app, &key, "asks-the-model");
+    let seen = tempfile::tempdir().unwrap();
+    let agent = SocketAgent::start(seen.path(), None);
+    let relay_place = tempfile::tempdir().unwrap();
+    let relay_socket = relay_place.path().join("model.sock");
+
+    let runner = start_runner_for(
+        Start {
+            kamosu: format!("http://{}", app.addr),
+            runner_key: &runner_key,
+            extra_env: vec![
+                ("KAMOSU_RUNNER_MODEL_KEY", MODEL_KEY.to_string()),
+                ("KAMOSU_RUNNER_MODEL_ADDRESS", provider.address.clone()),
+                (
+                    "KAMOSU_RUNNER_MODEL_SOCKET",
+                    relay_socket.display().to_string(),
+                ),
+            ],
+            data_dir: data_dir.path(),
+        },
+        Some(&agent.socket),
+    );
+    let finished = ended(&app, &key, &job_id, &runner);
+    assert_eq!(
+        finished["status"],
+        json!("completed"),
+        "{finished}\n{}",
+        runner.said()
+    );
+
+    let seen = seen.path().join(&job_id);
+    assert_eq!(
+        std::fs::read_to_string(seen.join("model.socket")).unwrap(),
+        relay_socket.display().to_string()
+    );
+    let right: Value =
+        serde_json::from_str(&std::fs::read_to_string(seen.join("model.right")).unwrap()).unwrap();
+    assert_eq!(right, json!([200, "data: the model's\nanswer\n\n"]));
+    let wrong: Value =
+        serde_json::from_str(&std::fs::read_to_string(seen.join("model.wrong")).unwrap()).unwrap();
+    assert_eq!(wrong[0], json!(401), "{wrong}");
+
+    // The key went where the agent put the stand-in, and nowhere else.
+    let sent = provider.seen();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].0, "/v1/messages");
+    assert_eq!(header(&sent[0].1, "x-api-key"), Some(MODEL_KEY));
+    assert_eq!(header(&sent[0].1, "authorization"), None);
+    assert_eq!(header(&sent[0].1, "anthropic-version"), Some("2023-06-01"));
+    assert!(
+        !seen_holds(&seen, MODEL_KEY),
+        "the agent was sent the model's key"
+    );
+
+    // The socket was the Job's alone, and is gone with it.
+    wait_for("the relay's socket going", &runner, || {
+        !relay_socket.exists()
+    });
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_runner_refuses_model_settings_it_cannot_relay_with() {
+    let data_dir = tempfile::tempdir().unwrap();
+    let refused = |extra_env: Vec<(&'static str, String)>, agent_command: bool| {
+        let mut runner = start_runner_told(
+            Start {
+                kamosu: String::new(),
+                runner_key: "a key",
+                extra_env,
+                data_dir: data_dir.path(),
+            },
+            |command, script| {
+                command.args(["--kamosu", "http://127.0.0.1:9"]);
+                if agent_command {
+                    command.arg("--").arg(script);
+                } else {
+                    command.args(["--agent-socket", "/run/kamosu-agent/agent.sock"]);
+                }
+            },
+        );
+        assert_eq!(runner.ends(), 2, "{}", runner.said());
+        runner.said()
+    };
+    let key = ("KAMOSU_RUNNER_MODEL_KEY", MODEL_KEY.to_string());
+    let address = (
+        "KAMOSU_RUNNER_MODEL_ADDRESS",
+        "https://openrouter.ai/api/v1".to_string(),
+    );
+    let socket = (
+        "KAMOSU_RUNNER_MODEL_SOCKET",
+        "/run/kamosu-relay/model.sock".to_string(),
+    );
+
+    let said = refused(vec![key.clone()], true);
+    assert!(said.contains("names no address to send it to"), "{said}");
+    assert!(!said.contains(MODEL_KEY), "{said}");
+    let said = refused(vec![address.clone()], true);
+    assert!(said.contains("holds no key for it"), "{said}");
+    let said = refused(vec![socket.clone()], true);
+    assert!(
+        said.contains("no KAMOSU_RUNNER_MODEL_KEY is given"),
+        "{said}"
+    );
+    let said = refused(vec![key.clone(), address.clone(), socket.clone()], true);
+    assert!(said.contains("is for an agent at a socket"), "{said}");
+    let said = refused(vec![key.clone(), address.clone()], false);
+    assert!(
+        said.contains("name it in KAMOSU_RUNNER_MODEL_SOCKET"),
+        "{said}"
+    );
+    let said = refused(
+        vec![
+            key.clone(),
+            (
+                "KAMOSU_RUNNER_MODEL_ADDRESS",
+                "https://me:sk-hidden@openrouter.ai/api/v1".to_string(),
+            ),
+        ],
+        true,
+    );
+    assert!(said.contains("with a name or a password"), "{said}");
+    assert!(!said.contains("sk-hidden"), "{said}");
 }
 
 /// How many TCP and Unix sockets a process holds that are listening.

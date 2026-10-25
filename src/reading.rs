@@ -677,13 +677,18 @@ fn listed(list: &[&str], word: &str) -> bool {
 /// gets, and the line goes on working exactly as written. `salt and pepper to
 /// taste` is not such a line: the phrase is dropped and it reads as `salt and
 /// pepper` does (#163).
-pub fn read_line(line: &str) -> Option<Reading> {
+///
+/// `language` is the Branch's Language, and English is the one it changes:
+/// there `1,020 g` is a thousand and twenty grams (#383). A caller that knows
+/// no Language passes [`crate::language::UNKNOWN`].
+pub fn read_line(line: &str, language: &str) -> Option<Reading> {
     use unicode_normalization::UnicodeNormalization;
     let opens_with_a_bracket = line.trim_start().starts_with(['(', '[', '{']);
     // An accent typed as its own character is put back on its letter, so one
     // name read from two keyboards is one spelling (#230). Only the Reading
     // is respelt: the line itself is the recipe's, and stays as written.
     let line: String = without_brackets(line).nfc().collect();
+    let line = with_thousands_read(&line, language);
     // A comma straight after an opening aside in brackets ends nothing, since
     // nothing stood before it: `(white part), finely sliced Spring onion` is
     // the aside and then the line itself (#353). Without the bracket the
@@ -1655,6 +1660,127 @@ const NAMED_KINDS: &[&str] = &[
     "miso",
 ];
 
+/// Words that make a name **something made from a food** rather than the food:
+/// curry *powder* is no curry, and lemon *zest* is no lemon. A word of the
+/// title that a Step names a line by still names the dish where the line is
+/// one of these, and a Step naming the food links the food itself before
+/// something made from it, so *the garlic* is the cloves and not the powder
+/// (#439). [`CUTS_AND_PARTS`] holds the other kind, the food itself in
+/// pieces.
+///
+/// French *pâte* and Spanish *pasta* are left out for the reason they are left
+/// out there.
+const MADE_FROM: &[&str] = &[
+    // English
+    "powder",
+    "paste",
+    "extract",
+    "essence",
+    "zest",
+    "juice",
+    "stock",
+    "broth",
+    "bouillon",
+    "sauce",
+    "flour",
+    "meal",
+    "oil",
+    "butter",
+    "milk",
+    "cream",
+    "syrup",
+    "vinegar",
+    "purée",
+    "puree",
+    "concentrate",
+    "jam",
+    "jelly",
+    "water",
+    // French
+    "poudre",
+    "extrait",
+    "zeste",
+    "jus",
+    "fond",
+    "farine",
+    "huile",
+    "beurre",
+    "lait",
+    "crème",
+    "sirop",
+    "vinaigre",
+    "concentré",
+    "confiture",
+    "eau",
+    // Spanish
+    "polvo",
+    "extracto",
+    "esencia",
+    "ralladura",
+    "jugo",
+    "zumo",
+    "caldo",
+    "salsa",
+    "harina",
+    "aceite",
+    "mantequilla",
+    "leche",
+    "crema",
+    "nata",
+    "jarabe",
+    "sirope",
+    "vinagre",
+    "puré",
+    "concentrado",
+    "mermelada",
+    "agua",
+];
+
+/// Words a recipe calls something it makes itself: *the sauce* is the one in
+/// the pan, not the soy sauce in the list. French *pâte* and Spanish *masa*
+/// are left out, since *la pâte* is as often the *pâte brisée* the list buys. Such a word never names a line on
+/// its own, though a line's whole name still does, and a food named just
+/// before it is describing it: *the tomato-spice mixture* adds no tomato
+/// (#439).
+const MADE_HERE: &[&str] = &[
+    // English
+    "sauce",
+    "mixture",
+    "marinade",
+    "dressing",
+    "batter",
+    "dough",
+    "glaze",
+    "filling",
+    // French
+    "mélange",
+    "marinade",
+    "vinaigrette",
+    "glaçage",
+    "garniture",
+    "farce",
+    "appareil",
+    // Spanish
+    "salsa",
+    "mezcla",
+    "marinada",
+    "aliño",
+    "glaseado",
+    "relleno",
+];
+
+/// **Whether a word makes a name something made from a food**, as *powder*
+/// does in *curry powder* (#439).
+pub fn made_from(word: &str) -> bool {
+    listed(MADE_FROM, word)
+}
+
+/// **Whether a recipe uses this word for something it makes itself**, as
+/// *the sauce* (#439).
+pub fn made_here(word: &str) -> bool {
+    listed(MADE_HERE, word)
+}
+
 /// **Whether a word gives way to the word beside it as a name's main word**:
 /// a cut, a part or a form of a food, or a word that names nothing alone.
 /// *Thighs* gives way to *chicken*, *extrait* to *vanille*, and *fresh* to
@@ -2020,12 +2146,44 @@ fn strip_glue<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
     words
 }
 
+/// The text as `language` reads its numbers: an English one with its
+/// thousands separators taken out, any other as written (#383, #397).
+fn with_thousands_read(text: &str, language: &str) -> String {
+    if language == "en" {
+        without_thousands_commas(text)
+    } else {
+        text.to_string()
+    }
+}
+
+/// **An English line with its thousands separators taken out**, so `1,020 g`
+/// is read as `1020 g` and every later step reads the right number (#383). A
+/// comma is one when a digit stands before it and exactly three digits after
+/// it. `1,5` and `1,0200` keep theirs, which is a decimal comma even in
+/// English, as a European writing English uses one.
+fn without_thousands_commas(line: &str) -> String {
+    let bytes = line.as_bytes();
+    let digit = |at: usize| bytes.get(at).is_some_and(u8::is_ascii_digit);
+    let mut kept = String::with_capacity(line.len());
+    let mut from = 0;
+    for (at, _) in line.match_indices(',') {
+        let separates =
+            at > 0 && digit(at - 1) && (1..=3).all(|ahead| digit(at + ahead)) && !digit(at + 4);
+        if separates {
+            kept.push_str(&line[from..at]);
+            from = at + 1;
+        }
+    }
+    kept.push_str(&line[from..]);
+    kept
+}
+
 /// The line cut at each comma that ends a clause. **A comma with a digit on
 /// both sides ends nothing**: it is the decimal comma French and Spanish write
 /// `1,2` with, and [`units::parse_amount`] reads it as part of the amount
 /// (#180). Every other comma is a clause's end, so `salt, 2 pinches` still
-/// cuts. An English thousands separator, `1,500 g`, reads as 1.5 by the same
-/// rule; the text alone cannot tell the two apart.
+/// cuts. An English thousands separator, `1,500 g`, never reaches here:
+/// [`read_line`] takes it out of an English line first (#383).
 fn split_clauses(line: &str) -> Vec<&str> {
     let digit = |at: Option<usize>| {
         at.and_then(|at| line.as_bytes().get(at))
@@ -2183,12 +2341,16 @@ impl StepAmount {
 /// too, and the one test that tells an amount from any other number in prose
 /// is a Unit Kamosu can convert standing right after it. A range, `1–1½
 /// cups`, reads as nothing, exactly as it does on an Ingredient Line.
-pub fn amounts_in_step(text: &str) -> Vec<StepAmount> {
+///
+/// `language` is the Branch's Language, as for [`read_line`]: in English
+/// `1,020 g` is a thousand and twenty grams (#397). Only the amount is read
+/// without the comma. The Step's text, and every place in it, is as written.
+pub fn amounts_in_step(text: &str, language: &str) -> Vec<StepAmount> {
     let words = words_with_places(text);
     let mut found = Vec::new();
     let mut index = 0;
     while index < words.len() {
-        match amount_at(text, &words, index) {
+        match amount_at(text, &words, index, language) {
             Some((amount, taken)) => {
                 index += taken;
                 found.push(amount);
@@ -2220,7 +2382,12 @@ fn words_with_places(text: &str) -> Vec<(usize, usize)> {
 }
 
 /// The amount starting at word `index`, and how many words it took.
-fn amount_at(text: &str, words: &[(usize, usize)], index: usize) -> Option<(StepAmount, usize)> {
+fn amount_at(
+    text: &str,
+    words: &[(usize, usize)],
+    index: usize,
+    language: &str,
+) -> Option<(StepAmount, usize)> {
     let word = |at: usize| words.get(at).map(|(from, to)| &text[*from..*to]);
     // An opening bracket belongs to the sentence, not to the amount:
     // `(½ cup)` is an amount of half a cup.
@@ -2231,7 +2398,8 @@ fn amount_at(text: &str, words: &[(usize, usize)], index: usize) -> Option<(Step
     let (amount, amount_words) = [2, 1].into_iter().find_map(|take| {
         let last = index + take - 1;
         let candidate = &text[words[index].0 + opened..words.get(last)?.1];
-        units::parse_amount(candidate).map(|_| (candidate.to_string(), take))
+        let candidate = with_thousands_read(candidate, language);
+        units::parse_amount(&candidate).map(|_| (candidate, take))
     })?;
 
     // The Unit: the longest window the closed set recognises, `c. à s.` being
@@ -2340,7 +2508,8 @@ mod tests {
 
     /// A line's Reading as its three parts, `None` where a part is absent.
     fn read(line: &str) -> Option<(Option<String>, Option<String>, Option<String>)> {
-        read_line(line).map(|reading| (reading.amount, reading.unit, reading.target))
+        read_line(line, crate::language::UNKNOWN)
+            .map(|reading| (reading.amount, reading.unit, reading.target))
     }
 
     fn parts(
@@ -2587,8 +2756,21 @@ mod tests {
     }
 
     #[test]
+    fn an_english_step_amount_reads_a_comma_before_three_digits_as_thousands() {
+        // The cheesecake brownie's Step, which was scaled as 2 g (#397). The
+        // amount is read without the comma; the Step still says what it said.
+        let text = "Beat in 1,020 g soft cheese until smooth.";
+        let english = &amounts_in_step(text, "en")[0];
+        assert_eq!(english.amount, "1020");
+        assert_eq!(english.written(text), "1,020 g");
+        assert_eq!(amounts_in_step("Add 1,5 g salt.", "en")[0].amount, "1,5");
+        // French keeps its decimal comma (#180).
+        assert_eq!(amounts_in_step(text, "fr")[0].amount, "1,020");
+    }
+
+    #[test]
     fn a_step_amount_names_the_food_without_its_temperature() {
-        let amounts = amounts_in_step("Ajouter 100 g de beurre froid en dés.");
+        let amounts = amounts_in_step("Ajouter 100 g de beurre froid en dés.", "fr");
         assert_eq!(amounts[0].food.as_deref(), Some("beurre"));
     }
 
@@ -2714,6 +2896,46 @@ mod tests {
         );
         assert_eq!(read("salt, 2 pinches"), parts(None, None, Some("salt")));
         assert_eq!(read("salt,2 pinches"), parts(None, None, Some("salt")));
+    }
+
+    #[test]
+    fn an_english_comma_before_three_digits_separates_thousands() {
+        // Vanilla cheesecake brownie, whose source writes bakery amounts with
+        // thousands separators (#383).
+        let read_en = |line: &str| {
+            read_line(line, "en").map(|reading| (reading.amount, reading.unit, reading.target))
+        };
+        assert_eq!(
+            read_en("1,020 g full-fat soft cheese (Philadelphia type)"),
+            parts(Some("1020"), Some("g"), Some("full-fat soft cheese"))
+        );
+        assert_eq!(
+            read_en("1,300 g unsalted butter, softened"),
+            parts(Some("1300"), Some("g"), Some("unsalted butter"))
+        );
+        assert_eq!(
+            read_en("1,000,000 g sugar"),
+            parts(Some("1000000"), Some("g"), Some("sugar"))
+        );
+        // A European writing English still writes a decimal comma.
+        assert_eq!(
+            read_en("1,5 g salt"),
+            parts(Some("1,5"), Some("g"), Some("salt"))
+        );
+        // Four digits after the comma separate no thousands.
+        assert_eq!(
+            read_en("1,0200 kg flour"),
+            parts(Some("1,0200"), Some("kg"), Some("flour"))
+        );
+        // French and Spanish keep the decimal comma #180 settled.
+        assert_eq!(
+            read_line("1,200 kg de viande", "fr").map(|r| r.amount),
+            Some(Some("1,200".to_string()))
+        );
+        assert_eq!(
+            read_line("1,200 kg de carne", "es").map(|r| r.amount),
+            Some(Some("1,200".to_string()))
+        );
     }
 
     #[test]
@@ -3325,7 +3547,7 @@ mod tests {
     }
 
     fn written(text: &str) -> Vec<(&str, Option<String>)> {
-        amounts_in_step(text)
+        amounts_in_step(text, crate::language::UNKNOWN)
             .into_iter()
             .map(|amount| (amount.written(text), amount.food.clone()))
             .collect()
@@ -3343,7 +3565,7 @@ mod tests {
                 ("1 cup", Some("panko".into())),
             ]
         );
-        let first = &amounts_in_step(text)[0];
+        let first = &amounts_in_step(text, "en")[0];
         assert_eq!((first.amount.as_str(), first.unit.as_str()), ("3", "oz."));
     }
 
@@ -4018,7 +4240,7 @@ mod tests {
             read("2 c à s de sucre"),
             parts(Some("2"), Some("c à s"), Some("sucre"))
         );
-        let unit = |line: &str| read_line(line).and_then(|reading| reading.unit);
+        let unit = |line: &str| read_line(line, "fr").and_then(|reading| reading.unit);
         for line in [
             "1 c. à dessert de miel",
             // Written with no `à`, or with no spoon's name at all.
@@ -4039,8 +4261,8 @@ mod tests {
     fn a_lone_c_in_a_step_is_no_cup() {
         // An oven written `180 C` is a temperature, not a hundred and eighty
         // cups (#326).
-        assert!(amounts_in_step("Bake at 180 C for 20 minutes.").is_empty());
-        assert!(amounts_in_step("Add 1 c sugar.").is_empty());
+        assert!(amounts_in_step("Bake at 180 C for 20 minutes.", "en").is_empty());
+        assert!(amounts_in_step("Add 1 c sugar.", "en").is_empty());
     }
 
     #[test]

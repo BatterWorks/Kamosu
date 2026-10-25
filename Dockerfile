@@ -71,6 +71,9 @@ COPY tests ./tests
 # source in ui/ is not needed — the output is committed and verified fresh by
 # `just check`.
 COPY assets ./assets
+# Embedded at compile time by src/sample_library.rs: the story a Demo builds
+# its Sample Library from, and the photographs it names (#404).
+COPY sample-library ./sample-library
 # Embedded at compile time by src/interface.rs: the built Svelte app. build.rs
 # refuses a release build without it, so this COPY is load-bearing, not optional.
 COPY --from=ui /ui/build ./ui/build

@@ -60,6 +60,7 @@
 -->
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
+	import { demo } from '$lib/demo.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { useRoom } from '$lib/room.svelte';
@@ -132,6 +133,8 @@
 	let discarded = $state(false);
 	/** A photograph that could not be kept, even on the phone. */
 	let photoFailed = $state(false);
+	/** A photograph taken in a Demo, which will not be kept (#403). */
+	let photoInDemo = $state(false);
 
 	/** How much is being cooked is being asked (#109). */
 	let asking = $state(false);
@@ -244,6 +247,9 @@
 		void writing;
 		void amounts.length;
 		void writeFailed;
+		// A Demo's strip, which takes the foot of the screen once the shell
+		// has heard it is one (#407).
+		void demo.is;
 		if (!element) {
 			stepScrolls = false;
 			return;
@@ -255,8 +261,13 @@
 			stepScrolls = element.scrollHeight > element.clientHeight + 8;
 		};
 		measure();
+		// Once more after the frame, by when the strip's room has been taken.
+		const settled = requestAnimationFrame(measure);
 		window.addEventListener('resize', measure);
-		return () => window.removeEventListener('resize', measure);
+		return () => {
+			cancelAnimationFrame(settled);
+			window.removeEventListener('resize', measure);
+		};
 	});
 
 	$effect(() => {
@@ -676,9 +687,10 @@
 		if (!attempt || !picture) return;
 		const id = attempt.id;
 		try {
-			const photographs = await photographCooking(kamosu, keeping, id, picture);
-			if (attempt?.id === id) attempt = { ...attempt, photographs };
+			const taken = await photographCooking(kamosu, keeping, id, picture);
+			if (attempt?.id === id) attempt = { ...attempt, photographs: taken.photographs };
 			photoFailed = false;
+			photoInDemo = taken.inADemo;
 		} catch (error) {
 			if (!(error instanceof OperationError) && !(error instanceof DOMException)) throw error;
 			photoFailed = true;
@@ -780,8 +792,9 @@
 	<title>{content ? m.cook_tab_title({ title: content.title }) : m.app_name()}</title>
 </svelte:head>
 
+<!-- Stops above a Demo's strip, which stands under Back and Start cooking (#407). -->
 <div
-	class="fixed inset-0 z-30 flex flex-col bg-cook-ground px-gutter pt-safe pb-safe text-cook-ink cook-far wide:px-[var(--cook-inset)]"
+	class="fixed inset-x-0 top-0 above-demo-strip z-30 flex flex-col bg-cook-ground px-gutter pt-safe pb-safe text-cook-ink cook-far wide:px-[var(--cook-inset)]"
 >
 	<!--
 		Kamosu went wrong, said aloud (#119). The root layout keeps #98's card off
@@ -1097,6 +1110,8 @@
 						<p class="pb-2 text-read text-cook-ink-2" role="alert">
 							{room.wide ? m.cook_photo_failed_device() : m.cook_photo_failed()}
 						</p>
+					{:else if photoInDemo}
+						<p class="pb-2 text-read text-cook-ink-2" role="status">{m.cook_photo_demo()}</p>
 					{/if}
 					<!--
 				A change of how much made with no network (#77): the phone holds

@@ -123,6 +123,27 @@ describe('one source and what has arrived through it', () => {
 		expect(kamosu.calls.map((call) => call.operation)).toEqual(['list_imports']);
 	});
 
+	it('names another app by its name, and forgetting it by its export (#413)', async () => {
+		draw(
+			{
+				list_imports: {
+					imports: [{ ...CROUTON, import_id: 'imp_mealie', source_kind: 'mealie', remembered: 3 }],
+				},
+			},
+			'mealie',
+		);
+
+		await fireEvent.click(
+			await screen.findByRole('button', { name: 'Forget where these came from' }),
+		);
+		expect(screen.getByRole('heading', { name: 'Mealie' })).toBeInTheDocument();
+		const sheet = await screen.findByRole('dialog');
+		expect(sheet).toHaveTextContent('Forget that these recipes came from Mealie?');
+		expect(sheet).toHaveTextContent(
+			'Import the same Mealie export again and Kamosu recognises nothing: all 3 arrive again',
+		);
+	});
+
 	it('words the cost for a source that remembers exactly one recipe', async () => {
 		// One recipe from one web page is an ordinary import, and a single phrase
 		// carrying the count produced "all 1 arrive a second time, as 1 new

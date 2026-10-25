@@ -192,7 +192,7 @@ export interface World {
 	told?: (operations: OperationName[]) => void;
 }
 
-/** What a screen may ask of it: only about photographs, and whether a cooking is still waiting. */
+/** What a screen may ask of it: about photographs, and what is still waiting. */
 export interface Keeping {
 	/** Whether this phone holds writes to this cooking that it has not sent yet. */
 	holds(attemptId: string): boolean;
@@ -200,6 +200,11 @@ export interface Keeping {
 	keepPhotograph(picture: Blob): Promise<string>;
 	/** Where to draw one of a cooking's photographs from, whether or not it has reached the server. */
 	photographSrc(id: string, size: 'card' | 'page'): Promise<string | undefined>;
+	/**
+	 * Send what is waiting now, and answer how many writes the server has still
+	 * not taken. Asked before signing out, which would lose them (#380).
+	 */
+	sendWaiting(): Promise<number>;
 }
 
 const isUnreached = (error: unknown): error is OperationError =>
@@ -871,12 +876,27 @@ export class Outbox implements Keeping {
 			}
 			const kept = this.#read();
 			let id = kept.photographs[name];
+			// Dropped in a Demo already: not sent again.
+			if (id === '') continue;
 			if (!id) {
 				const picture = await this.#world.pictures.read(name);
 				// Gone from the phone — its storage cleared — so there is nothing
 				// left to send, and a name pointing at nothing is refused.
 				if (!picture) continue;
-				id = await this.#world.upload(picture);
+				try {
+					id = await this.#world.upload(picture);
+				} catch (error) {
+					// A Demo keeps no photograph (#403). The picture is left out
+					// and the rest of the write is sent, so the cooking's note
+					// is never thrown away with it. Named by nothing, it is still
+					// drawn from the phone until the phone is level, and then
+					// forgotten with the others.
+					if (!(error instanceof OperationError) || error.reason !== 'demo') throw error;
+					const now = this.#read();
+					now.photographs[name] = '';
+					this.#write(now);
+					continue;
+				}
 				const now = this.#read();
 				now.photographs[name] = id;
 				this.#write(now);
@@ -945,6 +965,10 @@ export class Outbox implements Keeping {
 				// A Session that has ended cannot send anything; what it wrote
 				// waits for it rather than being thrown away one write at a time.
 				if (error instanceof OperationError && error.kind === 'unauthorized') return true;
+				// Neither can a server answering as many requests as it takes
+				// (#368): it would have taken the write a moment later, so the
+				// write waits for that moment rather than being thrown away.
+				if (error instanceof OperationError && error.kind === 'busy') return true;
 				console.warn(`Kamosu refused ${next.operation} written offline`, error);
 			}
 			await this.#exclusive(() => this.#sent(next, answer));
@@ -998,6 +1022,11 @@ export class Outbox implements Keeping {
 	holds(attemptId: string): boolean {
 		const kept = this.#read();
 		return this.#waiting(kept).has(this.#renamed(kept, attemptId));
+	}
+
+	async sendWaiting(): Promise<number> {
+		await this.flush();
+		return this.#read().queue.length;
 	}
 
 	async keepPhotograph(picture: Blob): Promise<string> {

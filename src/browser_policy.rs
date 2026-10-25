@@ -1,6 +1,6 @@
-//! What every answer tells the browser the page may do (#139).
+//! What every answer tells the browser the page may do (#139, #368).
 //!
-//! Three headers, stamped on every response by one layer over the whole app,
+//! The headers are stamped on every response by one layer over the whole app,
 //! so no route can be added without them. ADR 0033 holds that Kamosu on its
 //! bare port is as safe as Kamosu behind a proxy, which puts these in Kamosu
 //! rather than in a proxy config each Operator would have to write.
@@ -9,19 +9,37 @@
 //! Content-Security-Policy behind "the app never inserts raw HTML", the frame
 //! ban behind the `SameSite` Session cookie, `nosniff` behind re-encoded
 //! Photographs, and the Referrer-Policy behind the browser's own default,
-//! which already keeps a Share Link's Secret off other sites.
+//! which already keeps a Share Link's Secret off other sites. The four #368
+//! added: Strict-Transport-Security behind the proxy's own redirect to HTTPS,
+//! the Permissions-Policy behind an app that never asks for what it denies,
+//! and the two Cross-Origin policies behind the browser keeping one site's
+//! pages and answers from another's.
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
+use axum::extract::{Request, State};
 use axum::http::{HeaderValue, header};
+use axum::middleware::Next;
 use axum::response::Response;
 
+use crate::admission;
+use crate::core::Core;
 use crate::interface;
 
-/// The layer's whole work: the same three headers on whatever was answered.
-pub async fn stamp(mut response: Response) -> Response {
+/// The layer's whole work: the same headers on whatever was answered, and
+/// two that depend on the request.
+pub async fn stamp(State(core): State<Arc<Core>>, request: Request, next: Next) -> Response {
+    let over_https =
+        admission::came_over_https(request.headers(), core.public_address().as_deref());
+    // The Share Link page and everything under it: its picture, its Sheet,
+    // and the recipe file another Kamosu fetches (ADR 0018, #169).
+    let shared = request.uri().path().starts_with("/s/");
+    let mut response = next.run(request).await;
     let headers = response.headers_mut();
-    headers.insert(header::CONTENT_SECURITY_POLICY, content_security_policy());
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        content_security_policy(core.analytics().map(|a| a.origin.as_str())),
+    );
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
@@ -32,34 +50,84 @@ pub async fn stamp(mut response: Response) -> Response {
         header::REFERRER_POLICY,
         HeaderValue::from_static("same-origin"),
     );
+    // A year, and this host alone: a homelab's other names may still be
+    // plain HTTP, so `includeSubDomains` would break them. Only on an answer
+    // that came over HTTPS; a browser ignores it over plain HTTP anyway.
+    if over_https {
+        headers.insert(
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=31536000"),
+        );
+    }
+    headers.insert(
+        axum::http::HeaderName::from_static("permissions-policy"),
+        permissions_policy(),
+    );
+    // A window Kamosu opens keeps its hold on Kamosu's own pages only, and a
+    // page on another site that opened Kamosu cannot reach into it.
+    headers.insert(
+        axum::http::HeaderName::from_static("cross-origin-opener-policy"),
+        HeaderValue::from_static("same-origin"),
+    );
+    // Another site's page cannot load Kamosu's answers as its own pictures
+    // or scripts, except what a Share Link hands to anyone holding it.
+    headers.insert(
+        axum::http::HeaderName::from_static("cross-origin-resource-policy"),
+        HeaderValue::from_static(if shared {
+            "cross-origin"
+        } else {
+            "same-origin"
+        }),
+    );
     response
+}
+
+/// What a page may never ask the browser for, because Kamosu never does.
+///
+/// Left out on purpose, so allowed to Kamosu's own pages as the browser's
+/// default: the camera, which the cooking screen's photograph input opens;
+/// keeping the screen awake while cooking; copying to the clipboard; and
+/// sharing a file or a link. Only names every current browser knows are
+/// listed, since Chrome reports an unknown one as an error on every page.
+fn permissions_policy() -> HeaderValue {
+    HeaderValue::from_static(
+        "accelerometer=(), browsing-topics=(), display-capture=(), geolocation=(), \
+         gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), \
+         serial=(), usb=()",
+    )
 }
 
 /// One policy for every answer. It names the shell's inline bootstrap by hash
 /// rather than allowing inline script at all, so a script that got into a page
-/// any other way does not run.
+/// any other way does not run. A Demo counting its visits (#408) also lets
+/// its Umami's one origin load a script and be sent to.
 ///
 /// A release build embeds the shell, so its hash is worked out once. A debug
 /// build reads `ui/build` from disk and `just ui-build` can replace it under a
 /// running server, so there it is worked out on every answer.
-fn content_security_policy() -> HeaderValue {
-    static POLICY: OnceLock<HeaderValue> = OnceLock::new();
+fn content_security_policy(analytics_origin: Option<&str>) -> HeaderValue {
+    static HASHES: OnceLock<Vec<String>> = OnceLock::new();
     if cfg!(debug_assertions) {
-        policy_for(&interface::shell_script_hashes())
+        policy_for(&interface::shell_script_hashes(), analytics_origin)
     } else {
-        POLICY
-            .get_or_init(|| policy_for(&interface::shell_script_hashes()))
-            .clone()
+        policy_for(
+            HASHES.get_or_init(interface::shell_script_hashes),
+            analytics_origin,
+        )
     }
 }
 
-fn policy_for(script_hashes: &[String]) -> HeaderValue {
+fn policy_for(script_hashes: &[String], analytics_origin: Option<&str>) -> HeaderValue {
     let mut scripts = String::from("'self'");
     for hash in script_hashes {
         scripts.push(' ');
         scripts.push_str(hash);
     }
-    let policy = [
+    if let Some(origin) = analytics_origin {
+        scripts.push(' ');
+        scripts.push_str(origin);
+    }
+    let mut policy = vec![
         "default-src 'self'".to_string(),
         format!("script-src {scripts}"),
         // Inline style is allowed, and taken on purpose: the shell wraps the
@@ -76,9 +144,13 @@ fn policy_for(script_hashes: &[String]) -> HeaderValue {
         "form-action 'self'".to_string(),
         // Only a header can say this; a `<meta>` policy ignores it.
         "frame-ancestors 'none'".to_string(),
-    ]
-    .join("; ");
-    HeaderValue::from_str(&policy).expect("a policy is plain ASCII")
+    ];
+    // Where the Umami script sends its counts. Without it, `default-src`
+    // already holds every request to Kamosu's own origin.
+    if let Some(origin) = analytics_origin {
+        policy.insert(2, format!("connect-src 'self' {origin}"));
+    }
+    HeaderValue::from_str(&policy.join("; ")).expect("a policy is plain ASCII")
 }
 
 #[cfg(test)]
@@ -87,7 +159,7 @@ mod tests {
 
     #[test]
     fn inline_script_is_allowed_only_by_hash() {
-        let policy = policy_for(&["'sha256-abc='".to_string()]);
+        let policy = policy_for(&["'sha256-abc='".to_string()], None);
         let policy = policy.to_str().unwrap();
         assert!(
             policy.contains("script-src 'self' 'sha256-abc='"),
@@ -98,5 +170,47 @@ mod tests {
             .find(|d| d.trim().starts_with("script-src"))
             .unwrap();
         assert!(!scripts.contains("unsafe"), "{policy}");
+    }
+
+    /// What every instance but a counting Demo is told, written out whole:
+    /// #408 must leave it byte for byte as it was.
+    #[test]
+    fn the_policy_without_analytics_is_what_it_always_was() {
+        let policy = policy_for(&["'sha256-abc='".to_string()], None);
+        assert_eq!(
+            policy.to_str().unwrap(),
+            "default-src 'self'; script-src 'self' 'sha256-abc='; \
+             style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; \
+             object-src 'none'; base-uri 'self'; form-action 'self'; \
+             frame-ancestors 'none'"
+        );
+    }
+
+    #[test]
+    fn a_counting_demo_lets_its_umami_load_a_script_and_be_sent_to_and_nothing_more() {
+        let umami = "https://umami.example.com";
+        let policy = policy_for(&["'sha256-abc='".to_string()], Some(umami));
+        let policy = policy.to_str().unwrap();
+        let directive = |name: &str| {
+            policy
+                .split("; ")
+                .find(|d| d.starts_with(&format!("{name} ")))
+                .unwrap_or_else(|| panic!("no {name} in {policy}"))
+                .to_string()
+        };
+        assert_eq!(
+            directive("script-src"),
+            format!("script-src 'self' 'sha256-abc=' {umami}")
+        );
+        assert_eq!(
+            directive("connect-src"),
+            format!("connect-src 'self' {umami}")
+        );
+        let elsewhere = policy
+            .split("; ")
+            .filter(|d| !d.starts_with("script-src ") && !d.starts_with("connect-src "))
+            .collect::<Vec<_>>();
+        assert!(elsewhere.iter().all(|d| !d.contains("umami")), "{policy}");
+        assert_eq!(policy.matches(umami).count(), 2, "{policy}");
     }
 }

@@ -36,7 +36,12 @@
 
 	let {
 		client,
-		auth = { authenticate: async () => {} },
+		auth = {
+			authenticate: async () => {},
+			signInWithPasskey: async () => 'declined',
+			readyPasskey: () => {},
+			arrive: async () => {},
+		},
 		upload = async () => {
 			throw new Error('this test sent a file without giving an uploader');
 		},
@@ -53,6 +58,7 @@
 				throw new Error('this test took a photograph without giving an outbox');
 			},
 			photographSrc: async (id, size) => `/api/photographs/${id}/${size}`,
+			sendWaiting: async () => 0,
 		},
 		room = 'phone',
 		children,

@@ -35,7 +35,7 @@ import {
  */
 export function secretFrom(setCookies) {
 	for (const line of setCookies) {
-		const match = /^kamosu_session=([^;]+)/.exec(line);
+		const match = /^__Host-kamosu_session=([^;]+)/.exec(line);
 		if (match) return match[1];
 	}
 	return null;

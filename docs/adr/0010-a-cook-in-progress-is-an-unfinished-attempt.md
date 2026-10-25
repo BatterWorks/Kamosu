@@ -4,6 +4,8 @@ Cooking mode — the step-by-step screen used with wet hands, at arm's length, o
 
 An In Progress Attempt additionally holds where the cook has got to: which **Step**, which **Ingredients** are ticked, and the **Yield** being cooked to. It is visible to its cook alone until it stops being In Progress, at which point [ADR 0005](./0005-an-attempt-is-a-version-you-cooked-but-did-not-keep.md)'s ordinary rule resumes and it inherits the recipe's visibility.
 
+_(Amended by [ADR 0053](./0053-an-imported-attempt-names-its-cook-and-was-never-in-progress.md): an Attempt brought in from another app's cooking history is written finished, dated as that app dated it, and was never In Progress.)_
+
 ## Why
 
 - **The language said so first.** [ADR 0005](./0005-an-attempt-is-a-version-you-cooked-but-did-not-keep.md) put *cook*, *session*, *make* and *bake* on Attempt's Avoid list, because those words already meant "one cooking of this dish". A second concept would have had no name left that did not already belong to Attempt — reliable evidence there was no second concept, only a state Attempt was missing.

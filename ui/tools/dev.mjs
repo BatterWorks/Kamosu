@@ -120,7 +120,7 @@ export function readSecret(file) {
 export async function op(origin, secret, name, input = {}) {
 	const response = await reach(`${origin}/api/op/${name}`, {
 		method: 'POST',
-		headers: { 'content-type': 'application/json', cookie: `kamosu_session=${secret}` },
+		headers: { 'content-type': 'application/json', cookie: `__Host-kamosu_session=${secret}` },
 		body: JSON.stringify(input),
 	});
 	const answer = await response.json().catch(() => null);
@@ -271,10 +271,11 @@ export async function signedInContext(browser, origin, secret, [width, height]) 
 	await context.addInitScript(() => localStorage.setItem('PARAGLIDE_LOCALE', 'en'));
 	await context.addCookies([
 		{
-			name: 'kamosu_session',
+			// `__Host-` takes a cookie for this host alone, with no Domain, so it
+			// is given by its address rather than by a domain and a path (#368).
+			name: '__Host-kamosu_session',
 			value: secret,
-			domain: new URL(origin).hostname,
-			path: '/',
+			url: `${new URL(origin).origin}/`,
 			httpOnly: true,
 			secure: true,
 			sameSite: 'Lax',

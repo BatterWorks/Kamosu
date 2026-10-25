@@ -100,6 +100,25 @@ const shelfTag = (id: string, name: string, recipes: number, cookbook_id = 'c_1'
 	language_fallback: false,
 });
 
+/**
+ * The button for one group in the row under the search box (#445): its name
+ * alone, or its name and what it holds.
+ */
+const groupButton = (group: string) =>
+	screen.findByRole('button', { name: new RegExp(`^${group}`) });
+
+/** Opens one group's list over the shelf, and answers it. */
+async function openGroup(group: string) {
+	await fireEvent.click(await groupButton(group));
+	return within(await screen.findByRole('dialog'));
+}
+
+/** Picks one choice in a group's list. A one-at-a-time list closes on it. */
+async function pick(group: string, choice: string | RegExp) {
+	const list = await openGroup(group);
+	await fireEvent.click(list.getByRole('button', { name: choice }));
+}
+
 describe('the recipes screen', () => {
 	it('shows the shelf it was given, one card per Lineage', async () => {
 		renderScreen(Recipes, {
@@ -522,8 +541,11 @@ describe('the recipes screen', () => {
 
 		expect(await screen.findByText('Poulet frit coréen')).toBeInTheDocument();
 		expect(screen.queryByText('In French')).not.toBeInTheDocument();
-		// One mark on the card, one on the Tag chip: both say the word.
-		expect(screen.getAllByText('In English')).toHaveLength(2);
+		// One mark on the card, one on the Tag chip in the Tags list (#445):
+		// both say the word.
+		expect(screen.getAllByText('In English')).toHaveLength(1);
+		const tags = await openGroup('Tags');
+		expect(tags.getByText('In English')).toBeInTheDocument();
 		expect(screen.queryByText('In en')).not.toBeInTheDocument();
 	});
 
@@ -578,17 +600,69 @@ describe('the recipes screen', () => {
 			search_recipes: { query: null, closest: false, recipes: [entry()] },
 		});
 
-		const marc = await screen.findByRole('button', { name: 'Chez Marc' });
-		await fireEvent.click(marc);
+		await pick('Kitchens', 'Chez Marc');
 
 		await vi.waitFor(() => {
 			const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
 			expect(asked.at(-1)?.input).toMatchObject({ kitchen_id: 'k_marc' });
 		});
+		// The list closed on the pick, and the button names what it holds.
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		expect(await groupButton('Kitchens')).toHaveTextContent('Kitchens: Chez Marc');
 
 		// Held on the screen and nowhere else: nothing was written to the URL,
 		// so a filter cannot greet you tomorrow or survive the back button.
 		expect(window.location.search).toBe('');
+	});
+
+	// --- How it was cooked (#445) -------------------------------------------
+
+	it('holds several Cooking choices at once, says them on its button, and asks with them', async () => {
+		const { kamosu } = renderScreen(Recipes, {
+			list_tags: { tags: [] },
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: ({ cooking }) => ({
+				query: null,
+				closest: false,
+				recipes: cooking?.includes('no') ? [] : [entry()],
+			}),
+		});
+
+		const list = await openGroup('Cooking');
+		expect(
+			list
+				.getAllByRole('button')
+				.filter((one) => one.hasAttribute('aria-pressed'))
+				.map((one) => one.textContent?.trim()),
+		).toEqual(['Never cooked', 'Not rated', 'Again', 'Tweak it', 'No']);
+		expect(list.getByText('Show recipes that match any you tick.')).toBeInTheDocument();
+
+		// Several at once, and the list stays open between them.
+		await fireEvent.click(list.getByRole('button', { name: 'Tweak it' }));
+		await fireEvent.click(list.getByRole('button', { name: 'Again' }));
+		expect(list.getByRole('button', { name: 'Again' })).toHaveAttribute('aria-pressed', 'true');
+		// In the list's order, not the order tapped: one set of choices is one
+		// ask, so the phone keeps one answer for it.
+		await vi.waitFor(() =>
+			expect(searches(kamosu).at(-1)).toMatchObject({ cooking: ['again', 'tweak'] }),
+		);
+		await fireEvent.click(list.getByRole('button', { name: 'Done' }));
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		// Named in the list's order, the first and how many more.
+		expect(await groupButton('Cooking')).toHaveTextContent('Cooking: Again +1');
+
+		// Narrowed to nothing, it says a filter did it rather than that the shelf is empty.
+		await fireEvent.click((await openGroup('Cooking')).getByRole('button', { name: 'No' }));
+		expect(await screen.findByText(/Nothing here matches/)).toBeInTheDocument();
+
+		// Clear lets go of all of them.
+		await fireEvent.click((await openGroup('Cooking')).getByRole('button', { name: 'Clear' }));
+		// Nothing held is no `cooking` at all: the ask the phone kept answers for
+		// before there was a Cooking list.
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).not.toHaveProperty('cooking'));
+		expect(await groupButton('Cooking')).toHaveTextContent(/^Cooking$/);
+		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
 	});
 
 	// --- Browsing by tag (#104) ---------------------------------------------
@@ -608,9 +682,10 @@ describe('the recipes screen', () => {
 		});
 
 		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
-		// A heading over nothing is worse than no heading. The tick that
-		// always exists is untouched.
-		expect(screen.queryByText('Tags')).not.toBeInTheDocument();
+		// A button over nothing is worse than no button. The tick that
+		// always exists is untouched, and so is Cooking, which always has its five.
+		expect(screen.queryByRole('button', { name: /^Tags/ })).not.toBeInTheDocument();
+		expect(await groupButton('Cooking')).toBeInTheDocument();
 		expect(screen.getByRole('checkbox', { name: 'Cooked or written by me' })).toBeInTheDocument();
 	});
 
@@ -640,8 +715,13 @@ describe('the recipes screen', () => {
 
 		// Alphabetical by the word the reader sees, which is the only order a
 		// person can predict.
-		const chip = await screen.findByRole('button', { name: /spicy/ });
-		await fireEvent.click(chip);
+		const list = await openGroup('Tags');
+		// A tag named in another Language keeps its own word and says which
+		// Language that is (ADR 0006).
+		expect(list.getByRole('button', { name: /mijoté/ })).toBeInTheDocument();
+		expect(list.getByText('fr')).toBeInTheDocument();
+		expect(list.getByText('In French')).toBeInTheDocument();
+		await fireEvent.click(list.getByRole('button', { name: /spicy/ }));
 
 		await vi.waitFor(() => {
 			const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
@@ -651,17 +731,12 @@ describe('the recipes screen', () => {
 		// The count is said by the tag rather than by the shelf, because that is
 		// the question the reader just asked.
 		expect(await screen.findByText('1 tagged spicy')).toBeInTheDocument();
-		expect(chip).toHaveAttribute('aria-pressed', 'true');
+		expect(await groupButton('Tags')).toHaveTextContent('Tags: spicy');
 
-		// A tag named in another Language keeps its own word and says which
-		// Language that is (ADR 0006).
-		expect(screen.getByRole('button', { name: /mijoté/ })).toBeInTheDocument();
-		expect(screen.getByText('fr')).toBeInTheDocument();
-		expect(screen.getByText('In French')).toBeInTheDocument();
-
-		// Tapping the lit chip again lets it go, which is the only way back to
-		// the whole shelf without leaving the screen.
-		await fireEvent.click(chip);
+		// Tapping the held chip again lets it go, and so does Clear.
+		const again = await openGroup('Tags');
+		expect(again.getByRole('button', { name: /spicy/ })).toHaveAttribute('aria-pressed', 'true');
+		await fireEvent.click(again.getByRole('button', { name: /spicy/ }));
 		await vi.waitFor(() => {
 			const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
 			expect(asked.at(-1)?.input).toMatchObject({ tag_id: null });
@@ -676,13 +751,35 @@ describe('the recipes screen', () => {
 			search_recipes: { query: null, closest: false, recipes: [] },
 		});
 
-		await fireEvent.click(await screen.findByRole('button', { name: /to try/ }));
+		await pick('Tags', /to try/);
 
 		// "You have no recipes" would be a lie about the other eighty-five.
 		await vi.waitFor(() => {
 			expect(kamosu.calls.at(-1)?.input).toMatchObject({ tag_id: 't_try' });
 		});
 		expect(await screen.findByText('Nothing is tagged to try yet.')).toBeInTheDocument();
+	});
+
+	it('does not say a tag found nothing when a Cooking choice narrowed the shelf too (#445)', async () => {
+		renderScreen(Recipes, {
+			list_tags: { tags: [shelfTag('t_vegan', 'Vegan', 12)] },
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: ({ cooking, tag_id }) => ({
+				query: null,
+				closest: false,
+				recipes: cooking?.length && tag_id ? [] : [entry()],
+			}),
+		});
+
+		await pick('Tags', /Vegan/);
+		const list = await openGroup('Cooking');
+		await fireEvent.click(list.getByRole('button', { name: 'No' }));
+		await fireEvent.click(list.getByRole('button', { name: 'Done' }));
+
+		// Twelve recipes are tagged Vegan; none of them was rated No.
+		expect(await screen.findByText(/Nothing here matches/)).toBeInTheDocument();
+		expect(screen.queryByText(/Nothing is tagged/)).not.toBeInTheDocument();
 	});
 
 	it('offers each Kitchen the words its own Cookbooks file by, and lets the narrowing go with them', async () => {
@@ -718,12 +815,13 @@ describe('the recipes screen', () => {
 		render(ShelfTestHarness, { props: { client: kamosu.client, tag: null } });
 
 		// Every word to begin with, because the shelf is every Kitchen.
-		await fireEvent.click(await screen.findByRole('button', { name: /from Inès/ }));
+		const words = await openGroup('Tags');
+		expect(words.getByRole('button', { name: /from Marc/ })).toBeInTheDocument();
+		await fireEvent.click(words.getByRole('button', { name: /from Inès/ }));
 		await vi.waitFor(() => {
 			const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
 			expect(asked.at(-1)?.input).toMatchObject({ tag_id: 't_ines' });
 		});
-		expect(screen.getByRole('button', { name: /from Marc/ })).toBeInTheDocument();
 		// Once for every word, once for each of three Kitchens, once for each of
 		// the three Cookbooks they see (#231).
 		expect(kamosu.calls.filter((call) => call.operation === 'list_tags')).toHaveLength(7);
@@ -731,13 +829,15 @@ describe('the recipes screen', () => {
 		// Filtering to Marc's Kitchen offers his Kitchen's words: Inès's goes,
 		// and the narrowing goes with it rather than stranding an invisible
 		// filter. Stéphane's own words stay: his Cookbook is seen there too.
-		await fireEvent.click(screen.getByRole('button', { name: 'Chez Marc' }));
+		await pick('Kitchens', 'Chez Marc');
 
-		await vi.waitFor(() => {
-			expect(screen.queryByRole('button', { name: /from Inès/ })).not.toBeInTheDocument();
+		await vi.waitFor(async () => {
+			expect(await groupButton('Tags')).toHaveTextContent(/^Tags$/);
 		});
-		expect(screen.getByRole('button', { name: /from Marc/ })).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: /spicy/ })).toBeInTheDocument();
+		const theirs = await openGroup('Tags');
+		expect(theirs.queryByRole('button', { name: /from Inès/ })).not.toBeInTheDocument();
+		expect(theirs.getByRole('button', { name: /from Marc/ })).toBeInTheDocument();
+		expect(theirs.getByRole('button', { name: /spicy/ })).toBeInTheDocument();
 		await vi.waitFor(() => {
 			const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
 			expect(asked.at(-1)?.input).toMatchObject({ kitchen_id: 'k_marc', tag_id: null });
@@ -751,7 +851,7 @@ describe('the recipes screen', () => {
 			meaning_search_status: meaningOff(),
 			search_recipes: { query: null, closest: false, recipes: [entry()] },
 		});
-		expect(await screen.findByRole('button', { name: /spicy/ })).toBeInTheDocument();
+		expect(await groupButton('Tags')).toBeInTheDocument();
 		await vi.waitFor(() =>
 			expect(kamosu.calls.filter((call) => call.operation === 'list_tags')).toHaveLength(5),
 		);
@@ -813,10 +913,7 @@ describe('the recipes screen', () => {
 			expect(asked.at(0)?.input).toMatchObject({ tag_id: 't_spicy' });
 		});
 		expect(await screen.findByText('1 tagged spicy')).toBeInTheDocument();
-		expect(await screen.findByRole('button', { name: /spicy/ })).toHaveAttribute(
-			'aria-pressed',
-			'true',
-		);
+		expect(await groupButton('Tags')).toHaveTextContent('Tags: spicy');
 	});
 
 	// --- Searching as you type (#121) ---------------------------------------
@@ -853,12 +950,23 @@ describe('the recipes screen', () => {
 			expect(searches(kamosu).at(-1)).toMatchObject({ query: 'curry', mine: true });
 		});
 
-		await fireEvent.click(screen.getByRole('button', { name: /spicy/ }));
+		await pick('Tags', /spicy/);
 		await vi.waitFor(() => {
 			expect(searches(kamosu).at(-1)).toMatchObject({
 				query: 'curry',
 				mine: true,
 				tag_id: 't_spicy',
+			});
+		});
+
+		const cooking = await openGroup('Cooking');
+		await fireEvent.click(cooking.getByRole('button', { name: 'Never cooked' }));
+		await vi.waitFor(() => {
+			expect(searches(kamosu).at(-1)).toMatchObject({
+				query: 'curry',
+				mine: true,
+				tag_id: 't_spicy',
+				cooking: ['never_cooked'],
 			});
 		});
 	});
@@ -885,7 +993,14 @@ describe('the recipes screen', () => {
 				errorCode: null,
 				created_at: '2026-09-26T10:00:00.000Z',
 				updated_at: '2026-09-26T10:00:01.000Z',
-				result: {},
+				result:
+					job_id === 'j_model'
+						? {
+								model: 'embeddinggemma-300m',
+								repository: 'google/embeddinggemma-300m',
+								revision: 'r1',
+							}
+						: { indexed: 1 },
 			}),
 			// Words alone find nothing; by meaning, the stew is close enough.
 			search_recipes: ({ query }) => ({
@@ -1298,7 +1413,7 @@ describe('the + for every new recipe (#174)', () => {
 				updated_at: '2026-09-27T10:00:02.000Z',
 				result: {
 					import_id: 'i_1',
-					kitchen_id: 'k_home',
+					cookbook_id: 'c_home',
 					source_kind: 'bundle',
 					arrived: [
 						{
@@ -1480,6 +1595,8 @@ describe('the + for every new recipe (#174)', () => {
 		const withAgent = {
 			...fullShelf,
 			runner_status: { has_runner: true, last_asked_at: '2026-10-15T12:00:00.000Z' },
+			// No Demo, so no examples to replay (#406).
+			list_replays: { replays: [] },
 		};
 		/** What `import_by_agent` answers for a new Job. */
 		const sentAs = (source_kind: 'picture' | 'pdf' | 'pasted_text' | 'web') => ({
@@ -1589,6 +1706,84 @@ describe('the + for every new recipe (#174)', () => {
 				upload_id: 'u_handed',
 			});
 			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		});
+
+		it('sends several photos picked together as the pages of one recipe, in order (#452)', async () => {
+			const { upload, kamosu } = shelfWithAgent({ import_by_agent: sentAs('picture') });
+			const page = (name: string) => new File(['jpeg bytes'], name, { type: 'image/jpeg' });
+			const [first, second, third, fourth] = ['p1.jpg', 'p2.jpg', 'p3.jpg', 'p4.jpg'].map(page);
+
+			await openThePlus();
+			await fireEvent.click(screen.getByRole('button', { name: /From a photo of a page/ }));
+			const field = screen.getByLabelText("Send a photo of a page to Kamosu's AI agent");
+			expect(field).toHaveAttribute('multiple');
+			await fireEvent.change(field, { target: { files: [first, second, third] } });
+
+			const sheet = await screen.findByRole('dialog', {
+				name: "Send these 3 photos to Kamosu's AI agent?",
+			});
+			expect(
+				within(sheet)
+					.getAllByRole('img')
+					.map((img) => img.getAttribute('alt')),
+			).toEqual(['Page 1', 'Page 2', 'Page 3']);
+			expect(sheet).toHaveTextContent('3 pages, in the order you picked them');
+			expect(sheet).toHaveTextContent(
+				"Kamosu's AI agent reads the pages as one recipe, in this order",
+			);
+
+			// The second taken out, and one more added at the end.
+			await fireEvent.click(within(sheet).getByRole('button', { name: 'Take out page 2' }));
+			await fireEvent.change(screen.getByLabelText('Add a page'), {
+				target: { files: [fourth] },
+			});
+			expect(sheet).toHaveTextContent('3 pages, in the order you picked them');
+			expect(upload).not.toHaveBeenCalled();
+
+			await fireEvent.click(within(sheet).getByRole('button', { name: 'Send' }));
+			await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/imports/j_agent'));
+			expect(upload.mock.calls.map((call) => ((call as unknown[])[0] as File).name)).toEqual([
+				'p1.jpg',
+				'p3.jpg',
+				'p4.jpg',
+			]);
+			expect(kamosu.calls.find((call) => call.operation === 'import_by_agent')?.input).toEqual({
+				pictures: [{ upload_id: 'u_handed' }, { upload_id: 'u_handed' }, { upload_id: 'u_handed' }],
+			});
+		});
+
+		it('says so when more photos are picked than one recipe may be (#452)', async () => {
+			shelfWithAgent();
+			await openThePlus();
+			await fireEvent.click(screen.getByRole('button', { name: /From a photo of a page/ }));
+			const twelve = Array.from(
+				{ length: 12 },
+				(_, at) => new File(['x'], `p${at}.jpg`, { type: 'image/jpeg' }),
+			);
+			await fireEvent.change(screen.getByLabelText("Send a photo of a page to Kamosu's AI agent"), {
+				target: { files: twelve },
+			});
+			const sheet = await screen.findByRole('dialog', {
+				name: "Send these 10 photos to Kamosu's AI agent?",
+			});
+			expect(within(sheet).getByRole('alert')).toHaveTextContent(
+				'One recipe is at most 10 photos, so only the first 10 are here.',
+			);
+		});
+
+		it('offers a second page under one photo, which makes it a row of pages (#452)', async () => {
+			shelfWithAgent();
+			await pick(/From a photo of a page/, "Send a photo of a page to Kamosu's AI agent", aPhoto());
+			const sheet = await screen.findByRole('dialog', {
+				name: "Send this photo to Kamosu's AI agent?",
+			});
+			expect(within(sheet).getByRole('button', { name: 'Add another page' })).toBeInTheDocument();
+			await fireEvent.change(screen.getByLabelText('Add a page'), {
+				target: { files: [aPhoto()] },
+			});
+			expect(
+				await screen.findByRole('dialog', { name: "Send these 2 photos to Kamosu's AI agent?" }),
+			).toBeInTheDocument();
 		});
 
 		it('sends nothing when Back is pressed on the sheet', async () => {
@@ -1757,6 +1952,205 @@ describe('the + for every new recipe (#174)', () => {
 			}
 		});
 
+		describe('in a Demo (#406)', () => {
+			const REPLAYS = {
+				replays: [
+					{ kind: 'picture', job_id: 'j_card', photograph_id: 'p_card', excerpt: null },
+					{ kind: 'pdf', job_id: 'j_page', photograph_id: 'p_page', excerpt: null },
+					{
+						kind: 'pasted_text',
+						job_id: 'j_blog',
+						photograph_id: null,
+						excerpt: 'Sunny Side Up Kitchen. THE Shakshuka That Got Me Through Last Winter',
+					},
+					{ kind: 'video', job_id: 'j_video', photograph_id: 'p_frame', excerpt: null },
+				],
+			};
+			/** What a Demo answers a visitor's own file, text or link. */
+			const refusedInDemo = {
+				refuse: 'refused',
+				message: 'This is a demo of Kamosu, where only cooking and shopping are saved.',
+				reason: 'demo',
+			};
+			const inADemo = (answers: object = {}) =>
+				shelfWithAgent({ list_replays: REPLAYS, ...answers });
+
+			it("opens the agent's group with a row that shows the four examples", async () => {
+				inADemo();
+				const plus = await openThePlus();
+				const list = document.getElementById(plus.getAttribute('aria-controls')!)!;
+				const rows = [...list.querySelectorAll('button')].map(
+					(button) => button.querySelector('.font-display')?.textContent,
+				);
+				expect(rows).toEqual([
+					'From a link',
+					'From a Kamosu zip file',
+					'Write it yourself',
+					'Watch it read an example',
+					'From a photo of a page',
+					'From a PDF',
+					'From pasted text',
+					'From a video',
+				]);
+				expect(
+					screen.getByRole('button', {
+						name: /Watch it read an example.*Four ready examples, sped up/,
+					}),
+				).toBeInTheDocument();
+
+				await fireEvent.click(screen.getByRole('button', { name: /Watch it read an example/ }));
+				const panel = await screen.findByRole('dialog', {
+					name: "Watch Kamosu's AI agent at work",
+				});
+				expect(plus).toHaveAttribute('aria-expanded', 'false');
+				expect(panel).toHaveTextContent('Pick one of four things a cook handed the agent.');
+				expect(panel).toHaveTextContent('a real read takes a few minutes');
+				const tiles = within(panel)
+					.getAllByRole('button')
+					.filter((button) => button.textContent !== 'Back');
+				expect(tiles.map((tile) => tile.querySelector('.font-display')?.textContent)).toEqual([
+					'A handwritten card',
+					'A magazine page',
+					'A blog post, pasted',
+					'A YouTube video',
+				]);
+				// Each is drawn as what was handed over: a picture, or the top of the text.
+				expect(tiles[0].querySelector('img')).toHaveAttribute(
+					'src',
+					'/api/photographs/p_card/card',
+				);
+				expect(tiles[2].querySelector('img')).toBeNull();
+				expect(tiles[2]).toHaveTextContent('THE Shakshuka That Got Me Through Last Winter');
+			});
+
+			it('replays the example picked from the moment it is picked', async () => {
+				inADemo();
+				await openThePlus();
+				await fireEvent.click(screen.getByRole('button', { name: /Watch it read an example/ }));
+				const panel = await screen.findByRole('dialog');
+				const before = Date.now();
+				await fireEvent.click(within(panel).getByRole('button', { name: /A YouTube video/ }));
+
+				await vi.waitFor(() =>
+					expect(went).toHaveBeenCalledWith(
+						expect.stringMatching(/^\/imports\/j_video\?replay=\d+$/),
+					),
+				);
+				const address = went.mock.calls.at(-1)![0] as string;
+				const startedAt = Number(new URL(address, 'http://kamosu.test').searchParams.get('replay'));
+				expect(startedAt).toBeGreaterThanOrEqual(before);
+				expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+			});
+
+			it("refuses a visitor's own photo under Send, and leads to the examples instead", async () => {
+				const { kamosu } = inADemo({ import_by_agent: refusedInDemo });
+				await pick(
+					/From a photo of a page/,
+					"Send a photo of a page to Kamosu's AI agent",
+					aPhoto(),
+				);
+				const sheet = await screen.findByRole('dialog');
+				await fireEvent.click(within(sheet).getByRole('button', { name: 'Send' }));
+
+				const said = await within(sheet).findByRole('alert');
+				expect(said).toHaveTextContent(
+					"This is a demo, so Kamosu's AI agent reads only its four examples here, never a photo of your own. Install Kamosu to send yours.",
+				);
+				// Under Send, as R1 drew it, and only once.
+				const send = within(sheet).getByRole('button', { name: 'Send' });
+				expect(send.compareDocumentPosition(said)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+				expect(within(sheet).getAllByRole('alert')).toHaveLength(1);
+				expect(went).not.toHaveBeenCalledWith(expect.stringMatching(/^\/imports\//));
+
+				await fireEvent.click(
+					within(sheet).getByRole('button', { name: 'Watch it read an example' }),
+				);
+				await screen.findByRole('dialog', { name: "Watch Kamosu's AI agent at work" });
+				expect(
+					screen.queryByRole('dialog', { name: "Send this photo to Kamosu's AI agent?" }),
+				).not.toBeInTheDocument();
+				expect(kamosu.calls.filter((call) => call.operation === 'import_by_agent')).toHaveLength(1);
+			});
+
+			it("refuses a visitor's own video link in its field, with the way to the examples", async () => {
+				inADemo({ import_by_agent: refusedInDemo });
+				await openThePlus();
+				await fireEvent.click(screen.getByRole('button', { name: /From a video/ }));
+				const field = screen.getByLabelText("The video's web address");
+				await fireEvent.input(field, {
+					target: { value: 'https://www.youtube.com/watch?v=tarte' },
+				});
+				await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+				await vi.waitFor(() =>
+					expect(screen.getByRole('alert')).toHaveTextContent(
+						"This is a demo, so Kamosu's AI agent reads only its four examples here, never a link of your own. Install Kamosu to send yours.",
+					),
+				);
+				await fireEvent.click(screen.getByRole('button', { name: 'Watch it read an example' }));
+				await screen.findByRole('dialog', { name: "Watch Kamosu's AI agent at work" });
+			});
+
+			it("says no way to the examples beside a refusal that is not a Demo's", async () => {
+				inADemo({
+					import_by_agent: {
+						refuse: 'refused',
+						message: 'this Kamosu has no Runner',
+						reason: 'no_runner',
+					},
+				});
+				await openThePlus();
+				await fireEvent.click(screen.getByRole('button', { name: /From a video/ }));
+				await fireEvent.input(screen.getByLabelText("The video's web address"), {
+					target: { value: 'https://www.youtube.com/watch?v=tarte' },
+				});
+				await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+				await vi.waitFor(() =>
+					expect(screen.getByRole('alert')).toHaveTextContent('this Kamosu has no Runner'),
+				);
+				expect(
+					screen.queryByRole('button', { name: 'Watch it read an example' }),
+				).not.toBeInTheDocument();
+			});
+
+			it('puts the way to the examples away when a later try says something else', async () => {
+				inADemo({ import_by_agent: refusedInDemo });
+				await openThePlus();
+				await fireEvent.click(screen.getByRole('button', { name: /From pasted text/ }));
+				const box = screen.getByLabelText('The recipe, pasted as text');
+				await fireEvent.input(box, { target: { value: 'Shakshuka. 4 eggs, 1 tin tomatoes.' } });
+				await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+				await vi.waitFor(() =>
+					expect(screen.getByRole('alert')).toHaveTextContent('never text of your own'),
+				);
+				expect(
+					screen.getByRole('button', { name: 'Watch it read an example' }),
+				).toBeInTheDocument();
+
+				await fireEvent.input(box, { target: { value: '   ' } });
+				await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+				await vi.waitFor(() =>
+					expect(screen.getByRole('alert')).toHaveTextContent('There is nothing in that paste.'),
+				);
+				expect(
+					screen.queryByRole('button', { name: 'Watch it read an example' }),
+				).not.toBeInTheDocument();
+			});
+
+			it('says offline that watching an example waits for the server', async () => {
+				inADemo();
+				const plus = await openThePlus();
+				await fireEvent.click(plus);
+				Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+				window.dispatchEvent(new Event('offline'));
+
+				await openThePlus();
+				expect(
+					screen.getByRole('button', { name: 'Watching an example waits for the server' }),
+				).toBeDisabled();
+			});
+		});
+
 		describe('dropped on Recipes', () => {
 			it('says a photo held over it goes to the agent, and shows it once before it does', async () => {
 				const { kamosu } = shelfWithAgent({ import_by_agent: sentAs('picture') });
@@ -1776,6 +2170,28 @@ describe('the + for every new recipe (#174)', () => {
 
 				await screen.findByRole('dialog', { name: "Send this photo to Kamosu's AI agent?" });
 				expect(kamosu.calls.some((call) => call.operation === 'import_by_agent')).toBe(false);
+			});
+
+			it('takes several photos dropped together as the pages of one recipe (#452)', async () => {
+				shelfWithAgent();
+				await screen.findByText('Chicken katsu curry');
+				const dataTransfer = carrying({ files: [aPhoto(), aPhoto(), aPhoto()] });
+
+				await fireEvent.dragEnter(document.body, { dataTransfer });
+				expect(
+					await screen.findByText("Drop to send these 3 photos to Kamosu's AI agent"),
+				).toBeInTheDocument();
+				await fireEvent.drop(document.body, { dataTransfer });
+				await screen.findByRole('dialog', { name: "Send these 3 photos to Kamosu's AI agent?" });
+			});
+
+			it('refuses a PDF dropped among photos, as anything that is no recipe', async () => {
+				shelfWithAgent();
+				await screen.findByText('Chicken katsu curry');
+				const dataTransfer = carrying({ files: [aPhoto(), aScan()] });
+				await fireEvent.dragEnter(document.body, { dataTransfer });
+				await fireEvent.drop(document.body, { dataTransfer });
+				expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 			});
 
 			it('sends a dropped PDF to the agent rather than reading it', async () => {
@@ -1861,7 +2277,7 @@ describe('the + for every new recipe (#174)', () => {
 				import_bundle: { job_id: 'j_1' },
 				get_job: finished('import_bundle', {
 					import_id: 'i_1',
-					kitchen_id: 'k_home',
+					cookbook_id: 'c_home',
 					source_kind: 'bundle',
 					arrived: [
 						{
@@ -2145,9 +2561,18 @@ describe('going back to the shelf (#191)', () => {
 		const first = render(RouteTestHarness, { props: { client: kamosu.client } });
 
 		await fireEvent.input(await screen.findByRole('searchbox'), { target: { value: 'katsu' } });
-		await fireEvent.click(await screen.findByRole('button', { name: 'Chez Marc' }));
-		await fireEvent.click(await screen.findByRole('button', { name: /spicy/ }));
-		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject(katsuAtMarcsSpicy));
+		await pick('Kitchens', 'Chez Marc');
+		await pick('Tags', /spicy/);
+		const cooking = await openGroup('Cooking');
+		await fireEvent.click(cooking.getByRole('button', { name: 'Again' }));
+		await fireEvent.click(cooking.getByRole('button', { name: 'Tweak it' }));
+		await fireEvent.click(cooking.getByRole('button', { name: 'Done' }));
+		await vi.waitFor(() =>
+			expect(searches(kamosu).at(-1)).toMatchObject({
+				...katsuAtMarcsSpicy,
+				cooking: ['again', 'tweak'],
+			}),
+		);
 		await screen.findByText('1 found');
 		vi.stubGlobal('scrollY', 640);
 
@@ -2156,17 +2581,17 @@ describe('going back to the shelf (#191)', () => {
 		goBack(kamosu, left);
 
 		await vi.waitFor(() => expect(screen.getByRole('searchbox')).toHaveValue('katsu'));
-		expect(screen.getByRole('button', { name: 'Chez Marc' })).toHaveAttribute(
-			'aria-pressed',
-			'true',
+		expect(await groupButton('Kitchens')).toHaveTextContent('Kitchens: Chez Marc');
+		await vi.waitFor(async () =>
+			expect(await groupButton('Tags')).toHaveTextContent('Tags: spicy'),
 		);
-		expect(await screen.findByRole('button', { name: /spicy/ })).toHaveAttribute(
-			'aria-pressed',
-			'true',
-		);
+		expect(await groupButton('Cooking')).toHaveTextContent('Cooking: Again +1');
 		expect(await screen.findByText('Chicken Katsu')).toBeInTheDocument();
 		expect(screen.queryByText('Miso Soup')).not.toBeInTheDocument();
-		expect(searches(kamosu).at(-1)).toMatchObject(katsuAtMarcsSpicy);
+		expect(searches(kamosu).at(-1)).toMatchObject({
+			...katsuAtMarcsSpicy,
+			cooking: ['again', 'tweak'],
+		});
 		// Where the list was, once the list is there to scroll.
 		await vi.waitFor(() => expect(scrolled).toHaveBeenCalledWith(0, 640));
 		expect(scrolled).toHaveBeenCalledTimes(1);
@@ -2177,19 +2602,16 @@ describe('going back to the shelf (#191)', () => {
 		const kamosu = answering();
 		const first = render(RouteTestHarness, { props: { client: kamosu.client } });
 
-		await fireEvent.click(await screen.findByRole('button', { name: /spicy/ }));
+		await pick('Tags', /spicy/);
 		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ tag_id: 't_spicy' }));
 
 		goBack(kamosu, leave(first));
 
-		await vi.waitFor(() =>
-			expect(screen.getByRole('button', { name: /spicy/ })).toHaveAttribute('aria-pressed', 'true'),
+		await vi.waitFor(async () =>
+			expect(await groupButton('Tags')).toHaveTextContent('Tags: spicy'),
 		);
 		expect(screen.getByRole('searchbox')).toHaveValue('');
-		expect(screen.getByRole('button', { name: 'Chez Marc' })).toHaveAttribute(
-			'aria-pressed',
-			'false',
-		);
+		expect(await groupButton('Kitchens')).toHaveTextContent(/^Kitchens$/);
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({
 				query: null,
@@ -2205,7 +2627,7 @@ describe('going back to the shelf (#191)', () => {
 		const kamosu = answering();
 		const first = render(RouteTestHarness, { props: { client: kamosu.client } });
 
-		await fireEvent.click(await screen.findByRole('button', { name: 'Chez Marc' }));
+		await pick('Kitchens', 'Chez Marc');
 		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ kitchen_id: 'k_marc' }));
 		const left = leave(first);
 
@@ -2217,7 +2639,7 @@ describe('going back to the shelf (#191)', () => {
 		await vi.waitFor(() =>
 			expect(searches(fewer).at(-1)).toMatchObject({ kitchen_id: null, mine: false }),
 		);
-		expect(screen.queryByRole('button', { name: 'Chez Marc' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /^Kitchens/ })).not.toBeInTheDocument();
 	});
 
 	it('forgets the place in the list when the search it came back to fails', async () => {
@@ -2266,8 +2688,11 @@ describe('going back to the shelf (#191)', () => {
 		const first = render(RouteTestHarness, { props: { client: kamosu.client } });
 
 		await fireEvent.input(await screen.findByRole('searchbox'), { target: { value: 'katsu' } });
-		await fireEvent.click(await screen.findByRole('button', { name: 'Chez Marc' }));
-		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ query: 'katsu' }));
+		await pick('Kitchens', 'Chez Marc');
+		await pick('Cooking', 'Never cooked');
+		await vi.waitFor(() =>
+			expect(searches(kamosu).at(-1)).toMatchObject({ query: 'katsu', cooking: ['never_cooked'] }),
+		);
 
 		// The tab bar is a new visit: SvelteKit restores nothing into it.
 		leave(first);
@@ -2275,16 +2700,15 @@ describe('going back to the shelf (#191)', () => {
 
 		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
 		expect(screen.getByRole('searchbox')).toHaveValue('');
-		expect(screen.getByRole('button', { name: 'Chez Marc' })).toHaveAttribute(
-			'aria-pressed',
-			'false',
-		);
+		expect(await groupButton('Kitchens')).toHaveTextContent(/^Kitchens$/);
+		expect(await groupButton('Cooking')).toHaveTextContent(/^Cooking$/);
 		expect(searches(kamosu).at(-1)).toMatchObject({
 			query: null,
 			kitchen_id: null,
 			mine: false,
 			tag_id: null,
 		});
+		expect(searches(kamosu).at(-1)).not.toHaveProperty('cooking');
 	});
 });
 
@@ -2312,62 +2736,77 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		});
 	const show = (kamosu: StandIn) =>
 		render(ShelfTestHarness, { props: { client: kamosu.client, tag: null } });
-	/** The chips under one heading, by what each says. */
-	const line = (heading: string) => {
-		const row = screen.getByRole('heading', { name: heading }).nextElementSibling;
-		return [...(row?.querySelectorAll('button') ?? [])].map((chip) => chip.textContent?.trim());
+	/** The choices in one group's list, by what each says, closing it again (#445). */
+	const line = async (group: string) => {
+		const list = await openGroup(group);
+		const named = list
+			.getAllByRole('button', { pressed: undefined })
+			.filter((one) => one.hasAttribute('aria-pressed'))
+			.map((one) => one.textContent?.trim());
+		await fireEvent.click(list.getByRole('button', { name: 'Done' }));
+		return named;
+	};
+	/** Whether a choice is held in a group's list, closing it again. */
+	const held = async (group: string, choice: string) => {
+		const list = await openGroup(group);
+		const pressed = list.getByRole('button', { name: choice }).getAttribute('aria-pressed');
+		await fireEvent.click(list.getByRole('button', { name: 'Done' }));
+		return pressed === 'true';
 	};
 
 	it('names each Cookbook under its own heading where one Kitchen sees two', async () => {
 		const kamosu = shelf([shared]);
 		show(kamosu);
 
-		const his = await screen.findByRole('button', { name: 'Marc’s' });
-		expect(line('Cookbooks')).toEqual(['Mine', 'Marc’s']);
-		expect(screen.queryByRole('heading', { name: 'Kitchens' })).not.toBeInTheDocument();
+		expect(await line('Cookbooks')).toEqual(['Mine', 'Marc’s']);
+		expect(screen.queryByRole('button', { name: /^Kitchens/ })).not.toBeInTheDocument();
 
-		await fireEvent.click(his);
+		await pick('Cookbooks', 'Marc’s');
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', kitchen_id: null }),
 		);
-		expect(his).toHaveAttribute('aria-pressed', 'true');
+		expect(await groupButton('Cookbooks')).toHaveTextContent('Cookbooks: Marc’s');
+		expect(await held('Cookbooks', 'Marc’s')).toBe(true);
 
-		// Each line works as the Tags line does: a second tap lets go.
-		await fireEvent.click(his);
+		// Each list works as the Tags list does: a second tap lets go.
+		await pick('Cookbooks', 'Marc’s');
 		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: null }));
-		expect(his).toHaveAttribute('aria-pressed', 'false');
+		expect(await groupButton('Cookbooks')).toHaveTextContent(/^Cookbooks$/);
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Mine' }));
+		await pick('Cookbooks', 'Mine');
 		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_1' }));
+
+		// And Clear lets go of whatever the list holds.
+		const list = await openGroup('Cookbooks');
+		await fireEvent.click(list.getByRole('button', { name: 'Clear' }));
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: null }));
 	});
 
 	it('names every Cookbook once and every Kitchen, and holds one of them at a time', async () => {
 		const kamosu = shelf([shared, club, family]);
 		show(kamosu);
 
-		await screen.findByRole('button', { name: 'Club' });
-		// Marc's is seen in two Kitchens and is one chip. A Cookbook that was
+		// Marc's is seen in two Kitchens and is one choice. A Cookbook that was
 		// given a name says it.
-		expect(line('Cookbooks')).toEqual(['Mine', 'Marc’s', 'Les carnets']);
-		expect(line('Kitchens')).toEqual(['Maison', 'Club', 'Famille']);
+		expect(await line('Cookbooks')).toEqual(['Mine', 'Marc’s', 'Les carnets']);
+		expect(await line('Kitchens')).toEqual(['Maison', 'Club', 'Famille']);
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Club' }));
+		await pick('Kitchens', 'Club');
 		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ kitchen_id: 'k_club' }));
-		await fireEvent.click(screen.getByRole('button', { name: 'Les carnets' }));
+		await pick('Cookbooks', 'Les carnets');
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_mamie', kitchen_id: null }),
 		);
-		expect(screen.getByRole('button', { name: 'Club' })).toHaveAttribute('aria-pressed', 'false');
+		expect(await groupButton('Kitchens')).toHaveTextContent(/^Kitchens$/);
 	});
 
 	it('shows no Cookbook line to a reader who sees only their own', async () => {
 		const kamosu = shelf([kitchen]);
 		show(kamosu);
 
-		expect(await screen.findByRole('button', { name: /spicy/ })).toBeInTheDocument();
-		expect(screen.queryByRole('heading', { name: 'Cookbooks' })).not.toBeInTheDocument();
-		expect(screen.queryByRole('button', { name: 'Mine' })).not.toBeInTheDocument();
-		expect(screen.queryByRole('heading', { name: 'Kitchens' })).not.toBeInTheDocument();
+		expect(await groupButton('Tags')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /^Cookbooks/ })).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /^Kitchens/ })).not.toBeInTheDocument();
 		// Nothing to choose between, so nothing was asked about one Cookbook.
 		expect(
 			kamosu.calls.filter((call) => call.operation === 'list_tags').map((call) => call.input),
@@ -2378,12 +2817,12 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		const kamosu = shelf([shared]);
 		show(kamosu);
 
-		await fireEvent.click(await screen.findByRole('button', { name: 'Marc’s' }));
+		await pick('Cookbooks', 'Marc’s');
 		await fireEvent.click(screen.getByRole('checkbox', { name: 'Cooked or written by me' }));
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', mine: true }),
 		);
-		expect(screen.getByRole('button', { name: 'Marc’s' })).toHaveAttribute('aria-pressed', 'true');
+		expect(await groupButton('Cookbooks')).toHaveTextContent('Cookbooks: Marc’s');
 	});
 
 	it('keeps the tick in reach when it narrows the shelf to nothing', async () => {
@@ -2423,14 +2862,12 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		});
 		show(kamosu);
 
-		await fireEvent.click(await screen.findByRole('button', { name: /spicy/ }));
+		await pick('Tags', /spicy/);
 		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ tag_id: 't_spicy' }));
-		await fireEvent.click(screen.getByRole('button', { name: 'Marc’s' }));
+		await pick('Cookbooks', 'Marc’s');
 
-		await vi.waitFor(() =>
-			expect(screen.queryByRole('button', { name: /spicy/ })).not.toBeInTheDocument(),
-		);
-		expect(screen.getByRole('button', { name: /from Marc/ })).toBeInTheDocument();
+		await vi.waitFor(async () => expect(await groupButton('Tags')).toHaveTextContent(/^Tags$/));
+		expect(await line('Tags')).toEqual(['from Marc']);
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', tag_id: null }),
 		);
@@ -2452,18 +2889,18 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		});
 		show(kamosu);
 
-		await fireEvent.click(await screen.findByRole('button', { name: 'Dessert' }));
-		await fireEvent.click(screen.getByRole('button', { name: 'Marc’s' }));
+		await pick('Tags', 'Dessert');
+		await pick('Cookbooks', 'Marc’s');
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({
 				cookbook_id: 'c_marc',
 				tag_id: 't_dessert_marc',
 			}),
 		);
-		expect(screen.getByRole('button', { name: 'dessert' })).toHaveAttribute('aria-pressed', 'true');
+		expect(await held('Tags', 'dessert')).toBe(true);
 
 		// And back again when the Cookbook is let go.
-		await fireEvent.click(screen.getByRole('button', { name: 'Marc’s' }));
+		await pick('Cookbooks', 'Marc’s');
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: null, tag_id: 't_dessert' }),
 		);
@@ -2474,7 +2911,7 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 			cookbooks: [cookbookLabel(), cookbookLabel('c_two', ['Sam', 'Inès'])],
 		});
 		show(shelf([together]));
-		expect(await screen.findByRole('button', { name: 'Sam & Inès’s' })).toBeInTheDocument();
+		expect(await line('Cookbooks')).toEqual(['Mine', 'Sam & Inès’s']);
 	});
 
 	/** Leaving for a recipe and going back, as the #191 tests above do it. */
@@ -2492,16 +2929,15 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
 		const kamosu = shelf([shared]);
 		const first = render(RouteTestHarness, { props: { client: kamosu.client } });
-		await fireEvent.click(await screen.findByRole('button', { name: 'Marc’s' }));
+		await pick('Cookbooks', 'Marc’s');
 		await fireEvent.click(screen.getByRole('checkbox', { name: 'Cooked or written by me' }));
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', mine: true }),
 		);
 
 		leaveAndGoBack(first, kamosu);
-		expect(await screen.findByRole('button', { name: 'Marc’s' })).toHaveAttribute(
-			'aria-pressed',
-			'true',
+		await vi.waitFor(async () =>
+			expect(await groupButton('Cookbooks')).toHaveTextContent('Cookbooks: Marc’s'),
 		);
 		expect(screen.getByRole('checkbox', { name: 'Cooked or written by me' })).toBeChecked();
 		expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', mine: true });
@@ -2509,10 +2945,7 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		// The tab bar is a new visit: SvelteKit restores nothing into it.
 		cleanup();
 		render(RouteTestHarness, { props: { client: kamosu.client } });
-		expect(await screen.findByRole('button', { name: 'Marc’s' })).toHaveAttribute(
-			'aria-pressed',
-			'false',
-		);
+		expect(await groupButton('Cookbooks')).toHaveTextContent(/^Cookbooks$/);
 		expect(screen.getByRole('checkbox', { name: 'Cooked or written by me' })).not.toBeChecked();
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: null, mine: false }),
@@ -2523,7 +2956,7 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
 		const kamosu = shelf([shared]);
 		const first = render(RouteTestHarness, { props: { client: kamosu.client } });
-		await fireEvent.click(await screen.findByRole('button', { name: 'Marc’s' }));
+		await pick('Cookbooks', 'Marc’s');
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc' }),
 		);
@@ -2532,6 +2965,6 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		const alone = shelf([kitchen]);
 		leaveAndGoBack(first, alone);
 		await vi.waitFor(() => expect(searches(alone).at(-1)).toMatchObject({ cookbook_id: null }));
-		expect(screen.queryByRole('button', { name: 'Marc’s' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /^Cookbooks/ })).not.toBeInTheDocument();
 	});
 });

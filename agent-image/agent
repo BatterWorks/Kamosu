@@ -15,9 +15,12 @@ The Runner hanging up is the sign to stop: past its time limit, when Kamosu
 ends the hold, and when the Runner is stopped. This program then ends, and the
 container with it, everything the Job started included.
 
-The Runner Key is in the Runner's container and never here. What this
-container holds is the Job Key of the one Job it works, and the Operator's
-model settings.
+The Runner Key is in the Runner's container and never here, and so is the
+model provider's key when the Runner holds it (#372). The Runner then hands
+over, with the Job, a relay for the model and a stand-in key worth nothing
+outside it, and this program points opencode at that relay. What this
+container holds is the Job Key of the one Job it works, that stand-in, and
+the Operator's model settings.
 """
 
 import ctypes
@@ -97,9 +100,8 @@ ctypes.CDLL(None, use_errno=True).prctl(PR_SET_DUMPABLE, 0, 0, 0, 0)
 model = os.environ.get("KAMOSU_AGENT_MODEL", "").strip()
 if not model:
     refuse(
-        "Set KAMOSU_AGENT_MODEL to the model the agent uses, as provider/model,",
-        "and its key in KAMOSU_AGENT_API_KEY or the provider's own variable.",
-        "See docs/runner.md.",
+        "Set KAMOSU_AGENT_MODEL to the model the agent uses, as provider/model.",
+        "Its key goes to the Runner, in KAMOSU_RUNNER_MODEL_KEY. See docs/runner.md.",
     )
 provider, _, model_id = model.partition("/")
 effort = os.environ.get("KAMOSU_AGENT_EFFORT", "").strip()
@@ -178,6 +180,58 @@ while not line.endswith(b"\n"):
         end(1)
 
 
+def own_keys():
+    """The names of the model keys this container was given itself, by the
+    endings providers give their variables."""
+    return sorted(name for name, value in os.environ.items()
+                  if name.endswith(("_API_KEY", "_AUTH_TOKEN", "_SECRET_ACCESS_KEY"))
+                  and value.strip())
+
+
+def bridge(relay_socket):
+    """A port on this container's loopback, for opencode, which reaches a
+    model at an address: each connection to it is carried to the Runner's
+    relay socket and back. Answers the port's address."""
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen(16)
+
+    def pump(source, sink):
+        try:
+            while True:
+                data = source.recv(65536)
+                if not data:
+                    break
+                sink.sendall(data)
+        except OSError:
+            pass
+        try:
+            sink.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+
+    def carry(client):
+        relay = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            relay.connect(relay_socket)
+        except OSError as e:
+            say(f"The agent cannot reach the Runner's model relay at {relay_socket}: {e}.")
+            client.close()
+            return
+        threading.Thread(target=pump, args=(client, relay), daemon=True).start()
+        pump(relay, client)
+        relay.close()
+        client.close()
+
+    def take():
+        while True:
+            client, _ = server.accept()
+            threading.Thread(target=carry, args=(client,), daemon=True).start()
+
+    threading.Thread(target=take, daemon=True).start()
+    return f"http://127.0.0.1:{server.getsockname()[1]}/"
+
+
 def send(report):
     call.sendall(json.dumps(report).encode())
     call.close()
@@ -214,6 +268,11 @@ try:
     mcp = handed["mcp"]
     job = handed["job"]
     job_key = job["job_key"]
+    relay = handed.get("model_relay")
+    if relay is not None:
+        relay_key = relay["key"]
+        relay_socket = relay["socket"]
+        relay_provider = relay.get("provider", "")
 except (ValueError, KeyError, TypeError) as e:
     failed(f"The Runner handed over a Job the agent could not read: {e}.")
 say(f"Working Job {job.get('job_id')}.")
@@ -224,21 +283,28 @@ os.makedirs(work)
 with open(os.path.join(work, "job.json"), "w") as f:
     json.dump(handed, f, indent=2)
 
+# Several pictures are the pages of one recipe, in order (ADR 0055): each is
+# fetched, and named with its page's number. One is named as it always was.
 original = job.get("original")
 if original:
-    request = urllib.request.Request(
-        urllib.parse.urljoin(kamosu, original["address"]),
-        headers={"Authorization": "Bearer " + job_key},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=120) as answer:
-            kind = answer.headers.get_content_type()
-            body = answer.read()
-    except OSError as e:
-        failed(f"The agent could not fetch what it was handed to read: {e}.")
-    name = ORIGINAL_NAMES.get(kind, "original")
-    with open(os.path.join(work, name), "wb") as f:
-        f.write(body)
+    pages = original.get("pages") or [original["address"]]
+    for number, address in enumerate(pages, start=1):
+        request = urllib.request.Request(
+            urllib.parse.urljoin(kamosu, address),
+            headers={"Authorization": "Bearer " + job_key},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=120) as answer:
+                kind = answer.headers.get_content_type()
+                body = answer.read()
+        except OSError as e:
+            failed(f"The agent could not fetch what it was handed to read: {e}.")
+        name = ORIGINAL_NAMES.get(kind, "original")
+        if len(pages) > 1:
+            stem, dot, extension = name.partition(".")
+            name = f"{stem}-{number}{dot}{extension}"
+        with open(os.path.join(work, name), "wb") as f:
+            f.write(body)
 
 # opencode's settings, sessions and caches live in this Job's folder. Kamosu's
 # MCP door speaks revision 2026-07-28 alone, which opencode speaks when told
@@ -265,21 +331,47 @@ config = {
         }
     },
 }
-# The key for the model's provider, whichever it is (#318). The settings hold
-# the variable's name and opencode reads its value, so the key is in no file.
-# Without it, opencode reads the provider's own variable. With a base URL,
-# the provider is one opencode does not know, declared here with the one
-# model, which is told it takes pictures: a photo of a page reaches it as one.
-# No PDF, which an OpenAI-compatible service may refuse: the agent finds it
+# Where opencode reaches the model, and with which key (#318, #372). Given a
+# relay, it is the relay, with the stand-in for a key, and opencode is handed
+# no key of this container's own: the Runner adds the real one. Without one,
+# it is the provider, with KAMOSU_AGENT_API_KEY or else the provider's own
+# variable, which opencode reads. The settings hold a variable's name and
+# opencode reads its value, so no key is in a file. With a base URL, the
+# provider is one opencode does not know, declared here with the one model,
+# which is told it takes pictures: a photo of a page reaches it as one. No
+# PDF, which an OpenAI-compatible service may refuse: the agent finds it
 # cannot open one and turns its pages into pictures, as instructions.md says.
 settings = {}
-if os.environ.get("KAMOSU_AGENT_API_KEY", "").strip():
-    settings["apiKey"] = "{env:KAMOSU_AGENT_API_KEY}"
 base_url = os.environ.get("KAMOSU_AGENT_BASE_URL", "").strip()
+keys = own_keys()
+if relay is not None:
+    settings["apiKey"] = "{env:KAMOSU_MODEL_RELAY_KEY}"
+    settings["baseURL"] = bridge(relay_socket)
+    if keys:
+        say(
+            f"The Runner holds the model's key, so this container's own "
+            f"{', '.join(keys)} goes unused. Take it out of the agent's settings."
+        )
+    if base_url and base_url.rstrip("/") != relay_provider.rstrip("/"):
+        say(
+            f"KAMOSU_AGENT_BASE_URL is {base_url}, and the Runner sends the model's "
+            f"requests to {relay_provider}, its KAMOSU_RUNNER_MODEL_ADDRESS. Give both "
+            "the same address."
+        )
+else:
+    if keys:
+        say(
+            "The agent holds its model provider's key itself, where a page that tricks "
+            "it can have it sent away. Move it to the Runner, in KAMOSU_RUNNER_MODEL_KEY "
+            "with KAMOSU_RUNNER_MODEL_ADDRESS: see docs/runner.md."
+        )
+    if os.environ.get("KAMOSU_AGENT_API_KEY", "").strip():
+        settings["apiKey"] = "{env:KAMOSU_AGENT_API_KEY}"
+    if base_url:
+        settings["baseURL"] = base_url
 if base_url:
     if not model_id:
         failed("KAMOSU_AGENT_MODEL names no model after its provider, as provider/model.")
-    settings["baseURL"] = base_url
     config["providers"] = {
         provider: {
             "package": "@ai-sdk/openai-compatible",
@@ -319,6 +411,12 @@ if isinstance(house_notes, str) and house_notes.strip():
         )
 
 env = dict(os.environ)
+if relay is not None:
+    # Nothing the Job starts holds a key of this container's own. This
+    # program is not dumpable, so they cannot read its environment either.
+    for name in keys:
+        del env[name]
+    env["KAMOSU_MODEL_RELAY_KEY"] = relay_key
 env.update(
     {
         # An agent may take its project from PWD over the folder it was

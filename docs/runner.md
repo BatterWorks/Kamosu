@@ -49,6 +49,14 @@ address for it, so the Runner needs no open port. While the agent works, the
 Runner keeps telling Kamosu it still holds the Job. If it goes quiet, Kamosu
 lets the Job wait for another Runner.
 
+**The Runner holds the model provider's key, and the agent never sees it.**
+The agent reads pages strangers wrote, and a page can trick it into sending
+anything it holds to anyone. So for each Job the Runner opens a **model
+relay** for that Job's agent alone: the agent sends its model requests there
+with a stand-in key, and the Runner sends them on to the provider with the
+real key. The relay closes when the Job ends, and the stand-in is worth
+nothing anywhere else. See [The model relay](#the-model-relay).
+
 These are the Jobs that go to an agent, once a Runner Key exists:
 
 - A link Kamosu cannot read: a page with no recipe data, a video, or a page that
@@ -248,10 +256,21 @@ kamosu runner -- /opt/runner/read-a-recipe
 ```
 
 The command is usually a short script of your own that reads `job.json`,
-connects the agent to Kamosu's MCP door with the Job Key, starts it with your
-instructions, and leaves `report.json` if the agent did not. Its contract is
+connects the agent to Kamosu's MCP door with the Job Key, points it at the
+model relay, starts it with your instructions, and leaves `report.json` if the
+agent did not. Its contract is
 [What the agent is handed](#what-the-agent-is-handed) and
 [What the agent leaves](#what-the-agent-leaves).
+
+Give the Runner the model provider's key and address in its settings file,
+and keep them out of the agent's own settings:
+
+```sh
+read -rs key && printf 'KAMOSU_RUNNER_MODEL_KEY=%s\n' "$key" >> ~/.config/kamosu-runner.env; unset key
+printf 'KAMOSU_RUNNER_MODEL_ADDRESS=%s\n' https://openrouter.ai/api/v1 >> ~/.config/kamosu-runner.env
+```
+
+[The model relay](#the-model-relay) says what the Runner does with them.
 
 ## The agent image Kamosu publishes
 
@@ -277,13 +296,19 @@ published, so a new version of Kamosu may bring nothing new to download here.
   To change the instructions themselves, mount your own copy over that file,
   as [Your own instructions](#your-own-instructions) shows.
 
-**The Runner and the agent run in two containers.** The Runner is Kamosu's
-own image, which holds one program, no shell and no root, started as `kamosu
-runner`. It holds the Runner Key. The agent's container never sees that key.
-The Runner hands it each Job through a socket in a volume the two share, as
+**The Runner and the agent run in two containers, with a fence beside the
+agent.** The Runner is Kamosu's own image, which holds one program, no shell
+and no root, started as `kamosu runner`. It holds the Runner Key and the model
+provider's key. The agent's container never sees either. The Runner hands it
+each Job through a socket in a volume the two share, as
 [An agent in a container of its own](#an-agent-in-a-container-of-its-own)
-describes. No process in either container runs as root, and neither container
-is given the container engine's socket or any added capability.
+describes, and relays its model requests through a socket in a second volume.
+The fence is the agent's image started as `fence`: it holds the agent's
+network and keeps it off your own, as
+[Keeping the agent off your network](#keeping-the-agent-off-your-network)
+describes. No process runs as root once the fence has set its rules, neither
+the Runner nor the agent is given any added capability, and no container is
+given the container engine's socket.
 
 **Each Job starts in a fresh container.** The agent's image is read-only, with
 `/tmp` in memory. The container takes one Job and ends with it, and its
@@ -302,13 +327,27 @@ docker build -t kamosu-agent agent-image
 With Podman, add `--format docker`.
 
 Each container takes its settings from an environment file of its own, kept
-as the Runner Key's file above is. The Runner's holds three:
+as the Runner Key's file above is. The Runner's holds the two keys:
 
 | Variable | What it holds |
 |---|---|
 | `KAMOSU_RUNNER_KEY` | The Runner Key from step 1. The Runner reads it from here and nowhere else. |
 | `KAMOSU_RUNNER_INSTANCE` | Kamosu's address. Beside Kamosu in one Compose project, `http://kamosu:5266`. `--kamosu` does the same, and wins when both are given. |
 | `KAMOSU_RUNNER_AGENT_SOCKET` | The socket the agent listens on, `/run/kamosu-agent/agent.sock` in the Compose file below. `--agent-socket` does the same, and wins when both are given. Leave it out, or empty, when an agent command follows `--`. |
+| `KAMOSU_RUNNER_MODEL_KEY` | The key for the model's provider, whichever it is. Like the Runner Key, read from here and nowhere else, and kept from the agent. |
+| `KAMOSU_RUNNER_MODEL_ADDRESS` | The address of that provider's API, the one place the relay sends the key. See the table below. |
+| `KAMOSU_RUNNER_MODEL_SOCKET` | Where the Runner opens the relay for an agent at a socket, `/run/kamosu-relay/model.sock` in the Compose file below. Leave it out when an agent command follows `--`, which reaches the relay on the loopback. |
+
+The provider's address is the one its own client library starts from, with
+nothing after it. For the providers opencode knows by name:
+
+| Provider | `KAMOSU_AGENT_MODEL` begins | `KAMOSU_RUNNER_MODEL_ADDRESS` |
+|---|---|---|
+| OpenRouter | `openrouter/` | `https://openrouter.ai/api/v1` |
+| OpenAI | `openai/` | `https://api.openai.com/v1` |
+| Anthropic | `anthropic/` | `https://api.anthropic.com/v1` |
+| Google | `google/` | `https://generativelanguage.googleapis.com/v1beta` |
+| A service offering an OpenAI-compatible API | a name of your choosing | the same address as `KAMOSU_AGENT_BASE_URL` |
 
 For the Compose file below, the Runner's settings file is this, with Kamosu's
 address beside it in place of the one step 1 wrote:
@@ -317,6 +356,9 @@ address beside it in place of the one step 1 wrote:
 KAMOSU_RUNNER_KEY=...
 KAMOSU_RUNNER_INSTANCE=http://kamosu:5266
 KAMOSU_RUNNER_AGENT_SOCKET=/run/kamosu-agent/agent.sock
+KAMOSU_RUNNER_MODEL_KEY=...
+KAMOSU_RUNNER_MODEL_ADDRESS=https://openrouter.ai/api/v1
+KAMOSU_RUNNER_MODEL_SOCKET=/run/kamosu-relay/model.sock
 ```
 
 The agent's holds the rest:
@@ -324,24 +366,15 @@ The agent's holds the rest:
 | Variable | What it holds |
 |---|---|
 | `KAMOSU_AGENT_MODEL` | The model, as opencode names it: `provider/model`. The command below lists them. With `KAMOSU_AGENT_BASE_URL`, the provider part is a name of your choosing and the model part is the model's id at that service. |
-| `KAMOSU_AGENT_API_KEY` | The key for that model's provider, whichever it is. |
-| `KAMOSU_AGENT_BASE_URL` | Optional. The address of a service opencode does not know that offers an OpenAI-compatible API, such as `https://llm.kamosu.example/v1`. The model is then told it takes pictures, so make it one that does: a photo of a page and a scanned PDF reach it as pictures. |
+| `KAMOSU_AGENT_BASE_URL` | Optional. Says the model is at a service opencode does not know that offers an OpenAI-compatible API, such as `https://llm.kamosu.example/v1`. The Runner sends its requests to `KAMOSU_RUNNER_MODEL_ADDRESS`, so give the same address there. The model is then told it takes pictures, so make it one that does: a photo of a page and a scanned PDF reach it as pictures. |
 | `KAMOSU_AGENT_EFFORT` | Optional. How hard the model thinks before it answers, in opencode's words for that model, such as `low`, `high` or `max`. A model reached through `KAMOSU_AGENT_BASE_URL` takes `low`, `medium` or `high`. Without it, the model's own default. |
 
 An agent's container given `KAMOSU_RUNNER_KEY` refuses to work.
-
-A provider's own variable still works in place of `KAMOSU_AGENT_API_KEY`,
-under the name opencode reads for it, such as `OPENAI_API_KEY`,
-`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY`.
-When both are set, `KAMOSU_AGENT_API_KEY` is the one used. A provider that
-needs more than a key, such as Amazon Bedrock, Google Vertex or Azure, takes
-its own variables, which opencode's provider documentation names.
 
 An agent's settings file for a provider opencode knows:
 
 ```sh
 KAMOSU_AGENT_MODEL=openrouter/the-model-id
-KAMOSU_AGENT_API_KEY=...
 ```
 
 And for a service it does not, where the provider part, `my-service` here, is
@@ -349,32 +382,60 @@ any name:
 
 ```sh
 KAMOSU_AGENT_MODEL=my-service/the-model-id
-KAMOSU_AGENT_API_KEY=...
 KAMOSU_AGENT_BASE_URL=https://llm.kamosu.example/v1
 ```
 
-The key stays in the settings file and the container's environment. opencode
-reads it from there for each Job, and no file the agent writes holds it.
+The fence takes one setting, which the Compose file below gives it:
+
+| Variable | What it holds |
+|---|---|
+| `KAMOSU_AGENT_FENCE_ALLOW` | Kamosu's address as the agent reaches it, host and port, such as `kamosu:5266`: the one private address the agent still reaches. Several are written apart by spaces or commas. Leave it out when Kamosu is reached at a public address. |
+
+**An agent that holds its own key still works.** Before the relay, the agent
+held the key itself, as `KAMOSU_AGENT_API_KEY` or under the provider's own
+variable, such as `OPENROUTER_API_KEY`. An agent whose Runner holds no key
+reads it from there as it always did, and both its log and the Runner's say
+to move it. Once the Runner holds the key, the agent ignores any key of its
+own, keeps it from everything a Job starts, and says to take it out. A
+provider that needs more than a key, such as Amazon Bedrock, Google Vertex or
+Azure, cannot be relayed: its own variables, which opencode's provider
+documentation names, stay in the agent's settings, and the Runner is given no
+model key.
 
 To see the models a key opens, ask opencode in the agent's image. It lists
 the providers whose own variable is set, so hand it the key under that name,
-`OPENROUTER_API_KEY` here:
+`OPENROUTER_API_KEY` here, for this one command:
 
 ```sh
-docker run --rm --env-file ~/.config/kamosu-agent.env --entrypoint sh \
-  docker.io/battermanz/kamosu-agent:<version> -c 'OPENROUTER_API_KEY="${KAMOSU_AGENT_API_KEY:-$OPENROUTER_API_KEY}" opencode models --standalone'
+docker run --rm --env-file <(grep '^KAMOSU_RUNNER_MODEL_KEY=' ~/.config/kamosu-runner.env) \
+  --entrypoint sh docker.io/battermanz/kamosu-agent:<version> \
+  -c 'OPENROUTER_API_KEY="$KAMOSU_RUNNER_MODEL_KEY" opencode models --standalone'
 ```
 
 A service reached through `KAMOSU_AGENT_BASE_URL` is not in that list. Its
 own documentation names its models.
 
-Beside Kamosu in one Compose project, the two containers are:
+Beside Kamosu in one Compose project, the three containers are:
 
 ```yaml
 services:
+  kamosu-agent-fence:
+    image: docker.io/battermanz/kamosu-agent:<version>
+    entrypoint: ["/opt/kamosu-agent/fence"]
+    user: "0:0"
+    restart: always
+    environment:
+      KAMOSU_AGENT_FENCE_ALLOW: kamosu:5266
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, SETUID, SETGID]
+    security_opt: [no-new-privileges:true]
+
   kamosu-agent:
     image: docker.io/battermanz/kamosu-agent:<version>
     restart: always
+    network_mode: service:kamosu-agent-fence
+    depends_on: [kamosu-agent-fence]
     env_file: ~/.config/kamosu-agent.env
     read_only: true
     tmpfs:
@@ -383,6 +444,7 @@ services:
     security_opt: [no-new-privileges:true]
     volumes:
       - agent-socket:/run/kamosu-agent
+      - relay-socket:/run/kamosu-relay
 
   kamosu-runner:
     image: docker.io/battermanz/kamosu:<version>
@@ -396,6 +458,7 @@ services:
       disable: true
     volumes:
       - agent-socket:/run/kamosu-agent
+      - relay-socket:/run/kamosu-relay
 
 volumes:
   agent-socket:
@@ -403,6 +466,11 @@ volumes:
       type: tmpfs
       device: tmpfs
       o: size=1m,uid=1000,gid=1000,mode=0755
+  relay-socket:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1m,uid=65532,gid=65532,mode=0755
 ```
 
 - **Both images are of the version your Kamosu runs.** The Runner's is Kamosu's
@@ -410,10 +478,14 @@ volumes:
   the Runner of its own version. With Podman, use the `podman-<version>` tag of
   each. The Runner's health check asks for a Kamosu server, which a Runner is
   not, so it is turned off.
-- **The socket's volume is in memory and belongs to the agent's user**, uid
-  1000, which the Runner's user may call but not write in. The agent clears it
-  each time it starts, before anything else, so nothing a Job leaves there
+- **The agent's socket volume is in memory and belongs to the agent's user**,
+  uid 1000, which the Runner's user may call but not write in. The agent clears
+  it each time it starts, before anything else, so nothing a Job leaves there
   reaches the next Job or keeps the Runner from calling.
+- **The relay's volume belongs to the Runner's user**, uid 65532, which the
+  agent may call but not write in. The Runner opens the relay's socket there
+  when it takes a Job and removes it when the Job ends. Both containers mount
+  it at the same path, because the agent is handed the path the Runner sees.
 - **`/tmp` holds a whole Job in memory**, a video's download and frames
   included, so give it room. 4 GB is a ceiling, not a reservation. `exec`
   lets the agent run the yt-dlp it updates there.
@@ -424,16 +496,83 @@ volumes:
 With Podman and no Compose, the same settings are `podman run` flags, as
 `just runner-start` in Kamosu's repository writes them: `--read-only`,
 `--tmpfs`, `--cap-drop all`, `--security-opt no-new-privileges`,
-`--no-healthcheck` for the Runner, and `-v` with one named volume for both,
-made by `podman volume create` with the options above.
+`--no-healthcheck` for the Runner, `--user 0:0`, `--cap-add
+NET_ADMIN,SETUID,SETGID` and `--entrypoint /opt/kamosu-agent/fence` for the
+fence, `--network container:kamosu-agent-fence` for the agent, and `-v` with
+two named volumes for the agent and the Runner, each made by `podman volume
+create` with the options above. Start the fence first. The fence and the
+agent, beside a Kamosu reached at `192.0.2.10:5266`:
+
+```sh
+podman run -d --name kamosu-agent-fence --restart always --user 0:0 \
+  --read-only --cap-drop all --cap-add NET_ADMIN,SETUID,SETGID \
+  --security-opt no-new-privileges -e KAMOSU_AGENT_FENCE_ALLOW=192.0.2.10:5266 \
+  --entrypoint /opt/kamosu-agent/fence docker.io/battermanz/kamosu-agent:podman-<version>
+podman run -d --name kamosu-agent --restart always \
+  --network container:kamosu-agent-fence \
+  --read-only --tmpfs /tmp:rw,exec,mode=1777,size=4g \
+  --cap-drop all --security-opt no-new-privileges \
+  --env-file ~/.config/kamosu-agent.env \
+  -v kamosu-agent-socket:/run/kamosu-agent -v kamosu-relay-socket:/run/kamosu-relay \
+  docker.io/battermanz/kamosu-agent:podman-<version>
+```
+
+With `docker run`, the same two commands work as written, on the Docker tags.
 Rootless Podman and Docker need no flag beyond these.
 
 An agent's container started without `KAMOSU_AGENT_MODEL`, or given
 `KAMOSU_RUNNER_KEY`, says so, waits a minute and exits, and its restart policy
 starts it again until you mend its settings. Check it
-with pasted text as in step 3, and read what the two say with `docker logs`.
+with pasted text as in step 3, and read what the three say with `docker logs`.
 In Kamosu's repository, `just agent-image` builds both images from the working
-copy, and `just runner-start` starts them beside the development instance.
+copy, and `just runner-start` starts all three beside the development instance.
+
+### Keeping the agent off your network
+
+**The agent's container should reach the public internet, Kamosu and its
+Runner, and nothing else: never the host's own services or the rest of your
+network.** Kamosu refuses to fetch a private address on a link's say-so
+([ADR 0033](adr/0033-kamosu-assumes-the-proxy-did-nothing-but-carry-the-bytes.md)), so a page
+cannot make it read your router's settings page or another app on the host.
+The agent fetches with its own tools, outside that guard. Left on your network,
+an agent a page has tricked steps around it.
+
+The fence closes that. It is the agent's own image started as
+`/opt/kamosu-agent/fence`, as the Compose file above shows, and it does three
+things:
+
+1. It sets firewall rules in its own network: the loopback, the DNS server the
+   container engine gave it and each address in `KAMOSU_AGENT_FENCE_ALLOW`
+   are allowed, and every private, loopback, link-local and shared address
+   beyond those is refused. The rest of the internet is let through.
+2. It stops being root: it becomes the agent's user, which leaves it no
+   capability, and sleeps.
+3. The agent's container joins its network, with `network_mode:
+   service:kamosu-agent-fence` in Compose or `--network
+   container:kamosu-agent-fence` with `docker run` and `podman run`. It lives
+   inside the fence's rules with every capability dropped, so it cannot
+   change them.
+
+The fence says what it allows when it starts. To check it, ask from inside
+the agent's container for an address it should not reach, such as the host's
+own on your network:
+
+```sh
+docker exec kamosu-agent curl -sS -m 5 http://192.0.2.10:80/
+```
+
+`curl` answers that the connection was refused, while the same command for a
+public address answers. It works the same with Docker, rootful or rootless,
+and with rootless Podman.
+
+- **Restart the agent after the fence.** The agent's container joins the
+  network the fence holds when it starts. Its restart after each Job picks up
+  a fence that was restarted meanwhile, and a running Job loses its network.
+- **A service the host offers on its public address** is reached as it is
+  from the internet, since a public address is one the fence lets through.
+- **Name Kamosu's address with its port.** `kamosu:5266` lets the agent reach
+  that port alone. A name is looked up when the fence starts, so restart the
+  fence when Kamosu's address changes.
 
 ### Your own instructions
 
@@ -473,7 +612,8 @@ them, and a Job Key reaches neither.
 ## Where to run it
 
 Anywhere that reaches Kamosu's address: the same machine, another one at home,
-or a server elsewhere. It opens no port, so nothing has to reach it.
+or a server elsewhere. Nothing has to reach it: the one thing it listens on is
+the model relay, for its own agent, on the loopback or at a socket.
 
 - **Where it runs decides where the agent's fetching comes from.** A recipe
   site or a video site sees the Runner's machine asking, not Kamosu's. Some
@@ -487,10 +627,10 @@ or a server elsewhere. It opens no port, so nothing has to reach it.
   anything else an agent tricked by a web page should not reach. Never run it
   as root.
 
-The Runner keeps its own key from the agent. The key is in no file of the
-Job's folder and not in the agent's environment, and the Runner blanks it in
-its own, where another program of the same user could read it. Two things this
-does not cover:
+The Runner keeps its two keys from the agent. Neither is in any file of the
+Job's folder or in the agent's environment, and the Runner blanks both in
+its own, where another program of the same user could read them. Two things
+this does not cover:
 
 - A process the agent starts with `setsid` leaves the Job's process group, so
   it is not stopped with the agent.
@@ -512,7 +652,8 @@ For each Job, the Runner makes a folder under the temporary directory
 there with:
 
 - **The folder as its working directory**, holding one file, `job.json`.
-- **The Runner's environment**, less `KAMOSU_RUNNER_KEY`.
+- **The Runner's environment**, less `KAMOSU_RUNNER_KEY` and
+  `KAMOSU_RUNNER_MODEL_KEY`.
 - **No input**: stdin is closed. What it prints goes to the Runner's own output.
 - **A process group of its own**, so that stopping it stops everything it
   started.
@@ -530,12 +671,25 @@ there with:
     "original": null,
     "job_key": "…",
     "house_notes": null
+  },
+  "model_relay": {
+    "address": "http://127.0.0.1:41871/",
+    "key": "kamosu-relay-…",
+    "provider": "https://openrouter.ai/api/v1/"
   }
 }
 ```
 
 - `kamosu` is the address the Runner was given, and `mcp` is Kamosu's MCP door
   there.
+- `model_relay` is where the agent sends its model requests, and is there
+  only when the Runner holds the model's key. `address` is the relay, on the
+  loopback, to give the agent in place of the provider's address, and `key` is
+  the stand-in to give it in place of the provider's key. `provider` is the
+  address the relay sends the requests on to, for the agent to check against
+  its own settings. An agent at a socket is handed `socket`, the relay's
+  socket, in place of `address`. See
+  [The model relay](#the-model-relay).
 - `job_key` is the agent's Credential. Send it as `Authorization: Bearer
   <job_key>`, at the MCP door or at the web door (`POST <kamosu>api/op/<name>`).
 - `link` is the page to read, or null.
@@ -551,6 +705,41 @@ there with:
   and follows it where the two disagree. See [House Notes](#house-notes).
 
 Kamosu may add fields to `job` later. The Runner passes them on unread.
+
+## The model relay
+
+Given `KAMOSU_RUNNER_MODEL_KEY` and `KAMOSU_RUNNER_MODEL_ADDRESS`, the Runner
+holds the provider's key and relays the agent's model requests, so the agent
+holds no key a page could have it send away. For each Job:
+
+1. The Runner opens the relay before it hands the Job over: a port on the
+   loopback, `127.0.0.1`, for an agent command, or the socket named in
+   `KAMOSU_RUNNER_MODEL_SOCKET` for an agent at a socket. It makes up a
+   stand-in key for that Job, and the agent finds both in `model_relay`.
+2. The agent sends each request to the relay as it would to the provider,
+   with the stand-in where the provider reads its key: `Authorization: Bearer`,
+   as OpenAI, OpenRouter and every OpenAI-compatible service take it,
+   `x-api-key`, as Anthropic does, or `x-goog-api-key`, as Google does. A
+   key sent anywhere else, such as Azure's `api-key` header or a `?key=` in
+   the address, is not read, and the request is refused.
+3. The relay sends it on to `KAMOSU_RUNNER_MODEL_ADDRESS`, under the same path,
+   with the provider's key where the stand-in was, and passes the answer back
+   as it arrives, a streamed answer included. A request to `/chat/completions`
+   at the relay goes to `https://openrouter.ai/api/v1/chat/completions` when
+   that is the address.
+4. When the Job ends, the relay closes, with any request still open, and the
+   stand-in is worth nothing.
+
+The relay sends the key to that one address and nowhere else, follows no
+redirect, and refuses a path that would leave the address. A request without
+the Job's stand-in is refused with status 401, and one the provider cannot be
+reached for with 502, each with a sentence saying why. A request may carry up
+to 100 MB.
+
+What it does not stop: a tricked agent can still spend on the model during
+its own Job, up to the Runner's time limit, and can still send away what its
+Job Key reaches, the library as the asker sees it, until the Job ends. A
+spending limit at the provider bounds the first.
 
 ## What the agent leaves
 
@@ -595,9 +784,10 @@ A Job reported `failed` waits to be tried again, keeping what the agent saved.
 
 Given `--agent-socket <path>`, or `KAMOSU_RUNNER_AGENT_SOCKET`, in place of a
 command, the Runner hands each Job to an agent listening on that Unix socket,
-which the image above does. That puts the Runner Key in another container
-altogether. The agent listens and
-the Runner calls it, one call for each Job:
+which the image above does. That puts the Runner Key and the model's key in
+another container altogether, and the agent reaches the model through the
+relay's socket, `KAMOSU_RUNNER_MODEL_SOCKET`, in a volume the two share. The
+agent listens and the Runner calls it, one call for each Job:
 
 1. The agent greets the Runner with one line: `{"kamosu_agent":1}`. The Runner
    asks Kamosu for work only while an agent waits on a call, so no Job is
@@ -633,6 +823,9 @@ It can:
   Job that has no recipe yet.
 - **Correct that recipe's Readings** with `set_reading`.
 - **Put a Tag the Cookbook already has** on that recipe, with `set_recipe_tag`.
+  The published agent's instructions have it file every recipe it reads
+  under each of the Cookbook's Tags that plainly fits, and leave the Tags a
+  person put on where they are.
 - **Store a Photograph** with `upload_photograph`, or by sending the picture's
   bytes as the whole body of `POST <kamosu>api/photographs`.
 
@@ -691,6 +884,10 @@ with a person beside it have to say what to do instead of asking:
   words. Tell the agent to correct each Reading with a unit Kamosu converts
   (`cup`, not an old card's "c"), and to look up and name the Foods its
   corrections leave unused.
+- **Ask for the Tags.** An agent told only that it may put a Tag on its
+  recipe rarely does: one handed seven videos tagged one of them. Tell it to
+  read the Cookbook's Tags, put on each that plainly fits, make none, and
+  keep the ones a person put on.
 - **Send it to the captions.** A cooking video often names each ingredient
   on screen and says it nowhere else. Contact sheets small enough to see a
   whole video shrink that text past reading, so give the agent a way to
@@ -772,3 +969,24 @@ do asks every ten seconds.
 - **The Job fails with "the agent left no report"**: the agent exited without
   writing `report.json` in its working directory. Run the agent command by hand
   in a folder holding a copy of a `job.json` to see what it does.
+- **"The Runner holds no model key"** in the Runner's output, or **"The agent
+  holds its model provider's key itself"** in the agent's: the key is still in
+  the agent's settings. It works, and a page that tricks the agent can have it
+  send the key away. Move it to the Runner's settings as
+  `KAMOSU_RUNNER_MODEL_KEY`, with `KAMOSU_RUNNER_MODEL_ADDRESS` and, for an
+  agent at a socket, `KAMOSU_RUNNER_MODEL_SOCKET`, as
+  [the agent image's settings](#the-agent-image-kamosu-publishes) show.
+- **The agent says the model refused it "with the key it was handed in
+  job.json"**: it sent a key other than the Job's stand-in, often one of its
+  own settings. An agent of your own should send the `key` from
+  `model_relay` and nothing else.
+- **The agent says "The relay could not reach the model's provider"**: the
+  Runner's machine cannot open `KAMOSU_RUNNER_MODEL_ADDRESS`. Check that
+  address from there.
+- **The model answers 404 through the relay**: `KAMOSU_RUNNER_MODEL_ADDRESS`
+  misses a part of the provider's address, such as `/v1`. Give the whole
+  address from the table in
+  [the agent image's settings](#the-agent-image-kamosu-publishes).
+- **"The fence could not set its rules"** in the fence's output: it was
+  started without `NET_ADMIN`, or not as user 0. Start it as the Compose file
+  does.

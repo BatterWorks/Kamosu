@@ -38,6 +38,7 @@ impl Core {
                 &version_id,
                 &content_text,
                 caller,
+                &[],
             )
         })?;
 
@@ -376,6 +377,15 @@ impl Core {
             // save: it is starting exactly at this head.
             let kept = kept_lines(&head_content, &content);
             carry_forward_readings(conn, &head_version_id, &version_id, &kept)?;
+            // So does a person's correction of which lines a Step uses, while
+            // the Step and those lines are as they were (#439).
+            carry_forward_step_uses(
+                conn,
+                &head_version_id,
+                &version_id,
+                &kept_steps(&head_content, &content),
+                &kept,
+            )?;
             // ADR 0002's other half, which the comment above used to defer:
             // a line this save actually wrote is read now (#71). A line it
             // did not write keeps whatever it had, so a Reading somebody
@@ -951,17 +961,30 @@ impl Core {
                 // THIS reader — scaling and conversion in one slot (ADR 0016,
                 // #49). A recipe being read rather than cooked is at the Yield
                 // as written, which is a scale of one.
-                version["measured"] =
-                    measured_for_version(conn, &version["content"], &version_id, &reader, scale)?;
+                // Read in the Language this occurrence stood in, and the
+                // Branch's where an older one recorded none.
+                let written_in_language = version["language"]
+                    .as_str()
+                    .unwrap_or(&language)
+                    .to_string();
+                version["measured"] = measured_for_version(
+                    conn,
+                    &version["content"],
+                    &version_id,
+                    &written_in_language,
+                    &reader,
+                    scale,
+                )?;
                 // And what the cooking screen reads out of each Step, from the
                 // Readings just laid alongside (ADR 0011). Derived here, on
-                // every read, so nothing about which Ingredients a Step uses is
-                // ever stored — and so both Doors say the same thing.
+                // every read, so both Doors say the same thing, and stored
+                // only where a person corrected it (ADR 0054).
                 let readings = version["readings"].as_array().cloned().unwrap_or_default();
                 version["cooking"] = cooking_for_version(
                     &version["content"],
                     &readings,
                     version["language"].as_str(),
+                    &step_uses_by_hand(conn, &version_id)?,
                 );
                 // A Component unfolded (ADR 0008): the inner recipe, already
                 // scaled by how much of it this line asks for, to whatever
@@ -1346,6 +1369,161 @@ impl Core {
             Ok(answer)
         })
     }
+
+    /// **Correct which Ingredient Lines one Step uses** (#439, ADR 0054), on
+    /// a Recipe's current state. `uses` is the whole new list, empty for a
+    /// Step that uses none; `None` takes the correction away, so the Step
+    /// goes back to what Kamosu reads out of its words. Like a corrected
+    /// Reading it mints no Version and appears in no history (ADR 0021), and
+    /// a save carries it on while the Step and its lines stay as they are.
+    pub fn set_step_uses(
+        &self,
+        caller: &Caller,
+        branch_id: &str,
+        step_index: i64,
+        uses: Option<Vec<i64>>,
+    ) -> Result<Value, OpError> {
+        if step_index < 0 {
+            return Err(OpError::bad_request("step_index must be zero or more"));
+        }
+        self.db().with_conn(|conn| {
+            // The Language the head stood in, as `get_recipe` reads it, so
+            // this answers what that answers.
+            let (language, head_version_id, content): (Option<String>, String, String) = conn
+                .query_row(
+                    "SELECT branch_versions.language, branches.head_version_id, versions.content \
+                       FROM branches JOIN versions ON versions.id = branches.head_version_id \
+                       LEFT JOIN branch_versions ON branch_versions.branch_id = branches.id \
+                        AND branch_versions.version_id = branches.head_version_id \
+                      WHERE branches.id = ?1 \
+                      ORDER BY branch_versions.sequence DESC LIMIT 1",
+                    params![branch_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
+                .ok_or_else(no_such_branch)?;
+            ensure_reaches_branch(conn, branch_id, caller)?;
+
+            let content: Value = serde_json::from_str(&content)
+                .map_err(|e| OpError::internal(format!("cannot read Version content: {e}")))?;
+            let step = content["steps"]
+                .get(step_index as usize)
+                .ok_or_else(|| OpError::bad_request("no Step at that index"))?;
+            if step["kind"] != "step" {
+                return Err(OpError::bad_request(
+                    "a Step's Ingredient Lines belong to a Step, not a section",
+                ));
+            }
+
+            match uses {
+                None => {
+                    conn.execute(
+                        "DELETE FROM step_uses_by_hand WHERE version_id = ?1 AND step_index = ?2",
+                        params![head_version_id, step_index],
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot clear a Step's lines: {e}")))?;
+                }
+                Some(mut uses) => {
+                    uses.sort_unstable();
+                    uses.dedup();
+                    for &line in &uses {
+                        let row = usize::try_from(line)
+                            .ok()
+                            .and_then(|line| content["ingredients"].get(line));
+                        if row.is_none_or(|row| row["kind"] != "ingredient") {
+                            return Err(OpError::bad_request(format!(
+                                "line {line} is no Ingredient Line of this recipe"
+                            )));
+                        }
+                    }
+                    conn.execute(
+                        "INSERT INTO step_uses_by_hand (version_id, step_index, uses) \
+                         VALUES (?1, ?2, ?3) \
+                         ON CONFLICT (version_id, step_index) DO UPDATE SET \
+                            uses = excluded.uses, \
+                            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+                        params![head_version_id, step_index, json!(uses).to_string()],
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot save a Step's lines: {e}")))?;
+                }
+            }
+
+            // What the Step now uses, worked out as `get_recipe` works it out,
+            // so a cleared correction answers with what Kamosu reads.
+            let line_count = content["ingredients"].as_array().map_or(0, Vec::len);
+            let readings = readings_for_version(conn, &head_version_id, line_count)?;
+            let by_hand = step_uses_by_hand(conn, &head_version_id)?;
+            let cooking = cooking_for_version(&content, &readings, language.as_deref(), &by_hand);
+            let now = &cooking["steps"][step_index as usize];
+            Ok(json!({
+                "step_index": step_index,
+                "uses": now["uses"],
+                "by_hand": now["by_hand"],
+            }))
+        })
+    }
+}
+
+/// The Steps of one Version whose Ingredient Lines a person corrected
+/// (#439), by Step.
+pub(super) fn step_uses_by_hand(
+    conn: &Connection,
+    version_id: &str,
+) -> Result<Vec<(usize, Vec<usize>)>, OpError> {
+    let fail = |e: rusqlite::Error| OpError::internal(format!("cannot read a Step's lines: {e}"));
+    let mut statement = conn
+        .prepare("SELECT step_index, uses FROM step_uses_by_hand WHERE version_id = ?1")
+        .map_err(fail)?;
+    let rows = statement
+        .query_map(params![version_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(fail)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(fail)?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(step, uses)| {
+            Some((
+                usize::try_from(step).ok()?,
+                serde_json::from_str::<Vec<usize>>(&uses).ok()?,
+            ))
+        })
+        .collect())
+}
+
+/// Carry each corrected Step forward onto a freshly saved Version where the
+/// save kept the Step word for word and every line it names, onto wherever
+/// they now sit (#439). A correction naming a line the save changed or took
+/// away is left behind, since what the Step uses may have changed with it.
+fn carry_forward_step_uses(
+    conn: &Connection,
+    old_version_id: &str,
+    new_version_id: &str,
+    kept_steps: &[Option<usize>],
+    kept_lines: &[Option<usize>],
+) -> Result<(), OpError> {
+    let corrected = step_uses_by_hand(conn, old_version_id)?;
+    for (new_step, old_step) in kept_steps.iter().enumerate() {
+        let Some((_, uses)) = corrected.iter().find(|(step, _)| Some(*step) == *old_step) else {
+            continue;
+        };
+        let moved: Option<Vec<usize>> = uses
+            .iter()
+            .map(|old_line| kept_lines.iter().position(|kept| *kept == Some(*old_line)))
+            .collect();
+        let Some(mut moved) = moved else {
+            continue;
+        };
+        moved.sort_unstable();
+        conn.execute(
+            "INSERT OR IGNORE INTO step_uses_by_hand (version_id, step_index, uses) VALUES (?1, ?2, ?3)",
+            params![new_version_id, new_step as i64, json!(moved).to_string()],
+        )
+        .map_err(|e| OpError::internal(format!("cannot carry a Step's lines forward: {e}")))?;
+    }
+    Ok(())
 }
 
 /// **Two whole recipes and the rows between them** (ADR 0014): what a
@@ -1434,15 +1612,37 @@ fn two_whole_recipes(
 /// pages line up for a cook comparing them. A Reading belongs to the exact
 /// words it read.
 fn kept_lines(old_content: &Value, new_content: &Value) -> Vec<Option<usize>> {
-    let no_lines = Vec::new();
-    let old_lines = old_content["ingredients"].as_array().unwrap_or(&no_lines);
-    let new_lines = new_content["ingredients"].as_array().unwrap_or(&no_lines);
-    let mut taken = vec![false; old_lines.len()];
-    new_lines
+    kept_rows(old_content, new_content, "ingredients", |old, new| {
+        old == new
+    })
+}
+
+/// Which Step of the old Version each Step of the new one keeps word for
+/// word, as [`kept_lines`] pairs Ingredient Lines (#439). Only the words
+/// count: a photograph put on a Step leaves what it uses as it was.
+fn kept_steps(old_content: &Value, new_content: &Value) -> Vec<Option<usize>> {
+    kept_rows(old_content, new_content, "steps", |old, new| {
+        old["kind"] == new["kind"] && old["text"] == new["text"]
+    })
+}
+
+/// The pairing [`kept_lines`] and [`kept_steps`] make, over one list, two
+/// rows being kept when `same` says so.
+fn kept_rows(
+    old_content: &Value,
+    new_content: &Value,
+    list: &str,
+    same: impl Fn(&Value, &Value) -> bool,
+) -> Vec<Option<usize>> {
+    let no_rows = Vec::new();
+    let old_rows = old_content[list].as_array().unwrap_or(&no_rows);
+    let new_rows = new_content[list].as_array().unwrap_or(&no_rows);
+    let mut taken = vec![false; old_rows.len()];
+    new_rows
         .iter()
-        .map(|new_line| {
-            let old_index = (0..old_lines.len())
-                .find(|&index| !taken[index] && old_lines[index] == *new_line)?;
+        .map(|new_row| {
+            let old_index = (0..old_rows.len())
+                .find(|&index| !taken[index] && same(&old_rows[index], new_row))?;
             taken[old_index] = true;
             Some(old_index)
         })
@@ -1578,11 +1778,19 @@ impl Unfolds<'_> {
         conn: &Connection,
         content: &Value,
         version_id: &str,
+        written_in_language: &str,
         scale: f64,
     ) -> Result<Value, OpError> {
         match self {
             Unfolds::ForReader { reader, .. } | Unfolds::PrintedPassenger { reader, .. } => {
-                measured_for_version(conn, content, version_id, reader, scale)
+                measured_for_version(
+                    conn,
+                    content,
+                    version_id,
+                    written_in_language,
+                    reader,
+                    scale,
+                )
             }
             Unfolds::AsPassenger { .. } | Unfolds::ForShopping { .. } => Ok(Value::Null),
         }
@@ -1709,7 +1917,21 @@ pub(super) fn unfold_components(
 
         let line_count = content["ingredients"].as_array().map(Vec::len).unwrap_or(0);
         let readings = readings_for_version(conn, &inner_version_id, line_count)?;
-        let measured = how.measured(conn, &content, &inner_version_id, inner_scale)?;
+        // The inner recipe's Steps are read in its own Language (#397).
+        let inner_language: String = conn
+            .query_row(
+                "SELECT language FROM branches WHERE id = ?1",
+                params![branch_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| OpError::internal(format!("cannot read a Component's Branch: {e}")))?;
+        let measured = how.measured(
+            conn,
+            &content,
+            &inner_version_id,
+            &inner_language,
+            inner_scale,
+        )?;
 
         walk.found.push(json!({
             "path": walk.path.clone(),
@@ -1847,37 +2069,63 @@ fn held_from(
     }))
 }
 
-/// **What the cooking screen reads out of each Step, and stores nowhere**
-/// (ADR 0011, GLOSSARY.md "Step"): which Ingredient Lines the Step uses, and
-/// the duration it offers as a timer.
+/// **What the cooking screen reads out of each Step** (ADR 0011, GLOSSARY.md
+/// "Step"): which Ingredient Lines the Step uses, whether a person corrected
+/// that, and the duration it offers as a timer.
 ///
 /// One slot per row of `content.steps`, in the same order — the shape
 /// `measured` already takes — and `null` on a Section row, which is neither a
 /// Step nor something a cook stands on.
 ///
-/// **Nothing new is stored and nobody types a link.** A Step points at no
-/// Ingredient Line and an Ingredient Line has no name of its own (ADR 0019);
-/// what joins them is the Reading's target, which is a word, or a part of it
-/// the Step shortens it to (`crate::step_uses`, #184). So this is worked out
-/// here, on every read, from the two things already written — and a Step
-/// on a recipe nothing has been read on simply uses nothing, which is the
-/// panel degrading to prose rather than failing.
+/// **Nobody has to type a link.** A Step points at no Ingredient Line and an
+/// Ingredient Line has no name of its own (ADR 0019); what joins them is the
+/// Reading's target, which is a word, or a part of it the Step shortens it to
+/// (`crate::step_uses`, #184). So this is worked out here, on every read,
+/// from the two things already written — and a Step on a recipe nothing has
+/// been read on simply uses nothing, which is the panel degrading to prose
+/// rather than failing. Where a person corrected a Step, `by_hand` holds the
+/// lines they gave, and those stand instead (ADR 0054), with what was read
+/// beside them as `as_read` (#456).
 ///
 /// It is worked out in the Core rather than on the screen so that both Doors
 /// get it: an agent asked to read out the next step names the same amounts the
 /// phone on the worktop is showing (ADR 0001, ADR 0010).
-fn cooking_for_version(content: &Value, readings: &[Value], language: Option<&str>) -> Value {
+fn cooking_for_version(
+    content: &Value,
+    readings: &[Value],
+    language: Option<&str>,
+    by_hand: &[(usize, Vec<usize>)],
+) -> Value {
     let no_lines = Vec::new();
     let step_lines = content["steps"].as_array().unwrap_or(&no_lines);
+    let ingredient_rows = content["ingredients"].as_array().unwrap_or(&no_lines);
     let title = content["title"].as_str().unwrap_or_default();
-    let uses = crate::step_uses::step_uses(step_lines, readings, language, title);
+    let uses = crate::step_uses::step_uses(step_lines, ingredient_rows, readings, language, title);
 
     let steps: Vec<Value> = step_lines
         .iter()
         .zip(uses)
-        .map(|(line, uses)| match (uses, line["text"].as_str()) {
-            (Some(uses), Some(text)) => {
-                json!({ "uses": uses, "timer_seconds": units::step_duration(text) })
+        .enumerate()
+        .map(|(at, (line, uses))| match (uses, line["text"].as_str()) {
+            (Some(read), Some(text)) => {
+                // A person's correction stands in place of what was read
+                // (#439, ADR 0054), and what was read is said beside it: it
+                // is what putting the correction back returns to (#456).
+                let corrected = by_hand.iter().find(|(step, _)| *step == at);
+                let duration = units::step_duration(text);
+                match corrected {
+                    Some((_, uses)) => json!({
+                        "uses": uses,
+                        "by_hand": true,
+                        "as_read": read,
+                        "timer_seconds": duration,
+                    }),
+                    None => json!({
+                        "uses": read,
+                        "by_hand": false,
+                        "timer_seconds": duration,
+                    }),
+                }
             }
             _ => Value::Null,
         })
@@ -2673,6 +2921,7 @@ impl BranchHead {
                 conn,
                 content,
                 &self.head_version_id,
+                &self.language,
                 &reader,
                 scale,
             )?,
@@ -2993,7 +3242,8 @@ pub(super) fn start_copy(
 /// Version — the one sequence `create_recipe` and a freshly-seen Import
 /// candidate both start from (ADR 0004): the Cookbook's own Hand on the
 /// Branch, the writing Person's Hand on this first Version, and the writer
-/// as the one who started it.
+/// as the one who started it. The lines in `leave_unread` are not read: an
+/// import gives them their Readings itself once its file has landed (#413).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn insert_new_lineage_and_branch(
     conn: &Connection,
@@ -3005,6 +3255,7 @@ pub(super) fn insert_new_lineage_and_branch(
     version_id: &str,
     content_text: &str,
     writer: &Caller,
+    leave_unread: &[usize],
 ) -> Result<Vec<CreatedFood>, OpError> {
     conn.execute(
         "INSERT OR IGNORE INTO versions (id, content) VALUES (?1, ?2)",
@@ -3059,7 +3310,20 @@ pub(super) fn insert_new_lineage_and_branch(
     let Ok(content) = serde_json::from_str::<Value>(content_text) else {
         return Ok(Vec::new());
     };
-    Ok(read_unread_lines(conn, version_id, &language.language, &content, None, None).foods_created)
+    let lines: Option<HashSet<usize>> = (!leave_unread.is_empty()).then(|| {
+        (0..content["ingredients"].as_array().map_or(0, Vec::len))
+            .filter(|line| !leave_unread.contains(line))
+            .collect()
+    });
+    Ok(read_unread_lines(
+        conn,
+        version_id,
+        &language.language,
+        &content,
+        lines.as_ref(),
+        None,
+    )
+    .foods_created)
 }
 
 /// The title of one Version, which is what a recipe is called right now.
@@ -3091,6 +3355,22 @@ mod tests {
         held.sort_unstable();
         editable.sort_unstable();
         assert_eq!(held, editable);
+    }
+
+    /// A Step is kept by its words: a photograph put on it, as promoting a
+    /// cooking's photograph does, leaves its corrected lines in place, and a
+    /// change to its words does not (#439).
+    #[test]
+    fn a_step_is_kept_by_its_words_and_not_its_photograph() {
+        let before = json!({ "steps": [
+            { "kind": "step", "text": "Fry the chicken.", "photo": null },
+            { "kind": "step", "text": "Cook the glaze.", "photo": null },
+        ] });
+        let after = json!({ "steps": [
+            { "kind": "step", "text": "Fry the chicken.", "photo": "p_1" },
+            { "kind": "step", "text": "Cook the glaze well.", "photo": null },
+        ] });
+        assert_eq!(super::kept_steps(&before, &after), [Some(0), None]);
     }
 
     /// **The gate on adding a field to a recipe** (ADR 0038, AGENTS.md).

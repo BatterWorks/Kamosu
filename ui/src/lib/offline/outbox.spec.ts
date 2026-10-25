@@ -72,6 +72,9 @@ function world(
 	answers: Partial<Record<OperationName, (input: Record<string, unknown>) => unknown>>,
 ) {
 	let online = true;
+	/** A Demo, which refuses every photograph (#403). */
+	let demo = false;
+	let refusedUploads = 0;
 	const sent: { operation: OperationName; input: Record<string, unknown> }[] = [];
 	const kept = new Map<string, unknown>();
 	let stored: Kept | undefined;
@@ -113,6 +116,11 @@ function world(
 				throw new OperationError('upload', 'internal', 'Kamosu could not be reached.', {
 					reached: false,
 				});
+			if (demo) refusedUploads += 1;
+			if (demo)
+				throw new OperationError('upload_photograph', 'bad_request', 'This is a demo.', {
+					reason: 'demo',
+				});
 			uploaded.push(picture);
 			return `p_${uploaded.length}`;
 		},
@@ -134,6 +142,8 @@ function world(
 		kept: () => stored,
 		offline: () => (online = false),
 		online: () => (online = true),
+		demo: () => (demo = true),
+		refusedUploads: () => refusedUploads,
 	};
 }
 
@@ -315,6 +325,26 @@ describe('writing with no network', () => {
 		expect(at.kept()?.queue).toEqual([]);
 	});
 
+	it('keeps a write the server was too busy to take, and sends it later (#368)', async () => {
+		let busy = true;
+		const at = world({
+			add_loose_item: () =>
+				busy ? new OperationError('add_loose_item', 'busy', 'busy') : { chosen: [], rows: [] },
+			get_shopping_list: () => ({ chosen: [], rows: [] }),
+			get_reading_preferences: () => ({ reading_language: 'en', reading_measures: 'metric' }),
+		});
+		await at.call('get_shopping_list');
+		await at.call('get_reading_preferences');
+		at.offline();
+		await at.call('add_loose_item', { text: 'bin bags' });
+		at.online();
+		await at.outbox.flush();
+		expect(at.kept()?.queue.map((each) => each.operation)).toEqual(['add_loose_item']);
+		busy = false;
+		await at.outbox.flush();
+		expect(at.kept()?.queue).toEqual([]);
+	});
+
 	it('forgets an unsent cooking outright when it is thrown away', async () => {
 		const at = world({ get_recipe: () => recipe, get_current_attempt: () => ({ attempt: null }) });
 		await at.call('get_recipe', { branch_id: 'b_1' });
@@ -361,6 +391,61 @@ describe('a photograph taken with no network', () => {
 		});
 		expect(at.pictures.size).toBe(0);
 		expect(await at.outbox.photographSrc('p_1', 'page')).toBe('/api/photographs/p_1/page');
+	});
+});
+
+describe('a photograph in a Demo, which keeps none (#403)', () => {
+	it('is left out, and the note written with it is still sent', async () => {
+		const at = world({
+			get_current_attempt: () => ({ attempt: attempt() }),
+			edit_attempt: (input) =>
+				attempt({
+					photographs: input.add_photographs as string[],
+					note: (input.note as string | undefined) ?? null,
+				}),
+		});
+		at.demo();
+		await at.call('get_current_attempt', { lineage_id: 'l_1' });
+		at.offline();
+		const name = await at.outbox.keepPhotograph(new Blob(['a picture']));
+		await at.call('edit_attempt', {
+			attempt_id: 'at_server000000001',
+			note: 'Moins de sucre.',
+			add_photographs: [name],
+		});
+
+		at.online();
+		await at.outbox.flush();
+		expect(at.uploaded).toHaveLength(0);
+		expect(at.sent.at(-1)).toMatchObject({
+			operation: 'edit_attempt',
+			input: { note: 'Moins de sucre.', add_photographs: [] },
+		});
+		expect(at.kept()?.queue).toEqual([]);
+		// Gone from the phone once it is level with the server.
+		expect(at.pictures.size).toBe(0);
+		// And never sent again by a later write that still names it.
+		await at.call('edit_attempt', {
+			attempt_id: 'at_server000000001',
+			photographs: [name],
+		});
+		expect(at.refusedUploads()).toBe(1);
+		expect(at.sent.at(-1)).toMatchObject({ input: { photographs: [] } });
+	});
+
+	it('still stands where it was put when taken with the server there', async () => {
+		const at = world({
+			edit_attempt: (input) => attempt({ photographs: input.add_photographs as string[] }),
+		});
+		at.demo();
+		const name = await at.outbox.keepPhotograph(new Blob(['a picture']));
+		const edited = await at.call('edit_attempt', {
+			attempt_id: 'at_server000000001',
+			add_photographs: [name],
+		});
+		expect(edited.photographs).toEqual([]);
+		globalThis.URL.createObjectURL ??= () => 'blob:kept';
+		expect(await at.outbox.photographSrc(name, 'card')).toMatch(/^blob:/);
 	});
 });
 
@@ -646,5 +731,36 @@ describe('the diary with no network', () => {
 			title: 'Katsu Curry',
 			written_yield: { amount: '4', noun: 'servings' },
 		});
+	});
+});
+
+describe('signing out with writes waiting (#380)', () => {
+	it('sends what waits first, and says how many writes the server has not taken', async () => {
+		const at = world({
+			get_recipe: () => recipe,
+			get_current_attempt: () => ({ attempt: null }),
+			start_attempt: (input) =>
+				attempt({ id: input.attempt_id as string, version_id: input.version_id as string }),
+			advance_attempt: (input) => attempt({ id: input.attempt_id as string }),
+		});
+		expect(await at.outbox.sendWaiting()).toBe(0);
+		await at.call('get_recipe', { branch_id: 'b_1' });
+		await at.call('get_current_attempt', { lineage_id: 'l_1' });
+		at.offline();
+		const started = await at.call('start_attempt', { branch_id: 'b_1' });
+		await at.call('advance_attempt', { attempt_id: started.id, current_step_index: 1 });
+
+		// Still no server: both wait, and nothing is thrown away by asking.
+		expect(await at.outbox.sendWaiting()).toBe(2);
+		expect(at.kept()?.queue).toHaveLength(2);
+
+		at.online();
+		expect(await at.outbox.sendWaiting()).toBe(0);
+		expect(at.sent.map((sent) => sent.operation)).toEqual([
+			'get_recipe',
+			'get_current_attempt',
+			'start_attempt',
+			'advance_attempt',
+		]);
 	});
 });

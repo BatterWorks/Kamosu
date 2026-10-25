@@ -210,21 +210,28 @@ describe('every sheet in Kamosu', () => {
 			.sort();
 		expect(framed).toEqual([
 			'Carrying.svelte',
+			'ChangePassword.svelte',
 			'ComponentPicker.svelte',
 			'Confirm.svelte',
 			'Cooking.svelte',
+			'FilterList.svelte',
 			'HouseNotes.svelte',
 			'LanguageSheet.svelte',
+			'Passkeys.svelte',
 			'PasteSheet.svelte',
 			'PhotoToRecipe.svelte',
 			'RelatedSheet.svelte',
 			'RenameSheet.svelte',
+			'Replays.svelte',
 			'RunnerKeySecret.svelte',
 			'SendSheet.svelte',
+			'SignOut.svelte',
 			'StepPhoto.svelte',
+			'StepUsesSheet.svelte',
 			'TagSheet.svelte',
 			'Thread.svelte',
 			'UseVersion.svelte',
+			'WhichHousehold.svelte',
 			'Writing.svelte',
 		]);
 	});

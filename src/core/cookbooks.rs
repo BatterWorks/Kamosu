@@ -1653,9 +1653,13 @@ pub(super) fn delete_branch_rows(conn: &Connection, branch_id: &str) -> Result<(
         // re-running the importer that first brought this in creates it
         // afresh rather than matching what was deleted.
         "DELETE FROM import_ledger WHERE branch_id = ?1",
+        // The same for the cookings it brought (#418): the recipe arriving
+        // again brings them again with it.
+        "DELETE FROM imported_attempts WHERE branch_id = ?1",
         // Derived, never truth (ADR 0029). Gone from Meaning Search the moment
         // the Branch is, without waiting for a rebuild.
         "DELETE FROM meaning_vectors WHERE branch_id = ?1",
+        "DELETE FROM meaning_nothing_to_embed WHERE branch_id = ?1",
         "DELETE FROM branches WHERE id = ?1",
     ] {
         conn.execute(statement, params![branch_id])
@@ -2218,6 +2222,11 @@ fn fold_branch(conn: &Connection, drop: &str, keep: &str, into: &str) -> Result<
         params![drop, keep],
     )
     .map_err(|e| OpError::internal(format!("cannot move the import ledger: {e}")))?;
+    conn.execute(
+        "UPDATE imported_attempts SET branch_id = ?2 WHERE branch_id = ?1",
+        params![drop, keep],
+    )
+    .map_err(|e| OpError::internal(format!("cannot move the import ledger: {e}")))?;
     jobs::move_to_kept_recipe(conn, drop, keep)?;
     delete_branch_rows(conn, drop)
 }
@@ -2261,6 +2270,11 @@ fn move_imports(conn: &Connection, from: &str, into: &str) -> Result<(), OpError
                 conn.execute(
                     "DELETE FROM import_ledger WHERE import_id = ?1",
                     params![import_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot move the import ledger: {e}")))?;
+                conn.execute(
+                    "UPDATE OR IGNORE imported_attempts SET import_id = ?2 WHERE import_id = ?1",
+                    params![import_id, there],
                 )
                 .map_err(|e| OpError::internal(format!("cannot move the import ledger: {e}")))?;
                 jobs::move_to_kept_import(conn, &import_id, &there, into)?;
@@ -2518,6 +2532,12 @@ fn move_ledger_rows(conn: &Connection, branch_id: &str, into: &str) -> Result<()
         let there = find_or_create_import(conn, into, &kind)?;
         conn.execute(
             "UPDATE OR IGNORE import_ledger SET import_id = ?1 WHERE import_id = ?2 AND branch_id = ?3",
+            params![there, import_id, branch_id],
+        )
+        .map_err(|e| OpError::internal(format!("cannot move the import ledger: {e}")))?;
+        conn.execute(
+            "UPDATE OR IGNORE imported_attempts SET import_id = ?1 \
+              WHERE import_id = ?2 AND branch_id = ?3",
             params![there, import_id, branch_id],
         )
         .map_err(|e| OpError::internal(format!("cannot move the import ledger: {e}")))?;

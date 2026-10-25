@@ -200,6 +200,15 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
             .iter()
             .any(|row| row["what"] == json!("unreadable_photos"))
     );
+    // `neutritionalInfo` is dropped (ADR 0025), and counted where it holds
+    // anything (#434).
+    assert_eq!(
+        left_out
+            .iter()
+            .filter(|row| row["what"] == json!("nutrition"))
+            .count(),
+        17
+    );
 
     // --- Bare recipes arrive as recipes --------------------------------------
     let mut bare: Vec<&str> = arrived
@@ -324,7 +333,7 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
                 Some(unit),
                 "{text}"
             );
-            let read = kamosu::reading::read_line(text)
+            let read = kamosu::reading::read_line(text, "en")
                 .and_then(|reading| reading.unit)
                 .and_then(|unit| kamosu::units::recognise(&unit).map(|u| u.id));
             // Ranges included, since #167: `380-400 ml` reads as `ml`.

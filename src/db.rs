@@ -1891,6 +1891,200 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 54,
+        description: "an Access Key acts as Operator only when minted to (#369)",
+        sql: r#"
+        -- Until now every Access Key an Operator minted carried the Operator's
+        -- powers. From here a key carries them only when it was minted as an
+        -- Operator key, and loses them for good when its Person stops being an
+        -- Operator. A key minted before this keeps what it could do, so every
+        -- live key of a Person who is an Operator today is an Operator key.
+        ALTER TABLE access_keys ADD COLUMN acts_as_operator INTEGER NOT NULL DEFAULT 0;
+        UPDATE access_keys SET acts_as_operator = 1
+         WHERE person_id IN (SELECT id FROM people WHERE is_operator = 1);
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 55,
+        description: "passkeys (#370)",
+        sql: r#"
+        -- A Person's passkeys. `rp_id` is the public address's host when the
+        -- passkey was made: it works there and nowhere else, so a passkey
+        -- outlives a change of address and works again if the address comes
+        -- back. `passkey` is what the WebAuthn library keeps of it, the
+        -- public key and its counter, as JSON. Nothing in it is a secret.
+        CREATE TABLE passkeys (
+            id            TEXT PRIMARY KEY,
+            person_id     TEXT NOT NULL REFERENCES people(id),
+            name          TEXT NOT NULL,
+            rp_id         TEXT NOT NULL,
+            credential_id BLOB NOT NULL,
+            passkey       TEXT NOT NULL,
+            created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            last_used_at  TEXT,
+            UNIQUE (rp_id, credential_id)
+        );
+        CREATE INDEX passkeys_of_a_person ON passkeys(person_id);
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 56,
+        description: "a count of wrong passwords is forgotten after an hour (#373)",
+        sql: r#"
+        -- When a name last had a wrong password. A count whose last miss is
+        -- an hour old is deleted, whether or not anyone holds the name, so
+        -- made-up names tried by a stranger are not kept for good. A count
+        -- kept from before this starts its hour now.
+        ALTER TABLE login_failures ADD COLUMN last_failed_at TEXT;
+        UPDATE login_failures SET last_failed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now');
+        CREATE INDEX login_failures_by_age ON login_failures(last_failed_at);
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 57,
+        description: "an index build notes which recipe it is embedding (#389)",
+        sql: r#"
+        -- The recipe or Attempt an index build has handed to the model, by id
+        -- and embedding space, cleared once its rows are written. One still
+        -- here when a build starts is one the last build never finished: the
+        -- process died inside the model, and a start that keeps dying on it
+        -- says so in the log. A Backup taken mid-build carries it too, so the
+        -- first build after restoring one says so once, for a build that did
+        -- stop there.
+        ALTER TABLE meaning_search ADD COLUMN embedding_now TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 58,
+        description: "the Security Record (#371)",
+        sql: r#"
+        -- What happened at the doors: signing in, wrong passwords, keys,
+        -- Sessions and passkeys in a Person's own record (`account_id`), and
+        -- changes to the instance in every Operator's (`for_operators`).
+        -- `by_id` is the Person who acted and `subject_id` the one acted on.
+        -- The Credential is named as it was called then, and `detail` is
+        -- JSON, null when the event says nothing more. A run of wrong
+        -- passwords, or a crowd at the sign-in, is one row whose `count`
+        -- grows from `first_at` to `at`. Kept 90 days, swept daily.
+        CREATE TABLE security_record (
+            id              INTEGER PRIMARY KEY,
+            event           TEXT NOT NULL,
+            for_operators   INTEGER NOT NULL,
+            account_id      TEXT REFERENCES people(id),
+            by_id           TEXT REFERENCES people(id),
+            subject_id      TEXT REFERENCES people(id),
+            credential_kind TEXT,
+            credential_name TEXT,
+            detail          TEXT,
+            count           INTEGER NOT NULL DEFAULT 1,
+            first_at        TEXT NOT NULL,
+            at              TEXT NOT NULL
+        );
+        CREATE INDEX security_record_of_an_account ON security_record(account_id, at);
+        CREATE INDEX security_record_by_age ON security_record(for_operators, at);
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 59,
+        description: "a Runner Key names the Person who minted it (#378)",
+        sql: r#"
+        -- The Person whose Credential minted the key, so a recovery link
+        -- used on that account ends it. Null on every key minted before
+        -- this, whose maker nobody wrote down: those end on any Operator's
+        -- recovery instead.
+        ALTER TABLE runner_keys ADD COLUMN minted_by TEXT REFERENCES people(id);
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 60,
+        description: "Meaning Search remembers a recipe with nothing to embed (#391)",
+        sql: r#"
+        -- A Branch whose head Version Meaning Search looked at and found
+        -- nothing in to embed: a title and no ingredients, steps or Note. It
+        -- writes no meaning_vectors row, so without this it is owed on every
+        -- pass and the index never says it has caught up. Derived like the
+        -- vectors, and pruned with them: a row whose Branch is gone, whose
+        -- head has moved or whose embedding space is not today's goes.
+        CREATE TABLE meaning_nothing_to_embed (
+            branch_id       TEXT NOT NULL,
+            version_id      TEXT NOT NULL,
+            embedding_space TEXT NOT NULL,
+            PRIMARY KEY (branch_id, version_id, embedding_space)
+        );
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 61,
+        description: "which cooking another app recorded made which Attempt (#418)",
+        sql: r#"
+        -- An Import from another app's file may bring its cooking history as
+        -- finished Attempts (ADR 0053), each from one record of the app's,
+        -- named by the app's own id for it. One row per record the Import has
+        -- brought in, so the same file imported again adds none twice, and the
+        -- ledger's own Import is what it hangs from: forgetting the Import
+        -- forgets these too. An Attempt its cook deleted keeps its row, with
+        -- no Attempt, so importing again never brings it back. `branch_id` is
+        -- the recipe it was cooked from, whose rows go with it when it moves
+        -- to another Cookbook, as its ledger row does.
+        CREATE TABLE imported_attempts (
+            import_id   TEXT NOT NULL REFERENCES imports(id) ON DELETE CASCADE,
+            foreign_id  TEXT NOT NULL,
+            branch_id   TEXT NOT NULL,
+            attempt_id  TEXT REFERENCES attempts(id) ON DELETE SET NULL,
+            PRIMARY KEY (import_id, foreign_id)
+        );
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 62,
+        description: "a Step's Ingredient Lines corrected by hand (#439, ADR 0054)",
+        sql: r#"
+        -- Which Ingredient Lines a Step uses is worked out on every read
+        -- (`step_uses.rs`). A row here is a person's correction of it, for
+        -- one Step of one Version: `uses` is a JSON list of line indexes,
+        -- empty for a Step that uses none. A save carries it onto the next
+        -- Version while the Step and every line it names stay word for word
+        -- as they were, as a Reading is carried, and drops it otherwise.
+        CREATE TABLE step_uses_by_hand (
+            version_id  TEXT NOT NULL REFERENCES versions(id),
+            step_index  INTEGER NOT NULL,
+            uses        TEXT NOT NULL,
+            updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (version_id, step_index)
+        );
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 63,
+        description: "a phone shares into Kamosu: the Add-only key and several pictures (#452, ADR 0055)",
+        sql: r#"
+        -- An Add-only key may call only what its declarations mark for it.
+        -- It and a Session each keep whether what they share goes to the
+        -- agent every time, or only what Kamosu cannot read alone.
+        ALTER TABLE access_keys ADD COLUMN add_only INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE access_keys ADD COLUMN everything_to_agent INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE sessions ADD COLUMN everything_to_agent INTEGER NOT NULL DEFAULT 0;
+        -- Which refusal a failed Job ended with, where it is one that has a
+        -- name (`OpError::reason`), so that `add_this` can say it in the
+        -- asker's own words.
+        ALTER TABLE jobs ADD COLUMN error_reason TEXT;
+        -- How many files an Original is: several pictures are the pages of
+        -- one recipe, kept as `<job_id>`, `<job_id>.2`, `<job_id>.3`, in
+        -- order. Every Original before this one is one file.
+        ALTER TABLE agent_jobs ADD COLUMN original_pages INTEGER NOT NULL DEFAULT 1;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.
@@ -2213,6 +2407,56 @@ fn write_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **Migration 54 keeps every key an Operator already holds acting as one**
+    /// (#369): nothing an Operator set up before the upgrade stops working,
+    /// and a key of anybody else never becomes an Operator key.
+    #[test]
+    fn migration_54_makes_an_operators_existing_keys_operator_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let before_54 = MIGRATIONS
+            .iter()
+            .position(|m| m.version == 54)
+            .expect("migration 54");
+        {
+            let old = Db::open_with_migrations(dir.path(), &MIGRATIONS[..before_54]).unwrap();
+            old.with_conn(|conn| {
+                conn.execute_batch(
+                    r#"
+                    INSERT INTO people (id, name, is_operator) VALUES
+                      ('p_operator', 'Stéphane', 1), ('p_person', 'Marie', 0);
+                    INSERT INTO access_keys (id, secret_hash, person_id, name, read_only) VALUES
+                      ('ak_1', 'h1', 'p_operator', 'agent', 0),
+                      ('ak_2', 'h2', 'p_operator', 'reader', 1),
+                      ('ak_3', 'h3', 'p_person', 'agent', 0);
+                    "#,
+                )
+                .map_err(|e| OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        }
+        let db = Db::open(dir.path()).unwrap();
+        let marked: Vec<(String, bool)> = db
+            .with_conn(|conn| {
+                let mut statement = conn
+                    .prepare("SELECT id, acts_as_operator FROM access_keys ORDER BY id")
+                    .unwrap();
+                Ok(statement
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .unwrap()
+                    .collect::<Result<_, _>>()
+                    .unwrap())
+            })
+            .unwrap();
+        assert_eq!(
+            marked,
+            [
+                ("ak_1".to_string(), true),
+                ("ak_2".to_string(), true),
+                ("ak_3".to_string(), false),
+            ]
+        );
+    }
 
     /// **Migration 41 guesses which Readings a person set** (#166): a
     /// Component, a Reading changed more than a second after its Version, and

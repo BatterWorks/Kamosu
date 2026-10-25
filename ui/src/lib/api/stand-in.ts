@@ -11,7 +11,7 @@
  * So a test can lie about the values. It cannot lie about the shape.
  *
  * ```ts
- * const kamosu = standIn({ instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 } });
+ * const kamosu = standIn({ instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15, passkey_origin: null, demo: false } });
  * render(Home, { props: { kamosu: kamosu.client } });
  * ```
  */
@@ -176,6 +176,21 @@ const JOB_ASK_SCHEMA: SchemaNode = {
 };
 
 /**
+ * `get_job` declares its result as anything, since it is whichever Job's. A
+ * completed Job's result is held to what its own Operation declares instead
+ * (#412), so a Report a test programs cannot drift from the Catalogue either.
+ */
+function checkJobResult(operation: string, answer: unknown) {
+	if (operation !== 'get_job' || typeof answer !== 'object' || answer === null) return;
+	const job = answer as { operation?: string; status?: string; result?: unknown };
+	const declaration = job.operation ? DECLARATIONS.get(job.operation) : undefined;
+	if (job.status !== 'completed' || !declaration || job.result === null) return;
+	// As the wire carries it, where a field left undefined is no field.
+	const result: unknown = JSON.parse(JSON.stringify(job.result));
+	checkAgainstSchema(job.operation!, declaration.output_schema, result, 'result');
+}
+
+/**
  * Build a stand-in Kamosu that answers what the tests say — and refuses to
  * answer anything the Catalogue does not declare.
  */
@@ -224,6 +239,7 @@ export function standIn(answers: Answers = {}): StandIn {
 		// answers the id envelope, and that is what is checked here.
 		const schema = declaration.kind === 'job' ? JOB_ASK_SCHEMA : declaration.output_schema;
 		checkAgainstSchema(operation, schema, answer, '');
+		checkJobResult(operation, answer);
 		return answer;
 	};
 

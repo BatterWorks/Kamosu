@@ -16,7 +16,13 @@ describe('the account screen', () => {
 	const user = userEvent.setup();
 	it('offers the first visitor account creation', async () => {
 		renderScreen(Account, {
-			instance_status: { version: '0.1.0', setup_complete: false, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: false,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 		});
 
 		expect(await screen.findByRole('heading', { name: 'Set up Kamosu' })).toBeInTheDocument();
@@ -27,7 +33,13 @@ describe('the account screen', () => {
 
 	it('offers login once the first person exists', async () => {
 		renderScreen(Account, {
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 		});
 
 		expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
@@ -45,7 +57,13 @@ describe('the account screen', () => {
 			instance_status: () =>
 				++asked === 1
 					? { refuse: 'unauthorized', message: 'this Credential does not name anyone' }
-					: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+					: {
+							version: '0.1.0',
+							setup_complete: true,
+							password_minimum: 15,
+							passkey_origin: null,
+							demo: false,
+						},
 		});
 
 		expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
@@ -88,7 +106,13 @@ describe('the account screen', () => {
 			instance_status: () =>
 				++asked === 1
 					? { refuse: 'internal', message: 'the database is unreadable' }
-					: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+					: {
+							version: '0.1.0',
+							setup_complete: true,
+							password_minimum: 15,
+							passkey_origin: null,
+							demo: false,
+						},
 		});
 
 		await user.click(await screen.findByRole('button', { name: 'Try again' }));
@@ -124,9 +148,20 @@ describe('the account screen', () => {
 				props: {
 					component: Account,
 					client: standIn({
-						instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+						instance_status: {
+							version: '0.1.0',
+							setup_complete: true,
+							password_minimum: 15,
+							passkey_origin: null,
+							demo: false,
+						},
 					}).client,
-					auth: { authenticate },
+					auth: {
+						authenticate,
+						signInWithPasskey: async () => 'declined' as const,
+						readyPasskey: () => {},
+						arrive: async () => {},
+					},
 				},
 			});
 			await user.type(await screen.findByLabelText('Name'), 'Stéphane');
@@ -164,9 +199,16 @@ describe('the account screen', () => {
 							version: '0.1.0',
 							setup_complete: setupComplete,
 							password_minimum: 15,
+							passkey_origin: null,
+							demo: false,
 						},
 					}).client,
-					auth: { authenticate },
+					auth: {
+						authenticate,
+						signInWithPasskey: async () => 'declined' as const,
+						readyPasskey: () => {},
+						arrive: async () => {},
+					},
 				},
 			});
 		}
@@ -186,12 +228,35 @@ describe('the account screen', () => {
 			expect(screen.queryByText('At least 15 characters.')).not.toBeInTheDocument();
 		});
 
+		it('refuses two passwords that differ in words, without asking Kamosu', async () => {
+			const authenticate = vi.fn<AuthClient['authenticate']>(async () => {});
+			signInWith(false, authenticate);
+
+			await user.type(await screen.findByLabelText('Name'), 'Stéphane');
+			await user.type(screen.getByLabelText('Password'), 'a password long enough');
+			await user.type(screen.getByLabelText('Password again'), 'a pasword long enough');
+			await user.click(screen.getByRole('button', { name: 'Create my account' }));
+
+			expect(screen.getByRole('alert')).toHaveTextContent("The two passwords aren't the same.");
+			expect(authenticate).not.toHaveBeenCalled();
+		});
+
+		it('asks for the password once to sign in', async () => {
+			signInWith(
+				true,
+				vi.fn<AuthClient['authenticate']>(async () => {}),
+			);
+			await screen.findByLabelText('Password');
+			expect(screen.queryByLabelText('Password again')).not.toBeInTheDocument();
+		});
+
 		it('refuses a password that is too short in words, without asking Kamosu', async () => {
 			const authenticate = vi.fn<AuthClient['authenticate']>(async () => {});
 			signInWith(false, authenticate);
 
 			await user.type(await screen.findByLabelText('Name'), 'Stéphane');
 			await user.type(screen.getByLabelText('Password'), 'fourteen chars');
+			await user.type(screen.getByLabelText('Password again'), 'fourteen chars');
 			await user.click(screen.getByRole('button', { name: 'Create my account' }));
 
 			expect(screen.getByRole('alert')).toHaveTextContent(
@@ -242,9 +307,20 @@ describe('the account screen', () => {
 					route,
 					secret,
 					client: standIn({
-						instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+						instance_status: {
+							version: '0.1.0',
+							setup_complete: true,
+							password_minimum: 15,
+							passkey_origin: null,
+							demo: false,
+						},
 					}).client,
-					auth: { authenticate },
+					auth: {
+						authenticate,
+						signInWithPasskey: async () => 'declined' as const,
+						readyPasskey: () => {},
+						arrive: async () => {},
+					},
 				},
 			});
 		}
@@ -274,6 +350,7 @@ describe('the account screen', () => {
 			expect(await screen.findByRole('heading', { name: 'Join Kamosu' })).toBeInTheDocument();
 			await user.type(screen.getByLabelText('Name'), 'Camille');
 			await user.type(screen.getByLabelText('Password'), 'a password long enough');
+			await user.type(screen.getByLabelText('Password again'), 'a password long enough');
 			await user.click(screen.getByRole('button', { name: 'Create my account' }));
 
 			// The whole path, prefix and all: the Core strips `/invite/` itself.
@@ -298,6 +375,7 @@ describe('the account screen', () => {
 			// The link already says whose password this is.
 			expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
 			await user.type(screen.getByLabelText('Password'), 'a new password, long enough');
+			await user.type(screen.getByLabelText('Password again'), 'a new password, long enough');
 			await user.click(screen.getByRole('button', { name: 'Set new password' }));
 
 			expect(authenticate).toHaveBeenCalledWith(
@@ -328,6 +406,7 @@ describe('the account screen', () => {
 
 			await user.type(await screen.findByLabelText('Name'), 'Camille');
 			await user.type(screen.getByLabelText('Password'), 'a password long enough');
+			await user.type(screen.getByLabelText('Password again'), 'a password long enough');
 			await user.click(screen.getByRole('button', { name: 'Create my account' }));
 
 			expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -336,5 +415,212 @@ describe('the account screen', () => {
 			expect(screen.getByRole('heading', { name: 'Join Kamosu' })).toBeInTheDocument();
 			expect(went).not.toHaveBeenCalled();
 		});
+	});
+});
+
+// A passkey beside the password at login, and only at the address it signs in
+// at (#370, choice A).
+describe('logging in with a passkey (#370)', () => {
+	const user = userEvent.setup();
+
+	afterEach(() => vi.unstubAllGlobals());
+
+	/** A browser that can ask its device for a passkey. */
+	function aBrowserWithPasskeys() {
+		vi.stubGlobal(
+			'PublicKeyCredential',
+			Object.assign(function PublicKeyCredential() {}, {
+				parseRequestOptionsFromJSON: () => ({}),
+				parseCreationOptionsFromJSON: () => ({}),
+			}),
+		);
+	}
+
+	function signInAt(
+		passkeyOrigin: string | null,
+		signInWithPasskey: AuthClient['signInWithPasskey'] = async () => 'declined',
+		readyPasskey: AuthClient['readyPasskey'] = () => {},
+	) {
+		render(Harness, {
+			props: {
+				component: Account,
+				client: standIn({
+					instance_status: {
+						version: '0.1.0',
+						setup_complete: true,
+						password_minimum: 15,
+						passkey_origin: passkeyOrigin,
+						demo: false,
+					},
+				}).client,
+				auth: {
+					authenticate: async () => {},
+					signInWithPasskey,
+					readyPasskey,
+					arrive: async () => {},
+				},
+			},
+		});
+	}
+
+	it('offers a passkey under the password where one signs in', async () => {
+		aBrowserWithPasskeys();
+		signInAt(window.location.origin);
+
+		const passkey = await screen.findByRole('button', { name: 'Log in with a passkey' });
+		expect(screen.getByText('or')).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"Your face, fingerprint or phone lock, if you've added a passkey here.".replace("'", '’'),
+			),
+		).toBeInTheDocument();
+		// The password form is still all there.
+		expect(screen.getByLabelText('Password')).toBeInTheDocument();
+		expect(passkey.compareDocumentPosition(screen.getByRole('button', { name: 'Log in' }))).toBe(
+			Node.DOCUMENT_POSITION_PRECEDING,
+		);
+	});
+
+	it('offers none on an instance with no https:// name, or at another address', async () => {
+		aBrowserWithPasskeys();
+		signInAt(null);
+		await screen.findByRole('button', { name: 'Log in' });
+		expect(screen.queryByRole('button', { name: 'Log in with a passkey' })).not.toBeInTheDocument();
+	});
+
+	it('offers none at the LAN address when the passkey signs in at the public one', async () => {
+		aBrowserWithPasskeys();
+		signInAt('https://recipes.kamosu.example');
+		await screen.findByRole('button', { name: 'Log in' });
+		expect(screen.queryByRole('button', { name: 'Log in with a passkey' })).not.toBeInTheDocument();
+	});
+
+	it('offers none in a browser that cannot ask its device', async () => {
+		signInAt(window.location.origin);
+		await screen.findByRole('button', { name: 'Log in' });
+		expect(screen.queryByRole('button', { name: 'Log in with a passkey' })).not.toBeInTheDocument();
+	});
+
+	it('asks for a challenge before the press, and again after it, so the press opens the device at once', async () => {
+		aBrowserWithPasskeys();
+		const readyPasskey = vi.fn();
+		signInAt(window.location.origin, async () => 'declined', readyPasskey);
+
+		await user.click(await screen.findByRole('button', { name: 'Log in with a passkey' }));
+		expect(readyPasskey).toHaveBeenCalledTimes(2);
+	});
+
+	it('asks for no challenge where no passkey is offered', async () => {
+		aBrowserWithPasskeys();
+		const readyPasskey = vi.fn();
+		signInAt(null, async () => 'declined', readyPasskey);
+		await screen.findByRole('button', { name: 'Log in' });
+		expect(readyPasskey).not.toHaveBeenCalled();
+	});
+
+	it('signs in with the passkey and says nothing when the device prompt is closed', async () => {
+		aBrowserWithPasskeys();
+		const signInWithPasskey = vi.fn<AuthClient['signInWithPasskey']>(async () => 'declined');
+		signInAt(window.location.origin, signInWithPasskey);
+
+		await user.click(await screen.findByRole('button', { name: 'Log in with a passkey' }));
+		expect(signInWithPasskey).toHaveBeenCalledOnce();
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+	});
+
+	it('says a passkey this Kamosu does not know is not one, and offers the password', async () => {
+		aBrowserWithPasskeys();
+		signInAt(window.location.origin, async () => {
+			throw new OperationError(
+				'authentication',
+				'unauthorized',
+				'that passkey is not one this Kamosu knows',
+			);
+		});
+
+		await user.click(await screen.findByRole('button', { name: 'Log in with a passkey' }));
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'That passkey isn’t one this Kamosu knows. Log in with your password, then add it again in Settings.',
+		);
+	});
+});
+
+// A Demo's visitor arrives rather than signs in (ADR 0052, #403).
+describe('the account screen in a Demo', () => {
+	const user = userEvent.setup();
+
+	function inADemo(arrive: AuthClient['arrive']) {
+		const authenticate = vi.fn<AuthClient['authenticate']>(async () => {});
+		render(Harness, {
+			props: {
+				component: Account,
+				client: standIn({
+					instance_status: {
+						version: '0.1.0',
+						setup_complete: true,
+						password_minimum: 15,
+						passkey_origin: null,
+						demo: true,
+					},
+				}).client,
+				auth: {
+					authenticate,
+					signInWithPasskey: async () => 'declined' as const,
+					readyPasskey: () => {},
+					arrive,
+				},
+			},
+		});
+		return authenticate;
+	}
+
+	it('lets the visitor in with no form, naming the Session for the device', async () => {
+		const arrive = vi.fn<AuthClient['arrive']>(async () => {});
+		const authenticate = inADemo(arrive);
+
+		await vi.waitFor(() => expect(arrive).toHaveBeenCalledTimes(1));
+		expect(arrive.mock.calls[0][0]).toEqual(expect.any(String));
+		expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+		expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+		expect(authenticate).not.toHaveBeenCalled();
+	});
+
+	it('says why it could not let the visitor in, and asks again when told to', async () => {
+		const arrive = vi.fn<AuthClient['arrive']>(async () => {
+			throw new OperationError(
+				'authentication',
+				'bad_request',
+				'This demo has nobody to let you in as.',
+			);
+		});
+		inADemo(arrive);
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'This demo has nobody to let you in as.',
+		);
+		expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+		await user.click(screen.getByRole('button', { name: 'Try again' }));
+		expect(arrive).toHaveBeenCalledTimes(2);
+	});
+
+	it('waits out a crowd arriving at once and comes in after', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		try {
+			let asked = 0;
+			const arrive = vi.fn<AuthClient['arrive']>(async () => {
+				if (++asked === 1)
+					throw new OperationError('authentication', 'busy', 'Many people are arriving.', {
+						retryAfterSeconds: 3,
+					});
+			});
+			inADemo(arrive);
+
+			await vi.waitFor(() => expect(arrive).toHaveBeenCalledTimes(1));
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+			await vi.advanceTimersByTimeAsync(3000);
+			await vi.waitFor(() => expect(arrive).toHaveBeenCalledTimes(2));
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

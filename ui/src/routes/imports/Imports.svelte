@@ -36,6 +36,7 @@
 -->
 <script lang="ts">
 	import { aDate } from '$lib/dates';
+	import Refusal from '$lib/Refusal.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { untrack } from 'svelte';
 	import { useKamosu } from '$lib/kamosu';
@@ -53,9 +54,14 @@
 	interface Props {
 		/** The import whose Report is open beside this list, on the wide layout. */
 		open?: string;
+		/**
+		 * How often to read again while an agent waits or reads on an arrival:
+		 * oftener while a Replay plays, so its row keeps step (#406).
+		 */
+		every?: number;
 	}
 
-	let { open }: Props = $props();
+	let { open, every = EVERY_MS }: Props = $props();
 
 	const kamosu = useKamosu();
 	const room = useRoom();
@@ -104,7 +110,7 @@
 				const agentsAtWork = answer.imports.some((source) =>
 					source.arrivals.some((arrival) => arrivalWorking(arrival)),
 				);
-				if (agentsAtWork) timer = setTimeout(() => (again += 1), EVERY_MS);
+				if (agentsAtWork) timer = setTimeout(() => (again += 1), every);
 			})
 			.catch((error: unknown) => {
 				if (!(error instanceof OperationError)) throw error;
@@ -150,7 +156,9 @@
 
 {#snippet nothingToList()}
 	{#if said}
-		<p class="border-l-3 border-support bg-card px-3 py-2 text-body" role="alert">{said}</p>
+		<p class="border-l-3 border-support bg-card px-3 py-2 text-body" role="alert">
+			<Refusal words={said} />
+		</p>
 	{:else if imports === undefined}
 		<p class="text-body text-ink-2">{m.loading()}</p>
 	{:else if imports.length === 0}

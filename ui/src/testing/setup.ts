@@ -17,6 +17,7 @@ import { reach, refreshed } from '$lib/offline/device.svelte';
 import { sessions } from '$lib/offline/library.svelte';
 import { standing } from '$lib/offline/standing.svelte';
 import { story } from '$lib/story/showing.svelte';
+import { demo } from '$lib/demo.svelte';
 import { signingIn } from '$lib/shell/signing-in.svelte';
 import { forgetSlash } from '$lib/shell/slash';
 
@@ -54,6 +55,8 @@ function startAsIsolationWould(): void {
 	Object.assign(sessions, { began: 0 });
 	Object.assign(story, { showing: false });
 	Object.assign(signingIn, { showing: false, signedIn: undefined });
+	Object.assign(demo, { is: false, key: undefined, welcome: 'first' });
+	document.documentElement.classList.remove('demo-strip-shown');
 	// The story's language buttons write it, like the app's own layout does.
 	document.documentElement.removeAttribute('lang');
 	refreshed.clear();

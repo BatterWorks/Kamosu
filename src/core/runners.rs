@@ -15,21 +15,30 @@ impl Core {
     /// How often lapsed holds are looked for when no Runner calls.
     const HOLD_WATCH_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 
-    /// Mint a Runner Key. It belongs to the instance and to no Person, so
-    /// nothing here says who asked: that an Operator did is the Catalogue's
-    /// declaration, checked in `execute`.
-    pub fn mint_runner_key(&self, key_name: &str) -> Result<RunnerKey, OpError> {
+    /// Mint a Runner Key. It belongs to the instance and to no Person: that
+    /// an Operator asked is the Catalogue's declaration, checked in
+    /// `execute`. `by` is who did, for the Security Record (#371) and for a
+    /// recovery of their account to end it (#378), and nobody for plumbing
+    /// that mints one directly.
+    pub fn mint_runner_key(
+        &self,
+        by: Option<&Caller>,
+        key_name: &str,
+    ) -> Result<RunnerKey, OpError> {
         let key_name = required_text(key_name, "name")?.to_string();
         let secret = generate_secret();
         let hash = hash_secret(&secret);
         let id = format!("rk_{}", hex::encode(random_bytes(8)));
+        let minted_by = by.map(|caller| caller.person_id.as_str());
         self.db().with_conn(|conn| {
             conn.execute(
-                "INSERT INTO runner_keys (id, secret_hash, name) VALUES (?1, ?2, ?3)",
-                params![id, hash, key_name],
+                "INSERT INTO runner_keys (id, secret_hash, name, minted_by) \
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![id, hash, key_name, minted_by],
             )
             .map_err(|e| OpError::internal(format!("cannot mint Runner Key: {e}")))
         })?;
+        self.note_runner_key("runner_key_minted", by, &key_name);
         Ok(RunnerKey {
             id,
             secret,
@@ -49,12 +58,13 @@ impl Core {
                 .map_err(|e| OpError::internal(format!("cannot list Runner Keys: {e}")))?;
             statement
                 .query_map([], |row| {
+                    let revoked = row.get::<_, i64>(4)? != 0;
                     Ok(json!({
                         "id": row.get::<_, String>(0)?,
                         "name": row.get::<_, String>(1)?,
                         "created_at": row.get::<_, String>(2)?,
-                        "last_used_at": row.get::<_, Option<String>>(3)?,
-                        "revoked": row.get::<_, i64>(4)? != 0,
+                        "last_used_at": self.heard_in_a_demo(!revoked, row.get(3)?),
+                        "revoked": revoked,
                     }))
                 })
                 .map_err(|e| OpError::internal(format!("cannot read Runner Keys: {e}")))?
@@ -65,24 +75,92 @@ impl Core {
 
     /// Revoke a Runner Key. The Job it holds goes back to waiting, and the
     /// Job Keys it was handed stop working with it (#266).
-    pub fn revoke_runner_key(&self, key_id: &str) -> Result<(), OpError> {
+    pub fn revoke_runner_key(&self, by: Option<&Caller>, key_id: &str) -> Result<(), OpError> {
         let failed = |e| OpError::internal(format!("cannot revoke Runner Key: {e}"));
-        self.db().with_conn(|conn| {
+        let name = self.db().with_conn(|conn| {
             // The Key and what it held go together or not at all.
             let tx = conn.unchecked_transaction().map_err(failed)?;
-            let changed = tx
-                .execute(
-                    "UPDATE runner_keys SET revoked = 1 WHERE id = ?1 AND revoked = 0",
+            let name: Option<String> = tx
+                .query_row(
+                    "UPDATE runner_keys SET revoked = 1 WHERE id = ?1 AND revoked = 0 \
+                     RETURNING name",
                     params![key_id],
+                    |row| row.get(0),
                 )
+                .optional()
                 .map_err(failed)?;
-            if changed == 0 {
+            let Some(name) = name else {
                 return Err(OpError::not_found("no live Runner Key has that id"));
-            }
+            };
             // Nothing can renew its hold or report on its Job from here on.
             jobs::release_for_revoked_runner(&tx, key_id)?;
-            tx.commit().map_err(failed)
-        })
+            tx.commit().map_err(failed)?;
+            Ok(name)
+        })?;
+        self.note_runner_key("runner_key_revoked", by, &name);
+        Ok(())
+    }
+
+    /// The Runner Keys a recovery link ends with the old password (#378):
+    /// every live one `person_id` minted, and when they are an Operator,
+    /// every live one minted before Kamosu wrote down who mints them. Each
+    /// is revoked as by hand, inside the recovery's own transaction, and
+    /// answered by name for the Security Record.
+    pub(super) fn end_runner_keys_of_recovered(
+        conn: &Connection,
+        person_id: &str,
+    ) -> Result<Vec<String>, OpError> {
+        let failed = |e| OpError::internal(format!("cannot end the Runner Keys: {e}"));
+        let ended: Vec<(String, String)> = conn
+            .prepare(
+                "UPDATE runner_keys SET revoked = 1
+                  WHERE revoked = 0
+                    AND (minted_by = ?1
+                         OR (minted_by IS NULL
+                             AND (SELECT is_operator FROM people WHERE id = ?1) = 1))
+                 RETURNING id, name",
+            )
+            .and_then(|mut statement| {
+                statement
+                    .query_map(params![person_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                    .collect()
+            })
+            .map_err(failed)?;
+        for (key_id, _) in &ended {
+            jobs::release_for_revoked_runner(conn, key_id)?;
+        }
+        Ok(ended.into_iter().map(|(_, name)| name).collect())
+    }
+
+    /// Note the Runner Keys a recovery link ended in every Operator's record,
+    /// each as revoked by the recovered Person through the Session the link
+    /// opened, which no Caller holds yet.
+    pub(super) fn note_runner_keys_recovery_ended(
+        &self,
+        person_id: &str,
+        session_name: &str,
+        names: &[String],
+    ) {
+        for name in names {
+            let mut event = Event::instance("runner_key_revoked", None)
+                .naming(Some(Named {
+                    kind: "session",
+                    name: session_name.to_string(),
+                }))
+                .saying(json!({ "runner_key": name }));
+            event.by_id = Some(person_id.to_string());
+            self.note(event);
+        }
+    }
+
+    /// Note a Runner Key minted or revoked in every Operator's record, with
+    /// the Credential that did it and the key's own name in `detail`.
+    fn note_runner_key(&self, event: &'static str, by: Option<&Caller>, name: &str) {
+        self.note(
+            Event::instance(event, by)
+                .naming(by.and_then(|caller| self.named_credential(caller)))
+                .saying(json!({ "runner_key": name })),
+        );
     }
 
     /// The Runner Key a Secret's hash names, if it names a live one. Reads
@@ -286,10 +364,19 @@ impl Core {
         })?;
         Ok(json!({
             "job": work.map(|work| json!({
-                "original": work.original.map(|kind| json!({
-                    "kind": kind.as_str(),
-                    "address": original_address(&work.job_id),
-                })),
+                // Several pictures carry `pages` too (ADR 0055): every page
+                // in order, the first being `address`. One file is handed
+                // over as it always was.
+                "original": work.original.map(|kind| {
+                    let mut original = json!({
+                        "kind": kind.as_str(),
+                        "address": original_address(&work.job_id),
+                    });
+                    if work.original_pages > 1 {
+                        original["pages"] = json!(page_addresses(&work.job_id, work.original_pages));
+                    }
+                    original
+                }),
                 "job_id": work.job_id,
                 "branch_id": work.branch_id,
                 "link": work.link,
@@ -443,16 +530,18 @@ impl Core {
     /// is not revoked, and when one was last heard from: asking for work, or
     /// renewing its hold on the Job it works on (#277). The time is read
     /// across every Key, revoked ones included, so replacing a Key does not
-    /// erase when the Runner was last heard from.
+    /// erase when the Runner was last heard from. A Demo's has just asked
+    /// (#406).
     pub fn runner_status(&self) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             conn.query_row(
                 "SELECT COALESCE(SUM(revoked = 0), 0) > 0, MAX(last_asked_at) FROM runner_keys",
                 [],
                 |row| {
+                    let has_runner = row.get::<_, bool>(0)?;
                     Ok(json!({
-                        "has_runner": row.get::<_, bool>(0)?,
-                        "last_asked_at": row.get::<_, Option<String>>(1)?,
+                        "has_runner": has_runner,
+                        "last_asked_at": self.heard_in_a_demo(has_runner, row.get(1)?),
                     }))
                 },
             )
@@ -489,7 +578,7 @@ impl Core {
     /// Save the agent's house notes, in place of any there were. Text that
     /// is only blank takes them away, and the agent follows its own
     /// instructions alone again.
-    pub fn set_house_notes(&self, person_id: &str, notes: &str) -> Result<Value, OpError> {
+    pub fn set_house_notes(&self, by: &Caller, notes: &str) -> Result<Value, OpError> {
         let notes = notes.trim();
         if notes.chars().count() > HOUSE_NOTES_CHARS {
             return Err(OpError::bad_request(format!(
@@ -506,10 +595,17 @@ impl Core {
                         agent_house_notes = excluded.agent_house_notes,
                         house_notes_saved_by = excluded.house_notes_saved_by,
                         house_notes_saved_at = excluded.house_notes_saved_at",
-                params![notes, person_id],
+                params![notes, by.person_id],
             )
             .map_err(|e| OpError::internal(format!("cannot save the house notes: {e}")))
         })?;
+        // What they now say is read from the House Notes themselves, which
+        // keep who saved them last; the record says that they changed.
+        self.note(
+            Event::instance("house_notes_changed", Some(by))
+                .naming(self.named_credential(by))
+                .saying(json!({ "taken_away": notes.is_none() })),
+        );
         self.house_notes()
     }
 }

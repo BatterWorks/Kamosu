@@ -322,6 +322,13 @@ release-publish version:
 release-library folder:
     KAMOSU_RELEASE_LIBRARY="$(realpath '{{folder}}')" cargo test --test release_library -- --ignored --nocapture
 
+# The release checklist's Sample Library check: build a Demo's Sample Library
+# from this tree's story into .dev/sample-library, as a Demo does when it
+# starts, and print what it holds and how long it took. Fails if any step of
+# the story does (#404).
+sample-library:
+    cargo run --quiet -- sample-library .dev/sample-library
+
 # ── Checking the code ─────────────────────────────────────────────────────────
 
 # Run everything: the behaviour suite, and the interface's screen-seam tests.
@@ -342,7 +349,8 @@ ui-test:
     # The release commands' tests (#234). They drive the two scripts against
     # throwaway git repositories and stand-ins for `gh`, `just` and the release
     # hook, so they run under Node's own test runner, outside jsdom. The Docker
-    # Hub page's limits (#235) run beside them.
+    # Hub page's limits (#235) and `just audit`'s npm judgement (#374) run
+    # beside them.
     node --test tools/*.test.mjs
 
 # Check formatting and lints without changing anything. Also verifies the
@@ -352,7 +360,7 @@ ui-test:
 # the limit in ui/check-messages.mjs (issue #141).
 #
 # The corpus checks need naming one by one. They carry `test = false` so
-# `just test` does not link ten binaries to run nothing (see Cargo.toml), and
+# `just test` does not link eleven binaries to run nothing (see Cargo.toml), and
 # `--all-targets` skips a `test = false` target — so without this second pass
 # they would quietly stop compiling and nobody would find out until someone ran
 # one by hand. Type-checking them costs about two seconds, because clippy reads
@@ -364,7 +372,7 @@ check: _check-tokens-fresh _check-client-fresh _check-cover-fresh _check-message
 
 # Every tests/*_corpus.rs and the release's library check, as clippy target
 # flags. One list, used by `check`.
-CORPUS_TARGETS := "--test cooking_corpus --test crouton_corpus --test home_corpus --test meaning_corpus --test pasting_corpus --test photographs_corpus --test reading_corpus --test shelf_corpus --test shopping_corpus --test translations_corpus --test release_library"
+CORPUS_TARGETS := "--test cooking_corpus --test crouton_corpus --test home_corpus --test meaning_corpus --test paprika_corpus --test pasting_corpus --test photographs_corpus --test reading_corpus --test shelf_corpus --test shopping_corpus --test translations_corpus --test release_library"
 
 # svelte-check in strict mode, with Svelte's accessibility warnings treated as
 # failures (ADR 0012): the compiler is the reviewer this frontend does not have.
@@ -419,12 +427,12 @@ format:
 # the RustSec database, npm audit against GitHub's.
 #
 # Deliberately NOT part of `just check`. Both halves fetch an advisory database
-# over the network, and `just check` has to stay fast and work offline. The
-# trade-off is that this is a recipe someone has to remember — run it when
-# adding or changing a dependency, and every so often regardless. That last part
-# is the real argument for CI: an advisory appears because the world changed,
-# not because this repo did, so a tree that was clean in March is not clean in
-# June by any property of the code.
+# over the network, and `just check` has to stay fast and work offline. Run it
+# when adding or changing a dependency. It also runs without anyone remembering
+# to, in .github/workflows/audit.yml: on every pull request into dev, and weekly
+# against dev, because an advisory appears because the world changed, not
+# because this repo did. A tree that was clean in March is not clean in June by
+# any property of the code (#374).
 #
 # Both run even when the first one fails, because "what is wrong with my
 # dependencies" is a question you want answered in full, once.
@@ -444,12 +452,14 @@ audit:
     echo ""
     echo "── The interface (npm audit) ──────────────────────────────────────────"
     just _npm-deps
-    # Fails on high and critical only. The lows in this tree today are
-    # SvelteKit's server-side cookie parser, which Kamosu never runs: the
-    # server half is unused (ADR 0012) and the Rust binary serves the built
-    # files. npm's own remedy for it is a downgrade to @sveltejs/kit 0.0.30,
-    # which is not a fix. Lows are still printed — read them, don't obey them.
-    ( cd ui && npm audit --audit-level=high ) || failed=1
+    # Fails on high and critical only, less what ui/npm-audit-exceptions.json
+    # excuses: npm has no ignore list of its own, so that file is deny.toml's
+    # for this tree, each entry with its reason (#374). The lows in this tree
+    # today are SvelteKit's server-side cookie parser, which Kamosu never runs:
+    # the server half is unused (ADR 0012) and the Rust binary serves the built
+    # files. npm's own remedy for it is a downgrade, which is not a fix. Lows
+    # are still printed — read them, don't obey them.
+    ( cd ui && node tools/npm-audit.mjs ) || failed=1
 
     echo ""
     if (( failed )); then
@@ -599,7 +609,9 @@ podman-build: _check-tokens-fresh _check-client-fresh
 # working copy, then the agent's from agent-image/.
 runner_container := "kamosu-runner"
 agent_container := "kamosu-agent"
+fence_container := "kamosu-agent-fence"
 agent_socket_volume := "kamosu-agent-socket"
+relay_socket_volume := "kamosu-relay-socket"
 
 agent-image: podman-build
     podman build --format docker -t localhost/{{agent_container}} agent-image
@@ -607,46 +619,145 @@ agent-image: podman-build
 # Start both beside the dev instance, as docs/runner.md's compose file does.
 # The settings file stays outside the repository and holds KAMOSU_RUNNER_KEY
 # and the agent's settings, as docs/runner.md's tables name them: the Runner
-# is given its KAMOSU_RUNNER_ lines alone and the agent everything else. The agent's
-# container is restarted after every Job, on a read-only image with /tmp in
-# memory; the Runner three times at most, never for ever. The Runner asks the
-# dev instance at the host's LAN address, as `dev-start` prints it, and not
-# on the host's network: an agent a page has tricked should not reach what the
-# host serves on its own loopback.
-runner-start settings=(env_var("HOME") / ".config/kamosu-runner.env"):
+# is given its KAMOSU_RUNNER_ lines alone and the agent everything else. A
+# KAMOSU_RUNNER_MODEL_KEY there, with KAMOSU_RUNNER_MODEL_ADDRESS, has the
+# Runner relay the agent's model requests through a socket of its own (#372).
+# The agent's container is restarted after every Job, on a read-only image
+# with /tmp in memory; the Runner three times at most, never for ever. The
+# agent lives in the fence's network, which reaches the internet and the dev
+# instance's port alone, never the host or the LAN. The Runner asks the dev
+# instance at the host's LAN address, as `dev-start` prints it. The fence and
+# the Runner name slirp4netns as their network: Podman 5 defaults to pasta,
+# which copies the host's address into the container, so that address would
+# reach the container itself and refuse the connection.
+#
+# KAMOSU_RUNNER_AS=<user> starts the three in that user's rootless Podman
+# instead of yours (#381). A page can trick the agent, and that user holds
+# none of your keys and has no sudo. Making the user, with no login, no sudo
+# and its own Podman socket, is the host's business. The recipes reach its
+# Podman through that socket with sudo, never through a `sudo -u` session.
+# Containers started from a session take its OOM score, and their health
+# checks then fail to set their own. runner-start copies both images you
+# built into the user's store, hands it the settings as 0600 files in its
+# ~/.config/kamosu-runner/, and caps each container's memory and CPU. Unset,
+# the recipes work in your own Podman as they always have. They never look
+# in that user's, so run runner-stop before you unset it.
+runner_as := env_var_or_default("KAMOSU_RUNNER_AS", "")
+runner_podman := if runner_as == "" { "podman" } else { "sudo podman --url unix:///run/user/$(id -u '" + runner_as + "')/podman/podman.sock" }
+
+runner-start settings=(env_var("HOME") / ".config/kamosu-runner.env"): _check-runner-as
     #!/usr/bin/env bash
     set -euo pipefail
     [[ -f "{{settings}}" ]] || { echo "no settings file at {{settings}}" >&2; exit 1; }
     lan_ip="$(ip -4 addr show scope global 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)"
     [[ -n "${lan_ip}" ]] || lan_ip="$(hostname -I | awk '{print $1}')"
-    podman rm -f {{runner_container}} {{agent_container}} >/dev/null
-    podman volume rm -f {{agent_socket_volume}} >/dev/null
-    podman volume create --opt type=tmpfs --opt device=tmpfs \
+    relay=()
+    if grep -q '^KAMOSU_RUNNER_MODEL_KEY=.' "{{settings}}"; then
+        relay=(-e KAMOSU_RUNNER_MODEL_SOCKET=/run/kamosu-relay/model.sock)
+    fi
+    fence_limits=() agent_limits=() runner_limits=()
+    if [[ -z "{{runner_as}}" ]]; then
+        # Opened with exec, because a <(…) in an assignment closes before
+        # the next line reads it.
+        exec {agent_fd}< <(grep -v '^KAMOSU_RUNNER_' "{{settings}}")
+        exec {runner_fd}< <(grep '^KAMOSU_RUNNER_' "{{settings}}")
+        agent_env=(--env-file "/dev/fd/${agent_fd}")
+        runner_env=(--env-file "/dev/fd/${runner_fd}")
+    else
+        # sudo closes every descriptor past stderr, so the settings reach
+        # its Podman as files, never as <(…).
+        as="{{runner_as}}"
+        home="$(getent passwd "$as" | cut -d: -f6)"
+        group="$(id -gn "$as")"
+        dir="$home/.config/kamosu-runner"
+        sudo install -d -o "$as" -g "$group" -m 0700 "$home/.config" "$dir"
+        # uutils install, Ubuntu's since 26.04, cannot write /dev/stdin over
+        # a file that is already there, so the last run's files go first (#387).
+        sudo rm -f "$dir/agent.env" "$dir/runner.env"
+        { grep -v '^KAMOSU_RUNNER_' "{{settings}}" || true; } \
+            | sudo install -o "$as" -g "$group" -m 0600 /dev/stdin "$dir/agent.env"
+        { grep '^KAMOSU_RUNNER_' "{{settings}}" || true; } \
+            | sudo install -o "$as" -g "$group" -m 0600 /dev/stdin "$dir/runner.env"
+        agent_env=(--env-file "$dir/agent.env")
+        runner_env=(--env-file "$dir/runner.env")
+        # The agent's in-memory /tmp counts against its cap, as in
+        # docs/runner.md's compose file. --memory-swap equal to --memory
+        # allows no swap, which Podman would otherwise grant the same again.
+        fence_limits=(--memory 128m --memory-swap 128m --cpus 0.25)
+        agent_limits=(--memory 5g --memory-swap 5g --cpus 1)
+        runner_limits=(--memory 256m --memory-swap 256m --cpus 0.5)
+        podman save -m localhost/kamosu localhost/{{agent_container}} | {{runner_podman}} load >/dev/null
+        # Three you started in your own Podman would ask for the same Jobs,
+        # with your keys in reach.
+        podman rm -f --time 30 {{runner_container}} {{agent_container}} >/dev/null
+        podman rm -f {{fence_container}} >/dev/null
+        podman volume rm -f {{agent_socket_volume}} {{relay_socket_volume}} >/dev/null
+    fi
+    # The agent lives in the fence's network, so it goes first.
+    {{runner_podman}} rm -f {{runner_container}} {{agent_container}} >/dev/null
+    {{runner_podman}} rm -f {{fence_container}} >/dev/null
+    {{runner_podman}} volume rm -f {{agent_socket_volume}} {{relay_socket_volume}} >/dev/null
+    {{runner_podman}} volume create --opt type=tmpfs --opt device=tmpfs \
         --opt o=size=1m,uid=1000,gid=1000,mode=0755 {{agent_socket_volume}} >/dev/null
-    podman run -d --name {{agent_container}} --restart always \
+    {{runner_podman}} volume create --opt type=tmpfs --opt device=tmpfs \
+        --opt o=size=1m,uid=65532,gid=65532,mode=0755 {{relay_socket_volume}} >/dev/null
+    {{runner_podman}} run -d --name {{fence_container}} --restart always --user 0:0 \
+        --network slirp4netns --read-only --cap-drop all --cap-add NET_ADMIN,SETUID,SETGID \
+        --security-opt no-new-privileges "${fence_limits[@]}" \
+        -e KAMOSU_AGENT_FENCE_ALLOW="${lan_ip}:{{backend_port}}" \
+        --entrypoint /opt/kamosu-agent/fence localhost/{{agent_container}} >/dev/null
+    {{runner_podman}} run -d --name {{agent_container}} --restart always \
+        --network container:{{fence_container}} \
         --read-only --tmpfs /tmp:rw,exec,mode=1777,size=4g \
-        --cap-drop all --security-opt no-new-privileges \
-        --env-file <(grep -v '^KAMOSU_RUNNER_' "{{settings}}") \
+        --cap-drop all --security-opt no-new-privileges "${agent_limits[@]}" \
+        "${agent_env[@]}" \
         -v {{agent_socket_volume}}:/run/kamosu-agent \
+        -v {{relay_socket_volume}}:/run/kamosu-relay \
         localhost/{{agent_container}} >/dev/null
-    podman run -d --name {{runner_container}} --restart on-failure:3 \
-        --read-only --cap-drop all --security-opt no-new-privileges --no-healthcheck \
-        --env-file <(grep '^KAMOSU_RUNNER_' "{{settings}}") \
+    {{runner_podman}} run -d --name {{runner_container}} --restart on-failure:3 \
+        --network slirp4netns --read-only --cap-drop all --security-opt no-new-privileges --no-healthcheck \
+        "${runner_limits[@]}" "${runner_env[@]}" "${relay[@]}" \
         -v {{agent_socket_volume}}:/run/kamosu-agent \
+        -v {{relay_socket_volume}}:/run/kamosu-relay \
         localhost/kamosu runner --kamosu "http://${lan_ip}:{{backend_port}}" \
         --agent-socket /run/kamosu-agent/agent.sock >/dev/null
-    echo "started: {{runner_container}} and {{agent_container}}, asking http://${lan_ip}:{{backend_port}}"
+    # Each start's copy leaves the previous images untagged in that store.
+    [[ -z "{{runner_as}}" ]] || {{runner_podman}} image prune -f >/dev/null
+    echo "started: {{runner_container}}, {{agent_container}} and {{fence_container}}{{ if runner_as == "" { "" } else { " as " + runner_as } }}, asking http://${lan_ip}:{{backend_port}}"
     echo "logs:    just runner-logs"
 
 # Follow what the Runner and its agent say.
-runner-logs:
-    podman logs -f --names {{runner_container}} {{agent_container}}
+runner-logs: _check-runner-as
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -z "{{runner_as}}" ]]; then
+        exec podman logs -f --names {{runner_container}} {{agent_container}} {{fence_container}}
+    fi
+    # Podman over a socket follows one container at a time. Background jobs
+    # ignore Ctrl-C, so leaving takes the followers down with it.
+    trap 'pkill -P $$ 2>/dev/null || true' EXIT
+    for c in {{runner_container}} {{agent_container}} {{fence_container}}; do
+        {{runner_podman}} logs -f "$c" 2>&1 | sed -u "s/^/$c /" &
+    done
+    wait
 
 # Stop the Runner and its agent. A Job the Runner holds waits again once the
 # hold lapses.
-runner-stop:
-    podman rm -f --time 30 {{runner_container}} {{agent_container}} >/dev/null
-    podman volume rm -f {{agent_socket_volume}} >/dev/null
+runner-stop: _check-runner-as
+    {{runner_podman}} rm -f --time 30 {{runner_container}} {{agent_container}} >/dev/null
+    {{runner_podman}} rm -f {{fence_container}} >/dev/null
+    {{runner_podman}} volume rm -f {{agent_socket_volume}} {{relay_socket_volume}} >/dev/null
+
+# Internal: stop a runner recipe whose KAMOSU_RUNNER_AS names no user, or a
+# user with no Podman socket, before it asks a socket that is not there.
+_check-runner-as:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ -n "{{runner_as}}" ]] || exit 0
+    uid="$(id -u "{{runner_as}}" 2>/dev/null)" \
+        || { echo "KAMOSU_RUNNER_AS names {{runner_as}}, which is no user here" >&2; exit 1; }
+    sudo test -S "/run/user/${uid}/podman/podman.sock" \
+        || { echo "{{runner_as}} has no Podman socket at /run/user/${uid}/podman/podman.sock" >&2; exit 1; }
 
 # Run the image as the one-mount-one-port install: ./kamosu-data holds the truth,
 # 5266 serves the world. Ctrl-C stops it.

@@ -4,7 +4,10 @@
 # instructions it follows, beside a Runner in a container of its own. The
 # Runner is Kamosu's own image started as `kamosu runner`, and hands each Job
 # over through a socket in a volume the two share, so the Runner Key is never
-# in this container (`docs/runner.md`, "The agent image Kamosu publishes").
+# in this container (`docs/runner.md`, "The agent image Kamosu publishes"). The
+# model provider's key stays with the Runner too, which relays the agent's
+# model requests through a socket in a second volume (#372). The same image,
+# started as `fence`, keeps the agent's container off the host's network.
 #
 # Alpine, as the thinnest base that carries every tool: a distroless image
 # has no shell, and the agent's work is running tools through one. One user,
@@ -64,23 +67,23 @@ FROM docker.io/library/alpine:3.24
 # model that takes no PDF, and curl fetches a page. opencode's musl build
 # needs libstdc++. These are held by the Alpine release above, which takes
 # security fixes alone: deno is Alpine's own build, since deno publishes none
-# for musl.
+# for musl. nftables is the fence's, which sets the agent's firewall rules.
 #
 # The rebuild line is part of this RUN and not a comment, because a build
 # reuses a step whose text has not changed: an edited comment would rebuild
 # the image with last time's packages. A new date reruns this step, which
 # upgrades what the base image holds and installs the rest at Alpine's
 # current versions.
-RUN : "Rebuilt for Alpine's fixes as of 2026-10-18" \
+RUN : "Rebuilt for Alpine's fixes as of 2026-10-25" \
     && apk upgrade --no-cache \
     && apk add --no-cache \
-        ca-certificates curl deno ffmpeg libstdc++ poppler-utils python3
+        ca-certificates curl deno ffmpeg libstdc++ nftables poppler-utils python3
 
 RUN adduser -D -u 1000 -s /bin/sh agent
 
 COPY --from=tools /fetch/opencode /usr/local/bin/opencode
 COPY --from=tools /fetch/yt-dlp /opt/yt-dlp/yt-dlp
-COPY --chmod=755 agent upload-photograph /opt/kamosu-agent/
+COPY --chmod=755 agent fence upload-photograph /opt/kamosu-agent/
 RUN ln -s /opt/kamosu-agent/upload-photograph /usr/local/bin/upload-photograph
 COPY --chmod=644 instructions.md /opt/kamosu-agent/
 # Where the socket goes, the agent's own, so that a fresh named volume

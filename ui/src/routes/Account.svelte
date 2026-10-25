@@ -13,11 +13,13 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import Refusal from '$lib/Refusal.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { useAuth } from '$lib/auth';
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
-	import { deviceName } from '$lib/device-name';
+	import { thisDeviceName } from '$lib/device-name';
+	import { passkeysWorkHere } from '$lib/passkeys';
 	import { heardWhetherSignedIn, signingIn } from '$lib/shell/signing-in.svelte';
 	import type { Snippet } from 'svelte';
 
@@ -66,8 +68,17 @@
 	});
 
 	let setupComplete = $state<boolean | undefined>(undefined);
+	/**
+	 * This instance is a Demo, whose visitor arrives rather than signs in (ADR
+	 * 0052): no form is drawn at all, whichever link opened this.
+	 */
+	let demo = $state(false);
+	/** Why arriving in the Demo was refused, said in the Core's words. */
+	let arrivalRefused = $state<string | undefined>(undefined);
 	/** The shortest password Kamosu accepts where one is set, as it says (#138). */
 	let passwordMinimum = $state(0);
+	/** Where a passkey signs in, if this instance offers passkeys at all (#370). */
+	let passkeyOrigin = $state<string | null>(null);
 	/**
 	 * Whether this screen has given up learning the instance's state. Three
 	 * states, not two: still asking, answered, and asking failed. Collapsing the
@@ -77,6 +88,8 @@
 	let stalled = $state(false);
 	let name = $state('');
 	let password = $state('');
+	/** The password typed a second time, wherever one is set, so a slip is caught here. */
+	let passwordAgain = $state('');
 	let failed = $state<string | undefined>(undefined);
 	/**
 	 * Seconds until this name may be tried again, counted down in the line
@@ -118,6 +131,18 @@
 	});
 	/** Every form but login sets a password, and says how long it must be. */
 	const settingAPassword = $derived(mode !== 'login');
+	/**
+	 * A passkey is offered at login, and only at the address it signs in at:
+	 * Kamosu opened at its LAN address, or with no https:// name, keeps the
+	 * form as it was (#370, choice A).
+	 */
+	const offerPasskey = $derived(mode === 'login' && passkeysWorkHere(passkeyOrigin));
+	// A challenge waits for the press, so the press opens the device at once.
+	$effect(() => {
+		if (offerPasskey) auth.readyPasskey();
+	});
+	/** Why the last passkey did not sign in, said under its button. */
+	let passkeyRefused = $state<string | undefined>(undefined);
 
 	/** Which ask is the current one, so a slow answer to an abandoned one is dropped. */
 	let latestAsk = 0;
@@ -127,7 +152,7 @@
 	 * asks before it can know which form to wear.
 	 *
 	 * Asked twice at most, and only one refusal is worth asking twice for. A
-	 * browser whose Session has ended still holds its `kamosu_session` cookie,
+	 * browser whose Session has ended still holds its Session cookie,
 	 * and holding it is exactly what makes Kamosu refuse even this Public
 	 * Operation. That refusal is also what expires the cookie (#91), so the
 	 * second ask arrives as a stranger and is answered: what a person sees is a
@@ -144,7 +169,10 @@
 				if (mine === latestAsk) {
 					setupComplete = status.setup_complete;
 					passwordMinimum = status.password_minimum;
+					passkeyOrigin = status.passkey_origin;
+					demo = status.demo;
 				}
+				if (status.demo && mine === latestAsk) await arrive(mine);
 				return;
 			} catch (error) {
 				// Anything at all, not refusals alone. Whatever went wrong, the
@@ -152,6 +180,35 @@
 				if (error instanceof OperationError && error.kind === 'unauthorized' && attempt === 0)
 					continue;
 				if (mine === latestAsk) stalled = true;
+				return;
+			}
+		}
+	}
+
+	/**
+	 * Come into a Demo as its visitor. A crowd arriving at once is told to wait,
+	 * and waits here on its own; anything else refused is said, with a button
+	 * to ask again.
+	 */
+	async function arrive(mine: number) {
+		arrivalRefused = undefined;
+		for (;;) {
+			try {
+				await auth.arrive(thisDeviceName());
+				if (mine !== latestAsk) return;
+				heardWhetherSignedIn(true);
+				onSignedIn?.();
+				return;
+			} catch (error) {
+				if (!(error instanceof OperationError)) throw error;
+				if (mine !== latestAsk) return;
+				if (error.kind === 'busy' && error.retryAfterSeconds) {
+					const seconds = error.retryAfterSeconds;
+					await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+					if (mine !== latestAsk) return;
+					continue;
+				}
+				arrivalRefused = error.message;
 				return;
 			}
 		}
@@ -183,6 +240,10 @@
 			failed = m.account_password_too_short({ count: passwordMinimum });
 			return;
 		}
+		if (settingAPassword && password !== passwordAgain) {
+			failed = m.account_password_mismatch();
+			return;
+		}
 		busy = true;
 		try {
 			await auth.authenticate(mode, {
@@ -190,9 +251,7 @@
 				password,
 				// Named for the device it is on, so the Sessions list in Settings
 				// can tell your phone from your laptop (#114).
-				session_name:
-					deviceName(navigator.userAgent, navigator.maxTouchPoints) ??
-					m.account_session_unknown_device(),
+				session_name: thisDeviceName(),
 				link: invite ?? recovery,
 			});
 			if (mode === 'first-person' || mode === 'invite') setupComplete = true;
@@ -206,7 +265,35 @@
 			busy = false;
 			// A try refused for its wait was never checked, so what was typed
 			// is kept for when the wait is over (#138).
-			if (waiting === 0) password = '';
+			if (waiting === 0) {
+				password = '';
+				passwordAgain = '';
+			}
+		}
+	}
+
+	async function signInWithPasskey() {
+		failed = undefined;
+		passkeyRefused = undefined;
+		busy = true;
+		try {
+			// The device's own prompt was closed: that is an answer, not a fault.
+			const outcome = await auth.signInWithPasskey(thisDeviceName());
+			// Ready for another press, whatever this one did.
+			auth.readyPasskey();
+			if (outcome === 'declined') return;
+			heardWhetherSignedIn(true);
+			onSignedIn?.();
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			passkeyRefused =
+				error.reason === 'start_again'
+					? m.account_passkey_start_again()
+					: error.kind === 'unauthorized'
+						? m.account_passkey_refused()
+						: error.message;
+		} finally {
+			busy = false;
 		}
 	}
 </script>
@@ -223,6 +310,19 @@
 	</Screen>
 {:else if setupComplete === undefined}
 	<Screen title={m.account_loading()} />
+{:else if demo}
+	<Screen title={m.account_loading()}>
+		{#if arrivalRefused}
+			<p class="text-body text-accent" role="alert"><Refusal words={arrivalRefused} /></p>
+			<button
+				type="button"
+				class="min-h-12 w-full rounded-sm bg-accent px-4 font-semibold text-on-accent"
+				onclick={() => arrive(++latestAsk)}
+			>
+				{m.account_try_again()}
+			</button>
+		{/if}
+	</Screen>
 {:else}
 	<Screen title={words.title} blurb={words.blurb}>
 		{@render framing?.before()}
@@ -263,10 +363,22 @@
 					</p>
 				{/if}
 			</div>
+			{#if settingAPassword}
+				<label class="grid gap-1 text-body text-ink">
+					{m.account_password_again()}
+					<input
+						class="min-h-12 w-full rounded-sm border border-rule bg-card px-3"
+						type="password"
+						bind:value={passwordAgain}
+						required
+						autocomplete="new-password"
+					/>
+				</label>
+			{/if}
 			{#if waiting > 0}
 				<p class="text-body text-accent" role="alert">{m.account_wait({ seconds: waiting })}</p>
 			{:else if failed}
-				<p class="text-body text-accent" role="alert">{failed}</p>
+				<p class="text-body text-accent" role="alert"><Refusal words={failed} /></p>
 			{/if}
 			<button
 				class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
@@ -275,6 +387,26 @@
 				{words.submit}
 			</button>
 		</form>
+		{#if offerPasskey}
+			<!-- Beside the password, never instead of it (#370, choice A). -->
+			<div class="mt-gutter mb-4 flex items-center gap-3 text-read text-ink-2">
+				<span class="flex-1 border-t border-rule"></span>
+				{m.account_passkey_or()}
+				<span class="flex-1 border-t border-rule"></span>
+			</div>
+			<button
+				type="button"
+				class="min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium text-accent disabled:opacity-60"
+				disabled={busy}
+				onclick={signInWithPasskey}
+			>
+				{m.account_passkey_sign_in()}
+			</button>
+			<p class="mt-2 text-read text-ink-2">{m.account_passkey_hint()}</p>
+			{#if passkeyRefused}
+				<p class="mt-3 text-body text-support" role="alert"><Refusal words={passkeyRefused} /></p>
+			{/if}
+		{/if}
 		<!-- For somebody who reached the sign-in form without knowing what
 		     Kamosu is (#158): the story, at an address of its own. -->
 		{#if framing}

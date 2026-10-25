@@ -1346,6 +1346,42 @@ fn cooking_version_id(conn: &Connection, attempt_id: &str) -> Result<Option<Stri
     .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))
 }
 
+/// A cooking that is over before Kamosu hears of it: one another app recorded
+/// (#418, ADR 0053), written whole and finished, never started.
+pub(super) struct FinishedAttempt<'a> {
+    pub lineage_id: &'a str,
+    pub person_id: &'a str,
+    pub version_id: &'a str,
+    pub note: &'a str,
+    pub photographs: &'a [String],
+    pub finished_at: &'a str,
+}
+
+/// Write a [`FinishedAttempt`], and answer its id. It never meets the cook's
+/// Attempt In Progress on the Lineage, which only an unfinished one could.
+pub(super) fn record_finished_attempt(
+    conn: &Connection,
+    attempt: FinishedAttempt<'_>,
+) -> Result<String, OpError> {
+    let id = format!("at_{}", hex::encode(random_bytes(8)));
+    conn.execute(
+        "INSERT INTO attempts (id, lineage_id, person_id, version_id, note, photographs, \
+                               finished_at, created_at, last_action_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7)",
+        params![
+            id,
+            attempt.lineage_id,
+            attempt.person_id,
+            attempt.version_id,
+            attempt.note,
+            serde_json::to_string(attempt.photographs).expect("Photograph ids serialise"),
+            attempt.finished_at,
+        ],
+    )
+    .map_err(|e| OpError::internal(format!("cannot write the cooking: {e}")))?;
+    Ok(id)
+}
+
 /// Whether an Attempt id is one a phone may mint: the very shape the server
 /// mints its own in, so the two are indistinguishable once stored.
 fn is_minted_attempt_id(id: &str) -> bool {

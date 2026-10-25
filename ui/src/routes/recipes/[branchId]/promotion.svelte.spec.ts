@@ -134,7 +134,7 @@ const version = (id: string): GetRecipeOutput['versions'][number] => ({
 	content: CONTENT,
 	readings: [null],
 	measured: { ingredients: [null], steps: [null] },
-	cooking: { steps: [{ uses: [], timer_seconds: null }] },
+	cooking: { steps: [{ uses: [], by_hand: false, timer_seconds: null }] },
 });
 
 function show(

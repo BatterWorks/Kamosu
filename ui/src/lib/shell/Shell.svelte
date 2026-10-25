@@ -25,15 +25,28 @@
 
 	The Room decides, not a style rule, so a screen test sees which one is drawn.
 
+	**A Demo's strip** (#407) stands at the foot of every screen in a Demo: on
+	the tab bar on the phone, at the foot of the window beside the sidebar on the
+	wide layout, and under the cooking screen's own buttons there. Not on the
+	story, which covers the window, and not on Home on a first arrival, while
+	the welcome card set into its top says all the strip would. The card
+	brought back by the strip keeps the strip beneath it. The shell asks whether
+	this is a Demo, and tells the stylesheet the strip's height, so every screen
+	leaves room for it.
+
 	`/` goes to the recipe search wherever the navigation is drawn (#203). The
 	cooking screen and the story take no key of Kamosu's, and neither does a
 	page somebody reads before they are in the app.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { useKamosu } from '$lib/kamosu';
+	import { demo, learnWhetherADemo } from '$lib/demo.svelte';
+	import { refreshed } from '$lib/offline/device.svelte';
 	import { useRoom } from '$lib/room.svelte';
 	import { story } from '$lib/story/showing.svelte';
 	import BackArrow from './BackArrow.svelte';
+	import DemoStrip from './DemoStrip.svelte';
 	import Header from './Header.svelte';
 	import Masthead from './Masthead.svelte';
 	import Sidebar from './Sidebar.svelte';
@@ -52,8 +65,15 @@
 	let { pathname, screen }: Props = $props();
 
 	const room = useRoom();
+	const kamosu = useKamosu();
 
-	const bare = $derived(pathname.startsWith('/cook/') || pathname === '/about' || story.showing);
+	// What Android's Share menu answers is a quiet page of its own too (#452).
+	const bare = $derived(
+		pathname.startsWith('/cook/') ||
+			pathname === '/about' ||
+			pathname === '/shared' ||
+			story.showing,
+	);
 
 	/**
 	 * A page somebody may be reading before they are in the app: the account
@@ -86,6 +106,26 @@
 	const header = $derived(!room.wide && !bare);
 	const tabs = $derived(header && !outside);
 
+	const cooking = $derived(pathname.startsWith('/cook/') && !story.showing);
+
+	// Asked again when the phone answered first and the server has since said
+	// otherwise, as it does once an instance stops being a Demo.
+	$effect(() => {
+		void refreshed.get('instance_status');
+		void learnWhetherADemo(kamosu);
+	});
+
+	/** A Demo's strip, wherever a screen is drawn but Home on a first arrival. */
+	const strip = $derived(
+		demo.is && !outside && (!bare || cooking) && !(pathname === '/' && demo.welcome === 'first'),
+	);
+
+	// Every screen leaves room for the strip by its height (`--demo-strip-h`).
+	$effect(() => {
+		document.documentElement.classList.toggle('demo-strip-shown', strip);
+		return () => document.documentElement.classList.remove('demo-strip-shown');
+	});
+
 	/** Where this page's back arrow goes with nothing behind it, on a page that carries one. */
 	const backTo = $derived(sidebar || tabs ? parentOf(pathname) : undefined);
 
@@ -109,8 +149,23 @@
 		<BackArrow parent={backTo} layout={sidebar ? 'wide' : 'phone'} />
 	{/if}
 	{@render screen(bare)}
+	{#if strip && sidebar}
+		<!-- Held beside the sidebar by `beside-rail`, as a sheet is. -->
+		<DemoStrip place="wide" />
+	{/if}
 </div>
 
+{#if strip && cooking}
+	<!-- Above the cooking screen's own room, which stops short of it. -->
+	<DemoStrip place="cooking" />
+{/if}
+
 {#if tabs}
-	<TabBar {pathname} />
+	<TabBar {pathname}>
+		{#snippet above()}
+			{#if strip}
+				<DemoStrip place="tab-bar" />
+			{/if}
+		{/snippet}
+	</TabBar>
 {/if}

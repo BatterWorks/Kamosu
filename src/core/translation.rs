@@ -289,6 +289,14 @@ impl Core {
                 params![language, branch_id],
             )
             .map_err(|e| OpError::internal(format!("cannot set the Language: {e}")))?;
+            // The lines this Language reads differently are read in it (#397).
+            super::readings::read_again_in_language(
+                conn,
+                branch_id,
+                &head_version_id,
+                &current,
+                &language,
+            )?;
 
             Ok(json!({
                 "branch_id": branch_id,

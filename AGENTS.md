@@ -60,7 +60,13 @@ runs here: automated version-bump pull requests would fight the paragraph above
 every week, and `just audit` gives the security half without the churn. Read
 what it reports rather than obeying it — `npm audit`'s suggested remedy is
 routinely a downgrade that breaks more than it fixes. Advisories judged not to
-apply are recorded, with the reasoning, in `deny.toml`.
+apply are recorded, with the reasoning, in `deny.toml` for the Rust tree and
+`ui/npm-audit-exceptions.json` for the interface's.
+
+**`just audit` runs without anyone remembering to**, in
+`.github/workflows/audit.yml`: on every pull request into `dev`, and weekly
+against `dev`. A failure on the weekly run opens one issue, or comments on it
+while it stays open, so it is seen without anyone watching the Actions tab.
 
 **Kamosu pins its compiler.** `rust-toolchain.toml` fixes the Rust version so
 every machine and every CI run builds identically. Pinning the toolchain and
@@ -145,6 +151,7 @@ checklist, the release hook's contract and every refusal.
 just release-prepare <version>   # the bump pull request, its checklist and a draft release; run again after the bump merges, the pull request into main
 just release-publish <version>   # merge, tag, have the hook build the images, publish
 just release-library <folder>    # the checklist's library check: a copy of a real library through every migration
+just sample-library              # the checklist's Demo check: build the Sample Library from sample-library/story.json
 ```
 
 - **Only the maintainer approves a release's title and notes.** Show the draft
@@ -184,6 +191,7 @@ just agent-image    # Kamosu's image from this tree, for the Runner, then the ag
 just runner-start   # both beside the dev instance, settings from ~/.config/kamosu-runner.env
 just runner-logs    # follow the Runner and its agent
 just runner-stop    # stop both; a Job the Runner held waits again once the hold lapses
+KAMOSU_RUNNER_AS=<user> just runner-start   # the same three in that user's rootless Podman, capped (#381)
 ```
 
 **Looking at the dev instance has recipes of its own** (#216), so no ticket
@@ -236,6 +244,11 @@ does not.
 **It needs `python3` on the path too.** The Runner's tests start the real
 program as a Runner, and its agent command there is a short Python stand-in
 that writes a recipe with the Job Key it was handed (#274).
+
+**And a Chrome**, the one the dev tools drive (`KAMOSU_DEV_BROWSER` in `.env`,
+or the first on the path). jsdom lays nothing out, so the screen test that a
+long word breaks inside its box hands the drawn page to it to be measured
+(#385).
 
 `dev-clean` deletes `target/` to reclaim build cache; the next build is a full
 rebuild. Dev state lives in gitignored `.dev/`.
@@ -346,6 +359,10 @@ a function**, so a misspelt key is a build error; messages live in
 
 ```
 build.rs            refuses a release build that would ship no interface
+src/admission.rs    what a request must meet before a Door reads it: the
+                    accept loop and its header deadline, the whole-request
+                    deadline, the cap on requests at once, a stranger's
+                    small body, and which Origin is the instance's own (#368)
 src/backups.rs      a Backup: one archive of the database and the
                     Photographs, three kept at three distances (ADR 0039)
 src/bundles.rs      a Bundle: one recipe's worth of Vault, written as a zip of
@@ -355,7 +372,13 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   mod.rs            the Core itself, startup, `execute` with the only
                     authorisation check in Kamosu, and Credential resolution
   accounts.rs       people, logins, Sessions, Access Keys, invites, recovery,
-                    a Person's Reading Language, Operator
+                    changing your own password, a Person's Reading
+                    Language, Operator
+  demo.rs           a Demo: the way a visitor arrives, the refusal
+                    every route outside the Catalogue gives, and its
+                    Sample Library poured in at startup and every day
+                    at 04:00 UTC, its dates moved forward (ADR 0052,
+                    #403, #404)
   kitchens.rs       Kitchens, their members, and leaving one: who sees
                     whose recipes (ADR 0041)
   cookbooks.rs      Cookbooks: who may change a recipe, joining and
@@ -364,7 +387,8 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     acting as one on a call that says `as_operator`
                     among them (ADR 0041, ADR 0049, #131, #302)
   recipes.rs        creating, saving, reading a recipe; threads and divergence;
-                    unfolding components; `parse_recipe_content`
+                    unfolding components; `parse_recipe_content`; a Step's
+                    lines corrected by hand (ADR 0054)
   tags.rs           Tags, and putting one on a recipe
   related.rs        Related Recipes (#105)
   runners.rs        Runner Keys, a Runner taking a Job, renewing its hold and
@@ -379,7 +403,11 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     from its kept Original, a file handed over again, or
                     its Source's link, and whether one can (#272, #273)
   readings.rs       Ingredient Lines, Readings, Foods and Food merges
-  originals.rs      pasted text, a PDF or a picture handed to an agent,
+  passkeys.rs       passkeys: signing in with one, adding one after the
+                    password, the list a Person keeps, and the address each
+                    works at (#370)
+  originals.rs      pasted text, a PDF or a picture handed to an agent, or
+                    several pictures as the pages of one recipe (#452),
                     kept under originals/ for its Job's Job Key alone and
                     in no Backup, and deleted 30 days after its Job ended.
                     The same file handed over again is known by its
@@ -395,8 +423,18 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   carrying_bundles.rs
                     Bundles out and in: writing one, previewing and
                     receiving one (ADR 0020)
+  sharing.rs        adding from a phone's Share menu: `add_this`, which
+                    decides where a link, text, photos or a PDF go, waits
+                    for a link's page, and words the answer in the asker's
+                    Reading Language, and the Shortcut versions it serves
+                    (ADR 0055, #452)
   shopping_list.rs  the shopping list
   search.rs         word search and Meaning Search
+  security_record.rs
+                    the Security Record: sign-ins, wrong passwords, keys
+                    and changes to the instance, kept 90 days, each also
+                    one `kamosu-security` log line (#371,
+                    docs/security-record.md)
   keeping_backups.rs
                     taking and listing Backups
   shared.rs         the few helpers several areas call and none owns
@@ -405,6 +443,50 @@ src/cookbook_migration.rs
                     Kitchen that held it into a Cookbook (#131)
 src/crouton.rs      reading a Crouton export into import candidates: lines rebuilt
                     from split fields, favicons and nutrition text left out (#69)
+src/other_apps.rs   another recipe app's export: the one shape every app's
+                    reader hands its recipes over in, and the asking of each
+                    reader in turn which app made the file, by what is in
+                    it. A refusal is data, and unpacking stops at a limit at
+                    every level (#412)
+src/mealie.rs       Mealie's recipe export in that shape: each line as
+                    Mealie shows it, a line pointing at another recipe with
+                    Mealie's copy of it, a Step's picture. Its test files,
+                    and where each came from, are in tests/fixtures/mealie/
+                    (#413)
+src/mealie_backup.rs
+                    Mealie's backup in that shape: each recipe put back
+                    together from Mealie's tables and read by the export's
+                    reader, the households a cook chooses between, and each
+                    "I Made This" a cooking that lands as a finished Attempt
+                    naming its cook (ADR 0053). No password or token column
+                    is read. Mealie's own samples of every era are in
+                    tests/fixtures/mealie/anonymised/ (#418)
+src/paprika.rs      Paprika's export in that shape: a zip of one gzip per
+                    recipe, its ingredients and directions split into lines
+                    and Steps as written, its own photo before the website's.
+                    Its test file is in tests/fixtures/paprika/ (#414)
+src/tandoor.rs      Tandoor's default export in that shape: a zip of one zip
+                    per recipe, its lines written out from amount, unit,
+                    food and note, and each named step's ingredients a
+                    Section. Its test files are in tests/fixtures/tandoor/
+                    (#415)
+src/schema_org.rs   recipe files in the format web pages carry, schema.org's
+                    Recipe, as Nextcloud Cookbook, RecipeSage, Recipya,
+                    CookCLI and Tandoor write them, in that shape: each read
+                    by the web-link import's own mapping and what a page
+                    lacks read here, each app under its own source kind told
+                    by the file's shape. Its test files are in
+                    tests/fixtures/schema-org/ (#416)
+src/bar_assistant.rs
+                    Bar Assistant's export in that shape: its JSON-LD read as
+                    recipe files are, and its own JSON Schema format, which
+                    keeps the garnish, the glass and an ingredient's range
+                    (#416)
+src/kitchenowl.rs   KitchenOwl's household export in that shape: one JSON
+                    file, each recipe's steps read out of its markdown
+                    description, each line an item's amount and name, and
+                    no photo. Its test files are in
+                    tests/fixtures/kitchenowl/ (#417)
 src/db.rs           the SQLite file under /data — WAL on, migrations forward-only
 src/entities.rs     the HTML entities importers undo in text that was never HTML
 src/jobs.rs         slow work: two lanes (one for strangers, ADR 0032), progress, results
@@ -429,7 +511,9 @@ src/reading.rs      reading an Ingredient Line into a Reading — where the
 src/step_uses.rs    which Ingredient Lines a Step uses, by the short names
                     recipes call them after the list (#184). A short name
                     holds the name's main word, which sits at the end the
-                    Branch's Language puts it (#212)
+                    Branch's Language puts it (#212). A line is taken from
+                    the section the Step works in, and the food itself
+                    before what is made from it (#439)
 src/page_text.rs    the text of a page's own article, found as a reader
                     would and written out as a browser copies it, for a
                     link with no recipe data on an instance with no
@@ -439,14 +523,27 @@ src/runner.rs       the Runner: `kamosu runner`, which asks one Kamosu for
                     each, or hands each to an agent at a Unix socket. Its
                     client is its own, apart from the guarded one (ADR 0033,
                     ADR 0048, #274, #317)
+src/sample_library.rs
+                    a Demo's Sample Library built from its story through
+                    the real Operations, by a Core with no Door, each
+                    step moved back to its own day (#404). `kamosu
+                    sample-library` builds it on its own
+src/model_relay.rs  the Runner's model relay: the provider's key the Runner
+                    holds, added to the agent's model requests for the
+                    length of a Job and sent to one address alone, so the
+                    agent holds a stand-in worth nothing (#372)
 src/pdf.rs          the text out of a recipe PDF, for the paste reader; a
-                    scan holds none and is refused (#176)
+                    scan holds none and is refused (#176). Read by Kamosu
+                    started again as `kamosu read-pdf`, held to a memory
+                    cap and a time limit (#373)
+src/slow_work.rs    work too slow for a request worker, moved aside: a
+                    password, a picture, a PDF's reader (#370, #373)
 src/web_door.rs     Axum router generated by walking the Catalogue
 src/mcp_door.rs     MCP endpoint generated by walking the Catalogue
 src/browser_policy.rs
                     the three safety headers every answer carries: CSP,
                     nosniff and Referrer-Policy (#139)
-src/config.rs       the four optional environment variables
+src/config.rs       the seven optional environment variables
 src/http_min.rs     dependency-free HTTP client for the self-run healthcheck
 src/design_tokens.rs embeds and serves the generated stylesheet, fonts and icons
 src/interface.rs    embeds and serves the built Svelte app; owns the fallback
@@ -472,14 +569,22 @@ ui/                 the Svelte app; ui/src/app.css is the design tokens' source
 ui/tools/           the dev tools `just` runs against the dev instance: sign in,
                     photograph screens, capture and serve a prototype (#216).
                     The two release commands live here too (ADR 0047)
+sample-library/     the story a Demo's Sample Library is built from, and
+                    the photographs it names, embedded in the binary.
+                    Its README says how the story is written (#404)
 agent-image/        the agent beside a Runner, in an Alpine image of its own,
                     which every release publishes as battermanz/kamosu-agent
                     and builds again only when this folder changed:
                     opencode, the tools a Job needs, the instructions it
-                    follows, and the program that takes one Job from the
-                    Runner through a socket and ends (#315, #317, #345,
-                    docs/runner.md)
+                    follows, the program that takes one Job from the
+                    Runner through a socket and ends, and the fence that
+                    keeps it off the host's network (#315, #317, #345,
+                    #372, docs/runner.md)
 docs/releasing.md   the release runbook
+docs/sharing-from-an-iphone.md
+                    the iPhone Shortcut, built from these steps on an iPhone
+                    and published as an iCloud link, and its setup code
+                    (#452)
 docs/docker-hub/    the Docker Hub page of the image: its overview and its one-line
                     description, published by a release and never edited on
                     Docker Hub (#235)
@@ -511,7 +616,15 @@ Catalogue and both Doors grow it in the same commit.
   would start a Copy, the write is refused and the Job fails. No Operation
   decides what a Job may reach. A Job Key may use two routes outside the
   Catalogue: `POST /api/photographs`, by the mark on `upload_photograph`, and
-  `GET /api/originals/<job_id>` for its own Job's Original.
+  `GET /api/originals/<job_id>` for its own Job's Original, with
+  `/api/originals/<job_id>/<page>` for each later page of several pictures.
+- **What an Add-only key may call is the `add_only_key` mark on each
+  declaration, and that mark is a security boundary too** (ADR 0055). A phone's
+  Shortcut keeps the key in plain view. A new Operation is `false`, and
+  `the_add_only_keys_list_is_these_operations` in `tests/behaviour.rs` holds
+  the list, `add_this` and `get_job`, by name. Its one route outside the
+  Catalogue is `POST /api/uploads`, through `authenticate_to_stage_upload`;
+  every other route refuses it in the Core.
 - **A save knows which Job is writing, and that is all any Operation knows of
   Jobs** (#265). `save_onto_branch` writes it on the Version's row beside the
   Access Key, folds a Job's saves into the one Version that Job wrote, and

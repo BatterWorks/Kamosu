@@ -25,6 +25,7 @@ import type { Room } from '$lib/room.svelte';
 import WritingTestHarness from './WritingTestHarness.svelte';
 import { recipeAnswer, writtenByMe } from '../../../testing/recipes';
 import { carrying } from '../../../testing/drops';
+import { m } from '$lib/paraglide/messages';
 
 type Content = GetRecipeOutput['versions'][number]['content'];
 
@@ -180,7 +181,9 @@ const READ_BACK = {
 					ingredients: content().ingredients.map(() => null),
 					steps: content().steps.map(() => null),
 				},
-				cooking: { steps: content().steps.map(() => ({ uses: [], timer_seconds: null })) },
+				cooking: {
+					steps: content().steps.map(() => ({ uses: [], by_hand: false, timer_seconds: null })),
+				},
 			},
 		],
 		tags: [],
@@ -852,6 +855,8 @@ describe('writing a recipe', () => {
 			collapsed: true,
 			copied: false,
 			named: true,
+			stepped: true,
+			corrected: false,
 			// The save's Language offer travels up with the rest (#106): this
 			// save's text agreed with the Language the recipe carries, so there
 			// is nothing to put to the cook.
@@ -888,6 +893,8 @@ describe('writing a recipe', () => {
 			collapsed: false,
 			copied: true,
 			named: true,
+			stepped: true,
+			corrected: false,
 			language_offer: null,
 		});
 	});
@@ -1651,6 +1658,8 @@ describe('translating a recipe', () => {
 			collapsed: false,
 			copied: false,
 			named: true,
+			stepped: true,
+			corrected: false,
 			language_offer: null,
 		});
 	});
@@ -1828,5 +1837,319 @@ describe('dropping a photograph where it goes (#205)', () => {
 		await fireEvent.dragEnter(hero, { dataTransfer });
 		await fireEvent.drop(hero, { dataTransfer });
 		expect(await screen.findByRole('alert')).toHaveTextContent('That picture could not be kept.');
+	});
+});
+
+describe('a save a Demo refuses (#407)', () => {
+	it('says so under the bar, beside the Save that was pressed, with the way to installing', async () => {
+		renderWriting({
+			save_recipe_version: { refuse: 'bad_request', reason: 'demo', message: 'In English.' },
+		} as Answers);
+
+		await saveThrough(/Save onto mine/);
+
+		// Announced once, at the top: the line at the foot says it again unannounced.
+		const said = await screen.findByRole('alert');
+		expect(said).toHaveTextContent(m.demo_refused());
+		expect(within(said).getByRole('link', { name: m.demo_refused_install() })).toBeInTheDocument();
+		const bar = screen.getByRole('button', { name: m.write_save() }).parentElement as HTMLElement;
+		expect(bar.nextElementSibling).toBe(said);
+		expect(screen.getAllByText(m.demo_refused_install())).toHaveLength(2);
+	});
+});
+
+// ---- which ingredients a Step uses (#456) --------------------------------
+//
+// Option B of 25 October 2026: a button on each Step of this screen opens a
+// sheet of tick boxes, and what was ticked goes to `set_step_uses` after the
+// save, on the Version the save left (ADR 0054).
+
+type Cooking = GetRecipeOutput['versions'][number]['cooking'];
+
+/**
+ * What Kamosu read on Dan Dan Noodles: the sauce Step uses the sesame paste,
+ * and the assembly Step was corrected by hand to the sesame paste and the
+ * peanuts, where Kamosu reads only the peanuts.
+ */
+const cooking = (): Cooking => ({
+	steps: [
+		null,
+		{ uses: [1], by_hand: false, timer_seconds: null },
+		null,
+		{ uses: [1, 4], by_hand: true, as_read: [4], timer_seconds: null },
+	],
+});
+
+function renderUses(answers: Answers = {}, props: Record<string, unknown> = {}) {
+	const onSaved = vi.fn();
+	const kamosu = standIn({
+		...SAVED,
+		set_step_uses: { step_index: 0, uses: [], by_hand: false },
+		...answers,
+	});
+	render(WritingTestHarness, {
+		props: { client: kamosu.client, content: content(), cooking: cooking(), onSaved, ...props },
+	});
+	return { kamosu, onSaved };
+}
+
+/** What the screen sent to `set_step_uses`, in order. */
+const stepUses = (kamosu: ReturnType<typeof standIn>) =>
+	kamosu.calls
+		.filter((call) => call.operation === 'set_step_uses')
+		.map((call) => call.input as Record<string, unknown>);
+
+/** The tick box of one Ingredient Line, in the open sheet. */
+const tickBox = (line: string) => {
+	const sheet = screen.getByRole('dialog');
+	return within(sheet).getByRole('checkbox', { name: new RegExp(line) });
+};
+
+describe('which ingredients a Step uses (#456)', () => {
+	it('says on each Step how many lines it uses, and which were set by hand', async () => {
+		renderUses();
+		expect(await screen.findByRole('button', { name: 'Ingredients · 1' })).toBeInTheDocument();
+		expect(
+			screen.getByRole('button', { name: 'Ingredients · 2 · set by hand' }),
+		).toBeInTheDocument();
+		// A heading uses nothing and has no button.
+		expect(screen.getAllByRole('button', { name: /^Ingredients/ })).toHaveLength(2);
+	});
+
+	it('opens a sheet of every line under its heading, ticked as the Step stands', async () => {
+		renderUses();
+		await fireEvent.click(await screen.findByRole('button', { name: 'Ingredients · 1' }));
+		const sheet = screen.getByRole('dialog');
+		expect(within(sheet).getByText('Step 1 · what it uses')).toBeInTheDocument();
+		expect(within(sheet).getByText('Mix everything except the oil.')).toBeInTheDocument();
+		// The headings are there to read, never to tick.
+		expect(within(sheet).getByText('Dan Dan Sauce')).toBeInTheDocument();
+		expect(within(sheet).getByText('To serve')).toBeInTheDocument();
+		expect(within(sheet).getAllByRole('checkbox')).toHaveLength(3);
+		expect(tickBox('sesame paste')).toHaveAttribute('aria-checked', 'true');
+		expect(tickBox('chilli oil')).toHaveAttribute('aria-checked', 'false');
+		// The sesame paste goes in twice, and says so.
+		expect(within(tickBox('sesame paste')).getByText('Also in step 2')).toBeInTheDocument();
+		expect(within(sheet).getByText(m.step_uses_note())).toBeInTheDocument();
+	});
+
+	it('sends what was ticked after the save, on the lines and Steps as saved', async () => {
+		const { kamosu } = renderUses();
+		await fireEvent.click(await screen.findByRole('button', { name: 'Ingredients · 1' }));
+		await fireEvent.click(tickBox('chilli oil'));
+		await fireEvent.click(screen.getByRole('button', { name: m.step_uses_done() }));
+		// Both Steps now read as set by hand.
+		expect(screen.getAllByRole('button', { name: 'Ingredients · 2 · set by hand' })).toHaveLength(
+			2,
+		);
+		// Nothing goes before the save: the ticks travel with it.
+		expect(stepUses(kamosu)).toEqual([]);
+
+		// A line added between them moves the chilli oil down one.
+		const first = screen.getByRole('textbox', { name: 'Ingredient line 1' });
+		first.focus();
+		await fireEvent.click(screen.getByRole('button', { name: m.write_add_line() }));
+		await tick();
+		await fireEvent.input(document.activeElement as HTMLTextAreaElement, {
+			target: { value: '1 tsp sugar' },
+		});
+
+		// And a heading taken out of the Method moves the Step up one.
+		const heading = screen.getAllByRole('textbox', { name: 'Heading' })[2] as HTMLElement;
+		await fireEvent.click(
+			within(heading.closest('li') as HTMLElement).getByRole('button', { name: m.write_remove() }),
+		);
+
+		await saveThrough(/Save onto mine/);
+		await waitFor(() =>
+			expect(stepUses(kamosu)).toEqual([{ branch_id: 'mine', step_index: 0, uses: [1, 3] }]),
+		);
+		const asked = kamosu.calls.map((call) => call.operation);
+		expect(asked.indexOf('save_recipe_version')).toBeLessThan(asked.indexOf('set_step_uses'));
+	});
+
+	it('sends nothing for ticks that are just what Kamosu reads', async () => {
+		const { kamosu, onSaved } = renderUses();
+		await fireEvent.click(await screen.findByRole('button', { name: 'Ingredients · 1' }));
+		await fireEvent.click(tickBox('chilli oil'));
+		await fireEvent.click(tickBox('chilli oil'));
+		await fireEvent.click(screen.getByRole('button', { name: m.step_uses_done() }));
+		expect(screen.getByRole('button', { name: 'Ingredients · 1' })).toBeInTheDocument();
+		await saveThrough(/Save onto mine/);
+		await waitFor(() => expect(onSaved).toHaveBeenCalled());
+		expect(stepUses(kamosu)).toEqual([]);
+	});
+
+	it('takes a correction away when its ticks are put back to what Kamosu reads', async () => {
+		const { kamosu } = renderUses();
+		await fireEvent.click(
+			await screen.findByRole('button', { name: 'Ingredients · 2 · set by hand' }),
+		);
+		expect(tickBox('peanuts')).toHaveAttribute('aria-checked', 'true');
+		await fireEvent.click(screen.getByRole('button', { name: m.step_uses_put_back() }));
+		// Back to the peanuts alone, beside Step 1's sesame paste.
+		expect(screen.getAllByRole('button', { name: 'Ingredients · 1' })).toHaveLength(2);
+		expect(screen.queryByRole('button', { name: /set by hand/ })).not.toBeInTheDocument();
+		await saveThrough(/Save onto mine/);
+		await waitFor(() =>
+			expect(stepUses(kamosu)).toEqual([{ branch_id: 'mine', step_index: 3, uses: null }]),
+		);
+	});
+
+	it('ticking exactly what Kamosu reads on a corrected Step takes the correction away too', async () => {
+		const { kamosu } = renderUses();
+		await fireEvent.click(
+			await screen.findByRole('button', { name: 'Ingredients · 2 · set by hand' }),
+		);
+		await fireEvent.click(tickBox('sesame paste'));
+		await fireEvent.click(screen.getByRole('button', { name: m.step_uses_done() }));
+		await saveThrough(/Save onto mine/);
+		await waitFor(() =>
+			expect(stepUses(kamosu)).toEqual([{ branch_id: 'mine', step_index: 3, uses: null }]),
+		);
+	});
+
+	it('sends an empty list for a Step that adds nothing', async () => {
+		const { kamosu } = renderUses();
+		await fireEvent.click(await screen.findByRole('button', { name: 'Ingredients · 1' }));
+		await fireEvent.click(tickBox('sesame paste'));
+		expect(screen.getByText(m.step_uses_nothing())).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: m.step_uses_done() }));
+		expect(
+			screen.getByRole('button', { name: 'Ingredients · none · set by hand' }),
+		).toBeInTheDocument();
+		await saveThrough(/Save onto mine/);
+		await waitFor(() =>
+			expect(stepUses(kamosu)).toEqual([{ branch_id: 'mine', step_index: 1, uses: [] }]),
+		);
+	});
+
+	it('greys a Step whose words changed, which the save reads again, and sends nothing for it', async () => {
+		const { kamosu, onSaved } = renderUses();
+		await fireEvent.click(await screen.findByRole('button', { name: 'Ingredients · 1' }));
+		await fireEvent.click(tickBox('chilli oil'));
+		await fireEvent.click(screen.getByRole('button', { name: m.step_uses_done() }));
+		await fireEvent.input(screen.getByRole('textbox', { name: 'Step 1' }), {
+			target: { value: 'Mix everything, oil and all.' },
+		});
+		expect(screen.getByRole('button', { name: m.write_step_uses_changed() })).toBeDisabled();
+		await saveThrough(/Save onto mine/);
+		await waitFor(() => expect(onSaved).toHaveBeenCalled());
+		expect(stepUses(kamosu)).toEqual([]);
+	});
+
+	it('greys a Step written in this edit, which Kamosu has not read yet', async () => {
+		renderUses();
+		const step = await screen.findByRole('textbox', { name: 'Step 2' });
+		step.focus();
+		await fireEvent.click(screen.getByRole('button', { name: m.write_add_step() }));
+		await tick();
+		await fireEvent.input(document.activeElement as HTMLTextAreaElement, {
+			target: { value: 'Serve.' },
+		});
+		expect(screen.getByRole('button', { name: m.write_step_uses_new() })).toBeDisabled();
+	});
+
+	it('goes on to the next Step from the sheet', async () => {
+		const { kamosu } = renderUses();
+		await fireEvent.click(await screen.findByRole('button', { name: 'Ingredients · 1' }));
+		await fireEvent.click(tickBox('chilli oil'));
+		await fireEvent.click(screen.getByRole('button', { name: m.step_uses_next({ number: 2 }) }));
+		expect(
+			within(screen.getByRole('dialog')).getByText('Step 2 · what it uses'),
+		).toBeInTheDocument();
+		// The last Step has nowhere to go on to.
+		expect(screen.queryByRole('button', { name: /Then step/ })).not.toBeInTheDocument();
+		await fireEvent.click(
+			within(screen.getByRole('dialog')).getByRole('button', { name: m.step_uses_cancel() }),
+		);
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		await saveThrough(/Save onto mine/);
+		await waitFor(() =>
+			expect(stepUses(kamosu)).toEqual([{ branch_id: 'mine', step_index: 1, uses: [1, 2] }]),
+		);
+	});
+
+	it('keeps nothing ticked in a sheet that was cancelled', async () => {
+		renderUses();
+		await fireEvent.click(await screen.findByRole('button', { name: 'Ingredients · 1' }));
+		await fireEvent.click(tickBox('chilli oil'));
+		await fireEvent.click(
+			within(screen.getByRole('dialog')).getByRole('button', { name: m.step_uses_cancel() }),
+		);
+		expect(screen.getByRole('button', { name: 'Ingredients · 1' })).toBeInTheDocument();
+	});
+
+	it('offers nothing while translating, where every Step is other words', async () => {
+		renderUses({}, { translatingInto: 'fr' });
+		await screen.findByRole('textbox', { name: 'Step 1' });
+		expect(screen.queryByRole('button', { name: /^Ingredients/ })).not.toBeInTheDocument();
+	});
+
+	it('says the Version landed even when the ticks did not', async () => {
+		const { onSaved } = renderUses({ set_step_uses: { refuse: 'internal' } } as Answers);
+		await fireEvent.click(await screen.findByRole('button', { name: 'Ingredients · 1' }));
+		await fireEvent.click(tickBox('chilli oil'));
+		await fireEvent.click(screen.getByRole('button', { name: m.step_uses_done() }));
+		await saveThrough(/Save onto mine/);
+		await waitFor(() =>
+			expect(onSaved).toHaveBeenCalledWith(
+				expect.objectContaining({ branch_id: 'mine', named: true, stepped: false }),
+			),
+		);
+	});
+});
+
+describe('which ingredients a Step uses, as the lines change in the same edit (#456)', () => {
+	it('does not count a line emptied here, and Done on what is shown changes nothing', async () => {
+		const { kamosu, onSaved } = renderUses();
+		await fireEvent.input(await screen.findByRole('textbox', { name: 'Ingredient line 1' }), {
+			target: { value: '' },
+		});
+		// Step 1 used the sesame paste alone. The corrected Step named it
+		// too, so the save will read that one again.
+		await fireEvent.click(screen.getByRole('button', { name: 'Ingredients · none' }));
+		await fireEvent.click(screen.getByRole('button', { name: m.step_uses_done() }));
+		expect(screen.getByRole('button', { name: 'Ingredients · none' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: m.write_step_uses_changed() })).toBeEnabled();
+		await saveThrough(/Save onto mine/);
+		await waitFor(() => expect(onSaved).toHaveBeenCalled());
+		expect(stepUses(kamosu)).toEqual([]);
+	});
+
+	it('sends a correction again where the save would drop it for a line changed here', async () => {
+		const { kamosu } = renderUses();
+		await fireEvent.input(await screen.findByRole('textbox', { name: 'Ingredient line 3' }), {
+			target: { value: '4 tbsp peanuts (finely chopped)' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: m.write_step_uses_changed() }));
+		expect(tickBox('peanuts')).toHaveAttribute('aria-checked', 'true');
+		await fireEvent.click(screen.getByRole('button', { name: m.step_uses_done() }));
+		expect(
+			screen.getByRole('button', { name: 'Ingredients · 2 · set by hand' }),
+		).toBeInTheDocument();
+		await saveThrough(/Save onto mine/);
+		await waitFor(() =>
+			expect(stepUses(kamosu)).toEqual([{ branch_id: 'mine', step_index: 3, uses: [1, 4] }]),
+		);
+	});
+
+	it('sends what was ticked where the lines changed, even if it is what Kamosu read before', async () => {
+		const { kamosu } = renderUses();
+		// A line added: what Kamosu reads of the Step may change with it.
+		const last = await screen.findByRole('textbox', { name: 'Ingredient line 3' });
+		last.focus();
+		await fireEvent.click(screen.getByRole('button', { name: m.write_add_line() }));
+		await tick();
+		await fireEvent.input(document.activeElement as HTMLTextAreaElement, {
+			target: { value: 'sesame seeds' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Ingredients · 2 · set by hand' }));
+		await fireEvent.click(tickBox('sesame paste'));
+		await fireEvent.click(screen.getByRole('button', { name: m.step_uses_done() }));
+		await saveThrough(/Save onto mine/);
+		await waitFor(() =>
+			expect(stepUses(kamosu)).toEqual([{ branch_id: 'mine', step_index: 3, uses: [4] }]),
+		);
 	});
 });

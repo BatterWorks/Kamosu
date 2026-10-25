@@ -33,14 +33,23 @@ text on Share Cards and Sheets. No glyph is altered. Neither family declares a
 Reserved Font Name, so the subsets keep their names.
 [`assets/fonts/README.md`](assets/fonts/README.md) says how they are made.
 
+### The Sample Library's pictures
+
+A Demo's Sample Library, in [`sample-library/`](sample-library/), carries
+photographs and four recipe cards from Wikimedia Commons, under CC0, the public
+domain, CC BY and CC BY-SA. [`sample-library/CREDITS.md`](sample-library/CREDITS.md)
+names the author, the licence and the source page of each, and what was changed.
+The frames of the recipes read from videos belong to the videos' creators, whom
+each recipe's Source names and links.
+
 ---
 
 ## In the agent image
 
 Every release publishes the agent's image, `battermanz/kamosu-agent`, built
 from [`agent-image/`](agent-image/) (#345). Kamosu's own files in it, the
-program that takes a Job and the instructions, are under Kamosu's licence. The
-rest are other people's programs, as their publishers build them:
+program that takes a Job, the fence and the instructions, are under Kamosu's
+licence. The rest are other people's programs, as their publishers build them:
 
 | Program | Licence | Where its source is |
 | --- | --- | --- |
@@ -49,12 +58,13 @@ rest are other people's programs, as their publishers build them:
 
 Everything else comes from Alpine Linux, at the release the Dockerfile's
 `FROM` lines name, as Alpine builds it. The packages the image asks for, with
-the licences Alpine 3.24 gave them on 2026-10-17:
+the licences Alpine 3.24 gave them on 2026-10-17, and nftables on 2026-10-19:
 
 | Package | Licence |
 | --- | --- |
 | ffmpeg | GPL-2.0-or-later AND LGPL-2.1-or-later |
 | poppler-utils | GPL-2.0-or-later |
+| nftables | GPL-2.0-or-later |
 | python3 | PSF-2.0 |
 | deno | MIT |
 | curl | curl |

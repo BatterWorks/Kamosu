@@ -44,9 +44,9 @@ const STEPS = [
 const COOKING = {
 	steps: [
 		null,
-		{ uses: [1, 2], timer_seconds: null },
-		{ uses: [3], timer_seconds: 420 },
-		{ uses: [4], timer_seconds: null },
+		{ uses: [1, 2], by_hand: false, timer_seconds: null },
+		{ uses: [3], by_hand: false, timer_seconds: 420 },
+		{ uses: [4], by_hand: false, timer_seconds: null },
 	],
 };
 
@@ -71,6 +71,13 @@ const attempt = (over: Partial<StartAttemptOutput> = {}): StartAttemptOutput => 
 
 function answers(over: Answers = {}): Answers {
 	return {
+		instance_status: {
+			version: '0.1.0',
+			setup_complete: true,
+			password_minimum: 15,
+			passkey_origin: null,
+			demo: false,
+		},
 		start_attempt: attempt(),
 		// Every move on this screen is the same one Operation, sent whole
 		// (ADR 0010). The stand-in echoes an Attempt back so the screen has a
@@ -320,7 +327,12 @@ describe('the cooking screen', () => {
 		await cook({
 			start_attempt: attempt({ current_step_index: 2 }),
 			get_recipe: withCooking({
-				steps: [null, { uses: [], timer_seconds: null }, { uses: [], timer_seconds: null }, null],
+				steps: [
+					null,
+					{ uses: [], by_hand: false, timer_seconds: null },
+					{ uses: [], by_hand: false, timer_seconds: null },
+					null,
+				],
 			}),
 		});
 		expect(await screen.findByText(/nothing new to add/i)).toBeInTheDocument();
@@ -667,6 +679,33 @@ describe('photographing the cooking (#77)', () => {
 		expect(await screen.findByText('Photo · 1')).toBeInTheDocument();
 		// The cook is still on the step they were on.
 		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+	});
+
+	it('counts a photograph taken in a Demo, and says the demo will not keep it (#403)', async () => {
+		const kamosu = standIn(
+			answers({
+				edit_attempt: attempt({ photographs: [] }),
+				instance_status: {
+					version: '0.1.0',
+					setup_complete: true,
+					password_minimum: 15,
+					passkey_origin: null,
+					demo: true,
+				},
+			}),
+		);
+		render(CookingTestHarness, {
+			props: { client: kamosu.client, branchId: 'b_1', keeping: keepingForTests() },
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'Start cooking' }));
+		const picker = await screen.findByLabelText('Take a photograph of this cooking');
+		await fireEvent.change(picker, {
+			target: { files: [new File(['a plate'], 'plate.jpg', { type: 'image/jpeg' })] },
+		});
+		expect(await screen.findByText('Photo · 1')).toBeInTheDocument();
+		expect(
+			await screen.findByText(/This is a demo, so photographs aren't kept/),
+		).toBeInTheDocument();
 	});
 
 	// ---- how much are you making (#109, option B) ----------------------------

@@ -1,9 +1,9 @@
 <!--
-	Settings' sections, drawn on whichever of its four pages holds them (#221,
-	option 2 of the audit of 9 October 2026): Account (You, Language, Access,
-	What Kamosu does not protect), This device (the phone, Measures), Kitchens
-	and cookbooks (Your Cookbook, Kitchens, Tags, Foods) and This instance
-	(Bring recipes in, This instance, Brought in, Meaning Search). The menu at
+	Settings' sections, drawn on whichever of its pages holds them (#221,
+	option 2 of the audit of 9 October 2026): Import from another app (#412),
+	Account (You, Language, Access, What Kamosu does not protect), This device
+	(the phone, Measures), Kitchens and cookbooks (Your Cookbook, Kitchens,
+	Tags, Foods) and This instance (This instance, Brought in, Meaning Search). The menu at
 	`/settings` is `+page.svelte` beside this; each page is a route that draws
 	this with its name.
 
@@ -15,8 +15,8 @@
 -->
 <script lang="ts">
 	import { aDate, aMoment } from '$lib/dates';
+	import Refusal from '$lib/Refusal.svelte';
 	import { titleOf, type SettingsPage } from './pages';
-	import { goto } from '$app/navigation';
 	import { m } from '$lib/paraglide/messages';
 	import { getLocale, locales, setLocale, type Locale } from '$lib/paraglide/runtime';
 	import { useKamosu } from '$lib/kamosu';
@@ -24,11 +24,15 @@
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Section from '$lib/shell/Section.svelte';
-	import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
 	import { MeaningSearch } from '$lib/meaning.svelte';
 	import { asksWhetherAdministering } from '$lib/operator/administering';
-	import ImportCrouton from './ImportCrouton.svelte';
+	import ImportFromAnotherApp from './ImportFromAnotherApp.svelte';
+	import ShareFromYourPhone from './ShareFromYourPhone.svelte';
 	import Tags from './Tags.svelte';
+	import Passkeys from './Passkeys.svelte';
+	import SecurityRecord from './SecurityRecord.svelte';
+	import ChangePassword from './ChangePassword.svelte';
+	import SignOut from './SignOut.svelte';
 	import Confirm from '$lib/Confirm.svelte';
 	import OneTimeSecret from '$lib/OneTimeSecret.svelte';
 	import { copyText } from '$lib/clipboard';
@@ -41,7 +45,7 @@
 	} from '$lib/cookbook';
 	import InstallSteps from '$lib/offline/InstallSteps.svelte';
 	import CookbookJoins from '$lib/CookbookJoins.svelte';
-	import { thisDevice } from '$lib/offline/device.svelte';
+	import { Online, thisDevice } from '$lib/offline/device.svelte';
 	import { readableSize, useLibrary } from '$lib/offline/library.svelte';
 	import { languageName } from '$lib/language';
 	import type { ReadingLanguage } from '$lib/tags';
@@ -49,6 +53,7 @@
 		InstanceStatusOutput,
 		ListSessionsOutput,
 		ListAccessKeysOutput,
+		ChangePasswordOutput,
 		ListKitchensOutput,
 		GetCookbookOutput,
 		GetReadingPreferencesOutput,
@@ -110,11 +115,12 @@
 	// Kamosu has no Operation answering *who is signed in*, so whether this
 	// Person administers the instance is learnt by asking something only an
 	// Operator may ask. `list_accounts` is the cheapest of those and the one
-	// the screen itself opens with.
+	// the screen itself opens with. Account asks too: only an Operator is
+	// offered an Operator key (#369).
 	let mayAdminister = $state(false);
 
 	$effect(() => {
-		if (page !== 'instance') return;
+		if (page !== 'instance' && page !== 'account') return;
 		let current = true;
 		asksWhetherAdministering(kamosu).then((answer) => {
 			// Only a plain yes opens the door. A Kamosu that could not answer
@@ -289,6 +295,31 @@
 	/** The name just taken, said once above the section. */
 	let renamedTo = $state<string | undefined>(undefined);
 
+	/** The change-password sheet is open (#370). */
+	let changingPassword = $state(false);
+	/** What changing the password just did, said under You until the page is left. */
+	let passwordChanged = $state<string | undefined>(undefined);
+
+	function passwordWasChanged(ended: ChangePasswordOutput) {
+		changingPassword = false;
+		passwordChanged = [
+			m.password_done(),
+			ended.ended_sessions === 1
+				? m.password_done_sessions_one()
+				: ended.ended_sessions > 1
+					? m.password_done_sessions({ count: ended.ended_sessions })
+					: undefined,
+			ended.ended_access_keys === 1
+				? m.password_done_keys_one()
+				: ended.ended_access_keys > 1
+					? m.password_done_keys({ count: ended.ended_access_keys })
+					: undefined,
+		]
+			.filter(Boolean)
+			.join(' ');
+		void loadAccess();
+	}
+
 	function startRenaming() {
 		if (!me) return;
 		draftName = me.name;
@@ -328,8 +359,12 @@
 	let mintedSecret = $state<string | undefined>(undefined);
 	let newKeyName = $state('');
 	let newKeyReadOnly = $state(false);
+	/** Whether the key being made acts as Operator too (#369): an Operator's choice alone. */
+	let newKeyOperator = $state(false);
 	let minting = $state(false);
 	let accessError = $state<string | undefined>(undefined);
+	/** Whether this instance has a Runner, as the key list last read it (#452). */
+	let hasRunner = $state(false);
 
 	/**
 	 * Whether anybody is signed in, and what the page's sections need to know
@@ -346,7 +381,9 @@
 			const [sessionsAnswer, keysAnswer, preferencesAnswer, personAnswer] = await Promise.all([
 				kamosu.listSessions(),
 				page === 'account' ? kamosu.listAccessKeys() : undefined,
-				page !== 'instance' ? kamosu.getReadingPreferences() : undefined,
+				page === 'account' || page === 'device' || page === 'kitchens'
+					? kamosu.getReadingPreferences()
+					: undefined,
 				page === 'account' || page === 'kitchens' ? kamosu.getPerson() : undefined,
 			]);
 			sessions = sessionsAnswer.sessions.filter((session) => !session.revoked);
@@ -357,6 +394,15 @@
 			}
 			if (personAnswer) me = personAnswer;
 			signedIn = true;
+			// Where a phone's key sends what it shares is asked only where
+			// there is an agent to send it to (#452).
+			if (accessKeys.some((key) => key.add_only))
+				kamosu
+					.runnerStatus({})
+					.then((status) => (hasRunner = status.has_runner))
+					.catch((error: unknown) => {
+						if (!(error instanceof OperationError)) throw error;
+					});
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			signedIn = false;
@@ -413,16 +459,30 @@
 		}
 	}
 
+	const online = new Online();
+
+	/** The Session in your hand, while signing out of it asks first (#380). */
+	let signingOutOf = $state<string | undefined>(undefined);
+
 	async function endSession(session: Session) {
-		await kamosu.revokeSession({ session_id: session.id });
-		// Ending the Session in your hand is signing out: Home is the sign-in
-		// form to somebody who is not signed in.
+		// Ending the Session in your hand is signing out, asked as the foot of
+		// the Settings menu asks it: what this device wrote offline goes first.
 		if (session.current) {
-			// Said before Home is drawn, so the sidebar is gone with the Session
-			// rather than a moment after it (#194).
-			heardWhetherSignedIn(false);
-			await goto('/');
+			signingOutOf = session.id;
 			return;
+		}
+		await kamosu.revokeSession({ session_id: session.id });
+		await loadAccess();
+	}
+
+	/** Where what one of the phone's keys shares goes (#452). */
+	async function chooseKeyAgent(accessKeyId: string, on: boolean) {
+		accessError = undefined;
+		try {
+			await kamosu.setKeyAgentChoice({ access_key_id: accessKeyId, everything_to_agent: on });
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			accessError = error.message;
 		}
 		await loadAccess();
 	}
@@ -436,10 +496,15 @@
 		minting = true;
 		accessError = undefined;
 		try {
-			const created = await kamosu.mintAccessKey({ name: newKeyName, read_only: newKeyReadOnly });
+			const created = await kamosu.mintAccessKey({
+				name: newKeyName,
+				read_only: newKeyReadOnly,
+				operator: mayAdminister && newKeyOperator,
+			});
 			mintedSecret = created.secret;
 			newKeyName = '';
 			newKeyReadOnly = false;
+			newKeyOperator = false;
 			await loadAccess();
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
@@ -682,6 +747,11 @@
 					{m.you_name_changed({ name: renamedTo })}
 				</p>
 			{/if}
+			{#if passwordChanged}
+				<p role="status" class="mb-3 border-l-3 border-accent bg-card px-3 py-2 text-read text-ink">
+					{passwordChanged}
+				</p>
+			{/if}
 			{#if editingName}
 				<form
 					class="grid gap-3"
@@ -703,7 +773,7 @@
 					<p class="text-read text-ink">{m.you_name_reach_versions()}</p>
 					<p class="text-read text-ink">{m.you_name_reach_sign_in()}</p>
 					{#if renameError}
-						<p class="text-body text-accent" role="alert">{renameError}</p>
+						<p class="text-body text-accent" role="alert"><Refusal words={renameError} /></p>
 					{/if}
 					<div class="flex flex-wrap items-center gap-4">
 						<button
@@ -724,9 +794,21 @@
 			{:else}
 				<p class="font-display text-title font-semibold break-words text-ink">{me.name}</p>
 				<p class="mt-1 mb-3 text-read text-ink-2">{m.you_name_explained()}</p>
-				<button type="button" class="quiet-button text-accent" onclick={startRenaming}>
-					{m.you_change_name()}
-				</button>
+				<div class="flex flex-wrap gap-x-gutter gap-y-2">
+					<button type="button" class="quiet-button text-accent" onclick={startRenaming}>
+						{m.you_change_name()}
+					</button>
+					<button
+						type="button"
+						class="quiet-button text-accent"
+						onclick={() => {
+							passwordChanged = undefined;
+							changingPassword = true;
+						}}
+					>
+						{m.password_change()}
+					</button>
+				</div>
 			{/if}
 		</Section>
 	{/if}
@@ -857,11 +939,15 @@
 		{/if}
 	{/if}
 
-	{#if page === 'instance'}
-		{#if signedIn}
-			<ImportCrouton />
-		{/if}
+	{#if page === 'import' && signedIn}
+		<ImportFromAnotherApp />
+	{/if}
 
+	{#if page === 'share' && signedIn}
+		<ShareFromYourPhone />
+	{/if}
+
+	{#if page === 'instance'}
 		<Section heading={m.settings_instance()}>
 			<p class="text-body text-ink-2">
 				{#if failed}
@@ -907,6 +993,8 @@
 
 	{#if page === 'account' && signedIn}
 		<Section heading={m.settings_access()}>
+			<!-- First in Access, above the devices (#370, choice A). -->
+			<Passkeys />
 			<h3 class="mb-2 text-body font-semibold text-ink">{m.settings_sessions()}</h3>
 			{#if sessions.length === 0}
 				<p class="mb-6 text-body text-ink-2">{m.access_sessions_empty()}</p>
@@ -937,7 +1025,9 @@
 										/>
 									</label>
 									{#if sessionRenameError}
-										<p class="text-body text-accent" role="alert">{sessionRenameError}</p>
+										<p class="text-body text-accent" role="alert">
+											<Refusal words={sessionRenameError} />
+										</p>
 									{/if}
 									<div class="flex flex-wrap items-center gap-4">
 										<button
@@ -977,13 +1067,20 @@
 										</p>
 									</div>
 									<div class="flex shrink-0 items-center gap-3">
-										<button
-											type="button"
-											class="quiet-button text-accent"
-											onclick={() => endSession(session)}
-										>
-											{session.current ? m.sessions_sign_out() : m.access_end()}
-										</button>
+										{#if session.current && !online.current}
+											<!-- Signing out needs the server, as at the foot of the menu (#380). -->
+											<button type="button" class="quiet-button text-ink-2 opacity-55" disabled>
+												{m.offline_waits_sign_out()}
+											</button>
+										{:else}
+											<button
+												type="button"
+												class="quiet-button text-accent"
+												onclick={() => endSession(session)}
+											>
+												{session.current ? m.sessions_sign_out() : m.access_end()}
+											</button>
+										{/if}
 										<button
 											type="button"
 											class="quiet-button text-accent"
@@ -1005,27 +1102,54 @@
 			{:else}
 				<ul class="mb-6 grid gap-2">
 					{#each accessKeys as key (key.id)}
-						<li
-							class="flex items-center justify-between gap-3 rounded-sm border border-rule bg-card px-3 py-2"
-						>
-							<div>
-								<p class="text-body text-ink">
-									{key.name}
-									{#if key.read_only}
-										<span class="ml-1 text-label text-ink-2 uppercase"
-											>{m.access_key_read_only()}</span
-										>
-									{/if}
-								</p>
-								<p class="text-read text-ink-2">{whenLastUsed(key.last_used_at)}</p>
+						<li class="rounded-sm border border-rule bg-card px-3 py-2">
+							<div class="flex items-center justify-between gap-3">
+								<div>
+									<p class="text-body text-ink">
+										{key.name}
+										{#if key.operator}
+											<span class="ml-1 text-label text-ink-2 uppercase"
+												>{m.access_key_operator()}</span
+											>
+										{/if}
+										{#if key.read_only}
+											<span class="ml-1 text-label text-ink-2 uppercase"
+												>{m.access_key_read_only()}</span
+											>
+										{/if}
+										{#if key.add_only}
+											<span class="ml-1 text-label text-ink-2 uppercase"
+												>{m.access_key_add_only()}</span
+											>
+										{/if}
+									</p>
+									<p class="text-read text-ink-2">{whenLastUsed(key.last_used_at)}</p>
+								</div>
+								<button
+									type="button"
+									class="quiet-button shrink-0 text-accent"
+									onclick={() => endAccessKey(key.id)}
+								>
+									{m.access_end()}
+								</button>
 							</div>
-							<button
-								type="button"
-								class="quiet-button shrink-0 text-accent"
-								onclick={() => endAccessKey(key.id)}
-							>
-								{m.access_end()}
-							</button>
+							<!--
+								A phone's key keeps where what it shares goes, and it
+								changes here without reinstalling the Shortcut (#452).
+							-->
+							{#if key.add_only && hasRunner}
+								<label
+									class="mt-2 flex items-start gap-2 border-t border-rule pt-2 text-read text-ink"
+								>
+									<input
+										class="mt-1"
+										type="checkbox"
+										checked={key.everything_to_agent}
+										onchange={(event) => void chooseKeyAgent(key.id, event.currentTarget.checked)}
+									/>
+									{m.access_key_everything_to_agent()}
+								</label>
+							{/if}
 						</li>
 					{/each}
 				</ul>
@@ -1067,8 +1191,47 @@
 						<input type="checkbox" bind:checked={newKeyReadOnly} />
 						{m.access_key_read_only_label()}
 					</label>
+					<!--
+						Shown to an Operator alone (#369, choice: option C with option
+						B's warning). A cook is the default; choosing Operator says
+						what that hands an agent, right where it is chosen.
+					-->
+					{#if mayAdminister}
+						<fieldset class="grid gap-2">
+							<legend class="mb-1 text-body text-ink">{m.access_key_acts_as()}</legend>
+							<label class="grid grid-cols-[auto_1fr] items-start gap-x-2 text-body text-ink">
+								<input
+									class="mt-1"
+									type="radio"
+									name="key-acts-as"
+									value={false}
+									bind:group={newKeyOperator}
+								/>
+								{m.access_key_as_cook()}
+								<span class="col-start-2 text-read text-ink-2">{m.access_key_as_cook_note()}</span>
+							</label>
+							<label class="grid grid-cols-[auto_1fr] items-start gap-x-2 text-body text-ink">
+								<input
+									class="mt-1"
+									type="radio"
+									name="key-acts-as"
+									value={true}
+									bind:group={newKeyOperator}
+								/>
+								{m.access_key_as_operator()}
+								<span class="col-start-2 text-read text-ink-2"
+									>{m.access_key_as_operator_note()}</span
+								>
+							</label>
+							{#if newKeyOperator}
+								<p class="border-l-3 border-accent bg-card px-3 py-2 text-read text-ink">
+									{m.access_key_as_operator_warning()}
+								</p>
+							{/if}
+						</fieldset>
+					{/if}
 					{#if accessError}
-						<p class="text-body text-accent" role="alert">{accessError}</p>
+						<p class="text-body text-accent" role="alert"><Refusal words={accessError} /></p>
 					{/if}
 					<button
 						class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
@@ -1081,6 +1244,10 @@
 		</Section>
 	{/if}
 
+	{#if page === 'security' && signedIn}
+		<SecurityRecord />
+	{/if}
+
 	{#if page === 'kitchens' && signedIn}
 		<!--
 			Your Cookbook (#131), above the Kitchens because it is what your
@@ -1091,7 +1258,7 @@
 			{@const book = cookbook}
 			<Section heading={m.settings_cookbook()}>
 				{#if cookbookError}
-					<p class="mb-4 text-body text-accent" role="alert">{cookbookError}</p>
+					<p class="mb-4 text-body text-accent" role="alert"><Refusal words={cookbookError} /></p>
 				{/if}
 				{#if book.joins.length > 0}
 					<!-- A join waiting on answers, or one somebody said no to (#135). -->
@@ -1233,7 +1400,7 @@
 
 		<Section heading={m.settings_kitchens()}>
 			{#if kitchensError}
-				<p class="mb-4 text-body text-accent" role="alert">{kitchensError}</p>
+				<p class="mb-4 text-body text-accent" role="alert"><Refusal words={kitchensError} /></p>
 			{/if}
 
 			<ul class="grid gap-4">
@@ -1553,7 +1720,7 @@
 				</button>
 			{/if}
 			{#if meaning.failed}
-				<p class="mt-2 text-read text-support" role="alert">{meaning.failed}</p>
+				<p class="mt-2 text-read text-support" role="alert"><Refusal words={meaning.failed} /></p>
 			{/if}
 		</Section>
 	{/if}
@@ -1581,6 +1748,15 @@
 		</Section>
 	{/if}
 </Screen>
+
+{#if changingPassword}
+	<ChangePassword
+		otherDevices={sessions.filter((session) => !session.current).length}
+		accessKeys={accessKeys.length}
+		onChanged={passwordWasChanged}
+		onClose={() => (changingPassword = false)}
+	/>
+{/if}
 
 {#if leavingKitchen}
 	{@const asked = leavingKitchen}
@@ -1658,4 +1834,8 @@
 			cancel={() => (cookbookAsk = undefined)}
 		/>
 	{/if}
+{/if}
+
+{#if signingOutOf}
+	<SignOut sessionId={signingOutOf} onclose={() => (signingOutOf = undefined)} />
 {/if}

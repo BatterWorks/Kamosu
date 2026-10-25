@@ -80,9 +80,10 @@ fn arguments_for(name: &str) -> Value {
         "read_job_again" => json!({ "job_id": "j_parity" }),
         "export_bundle" | "make_sheet" => json!({ "branch_id": "b_parity" }),
         "import_bundle" => json!({ "data": "" }),
-        "import_crouton" => json!({ "upload_id": "u_parity" }),
+        "import_crouton" | "import_from_another_app" => json!({ "upload_id": "u_parity" }),
         "forget_import" => json!({ "import_id": "i_parity" }),
         "set_reading" => json!({ "branch_id": "b_parity", "line_index": 0 }),
+        "set_step_uses" => json!({ "branch_id": "b_parity", "step_index": 0, "uses": [] }),
         "get_food" => json!({ "food_id": "f_parity" }),
         "set_food_names" => json!({ "food_id": "f_parity", "language": "en", "names": ["parity"] }),
         "set_food_cup_weight" => json!({ "food_id": "f_parity", "cup_weight_grams": 100 }),
@@ -132,12 +133,19 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "rename_session"
             | "mint_access_key"
             | "list_access_keys"
+            | "get_agent_choice"
+            | "set_agent_choice"
+            | "set_key_agent_choice"
+            | "add_this"
             | "revoke_access_key"
             | "mint_runner_key"
             | "list_runner_keys"
             | "revoke_runner_key"
             | "runner_status"
+            | "list_replays"
             | "get_house_notes"
+            | "list_security_record"
+            | "list_instance_security_record"
             | "set_house_notes"
             | "create_kitchen"
             | "list_kitchens"
@@ -184,6 +192,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "preview_shared_recipe"
             | "import_bundle"
             | "import_crouton"
+            | "import_from_another_app"
             | "list_imports"
             | "forget_import"
             | "rename_version"
@@ -202,6 +211,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "divergence"
             | "changed_since"
             | "set_reading"
+            | "set_step_uses"
             | "read_ingredient_lines"
             | "reread_ingredient_lines"
             | "create_tag"
@@ -251,6 +261,12 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "shopping_list_as_text"
             | "empty_shopping_list"
             | "add_loose_item"
+            | "list_passkeys"
+            | "rename_passkey"
+            | "remove_passkey"
+            | "start_adding_passkey"
+            | "finish_adding_passkey"
+            | "change_password"
             | "remove_loose_item" => ("{}", 401),
             // Public, and answered on the token alone: a token nobody minted
             // is not found, which is the routing this check is after.
@@ -348,12 +364,19 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "rename_session"
                 | "mint_access_key"
                 | "list_access_keys"
+                | "get_agent_choice"
+                | "set_agent_choice"
+                | "set_key_agent_choice"
+                | "add_this"
                 | "revoke_access_key"
                 | "mint_runner_key"
                 | "list_runner_keys"
                 | "revoke_runner_key"
                 | "runner_status"
+                | "list_replays"
                 | "get_house_notes"
+                | "list_security_record"
+                | "list_instance_security_record"
                 | "set_house_notes"
                 | "ask_for_work"
                 | "renew_hold"
@@ -403,6 +426,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "preview_shared_recipe"
                 | "import_bundle"
                 | "import_crouton"
+                | "import_from_another_app"
                 | "list_imports"
                 | "forget_import"
                 | "rename_version"
@@ -421,6 +445,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "divergence"
                 | "changed_since"
                 | "set_reading"
+                | "set_step_uses"
                 | "read_ingredient_lines"
                 | "reread_ingredient_lines"
                 | "create_tag"
@@ -471,6 +496,12 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "shopping_list_as_text"
                 | "empty_shopping_list"
                 | "add_loose_item"
+                | "list_passkeys"
+                | "rename_passkey"
+                | "remove_passkey"
+                | "start_adding_passkey"
+                | "finish_adding_passkey"
+                | "change_password"
                 | "remove_loose_item"
         ) {
             // Asked without what they need — a real id or a Credential — they
@@ -605,6 +636,7 @@ async fn every_answer_fields_meaning_reaches_the_mcp_listing() {
             "import",
             "import_bundle",
             "import_crouton",
+            "import_from_another_app",
             "import_web_link"
         ]
     );
@@ -765,7 +797,10 @@ fn listed_to_a_person() -> Vec<&'static str> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_runner_keys_mcp_tool_list_carries_exactly_the_runners_operations() {
     let app = support::spawn_app();
-    let key = app.core.mint_runner_key("the kitchen's Runner").unwrap();
+    let key = app
+        .core
+        .mint_runner_key(None, "the kitchen's Runner")
+        .unwrap();
 
     let (_, listing) = app.post_mcp(
         r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
@@ -786,7 +821,7 @@ async fn a_runner_keys_mcp_tool_list_carries_exactly_the_runners_operations() {
     assert_eq!(keys[0]["last_used_at"], Value::Null, "{}", keys[0]);
 
     // A revoked Runner Key is nobody again, and is listed as nobody is.
-    app.core.revoke_runner_key(&key.id).unwrap();
+    app.core.revoke_runner_key(None, &key.id).unwrap();
     let (_, listing) = app.post_mcp(
         r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
         Some(&key.secret),

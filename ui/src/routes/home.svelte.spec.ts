@@ -14,12 +14,14 @@
  * do rather than shown four empty rows.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, within, fireEvent } from '@testing-library/svelte';
 import Page from './+page.svelte';
 import { renderScreen } from '../testing/render';
 import { writtenByMe } from '../testing/recipes';
 import type { GetCookbookOutput, HomeShelvesOutput } from '$lib/api/catalogue';
+import { demo, INSTALL_KAMOSU, openWelcomeAgain } from '$lib/demo.svelte';
+import { m } from '$lib/paraglide/messages';
 
 type Shelf = HomeShelvesOutput['shelves'][number];
 
@@ -358,7 +360,13 @@ describe('Home', () => {
 		renderScreen(Page, {
 			get_cookbook: ALONE,
 			home_shelves: { refuse: 'unauthorized' },
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 		});
 
 		expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
@@ -379,5 +387,84 @@ describe('Home', () => {
 			await screen.findByText('Kamosu could not work out your shelves just now.'),
 		).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'Log in' })).not.toBeInTheDocument();
+	});
+});
+
+/**
+ * A Demo's welcome card (#407, option B chosen on 23 October 2026), set into
+ * the top of Home above its heading until Got it puts it away on this device.
+ */
+describe("a Demo's welcome card", () => {
+	const shelves = () => ({
+		get_cookbook: ALONE,
+		home_shelves: home([{ name: 'cooked_most', recipes: [card({ title: 'Katsu Curry' })] }]),
+	});
+	const welcome = () => screen.queryByRole('region', { name: m.demo_welcome_title() });
+
+	beforeEach(() => Object.assign(demo, { is: false, key: undefined, welcome: 'first' }));
+
+	it('sits above the heading, saying what saves, when it cleans, and how an AI reads it', async () => {
+		Object.assign(demo, { is: true, key: 'a-published-key' });
+		renderScreen(Page, shelves());
+		const heading = await screen.findByRole('heading', { level: 1 });
+
+		const card = welcome()!;
+		expect(card.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(card).toHaveTextContent(m.demo_welcome_saves());
+		expect(card).toHaveTextContent('04:00 UTC');
+		expect(card).toHaveTextContent(`${location.origin}/mcp`);
+		expect(card).toHaveTextContent('a-published-key');
+		expect(within(card).getByRole('link', { name: m.demo_welcome_install() })).toHaveAttribute(
+			'href',
+			INSTALL_KAMOSU,
+		);
+	});
+
+	it('is put away on this device by Got it', async () => {
+		Object.assign(demo, { is: true, key: 'a-published-key' });
+		renderScreen(Page, shelves());
+		await screen.findByRole('heading', { level: 1 });
+
+		await fireEvent.click(within(welcome()!).getByRole('button', { name: m.demo_welcome_close() }));
+
+		expect(welcome()).toBeNull();
+		expect(localStorage.getItem('kamosu.demo-welcome')).toBe('closed');
+	});
+
+	it('stands again at the top once the strip brought it back', async () => {
+		Object.assign(demo, { is: true, key: 'a-published-key' });
+		openWelcomeAgain();
+		renderScreen(Page, shelves());
+		await screen.findByRole('heading', { level: 1 });
+
+		expect(welcome()).not.toBeNull();
+	});
+
+	it('copies the key', async () => {
+		Object.assign(demo, { is: true, key: 'a-published-key' });
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+		renderScreen(Page, shelves());
+		await screen.findByRole('heading', { level: 1 });
+
+		await fireEvent.click(
+			within(welcome()!).getByRole('button', {
+				name: `${m.demo_copy()} ${m.demo_welcome_key()}`,
+			}),
+		);
+
+		expect(writeText).toHaveBeenCalledWith('a-published-key');
+		expect(
+			await within(welcome()!).findByRole('button', {
+				name: `${m.demo_copied()} ${m.demo_welcome_key()}`,
+			}),
+		).toBeInTheDocument();
+	});
+
+	it('is not there on an instance that is no Demo', async () => {
+		renderScreen(Page, shelves());
+		await screen.findByRole('heading', { level: 1 });
+
+		expect(welcome()).toBeNull();
 	});
 });

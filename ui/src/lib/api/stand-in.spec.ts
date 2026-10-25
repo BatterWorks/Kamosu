@@ -12,19 +12,32 @@ import { CATALOGUE, METHOD_NAMES } from './catalogue';
 describe('the Catalogue-derived stand-in', () => {
 	it('answers what the Catalogue declares', async () => {
 		const kamosu = standIn({
-			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
 		});
 		await expect(kamosu.client.instanceStatus()).resolves.toEqual({
 			version: '0.1.0',
 			setup_complete: true,
 			password_minimum: 15,
+			passkey_origin: null,
+			demo: false,
 		});
 	});
 
 	it('refuses an answer that is missing a declared field', async () => {
 		// `version` is required by instance_status's output schema.
 		const kamosu = standIn({
-			instance_status: { setup_complete: true, password_minimum: 15 } as never,
+			instance_status: {
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			} as never,
 		});
 		await expect(kamosu.client.instanceStatus()).rejects.toThrow(/missing version/);
 	});
@@ -35,6 +48,8 @@ describe('the Catalogue-derived stand-in', () => {
 				version: '0.1.0',
 				setup_complete: true,
 				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
 				kitchen: 'home',
 			} as never,
 		});
@@ -43,7 +58,13 @@ describe('the Catalogue-derived stand-in', () => {
 
 	it('refuses a value of the wrong type', async () => {
 		const kamosu = standIn({
-			instance_status: { version: '0.1.0', setup_complete: 'yes', password_minimum: 15 } as never,
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: 'yes',
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			} as never,
 		});
 		await expect(kamosu.client.instanceStatus()).rejects.toThrow(/declares boolean/);
 	});

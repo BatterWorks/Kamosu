@@ -15,6 +15,7 @@
 
 import { m } from '$lib/paraglide/messages';
 import { aMoment } from '$lib/dates';
+import { appNamed } from '$lib/other-apps';
 import type { ListImportsOutput } from '$lib/api/catalogue';
 
 export type Import = ListImportsOutput['imports'][number];
@@ -48,7 +49,7 @@ export const sourceName = (kind: string): string =>
 		? NAMES[kind]()
 		: Object.hasOwn(AGENT_SOURCES, kind)
 			? AGENT_SOURCES[kind]()
-			: m.imports_source_other({ kind });
+			: (appNamed(kind) ?? m.imports_source_other({ kind }));
 
 const ASKS: Record<Known, () => string> = {
 	crouton: () => m.imports_forget_ask_crouton(),
@@ -56,9 +57,15 @@ const ASKS: Record<Known, () => string> = {
 	web: () => m.imports_forget_ask_web(),
 };
 
-/** The confirmation's question, which names the source so it cannot be misread. */
-export const forgetAsk = (kind: string): string =>
-	isKnown(kind) ? ASKS[kind]() : m.imports_forget_ask_other();
+/**
+ * The confirmation's question, which names the source so it cannot be misread.
+ * Another app's export is named by the app (#413).
+ */
+export const forgetAsk = (kind: string): string => {
+	if (isKnown(kind)) return ASKS[kind]();
+	const app = appNamed(kind);
+	return app ? m.imports_forget_ask_app({ app }) : m.imports_forget_ask_other();
+};
 
 const COSTS: Record<Known, () => string> = {
 	crouton: () => m.imports_forget_cost_crouton(),
@@ -77,7 +84,12 @@ const COSTS: Record<Known, () => string> = {
  * much comes back is named per number.
  */
 export const forgetCost = (kind: string, count: number): string => {
-	const act = isKnown(kind) ? COSTS[kind]() : m.imports_forget_cost_other();
+	const app = appNamed(kind);
+	const act = isKnown(kind)
+		? COSTS[kind]()
+		: app
+			? m.imports_forget_cost_app({ app })
+			: m.imports_forget_cost_other();
 	const again =
 		count === 1 ? m.imports_forget_cost_again_one() : m.imports_forget_cost_again_many({ count });
 	return `${act} ${again}`;
