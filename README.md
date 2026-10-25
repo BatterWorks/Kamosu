@@ -368,8 +368,9 @@ by what they are about, so "that thing with aubergines" finds a recipe that
 never says aubergine. Each result says whether it matched on words or on
 meaning.
 
-It is off until an Operator turns it on in **Settings**, under **This
-instance**. It needs Google's
+It is off until an Operator turns it on. Kamosu offers it the first time an
+Operator's search finds nothing, and once that offer is answered it can be
+turned on or off in **Settings**, under **This instance**. It needs Google's
 EmbeddingGemma model, which Kamosu does not ship and does not download until
 the Operator accepts Google's terms. The model then runs on your own machine,
 and no recipe leaves it.
@@ -435,17 +436,19 @@ model runs. **Never set it on a Kamosu you keep recipes in.**
 It is meant for a public instance behind HTTPS. Visitors stay signed in by the
 same cookie as anyone else, which a browser only sends over HTTPS.
 
-Set up two things first, because a demo refuses to change either and its
-daily cleaning keeps both:
+Two settings have to be in place before demo mode goes on: the public address
+and Meaning Search. A demo refuses to change either, and its daily cleaning
+keeps both.
 
-1. Start Kamosu without the variable and create the first account. The demo
-   erases it with the rest of the library.
+1. Start Kamosu without the variable and create the first account, which you
+   need to reach the Operator screen. The demo erases it with the rest of the
+   library.
 2. In **Settings**, under **This instance**, open the Operator screen and set
    the public address, such as `https://demo.example.com`. Without it, the
    demo's Share Links give no link.
-3. Turn on Meaning Search, under **This instance** too, which accepts
-   Google's terms and fetches the model. Without it, the demo searches by
-   words only.
+3. Turn on Meaning Search: search for a word no recipe holds, and accept the
+   offer under *nothing found*. That accepts Google's terms and fetches the
+   model. Without it, the demo searches by words only.
 4. Restart it with `KAMOSU_DEMO_ERASES_LIBRARY_DAILY=true`.
 
 A visitor's own AI agent can read the demo too. The welcome card shows the
