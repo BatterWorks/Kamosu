@@ -1404,7 +1404,8 @@ pub(super) fn foods_created_json(foods: &[CreatedFood]) -> Value {
 /// - the two lines read the same amount and the same Unit: `2 tbsp` and
 ///   `2 c. à soupe` agree, `2 cups` and `250 g` do not. A line with no amount
 ///   has nothing to agree on, and a unit outside the closed set cannot be
-///   known to be another, so both decline.
+///   known to be another, so both decline. A source line's Reading set by
+///   hand with an amount is measured as it was set (#444).
 ///
 /// Only the Food is taken. The Reading stays the line's own words, and no
 /// Food learns a name from them, so a wrong match misreads one line and
@@ -1413,8 +1414,7 @@ pub(super) fn foods_created_json(foods: &[CreatedFood]) -> Value {
 /// its own words like any other.
 struct RenderedFoods(Vec<Option<SourceLine>>);
 
-/// One source line as the reader reads it afresh, and the Food its Reading
-/// points at.
+/// One source line as it is measured, and the Food its Reading points at.
 struct SourceLine {
     read: crate::reading::Reading,
     food_id: String,
@@ -1470,12 +1470,21 @@ impl RenderedFoods {
                 .iter()
                 .enumerate()
                 .map(|(index, line)| {
-                    let food_id = foods.get(&(index as i64))?.clone();
-                    // The source line read afresh, not its Reading: a hand
-                    // correction says which Food, and the amounts are
-                    // compared as the reader writes both of them.
-                    let read = crate::reading::read_line(line["text"].as_str()?, &source_language)?;
-                    Some(SourceLine { read, food_id })
+                    let food = foods.get(&(index as i64))?;
+                    // A Reading a person set is the amount and Unit they
+                    // meant, and `2 heads` corrected to two broccoli agrees
+                    // with `2 têtes` (#444). Any other is the line read
+                    // afresh, so both sides are written by the same reader.
+                    let read = match &food.set_by_hand {
+                        Some(set) => set.clone(),
+                        None => {
+                            crate::reading::read_line(line["text"].as_str()?, &source_language)?
+                        }
+                    };
+                    Some(SourceLine {
+                        read,
+                        food_id: food.food_id.clone(),
+                    })
                 })
                 .collect(),
         ))
@@ -1489,16 +1498,43 @@ impl RenderedFoods {
     }
 }
 
+/// The Food a source line's Reading points at, and that Reading where a
+/// person set it with an amount. One set with none corrected the Food and
+/// says nothing of the measure, so its line is read afresh as before (#444).
+struct SourceFood {
+    food_id: String,
+    set_by_hand: Option<crate::reading::Reading>,
+}
+
 /// The Food of each of a Version's lines that points at one, by line.
 fn source_foods(
     conn: &Connection,
     version_id: &str,
-) -> Result<HashMap<i64, String>, rusqlite::Error> {
+) -> Result<HashMap<i64, SourceFood>, rusqlite::Error> {
     conn.prepare_cached(
-        "SELECT line_index, food_id FROM readings \
+        "SELECT line_index, food_id, by_hand, amount, unit, target FROM readings \
           WHERE version_id = ?1 AND food_id IS NOT NULL AND lineage_id IS NULL",
     )?
-    .query_map(params![version_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+    .query_map(params![version_id], |row| {
+        let set_by_hand = row
+            .get::<_, bool>(2)?
+            .then(|| {
+                Ok::<_, rusqlite::Error>(crate::reading::Reading {
+                    amount: row.get(3)?,
+                    unit: row.get(4)?,
+                    target: row.get(5)?,
+                })
+            })
+            .transpose()?
+            .filter(|set| set.amount.is_some());
+        Ok((
+            row.get(0)?,
+            SourceFood {
+                food_id: row.get(1)?,
+                set_by_hand,
+            },
+        ))
+    })?
     .collect()
 }
 
