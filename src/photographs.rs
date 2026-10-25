@@ -214,9 +214,28 @@ fn encode(image: &DynamicImage) -> Result<Vec<u8>, OpError> {
 }
 
 fn encode_at(image: &DynamicImage, quality: f32) -> Result<Vec<u8>, OpError> {
-    let rgb = image.to_rgb8();
+    let rgb = on_white(image);
     let encoder = webp::Encoder::from_rgb(rgb.as_raw(), rgb.width(), rgb.height());
     Ok(encoder.encode(quality).to_vec())
+}
+
+/// The picture as a page shows it, its clear parts white. WebP is encoded
+/// here without transparency, and dropping it outright leaves each clear pixel
+/// the colour it stores, which is black in most PNGs: a recipe card of dark
+/// text on nothing became a black square.
+fn on_white(image: &DynamicImage) -> image::RgbImage {
+    if !image.color().has_alpha() {
+        return image.to_rgb8();
+    }
+    let rgba = image.to_rgba8();
+    image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
+        let [r, g, b, a] = rgba.get_pixel(x, y).0;
+        let over_white = |c: u8| {
+            let (c, a) = (u32::from(c), u32::from(a));
+            ((c * a + 255 * (255 - a) + 127) / 255) as u8
+        };
+        image::Rgb([over_white(r), over_white(g), over_white(b)])
+    })
 }
 
 /// Check a picture that is being kept exactly as it arrived, without remaking
@@ -329,6 +348,41 @@ mod tests {
             image::load_from_memory_with_format(&remade, ImageFormat::WebP).expect("valid webp");
         assert_eq!(decoded.width(), MAX_LONG_EDGE);
         assert_eq!(decoded.height(), 1280);
+    }
+
+    /// A PNG with an opaque black square in its middle and a clear border,
+    /// each clear pixel storing black, as most PNGs with clear parts do.
+    fn see_through_png(width: u32, height: u32) -> Vec<u8> {
+        let image = DynamicImage::ImageRgba8(image::RgbaImage::from_fn(width, height, |x, y| {
+            let inside = (width / 4..width * 3 / 4).contains(&x)
+                && (height / 4..height * 3 / 4).contains(&y);
+            image::Rgba([0, 0, 0, if inside { 255 } else { 0 }])
+        }));
+        let mut bytes = Vec::new();
+        image
+            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+            .expect("encodes");
+        bytes
+    }
+
+    #[test]
+    fn a_picture_with_clear_parts_is_laid_on_white() {
+        // A recipe card of dark text on nothing arrived as a black square: the
+        // clear pixels kept the black they stored, and the text was lost in it.
+        let remade = remake(&see_through_png(40, 40)).expect("remakes");
+        let decoded = image::load_from_memory_with_format(&remade, ImageFormat::WebP)
+            .expect("valid webp")
+            .to_rgb8();
+        let clear = decoded.get_pixel(0, 0).0;
+        assert!(
+            clear.iter().all(|&c| c > 240),
+            "a clear pixel should come out white, got {clear:?}"
+        );
+        let opaque = decoded.get_pixel(20, 20).0;
+        assert!(
+            opaque.iter().all(|&c| c < 15),
+            "an opaque pixel should keep its own colour, got {opaque:?}"
+        );
     }
 
     /// CRC-32, as PNG defines it over a chunk's type and data. Written out
