@@ -1454,6 +1454,7 @@ export type CreateRecipeOutput = {
 		};
 		cooking: {
 			steps: ({
+				as_read?: number[];
 				by_hand: boolean;
 				timer_seconds: number | null;
 				uses: number[];
@@ -1740,6 +1741,7 @@ export type StartVariationOutput = {
 		};
 		cooking: {
 			steps: ({
+				as_read?: number[];
 				by_hand: boolean;
 				timer_seconds: number | null;
 				uses: number[];
@@ -1937,6 +1939,7 @@ export type KeepVersionAsCopyOutput = {
 		};
 		cooking: {
 			steps: ({
+				as_read?: number[];
 				by_hand: boolean;
 				timer_seconds: number | null;
 				uses: number[];
@@ -2224,6 +2227,7 @@ export type StartTranslationOutput = {
 		};
 		cooking: {
 			steps: ({
+				as_read?: number[];
 				by_hand: boolean;
 				timer_seconds: number | null;
 				uses: number[];
@@ -3042,6 +3046,7 @@ export type GetRecipeOutput = {
 		};
 		cooking: {
 			steps: ({
+				as_read?: number[];
 				by_hand: boolean;
 				timer_seconds: number | null;
 				uses: number[];
@@ -4262,7 +4267,7 @@ export type SetReadingOutput = {
 	} | null;
 };
 
-/** Correct which Ingredient Lines a Step uses. It is on a Recipe's current state. Kamosu works this out of the Step's words on every read, and get_recipe answers it as cooking.steps[].uses; this sets it by hand, for a Step it reads wrong. `uses` is the whole new list of line indexes into content.ingredients, empty for a Step that adds nothing, and each must be an Ingredient Line, not a section. null takes the correction away, and the Step goes back to what Kamosu reads. Mints no Version and appears in no history, as set_reading does. A save carries the correction onto the new Version while the Step and every line it names stay word for word as they were, wherever they now sit, and drops it once either changes (ADR 0054). */
+/** Correct which Ingredient Lines a Step uses. It is on a Recipe's current state. Kamosu works this out of the Step's words on every read, and get_recipe answers it as cooking.steps[].uses; this sets it by hand, for a Step it reads wrong. `uses` is the whole new list of line indexes into content.ingredients, empty for a Step that adds nothing, and each must be an Ingredient Line, not a section. null takes the correction away, and the Step goes back to what Kamosu reads, which get_recipe answers on a corrected Step as cooking.steps[].as_read. Mints no Version and appears in no history, as set_reading does. A save carries the correction onto the new Version while the Step and every line it names stay word for word as they were, wherever they now sit, and drops it once either changes (ADR 0054). */
 export type SetStepUsesInput = {
 	branch_id: string;
 	step_index: number;
@@ -13278,6 +13283,13 @@ export const CATALOGUE = [
 										"items": {
 											"additionalProperties": false,
 											"properties": {
+												"as_read": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												},
 												"by_hand": {
 													"type": "boolean"
 												},
@@ -14856,6 +14868,13 @@ export const CATALOGUE = [
 										"items": {
 											"additionalProperties": false,
 											"properties": {
+												"as_read": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												},
 												"by_hand": {
 													"type": "boolean"
 												},
@@ -15967,6 +15986,13 @@ export const CATALOGUE = [
 										"items": {
 											"additionalProperties": false,
 											"properties": {
+												"as_read": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												},
 												"by_hand": {
 													"type": "boolean"
 												},
@@ -17492,6 +17518,13 @@ export const CATALOGUE = [
 										"items": {
 											"additionalProperties": false,
 											"properties": {
+												"as_read": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												},
 												"by_hand": {
 													"type": "boolean"
 												},
@@ -21667,6 +21700,13 @@ export const CATALOGUE = [
 										"items": {
 											"additionalProperties": false,
 											"properties": {
+												"as_read": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												},
 												"by_hand": {
 													"type": "boolean"
 												},
@@ -28241,7 +28281,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_step_uses",
-		"summary": "Correct which Ingredient Lines a Step uses. It is on a Recipe's current state. Kamosu works this out of the Step's words on every read, and get_recipe answers it as cooking.steps[].uses; this sets it by hand, for a Step it reads wrong. `uses` is the whole new list of line indexes into content.ingredients, empty for a Step that adds nothing, and each must be an Ingredient Line, not a section. null takes the correction away, and the Step goes back to what Kamosu reads. Mints no Version and appears in no history, as set_reading does. A save carries the correction onto the new Version while the Step and every line it names stay word for word as they were, wherever they now sit, and drops it once either changes (ADR 0054).",
+		"summary": "Correct which Ingredient Lines a Step uses. It is on a Recipe's current state. Kamosu works this out of the Step's words on every read, and get_recipe answers it as cooking.steps[].uses; this sets it by hand, for a Step it reads wrong. `uses` is the whole new list of line indexes into content.ingredients, empty for a Step that adds nothing, and each must be an Ingredient Line, not a section. null takes the correction away, and the Step goes back to what Kamosu reads, which get_recipe answers on a corrected Step as cooking.steps[].as_read. Mints no Version and appears in no history, as set_reading does. A save carries the correction onto the new Version while the Step and every line it names stay word for word as they were, wherever they now sit, and drops it once either changes (ADR 0054).",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -36432,7 +36472,7 @@ export interface KamosuClient {
 	changedSince(input: ChangedSinceInput): Promise<Answer<'changed_since'>>;
 	/** Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
 	setReading(input: SetReadingInput): Promise<Answer<'set_reading'>>;
-	/** Correct which Ingredient Lines a Step uses. It is on a Recipe's current state. Kamosu works this out of the Step's words on every read, and get_recipe answers it as cooking.steps[].uses; this sets it by hand, for a Step it reads wrong. `uses` is the whole new list of line indexes into content.ingredients, empty for a Step that adds nothing, and each must be an Ingredient Line, not a section. null takes the correction away, and the Step goes back to what Kamosu reads. Mints no Version and appears in no history, as set_reading does. A save carries the correction onto the new Version while the Step and every line it names stay word for word as they were, wherever they now sit, and drops it once either changes (ADR 0054). */
+	/** Correct which Ingredient Lines a Step uses. It is on a Recipe's current state. Kamosu works this out of the Step's words on every read, and get_recipe answers it as cooking.steps[].uses; this sets it by hand, for a Step it reads wrong. `uses` is the whole new list of line indexes into content.ingredients, empty for a Step that adds nothing, and each must be an Ingredient Line, not a section. null takes the correction away, and the Step goes back to what Kamosu reads, which get_recipe answers on a corrected Step as cooking.steps[].as_read. Mints no Version and appears in no history, as set_reading does. A save carries the correction onto the new Version while the Step and every line it names stay word for word as they were, wherever they now sit, and drops it once either changes (ADR 0054). */
 	setStepUses(input: SetStepUsesInput): Promise<Answer<'set_step_uses'>>;
 	/** Read every Ingredient Line nothing has read yet, as a Job. It covers every such line in the library, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it. */
 	readIngredientLines(input?: ReadIngredientLinesInput): Promise<Answer<'read_ingredient_lines'>>;

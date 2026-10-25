@@ -21,6 +21,8 @@
 		whose?: Omit<Whose, 'writes'>;
 		/** The lines that already name a Recipe, as the Core unfolds them (#87). */
 		components?: GetRecipeOutput['versions'][number]['components'];
+		/** Which lines each Step uses, as Kamosu read them (#456). */
+		cooking?: GetRecipeOutput['versions'][number]['cooking'];
 		photograph?: (file: Blob) => Promise<string>;
 		/** How much room the window has (#193). The phone's unless a test says. */
 		room?: Room;
@@ -32,6 +34,8 @@
 			collapsed: boolean;
 			copied: boolean;
 			named: boolean;
+			stepped: boolean;
+			corrected: boolean;
 			language_offer: string | null;
 		}) => void;
 	}
@@ -46,6 +50,7 @@
 			cookbook: { id: 'c_h', name: null, authors: [{ person_id: 'p_h', name: 'Hélène' }] },
 		},
 		components = [],
+		cooking,
 		photograph,
 		room = 'phone',
 		translatingInto,
@@ -61,6 +66,7 @@
 		whose={{ ...whose, writes }}
 		{content}
 		{components}
+		{cooking}
 		{translatingInto}
 		{onCancel}
 		{onSaved}

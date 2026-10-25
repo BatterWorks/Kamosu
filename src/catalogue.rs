@@ -3973,7 +3973,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       line indexes into content.ingredients, empty for a Step \
                       that adds nothing, and each must be an Ingredient Line, \
                       not a section. null takes the correction away, and the \
-                      Step goes back to what Kamosu reads. Mints no Version \
+                      Step goes back to what Kamosu reads, which get_recipe \
+                      answers on a corrected Step as cooking.steps[].as_read. \
+                      Mints no Version \
                       and appears in no history, as set_reading does. A save \
                       carries the correction onto the new Version while the \
                       Step and every line it names stay word for word as they \
@@ -7568,7 +7570,8 @@ fn measured_step_schema() -> Value {
 /// read nothing on has a panel that is simply empty, per ADR 0002's rule that
 /// anything built on a Reading degrades politely. A Step a person corrected
 /// with `set_step_uses` answers their lines instead, with `by_hand` true
-/// (ADR 0054).
+/// (ADR 0054), and what Kamosu reads there as `as_read`, which is what taking
+/// the correction away would return the Step to (#456).
 ///
 /// `timer_seconds` is read out of the Step's own text at display time. Nothing
 /// is typed beside the sentence and nothing is written down: a range answers
@@ -7590,6 +7593,12 @@ fn cooking_schema() -> Value {
                         // Whether `uses` is a person's correction, set with
                         // set_step_uses, rather than read (ADR 0054).
                         "by_hand": { "type": "boolean" },
+                        // What Kamosu reads, on a Step corrected by hand
+                        // alone: elsewhere it is `uses` (#456).
+                        "as_read": {
+                            "type": "array",
+                            "items": { "type": "integer", "minimum": 0 },
+                        },
                         "timer_seconds": { "type": ["integer", "null"], "minimum": 1 },
                     },
                     "required": ["uses", "by_hand", "timer_seconds"],
