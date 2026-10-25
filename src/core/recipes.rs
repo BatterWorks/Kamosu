@@ -2084,7 +2084,8 @@ fn held_from(
 /// from the two things already written — and a Step on a recipe nothing has
 /// been read on simply uses nothing, which is the panel degrading to prose
 /// rather than failing. Where a person corrected a Step, `by_hand` holds the
-/// lines they gave, and those stand instead (ADR 0054).
+/// lines they gave, and those stand instead (ADR 0054), with what was read
+/// beside them as `as_read` (#456).
 ///
 /// It is worked out in the Core rather than on the screen so that both Doors
 /// get it: an agent asked to read out the next step names the same amounts the
@@ -2108,14 +2109,23 @@ fn cooking_for_version(
         .map(|(at, (line, uses))| match (uses, line["text"].as_str()) {
             (Some(read), Some(text)) => {
                 // A person's correction stands in place of what was read
-                // (#439, ADR 0054).
+                // (#439, ADR 0054), and what was read is said beside it: it
+                // is what putting the correction back returns to (#456).
                 let corrected = by_hand.iter().find(|(step, _)| *step == at);
-                let uses = corrected.map_or(read, |(_, uses)| uses.clone());
-                json!({
-                    "uses": uses,
-                    "by_hand": corrected.is_some(),
-                    "timer_seconds": units::step_duration(text),
-                })
+                let duration = units::step_duration(text);
+                match corrected {
+                    Some((_, uses)) => json!({
+                        "uses": uses,
+                        "by_hand": true,
+                        "as_read": read,
+                        "timer_seconds": duration,
+                    }),
+                    None => json!({
+                        "uses": read,
+                        "by_hand": false,
+                        "timer_seconds": duration,
+                    }),
+                }
             }
             _ => Value::Null,
         })

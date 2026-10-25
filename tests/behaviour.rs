@@ -23637,11 +23637,18 @@ async fn a_step_s_lines_corrected_by_hand_are_kept_while_its_words_are() {
         json!(true)
     );
     let corrected = cooking(&app);
+    // A corrected Step also says what Kamosu reads there, which is what
+    // putting the correction back would return to (#456).
     assert_eq!(
         corrected[1],
-        json!({ "uses": [1], "by_hand": true, "timer_seconds": null })
+        json!({ "uses": [1], "by_hand": true, "as_read": [], "timer_seconds": null })
     );
     assert_eq!(corrected[3]["uses"], json!([3]));
+    assert_eq!(
+        corrected[0].get("as_read"),
+        None,
+        "a Step nobody corrected is what Kamosu reads, so says it once"
+    );
     assert_eq!(
         corrected[0]["by_hand"],
         json!(false),

@@ -111,7 +111,15 @@
 	 * that needed it most as the one case that never got it.
 	 */
 	let copiedInto = $state<
-		{ branchId: string; named: boolean; languageOffer: string | null; varied?: string } | undefined
+		| {
+				branchId: string;
+				named: boolean;
+				/** Whether a Step's ticks were all set (#456), carried for `named`'s reason. */
+				stepped: boolean;
+				languageOffer: string | null;
+				varied?: string;
+		  }
+		| undefined
 	>(undefined);
 </script>
 
@@ -328,6 +336,8 @@
 				collapsed: boolean;
 				copied: boolean;
 				named: boolean;
+				/** Whether a Step's ticks were all set (#456). */
+				stepped: boolean;
 				language_offer: string | null;
 				/**
 				 * The save stayed on a recipe the cook cannot change, on the
@@ -400,6 +410,10 @@
 		collapsed: boolean;
 		copied: boolean;
 		named: boolean;
+		/** Absent where the save was not the writing screen's, which ticks nothing. */
+		stepped?: boolean;
+		/** Whether the save sent any Step's lines (#456): a change, even on the same Version. */
+		corrected?: boolean;
 		language_offer: string | null;
 		varied?: string;
 	}) {
@@ -419,6 +433,7 @@
 			copiedInto = {
 				branchId: landed.branch_id,
 				named: landed.named,
+				stepped: landed.stepped ?? true,
 				languageOffer: landed.language_offer,
 				varied: landed.varied,
 			};
@@ -432,7 +447,12 @@
 		// out of date and the Version alone says nothing about a Copy.
 		wrote = {
 			...landed,
-			nothingToCopy: recipe?.writes === false && landed.version_id === recipe.head_version_id,
+			stepped: landed.stepped ?? true,
+			// Ticks sent on the same Version did change something (#456).
+			nothingToCopy:
+				recipe?.writes === false &&
+				landed.version_id === recipe.head_version_id &&
+				!landed.corrected,
 		};
 		reread += 1;
 	}
@@ -840,6 +860,9 @@
 				}
 			: content}
 		components={recipe.versions.at(-1)?.components ?? []}
+		cooking={pastedDraft || (divergence && divergent.side === 'mine')
+			? undefined
+			: recipe.versions.at(-1)?.cooking}
 		{translatingInto}
 		onCancel={() => {
 			writing = false;
@@ -1426,6 +1449,12 @@
 				{#if (wrote && !wrote.named) || (copiedInto?.branchId === branchId && !copiedInto.named)}
 					<p class="mx-gutter mt-2 text-read text-support" role="alert">
 						{m.write_components_failed()}
+					</p>
+				{/if}
+				<!-- The same, for which lines a Step uses (#456). -->
+				{#if (wrote && !wrote.stepped) || (copiedInto?.branchId === branchId && !copiedInto.stepped)}
+					<p class="mx-gutter mt-2 text-read text-support" role="alert">
+						{m.write_step_uses_failed()}
 					</p>
 				{/if}
 

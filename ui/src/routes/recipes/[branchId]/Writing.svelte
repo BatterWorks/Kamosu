@@ -121,11 +121,13 @@
 	import DropCover from '$lib/DropCover.svelte';
 	import DropHere from '$lib/DropHere.svelte';
 	import ComponentPicker, { type NamedRecipe } from './ComponentPicker.svelte';
+	import StepUsesSheet from './StepUsesSheet.svelte';
 	import PasteCheck from '$lib/PasteCheck.svelte';
 	import { drafted as splitPaste, readPasted } from '$lib/pasted.svelte';
 	import { joined, split } from '$lib/duration';
 
 	type Content = GetRecipeOutput['versions'][number]['content'];
+	type Cooking = GetRecipeOutput['versions'][number]['cooking'];
 
 	interface Props {
 		branchId: string;
@@ -147,6 +149,13 @@
 		 * edited on the inner recipe's own page.
 		 */
 		components?: GetRecipeOutput['versions'][number]['components'];
+		/**
+		 * Which lines each Step of the recipe as it stands uses (#456), as the
+		 * Core reads it or a cook set it by hand (ADR 0054). Only where the
+		 * draft below starts from that recipe's own Steps and lines: a paste
+		 * put in their place has nothing read yet.
+		 */
+		cooking?: Cooking;
 		/**
 		 * **Translating rather than editing** (#106, ADR 0006): the Language
 		 * the draft below is being rendered into. Set, the save calls
@@ -183,6 +192,11 @@
 		 * rest because it belongs to THIS save and to no later read: nothing
 		 * stores it, and `get_recipe` does not answer it. A Translation's
 		 * first save answers none, since it declared its own Language.
+		 *
+		 * `stepped` is false where the Version landed but which lines a Step
+		 * uses could not be set (#456), for the reason `named` travels.
+		 * `corrected` is whether this save sent any Step's lines at all,
+		 * which is a change even where the Version is the one already held.
 		 */
 		onSaved: (landed: {
 			branch_id: string;
@@ -190,6 +204,8 @@
 			collapsed: boolean;
 			copied: boolean;
 			named: boolean;
+			stepped: boolean;
+			corrected: boolean;
 			language_offer: string | null;
 			varied?: string;
 		}) => void;
@@ -201,6 +217,7 @@
 		whose,
 		content,
 		components = [],
+		cooking,
 		translatingInto,
 		onCancel,
 		onSaved,
@@ -230,12 +247,22 @@
 		text: string;
 		/** The Recipe this line names, where it names one (#87, ADR 0008). */
 		namedRecipe: NamedRecipe | null;
+		/** Where the line sat in the recipe as it stands, or nothing for a new one. */
+		from: number | null;
 	}
 	interface Step {
 		id: number;
 		kind: 'step' | 'section';
 		text: string;
 		photo: string | null;
+		/** Where the Step sat in the recipe as it stands, or nothing for a new one. */
+		from: number | null;
+		/**
+		 * The lines a cook ticked for it in this edit (#456), by row id, or
+		 * `reading` where they put Kamosu's reading back. Nothing where the
+		 * sheet was never used, which is nearly always.
+		 */
+		ticked: number[] | 'reading' | null;
 	}
 
 	// ---- the draft ------------------------------------------------------
@@ -307,15 +334,18 @@
 			kind: item.kind,
 			text: item.text,
 			namedRecipe: namedAtOpening.get(index) ?? null,
+			from: index,
 		})),
 	);
 	// svelte-ignore state_referenced_locally
 	let steps = $state<Step[]>(
-		content.steps.map((item) => ({
+		content.steps.map((item, index) => ({
 			id: id(),
 			kind: item.kind,
 			text: item.text,
 			photo: item.photo ?? null,
+			from: index,
+			ticked: null,
 		})),
 	);
 
@@ -431,8 +461,15 @@
 			// A pasted line naming a recipe on the shelf is an ordinary
 			// Ingredient Line until somebody says otherwise (ADR 0008).
 			namedRecipe: null,
+			from: null,
 		}));
-		steps = draft.steps.map((row) => ({ id: id(), ...row, photo: null }));
+		steps = draft.steps.map((row) => ({
+			id: id(),
+			...row,
+			photo: null,
+			from: null,
+			ticked: null,
+		}));
 		cursor = null;
 		pasteOpen = false;
 		pasted = null;
@@ -543,14 +580,14 @@
 
 	function addLine(kind: 'ingredient' | 'section') {
 		const at = insertAt('lines', lines.length);
-		lines.splice(at, 0, { id: id(), kind, text: '', namedRecipe: null });
+		lines.splice(at, 0, { id: id(), kind, text: '', namedRecipe: null, from: null });
 		cursor = { list: 'lines', index: at };
 		void writeIn('lines', at);
 	}
 
 	function addStep(kind: 'step' | 'section') {
 		const at = insertAt('steps', steps.length);
-		steps.splice(at, 0, { id: id(), kind, text: '', photo: null });
+		steps.splice(at, 0, { id: id(), kind, text: '', photo: null, from: null, ticked: null });
 		cursor = { list: 'steps', index: at };
 		void writeIn('steps', at);
 	}
@@ -892,6 +929,204 @@
 		}
 	}
 
+	// ---- which lines a Step uses (#456) ---------------------------------
+	//
+	// Option B of 25 October 2026: a button on each Step opens a sheet of tick
+	// boxes, and what was ticked is sent after the save with `set_step_uses`,
+	// on the Version the save left. It waits for the save for the reason a
+	// line's Recipe does above: a correction belongs to one Version (ADR 0054),
+	// and the one this screen is writing does not exist yet.
+	//
+	// A Step is corrected here only while its words are the ones Kamosu read.
+	// Change them and the save drops any correction and reads the Step again,
+	// so ticks for the old words would be about a sentence that is gone. A
+	// correction naming a line changed in this edit is dropped by the save as
+	// well, so its Step says it will be read again, and stays open to be
+	// ticked afresh: those ticks are about the lines as they now stand.
+
+	/**
+	 * What Kamosu read when this opened, and the Steps' words then: held
+	 * still, as the draft is, so a re-read landing mid-edit moves nothing.
+	 */
+	// svelte-ignore state_referenced_locally
+	const readAtOpening = cooking;
+	// svelte-ignore state_referenced_locally
+	const stepsAtOpening = content.steps.map((item) => item.text.trim());
+	// svelte-ignore state_referenced_locally
+	const linesAtOpening = content.ingredients.map((item) => item.text.trim());
+
+	/** The Step the sheet is open for, by its row's id. */
+	let choosingFor = $state<number | null>(null);
+	const choosing = $derived(steps.find((row) => row.id === choosingFor));
+
+	/** The rows that sat at these places when the screen opened, by id. */
+	function rowsAt(places: number[]): number[] {
+		return places.flatMap((place) => {
+			const row = lines.find((line) => line.from === place);
+			return row ? [row.id] : [];
+		});
+	}
+
+	const opened = (row: Step) =>
+		row.from === null ? null : (readAtOpening?.steps[row.from] ?? null);
+
+	/** Whether a line stands where and as it stood when the screen opened. */
+	const asOpened = (line: Line, at: number) =>
+		line.from === at && linesAtOpening[at] === line.text.trim();
+
+	/** Whether the list saves as it stood, so what Kamosu read of it still holds. */
+	function linesAsOpened(): boolean {
+		const kept = keptLines();
+		return kept.length === linesAtOpening.length && kept.every(asOpened);
+	}
+
+	/**
+	 * Whether a Step's correction, untouched here, names a line this edit
+	 * changed or took away, which the save drops it for (ADR 0054).
+	 */
+	function stale(row: Step): boolean {
+		const was = opened(row);
+		if (row.ticked !== null || !was?.by_hand) return false;
+		return was.uses.some((place) => {
+			const line = keptLines().find((kept) => kept.from === place);
+			return line === undefined || linesAtOpening[place] !== line.text.trim();
+		});
+	}
+
+	/** Whether this Step's lines can be ticked here: one Kamosu read, its words as they were. */
+	function correctable(row: Step): boolean {
+		return (
+			!translating &&
+			row.kind === 'step' &&
+			opened(row) !== null &&
+			row.from !== null &&
+			stepsAtOpening[row.from] === row.text.trim()
+		);
+	}
+
+	/** What Kamosu reads for a Step, by row id. */
+	function asRead(row: Step): number[] {
+		const was = opened(row);
+		return was ? rowsAt(was.as_read ?? was.uses) : [];
+	}
+
+	/** The lines a Step uses as this screen now stands, by row id, in list order. */
+	function usesOf(row: Step): number[] {
+		const was = opened(row);
+		const ids = Array.isArray(row.ticked)
+			? row.ticked
+			: row.ticked === 'reading'
+				? asRead(row)
+				: rowsAt(was?.uses ?? []);
+		// The rows that save: a line emptied here is no line of the recipe.
+		return keptLines()
+			.filter((line) => line.kind === 'ingredient' && ids.includes(line.id))
+			.map((line) => line.id);
+	}
+
+	function byHand(row: Step): boolean {
+		if (Array.isArray(row.ticked)) return true;
+		if (row.ticked === 'reading' || stale(row)) return false;
+		return opened(row)?.by_hand ?? false;
+	}
+
+	const same = (a: number[], b: number[]) =>
+		a.length === b.length && a.every((value) => b.includes(value));
+
+	/**
+	 * What the sheet handed back. Ticking just what Kamosu reads is no
+	 * correction at all: on a Step already corrected it takes the correction
+	 * away, and on any other it leaves the Step to the reading. That holds
+	 * only while the lines are as Kamosu read them, since the save reads the
+	 * Step again against any it changed, so once they are not, what was
+	 * ticked is sent as it is. So is what was ticked on a Step whose
+	 * correction the save would otherwise drop.
+	 */
+	function tickedFor(row: Step, ids: number[]) {
+		if (!stale(row) && same(ids, usesOf(row))) return;
+		if (linesAsOpened() && same(ids, asRead(row))) backToReading(row);
+		else row.ticked = ids;
+	}
+
+	/** Leave the Step to Kamosu's reading, taking away a correction it opened with. */
+	function backToReading(row: Step) {
+		row.ticked = opened(row)?.by_hand ? 'reading' : null;
+	}
+
+	function putBack(row: Step) {
+		backToReading(row);
+		choosingFor = null;
+	}
+
+	/** The next Step after this one whose lines can be ticked. */
+	function nextAfter(row: Step): Step | undefined {
+		return steps.slice(steps.indexOf(row) + 1).find(correctable);
+	}
+
+	const numberOf = (row: Step) => stepNumbers[steps.indexOf(row)] ?? 0;
+
+	/** The other Steps that use a line, by the numbers this screen shows. */
+	function elsewhere(row: Step, line: number): number[] {
+		return steps
+			.filter((other) => other !== row && correctable(other) && usesOf(other).includes(line))
+			.map(numberOf);
+	}
+
+	/** What a Step's button says. */
+	function usesLabel(row: Step): string {
+		if (!correctable(row)) {
+			return row.from === null || opened(row) === null
+				? m.write_step_uses_new()
+				: m.write_step_uses_changed();
+		}
+		if (stale(row)) return m.write_step_uses_changed();
+		const count = usesOf(row).length;
+		if (byHand(row)) {
+			return count === 0 ? m.write_step_uses_none_by_hand() : m.write_step_uses_by_hand({ count });
+		}
+		return count === 0 ? m.write_step_uses_none() : m.write_step_uses({ count });
+	}
+
+	/**
+	 * Whether any Step has ticks to send. Asked first so the ordinary save,
+	 * which has none, hands up what it did without waiting on anything.
+	 */
+	const ticksOwed = () => steps.some((row) => row.ticked !== null && correctable(row));
+
+	/** Whether every tick took. The Version has landed either way. */
+	async function stepUsesSent(branch: string): Promise<boolean> {
+		try {
+			await sendStepUses(branch);
+			return true;
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			return false;
+		}
+	}
+
+	/**
+	 * **Send what was ticked, on the Version that just landed.** Only the
+	 * Steps whose ticks the cook changed: a correction nobody touched is
+	 * carried across the save by the Core while its words are (ADR 0054), so
+	 * the ordinary save makes no request here at all. Lines and Steps are
+	 * named by where they sit in what was saved.
+	 */
+	async function sendStepUses(branch: string): Promise<void> {
+		const kept = keptLines();
+		const keptSteps = steps.filter((row) => row.text.trim() !== '');
+		for (const [index, row] of keptSteps.entries()) {
+			if (row.ticked === null || !correctable(row)) continue;
+			const ticked = row.ticked;
+			const uses =
+				ticked === 'reading'
+					? null
+					: kept.flatMap((line, at) =>
+							line.kind === 'ingredient' && ticked.includes(line.id) ? [at] : [],
+						);
+			await kamosu.setStepUses({ branch_id: branch, step_index: index, uses });
+		}
+	}
+
 	/** The Source as written, or nothing. A link typed with no name is kept and
 	 *  named by its host (#152): the name used to be the only thing that made a
 	 *  Source, so a link on its own was thrown away without a word. */
@@ -977,6 +1212,8 @@
 				if (!(error instanceof OperationError)) throw error;
 				named = false;
 			}
+			const corrected = ticksOwed();
+			const stepped = corrected ? await stepUsesSent(answered.branch_id) : true;
 			asking = false;
 			saving = false;
 			onSaved({
@@ -987,6 +1224,8 @@
 				collapsed: answered.collapsed,
 				copied: answered.copied,
 				named,
+				stepped,
+				corrected,
 				language_offer: answered.language_offer,
 			});
 		} catch (error) {
@@ -1028,6 +1267,8 @@
 			if (!(error instanceof OperationError)) throw error;
 			named = false;
 		}
+		const corrected = ticksOwed();
+		const stepped = corrected ? await stepUsesSent(started.branch_id) : true;
 		asking = false;
 		saving = false;
 		onSaved({
@@ -1036,6 +1277,8 @@
 			collapsed: false,
 			copied: true,
 			named,
+			stepped,
+			corrected,
 			language_offer: null,
 			varied: name,
 		});
@@ -1507,6 +1750,20 @@
 								onfocus={() => (cursor = { list: 'steps', index })}
 								onkeydown={(event) => onKey(event, 'steps', index)}></textarea>
 							<div class="flex flex-wrap items-center gap-4 pt-1">
+								{#if row.kind === 'step' && readAtOpening && !translating}
+									<!--
+										Which lines the Step uses (#456), opened in a sheet.
+										Greyed where the save will read the Step again.
+									-->
+									<button
+										type="button"
+										class="tap-out flex h-8 shrink-0 items-center rounded-sm border border-rule px-[10px] text-read text-accent disabled:text-ink-2"
+										disabled={!correctable(row)}
+										onclick={() => (choosingFor = row.id)}
+									>
+										{usesLabel(row)}
+									</button>
+								{/if}
 								{#if row.kind === 'step'}
 									<label
 										class="{TOOL} relative cursor-pointer border-rule text-accent"
@@ -1675,6 +1932,36 @@
 		}}
 		onCancel={() => (picking = null)}
 	/>
+{/if}
+
+<!--
+	Which lines a Step uses (#456), keyed by the Step so going on to the next
+	one opens a fresh sheet rather than carrying this one's ticks across.
+-->
+{#if choosing}
+	{#key choosing.id}
+		{@const row = choosing}
+		{@const next = nextAfter(row)}
+		<StepUsesSheet
+			number={numberOf(row)}
+			text={row.text}
+			lines={keptLines().map((line) => ({ id: line.id, kind: line.kind, text: line.text }))}
+			ticked={usesOf(row)}
+			byHand={byHand(row)}
+			elsewhere={(line) => elsewhere(row, line)}
+			next={next ? numberOf(next) : null}
+			onDone={(ids) => {
+				tickedFor(row, ids);
+				choosingFor = null;
+			}}
+			onNext={(ids) => {
+				tickedFor(row, ids);
+				choosingFor = next?.id ?? null;
+			}}
+			onPutBack={() => putBack(row)}
+			onCancel={() => (choosingFor = null)}
+		/>
+	{/key}
 {/if}
 
 {#snippet handle(list: 'lines' | 'steps', index: number)}
