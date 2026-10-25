@@ -54,6 +54,7 @@
 - With Meaning Search on, a recipe that holds only a title no longer keeps the index catching up forever. Before, Settings said such recipes had changed since the last index for as long as they stayed that way, `meaning_search_status` counted them in `recipes_not_yet_indexed`, and the log said `index caught up` every minute with nothing changed. `build_meaning_index` now counts in `indexed` only the recipes and cooking notes it put in the index. [#391]
 - The published agent files the recipe it reads under each of the Cookbook's Tags that plainly fits, and leaves the Tags a person put on where they are. Before, it was only told it could, and seldom did. [#436]
 - A step links the ingredients it adds more often. *Add the chicken* links the chicken thighs, though the recipe is called *Honey lemon garlic chicken*, while *ladle the curry* in a beef curry still links no curry powder. *The garlic* means the garlic cloves rather than the garlic powder, a line with the same name in two sections is taken from the section the step works in, and *all the spice blend ingredients* links every line of that section. *The sauce*, *the mixture* or *the glaze* no longer links the soy sauce, and nor does what a step is *for*, as in *reserving a tablespoon for the rice*, or what it waits on, as in *when the rice is ready*. *Tomato* now finds *Tomatoes*. Before, a step in a later section took the first section's line, and a word shared by two lines linked both. [#439]
+- A picture with clear parts, such as a PNG recipe card of dark text on nothing, is kept on white. Before, its clear parts turned black, and an agent handed it read nothing. [#459]
 
 [#368]: https://github.com/BatterWorks/Kamosu/issues/368
 [#369]: https://github.com/BatterWorks/Kamosu/issues/369
@@ -86,6 +87,7 @@
 [#439]: https://github.com/BatterWorks/Kamosu/issues/439
 [#445]: https://github.com/BatterWorks/Kamosu/issues/445
 [#452]: https://github.com/BatterWorks/Kamosu/issues/452
+[#459]: https://github.com/BatterWorks/Kamosu/pull/459
 
 ## v0.3.0 - 2026-10-18
 
