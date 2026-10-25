@@ -55,6 +55,7 @@
 - The published agent files the recipe it reads under each of the Cookbook's Tags that plainly fits, and leaves the Tags a person put on where they are. Before, it was only told it could, and seldom did. [#436]
 - A step links the ingredients it adds more often. *Add the chicken* links the chicken thighs, though the recipe is called *Honey lemon garlic chicken*, while *ladle the curry* in a beef curry still links no curry powder. *The garlic* means the garlic cloves rather than the garlic powder, a line with the same name in two sections is taken from the section the step works in, and *all the spice blend ingredients* links every line of that section. *The sauce*, *the mixture* or *the glaze* no longer links the soy sauce, and nor does what a step is *for*, as in *reserving a tablespoon for the rice*, or what it waits on, as in *when the rice is ready*. *Tomato* now finds *Tomatoes*. Before, a step in a later section took the first section's line, and a word shared by two lines linked both. [#439]
 - A picture with clear parts, such as a PNG recipe card of dark text on nothing, is kept on white. Before, its clear parts turned black, and an agent handed it read nothing. [#459]
+- A Translation's line takes the Food of the source line in its place when that line's amount and unit were corrected by hand, and the two agree on the corrected ones. `2 heads broccoli` corrected to two broccoli with no unit gives `2 têtes de brocoli` the Food *broccoli*. Before, the source line was compared as Kamosu first read it, `2 heads`, so the pair declined and the Translation made a Food *têtes de brocoli* of its own. A correction that names only the Food is compared by the line's words, as before. [#444]
 
 [#368]: https://github.com/BatterWorks/Kamosu/issues/368
 [#369]: https://github.com/BatterWorks/Kamosu/issues/369
@@ -85,6 +86,7 @@
 [#434]: https://github.com/BatterWorks/Kamosu/issues/434
 [#436]: https://github.com/BatterWorks/Kamosu/issues/436
 [#439]: https://github.com/BatterWorks/Kamosu/issues/439
+[#444]: https://github.com/BatterWorks/Kamosu/issues/444
 [#445]: https://github.com/BatterWorks/Kamosu/issues/445
 [#452]: https://github.com/BatterWorks/Kamosu/issues/452
 [#459]: https://github.com/BatterWorks/Kamosu/pull/459

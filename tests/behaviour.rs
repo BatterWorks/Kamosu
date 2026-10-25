@@ -19866,6 +19866,226 @@ async fn only_a_save_that_renders_a_newer_source_takes_its_foods() {
     );
 }
 
+/// Sets one line's whole Reading by hand, as a person correcting it does.
+fn set_reading_by_hand(
+    app: &support::TestApp,
+    key: &str,
+    branch_id: &str,
+    line_index: usize,
+    amount: Option<&str>,
+    unit: Option<&str>,
+    target: &str,
+) {
+    let (status, set) = app.post_op(
+        "set_reading",
+        Some(key),
+        &json!({
+            "branch_id": branch_id,
+            "line_index": line_index,
+            "amount": amount,
+            "unit": unit,
+            "target": target,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+}
+
+/// **A Translation's line is measured against the source line's Reading as a
+/// person set it** (#444, ADR 0050). `2 heads broccoli` corrected to two
+/// broccoli with no unit agrees with `2 têtes de brocoli`, which French reads
+/// with no unit either. Left as the reader read it, `2 heads` still declines,
+/// and a corrected Reading still has to agree on its amount.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translation_measures_its_lines_against_a_reading_set_by_hand() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Caesar pasta salad",
+            "language": "en",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 heads broccoli" },
+                { "kind": "ingredient", "text": "2 heads lettuce" },
+                { "kind": "ingredient", "text": "250 g cottage cheese" },
+                { "kind": "ingredient", "text": "2 fennel" },
+                { "kind": "ingredient", "text": "Pepper" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let english = created["result"]["branch_id"].as_str().unwrap().to_string();
+    set_reading_by_hand(&app, &key, &english, 0, Some("2"), None, "broccoli");
+    set_reading_by_hand(
+        &app,
+        &key,
+        &english,
+        2,
+        Some("250"),
+        Some("g"),
+        "cottage cheese",
+    );
+    set_reading_by_hand(&app, &key, &english, 3, Some("3"), None, "fennel");
+    set_reading_by_hand(&app, &key, &english, 4, None, None, "black pepper");
+
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({
+            "branch_id": english,
+            "language": "fr",
+            "title": "Salade de pâtes César",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 têtes de brocoli" },
+                { "kind": "ingredient", "text": "2 têtes de laitue" },
+                { "kind": "ingredient", "text": "250 g de fromage blanc" },
+                { "kind": "ingredient", "text": "2 fenouils" },
+                { "kind": "ingredient", "text": "Poivre" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+
+    let created_names: Vec<&str> = translated["result"]["foods_created"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{translated}"))
+        .iter()
+        .filter_map(|food| food["name"].as_str())
+        .collect();
+    assert!(
+        !created_names.contains(&"têtes de brocoli"),
+        "{created_names:?}"
+    );
+    let readings = translated["result"]["versions"][0]["readings"].clone();
+    assert_eq!(
+        readings[0]["target"],
+        json!("têtes de brocoli"),
+        "the Reading is still the Translation's own words: {readings}"
+    );
+    assert_eq!(
+        readings_of(&app, &key, "en", "broccoli"),
+        2,
+        "two and two, no unit on either side"
+    );
+    assert_eq!(
+        readings_of(&app, &key, "en", "lettuce"),
+        1,
+        "2 heads as the reader read it is an open unit, and declines"
+    );
+    assert_eq!(
+        readings_of(&app, &key, "en", "cottage cheese"),
+        2,
+        "250 g set by hand agrees with 250 g"
+    );
+    assert_eq!(
+        readings_of(&app, &key, "en", "fennel"),
+        1,
+        "three set by hand is not two, though the words say two"
+    );
+    assert_eq!(
+        readings_of(&app, &key, "en", "black pepper"),
+        1,
+        "no amount set by hand still has nothing to agree on"
+    );
+}
+
+/// **A save bringing a Translation up to a newer source measures its lines
+/// against the source's Readings set by hand too** (#444), and leaves a
+/// Reading set by hand on the Translation itself as it was.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_save_rendering_a_newer_source_measures_against_its_readings_set_by_hand() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Broccoli salad",
+            "language": "en",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 heads broccoli" },
+                { "kind": "ingredient", "text": "1 tsp salt" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let english = created["result"]["branch_id"].as_str().unwrap().to_string();
+    set_reading_by_hand(&app, &key, &english, 0, Some("2"), None, "broccoli");
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({
+            "branch_id": english,
+            "language": "fr",
+            "title": "Salade de brocoli",
+            "ingredients": [
+                { "kind": "ingredient", "text": "du brocoli" },
+                { "kind": "ingredient", "text": "1 c. à café de sel" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+    let french = translated["result"]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    set_reading_by_hand(
+        &app,
+        &key,
+        &french,
+        1,
+        Some("1"),
+        Some("c. à café"),
+        "fleur de sel",
+    );
+
+    backdate_branch_head(&app, &english);
+    let (status, moved) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": english, "title": "Crunchy broccoli salad" }).to_string(),
+    );
+    assert_eq!(status, 200, "{moved}");
+    let newer = moved["result"]["version_id"].as_str().unwrap();
+    backdate_branch_head(&app, &french);
+    let (status, caught_up) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": french,
+            "translates_version_id": newer,
+            "title": "Salade de brocoli croquante",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 têtes de brocoli" },
+                { "kind": "ingredient", "text": "1 c. à café de sel" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{caught_up}");
+    assert_eq!(
+        foods_answering(&app, &key, "fr", "têtes de brocoli"),
+        0,
+        "{caught_up}"
+    );
+    assert_eq!(
+        readings_of(&app, &key, "en", "broccoli"),
+        3,
+        "both English Versions, and the line the catching-up save wrote"
+    );
+    assert_eq!(
+        head_readings(&app, &key, &french)[1]["target"],
+        json!("fleur de sel"),
+        "the Translation's own correction is its own"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn how_far_behind_a_translation_has_fallen_is_exact_and_moves_as_the_source_moves() {
     let app = support::spawn_app();
