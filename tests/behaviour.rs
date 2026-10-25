@@ -14794,6 +14794,7 @@ mod web_link_importer {
             session_id: None,
             job_id: None,
             as_operator: false,
+            add_only: false,
         };
         app.core
             .db()
@@ -36029,6 +36030,7 @@ fn as_person(person_id: &str) -> kamosu::core::Caller {
         session_id: None,
         job_id: None,
         as_operator: false,
+        add_only: false,
     }
 }
 
@@ -44605,5 +44607,791 @@ mod recipe_files {
             "{again}"
         );
         assert_eq!(again["offered"].as_array().unwrap().len(), 1, "{again}");
+    }
+}
+
+/// Adding a recipe from a phone's Share menu (#452, ADR 0055): the Add-only
+/// key a Shortcut carries, several pictures in one import, and `add_this`.
+/// Behind the feature its loopback pages and its shortened wait need.
+#[cfg(feature = "test-jobs")]
+mod sharing_from_a_phone {
+    use super::*;
+    use axum::response::IntoResponse;
+
+    /// What an Add-only key may call, by name. Changing it is a decision of
+    /// ADR 0055's weight: a Shortcut keeps its key in plain view, and the
+    /// key goes with the Shortcut if it is shared from that phone.
+    const THE_ADD_ONLY_KEYS_LIST: [&str; 2] = ["add_this", "get_job"];
+
+    #[test]
+    fn the_add_only_keys_list_is_these_operations() {
+        use kamosu::catalogue::{JobKey, OPERATIONS};
+        let mut marked: Vec<&str> = OPERATIONS
+            .iter()
+            .filter(|op| op.add_only_key)
+            .map(|op| op.name)
+            .collect();
+        marked.sort_unstable();
+        assert_eq!(marked, THE_ADD_ONLY_KEYS_LIST);
+        for op in OPERATIONS.iter().filter(|op| op.add_only_key) {
+            assert!(!op.session_only, "{} is for a Session alone", op.name);
+            assert_eq!(op.job_key, JobKey::Never, "{} is a Job Key's", op.name);
+        }
+    }
+
+    /// A cook signed in, their Session's Secret and id.
+    fn a_cook(app: &support::TestApp) -> (String, String) {
+        super::operator_signed_in(app)
+    }
+
+    fn mint(app: &support::TestApp, session: &str, input: Value) -> (u16, Value) {
+        app.post_op("mint_access_key", Some(session), &input.to_string())
+    }
+
+    /// An Add-only key of the cook's, its Secret and id.
+    fn add_only_key(app: &support::TestApp, session: &str, everything: bool) -> (String, String) {
+        let (status, minted) = mint(
+            app,
+            session,
+            json!({ "name": "iPhone", "add_only": true, "everything_to_agent": everything }),
+        );
+        assert_eq!(status, 200, "{minted}");
+        assert_eq!(minted["result"]["add_only"], json!(true));
+        assert_eq!(minted["result"]["everything_to_agent"], json!(everything));
+        (
+            minted["result"]["secret"].as_str().unwrap().to_string(),
+            minted["result"]["id"].as_str().unwrap().to_string(),
+        )
+    }
+
+    fn add(app: &support::TestApp, key: &str, input: Value) -> Value {
+        let (status, answered) = app.post_op("add_this", Some(key), &input.to_string());
+        assert_eq!(status, 200, "{answered}");
+        answered["result"].clone()
+    }
+
+    fn a_runner(app: &support::TestApp) -> String {
+        app.core
+            .mint_runner_key(None, "the kitchen's Runner")
+            .expect("a Runner Key")
+            .secret
+    }
+
+    /// The Runner asks for work, which is what makes the agent answering.
+    fn ask_for_work(app: &support::TestApp, runner: &str) -> Value {
+        let (status, answered) = app.post_op("ask_for_work", Some(runner), &super::asking());
+        assert_eq!(status, 200, "{answered}");
+        answered["result"]["job"].clone()
+    }
+
+    fn staged(app: &support::TestApp, key: &str, bytes: &[u8]) -> String {
+        let (status, staged) =
+            app.post_bytes("/api/uploads", Some(key), "application/octet-stream", bytes);
+        assert_eq!(status, 200, "{staged}");
+        staged["result"]["upload_id"].as_str().unwrap().to_string()
+    }
+
+    /// A small picture of its own, told apart by `shade`.
+    fn a_picture(shade: u8) -> Vec<u8> {
+        let image = image::RgbImage::from_fn(64, 48, |x, y| {
+            image::Rgb([shade, (x * 3) as u8, (y * 5) as u8])
+        });
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgb8(image)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("encodes");
+        png
+    }
+
+    fn recipes_held(app: &support::TestApp) -> i64 {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.query_row("SELECT COUNT(*) FROM branches", [], |row| row.get(0))
+                    .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+            })
+            .unwrap()
+    }
+
+    fn a_page_with_recipe_data(title: &str) -> String {
+        format!(
+            r#"<html><head><script type="application/ld+json">{{
+                "@context": "https://schema.org", "@type": "Recipe", "name": "{title}",
+                "recipeIngredient": ["200 g flour", "1 lemon"],
+                "recipeInstructions": [{{"@type": "HowToStep", "text": "Bake it."}}]
+            }}</script></head><body><h1>{title}</h1></body></html>"#
+        )
+    }
+
+    /// Pages on a loopback port: `/pages/<name>` for each one given, and
+    /// `/refuses`, which answers 403, and `/slow`, which takes two seconds.
+    fn serve(pages: &[(&str, String)]) -> String {
+        kamosu::web_import::allow_loopback_fetches_for_tests();
+        let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+        std_listener.set_nonblocking(true).unwrap();
+        let listener = tokio::net::TcpListener::from_std(std_listener).expect("async listener");
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let pages: std::collections::HashMap<String, String> = pages
+            .iter()
+            .map(|(name, html)| (name.to_string(), html.clone()))
+            .collect();
+        let pages = Arc::new(pages);
+        let slow = a_page_with_recipe_data("Slow tart");
+        let router = axum::Router::new()
+            .route(
+                "/pages/{name}",
+                axum::routing::get(
+                    move |axum::extract::Path(name): axum::extract::Path<String>| {
+                        let pages = pages.clone();
+                        async move {
+                            match pages.get(&name) {
+                                Some(html) => axum::response::Html(html.clone()).into_response(),
+                                None => axum::http::StatusCode::NOT_FOUND.into_response(),
+                            }
+                        }
+                    },
+                ),
+            )
+            .route(
+                "/refuses",
+                axum::routing::get(|| async { axum::http::StatusCode::FORBIDDEN }),
+            )
+            .route(
+                "/moved",
+                axum::routing::get(|| async { axum::response::Redirect::permanent("/pages/tart") }),
+            )
+            .route(
+                "/slow",
+                axum::routing::get(move || {
+                    let slow = slow.clone();
+                    async move {
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        axum::response::Html(slow)
+                    }
+                }),
+            );
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        base
+    }
+
+    // --- The Add-only key ------------------------------------------------
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_add_only_key_is_its_own_kind_and_is_listed_as_one() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        for mixed in [
+            json!({ "name": "x", "add_only": true, "read_only": true }),
+            json!({ "name": "x", "add_only": true, "operator": true }),
+            json!({ "name": "x", "everything_to_agent": true }),
+        ] {
+            let (status, refused) = mint(&app, &session, mixed.clone());
+            assert_eq!(status, 400, "{mixed}: {refused}");
+        }
+        let (_, key_id) = add_only_key(&app, &session, false);
+        let (_, listed) = app.post_op("list_access_keys", Some(&session), "{}");
+        let key = listed["result"]["access_keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|key| key["id"] == json!(key_id))
+            .cloned()
+            .expect("the key is listed");
+        assert_eq!(key["add_only"], json!(true));
+        assert_eq!(key["read_only"], json!(false));
+        assert_eq!(key["operator"], json!(false));
+        assert_eq!(key["everything_to_agent"], json!(false));
+
+        // Its choice changes from the key list, and only on an Add-only key
+        // of one's own.
+        let (status, set) = app.post_op(
+            "set_key_agent_choice",
+            Some(&session),
+            &json!({ "access_key_id": key_id, "everything_to_agent": true }).to_string(),
+        );
+        assert_eq!(status, 200, "{set}");
+        let (_, listed) = app.post_op("list_access_keys", Some(&session), "{}");
+        assert!(
+            listed["result"]["access_keys"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|key| key["id"] == json!(key_id) && key["everything_to_agent"] == json!(true))
+        );
+        let (status, ordinary) = mint(&app, &session, json!({ "name": "agent" }));
+        assert_eq!(status, 200);
+        let (status, refused) = app.post_op(
+            "set_key_agent_choice",
+            Some(&session),
+            &json!({ "access_key_id": ordinary["result"]["id"], "everything_to_agent": true })
+                .to_string(),
+        );
+        assert_eq!(status, 404, "{refused}");
+
+        // A Session keeps a choice of its own, for an Android phone.
+        let (_, held) = app.post_op("get_agent_choice", Some(&session), "{}");
+        assert_eq!(held["result"]["everything_to_agent"], json!(false));
+        app.post_op(
+            "set_agent_choice",
+            Some(&session),
+            &json!({ "everything_to_agent": true }).to_string(),
+        );
+        let (_, held) = app.post_op("get_agent_choice", Some(&session), "{}");
+        assert_eq!(held["result"]["everything_to_agent"], json!(true));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_add_only_key_reaches_its_list_and_nothing_else_at_both_doors() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let (made, _) = {
+            let (status, made) = app.post_op(
+                "create_recipe",
+                Some(&session),
+                &json!({ "title": "Lemon tart" }).to_string(),
+            );
+            assert_eq!(status, 200, "{made}");
+            (
+                made["result"]["branch_id"].as_str().unwrap().to_string(),
+                (),
+            )
+        };
+        let (key, _) = add_only_key(&app, &session, false);
+
+        for (name, input) in [
+            ("get_recipe", json!({ "branch_id": made })),
+            ("delete_recipe", json!({ "branch_id": made })),
+            ("list_access_keys", json!({})),
+            ("home_shelves", json!({})),
+            ("instance_status", json!({})),
+            ("import_by_agent", json!({ "text": "a recipe" })),
+            ("set_agent_choice", json!({ "everything_to_agent": true })),
+        ] {
+            let (status, refused) = app.post_op(name, Some(&key), &input.to_string());
+            assert_eq!(status, 401, "{name}: {refused}");
+        }
+        assert_eq!(recipes_held(&app), 1, "the recipe is still there");
+
+        // get_job reads a Job as its Person may: theirs, and nobody else's.
+        let (status, missing) = app.post_op(
+            "get_job",
+            Some(&key),
+            &json!({ "job_id": "job_none" }).to_string(),
+        );
+        assert_eq!(status, 404, "{missing}");
+
+        // The MCP Door lists it the two and no more.
+        let (_, listed) = app.post_mcp(
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+            Some(&key),
+        );
+        let mut names: Vec<&str> = listed["result"]["tools"]
+            .as_array()
+            .expect("tools")
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect();
+        names.sort_unstable();
+        assert_eq!(names, THE_ADD_ONLY_KEYS_LIST, "{listed}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_add_only_key_stages_uploads_and_is_refused_every_other_route() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let (key, _) = add_only_key(&app, &session, false);
+        staged(&app, &key, &a_picture(1));
+
+        let (status, refused) =
+            app.post_bytes("/api/photographs", Some(&key), "image/png", &a_picture(2));
+        assert_eq!(status, 401, "{refused}");
+        for path in [
+            "/api/photographs/abc",
+            "/api/photographs/abc/card",
+            "/api/bundles/br_none",
+            "/api/sheets/job_none",
+            "/api/originals/job_none",
+            "/api/originals/job_none/2",
+            "/api/backups/none.zip",
+        ] {
+            let (status, _, _) = app.get_bytes(path, Some(&key));
+            assert!(status == 401 || status == 404, "{path} answered {status}");
+            assert_ne!(status, 200, "{path}");
+        }
+        // A route a Person's own Secret reaches is refused to the key as a
+        // key out of place, not answered as a thing that is not there.
+        let (status, _, _) = app.get_bytes("/api/bundles/br_none", Some(&key));
+        assert_eq!(status, 401);
+    }
+
+    // --- Several pictures in one import ----------------------------------
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn three_pictures_are_one_job_whose_pages_the_agent_fetches_in_order() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        let pages = [a_picture(10), a_picture(120), a_picture(240)];
+        let pictures = |order: [usize; 3]| {
+            json!(
+                order
+                    .iter()
+                    .map(|at| json!({ "upload_id": staged(&app, &session, &pages[*at]) }))
+                    .collect::<Vec<_>>()
+            )
+        };
+
+        let (status, asked) = app.post_op(
+            "import_by_agent",
+            Some(&session),
+            &json!({ "pictures": pictures([0, 1, 2]) }).to_string(),
+        );
+        assert_eq!(status, 200, "{asked}");
+        assert_eq!(asked["result"]["source_kind"], json!("picture"));
+        let job_id = asked["result"]["job_id"].as_str().unwrap().to_string();
+
+        // The same three again are known; in another order they are not.
+        let (_, again) = app.post_op(
+            "import_by_agent",
+            Some(&session),
+            &json!({ "pictures": pictures([0, 1, 2]) }).to_string(),
+        );
+        assert_eq!(again["result"]["job_id"], json!(job_id), "{again}");
+        let (_, reordered) = app.post_op(
+            "import_by_agent",
+            Some(&session),
+            &json!({ "pictures": pictures([2, 1, 0]) }).to_string(),
+        );
+        assert_ne!(reordered["result"]["job_id"], json!(job_id), "{reordered}");
+
+        let work = ask_for_work(&app, &runner);
+        assert_eq!(work["job_id"], json!(job_id), "{work}");
+        let addresses = work["original"]["pages"].as_array().expect("pages").clone();
+        assert_eq!(addresses.len(), 3, "{work}");
+        assert_eq!(addresses[0], work["original"]["address"]);
+        let job_key = work["job_key"].as_str().unwrap();
+        let mut fetched = Vec::new();
+        for address in &addresses {
+            let (status, kind, bytes) = app.get_bytes(address.as_str().unwrap(), Some(job_key));
+            assert_eq!(status, 200, "{address}");
+            assert_eq!(kind, "image/webp");
+            fetched.push(
+                image::load_from_memory(&bytes)
+                    .expect("a picture")
+                    .to_rgb8(),
+            );
+        }
+        // In order: each page's own shade is where it was.
+        for (at, shade) in [10u8, 120, 240].iter().enumerate() {
+            let red = fetched[at].get_pixel(0, 0)[0];
+            assert!(
+                (red as i16 - *shade as i16).abs() <= 20,
+                "page {at} is {red}"
+            );
+        }
+        let past = format!("/api/originals/{job_id}/4");
+        let (status, _, _) = app.get_bytes(&past, Some(job_key));
+        assert_eq!(status, 404);
+
+        // One picture is as it was: no pages beyond the first.
+        let (_, one) = app.post_op(
+            "import_by_agent",
+            Some(&session),
+            &json!({ "pictures": [{ "upload_id": staged(&app, &session, &a_picture(40)) }] })
+                .to_string(),
+        );
+        assert_eq!(one["result"]["source_kind"], json!("picture"), "{one}");
+        let (_, alone) = app.post_op(
+            "import_by_agent",
+            Some(&session),
+            &json!({ "upload_id": staged(&app, &session, &a_picture(40)) }).to_string(),
+        );
+        assert_eq!(
+            alone["result"]["job_id"], one["result"]["job_id"],
+            "{alone}"
+        );
+
+        // A PDF is not one of several pictures.
+        let (status, refused) = app.post_op(
+            "import_by_agent",
+            Some(&session),
+            &json!({ "pictures": [
+                { "upload_id": staged(&app, &session, &a_picture(50)) },
+                { "upload_id": staged(&app, &session, include_bytes!("fixtures/biscuit-de-savoie.pdf")) },
+            ] })
+            .to_string(),
+        );
+        assert_eq!(status, 400, "{refused}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_failed_job_on_three_pictures_is_asked_again_with_all_three() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        let pictures: Vec<Value> = [1u8, 2, 3]
+            .iter()
+            .map(|shade| json!({ "upload_id": staged(&app, &session, &a_picture(*shade)) }))
+            .collect();
+        let (_, asked) = app.post_op(
+            "import_by_agent",
+            Some(&session),
+            &json!({ "pictures": pictures }).to_string(),
+        );
+        let job_id = asked["result"]["job_id"].as_str().unwrap().to_string();
+        ask_for_work(&app, &runner);
+        let (status, ended) = app.post_op(
+            "report_on_job",
+            Some(&runner),
+            &json!({ "job_id": job_id, "outcome": "could_not_be_read", "reason": "blurred" })
+                .to_string(),
+        );
+        assert_eq!(status, 200, "{ended}");
+
+        let (status, again) = app.post_op(
+            "read_job_again",
+            Some(&session),
+            &json!({ "job_id": job_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{again}");
+        let work = ask_for_work(&app, &runner);
+        assert_eq!(work["job_id"], again["result"]["job_id"], "{work}");
+        let addresses = work["original"]["pages"].as_array().unwrap();
+        assert_eq!(addresses.len(), 3, "{work}");
+        for address in addresses {
+            let (status, _, _) = app.get_bytes(address.as_str().unwrap(), work["job_key"].as_str());
+            assert_eq!(status, 200, "{address}");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_read_from_three_pictures_is_read_again_from_all_three() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        let pictures: Vec<Value> = [1u8, 2, 3]
+            .iter()
+            .map(|shade| json!({ "upload_id": staged(&app, &session, &a_picture(*shade)) }))
+            .collect();
+        app.post_op(
+            "import_by_agent",
+            Some(&session),
+            &json!({ "pictures": pictures }).to_string(),
+        );
+        let work = ask_for_work(&app, &runner);
+        let job_key = work["job_key"].as_str().unwrap();
+        let (status, made) = app.post_op(
+            "create_recipe",
+            Some(job_key),
+            &json!({ "title": "Tarte from three pages" }).to_string(),
+        );
+        assert_eq!(status, 200, "{made}");
+        let branch_id = made["result"]["branch_id"].as_str().unwrap().to_string();
+        app.post_op(
+            "report_on_job",
+            Some(&runner),
+            &json!({ "job_id": work["job_id"], "outcome": "completed" }).to_string(),
+        );
+
+        let (status, again) = app.post_op(
+            "read_recipe_again",
+            Some(&session),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{again}");
+        let work = ask_for_work(&app, &runner);
+        assert_eq!(work["job_id"], again["result"]["job_id"]);
+        assert_eq!(
+            work["original"]["pages"].as_array().unwrap().len(),
+            3,
+            "{work}"
+        );
+    }
+
+    // --- add_this --------------------------------------------------------
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn with_no_agent_a_recipe_site_is_added_and_the_rest_is_said_not_to_be() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let (key, _) = add_only_key(&app, &session, false);
+        let base = serve(&[
+            ("tart", a_page_with_recipe_data("Lemon tart")),
+            (
+                "story",
+                "<html><body><p>Our trip to Lyon.</p></body></html>".to_string(),
+            ),
+        ]);
+        let tart = format!("{base}/pages/tart");
+
+        let added = add(&app, &key, json!({ "link": tart, "shortcut_version": 1 }));
+        assert_eq!(added["outcome"], json!("added"), "{added}");
+        assert_eq!(added["message"], json!("Added to your shelf: Lemon tart"));
+        assert!(added["branch_id"].is_string());
+        assert_eq!(recipes_held(&app), 1);
+
+        // The same link again, as a link or as text that is only the link.
+        for again in [
+            json!({ "link": tart }),
+            json!({ "text": format!(" {tart}\n") }),
+        ] {
+            let said = add(&app, &key, again);
+            assert_eq!(said["outcome"], json!("already"), "{said}");
+            assert_eq!(said["message"], json!("Already on your shelf: Lemon tart"));
+            assert_eq!(said["branch_id"], added["branch_id"]);
+        }
+        assert_eq!(recipes_held(&app), 1);
+        // A link that only leads there is the same recipe, known once its
+        // page is read.
+        let moved = add(&app, &key, json!({ "link": format!("{base}/moved") }));
+        assert_eq!(moved["outcome"], json!("already"), "{moved}");
+        assert_eq!(moved["title"], json!("Lemon tart"));
+        assert_eq!(recipes_held(&app), 1);
+
+        let story = add(&app, &key, json!({ "link": format!("{base}/pages/story") }));
+        assert_eq!(story["outcome"], json!("not_added"), "{story}");
+        assert!(
+            story["message"]
+                .as_str()
+                .unwrap()
+                .contains("add the link there"),
+            "{story}"
+        );
+        let refused = add(&app, &key, json!({ "link": format!("{base}/refuses") }));
+        assert_eq!(refused["outcome"], json!("not_added"), "{refused}");
+        assert!(
+            refused["message"]
+                .as_str()
+                .unwrap()
+                .contains("Copy the recipe's text"),
+            "{refused}"
+        );
+        assert_eq!(recipes_held(&app), 1, "nothing it could not read landed");
+
+        // Text sent as a file, as a Shortcut sends it, is text: the link it
+        // holds alone is that link.
+        let as_a_file = add(
+            &app,
+            &key,
+            json!({ "files": [{ "upload_id": staged(&app, &key, tart.as_bytes()) }] }),
+        );
+        assert_eq!(as_a_file["outcome"], json!("already"), "{as_a_file}");
+
+        for shared in [
+            json!({ "text": "Lemon tart\n200 g flour\nBake it." }),
+            json!({ "files": [{ "upload_id": staged(&app, &key, b"Lemon tart\n200 g flour") }] }),
+            json!({ "files": [{ "upload_id": staged(&app, &key, &a_picture(1)) }] }),
+        ] {
+            let said = add(&app, &key, shared);
+            assert_eq!(said["outcome"], json!("not_added"), "{said}");
+            assert!(
+                said["message"].as_str().unwrap().contains("no AI agent"),
+                "{said}"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn with_an_agent_text_pictures_and_a_pdf_are_sent_and_said_so() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        let (key, _) = add_only_key(&app, &session, false);
+
+        // Not heard from yet, so not answering.
+        let away = add(&app, &key, json!({ "text": "Lemon tart\n200 g flour" }));
+        assert_eq!(away["outcome"], json!("sent"), "{away}");
+        assert!(
+            away["message"]
+                .as_str()
+                .unwrap()
+                .contains("isn't answering"),
+            "{away}"
+        );
+        ask_for_work(&app, &runner);
+
+        let one = add(
+            &app,
+            &key,
+            json!({ "files": [{ "upload_id": staged(&app, &key, &a_picture(1)) }] }),
+        );
+        assert_eq!(one["outcome"], json!("sent"), "{one}");
+        assert!(
+            one["message"].as_str().unwrap().contains("is reading it"),
+            "{one}"
+        );
+        let three: Vec<Value> = [2u8, 3, 4]
+            .iter()
+            .map(|shade| json!({ "upload_id": staged(&app, &key, &a_picture(*shade)) }))
+            .collect();
+        let three = add(&app, &key, json!({ "files": three }));
+        // A Shortcut sends the same ids as one string, in order.
+        let ids: Vec<String> = [5u8, 6]
+            .iter()
+            .map(|shade| staged(&app, &key, &a_picture(*shade)))
+            .collect();
+        let flat = add(
+            &app,
+            &key,
+            json!({ "upload_ids": ids.join(","), "shortcut_version": 1 }),
+        );
+        assert_eq!(flat["outcome"], json!("sent"), "{flat}");
+        assert_eq!(three["outcome"], json!("sent"), "{three}");
+        let pages = app
+            .core
+            .db()
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT original_pages FROM agent_jobs WHERE job_id = ?1",
+                    rusqlite::params![three["job_id"].as_str().unwrap()],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        assert_eq!(pages, 3);
+        let pdf = add(
+            &app,
+            &key,
+            json!({ "files": [{ "upload_id": staged(&app, &key, include_bytes!("fixtures/biscuit-de-savoie.pdf")) }] }),
+        );
+        assert_eq!(pdf["outcome"], json!("sent"), "{pdf}");
+
+        // The Job is the key's Person's, and the key reads it.
+        let (status, job) = app.post_op(
+            "get_job",
+            Some(&key),
+            &json!({ "job_id": pdf["job_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{job}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn everything_to_the_agent_sends_a_recipe_site_there_and_a_second_tap_adds_nothing() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        ask_for_work(&app, &runner);
+        let (key, _) = add_only_key(&app, &session, true);
+        let base = serve(&[("tart", a_page_with_recipe_data("Lemon tart"))]);
+        let tart = format!("{base}/pages/tart");
+
+        let sent = add(&app, &key, json!({ "link": tart }));
+        assert_eq!(sent["outcome"], json!("sent"), "{sent}");
+        assert_eq!(recipes_held(&app), 0, "the agent makes it, Kamosu does not");
+        let twice = add(&app, &key, json!({ "link": tart }));
+        assert_eq!(twice["outcome"], json!("already"), "{twice}");
+        assert_eq!(
+            twice["message"],
+            json!("Already being added. It will be on your shelf once it is read.")
+        );
+        assert_eq!(twice["job_id"], sent["job_id"]);
+
+        // Kamosu's own reader, where the choice is off, and a page it cannot
+        // read alone goes on to the agent.
+        let (plain, _) = add_only_key(&app, &session, false);
+        let story = serve(&[("story", "<html><body><p>Our trip.</p></body></html>".into())]);
+        let said = add(
+            &app,
+            &plain,
+            json!({ "link": format!("{story}/pages/story") }),
+        );
+        assert_eq!(said["outcome"], json!("sent"), "{said}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_link_answers_sent_when_its_wait_runs_out() {
+        let app = support::spawn_app();
+        app.core
+            .share_as_if(1, 1, std::time::Duration::from_millis(300));
+        let (session, _) = a_cook(&app);
+        let (key, _) = add_only_key(&app, &session, false);
+        let base = serve(&[]);
+        let slow = format!("{base}/slow");
+        let said = add(&app, &key, json!({ "link": slow }));
+        assert_eq!(said["outcome"], json!("sent"), "{said}");
+        assert_eq!(
+            said["message"],
+            json!(
+                "Sent. Kamosu is still reading it, and the recipe will be on your shelf once it has."
+            )
+        );
+        // Tapped again while it is read: being added.
+        let again = add(&app, &key, json!({ "link": slow }));
+        assert_eq!(again["outcome"], json!("already"), "{again}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn messages_follow_the_reading_language_and_an_old_shortcut_hears_of_a_new_one() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let (key, _) = add_only_key(&app, &session, false);
+        let text = json!({ "text": "Tarte au citron\n200 g farine" });
+        let in_language = |language: &str| {
+            app.post_op(
+                "set_reading_preferences",
+                Some(&session),
+                &json!({ "reading_language": language, "reading_measures": "metric" }).to_string(),
+            );
+            add(&app, &key, text.clone())["message"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let en = in_language("en");
+        let fr = in_language("fr");
+        let es = in_language("es");
+        assert!(en.starts_with("This Kamosu has no AI agent"), "{en}");
+        assert!(fr.starts_with("Ce Kamosu n'a pas d'agent IA"), "{fr}");
+        assert!(
+            es.starts_with("Este Kamosu no tiene un agente de IA"),
+            "{es}"
+        );
+
+        in_language("en");
+        app.core.share_as_if(3, 2, kamosu::core::LINK_WAIT);
+        let current = add(&app, &key, json!({ "text": "x y", "shortcut_version": 3 }));
+        assert!(
+            !current["message"]
+                .as_str()
+                .unwrap()
+                .contains("newer Shortcut"),
+            "{current}"
+        );
+        assert_eq!(current["shortcut_version"], json!(3));
+        let behind = add(&app, &key, json!({ "text": "x y", "shortcut_version": 2 }));
+        assert!(
+            behind["message"]
+                .as_str()
+                .unwrap()
+                .ends_with("A newer Shortcut is in Settings, under Share from your phone."),
+            "{behind}"
+        );
+        let unversioned = add(&app, &key, json!({ "text": "x y" }));
+        assert!(
+            !unversioned["message"].as_str().unwrap().contains("newer"),
+            "{unversioned}"
+        );
+        let too_old = add(&app, &key, json!({ "text": "x y", "shortcut_version": 1 }));
+        assert_eq!(too_old["outcome"], json!("not_added"), "{too_old}");
+        assert!(
+            too_old["message"].as_str().unwrap().contains("too old"),
+            "{too_old}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn add_this_takes_exactly_one_thing() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        for wrong in [
+            json!({}),
+            json!({ "link": "https://example.com", "text": "x" }),
+            json!({ "files": [] }),
+            json!({ "link": "not a link" }),
+        ] {
+            let (status, refused) = app.post_op("add_this", Some(&session), &wrong.to_string());
+            assert_eq!(status, 400, "{wrong}: {refused}");
+        }
     }
 }

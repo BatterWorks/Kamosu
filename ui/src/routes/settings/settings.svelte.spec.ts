@@ -259,6 +259,49 @@ describe('the settings screen', () => {
 		expect(screen.queryByText('Access')).not.toBeInTheDocument();
 	});
 
+	it("marks a phone's Add-only key, and changes where what it shares goes (#452)", async () => {
+		const phoneKey = {
+			id: 'ak_phone',
+			name: 'iPhone',
+			read_only: false,
+			operator: false,
+			add_only: true,
+			everything_to_agent: false,
+			created_at: '2026-01-01T00:00:00Z',
+			last_used_at: null,
+			revoked: false,
+		};
+		const { kamosu } = renderScreen(Account, {
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
+			list_accounts: { refuse: 'unauthorized' },
+			list_sessions: { sessions: [] },
+			...readsInAmerican,
+			list_passkeys: NO_PASSKEYS,
+			list_access_keys: { access_keys: [phoneKey] },
+			set_key_agent_choice: { everything_to_agent: true },
+			runner_status: { has_runner: true, last_asked_at: null },
+		});
+
+		const row = (await screen.findByText('iPhone')).closest('li')!;
+		expect(row).toHaveTextContent('Add-only');
+		const choice = within(row).getByRole('checkbox', {
+			name: "Send everything it shares to Kamosu's AI agent, recipe sites too",
+		});
+		expect(choice).not.toBeChecked();
+		await fireEvent.click(choice);
+		await vi.waitFor(() =>
+			expect(kamosu.calls.find((call) => call.operation === 'set_key_agent_choice')?.input).toEqual(
+				{ access_key_id: 'ak_phone', everything_to_agent: true },
+			),
+		);
+	});
+
 	it("lists a signed-in Person's Sessions and Access Keys together, each ending on its own", async () => {
 		const { kamosu } = renderScreen(Account, {
 			instance_status: {
@@ -290,6 +333,8 @@ describe('the settings screen', () => {
 						name: 'my agent',
 						read_only: true,
 						operator: false,
+						add_only: false,
+						everything_to_agent: false,
 						created_at: '2026-01-01T00:00:00Z',
 						last_used_at: null,
 						revoked: false,
@@ -365,6 +410,8 @@ describe('the settings screen', () => {
 				name: 'a new agent',
 				read_only: false,
 				operator: false,
+				add_only: false,
+				everything_to_agent: false,
 				secret: 'the-one-time-secret',
 			},
 			list_kitchens: { kitchens: [] },
@@ -421,6 +468,8 @@ describe('the settings screen', () => {
 						name: 'house agent',
 						read_only: false,
 						operator: true,
+						add_only: false,
+						everything_to_agent: false,
 						created_at: '2026-01-01T00:00:00Z',
 						last_used_at: null,
 						revoked: false,
@@ -432,6 +481,8 @@ describe('the settings screen', () => {
 				name: 'a new agent',
 				read_only: false,
 				operator: true,
+				add_only: false,
+				everything_to_agent: false,
 				secret: 'the-one-time-secret',
 			},
 			list_kitchens: { kitchens: [] },
@@ -472,6 +523,8 @@ describe('the settings screen', () => {
 				name: 'a new agent',
 				read_only: false,
 				operator: false,
+				add_only: false,
+				everything_to_agent: false,
 				secret: 'the-one-time-secret',
 			},
 			list_kitchens: { kitchens: [] },
@@ -504,6 +557,8 @@ describe('the settings screen', () => {
 				name: 'a new agent',
 				read_only: false,
 				operator: false,
+				add_only: false,
+				everything_to_agent: false,
 				secret: 'the-one-time-secret',
 			},
 			list_kitchens: { kitchens: [] },
@@ -876,7 +931,7 @@ describe('the settings screen', () => {
 			undefined,
 			'wide',
 		);
-		expect(await screen.findAllByRole('link')).toHaveLength(6);
+		expect(await screen.findAllByRole('link')).toHaveLength(7);
 		cleanup();
 
 		renderScreen(
@@ -894,7 +949,7 @@ describe('the settings screen', () => {
 		expect(screen.queryByRole('heading', { name: 'Kitchens' })).not.toBeInTheDocument();
 	});
 
-	it('is a menu of six pages, each named with what it holds (#221, #371, #412)', async () => {
+	it('is a menu of seven pages, each named with what it holds (#221, #371, #412, #452)', async () => {
 		const { kamosu } = renderScreen(Settings, {
 			get_person: { person_id: 'p_1', name: 'Stéphane' },
 		});
@@ -902,6 +957,7 @@ describe('the settings screen', () => {
 		const rows = await screen.findAllByRole('link');
 		expect(rows.map((row) => row.getAttribute('href'))).toEqual([
 			'/settings/import',
+			'/settings/share',
 			'/settings/account',
 			'/settings/device',
 			'/settings/kitchens',
@@ -911,10 +967,13 @@ describe('the settings screen', () => {
 		// Import from another app comes first, naming the apps it reads (#412).
 		expect(rows[0]).toHaveTextContent('Import from another app');
 		expect(rows[0]).toHaveTextContent('Crouton');
-		expect(rows[1]).toHaveTextContent('Account');
-		expect(rows[1]).toHaveTextContent('Your name, the language, who is signed in, your password');
-		expect(rows[3]).toHaveTextContent('Kitchens and cookbooks');
-		expect(rows[4]).toHaveTextContent('What arrived, Meaning Search, the version');
+		// Setting a phone up comes second (#452, option B).
+		expect(rows[1]).toHaveTextContent('Share from your phone');
+		expect(rows[1]).toHaveTextContent("Add a recipe from any app's Share menu");
+		expect(rows[2]).toHaveTextContent('Account');
+		expect(rows[2]).toHaveTextContent('Your name, the language, who is signed in, your password');
+		expect(rows[4]).toHaveTextContent('Kitchens and cookbooks');
+		expect(rows[5]).toHaveTextContent('What arrived, Meaning Search, the version');
 		// The menu reads who is signed in, for the foot of it (#380), and nothing
 		// else: every page reads what its own sections need.
 		expect(kamosu.calls).toEqual([{ operation: 'get_person', input: {} }]);

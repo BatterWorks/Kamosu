@@ -46,7 +46,7 @@
 
 <Screen title={m.settings_title()} expandsFrom="settings">
 	<ul class="border-t border-rule">
-		{#each PAGES as entry (entry.page)}
+		{#each PAGES.filter((entry) => entry.offered?.() ?? true) as entry (entry.page)}
 			<li class="border-b border-rule">
 				<a
 					href={entry.href}

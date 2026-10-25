@@ -42,11 +42,18 @@ import { noteArrival } from '$lib/arrival.svelte';
  */
 export type Act = 'link' | 'file' | 'pdf' | 'picture' | 'video' | 'write' | 'paste' | 'send';
 
-/** A photo or a PDF chosen or dropped, shown once before it goes to the agent (#278). */
+/**
+ * A photo or a PDF chosen or dropped, shown once before it goes to the agent
+ * (#278). Several photos are the pages of one recipe, in order (#452): a PDF
+ * is always one file.
+ */
 export interface ToSend {
-	file: File;
+	files: File[];
 	kind: 'picture' | 'pdf';
 }
+
+/** The most photos one recipe may be, as the server holds it (`MOST_PAGES`). */
+export const MOST_PAGES = 10;
 
 export class Adding {
 	/** The act running now, or none. Every button offering an act quiets while one runs. */
@@ -201,20 +208,45 @@ export class Adding {
 	 */
 	pdfChosen = (file: File) =>
 		this.#chosen(async () => {
-			if (await this.readRunner()) this.offer({ file, kind: 'pdf' });
+			if (await this.readRunner()) this.offer({ files: [file], kind: 'pdf' });
 			else await this.pdf(file);
 		});
 
 	/**
-	 * A photo of a page was chosen or dropped (#278). Only an instance with a
+	 * A photo of a page was chosen or dropped (#278), or several: the pages of
+	 * one recipe, in the order they came (#452). Only an instance with a
 	 * Runner reads one, and a photo dropped on one without is refused in the
 	 * words a drop is refused with.
 	 */
-	pictureChosen = (file: File) =>
+	pictureChosen = (files: File[]) =>
 		this.#chosen(async () => {
-			if (await this.readRunner()) this.offer({ file, kind: 'picture' });
-			else this.refuse(m.drop_recipes_refused());
+			if (files.length === 0) return;
+			if (await this.readRunner()) {
+				this.offer({ files: files.slice(0, MOST_PAGES), kind: 'picture' });
+				if (files.length > MOST_PAGES) this.failed = m.send_too_many({ count: MOST_PAGES });
+			} else this.refuse(m.drop_recipes_refused());
 		});
+
+	/**
+	 * More pages added on the sheet, after the ones there, as many as one
+	 * recipe may be. The sheet stays the same sheet: only its photos change.
+	 */
+	addPages(files: File[]) {
+		const shown = this.toSend;
+		if (this.working || !shown || shown.kind !== 'picture') return;
+		const room = MOST_PAGES - shown.files.length;
+		shown.files.push(...files.slice(0, room));
+		// What did not fit is said, never dropped in silence.
+		this.failed = files.length > room ? m.send_too_many({ count: MOST_PAGES }) : undefined;
+	}
+
+	/** One page taken out of the sheet. The last one taken out puts the sheet away. */
+	takeOut(index: number) {
+		const shown = this.toSend;
+		if (this.working || !shown) return;
+		shown.files.splice(index, 1);
+		if (shown.files.length === 0) this.toSend = null;
+	}
 
 	/** A file chosen while whether there is a Runner is still being read. */
 	#choosing = false;
@@ -264,7 +296,7 @@ export class Adding {
 	 * the examples it replays instead (#406). A file is refused at its
 	 * upload, which a Demo refuses as it refuses the Operation.
 	 */
-	send = (handed: { text: string } | { link: string } | { file: File }) =>
+	send = (handed: { text: string } | { link: string } | { files: File[] }) =>
 		this.#run('send', async () => {
 			// What was handed over, and the words a Demo refuses it in.
 			const [handOver, refused] =
@@ -273,7 +305,14 @@ export class Adding {
 					: 'link' in handed
 						? [async () => ({ link: handed.link.trim() }), m.send_refused_link]
 						: [
-								async () => ({ upload_id: await this.#upload(handed.file) }),
+								async () => {
+									// One by one and in order, as the server reads them.
+									const ids: string[] = [];
+									for (const file of handed.files) ids.push(await this.#upload(file));
+									return ids.length === 1
+										? { upload_id: ids[0] }
+										: { pictures: ids.map((upload_id) => ({ upload_id })) };
+								},
 								this.toSend?.kind === 'pdf' ? m.send_refused_pdf : m.send_refused_picture,
 							];
 			let answer;

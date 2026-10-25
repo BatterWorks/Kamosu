@@ -8,7 +8,7 @@ Claims are cited inline. "Decoded" means I downloaded the shared shortcut from A
 API (`https://www.icloud.com/shortcuts/api/records/<id>`, the `fields.shortcut` asset, a binary
 plist) and read its actions. What I could not verify is marked **unverified**.
 
-What Kamosu decided from this is [ADR 0054](../adr/0054-a-phone-shares-into-kamosu-through-one-operation-and-an-add-only-key.md).
+What Kamosu decided from this is [ADR 0055](../adr/0055-a-phone-shares-into-kamosu-through-one-operation-and-an-add-only-key.md).
 One finding below was corrected in the design session, and is marked where it stands: Instagram's
 Share button reaches the system Share menu through "Share to…", so a Shortcut is listed there.
 

@@ -283,21 +283,28 @@ os.makedirs(work)
 with open(os.path.join(work, "job.json"), "w") as f:
     json.dump(handed, f, indent=2)
 
+# Several pictures are the pages of one recipe, in order (ADR 0055): each is
+# fetched, and named with its page's number. One is named as it always was.
 original = job.get("original")
 if original:
-    request = urllib.request.Request(
-        urllib.parse.urljoin(kamosu, original["address"]),
-        headers={"Authorization": "Bearer " + job_key},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=120) as answer:
-            kind = answer.headers.get_content_type()
-            body = answer.read()
-    except OSError as e:
-        failed(f"The agent could not fetch what it was handed to read: {e}.")
-    name = ORIGINAL_NAMES.get(kind, "original")
-    with open(os.path.join(work, name), "wb") as f:
-        f.write(body)
+    pages = original.get("pages") or [original["address"]]
+    for number, address in enumerate(pages, start=1):
+        request = urllib.request.Request(
+            urllib.parse.urljoin(kamosu, address),
+            headers={"Authorization": "Bearer " + job_key},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=120) as answer:
+                kind = answer.headers.get_content_type()
+                body = answer.read()
+        except OSError as e:
+            failed(f"The agent could not fetch what it was handed to read: {e}.")
+        name = ORIGINAL_NAMES.get(kind, "original")
+        if len(pages) > 1:
+            stem, dot, extension = name.partition(".")
+            name = f"{stem}-{number}{dot}{extension}"
+        with open(os.path.join(work, name), "wb") as f:
+            f.write(body)
 
 # opencode's settings, sessions and caches live in this Job's folder. Kamosu's
 # MCP door speaks revision 2026-07-28 alone, which opencode speaks when told

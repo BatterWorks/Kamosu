@@ -96,6 +96,9 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// before a change made on another device shows the two folded when they
 	// are not, and writes the old Measures back over the new ones.
 	get_reading_preferences: 'server-first',
+	// Where what this phone shares goes (#452). Shown beside the choice that
+	// changes it, so a kept answer would put back the old choice on sight.
+	get_agent_choice: 'server-first',
 	// Who you are called (#113). Settings shows it beside the button that
 	// changes it, and a kept answer from before a rename on another device
 	// would offer to change a name you no longer have.

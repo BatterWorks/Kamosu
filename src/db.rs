@@ -2064,6 +2064,27 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 63,
+        description: "a phone shares into Kamosu: the Add-only key and several pictures (#452, ADR 0055)",
+        sql: r#"
+        -- An Add-only key may call only what its declarations mark for it.
+        -- It and a Session each keep whether what they share goes to the
+        -- agent every time, or only what Kamosu cannot read alone.
+        ALTER TABLE access_keys ADD COLUMN add_only INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE access_keys ADD COLUMN everything_to_agent INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE sessions ADD COLUMN everything_to_agent INTEGER NOT NULL DEFAULT 0;
+        -- Which refusal a failed Job ended with, where it is one that has a
+        -- name (`OpError::reason`), so that `add_this` can say it in the
+        -- asker's own words.
+        ALTER TABLE jobs ADD COLUMN error_reason TEXT;
+        -- How many files an Original is: several pictures are the pages of
+        -- one recipe, kept as `<job_id>`, `<job_id>.2`, `<job_id>.3`, in
+        -- order. Every Original before this one is one file.
+        ALTER TABLE agent_jobs ADD COLUMN original_pages INTEGER NOT NULL DEFAULT 1;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

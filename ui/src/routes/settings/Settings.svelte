@@ -27,6 +27,7 @@
 	import { MeaningSearch } from '$lib/meaning.svelte';
 	import { asksWhetherAdministering } from '$lib/operator/administering';
 	import ImportFromAnotherApp from './ImportFromAnotherApp.svelte';
+	import ShareFromYourPhone from './ShareFromYourPhone.svelte';
 	import Tags from './Tags.svelte';
 	import Passkeys from './Passkeys.svelte';
 	import SecurityRecord from './SecurityRecord.svelte';
@@ -362,6 +363,8 @@
 	let newKeyOperator = $state(false);
 	let minting = $state(false);
 	let accessError = $state<string | undefined>(undefined);
+	/** Whether this instance has a Runner, as the key list last read it (#452). */
+	let hasRunner = $state(false);
 
 	/**
 	 * Whether anybody is signed in, and what the page's sections need to know
@@ -391,6 +394,15 @@
 			}
 			if (personAnswer) me = personAnswer;
 			signedIn = true;
+			// Where a phone's key sends what it shares is asked only where
+			// there is an agent to send it to (#452).
+			if (accessKeys.some((key) => key.add_only))
+				kamosu
+					.runnerStatus({})
+					.then((status) => (hasRunner = status.has_runner))
+					.catch((error: unknown) => {
+						if (!(error instanceof OperationError)) throw error;
+					});
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			signedIn = false;
@@ -460,6 +472,18 @@
 			return;
 		}
 		await kamosu.revokeSession({ session_id: session.id });
+		await loadAccess();
+	}
+
+	/** Where what one of the phone's keys shares goes (#452). */
+	async function chooseKeyAgent(accessKeyId: string, on: boolean) {
+		accessError = undefined;
+		try {
+			await kamosu.setKeyAgentChoice({ access_key_id: accessKeyId, everything_to_agent: on });
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			accessError = error.message;
+		}
 		await loadAccess();
 	}
 
@@ -919,6 +943,10 @@
 		<ImportFromAnotherApp />
 	{/if}
 
+	{#if page === 'share' && signedIn}
+		<ShareFromYourPhone />
+	{/if}
+
 	{#if page === 'instance'}
 		<Section heading={m.settings_instance()}>
 			<p class="text-body text-ink-2">
@@ -1074,32 +1102,54 @@
 			{:else}
 				<ul class="mb-6 grid gap-2">
 					{#each accessKeys as key (key.id)}
-						<li
-							class="flex items-center justify-between gap-3 rounded-sm border border-rule bg-card px-3 py-2"
-						>
-							<div>
-								<p class="text-body text-ink">
-									{key.name}
-									{#if key.operator}
-										<span class="ml-1 text-label text-ink-2 uppercase"
-											>{m.access_key_operator()}</span
-										>
-									{/if}
-									{#if key.read_only}
-										<span class="ml-1 text-label text-ink-2 uppercase"
-											>{m.access_key_read_only()}</span
-										>
-									{/if}
-								</p>
-								<p class="text-read text-ink-2">{whenLastUsed(key.last_used_at)}</p>
+						<li class="rounded-sm border border-rule bg-card px-3 py-2">
+							<div class="flex items-center justify-between gap-3">
+								<div>
+									<p class="text-body text-ink">
+										{key.name}
+										{#if key.operator}
+											<span class="ml-1 text-label text-ink-2 uppercase"
+												>{m.access_key_operator()}</span
+											>
+										{/if}
+										{#if key.read_only}
+											<span class="ml-1 text-label text-ink-2 uppercase"
+												>{m.access_key_read_only()}</span
+											>
+										{/if}
+										{#if key.add_only}
+											<span class="ml-1 text-label text-ink-2 uppercase"
+												>{m.access_key_add_only()}</span
+											>
+										{/if}
+									</p>
+									<p class="text-read text-ink-2">{whenLastUsed(key.last_used_at)}</p>
+								</div>
+								<button
+									type="button"
+									class="quiet-button shrink-0 text-accent"
+									onclick={() => endAccessKey(key.id)}
+								>
+									{m.access_end()}
+								</button>
 							</div>
-							<button
-								type="button"
-								class="quiet-button shrink-0 text-accent"
-								onclick={() => endAccessKey(key.id)}
-							>
-								{m.access_end()}
-							</button>
+							<!--
+								A phone's key keeps where what it shares goes, and it
+								changes here without reinstalling the Shortcut (#452).
+							-->
+							{#if key.add_only && hasRunner}
+								<label
+									class="mt-2 flex items-start gap-2 border-t border-rule pt-2 text-read text-ink"
+								>
+									<input
+										class="mt-1"
+										type="checkbox"
+										checked={key.everything_to_agent}
+										onchange={(event) => void chooseKeyAgent(key.id, event.currentTarget.checked)}
+									/>
+									{m.access_key_everything_to_agent()}
+								</label>
+							{/if}
 						</li>
 					{/each}
 				</ul>

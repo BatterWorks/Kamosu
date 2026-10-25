@@ -364,10 +364,19 @@ impl Core {
         })?;
         Ok(json!({
             "job": work.map(|work| json!({
-                "original": work.original.map(|kind| json!({
-                    "kind": kind.as_str(),
-                    "address": original_address(&work.job_id),
-                })),
+                // Several pictures carry `pages` too (ADR 0055): every page
+                // in order, the first being `address`. One file is handed
+                // over as it always was.
+                "original": work.original.map(|kind| {
+                    let mut original = json!({
+                        "kind": kind.as_str(),
+                        "address": original_address(&work.job_id),
+                    });
+                    if work.original_pages > 1 {
+                        original["pages"] = json!(page_addresses(&work.job_id, work.original_pages));
+                    }
+                    original
+                }),
                 "job_id": work.job_id,
                 "branch_id": work.branch_id,
                 "link": work.link,
