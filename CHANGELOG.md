@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.4.0 - 2026-10-25
+
 ### After upgrading
 
 - Every browser is signed out once and signs in again. The sign-in cookie is now `__Host-kamosu_session`, which a page on another subdomain of the same domain can neither set nor replace, and the old `kamosu_session` is no longer read. [#368]
