@@ -11,7 +11,7 @@ You do not need this image to run Kamosu. Kamosu reads a recipe page's own data,
 
 - **[opencode](https://opencode.ai) 2**, the agent. It speaks to several dozen model providers, and to any service with an OpenAI-compatible API. Nothing in the image names a provider or a model: you give both when the container starts.
 - **The tools a Job needs:** yt-dlp, which takes its nightly build each time the container starts, ffmpeg, deno for yt-dlp's YouTube support, poppler for a PDF's pages, curl and python3, on Alpine.
-- **The fence**, the same image started as `/opt/kamosu-agent/fence`, which keeps the agent off your own network: it reaches the internet and Kamosu, and never the host or the rest of your LAN.
+- **The fence**, the same image started as `/opt/kamosu-agent/fence`, which keeps the agent off your own network: it reaches the internet and Kamosu, and never the host or the rest of your LAN. It starts as root to set its rules, then keeps no root and no capability.
 - **The instructions it follows**, written for an agent reading one recipe alone. You can replace them with your own (below).
 
 It runs as its own user, never as root, in a read-only container that takes one Job and ends. Its restart policy starts it again, empty, for the next one. It never holds the Runner Key or the model provider's key: the Runner, which is Kamosu's own image, holds both. It hands each Job over through a socket in a volume the two share, and relays the agent's model requests through a socket in another, adding the key on the way, so a page that tricks the agent finds no key to send away.

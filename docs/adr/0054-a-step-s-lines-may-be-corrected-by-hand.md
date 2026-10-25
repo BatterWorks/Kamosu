@@ -25,5 +25,5 @@ Which Ingredient Lines a Step uses is still worked out of the Step's words on ev
 
 ## Consequences
 
-- **Agents can correct a Step today**, at the MCP Door. A control on the edit screen is a ticket of its own, with a prototype to choose from.
+- **Agents can correct a Step today**, at the MCP Door. A control on the edit screen followed in [#456](https://github.com/BatterWorks/Kamosu/issues/456), in the same release.
 - **A correction is lost on any change to its Step or its lines**, a fixed typo included. That is the accepted cost of never keeping a link the words no longer support.

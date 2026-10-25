@@ -34,7 +34,7 @@ Everything you can do in the web app, an agent can do over MCP (the Model Contex
 - **Scaling and conversions.** Cook for 3 instead of 6 and every amount follows, with metric or US measures beside the amounts as written.
 - **A shopping list worked out from recipes.** Pick dishes and how many you are cooking for. Flour from three recipes becomes one row.
 - **Search by words, or by meaning.** Turn on Meaning Search and "that thing with aubergines" finds a recipe that never says aubergine.
-- **Bring your recipes in.** A web page, a pasted recipe or a recipe PDF, a Crouton export, or a recipe from another Kamosu. With a Runner, also a photo of a cookbook page, a scanned PDF or a cooking video.
+- **Bring your recipes in.** A web page, a pasted recipe or a recipe PDF, the export of Mealie, Paprika, Tandoor, KitchenOwl, Nextcloud Cookbook, RecipeSage, Bar Assistant, Crouton and others, anything sent from a phone's Share menu, or a recipe from another Kamosu. With a Runner, also photos of a cookbook page, a scanned PDF or a cooking video.
 - **Share with anyone.** A Share Link shows one recipe to whoever holds it, no account needed, with a printable PDF.
 - **Agents are first-class.** Each person creates their own Access Keys, read-only or not, and connects Claude Code, Codex, Hermes or any MCP client to `/mcp`.
 - **In English, French and Spanish.** Each person picks the language they read in.
@@ -92,7 +92,7 @@ Open Kamosu on port 5266 and create the first account. **The first person to ope
 
 ## Put HTTPS in front of it
 
-Kamosu serves plain HTTP and never handles a certificate. Put your own reverse proxy (Caddy, Traefik, nginx) in front of it, passing the `Host` header on as the browser sent it (nginx needs `proxy_set_header Host $host;`). Without HTTPS you cannot stay signed in from another device, and offline cooking does not work. To try it on the machine that runs it, `http://localhost:5266` is enough.
+Kamosu serves plain HTTP and never handles a certificate. Put your own reverse proxy (Caddy, Traefik, nginx) in front of it, passing the `Host` header on as the browser sent it (nginx needs `proxy_set_header Host $host;`), and speaking HTTP/1.1 to it, never HTTP/2 in the clear. Without HTTPS you cannot stay signed in from another device, and offline cooking does not work. To try it on the machine that runs it, `http://localhost:5266` is enough.
 
 ## Connecting an agent
 
