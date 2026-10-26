@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### After upgrading
+
+- A Kitchen invite code made before this version can no longer be pasted anywhere: make a new invite, which is now a link. [#469]
+
+### Added
+
+- An Operator's invite can bring the newcomer into one of the Operator's own Kitchens, chosen beside *Make the invite link* in Settings › People, so a housemate needs one link for their account and their Kitchen. Agents pass `kitchen_id` to `mint_invite`. [#469]
+
+### Changed
+
+- Settings is grouped by whose a thing is: *You*, *Your household*, *Add recipes*, and *This instance* for an Operator alone, with your name at the top and one short page for each job, each row saying what is inside. The Operator page is gone: its people, Backups, Runner, House Notes, public address and upkeep are pages of *This instance*. On a tablet or a computer the menu stays beside the page that is open. Every page says what it is in a line, a warning is said when its button is pressed, and the list of what Kamosu does not protect moved out of Settings to `SECURITY.md`. *Share from your phone* is now *Save from your phone*. An old address of a Settings page or of the Operator page opens its new page. [#469]
+- A Kitchen invite is a link to send, which shows the Kitchen, who is in it and whose recipes it holds before the person joins, and can be cancelled until it is used. Before, it was a code the other person pasted into a field in Settings. Agents read a link with `read_kitchen_invite` and cancel one with `cancel_kitchen_invite`. [#469]
+
+[#469]: https://github.com/BatterWorks/Kamosu/issues/469
+
 ## v0.4.0 - 2026-10-25
 
 ### After upgrading

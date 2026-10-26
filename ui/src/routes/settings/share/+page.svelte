@@ -1,6 +1,10 @@
-<!-- One of Settings' pages (#452): `Settings.svelte` draws the sections it holds. -->
+<!-- Save from your phone (#452), a page of Settings' Add recipes (#469). -->
 <script lang="ts">
-	import Settings from '../Settings.svelte';
+	import { m } from '$lib/paraglide/messages';
+	import Screen from '$lib/shell/Screen.svelte';
+	import ShareFromYourPhone from '../ShareFromYourPhone.svelte';
 </script>
 
-<Settings page="share" />
+<Screen title={m.settings_share_page()}>
+	<ShareFromYourPhone />
+</Screen>

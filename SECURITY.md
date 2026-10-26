@@ -33,7 +33,7 @@ not a company with a response time.
 - **Back up `/data`.** Kamosu keeps three Backups under `/data/backups` and
   never sends one anywhere. Getting them off the machine is your job.
 - **Read the Security Record now and then, or watch its log lines.**
-  Settings › Security record lists each sign-in, wrong passwords at your
+  Settings › Your security record lists each sign-in, wrong passwords at your
   name, and every change an Operator or an Operator key made to the
   instance, for 90 days. Each is also a `kamosu-security` line on standard
   output for a log watcher to match; `docs/security-record.md` describes

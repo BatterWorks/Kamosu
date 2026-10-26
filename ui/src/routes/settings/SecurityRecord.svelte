@@ -1,42 +1,45 @@
 <!--
-	The Security Record (#371, choice A of 20 October 2026): a page of its own
-	on the Settings menu. "Yours" for everybody, and "This instance" below it
-	for an Operator. Rows are grouped by day, a line saying what happened and
-	one under it saying how, by whom and when. A run of wrong passwords and a
-	crowd at the sign-in carry a support-coloured edge. The prototype is
+	The Security Record (#371, choice A of 20 October 2026). Since #469 each
+	half is a page of its own: yours under You, for everybody, and the
+	instance's under This instance, for an Operator. Rows are grouped by day,
+	a line saying what happened and one under it saying how, by whom and
+	when. A run of wrong passwords and a crowd at the sign-in carry a
+	support-coloured edge. The prototype is
 	`.dev/prototypes/371-security-record/pages/a-record-operator.phone.html`
 	and its states.
 
-	Whether the instance's record is shown is learnt the way the Operator
-	screen learns it: by asking, and showing nothing where Kamosu refuses
-	(ADR 0040).
+	The instance's record refused is a record that is not here, and the page
+	says what a room that is not here says (ADR 0040).
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
-	import Section from '$lib/shell/Section.svelte';
 	import { byDay, say, type SecurityEvent } from '$lib/security-record';
 	import type { ListSecurityRecordOutput } from '$lib/api/catalogue';
 
+	interface Props {
+		whose: 'yours' | 'instance';
+	}
+
+	let { whose }: Props = $props();
+
 	const kamosu = useKamosu();
 
-	let mine = $state<ListSecurityRecordOutput | undefined>(undefined);
-	let instance = $state<ListSecurityRecordOutput | undefined>(undefined);
+	let record = $state<ListSecurityRecordOutput | undefined>(undefined);
+	let refused = $state(false);
 
 	$effect(() => {
 		let current = true;
-		kamosu.listSecurityRecord().then((answer) => {
-			if (current) mine = answer;
-		});
-		kamosu.listInstanceSecurityRecord().then(
+		(whose === 'yours' ? kamosu.listSecurityRecord() : kamosu.listInstanceSecurityRecord()).then(
 			(answer) => {
-				if (current) instance = answer;
+				if (current) record = answer;
 			},
 			(error) => {
-				// Refused: this Person is no Operator, and the section is simply
-				// not here. Anything else is a Mistake the page reports.
+				// Refused: this Person is no Operator. Anything else is a
+				// Mistake the page reports.
 				if (!(error instanceof OperationError && error.kind === 'unauthorized')) throw error;
+				if (current) refused = true;
 			},
 		);
 		return () => {
@@ -44,24 +47,6 @@
 		};
 	});
 </script>
-
-{#snippet record(heading: string, says: string, answer: ListSecurityRecordOutput)}
-	<Section {heading}>
-		<p class="mb-2 text-read text-ink-2">{says}</p>
-		{#if answer.events.length === 0}
-			<p class="text-body text-ink-2">{m.security_empty({ days: answer.kept_for_days })}</p>
-		{:else}
-			{#each byDay(answer.events) as day (day.heading)}
-				<h3 class="mt-[18px] mb-[6px] text-label text-ink-2 uppercase">{day.heading}</h3>
-				<ul class="rounded-sm border border-rule bg-card">
-					{#each day.events as event (event.id)}
-						{@render row(event)}
-					{/each}
-				</ul>
-			{/each}
-		{/if}
-	</Section>
-{/snippet}
 
 {#snippet row(event: SecurityEvent)}
 	{@const said = say(event)}
@@ -76,13 +61,24 @@
 	</li>
 {/snippet}
 
-{#if mine}
-	{@render record(m.security_yours(), m.security_yours_says({ days: mine.kept_for_days }), mine)}
-{/if}
-{#if instance}
-	{@render record(
-		m.settings_instance(),
-		m.security_instance_says({ days: instance.kept_for_days }),
-		instance,
-	)}
+{#if refused}
+	<p class="text-body text-ink-2">{m.operator_not_here()}</p>
+{:else if record}
+	<p class="mb-2 text-read text-ink-2">
+		{whose === 'yours'
+			? m.security_yours_says({ days: record.kept_for_days })
+			: m.security_instance_says({ days: record.kept_for_days })}
+	</p>
+	{#if record.events.length === 0}
+		<p class="text-body text-ink-2">{m.security_empty({ days: record.kept_for_days })}</p>
+	{:else}
+		{#each byDay(record.events) as day (day.heading)}
+			<h3 class="mt-[18px] mb-[6px] text-label text-ink-2 uppercase">{day.heading}</h3>
+			<ul class="rounded-sm border border-rule bg-card">
+				{#each day.events as event (event.id)}
+					{@render row(event)}
+				{/each}
+			</ul>
+		{/each}
+	{/if}
 {/if}

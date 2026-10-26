@@ -19,9 +19,9 @@
 	  the app before they are (#214). The mark and the name stand on the page
 	  all the same: centred above it on the wide layout, in the header's place
 	  on the phone. One answer, `outside`, decides it for both layouts.
-	- **A Cookbook Invite:** the same for somebody not signed in. A Person who
-	  is signed in is in the app, and keeps their navigation there (#214,
-	  choice of 11 October 2026).
+	- **A Cookbook Invite or a Kitchen Invite:** the same for somebody not
+	  signed in. A Person who is signed in is in the app, and keeps their
+	  navigation there (#214, choice of 11 October 2026; #469).
 
 	The Room decides, not a style rule, so a screen test sees which one is drawn.
 
@@ -54,6 +54,7 @@
 	import { signingIn } from './signing-in.svelte';
 	import { slashToSearch } from './slash';
 	import { parentOf } from './way-back';
+	import { isCurrent, settings } from './places';
 
 	interface Props {
 		/** The address on screen. */
@@ -93,7 +94,10 @@
 	 * form is.
 	 */
 	const arriving = $derived(
-		pathname === '/' || pathname === '/import' || pathname.startsWith('/cookbook-invite/'),
+		pathname === '/' ||
+			pathname === '/import' ||
+			pathname.startsWith('/cookbook-invite/') ||
+			pathname.startsWith('/kitchen-invite/'),
 	);
 	const outside = $derived(
 		signingIn.showing ||
@@ -126,8 +130,14 @@
 		return () => document.documentElement.classList.remove('demo-strip-shown');
 	});
 
-	/** Where this page's back arrow goes with nothing behind it, on a page that carries one. */
-	const backTo = $derived(sidebar || tabs ? parentOf(pathname) : undefined);
+	/**
+	 * Where this page's back arrow goes with nothing behind it, on a page that
+	 * carries one. A page of Settings on the wide layout carries none: the
+	 * menu stands beside it (#469).
+	 */
+	const backTo = $derived(
+		tabs || (sidebar && !isCurrent(settings.href, pathname)) ? parentOf(pathname) : undefined,
+	);
 
 	function onKey(event: KeyboardEvent) {
 		if (!bare && !outside) slashToSearch(event);

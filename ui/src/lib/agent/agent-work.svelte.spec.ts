@@ -122,7 +122,7 @@ describe("an agent's Job on the tracking line", () => {
 		draw({ get_job: job('queued'), runner_status: SILENT, list_accounts: { accounts: [] } });
 
 		const keys = await screen.findByRole('link', { name: m.agent_runner_keys() });
-		expect(keys).toHaveAttribute('href', '/operator#runner-keys');
+		expect(keys).toHaveAttribute('href', '/settings/runner');
 	});
 
 	it('says nothing about an agent beside a Job one is reading', async () => {

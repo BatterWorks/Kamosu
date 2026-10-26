@@ -2,8 +2,8 @@
 
 Kamosu keeps a record of what happens at its doors: signing in, wrong
 passwords, keys, passkeys and changes to the instance (#371). A Person reads
-their own in **Settings › Security record**, and an Operator reads the
-instance's on the same page. An agent reads them through the
+their own in **Settings › Your security record**, and an Operator reads the
+instance's in **Settings › Instance security record**. An agent reads them through the
 `list_security_record` and `list_instance_security_record` Operations.
 Events are kept 90 days.
 
@@ -34,7 +34,7 @@ always in this order:
 A line never holds an IP address, since Kamosu does not trust what a proxy
 says about the visitor (ADR 0033). It never holds a Secret, a password, or a
 name somebody typed at the sign-in. A Person is named by id, never by name:
-`list_accounts` and the Operator screen say who an id is.
+`list_accounts` and Settings › People say who an id is.
 
 ## The events
 

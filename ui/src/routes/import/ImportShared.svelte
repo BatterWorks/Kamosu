@@ -368,7 +368,7 @@
 {:else if step.is === 'still-importing'}
 	<Screen title={m.import_shared_title()}>
 		<p class="text-body" role="status">
-			{m.bring_in_still_going({ where: `${m.settings_title()} › ${m.settings_imports()}` })}
+			{m.bring_in_still_going({ where: `${m.settings_title()} › ${m.settings_brought_in()}` })}
 		</p>
 	</Screen>
 {:else}

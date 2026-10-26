@@ -87,6 +87,8 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// What an Invite would do, read the moment it is opened. It is spent or
 	// ended elsewhere, and a kept answer would offer a join that then refuses.
 	read_cookbook_invite: 'server-first',
+	// The same for a Kitchen Invite's link (#469).
+	read_kitchen_invite: 'server-first',
 	// What leaving a Kitchen keeps, counted the moment the sheet opens. Its
 	// whole value is being current: a recipe cooked since changes the count.
 	preview_leaving_kitchen: 'server-first',

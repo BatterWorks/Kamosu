@@ -147,17 +147,24 @@ pub fn set_operator(core: &Core, invocation: &Invocation, input: Value) -> Resul
 
 /// Mint a one-use Invite. The Operator receives the link once; its Secret is
 /// stored only hashed and is spent when a stranger uses it.
-pub fn mint_invite(core: &Core, _invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+pub fn mint_invite(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let is_operator = match input.get("is_operator") {
         None => false,
         Some(Value::Bool(value)) => *value,
         _ => {
             return Err(OpError::bad_request(
-                "mint_invite takes optional { is_operator }",
+                "mint_invite takes optional { is_operator, kitchen_id }",
             ));
         }
     };
-    Ok(json!({ "link": core.mint_invite(is_operator)? }))
+    let link = match input.get("kitchen_id").and_then(Value::as_str) {
+        Some(kitchen_id) => {
+            let caller = caller_of(invocation)?;
+            core.mint_invite_into_kitchen(&caller.person_id, kitchen_id, is_operator)?
+        }
+        None => core.mint_invite(is_operator)?,
+    };
+    Ok(json!({ "link": link }))
 }
 
 pub fn disable_account(
@@ -670,6 +677,33 @@ pub fn accept_kitchen_invite(
         .ok_or_else(|| OpError::bad_request("accept_kitchen_invite takes { secret }"))?;
     let caller = caller_of(invocation)?;
     core.accept_kitchen_invite(&caller.person_id, secret)
+}
+
+pub fn read_kitchen_invite(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let secret = input
+        .get("secret")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("read_kitchen_invite takes { secret }"))?;
+    let caller = caller_of(invocation)?;
+    core.read_kitchen_invite(&caller.person_id, secret)
+}
+
+pub fn cancel_kitchen_invite(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let invite_id = input
+        .get("invite_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("cancel_kitchen_invite takes { invite_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.cancel_kitchen_invite(&caller.person_id, invite_id)?;
+    Ok(json!({ "ended": true }))
 }
 
 pub fn remove_kitchen_member(

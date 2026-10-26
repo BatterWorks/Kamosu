@@ -76,6 +76,7 @@ export type ListAccountsOutput = {
 /** Mint a one-use Invite link for a new Person. */
 export type MintInviteInput = {
 	is_operator?: boolean;
+	kitchen_id?: string;
 };
 /** What mint_invite answers. */
 export type MintInviteOutput = {
@@ -625,6 +626,45 @@ export type AcceptKitchenInviteOutput = {
 	}[];
 	name: string;
 	nickname: string | null;
+};
+
+/** Preview a Kitchen Invite before joining. It answers the Kitchen as its members see it, who sent the link, and whether you are in it already, and spends nothing. */
+export type ReadKitchenInviteInput = {
+	secret: string;
+};
+/** What read_kitchen_invite answers. */
+export type ReadKitchenInviteOutput = {
+	already_member: boolean;
+	invited_by: {
+		name: string;
+		person_id: string;
+	};
+	kitchen: {
+		cookbooks: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		}[];
+		id: string;
+		members: {
+			name: string;
+			person_id: string;
+		}[];
+		name: string;
+		nickname: string | null;
+	};
+};
+
+/** End a Kitchen Invite nobody has used yet. Any member of its Kitchen may. */
+export type CancelKitchenInviteInput = {
+	invite_id: string;
+};
+/** What cancel_kitchen_invite answers. */
+export type CancelKitchenInviteOutput = {
+	ended: boolean;
 };
 
 /** Remove a Person from a Kitchen, or yourself to leave it. Their Cookbook leaves with them; each member who stays keeps a Branch of every recipe of theirs they cooked, and they keep one of every recipe they cooked from the others. */
@@ -6094,6 +6134,18 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	read_kitchen_invite: {
+		input: ReadKitchenInviteInput;
+		output: ReadKitchenInviteOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	cancel_kitchen_invite: {
+		input: CancelKitchenInviteInput;
+		output: CancelKitchenInviteOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	remove_kitchen_member: {
 		input: RemoveKitchenMemberInput;
 		output: RemoveKitchenMemberOutput;
@@ -7013,6 +7065,10 @@ export const CATALOGUE = [
 				"is_operator": {
 					"default": false,
 					"type": "boolean"
+				},
+				"kitchen_id": {
+					"description": "One of your own Kitchens, which the newcomer joins with their account. Omit for none.",
+					"type": "string"
 				}
 			},
 			"type": "object"
@@ -9294,6 +9350,170 @@ export const CATALOGUE = [
 				"nickname",
 				"members",
 				"cookbooks"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "read_kitchen_invite",
+		"summary": "Preview a Kitchen Invite before joining. It answers the Kitchen as its members see it, who sent the link, and whether you are in it already, and spends nothing.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"secret": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"secret"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"already_member": {
+					"type": "boolean"
+				},
+				"invited_by": {
+					"additionalProperties": false,
+					"properties": {
+						"name": {
+							"type": "string"
+						},
+						"person_id": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"person_id",
+						"name"
+					],
+					"type": "object"
+				},
+				"kitchen": {
+					"additionalProperties": false,
+					"properties": {
+						"cookbooks": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"id": {
+							"type": "string"
+						},
+						"members": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"name": {
+							"type": "string"
+						},
+						"nickname": {
+							"type": [
+								"string",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"id",
+						"name",
+						"nickname",
+						"members",
+						"cookbooks"
+					],
+					"type": "object"
+				}
+			},
+			"required": [
+				"kitchen",
+				"invited_by",
+				"already_member"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "cancel_kitchen_invite",
+		"summary": "End a Kitchen Invite nobody has used yet. Any member of its Kitchen may.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"invite_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"invite_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"ended": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"ended"
 			],
 			"type": "object"
 		}
@@ -36048,6 +36268,7 @@ export const READS: readonly OperationName[] = [
 	'list_security_record',
 	'list_passkeys',
 	'list_kitchens',
+	'read_kitchen_invite',
 	'preview_leaving_kitchen',
 	'get_cookbook',
 	'list_cookbooks',
@@ -36132,6 +36353,8 @@ export const METHOD_NAMES = {
 	set_kitchen_nickname: 'setKitchenNickname',
 	invite_to_kitchen: 'inviteToKitchen',
 	accept_kitchen_invite: 'acceptKitchenInvite',
+	read_kitchen_invite: 'readKitchenInvite',
+	cancel_kitchen_invite: 'cancelKitchenInvite',
 	remove_kitchen_member: 'removeKitchenMember',
 	delete_kitchen: 'deleteKitchen',
 	preview_leaving_kitchen: 'previewLeavingKitchen',
@@ -36336,6 +36559,10 @@ export interface KamosuClient {
 	inviteToKitchen(input: InviteToKitchenInput): Promise<Answer<'invite_to_kitchen'>>;
 	/** Open a Kitchen Invite: join the Kitchen it names. Spent on use. */
 	acceptKitchenInvite(input: AcceptKitchenInviteInput): Promise<Answer<'accept_kitchen_invite'>>;
+	/** Preview a Kitchen Invite before joining. It answers the Kitchen as its members see it, who sent the link, and whether you are in it already, and spends nothing. */
+	readKitchenInvite(input: ReadKitchenInviteInput): Promise<Answer<'read_kitchen_invite'>>;
+	/** End a Kitchen Invite nobody has used yet. Any member of its Kitchen may. */
+	cancelKitchenInvite(input: CancelKitchenInviteInput): Promise<Answer<'cancel_kitchen_invite'>>;
 	/** Remove a Person from a Kitchen, or yourself to leave it. Their Cookbook leaves with them; each member who stays keeps a Branch of every recipe of theirs they cooked, and they keep one of every recipe they cooked from the others. */
 	removeKitchenMember(input: RemoveKitchenMemberInput): Promise<Answer<'remove_kitchen_member'>>;
 	/** Delete a Kitchen nobody is left in. This is an Operator's only power over a Kitchen: nothing else about one. */

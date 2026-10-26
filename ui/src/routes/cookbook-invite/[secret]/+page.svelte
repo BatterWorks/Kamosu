@@ -99,7 +99,7 @@
 				return;
 			}
 			// Settings, where the joined Cookbook's card now names you both.
-			await goto('/settings/kitchens');
+			await goto('/settings/cookbook');
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			failed = error.message;
@@ -128,7 +128,7 @@
 			<a class="mt-4 inline-block text-label text-accent underline" href="/">{m.home_title()}</a>
 		{:else if invite.already_yours}
 			<p class="text-body text-ink">{m.cookbook_invite_already()}</p>
-			<a class="mt-4 inline-block text-label text-accent underline" href="/settings/kitchens"
+			<a class="mt-4 inline-block text-label text-accent underline" href="/settings/cookbook"
 				>{m.settings_title()}</a
 			>
 		{:else}
@@ -152,7 +152,7 @@
 				<p class="mt-3 text-body text-ink" role="status">
 					{m.cookbook_invite_waiting_on({ names: others })}
 				</p>
-				<a class="mt-4 inline-block text-label text-accent underline" href="/settings/kitchens"
+				<a class="mt-4 inline-block text-label text-accent underline" href="/settings/cookbook"
 					>{m.settings_title()}</a
 				>
 			{:else}

@@ -94,7 +94,7 @@ describe('a Cookbook Invite link', () => {
 				input: { secret: 'the-cookbook-secret' },
 			}),
 		);
-		await waitFor(() => expect(went).toHaveBeenCalledWith('/settings/kitchens'));
+		await waitFor(() => expect(went).toHaveBeenCalledWith('/settings/cookbook'));
 	});
 
 	it('names who else will be asked, and once accepted says whom it waits for (#135)', async () => {
@@ -154,7 +154,7 @@ describe('a Cookbook Invite link', () => {
 			await screen.findByText('You said yes. Waiting for Tom and Bob to say yes too.'),
 		).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'Write together' })).not.toBeInTheDocument();
-		expect(went).not.toHaveBeenCalledWith('/settings/kitchens');
+		expect(went).not.toHaveBeenCalledWith('/settings/cookbook');
 		expect(kamosu.calls.filter((call) => call.operation === 'read_cookbook_invite')).toHaveLength(
 			2,
 		);
