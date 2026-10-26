@@ -514,6 +514,266 @@ async fn an_invite_is_spent_on_first_use_and_refused_afterwards() {
     assert_eq!(status, 401, "{refused}");
 }
 
+/// A Kitchen Invite is a link, and the page it opens shows the Kitchen as its
+/// members see it before anybody says yes (#469, choice B): its name, who is
+/// in it, whose recipes it holds and who sent it. Reading it spends nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kitchen_invite_says_which_kitchen_before_anybody_joins() {
+    let app = support::spawn_app();
+    let alice = app.core.create_person("Alice").expect("person");
+    let alice_key = app
+        .core
+        .mint_access_key(&alice, "browser", false)
+        .unwrap()
+        .secret;
+    let bob = app.core.create_person("Bob").expect("person");
+    let bob_key = app
+        .core
+        .mint_access_key(&bob, "browser", false)
+        .unwrap()
+        .secret;
+    let carol = app.core.create_person("Carol").expect("person");
+    let carol_key = app
+        .core
+        .mint_access_key(&carol, "browser", false)
+        .unwrap()
+        .secret;
+
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&alice_key),
+        &json!({ "name": "Home" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+    let (_, minted) = app.post_op(
+        "invite_to_kitchen",
+        Some(&alice_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    let secret = minted["result"]["secret"].as_str().unwrap().to_string();
+
+    let (status, read) = app.post_op(
+        "read_kitchen_invite",
+        Some(&bob_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    let read = &read["result"];
+    assert_eq!(read["kitchen"]["name"], json!("Home"));
+    assert_eq!(read["kitchen"]["nickname"], json!(null));
+    assert_eq!(read["kitchen"]["members"][0]["name"], json!("Alice"));
+    assert_eq!(read["kitchen"]["cookbooks"].as_array().unwrap().len(), 1);
+    assert_eq!(read["invited_by"]["name"], json!("Alice"));
+    assert_eq!(read["already_member"], json!(false));
+
+    // Alice reading her own link is told she is in it already.
+    let (_, own) = app.post_op(
+        "read_kitchen_invite",
+        Some(&alice_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(own["result"]["already_member"], json!(true));
+
+    // Reading spent nothing: Bob still joins with it, and then it is gone.
+    let (status, joined) = app.post_op(
+        "accept_kitchen_invite",
+        Some(&bob_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+    let (status, spent) = app.post_op(
+        "read_kitchen_invite",
+        Some(&carol_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 401, "{spent}");
+}
+
+/// The member who made a Kitchen link can cancel it before it is used, and
+/// then nobody gets in with it (#469). Nobody outside the Kitchen can.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cancelled_kitchen_invite_lets_nobody_in() {
+    let app = support::spawn_app();
+    let alice = app.core.create_person("Alice").expect("person");
+    let alice_key = app
+        .core
+        .mint_access_key(&alice, "browser", false)
+        .unwrap()
+        .secret;
+    let bob = app.core.create_person("Bob").expect("person");
+    let bob_key = app
+        .core
+        .mint_access_key(&bob, "browser", false)
+        .unwrap()
+        .secret;
+
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&alice_key),
+        &json!({ "name": "Home" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+    let (_, minted) = app.post_op(
+        "invite_to_kitchen",
+        Some(&alice_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    let invite_id = minted["result"]["invite_id"].as_str().unwrap().to_string();
+    let secret = minted["result"]["secret"].as_str().unwrap().to_string();
+
+    // Bob is in no Kitchen of Alice's, so to him the link is not there.
+    let (status, refused) = app.post_op(
+        "cancel_kitchen_invite",
+        Some(&bob_key),
+        &json!({ "invite_id": invite_id }).to_string(),
+    );
+    assert_eq!(status, 404, "{refused}");
+
+    let (status, ended) = app.post_op(
+        "cancel_kitchen_invite",
+        Some(&alice_key),
+        &json!({ "invite_id": invite_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{ended}");
+    assert_eq!(ended["result"]["ended"], json!(true));
+
+    for operation in ["read_kitchen_invite", "accept_kitchen_invite"] {
+        let (status, refused) = app.post_op(
+            operation,
+            Some(&bob_key),
+            &json!({ "secret": secret }).to_string(),
+        );
+        assert_eq!(status, 401, "{operation}: {refused}");
+    }
+
+    // Cancelling it twice finds nothing to cancel.
+    let (status, again) = app.post_op(
+        "cancel_kitchen_invite",
+        Some(&alice_key),
+        &json!({ "invite_id": invite_id }).to_string(),
+    );
+    assert_eq!(status, 404, "{again}");
+}
+
+/// An Operator's Invite can name one of the Operator's own Kitchens, so a
+/// newcomer gets an account and that Kitchen from the one link, or none
+/// (#469). A Kitchen the Operator is not in is refused as one not there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_operators_invite_can_bring_a_newcomer_into_a_kitchen() {
+    let app = support::spawn_app();
+    let create =
+        json!({ "name": "Stéphane", "password": "the right password", "session_name": "operator" });
+    let operator = app.post_auth_response("/auth/first-person", &create.to_string());
+    assert_eq!(operator.status, 200, "{}", operator.text());
+    let operator = support::session_cookie_secret(&operator);
+
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&operator),
+        &json!({ "name": "Home" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+
+    let join = |link: &str, name: &str| {
+        let joined = app.post_auth_response(
+            "/auth/invite",
+            &json!({ "link": link, "name": name, "password": "their own password",
+                     "session_name": "their phone" })
+            .to_string(),
+        );
+        assert_eq!(joined.status, 200, "{}", joined.text());
+        support::session_cookie_secret(&joined)
+    };
+    let kitchens_of = |secret: &str| {
+        let (_, listed) = app.post_op("list_kitchens", Some(secret), "{}");
+        listed["result"]["kitchens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|kitchen| kitchen["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+
+    let (status, minted) = app.post_op(
+        "mint_invite",
+        Some(&operator),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{minted}");
+    let camille = join(minted["result"]["link"].as_str().unwrap(), "Camille");
+    assert_eq!(kitchens_of(&camille), vec![kitchen_id.clone()]);
+
+    let (_, minted) = app.post_op("mint_invite", Some(&operator), "{}");
+    let robin = join(minted["result"]["link"].as_str().unwrap(), "Robin");
+    assert!(kitchens_of(&robin).is_empty());
+
+    // Robin's own Kitchen, which the Operator is not in.
+    let (_, theirs) = app.post_op(
+        "create_kitchen",
+        Some(&robin),
+        &json!({ "name": "Robin's" }).to_string(),
+    );
+    let (status, refused) = app.post_op(
+        "mint_invite",
+        Some(&operator),
+        &json!({ "kitchen_id": theirs["result"]["id"] }).to_string(),
+    );
+    assert_eq!(status, 404, "{refused}");
+}
+
+/// A Kitchen an Invite names can still be deleted once nobody is in it, and
+/// the Invite then brings its newcomer into no Kitchen (#469).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kitchen_an_invite_names_can_still_be_deleted() {
+    let app = support::spawn_app();
+    let create =
+        json!({ "name": "Stéphane", "password": "the right password", "session_name": "operator" });
+    let operator = app.post_auth_response("/auth/first-person", &create.to_string());
+    let operator = support::session_cookie_secret(&operator);
+    let (_, operators) = app.post_op("get_person", Some(&operator), "{}");
+    let operator_id = operators["result"]["person_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&operator),
+        &json!({ "name": "Home" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+    let (_, minted) = app.post_op(
+        "mint_invite",
+        Some(&operator),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    let link = minted["result"]["link"].as_str().unwrap().to_string();
+
+    let (status, left) = app.post_op(
+        "remove_kitchen_member",
+        Some(&operator),
+        &json!({ "kitchen_id": kitchen_id, "person_id": operator_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{left}");
+    let (status, deleted) = app.post_op(
+        "delete_kitchen",
+        Some(&operator),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+
+    let joined = app.post_auth_response(
+        "/auth/invite",
+        &json!({ "link": link, "name": "Camille", "password": "their own password",
+                 "session_name": "their phone" })
+        .to_string(),
+    );
+    assert_eq!(joined.status, 200, "{}", joined.text());
+    let camille = support::session_cookie_secret(&joined);
+    let (_, kitchens) = app.post_op("list_kitchens", Some(&camille), "{}");
+    assert_eq!(kitchens["result"]["kitchens"], json!([]));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn leaving_is_not_a_deletion_and_even_the_last_member_may_leave() {
     let app = support::spawn_app();

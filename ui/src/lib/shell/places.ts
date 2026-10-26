@@ -39,8 +39,7 @@ export const places: Place[] = [
 
 /**
  * Settings, the fifth place. Only the sidebar lists it: on the phone the way
- * in is the *You* card in the header (#102), which the wide layout does not
- * draw.
+ * in is the gear in the header (#218), which the wide layout does not draw.
  */
 export const settings: Place = {
 	href: '/settings',

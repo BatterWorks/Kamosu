@@ -331,7 +331,7 @@ when it is created. Only an Operator key can do what an Operator does, such as
 changing the House Notes every agent reads or taking a Backup. Give one only to
 an agent that looks after the instance.
 
-An Add-only key, made in **Settings › Share from your phone** for the iPhone
+An Add-only key, made in **Settings › Save from your phone** for the iPhone
 Shortcut, can add recipes and nothing else.
 
 An agent that reads a web page or someone else's recipe can be given
@@ -440,10 +440,10 @@ Two settings have to be in place before demo mode goes on: the public address
 and Meaning Search. A demo refuses to change either, and its daily cleaning
 keeps both.
 
-1. Start Kamosu without the variable and create the first account, which you
-   need to reach the Operator screen. The demo erases it with the rest of the
-   library.
-2. In **Settings**, under **This instance**, open the Operator screen and set
+1. Start Kamosu without the variable and create the first account, an
+   Operator, which you need to reach the instance's settings. The demo erases
+   it with the rest of the library.
+2. In **Settings**, under **This instance**, open **Public address** and set
    the public address, such as `https://demo.example.com`. Without it, the
    demo's Share Links give no link.
 3. Turn on Meaning Search: search for a word no recipe holds, and accept the
@@ -484,7 +484,7 @@ It prints a path starting `/recover/`. Open it after your Kamosu's address
 (`https://your-kamosu/recover/...`) and choose a new password. Setting it signs
 out every device and ends every Access Key and Runner Key you held, so a
 Runner needs a new key afterwards. Another
-Operator can also send you one from the Operator screen.
+Operator can also send you one from **Settings › People**.
 
 **Podman shows no health status.** The `podman-*` images are built in
 Podman's own format, which has no field for a health check. The
@@ -497,7 +497,7 @@ way, which Kamosu refuses. Start it with the profile from [Codex](#codex),
 which turns on the 2026-07-28 revision.
 
 **A phone still shows an old version of a recipe.** Each phone keeps a copy of
-the library for offline cooking. **Settings**, under **This device**, says how
+the library for offline cooking. **Settings › This device** says how
 many recipes it holds and when they were last updated, and **Bring it up to
 date** refreshes them.
 
@@ -507,7 +507,7 @@ Authorisation happens in one place and depends only on who you signed in as.
 Every secret is 256 bits and revocable one at a time, passwords need 15
 characters, and URLs Kamosu fetches for you can only reach public addresses.
 You can sign in with a passkey where the public address is `https://`, and
-change your own password in **Settings › Account**. Kamosu keeps a Security
+change your own password in **Settings › Signing in**. Kamosu keeps a Security
 Record of sign-ins, keys and changes to the instance for 90 days, in Settings
 and as `kamosu-security` lines in its log
 ([docs/security-record.md](docs/security-record.md)). Kamosu has not been

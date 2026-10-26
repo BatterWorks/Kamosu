@@ -1,7 +1,7 @@
 <!--
-	Your passkeys, at the top of Access on Settings › Account (#370, choice A
-	of 19 October 2026): each its own card like a Session's row, then a
-	full-width *Add a passkey*. The prototype is
+	Your passkeys, a section of Settings › Signing in (#370, choice A of 19
+	October 2026, moved there by #469): each its own card like a Session's
+	row, then a full-width *Add a passkey*. The prototype is
 	`.dev/prototypes/370-passkeys/pages/list-a.phone.html` and its states.
 
 	Adding asks for the password first, in a sheet, before the device is asked
@@ -24,6 +24,7 @@
 	import { browserHasPasskeys, makePasskey, passkeysWorkHere } from '$lib/passkeys';
 	import SheetFrame from '$lib/SheetFrame.svelte';
 	import Confirm from '$lib/Confirm.svelte';
+	import Section from '$lib/shell/Section.svelte';
 	import type { ListPasskeysOutput } from '$lib/api/catalogue';
 
 	type Passkey = ListPasskeysOutput['passkeys'][number];
@@ -173,112 +174,113 @@
 </script>
 
 {#if listed}
-	<h3 class="mb-2 text-body font-semibold text-ink">{m.passkeys_heading()}</h3>
-	{#if listed.available || listed.passkeys.length > 0}
-		<p class="mb-3 text-read text-ink-2">{m.passkeys_explained()}</p>
-	{/if}
-	{#if listed.passkeys.length > 0}
-		<ul class="mb-3 grid gap-2">
-			{#each listed.passkeys as passkey (passkey.id)}
-				<li class="rounded-sm border border-rule bg-card px-3 py-3">
-					{#if editing === passkey.id}
-						<form
-							class="grid gap-2"
-							onsubmit={(event) => {
-								event.preventDefault();
-								void rename(passkey.id);
-							}}
-						>
-							<label class="grid gap-1 text-read text-ink-2">
-								{m.sessions_name_label()}
-								<input
-									class="min-h-12 w-full rounded-sm border border-rule bg-ground px-3 text-body text-ink"
-									bind:value={draftName}
-									required
-									{@attach (node) => node.focus()}
-								/>
-							</label>
-							{#if renameFailed}
-								<p class="text-body text-accent" role="alert"><Refusal words={renameFailed} /></p>
-							{/if}
-							<div class="flex flex-wrap items-center gap-4">
-								<button
-									class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
-									disabled={renameBusy}
-								>
-									{m.sessions_name_save()}
-								</button>
-								<button
-									type="button"
-									class="quiet-button text-accent"
-									onclick={() => (editing = undefined)}
-								>
-									{m.you_name_keep()}
-								</button>
-							</div>
-						</form>
-					{:else}
-						<div class="flex items-start justify-between gap-3">
-							<div class="min-w-0">
-								<p class="text-body break-words text-ink">{passkey.name}</p>
-								<p class="text-read text-ink-2">
-									{m.passkeys_added({ when: aDate(passkey.created_at) })} · {whenLastUsed(
-										passkey.last_used_at,
-									)}
-								</p>
-								{#if !passkey.works_here}
-									<p class="text-read text-support">
-										{m.passkeys_made_for({ address: passkey.made_for })}
-									</p>
+	<Section heading={m.passkeys_heading()}>
+		{#if listed.available || listed.passkeys.length > 0}
+			<p class="mb-3 text-read text-ink-2">{m.passkeys_explained()}</p>
+		{/if}
+		{#if listed.passkeys.length > 0}
+			<ul class="mb-3 grid gap-2">
+				{#each listed.passkeys as passkey (passkey.id)}
+					<li class="rounded-sm border border-rule bg-card px-3 py-3">
+						{#if editing === passkey.id}
+							<form
+								class="grid gap-2"
+								onsubmit={(event) => {
+									event.preventDefault();
+									void rename(passkey.id);
+								}}
+							>
+								<label class="grid gap-1 text-read text-ink-2">
+									{m.sessions_name_label()}
+									<input
+										class="min-h-12 w-full rounded-sm border border-rule bg-ground px-3 text-body text-ink"
+										bind:value={draftName}
+										required
+										{@attach (node) => node.focus()}
+									/>
+								</label>
+								{#if renameFailed}
+									<p class="text-body text-accent" role="alert"><Refusal words={renameFailed} /></p>
 								{/if}
+								<div class="flex flex-wrap items-center gap-4">
+									<button
+										class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
+										disabled={renameBusy}
+									>
+										{m.sessions_name_save()}
+									</button>
+									<button
+										type="button"
+										class="quiet-button text-accent"
+										onclick={() => (editing = undefined)}
+									>
+										{m.you_name_keep()}
+									</button>
+								</div>
+							</form>
+						{:else}
+							<div class="flex items-start justify-between gap-3">
+								<div class="min-w-0">
+									<p class="text-body break-words text-ink">{passkey.name}</p>
+									<p class="text-read text-ink-2">
+										{m.passkeys_added({ when: aDate(passkey.created_at) })} · {whenLastUsed(
+											passkey.last_used_at,
+										)}
+									</p>
+									{#if !passkey.works_here}
+										<p class="text-read text-support">
+											{m.passkeys_made_for({ address: passkey.made_for })}
+										</p>
+									{/if}
+								</div>
+								<div class="flex shrink-0 items-center gap-3">
+									<button
+										type="button"
+										class="quiet-button text-accent"
+										onclick={() => {
+											removing = passkey;
+											removeFailed = undefined;
+										}}
+									>
+										{m.passkeys_remove()}
+									</button>
+									<button
+										type="button"
+										class="quiet-button text-accent"
+										onclick={() => startRenaming(passkey)}
+									>
+										{m.sessions_rename()}
+									</button>
+								</div>
 							</div>
-							<div class="flex shrink-0 items-center gap-3">
-								<button
-									type="button"
-									class="quiet-button text-accent"
-									onclick={() => {
-										removing = passkey;
-										removeFailed = undefined;
-									}}
-								>
-									{m.passkeys_remove()}
-								</button>
-								<button
-									type="button"
-									class="quiet-button text-accent"
-									onclick={() => startRenaming(passkey)}
-								>
-									{m.sessions_rename()}
-								</button>
-							</div>
-						</div>
-					{/if}
-				</li>
-			{/each}
-		</ul>
-	{:else if !cannotHere}
-		<p class="mb-3 text-body text-ink-2">{m.passkeys_none()}</p>
-	{/if}
-	{#if cannotHere}
-		<p class="mb-6 border-l-2 border-support pl-3 text-read text-ink-2">
-			{cannotHere.said}
-			{#if cannotHere.open}
-				<a
-					href="{cannotHere.open}/settings/account"
-					class="text-accent underline underline-offset-4">{cannotHere.open}</a
-				>
-				{cannotHere.after}
-			{/if}
-		</p>
-	{:else}
-		<button
-			type="button"
-			class="mb-6 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium text-accent"
-			onclick={startAdding}
-		>
-			{m.passkeys_add()}
-		</button>
-	{/if}
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		{:else if !cannotHere}
+			<p class="mb-3 text-body text-ink-2">{m.passkeys_none()}</p>
+		{/if}
+		{#if cannotHere}
+			<p class="mb-6 border-l-2 border-support pl-3 text-read text-ink-2">
+				{cannotHere.said}
+				{#if cannotHere.open}
+					<a
+						href="{cannotHere.open}/settings/signing-in"
+						class="text-accent underline underline-offset-4">{cannotHere.open}</a
+					>
+					{cannotHere.after}
+				{/if}
+			</p>
+		{:else}
+			<button
+				type="button"
+				class="mb-6 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium text-accent"
+				onclick={startAdding}
+			>
+				{m.passkeys_add()}
+			</button>
+		{/if}
+	</Section>
 {/if}
 
 {#if adding}

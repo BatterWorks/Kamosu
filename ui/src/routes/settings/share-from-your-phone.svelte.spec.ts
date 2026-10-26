@@ -1,5 +1,5 @@
 /**
- * Share from your phone (#452, option B): the Settings page that sets a
+ * Save from your phone (#452, option B; named so by #469): the Settings page that sets a
  * phone up to add recipes from any app's Share menu, against a stand-in
  * Kamosu.
  */
@@ -109,7 +109,7 @@ describe('share from your phone', () => {
 
 		const everything = await screen.findByRole('radio', { name: /Everything/ });
 		expect(
-			screen.getByText(/Once Kamosu is on your Home screen, it is in the Share menu/),
+			screen.getByText(/Once Kamosu is on your Home screen, it's in every app's Share menu/),
 		).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'Make the code' })).not.toBeInTheDocument();
 		await fireEvent.click(everything);

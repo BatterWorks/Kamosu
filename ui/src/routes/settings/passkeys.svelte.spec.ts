@@ -1,12 +1,12 @@
 /**
- * Passkeys and changing your password on Settings › Account (#370, choices A
- * and A), against a stand-in Kamosu. The device's own prompt is the one thing
+ * Passkeys and changing your password on Settings › Signing in (#370,
+ * choices A and A; the page since #469), against a stand-in Kamosu. The device's own prompt is the one thing
  * stood in for here: `makePasskey` answers what each test says it did.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
-import Account from './account/+page.svelte';
+import SigningIn from './signing-in/+page.svelte';
 import { renderScreen } from '../../testing/render';
 import type { Answers } from '$lib/api/stand-in';
 import type { ListPasskeysOutput } from '$lib/api/catalogue';
@@ -78,7 +78,7 @@ const PIXEL = {
 };
 
 function account(more: Answers) {
-	return renderScreen(Account, {
+	return renderScreen(SigningIn, {
 		instance_status: {
 			version: '0.1.0',
 			setup_complete: true,
@@ -121,7 +121,7 @@ describe('the passkey list (#370)', () => {
 
 		const heading = await screen.findByRole('heading', { name: 'Passkeys' });
 		expect(
-			heading.compareDocumentPosition(screen.getByRole('heading', { name: 'Sessions' })) &
+			heading.compareDocumentPosition(screen.getByRole('heading', { name: 'Devices signed in' })) &
 				Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
 		const iphone = (await screen.findByText('Safari · iPhone')).closest('li')!;
@@ -240,7 +240,7 @@ describe('the passkey list (#370)', () => {
 			list_passkeys: passkeys([IPHONE], { origin: 'https://recipes.kamosu.example' }),
 		});
 		const link = await screen.findByRole('link', { name: 'https://recipes.kamosu.example' });
-		expect(link).toHaveAttribute('href', 'https://recipes.kamosu.example/settings/account');
+		expect(link).toHaveAttribute('href', 'https://recipes.kamosu.example/settings/signing-in');
 		expect(screen.queryByRole('button', { name: 'Add a passkey' })).not.toBeInTheDocument();
 		// What is there can still be removed from here.
 		expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();

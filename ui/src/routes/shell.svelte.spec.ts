@@ -391,10 +391,8 @@ describe('the back arrow', () => {
 		['a Food', '/foods/f_flour', '/foods'],
 		['a Report', '/imports/j_1', '/imports'],
 		['what one source brought in', '/imports/from/crouton', '/imports'],
-		['Foods', '/foods', '/settings/kitchens'],
-		['Brought in', '/imports', '/settings/instance'],
-		['the Operator screen', '/operator', '/settings/instance'],
-		["one of Settings' pages", '/settings/account', '/settings'],
+		['Foods', '/foods', '/settings'],
+		['What has been brought in', '/imports', '/settings'],
 	])('is on %s, and leads to its parent when nothing is behind it', async (_, pathname, parent) => {
 		shell(pathname, 'wide');
 
@@ -411,11 +409,21 @@ describe('the back arrow', () => {
 		},
 	);
 
+	// The menu stands beside every page of Settings there (#469).
+	it.each([['/settings/signing-in'], ['/settings/people']])(
+		'is not on %s on the wide layout, a page of Settings',
+		(pathname) => {
+			shell(pathname, 'wide');
+
+			expect(arrow()).toBeNull();
+		},
+	);
+
 	it.each([
 		['/recipes/b_soba', '/recipes'],
 		['/foods/f_flour', '/foods'],
 		['/imports/j_1', '/imports'],
-		['/imports', '/settings/instance'],
+		['/imports', '/settings'],
 		['/settings/device', '/settings'],
 	])(
 		"is on the phone layout too at %s, in the page's flow and sticking to the top (#219)",

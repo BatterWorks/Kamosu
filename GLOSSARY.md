@@ -61,7 +61,7 @@ The unguessable address at which a recipe can be read by anyone holding it — t
 _Avoid_: Public URL, guest access, token link, published recipe
 
 **Invite**:
-A one-use link that turns a stranger into a Person, adds a Person to a Kitchen, or joins another Person's Cookbook to yours — a **Cookbook Invite**, which only somebody who already has an account can open, and which says how many recipes on each side become one before anything happens. Where either Cookbook has other Co-authors, accepting one joins nothing until each of them has said yes too (#135). Kamosu has no signup: every account begins with an Invite, and the first is the Operator's own, minted when the instance first runs.
+A one-use link that turns a stranger into a Person, adds a Person to a Kitchen, or joins another Person's Cookbook to yours — a **Cookbook Invite**, which only somebody who already has an account can open, and which says how many recipes on each side become one before anything happens. A **Kitchen Invite** is opened the same way, by somebody who already has an account, and shows the Kitchen as its members see it before they join; the Invite that makes an account can name one of the Operator's own Kitchens for its newcomer to arrive in (#469). Where either Cookbook has other Co-authors, accepting one joins nothing until each of them has said yes too (#135). Kamosu has no signup: every account begins with an Invite, and the first is the Operator's own, minted when the instance first runs.
 _Avoid_: Signup, registration, join code, magic link
 
 **Access Key**:
@@ -137,7 +137,7 @@ Bringing recipes into Kamosu from elsewhere — another app's export, a web page
 _Avoid_: Migration, sync, ingest
 
 **Shortcut**:
-The Apple Shortcut *Add to Kamosu*, which puts Kamosu in an iPhone's Share menu. It holds as little as it can: it sends whatever was shared to `add_this` with an **Add-only key** and shows the message Kamosu answers with, so every rule stays in Kamosu. It is set up once by pasting a *setup code*, shown once in Settings › Share from your phone, which holds the instance's address and a new Add-only key. Android needs none, since Kamosu installed from Chrome is in the Share menu itself (ADR 0055).
+The Apple Shortcut *Add to Kamosu*, which puts Kamosu in an iPhone's Share menu. It holds as little as it can: it sends whatever was shared to `add_this` with an **Add-only key** and shows the message Kamosu answers with, so every rule stays in Kamosu. It is set up once by pasting a *setup code*, shown once in Settings › Save from your phone, which holds the instance's address and a new Add-only key. Android needs none, since Kamosu installed from Chrome is in the Share menu itself (ADR 0055).
 _Avoid_: Shortcut key, iOS app, share extension, integration
 
 **Import Report**:

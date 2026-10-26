@@ -27,7 +27,7 @@ Every request carries the header `Authorization: Bearer <key>`.
 
 ## The setup code
 
-Settings → Share from your phone shows one code, once: the format's name,
+Settings → Save from your phone shows one code, once: the format's name,
 `kamosu1`, the address the phone reaches Kamosu at, and the Add-only key, with
 one space between each.
 
@@ -88,9 +88,9 @@ to **Stop and Respond**, with the response
    **Setup**, choose **Add Import Question** on this Text action, with the
    question below and no default answer. Set Variable **Code** to the Text.
 
-   > Kamosu → Settings → Share from your phone: paste the setup code. ·
-   > Kamosu → Réglages → Partager depuis votre téléphone : collez le code de
-   > réglage. · Kamosu → Ajustes → Compartir desde tu teléfono: pega el
+   > Kamosu → Settings → Save from your phone: paste the setup code. ·
+   > Kamosu → Réglages → Enregistrer depuis votre téléphone : collez le code
+   > de réglage. · Kamosu → Ajustes → Guardar desde tu teléfono: pega el
    > código de configuración.
 
 2. **Split Text** Code by **Spaces**.

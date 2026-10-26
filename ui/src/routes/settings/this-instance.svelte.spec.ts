@@ -1,6 +1,6 @@
 /**
- * The screen-seam test: the Operator's screen, against a stand-in Kamosu
- * (#103).
+ * The screen-seam test: Settings' This instance pages, which were the
+ * Operator's screen (#103) until #469, against a stand-in Kamosu.
  *
  * The answers below are checked against the Catalogue before the screen sees
  * them, so this cannot quietly keep passing against a shape the Core no longer
@@ -12,8 +12,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, fireEvent, within } from '@testing-library/svelte';
-import Operator from './+page.svelte';
-import { renderScreen } from '../../testing/render';
+import People from './people/+page.svelte';
+import Backups from './backups/+page.svelte';
+import Runner from './runner/+page.svelte';
+import Address from './address/+page.svelte';
+import Meaning from './meaning/+page.svelte';
+import Upkeep from './upkeep/+page.svelte';
+import { renderScreen, type ScreenComponent } from '../../testing/render';
 import type { Answers } from '$lib/api/stand-in';
 import type { ListFoodsOutput, RereadIngredientLinesOutput } from '$lib/api/catalogue';
 
@@ -71,6 +76,8 @@ const quiet: Answers = {
 	list_runner_keys: { runner_keys: [] },
 	runner_status: { has_runner: false, last_asked_at: null },
 	get_house_notes: { notes: null, saved_by: null, saved_at: null },
+	// An Operator in no Kitchen yet, so an Invite offers none to arrive in.
+	list_kitchens: { kitchens: [] },
 };
 
 /** The same instance, with one pair of Foods waiting to be looked at. */
@@ -91,11 +98,6 @@ const withSuggestion: Answers = {
 	},
 };
 
-/** Move to the Instance room, where People, Backups and the address live. */
-async function openInstance() {
-	await fireEvent.click(await screen.findByRole('tab', { name: 'Instance' }));
-}
-
 /**
  * Open one Person's actions and hand back their row.
  *
@@ -109,47 +111,50 @@ async function openPerson(name: string) {
 	return row;
 }
 
-describe("the Operator's screen", () => {
-	it('shows nothing at all to a Person who is not an Operator', async () => {
-		const { kamosu } = renderScreen(Operator, {
-			list_accounts: {
-				refuse: 'unauthorized',
-				message: 'requires a Credential naming an Operator',
-			},
-		});
+describe("This instance's pages", () => {
+	it.each([
+		['People', People, 'list_kitchens'],
+		['Backups', Backups, 'list_backups'],
+		['Runner and House Notes', Runner, 'list_runner_keys'],
+		['Public address', Address, 'get_public_address'],
+		['Meaning Search', Meaning, 'meaning_search_status'],
+		['Upkeep', Upkeep, 'list_foods'],
+	] as [string, ScreenComponent, string][])(
+		'%s shows nothing at all to a Person who is not an Operator',
+		async (_, page, asks) => {
+			const { kamosu } = renderScreen(page, {
+				list_accounts: {
+					refuse: 'unauthorized',
+					message: 'requires a Credential naming an Operator',
+				},
+			});
 
-		expect(await screen.findByText(/nothing here for you/i)).toBeInTheDocument();
-		// Not merely hidden: the room is never asked about. A screen that listed
-		// Backups and then declined to show them would still have asked.
-		expect(kamosu.calls.map((call) => call.operation)).not.toContain('list_backups');
-		expect(screen.queryByRole('tab', { name: 'Worklist' })).not.toBeInTheDocument();
-	});
+			expect(await screen.findByText(/nothing here for you/i)).toBeInTheDocument();
+			// Not merely hidden: the page is never asked about. One that listed
+			// Backups and then declined to show them would still have asked.
+			expect(kamosu.calls.map((call) => call.operation)).not.toContain(asks);
+		},
+	);
 
 	it('names who holds an account, and which one is you', async () => {
-		renderScreen(Operator, quiet);
-		await openInstance();
+		renderScreen(People, quiet);
 
 		expect(await screen.findByText('Stéphane')).toBeInTheDocument();
 		expect(screen.getByText('Camille')).toBeInTheDocument();
 		expect(screen.getByText('You')).toBeInTheDocument();
 	});
 
-	it('says the Operator boundary out loud, and is no window onto anyone', async () => {
-		renderScreen(Operator, quiet);
-		await openInstance();
-
-		expect(await screen.findByText(/Operator boundary is a courtesy/i)).toBeInTheDocument();
+	it('is no window onto anyone', async () => {
+		renderScreen(People, quiet);
+		await screen.findByText('Camille');
 
 		// ADR 0007: no recipe, Attempt or Kitchen of anybody's is reachable here.
-		// Asserted on what the screen actually rendered, with the screen-reader
+		// Asserted on what the page actually rendered, with the screen-reader
 		// text stripped first so a hidden word cannot pass for a visible one.
+		// The Operator's own Kitchens are offered to an Invite where they have
+		// any (#469); this one has none.
 		const shown = document.body.cloneNode(true) as HTMLElement;
 		for (const hidden of shown.querySelectorAll('.sr-only')) hidden.remove();
-		// The Runner's own sentences say what a Runner does with a recipe
-		// (#275). They name no recipe of anybody's, so they are not what this
-		// guards; the rest of its section, its keys' names, still is.
-		const runner = [...shown.querySelectorAll('h2')].find((h) => h.textContent === 'Runner');
-		for (const said of runner?.closest('section')?.querySelectorAll('p') ?? []) said.remove();
 		const words = (shown.textContent ?? '').toLowerCase();
 		for (const forbidden of ['recipe', 'attempt', 'kitchen']) {
 			expect(words).not.toContain(forbidden);
@@ -157,17 +162,16 @@ describe("the Operator's screen", () => {
 	});
 
 	it('shows the empty worklist, which is where most instances live', async () => {
-		renderScreen(Operator, quiet);
+		renderScreen(Upkeep, quiet);
 
 		expect(await screen.findByText(/nothing to look at/i)).toBeInTheDocument();
-		expect(screen.getByText(/never merges Foods by itself/i)).toBeInTheDocument();
 		// Every Food here is in use, so none is offered for deleting.
 		expect(screen.getByText(/is used by a recipe/i)).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
 	});
 
 	it('announces what a Merge will move before it moves it, and says that figure back', async () => {
-		const { kamosu } = renderScreen(Operator, {
+		const { kamosu } = renderScreen(Upkeep, {
 			...withSuggestion,
 			preview_food_merge: {
 				survivor: flour,
@@ -211,7 +215,7 @@ describe("the Operator's screen", () => {
 		// merge, so same-named Foods are ordinary, not pathological.
 		const english = food({ id: 'f_en', name: 'flour', language: 'en' });
 		const french = food({ id: 'f_fr', name: 'flour', language: 'fr' });
-		renderScreen(Operator, {
+		renderScreen(Upkeep, {
 			...quiet,
 			list_merge_suggestions: {
 				suggestions: [
@@ -234,7 +238,7 @@ describe("the Operator's screen", () => {
 		// The case the first fix missed, caught in live acceptance: both Foods
 		// on the dev corpus were English, so naming the language printed the
 		// identical label twice. The id always differs.
-		renderScreen(Operator, {
+		renderScreen(Upkeep, {
 			...quiet,
 			list_merge_suggestions: {
 				suggestions: [
@@ -258,8 +262,7 @@ describe("the Operator's screen", () => {
 	});
 
 	it('asks before deleting an account, and offers the reversible act beside it', async () => {
-		const { kamosu } = renderScreen(Operator, { ...quiet, delete_account: { deleted: true } });
-		await openInstance();
+		const { kamosu } = renderScreen(People, { ...quiet, delete_account: { deleted: true } });
 
 		const camille = await openPerson('Camille');
 		await fireEvent.click(within(camille).getByRole('button', { name: 'Delete' }));
@@ -280,11 +283,10 @@ describe("the Operator's screen", () => {
 	it("shows the Core's refusal when the last Operator is the one being ended", async () => {
 		const refusal =
 			"'Stéphane' is the only Operator this instance has, and deleting the account would leave it with nobody able to administer it and no way to appoint anybody. Make somebody else an Operator first.";
-		renderScreen(Operator, {
+		renderScreen(People, {
 			...quiet,
 			delete_account: { refuse: 'bad_request', message: refusal },
 		});
-		await openInstance();
 
 		const you = await openPerson('Stéphane');
 		await fireEvent.click(within(you).getByRole('button', { name: 'Delete' }));
@@ -297,22 +299,20 @@ describe("the Operator's screen", () => {
 		expect(within(sheet).getByText(/Make somebody else an Operator first/)).toBeInTheDocument();
 	});
 
-	it('shows an Invite once, and says it will not be shown again', async () => {
-		renderScreen(Operator, { ...quiet, mint_invite: { link: '/invite/8f2c1a94e07b' } });
-		await openInstance();
+	it('shows an Invite once, and says it works once', async () => {
+		renderScreen(People, { ...quiet, mint_invite: { link: '/invite/8f2c1a94e07b' } });
 
-		await fireEvent.click(await screen.findByRole('button', { name: 'Invite someone' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Make the invite link' }));
 		// Whole, with the address it is read from in front of it: what is on the
 		// screen is what you send somebody, and `/invite/…` alone is a path.
 		expect(
 			await screen.findByText(`${window.location.origin}/invite/8f2c1a94e07b`),
 		).toBeInTheDocument();
-		expect(screen.getByText(/won't be shown again/i)).toBeInTheDocument();
+		expect(screen.getByText(/It works once/i)).toBeInTheDocument();
 	});
 
 	it('keeps a Person\u2019s four acts in their own row, one row open at a time', async () => {
-		renderScreen(Operator, quiet);
-		await openInstance();
+		renderScreen(People, quiet);
 
 		// The list is a list of people first. Four buttons under every one of
 		// them at once is what made this room a page of buttons with the names
@@ -341,10 +341,9 @@ describe("the Operator's screen", () => {
 				},
 			},
 		});
-		renderScreen(Operator, { ...quiet, mint_invite: { link: '/invite/8f2c1a94e07b' } });
-		await openInstance();
+		renderScreen(People, { ...quiet, mint_invite: { link: '/invite/8f2c1a94e07b' } });
 
-		await fireEvent.click(await screen.findByRole('button', { name: 'Invite someone' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Make the invite link' }));
 		await fireEvent.click(await screen.findByRole('button', { name: 'Copy the link' }));
 
 		// Forty hex characters selected by dragging on a phone is the failure
@@ -355,11 +354,10 @@ describe("the Operator's screen", () => {
 	});
 
 	it('shows a recovery link under the Person it belongs to', async () => {
-		renderScreen(Operator, {
+		renderScreen(People, {
 			...quiet,
 			mint_recovery_link: { link: '/recover/3b71d0ae5c92' },
 		});
-		await openInstance();
 
 		const camille = await openPerson('Camille');
 		await fireEvent.click(within(camille).getByRole('button', { name: 'Recovery link' }));
@@ -373,11 +371,10 @@ describe("the Operator's screen", () => {
 	});
 
 	it('raises a Person to Operator and stands one down, by name', async () => {
-		const { kamosu } = renderScreen(Operator, {
+		const { kamosu } = renderScreen(People, {
 			...quiet,
 			set_operator: { name: 'Camille', is_operator: true },
 		});
-		await openInstance();
 
 		const camille = await openPerson('Camille');
 		await fireEvent.click(within(camille).getByRole('button', { name: 'Make an Operator' }));
@@ -392,23 +389,59 @@ describe("the Operator's screen", () => {
 	});
 
 	it('mints an Invite that carries whether they arrive as an Operator', async () => {
-		const { kamosu } = renderScreen(Operator, {
+		const { kamosu } = renderScreen(People, {
 			...quiet,
 			mint_invite: { link: '/invite/8f2c1a94e07b' },
 		});
-		await openInstance();
 
 		await fireEvent.click(
 			await screen.findByRole('checkbox', { name: 'They arrive as an Operator' }),
 		);
-		await fireEvent.click(screen.getByRole('button', { name: 'Invite someone' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Make the invite link' }));
 		expect(kamosu.calls.find((call) => call.operation === 'mint_invite')?.input).toEqual({
 			is_operator: true,
 		});
 	});
 
+	it("brings the newcomer into the Operator's own Kitchen, or none (#469)", async () => {
+		const { kamosu } = renderScreen(People, {
+			...quiet,
+			list_kitchens: {
+				kitchens: [
+					{ id: 'k_home', name: 'Home', nickname: null, members: [], cookbooks: [] },
+					{ id: 'k_cabin', name: 'The cabin', nickname: null, members: [], cookbooks: [] },
+				],
+			},
+			mint_invite: { link: '/invite/8f2c1a94e07b' },
+		});
+
+		// The first of the Operator's own is chosen to start with.
+		const kitchen = await screen.findByRole('combobox', { name: 'Their Kitchen' });
+		await vi.waitFor(() => expect(kitchen).toHaveValue('k_home'));
+		await fireEvent.click(screen.getByRole('button', { name: 'Make the invite link' }));
+		expect(kamosu.calls.find((call) => call.operation === 'mint_invite')?.input).toEqual({
+			is_operator: false,
+			kitchen_id: 'k_home',
+		});
+		expect(await screen.findByText('They arrive in Home.')).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+		await fireEvent.change(await screen.findByRole('combobox', { name: 'Their Kitchen' }), {
+			target: { value: '' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Make the invite link' }));
+		expect(kamosu.calls.filter((call) => call.operation === 'mint_invite')[1]?.input).toEqual({
+			is_operator: false,
+		});
+		// The second link is on screen before anything is said of it.
+		expect(
+			await screen.findByText(`${window.location.origin}/invite/8f2c1a94e07b`),
+		).toBeInTheDocument();
+		expect(screen.queryByText(/They arrive in/)).not.toBeInTheDocument();
+	});
+
 	it('asks before sweeping, because a swept Photograph does not come back', async () => {
-		const { kamosu } = renderScreen(Operator, {
+		const { kamosu } = renderScreen(Upkeep, {
 			...quiet,
 			sweep_photographs: {
 				referenced: 65,
@@ -460,7 +493,7 @@ describe("the Operator's screen", () => {
 			on_head: false,
 			older_versions: 2,
 		});
-		const { kamosu } = renderScreen(Operator, {
+		const { kamosu } = renderScreen(Upkeep, {
 			...quiet,
 			reread_ingredient_lines: { job_id: 'j_reread' },
 			get_job: {
@@ -481,7 +514,7 @@ describe("the Operator's screen", () => {
 			},
 		});
 
-		expect(await screen.findByText(/keeps the ones you set by hand/)).toBeInTheDocument();
+		expect(await screen.findByText(/Lines set by hand stay/)).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'Read the unread lines' })).not.toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Read every line again' }));
 
@@ -512,7 +545,7 @@ describe("the Operator's screen", () => {
 	});
 
 	it('says so when reading every line again changed nothing', async () => {
-		renderScreen(Operator, {
+		renderScreen(Upkeep, {
 			...quiet,
 			reread_ingredient_lines: { job_id: 'j_reread' },
 			get_job: {
@@ -535,8 +568,8 @@ describe("the Operator's screen", () => {
 		expect(screen.queryByText(/nothing pointing at them/)).not.toBeInTheDocument();
 	});
 
-	it('does not mistake a broken Kamosu for a room that is not yours', async () => {
-		renderScreen(Operator, {
+	it('does not mistake a broken Kamosu for a page that is not yours', async () => {
+		renderScreen(People, {
 			...quiet,
 			list_accounts: { refuse: 'internal', message: 'the database is unreadable' },
 		});
@@ -548,8 +581,7 @@ describe("the Operator's screen", () => {
 	});
 
 	it('lists the Backups that exist, each by its slot', async () => {
-		renderScreen(Operator, quiet);
-		await openInstance();
+		renderScreen(Backups, quiet);
 
 		// `slot`, the word the Core has always sent. This assertion is what the
 		// declaration's old `tier` would now fail on.
@@ -561,24 +593,61 @@ describe("the Operator's screen", () => {
 	});
 
 	it('tells the truth about what changing the public address reaches', async () => {
-		renderScreen(Operator, quiet);
-		await openInstance();
+		renderScreen(Address, quiet);
 
 		expect(await screen.findByText('https://kamosu.example')).toBeInTheDocument();
 		const warning = screen.getByText(/Links already sent/);
 		expect(warning).toHaveTextContent(/keep the old one/);
-		expect(warning).toHaveTextContent(/can't be reissued/);
-		// The false promise this ticket corrected must not come back.
+		// The false promise #103 corrected must not come back.
 		expect(warning.textContent ?? '').not.toMatch(/follow/i);
+	});
+
+	it('changes the address at once where no passkey would stop working', async () => {
+		const { kamosu } = renderScreen(Address, {
+			...quiet,
+			set_public_address: { public_address: 'https://recipes.kamosu.example' },
+		});
+
+		await fireEvent.input(await screen.findByRole('textbox', { name: 'Public address' }), {
+			target: { value: 'https://recipes.kamosu.example' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Change the address' }));
+
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		expect(kamosu.calls.find((call) => call.operation === 'set_public_address')?.input).toEqual({
+			public_address: 'https://recipes.kamosu.example',
+		});
+		expect(await screen.findByRole('status')).toHaveTextContent('Saved.');
+	});
+
+	it('asks first where passkeys would stop working, and says how many (#469)', async () => {
+		const { kamosu } = renderScreen(Address, {
+			...quiet,
+			get_public_address: { public_address: 'https://kamosu.example', passkeys: 2 },
+			set_public_address: { public_address: 'https://recipes.kamosu.example' },
+		});
+
+		await fireEvent.input(await screen.findByRole('textbox', { name: 'Public address' }), {
+			target: { value: 'https://recipes.kamosu.example' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Change the address' }));
+
+		const sheet = await screen.findByRole('dialog', { name: 'Change the public address?' });
+		expect(within(sheet).getByText(/2 passkeys were added at this address/)).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('set_public_address');
+
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Change the address' }));
+		expect(kamosu.calls.map((call) => call.operation)).toContain('set_public_address');
+		await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 	});
 });
 
 /**
- * The Runner (#275), in the Instance room, as option 1 of 15 October 2026
- * drew it. It is 15 Oct 2026, 10:42 in every test: "Kitchen laptop" asked a
+ * The Runner (#275), on Runner and House Notes, as option 1 of 15 October
+ * 2026 drew it. It is 15 Oct 2026, 10:42 in every test: "Kitchen laptop" asked a
  * minute ago, "Old server" last asked 3 days ago.
  */
-describe("the Operator's Runner", () => {
+describe('the Runner', () => {
 	const NOW = new Date('2026-10-15T10:42:00Z');
 	const RECENT = '2026-10-15T10:41:00Z';
 	const STALE = '2026-10-12T09:15:00Z';
@@ -610,14 +679,11 @@ describe("the Operator's Runner", () => {
 	afterEach(() => vi.useRealTimers());
 
 	it('says what a Runner is, and that none has asked when there is no key', async () => {
-		renderScreen(Operator, runner([], null));
-		await openInstance();
+		renderScreen(Runner, runner([], null));
 		const runnerSection = await section();
 
 		expect(
-			within(runnerSection).getByText(
-				/A Runner is a small program you start on a computer beside Kamosu\. It hands what Kamosu can't read by itself/,
-			),
+			within(runnerSection).getByText(/Hands what Kamosu can't read alone, a photo or a video/),
 		).toBeInTheDocument();
 		expect(
 			await within(runnerSection).findByText('No Runner has asked for work yet.'),
@@ -627,8 +693,7 @@ describe("the Operator's Runner", () => {
 	});
 
 	it('tells a key whose Runner never asked from no key at all', async () => {
-		renderScreen(Operator, runner([key('rk_laptop', 'Kitchen laptop', null)], null));
-		await openInstance();
+		renderScreen(Runner, runner([key('rk_laptop', 'Kitchen laptop', null)], null));
 		const runnerSection = await section();
 
 		expect(await within(runnerSection).findByText('Never used')).toBeInTheDocument();
@@ -639,8 +704,7 @@ describe("the Operator's Runner", () => {
 	});
 
 	it('says how long ago a Runner asked, and each key its last use', async () => {
-		renderScreen(Operator, runner([laptop, server], RECENT));
-		await openInstance();
+		renderScreen(Runner, runner([laptop, server], RECENT));
 		const runnerSection = await section();
 
 		expect(
@@ -656,8 +720,7 @@ describe("the Operator's Runner", () => {
 	});
 
 	it('says a Runner quiet for days may need looking at', async () => {
-		renderScreen(Operator, runner([server], STALE));
-		await openInstance();
+		renderScreen(Runner, runner([server], STALE));
 		const runnerSection = await section();
 
 		expect(
@@ -667,8 +730,7 @@ describe("the Operator's Runner", () => {
 	});
 
 	it('stops describing a working Runner once every key is revoked', async () => {
-		renderScreen(Operator, runner([key('rk_old', 'Gone', STALE, true)], RECENT));
-		await openInstance();
+		renderScreen(Runner, runner([key('rk_old', 'Gone', STALE, true)], RECENT));
 		const runnerSection = await section();
 
 		expect(
@@ -679,8 +741,7 @@ describe("the Operator's Runner", () => {
 	});
 
 	it('lists no revoked key', async () => {
-		renderScreen(Operator, runner([laptop, key('rk_old', 'Gone', STALE, true)], RECENT));
-		await openInstance();
+		renderScreen(Runner, runner([laptop, key('rk_old', 'Gone', STALE, true)], RECENT));
 		const runnerSection = await section();
 
 		expect(await within(runnerSection).findByText('Kitchen laptop')).toBeInTheDocument();
@@ -688,11 +749,10 @@ describe("the Operator's Runner", () => {
 	});
 
 	it('mints a named key and shows its Secret once, in a sheet', async () => {
-		const { kamosu } = renderScreen(Operator, {
+		const { kamosu } = renderScreen(Runner, {
 			...runner([], null),
 			mint_runner_key: { id: 'rk_new', name: 'Kitchen laptop', secret: 'kr_SECRET' },
 		});
-		await openInstance();
 		const runnerSection = await section();
 
 		await fireEvent.input(within(runnerSection).getByLabelText(/A name, to tell this Runner/), {
@@ -716,11 +776,10 @@ describe("the Operator's Runner", () => {
 	});
 
 	it('asks before revoking, and revokes that key alone', async () => {
-		const { kamosu } = renderScreen(Operator, {
+		const { kamosu } = renderScreen(Runner, {
 			...runner([laptop, server], RECENT),
 			revoke_runner_key: { revoked: true },
 		});
-		await openInstance();
 		const runnerSection = await section();
 
 		const row = (await within(runnerSection).findByText('Kitchen laptop')).closest(
@@ -743,23 +802,27 @@ describe("the Operator's Runner", () => {
 		expect(within(runnerSection).getByText('Old server')).toBeInTheDocument();
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 	});
-	describe('house notes for the agent (#344)', () => {
+	describe('House Notes for the agent (#344)', () => {
+		/** The page's section, not the sheet of the same name over it. */
 		const notesRow = async () =>
-			(
-				await within(await section()).findByRole('button', { name: /House notes for the agent/ })
-			).closest('li') as HTMLElement;
+			(await screen.findAllByRole('heading', { name: 'House Notes' }))
+				.map((heading) => heading.closest('section'))
+				.find(Boolean) as HTMLElement;
+		const write = async () =>
+			fireEvent.click(
+				within(await notesRow()).getByRole('button', { name: 'Write the House Notes' }),
+			);
 
-		it('says none are written, and that the agent follows its own instructions', async () => {
-			renderScreen(Operator, runner([], null));
-			await openInstance();
+		it('says none are written', async () => {
+			renderScreen(Runner, runner([], null));
 			const row = await notesRow();
 
 			expect(row.textContent).toMatch(/Nothing written yet/);
-			expect(row.textContent).toMatch(/The agent follows its image's own instructions alone\./);
+			expect(row.textContent).toMatch(/Added to the agent's instructions for every Job\./);
 		});
 
 		it('shows the first line, and who saved them and when', async () => {
-			renderScreen(Operator, {
+			renderScreen(Runner, {
 				...runner([laptop], RECENT),
 				get_house_notes: {
 					notes: 'Grams, never cups.\nTag every dessert Sweet.',
@@ -767,7 +830,6 @@ describe("the Operator's Runner", () => {
 					saved_at: STALE,
 				},
 			});
-			await openInstance();
 			const row = await notesRow();
 
 			expect(row.textContent).toMatch(/Grams, never cups\./);
@@ -781,16 +843,13 @@ describe("the Operator's Runner", () => {
 				saved_by: 'Stéphane',
 				saved_at: RECENT,
 			};
-			const { kamosu } = renderScreen(Operator, {
+			const { kamosu } = renderScreen(Runner, {
 				...runner([laptop], RECENT),
 				set_house_notes: saved,
 			});
-			await openInstance();
-			await fireEvent.click(
-				within(await notesRow()).getByRole('button', { name: /House notes for the agent/ }),
-			);
+			await write();
 
-			const sheet = await screen.findByRole('dialog', { name: 'House notes for the agent' });
+			const sheet = await screen.findByRole('dialog', { name: 'House Notes' });
 			expect(within(sheet).getByText(/win where the two disagree/)).toBeInTheDocument();
 			expect(within(sheet).getByText(/reads house_notes from each Job/)).toBeInTheDocument();
 			expect(
@@ -799,7 +858,7 @@ describe("the Operator's Runner", () => {
 			const save = within(sheet).getByRole('button', { name: 'Save' });
 			expect(save).toBeDisabled();
 
-			const box = within(sheet).getByRole('textbox', { name: 'House notes for the agent' });
+			const box = within(sheet).getByRole('textbox', { name: 'House Notes' });
 			await fireEvent.input(box, { target: { value: 'Grams, never cups.' } });
 			expect(save).toBeEnabled();
 			await fireEvent.click(save);
@@ -820,17 +879,14 @@ describe("the Operator's Runner", () => {
 		});
 
 		it('takes them away when the box is saved blank', async () => {
-			const { kamosu } = renderScreen(Operator, {
+			const { kamosu } = renderScreen(Runner, {
 				...runner([laptop], RECENT),
 				get_house_notes: { notes: 'Grams, never cups.', saved_by: 'Stéphane', saved_at: STALE },
 				set_house_notes: { notes: null, saved_by: 'Stéphane', saved_at: RECENT },
 			});
-			await openInstance();
-			await fireEvent.click(
-				within(await notesRow()).getByRole('button', { name: /House notes for the agent/ }),
-			);
-			const sheet = await screen.findByRole('dialog', { name: 'House notes for the agent' });
-			const box = within(sheet).getByRole('textbox', { name: 'House notes for the agent' });
+			await write();
+			const sheet = await screen.findByRole('dialog', { name: 'House Notes' });
+			const box = within(sheet).getByRole('textbox', { name: 'House Notes' });
 			expect(box).toHaveValue('Grams, never cups.');
 
 			await fireEvent.input(box, { target: { value: '' } });
@@ -846,18 +902,15 @@ describe("the Operator's Runner", () => {
 		});
 
 		it("shows the Core's refusal in its own words", async () => {
-			renderScreen(Operator, {
+			renderScreen(Runner, {
 				...runner([laptop], RECENT),
 				set_house_notes: {
 					refuse: 'bad_request',
 					message: 'the house notes are longer than 4000 characters',
 				},
 			});
-			await openInstance();
-			await fireEvent.click(
-				within(await notesRow()).getByRole('button', { name: /House notes for the agent/ }),
-			);
-			const sheet = await screen.findByRole('dialog', { name: 'House notes for the agent' });
+			await write();
+			const sheet = await screen.findByRole('dialog', { name: 'House Notes' });
 			await fireEvent.input(within(sheet).getByRole('textbox'), { target: { value: 'Cups.' } });
 			await fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
 

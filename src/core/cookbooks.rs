@@ -1083,7 +1083,7 @@ fn still_to_answer(conn: &Connection, join: &Join) -> Result<Vec<String>, OpErro
     .collect())
 }
 
-fn person_named(conn: &Connection, person_id: &str) -> Result<Value, OpError> {
+pub(super) fn person_named(conn: &Connection, person_id: &str) -> Result<Value, OpError> {
     let name: String = conn
         .query_row(
             "SELECT name FROM people WHERE id = ?1",

@@ -190,7 +190,7 @@
 	);
 </script>
 
-<p class="text-read text-ink-2">{m.import_other_blurb()} {m.import_other_again()}</p>
+<p class="text-read text-ink-2">{m.import_other_blurb()}</p>
 
 <div
 	class="relative mt-4 flex flex-col items-center gap-2 rounded-md border-2 border-dashed border-rule bg-card px-4 py-6 text-center"

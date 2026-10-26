@@ -1,6 +1,10 @@
-<!-- One of Settings' pages (#371): `Settings.svelte` draws the sections it holds. -->
+<!-- Your security record (#371, #469): yours alone, since the instance's is a page of This instance. -->
 <script lang="ts">
-	import Settings from '../Settings.svelte';
+	import { m } from '$lib/paraglide/messages';
+	import Screen from '$lib/shell/Screen.svelte';
+	import SecurityRecord from '../SecurityRecord.svelte';
 </script>
 
-<Settings page="security" />
+<Screen title={m.settings_security_record()}>
+	<SecurityRecord whose="yours" />
+</Screen>

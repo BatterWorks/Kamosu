@@ -96,6 +96,50 @@ impl Core {
         Ok((id, secret))
     }
 
+    /// What opening a Kitchen Invite would do, before anybody says yes (#469):
+    /// the Kitchen as its members see it, who sent the link, and whether the
+    /// reader is in it already. Reading it spends nothing.
+    pub fn read_kitchen_invite(&self, person_id: &str, secret: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let (kitchen_id, sender): (String, String) = conn
+                .query_row(
+                    "SELECT kitchen_id, created_by FROM kitchen_invites \
+                      WHERE secret_hash = ?1 AND used_at IS NULL AND ended_at IS NULL",
+                    params![hash_secret(secret)],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot resolve Kitchen Invite: {e}")))?
+                .ok_or_else(|| {
+                    OpError::unauthorized("this Invite does not name a live Kitchen invitation")
+                })?;
+            Ok(json!({
+                "kitchen": kitchen_summary(conn, &kitchen_id, person_id)?,
+                "invited_by": super::cookbooks::person_named(conn, &sender)?,
+                "already_member": is_member(conn, &kitchen_id, person_id)?,
+            }))
+        })
+    }
+
+    /// Cancel a Kitchen Invite nobody has opened yet (#469). Any member of its
+    /// Kitchen may; to anybody else it is not there (ADR 0040).
+    pub fn cancel_kitchen_invite(&self, person_id: &str, invite_id: &str) -> Result<(), OpError> {
+        self.db().with_conn(|conn| {
+            let ended = conn
+                .execute(
+                    "UPDATE kitchen_invites SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
+                      WHERE id = ?1 AND used_at IS NULL AND ended_at IS NULL \
+                        AND kitchen_id IN (SELECT kitchen_id FROM kitchen_members WHERE person_id = ?2)",
+                    params![invite_id, person_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot end Kitchen Invite: {e}")))?;
+            if ended == 0 {
+                return Err(OpError::not_found("no Kitchen Invite of yours is waiting by that id"));
+            }
+            Ok(())
+        })
+    }
+
     /// Open a Kitchen Invite: the Person presenting it joins the Kitchen, and
     /// the Invite is spent. Already being a member is not an error — the
     /// Invite is still spent, and the Kitchen is simply handed back.
@@ -104,7 +148,8 @@ impl Core {
         self.db().with_conn(|conn| {
             let (invite_id, kitchen_id): (String, String) = conn
                 .query_row(
-                    "SELECT id, kitchen_id FROM kitchen_invites WHERE secret_hash = ?1 AND used_at IS NULL",
+                    "SELECT id, kitchen_id FROM kitchen_invites \
+                      WHERE secret_hash = ?1 AND used_at IS NULL AND ended_at IS NULL",
                     params![hash],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
@@ -257,6 +302,15 @@ impl Core {
                 params![kitchen_id],
             )
             .map_err(|e| OpError::internal(format!("cannot delete Kitchen Invites: {e}")))?;
+            // An Operator's Invite that named it brings its newcomer into no
+            // Kitchen now, used or not (#469).
+            conn.execute(
+                "UPDATE account_links SET kitchen_id = NULL WHERE kitchen_id = ?1",
+                params![kitchen_id],
+            )
+            .map_err(|e| {
+                OpError::internal(format!("cannot let go of the Kitchen's Invites: {e}"))
+            })?;
             conn.execute("DELETE FROM kitchens WHERE id = ?1", params![kitchen_id])
                 .map_err(|e| OpError::internal(format!("cannot delete Kitchen: {e}")))?;
             transaction
@@ -377,13 +431,17 @@ fn kitchen_summary(
             |row| row.get(0),
         )
         .map_err(|e| OpError::internal(format!("cannot read Kitchen: {e}")))?;
+    // Somebody reading an Invite to a Kitchen they are not in has no
+    // Nickname for it (#469).
     let nickname: Option<String> = conn
         .query_row(
             "SELECT nickname FROM kitchen_members WHERE kitchen_id = ?1 AND person_id = ?2",
             params![kitchen_id, viewer_person_id],
             |row| row.get(0),
         )
-        .map_err(|e| OpError::internal(format!("cannot read Nickname: {e}")))?;
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read Nickname: {e}")))?
+        .flatten();
     let mut statement = conn
         .prepare(
             "SELECT people.id, people.name FROM kitchen_members \

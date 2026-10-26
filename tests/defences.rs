@@ -1150,14 +1150,12 @@ async fn a_share_links_card_is_drawn_once_and_kept() {
 /// them will see them.
 ///
 /// ADR 0034 says the list must be maintained, and an entry that stops being
-/// true is worse than one that never existed. It now lives in two places a
-/// reader meets, so this fails if one of them loses an item the other kept.
-/// The wording differs between them on purpose, since a settings screen is
-/// read standing up; what must not differ is what is on the list.
+/// true is worse than one that never existed. It lives in `SECURITY.md`,
+/// which the README links. Settings carried a copy until #469 took it out:
+/// no app shows its users such a list, so this checks the one place left.
 #[test]
-fn the_honest_list_is_shipped_whole_in_both_places() {
+fn the_honest_list_is_shipped_whole() {
     let security = std::fs::read_to_string("SECURITY.md").expect("SECURITY.md");
-    let messages = std::fs::read_to_string("ui/messages/en.json").expect("the English messages");
 
     let list = security
         .split_once("## What Kamosu does not defend")
@@ -1167,52 +1165,20 @@ fn the_honest_list_is_shipped_whole_in_both_places() {
         .next()
         .expect("the section ends somewhere");
 
-    for (what, in_readme, key) in [
-        ("the disk", "holds everything", "settings_operator_boundary"),
-        (
-            "a Hand",
-            "A Hand is not checked",
-            "settings_hand_unverified",
-        ),
-        (
-            "a Share Link",
-            "cannot be recalled",
-            "settings_share_no_unsay",
-        ),
-        (
-            "a stranger waiting",
-            "make another stranger wait",
-            "settings_stranger_waits",
-        ),
-        (
-            "a stolen phone",
-            "is a logged-in phone",
-            "settings_stolen_phone",
-        ),
-        (
-            "a name held off",
-            "keep you from signing in",
-            "settings_name_held_off",
-        ),
-        (
-            "the first setup",
-            "whoever sets Kamosu up",
-            "settings_first_person_taken",
-        ),
-        (
-            "an agent",
-            "including by text it reads",
-            "settings_agent_reads",
-        ),
-        ("an audit", "has not been audited", "settings_unaudited"),
+    for (what, said) in [
+        ("the disk", "holds everything"),
+        ("a Hand", "A Hand is not checked"),
+        ("a Share Link", "cannot be recalled"),
+        ("a stranger waiting", "make another stranger wait"),
+        ("a stolen phone", "is a logged-in phone"),
+        ("a name held off", "keep you from signing in"),
+        ("the first setup", "whoever sets Kamosu up"),
+        ("an agent", "including by text it reads"),
+        ("an audit", "has not been audited"),
     ] {
         assert!(
-            list.contains(in_readme),
-            "SECURITY.md stopped naming {what} ({in_readme:?})"
-        );
-        assert!(
-            messages.contains(&format!("\"{key}\"")),
-            "the app stopped naming {what} ({key})"
+            list.contains(said),
+            "SECURITY.md stopped naming {what} ({said:?})"
         );
     }
 }

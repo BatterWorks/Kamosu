@@ -4,6 +4,8 @@ Kamosu on a tablet or a computer is the phone's app, the same installed PWA, lai
 
 _(Amended by [ADR 0055](./0055-a-phone-shares-into-kamosu-through-one-operation-and-an-add-only-key.md), 2026-10-24: Recipes takes several pictures dropped at once, as the pages of one recipe. Any other drop of more than one file is still refused.)_
 
+_(Amended by [ADR 0056](./0056-settings-is-grouped-by-whose-a-thing-is.md), 2026-10-26: Settings keeps its menu in a column beside the page that is open, as Foods keeps its list, and carries no back arrow there. The Operator screen is no more: its rooms are pages of Settings.)_
+
 ## What was decided
 
 - **One PWA everywhere.** Installed from Safari on an iPad, from Chrome on an Android tablet, and from Chrome on a computer (in a tab or as an installed app window). Native apps were never on the table once this was settled: they would bring packaging, signing and updates, and a second codebase to keep level with the Catalogue.
