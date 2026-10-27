@@ -5756,6 +5756,208 @@ async fn deleting_a_tag_takes_it_off_every_recipe_and_changes_no_recipe() {
     assert_eq!(listed["result"]["tags"], json!([]));
 }
 
+/// The names of the Tags a `set_recipe_tag` or `get_recipe` answer carries.
+fn tag_names_in(answer: &Value) -> Vec<String> {
+    answer["tags"]
+        .as_array()
+        .unwrap_or_else(|| panic!("an answer with Tags: {answer}"))
+        .iter()
+        .map(|tag| tag["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Several Tags in one call, all or none (#472): an agent putting a
+/// recipe's Tags back made one call each, and a passing network error
+/// halfway left the recipe half-filed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn several_tags_go_on_and_come_off_in_one_call() {
+    let app = support::spawn_app();
+    let (_, key, _) = person_with_kitchen(&app, "Stéphane");
+    let quick = tag_in(&app, &key, "en", "quick");
+    let dessert = tag_in(&app, &key, "en", "dessert");
+    let summer = tag_in(&app, &key, "en", "summer");
+    let branch = recipe_in(&app, &key, "Clafoutis");
+    let (_, before) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+
+    let (status, filed) = app.post_op(
+        "set_recipe_tag",
+        Some(&key),
+        &json!({ "branch_id": branch, "tag_ids": [quick, dessert, summer], "carried": true })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{filed}");
+    assert_eq!(
+        tag_names_in(&filed["result"]),
+        ["quick", "dessert", "summer"]
+    );
+
+    let (status, taken_off) = app.post_op(
+        "set_recipe_tag",
+        Some(&key),
+        &json!({ "branch_id": branch, "tag_ids": [quick, summer], "carried": false }).to_string(),
+    );
+    assert_eq!(status, 200, "{taken_off}");
+    assert_eq!(tag_names_in(&taken_off["result"]), ["dessert"]);
+
+    // Filing is still not what a recipe is: no Version for any of it.
+    let (_, after) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    assert_eq!(tag_names_in(&after["result"]), ["dessert"]);
+    assert_eq!(
+        after["result"]["head_version_id"],
+        before["result"]["head_version_id"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_list_naming_one_tag_the_caller_cannot_use_changes_nothing() {
+    let app = support::spawn_app();
+    let (_, key, _) = person_with_kitchen(&app, "Stéphane");
+    let (_, stranger, _) = person_with_kitchen(&app, "Marc");
+    let quick = tag_in(&app, &key, "en", "quick");
+    let dessert = tag_in(&app, &key, "en", "dessert");
+    let theirs = tag_in(&app, &stranger, "en", "summer");
+    let branch = recipe_in(&app, &key, "Clafoutis");
+    file_under(&app, &key, &branch, &dessert, true);
+    let tags_now = || {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        tag_names_in(&read["result"])
+    };
+
+    // Another Cookbook's Tag, and one that names nothing, each last in a
+    // list whose other Tags are the recipe's own to use: none goes on, and
+    // none comes off. The stranger's Tag is answered as one not there
+    // (ADR 0040).
+    for carried in [true, false] {
+        for unusable in [theirs.as_str(), "t_ffffffffffffffff"] {
+            let (status, refused) = app.post_op(
+                "set_recipe_tag",
+                Some(&key),
+                &json!({
+                    "branch_id": branch,
+                    "tag_ids": [quick, dessert, unusable],
+                    "carried": carried,
+                })
+                .to_string(),
+            );
+            assert_eq!(status, 404, "{refused}");
+            assert_eq!(refused["error"]["message"], json!("no such Tag"));
+            assert_eq!(tags_now(), ["dessert"], "carried: {carried}");
+        }
+    }
+
+    // A call names its Tags one way, and names at least one.
+    for input in [
+        json!({ "branch_id": branch, "tag_id": quick, "tag_ids": [quick], "carried": true }),
+        json!({ "branch_id": branch, "tag_ids": [], "carried": true }),
+        json!({ "branch_id": branch, "carried": true }),
+    ] {
+        let (status, refused) = app.post_op("set_recipe_tag", Some(&key), &input.to_string());
+        assert_eq!(status, 400, "{input}: {refused}");
+        assert_eq!(tags_now(), ["dessert"], "{input}");
+    }
+}
+
+/// A new Translation starts with its original's Tags (#472). It is the same
+/// recipe in another Language (ADR 0006), and a Tag is named per Language
+/// rather than split by it, so the Translation reads its Tags in French at
+/// once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_translation_starts_with_its_originals_tags() {
+    let app = support::spawn_app();
+    let (_, key, kitchen) = person_with_kitchen(&app, "Stéphane");
+    let dessert = tag_in(&app, &key, "en", "dessert");
+    let summer = tag_in(&app, &key, "en", "summer");
+    for (tag, french) in [(&dessert, "dessert sucré"), (&summer, "été")] {
+        let (status, renamed) = app.post_op(
+            "rename_tag",
+            Some(&key),
+            &json!({ "tag_id": tag, "language": "fr", "name": french }).to_string(),
+        );
+        assert_eq!(status, 200, "{renamed}");
+    }
+    let original = recipe_in(&app, &key, "Cherry clafoutis");
+    let (status, _) = app.post_op(
+        "set_recipe_tag",
+        Some(&key),
+        &json!({ "branch_id": original, "tag_ids": [dessert, summer], "carried": true })
+            .to_string(),
+    );
+    assert_eq!(status, 200);
+    let translate = |key: &str| {
+        let (status, translated) = app.post_op(
+            "start_translation",
+            Some(key),
+            &json!({
+                "branch_id": original,
+                "language": "fr",
+                "title": "Clafoutis aux cerises",
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{translated}");
+        translated["result"].clone()
+    };
+    let tags_of = |key: &str, branch: &str| {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        tag_names_in(&read["result"])
+    };
+
+    // A cook reading French sees the Translation's Tags in French.
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "fr", "reading_measures": "metric" }).to_string(),
+    );
+    let translated = translate(&key);
+    assert_eq!(tag_names_in(&translated), ["dessert sucré", "été"]);
+    let french = translated["branch_id"].as_str().unwrap().to_string();
+    assert_eq!(tags_of(&key, &french), ["dessert sucré", "été"]);
+
+    // From then on each Branch is filed on its own.
+    file_under(&app, &key, &french, &summer, false);
+    assert_eq!(tags_of(&key, &french), ["dessert sucré"]);
+    assert_eq!(tags_of(&key, &original), ["dessert sucré", "été"]);
+    file_under(&app, &key, &original, &dessert, false);
+    assert_eq!(tags_of(&key, &original), ["été"]);
+    assert_eq!(tags_of(&key, &french), ["dessert sucré"]);
+
+    // A Kitchen-mate's Translation is a Branch of their own Cookbook, which
+    // files by its own words: it starts with none of these Tags, and makes
+    // none in their list.
+    let (_, marc, _) = person_with_kitchen(&app, "Marc");
+    let (_, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen }).to_string(),
+    );
+    let secret = invite["result"]["secret"].as_str().unwrap();
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&marc),
+        &json!({ "secret": secret }).to_string(),
+    );
+    let marcs = translate(&marc);
+    assert_eq!(marcs["tags"], json!([]), "{marcs}");
+    let (_, listed) = app.post_op("list_tags", Some(&marc), &json!({}).to_string());
+    assert_eq!(listed["result"]["tags"], json!([]), "{listed}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn merging_two_tags_carries_every_recipe_across_and_mints_no_version() {
     // GLOSSARY.md, "Tag": renaming *or merging* one reaches all of them at once.
@@ -15143,6 +15345,11 @@ mod web_link_importer {
                 "set_recipe_tag",
                 json!({ "branch_id": branch_id, "tag_id": tag_id, "carried": true }),
             ),
+            // Several Tags in one call are held to the one recipe too (#472).
+            (
+                "set_recipe_tag",
+                json!({ "branch_id": branch_id, "tag_ids": [tag_id], "carried": true }),
+            ),
         ]
     }
 
@@ -15207,6 +15414,16 @@ mod web_link_importer {
         assert_eq!(status, 200, "{read}");
         let filed = super::file_under(&app, &held.job_key, &held.branch_id, &tag, true);
         assert_eq!(filed["tags"][0]["id"], json!(tag), "{filed}");
+        // And several at once, in one call (#472).
+        let quick = super::tag_in(&app, &cook, "fr", "rapide");
+        let (status, both) = app.post_op(
+            "set_recipe_tag",
+            Some(&held.job_key),
+            &json!({ "branch_id": held.branch_id, "tag_ids": [tag, quick], "carried": true })
+                .to_string(),
+        );
+        assert_eq!(status, 200, "{both}");
+        assert_eq!(super::tag_names_in(&both["result"]), ["soupes", "rapide"]);
 
         // The cook reads what the agent wrote, under their own Hand, and
         // nothing on the recipe says who held the pen.
@@ -15433,7 +15650,7 @@ mod web_link_importer {
         let mut writes = each_write_on("", "");
         writes.push(("upload_photograph", json!({ "data": super::a_picture(3) })));
         writes.push(("POST /api/photographs", json!(null)));
-        for (operation, _) in writes {
+        for (nth_write, (operation, _)) in writes.into_iter().enumerate() {
             let app = support::spawn_app();
             let (stephane_id, stephane, recipe, tag) =
                 a_recipe_the_asker_sees_and_does_not_write(&app);
@@ -15459,7 +15676,7 @@ mod web_link_importer {
                 _ => {
                     let input = each_write_on(&recipe, &tag)
                         .into_iter()
-                        .find(|(name, _)| *name == operation)
+                        .nth(nth_write)
                         .unwrap()
                         .1;
                     app.post_op(operation, Some(&held.job_key), &input.to_string())

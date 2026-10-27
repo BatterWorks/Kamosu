@@ -9,13 +9,16 @@
 ### Added
 
 - An Operator's invite can bring the newcomer into one of the Operator's own Kitchens, chosen beside *Make the invite link* in Settings › People, so a housemate needs one link for their account and their Kitchen. Agents pass `kitchen_id` to `mint_invite`. [#469]
+- Agents put several Tags on a recipe, or take them off, in one `set_recipe_tag` call by naming them in `tag_ids`. They go on or come off together: if one cannot, none does and the recipe is left as it was. [#472]
 
 ### Changed
 
 - Settings is grouped by whose a thing is: *You*, *Your household*, *Add recipes*, and *This instance* for an Operator alone, with your name at the top and one short page for each job, each row saying what is inside. The Operator page is gone: its people, Backups, Runner, House Notes, public address and upkeep are pages of *This instance*. On a tablet or a computer the menu stays beside the page that is open. Every page says what it is in a line, a warning is said when its button is pressed, and the list of what Kamosu does not protect moved out of Settings to `SECURITY.md`. *Share from your phone* is now *Save from your phone*, and so is the page the iPhone Shortcut names when it asks for the setup code. An old address of a Settings page or of the Operator page opens its new page. [#469]
 - A Kitchen invite is a link to send, which shows the Kitchen, who is in it and whose recipes it holds before the person joins, and can be cancelled until it is used. Before, it was a code the other person pasted into a field in Settings. Agents read a link with `read_kitchen_invite` and cancel one with `cancel_kitchen_invite`. [#469]
+- A new Translation in the same Cookbook as its original starts filed under every Tag the original carries, each shown by its name in the reader's language where it has one. Before, a Translation started with no Tags. Taking a Tag off one afterwards leaves the other as it is. [#472]
 
 [#469]: https://github.com/BatterWorks/Kamosu/issues/469
+[#472]: https://github.com/BatterWorks/Kamosu/issues/472
 
 ## v0.4.0 - 2026-10-25
 

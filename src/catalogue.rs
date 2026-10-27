@@ -1939,8 +1939,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "set_recipe_tag",
             summary: "File a recipe under a Tag, or take it back out. The Tag \
-                      is one of the recipe's Kitchen's Tags. Mints no Version: \
-                      filing is not what a recipe is.",
+                      is one of the recipe's Cookbook's Tags. Name one Tag in \
+                      `tag_id`, or several in `tag_ids`: those go on or come \
+                      off together, and if one cannot, none does. Mints no \
+                      Version: filing is not what a recipe is.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -1949,7 +1951,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "tag_id": { "type": "string" }, "carried": { "type": "boolean" } }, "required": ["branch_id", "tag_id", "carried"], "additionalProperties": false }),
+            input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "tag_id": { "type": "string" }, "tag_ids": { "type": "array", "items": { "type": "string" } }, "carried": { "type": "boolean" } }, "required": ["branch_id", "carried"], "additionalProperties": false }),
             output_schema: json!({
                 "type": "object",
                 "properties": { "tags": { "type": "array", "items": tag_schema() } },
