@@ -85,18 +85,9 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Claim**: `gh issue edit <n> --add-assignee @me` — the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
 
-## Forgejo mirror
+## The private copy
 
-GitHub remains the only editable tracker. After a Wayfinder session, mirror its
-tickets to Forgejo with:
-
-```bash
-scripts/sync-wayfinder-to-forgejo.sh --dry-run
-scripts/sync-wayfinder-to-forgejo.sh --apply
-```
-
-The apply command needs `FORGEJO_TOKEN`, which **already exists** at
-`~/.config/forgejo/kamosu.env` — source that file rather than hunting for a
-token or minting a new one, and never print it. Setup and the deliberate
-one-way limitations are in [Wayfinder Forgejo mirror](wayfinder-forgejo-mirror.md).
-Never create or edit the Forgejo copy by hand.
+GitHub is the only tracker to work in. A job outside this repository copies
+every issue, its comments, labels, state, parent and blocking edges, one way, to
+a private copy every 15 minutes. Never create, copy or edit a ticket anywhere
+but GitHub, and never ask whether to.
