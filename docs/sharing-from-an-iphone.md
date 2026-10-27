@@ -196,4 +196,4 @@ always holds.
    repository is public: the page must name no person and no Apple account.
 3. Put the link in `SHORTCUT_URL` in `ui/src/lib/sharing.ts` and below.
 
-The published Shortcut: <https://www.icloud.com/shortcuts/4e9859c8609a4221846f0f55915c6423>
+The published Shortcut: <https://www.icloud.com/shortcuts/193a2777774d45bcb45944faec9f59d7>

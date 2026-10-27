@@ -13,7 +13,7 @@
  * `add_this` holds (`SHORTCUT_VERSION` in `src/core/sharing.rs`).
  */
 export const SHORTCUT_URL: string =
-	'https://www.icloud.com/shortcuts/4e9859c8609a4221846f0f55915c6423';
+	'https://www.icloud.com/shortcuts/193a2777774d45bcb45944faec9f59d7';
 
 /**
  * The one code the Shortcut asks for when it is installed: the format's
