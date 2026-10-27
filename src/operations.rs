@@ -1024,21 +1024,37 @@ pub fn set_recipe_tag(
     invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
-    let takes = "set_recipe_tag takes { branch_id, tag_id, carried }";
+    let takes = "set_recipe_tag takes { branch_id, tag_id or tag_ids, carried }";
     let branch_id = input
         .get("branch_id")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request(takes))?;
-    let tag_id = input
-        .get("tag_id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request(takes))?;
+    // Exactly one of the two names the Tags, for the reason
+    // `set_related_recipe` gives: a schema cannot say "one of these".
+    let tag_ids: Vec<&str> = match (
+        input.get("tag_id").and_then(Value::as_str),
+        input.get("tag_ids").and_then(Value::as_array),
+    ) {
+        (Some(tag_id), None) => vec![tag_id],
+        (None, Some(listed)) => listed.iter().filter_map(Value::as_str).collect(),
+        (Some(_), Some(_)) => {
+            return Err(OpError::bad_request(
+                "set_recipe_tag takes tag_id or tag_ids, not both",
+            ));
+        }
+        (None, None) => return Err(OpError::bad_request(takes)),
+    };
+    if tag_ids.is_empty() {
+        return Err(OpError::bad_request(
+            "set_recipe_tag's tag_ids names no Tag",
+        ));
+    }
     let carried = input
         .get("carried")
         .and_then(Value::as_bool)
         .ok_or_else(|| OpError::bad_request(takes))?;
     let caller = caller_of(invocation)?;
-    core.set_recipe_tag(caller, branch_id, tag_id, carried)
+    core.set_recipe_tag(caller, branch_id, &tag_ids, carried)
 }
 
 pub fn set_related_recipe(

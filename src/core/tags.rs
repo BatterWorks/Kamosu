@@ -259,50 +259,60 @@ impl Core {
         })
     }
 
-    /// File a recipe under a Tag, or take it back out — `carried` says which.
-    /// Both are ordinary filing: neither mints a Version, neither appears in
-    /// the Thread, and the recipe's fingerprint is untouched (ADR 0035). Only
-    /// the recipe's Co-authors file it (#131, question 3): a Kitchen-mate does
-    /// not put your recipe under a word of theirs.
+    /// File a recipe under Tags, or take it back out of them: `carried`
+    /// says which. Both are ordinary filing: neither mints a Version, neither
+    /// appears in the Thread, and the recipe's fingerprint is untouched (ADR
+    /// 0035). Only the recipe's Co-authors file it (#131, question 3): a
+    /// Kitchen-mate does not put your recipe under a word of theirs.
+    ///
+    /// Several Tags go on or come off together (#472). Every one is checked
+    /// before any is written, so a Tag the caller cannot use leaves the
+    /// recipe as it was, the others in the list included.
     pub fn set_recipe_tag(
         &self,
         caller: &Caller,
         branch_id: &str,
-        tag_id: &str,
+        tag_ids: &[&str],
         carried: bool,
     ) -> Result<Value, OpError> {
         let person_id = caller.person_id.as_str();
         self.db().with_conn(|conn| {
             let branch_cookbook = ensure_changes_branch(conn, branch_id, caller, no_such_branch)?;
 
-            // A Tag belongs to one Cookbook, so a recipe can only be filed
-            // under its own Cookbook's words. Reaching across is a request for
-            // a Tag this Cookbook does not have.
-            let tag_cookbook = cookbook_of_tag(conn, tag_id)?;
-            if tag_cookbook != branch_cookbook {
-                // The sentence below says this Tag exists on some other shelf,
-                // which is a fact worth having only if that shelf is one the
-                // caller may see. To anyone else the Tag is not here at all
-                // (ADR 0040).
-                ensure_sees_or_absent(conn, &tag_cookbook, person_id, no_such_tag)?;
-                return Err(OpError::not_found(
-                    "no such Tag in the Cookbook holding this recipe",
-                ));
+            for tag_id in tag_ids {
+                // A Tag belongs to one Cookbook, so a recipe can only be filed
+                // under its own Cookbook's words. Reaching across is a request
+                // for a Tag this Cookbook does not have.
+                let tag_cookbook = cookbook_of_tag(conn, tag_id)?;
+                if tag_cookbook != branch_cookbook {
+                    // The sentence below says this Tag exists on some other
+                    // shelf, which is a fact worth having only if that shelf
+                    // is one the caller may see. To anyone else the Tag is not
+                    // here at all (ADR 0040).
+                    ensure_sees_or_absent(conn, &tag_cookbook, person_id, no_such_tag)?;
+                    return Err(OpError::not_found(
+                        "no such Tag in the Cookbook holding this recipe",
+                    ));
+                }
             }
 
-            if carried {
-                conn.execute(
-                    "INSERT OR IGNORE INTO branch_tags (branch_id, tag_id) VALUES (?1, ?2)",
-                    params![branch_id, tag_id],
-                )
-                .map_err(|e| OpError::internal(format!("cannot file recipe under Tag: {e}")))?;
-            } else {
-                conn.execute(
-                    "DELETE FROM branch_tags WHERE branch_id = ?1 AND tag_id = ?2",
-                    params![branch_id, tag_id],
-                )
-                .map_err(|e| OpError::internal(format!("cannot take recipe off Tag: {e}")))?;
+            let transaction = conn
+                .unchecked_transaction()
+                .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
+            for tag_id in tag_ids {
+                if carried {
+                    file_branch_under(conn, branch_id, tag_id)?;
+                } else {
+                    conn.execute(
+                        "DELETE FROM branch_tags WHERE branch_id = ?1 AND tag_id = ?2",
+                        params![branch_id, tag_id],
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot take recipe off Tag: {e}")))?;
+                }
             }
+            transaction
+                .commit()
+                .map_err(|e| OpError::internal(format!("cannot commit: {e}")))?;
             Ok(json!({ "tags": tags_of_branch(conn, branch_id, person_id)? }))
         })
     }

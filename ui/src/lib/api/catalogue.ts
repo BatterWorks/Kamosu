@@ -1273,12 +1273,13 @@ export type DeleteTagOutput = {
 	deleted: boolean;
 };
 
-/** File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Kitchen's Tags. Mints no Version: filing is not what a recipe is. */
+/** File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Cookbook's Tags. Name one Tag in `tag_id`, or several in `tag_ids`: those go on or come off together, and if one cannot, none does. Mints no Version: filing is not what a recipe is. */
 export type SetRecipeTagInput = {
 	as_operator?: boolean;
 	branch_id: string;
 	carried: boolean;
-	tag_id: string;
+	tag_id?: string;
+	tag_ids?: string[];
 };
 /** What set_recipe_tag answers. */
 export type SetRecipeTagOutput = {
@@ -12324,7 +12325,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_recipe_tag",
-		"summary": "File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Kitchen's Tags. Mints no Version: filing is not what a recipe is.",
+		"summary": "File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Cookbook's Tags. Name one Tag in `tag_id`, or several in `tag_ids`: those go on or come off together, and if one cannot, none does. Mints no Version: filing is not what a recipe is.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -12342,11 +12343,16 @@ export const CATALOGUE = [
 				},
 				"tag_id": {
 					"type": "string"
+				},
+				"tag_ids": {
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
 				}
 			},
 			"required": [
 				"branch_id",
-				"tag_id",
 				"carried"
 			],
 			"type": "object"
@@ -36599,7 +36605,7 @@ export interface KamosuClient {
 	mergeTags(input: MergeTagsInput): Promise<Answer<'merge_tags'>>;
 	/** Delete a Tag from a Kitchen and every recipe carrying it. It comes out of the Kitchen's list and off each of those recipes. No recipe changes. */
 	deleteTag(input: DeleteTagInput): Promise<Answer<'delete_tag'>>;
-	/** File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Kitchen's Tags. Mints no Version: filing is not what a recipe is. */
+	/** File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Cookbook's Tags. Name one Tag in `tag_id`, or several in `tag_ids`: those go on or come off together, and if one cannot, none does. Mints no Version: filing is not what a recipe is. */
 	setRecipeTag(input: SetRecipeTagInput): Promise<Answer<'set_recipe_tag'>>;
 	/** Relate two Recipes, or take that link back off. One is a Recipe of your Cookbook, the other any Recipe you may see, joined by a single two-way, untyped link. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
 	setRelatedRecipe(input: SetRelatedRecipeInput): Promise<Answer<'set_related_recipe'>>;
