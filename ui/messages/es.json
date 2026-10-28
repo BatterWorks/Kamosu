@@ -1021,6 +1021,7 @@
   "share_file_waiting": "Lo que contiene espera al servidor.",
   "share_is_shared": "Cualquiera con este enlace puede leer esta receta.",
   "share_link_made_before": "Este enlace se creó antes de que Kamosu guardara su dirección. Termínalo y vuelve a activarlo para obtener uno que puedas copiar.",
+  "share_link_no_address": "Esta instancia no tiene dirección pública, así que no hay ningún enlace que copiar. Quien la administra debe configurarla.",
   "share_not_shared": "Esta receta no tiene enlace. Solo tu Cocina la ve.",
   "share_open": "Abrir la página",
   "share_shared_by": "Compartida por {name} el {when}",

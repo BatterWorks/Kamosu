@@ -325,7 +325,8 @@ release-library folder:
 # The release checklist's Sample Library check: build a Demo's Sample Library
 # from this tree's story into .dev/sample-library, as a Demo does when it
 # starts, and print what it holds and how long it took. Fails if any step of
-# the story does (#404).
+# the story does (#404), or if a Demo given a public address shows a shared
+# recipe with no link (#468).
 sample-library:
     cargo run --quiet -- sample-library .dev/sample-library
 

@@ -27,6 +27,8 @@
 	second person is copying it again, never ending the link and minting a new
 	one, which would break every copy already sent. A link minted before Kamosu
 	kept its address has none to show, and the screen says so and how to get one.
+	A live link on an instance with no address, which only a Demo can hold, has
+	none either, and the screen says the address is not set (#468).
 -->
 <script lang="ts">
 	import { aDate } from '$lib/dates';
@@ -318,6 +320,12 @@
 			>
 				{m.share_open()}
 			</a>
+		{:else if !knowsAddress}
+			<!-- A Demo given no address (#468): it refuses ending the link and
+			     setting one, so the address is its operator's to give. -->
+			<p class="mt-4 border-l-2 border-support-2 py-1 pl-4 text-read text-ink-2">
+				{m.share_link_no_address()}
+			</p>
 		{:else}
 			<!-- Minted before Kamosu kept a link's address: it still opens for
 			     whoever holds it, but there is nothing here to copy (#171). -->

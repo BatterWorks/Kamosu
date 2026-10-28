@@ -44646,6 +44646,75 @@ mod a_demos_sample_library {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_demo_given_its_address_shows_the_shared_recipe_s_link() {
+        // Set before demo mode went on, and replaced by the address the
+        // Demo is given at its start (#468).
+        let dir = tempfile::tempdir().expect("temp dir");
+        let before = support::spawn_app_in(dir.path());
+        let first = json!({
+            "name": "Operator",
+            "password": "a password only its person knows",
+            "session_name": "setting the Demo up",
+        });
+        let created = before.post_auth_response("/auth/first-person", &first.to_string());
+        assert_eq!(created.status, 200, "{}", created.text());
+        let operator = support::session_cookie_secret(&created);
+        let (status, _) = before.post_op(
+            "set_public_address",
+            Some(&operator),
+            &json!({ "public_address": "https://old.kamosu.example" }).to_string(),
+        );
+        assert_eq!(status, 200);
+
+        let app = support::spawn_sample_demo_at(dir.path(), "https://try.kamosu.example/");
+        for _ in 0..2 {
+            let visitor = arrive(&app);
+            let tarte = the_tarte(&app, &visitor);
+            let link = op(
+                &app,
+                "get_share_link",
+                &visitor,
+                json!({ "branch_id": tarte }),
+            );
+            assert_eq!(link["shared"], json!(true), "{link}");
+            assert!(
+                link["url"]
+                    .as_str()
+                    .is_some_and(|url| url.starts_with("https://try.kamosu.example/s/")),
+                "{link}"
+            );
+            app.core.put_back_sample_library().unwrap();
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_demo_with_no_address_says_it_has_none() {
+        // What the share screen reads to say the address is the operator's
+        // to set, rather than to end the link and turn it back on (#468).
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app = support::spawn_sample_demo_in(dir.path());
+        let visitor = arrive(&app);
+        let tarte = the_tarte(&app, &visitor);
+        let link = op(
+            &app,
+            "get_share_link",
+            &visitor,
+            json!({ "branch_id": tarte }),
+        );
+        assert_eq!(link["shared"], json!(true), "{link}");
+        assert_eq!(link["url"], Value::Null, "{link}");
+        assert_eq!(link["public_address"], Value::Null, "{link}");
+    }
+
+    #[test]
+    fn the_release_check_reads_every_link_a_demo_shows() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let built = kamosu::sample_library::build(&dir.path().join("built")).unwrap();
+        let shown = kamosu::core::links_a_demo_shows(&built, &dir.path().join("as-a-demo"));
+        assert_eq!(shown.unwrap(), 1, "the Tarte Tatin's");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_published_key_names_nobody_once_the_instance_is_no_demo() {
         let dir = tempfile::tempdir().expect("temp dir");
         let demo = support::spawn_sample_demo_in(dir.path());

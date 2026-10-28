@@ -1,4 +1,4 @@
-//! The seven environment variables, all optional, all read once before serving
+//! The eight environment variables, all optional, all read once before serving
 //! (spec #33). A default install cannot be misconfigured: with nothing set,
 //! Kamosu binds `0.0.0.0:5266`, stores everything under `/data`, logs at
 //! `info`, is nobody's Demo, and sends nothing anywhere.
@@ -34,6 +34,12 @@ pub struct Config {
     /// Read only in a Demo, so an instance that is none sends nothing
     /// anywhere, whatever is set.
     pub analytics: Result<Option<Analytics>, String>,
+    /// A Demo's public address (#468): nothing, an address, or a setting
+    /// Kamosu could not use, said once at startup. A Demo refuses
+    /// `set_public_address`, so this is how one learns where it is reached.
+    /// Read only in a Demo: anywhere else the address lives in the database
+    /// alone.
+    pub public_address: Result<Option<String>, String>,
 }
 
 impl Config {
@@ -66,6 +72,11 @@ impl Config {
             } else {
                 Ok(None)
             },
+            public_address: if demo {
+                public_address(Some(text(PUBLIC_ADDRESS, "")).filter(|v| !v.is_empty()))
+            } else {
+                Ok(None)
+            },
         }
     }
 
@@ -83,6 +94,33 @@ pub const UMAMI_SCRIPT: &str = "KAMOSU_DEMO_UMAMI_SCRIPT";
 
 /// The id Umami gave the Demo's website.
 pub const UMAMI_WEBSITE_ID: &str = "KAMOSU_DEMO_UMAMI_WEBSITE_ID";
+
+/// The address a Demo is reached at, such as `https://demo.example.com`.
+pub const PUBLIC_ADDRESS: &str = "KAMOSU_DEMO_PUBLIC_ADDRESS";
+
+/// A Demo's public address as it was set: an address starting `https://` or
+/// `http://`, the one rule `set_public_address` holds an address to, with a
+/// host and nothing a link built on it would carry wrongly: no password, no
+/// query, no fragment. Its trailing slash is dropped, as the store drops it.
+fn public_address(setting: Option<String>) -> Result<Option<String>, String> {
+    let Some(setting) = setting else {
+        return Ok(None);
+    };
+    let address = setting.trim().trim_end_matches('/');
+    Some(address)
+        .filter(|address| address.starts_with("https://") || address.starts_with("http://"))
+        .filter(|address| !address.chars().any(|c| c.is_whitespace() || c.is_control()))
+        .and_then(|address| url::Url::parse(address).ok())
+        .filter(|url| url.username().is_empty() && url.password().is_none())
+        .filter(|url| url.host().is_some() && url.query().is_none() && url.fragment().is_none())
+        .map(|_| Some(address.to_string()))
+        .ok_or_else(|| {
+            format!(
+                "{PUBLIC_ADDRESS} is not an address starting https:// or http:// with a host and \
+                 nothing after the path: {setting}"
+            )
+        })
+}
 
 /// The Umami a Demo counts its visits with (#408). The browser loads the
 /// script and sends its counts to the script's own origin, which is the one
@@ -177,6 +215,39 @@ mod tests {
         assert_eq!(config.log_filter, "info");
         assert!(!config.demo);
         assert_eq!(config.analytics, Ok(None));
+        assert_eq!(config.public_address, Ok(None));
+    }
+
+    const ADDRESS: (&str, &str) = (PUBLIC_ADDRESS, "https://demo.example.com/");
+
+    #[test]
+    fn only_a_demo_takes_its_address_from_a_setting() {
+        assert_eq!(config(&[ADDRESS]).public_address, Ok(None));
+        assert_eq!(
+            config(&[(DEMO, "true"), ADDRESS]).public_address,
+            Ok(Some("https://demo.example.com".into()))
+        );
+        assert_eq!(config(&[(DEMO, "true")]).public_address, Ok(None));
+    }
+
+    #[test]
+    fn a_demo_address_kamosu_cannot_use_says_why() {
+        for address in [
+            "demo.example.com",
+            "ftp://demo.example.com",
+            "https://a:b@demo.example.com",
+            "https://",
+            "HTTPS://demo.example.com",
+            "https:demo.example.com",
+            "https:/demo.example.com",
+            "https://demo.example.com/#x",
+            "https://demo.example.com/?a",
+            "https://demo.ex\tample.com",
+            "https://demo.example.com/a b",
+        ] {
+            let set = config(&[(DEMO, "true"), (PUBLIC_ADDRESS, address)]).public_address;
+            assert!(set.is_err(), "{address} gave {set:?}");
+        }
     }
 
     #[test]
