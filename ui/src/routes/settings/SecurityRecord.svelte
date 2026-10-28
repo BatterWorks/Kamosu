@@ -75,7 +75,7 @@
 		{#each byDay(record.events) as day (day.heading)}
 			<h3 class="mt-[18px] mb-[6px] text-label text-ink-2 uppercase">{day.heading}</h3>
 			<ul class="rounded-sm border border-rule bg-card">
-				{#each day.events as event (event.id)}
+				{#each day.rows as event (event.id)}
 					{@render row(event)}
 				{/each}
 			</ul>

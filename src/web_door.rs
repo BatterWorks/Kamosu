@@ -200,6 +200,7 @@ pub fn router(core: Arc<Core>) -> Router {
     // their page's number after it.
     let original_core = core.clone();
     let page_core = core.clone();
+    let preview_core = core.clone();
     router = router
         .route(
             "/api/originals/{job_id}",
@@ -216,6 +217,16 @@ pub fn router(core: Arc<Core>) -> Router {
                     async move { get_original(core, headers, job_id, page).await }
                 },
             ),
+        )
+        // The small copy of a picture handed over, which Settings' *Sent to
+        // the AI agent* shows to whoever handed it over (#463). The router
+        // matches this fixed word ahead of a page's number.
+        .route(
+            "/api/originals/{job_id}/preview",
+            get(move |Path(job_id): Path<String>, headers: HeaderMap| {
+                let core = preview_core.clone();
+                async move { get_original_preview(core, headers, job_id).await }
+            }),
         );
     for op in catalogue::OPERATIONS.iter() {
         let origin_core = core.clone();
@@ -658,6 +669,25 @@ async fn get_original(
             &headers,
             Err(OpError::internal(format!(
                 "the Original could not be read: {e}"
+            ))),
+        ),
+    }
+}
+
+/// `GET /api/originals/{job_id}/preview`: the small copy of a picture handed
+/// to an agent, for the Person who handed it over (#463).
+async fn get_original_preview(core: Arc<Core>, headers: HeaderMap, job_id: String) -> Response {
+    let secret = bearer_from_headers(&headers);
+    let read =
+        tokio::task::spawn_blocking(move || core.read_original_preview(secret.as_deref(), &job_id))
+            .await;
+    match read {
+        Ok(Ok(bytes)) => image_response(bytes),
+        Ok(Err(err)) => respond_to(&headers, Err(err)),
+        Err(e) => respond_to(
+            &headers,
+            Err(OpError::internal(format!(
+                "the Original's preview could not be read: {e}"
             ))),
         ),
     }

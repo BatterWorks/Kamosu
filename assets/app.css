@@ -449,6 +449,9 @@
   .right-2 {
     right: var(--spacing-2);
   }
+  .right-\[2px\] {
+    right: 2px;
+  }
   .right-\[calc\(-50\%\+8px\)\] {
     right: calc(-50% + 8px);
   }
@@ -463,6 +466,9 @@
   }
   .bottom-0 {
     bottom: var(--spacing-0);
+  }
+  .bottom-\[2px\] {
+    bottom: 2px;
   }
   .bottom-\[6px\] {
     bottom: 6px;
@@ -576,6 +582,9 @@
   }
   .mt-\[2px\] {
     margin-top: 2px;
+  }
+  .mt-\[6px\] {
+    margin-top: 6px;
   }
   .mt-\[18px\] {
     margin-top: 18px;
@@ -896,6 +905,9 @@
   }
   .min-h-12 {
     min-height: var(--spacing-12);
+  }
+  .min-h-\[40px\] {
+    min-height: 40px;
   }
   .min-h-\[52px\] {
     min-height: 52px;

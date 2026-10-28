@@ -269,6 +269,20 @@ impl Core {
     }
 }
 
+/// Whether `caller` may have this recipe read again as it stands, with no
+/// file handed over: what a row of Settings' *Sent to the AI agent* offers (#463). A recipe
+/// they do not see, or any other reason, is a no.
+pub(super) fn may_read_again(
+    conn: &Connection,
+    caller: &Caller,
+    branch_id: &str,
+    has_runner: bool,
+    data_dir: &std::path::Path,
+) -> bool {
+    what_to_read_again(conn, caller, branch_id, has_runner, data_dir)
+        .is_ok_and(|what| what.cannot.is_none())
+}
+
 /// Refused unless a file may be handed over to read this recipe again: the
 /// asker may ask, and the recipe came from an Original, kept or not. A recipe
 /// read from its link is read from it, and takes no file.

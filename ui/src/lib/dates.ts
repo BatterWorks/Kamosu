@@ -10,6 +10,7 @@
  */
 
 import { getLocale } from '$lib/paraglide/runtime';
+import { m } from '$lib/paraglide/messages';
 
 /**
  * Kamosu's English is the day-first kind, `25 Sept 2026`. Intl reads a bare
@@ -84,3 +85,36 @@ export const howLongAgo = (when: string | Date, now: Date = new Date()): string 
 					: [Math.floor(seconds / 86_400), 'day'];
 	return new Intl.RelativeTimeFormat(locale(), { numeric: 'always' }).format(-count, unit);
 };
+
+/** Rows filed under the day they happened on, and that day's heading. */
+export interface Day<T> {
+	heading: string;
+	rows: T[];
+}
+
+/**
+ * Rows by the day `when` says each happened on, in the order given, as the
+ * Security Record (#371) and the list of what was sent to the agent (#463)
+ * file them: Today, Yesterday, then `Mon 13 Oct`, and a day of another year
+ * with its year.
+ */
+export function byDay<T>(rows: T[], when: (row: T) => string, now: Date = new Date()): Day<T>[] {
+	const days: Day<T>[] = [];
+	const yesterday = new Date(now);
+	yesterday.setDate(now.getDate() - 1);
+	for (const row of rows) {
+		const day = at(when(row));
+		const heading =
+			day.toDateString() === now.toDateString()
+				? m.security_today()
+				: day.toDateString() === yesterday.toDateString()
+					? m.security_yesterday()
+					: day.getFullYear() === now.getFullYear()
+						? aWeekday(day)
+						: aDate(day);
+		const last = days.at(-1);
+		if (last?.heading === heading) last.rows.push(row);
+		else days.push({ heading, rows: [row] });
+	}
+	return days;
+}

@@ -106,14 +106,45 @@ impl Core {
         // As handed over, since a picture is remade before it is kept.
         let digest = digest_of(&handed);
         let (kind, pages) = kept_as(handed)?;
+        // Made before the database is held: a picture made smaller and a PDF
+        // read are slow beside a write.
+        let glimpse = self.glimpse_of(kind, &pages);
         self.hand_to_agent(
             caller,
             kind,
             digest.as_deref(),
             Keeping::Bytes(&pages),
+            Some(&glimpse),
             None,
             into,
         )
+    }
+
+    /// What Settings' *Sent to the AI agent* shows of what was handed over
+    /// (#463): a small copy of a picture's first page, or the first words of
+    /// a PDF. A PDF that holds no text, or a reader that is busy or fails,
+    /// leaves it without words, which costs the list a quote and nothing
+    /// else. Pasted text needs neither: its first words are the Original's
+    /// own.
+    fn glimpse_of(&self, kind: OriginalKind, pages: &[Vec<u8>]) -> Glimpse {
+        let Some(first) = pages.first() else {
+            return Glimpse::default();
+        };
+        match kind {
+            OriginalKind::Picture => Glimpse {
+                preview: photographs::display_copy(first, PREVIEW_LONG_EDGE).ok(),
+                words: None,
+            },
+            OriginalKind::Pdf => Glimpse {
+                preview: None,
+                words: self
+                    .pdf_readers()
+                    .text_within(first, GLIMPSE_READ)
+                    .ok()
+                    .map(|text| first_words(&text)),
+            },
+            OriginalKind::PastedText => Glimpse::default(),
+        }
     }
 
     /// Hand an agent again the kept Original of a Job of the caller's that
@@ -159,6 +190,7 @@ impl Core {
             job.kind,
             job.digest.as_deref(),
             Keeping::From(job_id, job.pages),
+            None,
             Some(job_id),
             into.as_deref(),
         )
@@ -168,12 +200,16 @@ impl Core {
     /// that Job's (#269). A file known by its `digest` answers the caller's
     /// Job standing on it, or the recipe its agent made, instead (#271), and
     /// so does the failed Job `again_of` names, asked again already (#273).
+    /// `glimpse` is kept beside it (#463); one kept from an earlier Job
+    /// comes with its Original.
+    #[allow(clippy::too_many_arguments)]
     fn hand_to_agent(
         &self,
         caller: &Caller,
         kind: OriginalKind,
         digest: Option<&str>,
         keeping: Keeping,
+        glimpse: Option<&Glimpse>,
         again_of: Option<&str>,
         into: Option<&str>,
     ) -> Result<Value, OpError> {
@@ -224,6 +260,14 @@ impl Core {
             )?;
             let pages = keeping.pages();
             keep_original(&dir, &job_id, keeping)?;
+            if let Some(glimpse) = glimpse {
+                keep_glimpse(&dir, &job_id, glimpse);
+            }
+            // A failed Job of the asker's own, sent again, shows what it
+            // showed. A recipe read again from somebody else's never does.
+            if let Some(again_of) = again_of {
+                keep_glimpse_of(&dir, again_of, &job_id);
+            }
             if let Err(e) = tx.commit() {
                 remove_original(&dir, &job_id, pages);
                 return Err(failed(e));
@@ -279,6 +323,29 @@ impl Core {
     }
 }
 
+impl Core {
+    /// `GET /api/originals/<job_id>/preview`: the small copy of a picture
+    /// handed to an agent, which Settings' *Sent to the AI agent* shows
+    /// beside it (#463). An Original is otherwise read and never shown. This
+    /// one copy of one is, and to the Person who handed it over alone: to
+    /// anybody else it is not there (ADR 0040). A Job Key and an Add-only key
+    /// are refused, as on every route that is not theirs.
+    pub fn read_original_preview(
+        &self,
+        secret: Option<&str>,
+        job_id: &str,
+    ) -> Result<Vec<u8>, OpError> {
+        let caller = self.authenticate(secret)?;
+        let nothing_here = || OpError::not_found("nothing is at this address");
+        self.db()
+            .with_conn(|conn| jobs::job_on_an_original(conn, job_id))?
+            .filter(|job| job.asker.as_deref() == Some(caller.person_id.as_str()))
+            .ok_or_else(nothing_here)?;
+        std::fs::read(preview_path(&originals_dir(&self.data_dir()), job_id))
+            .map_err(|_| nothing_here())
+    }
+}
+
 /// How many days an Original is kept once its Job has ended (ADR 0048).
 pub const ORIGINAL_KEPT_DAYS: u32 = 30;
 
@@ -325,6 +392,9 @@ impl Core {
                     _ => {}
                 }
             }
+            // What Settings' *Sent to the AI agent* showed of it goes with
+            // it (#463).
+            remove_glimpse(&dir, &job_id);
             match std::fs::remove_file(dir.join(&job_id)) {
                 Ok(()) => swept += 1,
                 // Already gone, as on an instance restored from a Backup,
@@ -425,6 +495,125 @@ pub(super) fn remove_original(dir: &std::path::Path, job_id: &str, pages: usize)
     for page in 1..=pages {
         let _ = std::fs::remove_file(page_path(dir, job_id, page));
     }
+    remove_glimpse(dir, job_id);
+}
+
+/// What Settings' *Sent to the AI agent* shows of an Original beside its kind
+/// (#463), kept as files beside it under `originals/` rather than in the
+/// database, so that it is in no Backup and goes when the Original goes.
+/// Either part may be missing: an Original handed over before #463 has
+/// neither.
+#[derive(Default)]
+pub(super) struct Glimpse {
+    /// A picture's first page, made small.
+    pub preview: Option<Vec<u8>>,
+    /// A PDF's first words.
+    pub words: Option<String>,
+}
+
+/// The long edge of a picture's small copy: a 48-pixel square on a screen
+/// that draws three pixels for one, and a little to spare.
+const PREVIEW_LONG_EDGE: u32 = 192;
+
+/// How long a PDF handed over is read for its first words. Far shorter than
+/// a PDF read for its recipe, since a quote is worth less than the wait, and
+/// the read holds one of the few places a PDF is read in, which a cook's
+/// own PDF may be waiting for.
+const GLIMPSE_READ: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The most characters of a text Settings' *Sent to the AI agent* quotes.
+const MOST_FIRST_WORDS: usize = 200;
+
+/// The start of a text as one line: its runs of spaces and line ends made
+/// one space, and cut at a word near [`MOST_FIRST_WORDS`] characters.
+pub(super) fn first_words(text: &str) -> String {
+    let mut words = String::new();
+    for word in text.split_whitespace() {
+        if words.chars().count() + word.chars().count() > MOST_FIRST_WORDS && !words.is_empty() {
+            break;
+        }
+        if !words.is_empty() {
+            words.push(' ');
+        }
+        words.extend(word.chars().take(MOST_FIRST_WORDS));
+    }
+    words
+}
+
+fn preview_path(dir: &std::path::Path, job_id: &str) -> std::path::PathBuf {
+    dir.join(format!("{job_id}.preview"))
+}
+
+fn words_path(dir: &std::path::Path, job_id: &str) -> std::path::PathBuf {
+    dir.join(format!("{job_id}.words"))
+}
+
+/// Keep what Settings' *Sent to the AI agent* shows of `job_id`'s Original. A
+/// part that cannot be written is left out: the list then says what kind of
+/// thing it was, as it does once the Original is gone.
+fn keep_glimpse(dir: &std::path::Path, job_id: &str, glimpse: &Glimpse) {
+    if let Some(preview) = &glimpse.preview {
+        let _ = std::fs::write(preview_path(dir, job_id), preview);
+    }
+    if let Some(words) = &glimpse.words {
+        let _ = std::fs::write(words_path(dir, job_id), words);
+    }
+}
+
+/// What the list shows of `earlier`'s Original, kept as `job_id`'s too,
+/// linked rather than copied where the disk allows, as the Original is.
+fn keep_glimpse_of(dir: &std::path::Path, earlier: &str, job_id: &str) {
+    for path in [preview_path, words_path] {
+        let (from, to) = (path(dir, earlier), path(dir, job_id));
+        if from.is_file() {
+            let _ =
+                std::fs::hard_link(&from, &to).or_else(|_| std::fs::copy(&from, &to).map(|_| ()));
+        }
+    }
+}
+
+fn remove_glimpse(dir: &std::path::Path, job_id: &str) {
+    let _ = std::fs::remove_file(preview_path(dir, job_id));
+    let _ = std::fs::remove_file(words_path(dir, job_id));
+}
+
+/// The first words of what `job_id` was handed, while it is kept (#463):
+/// pasted text's own, read from the start of the file, or what a PDF's
+/// reading kept. None for a picture, or once the Original is gone.
+pub(super) fn first_words_of(
+    data_dir: &std::path::Path,
+    job_id: &str,
+    kind: OriginalKind,
+) -> Option<String> {
+    let dir = originals_dir(data_dir);
+    match kind {
+        OriginalKind::PastedText => {
+            use std::io::Read;
+            // A few times what is quoted, since a paste can open on blank
+            // lines and a character can be four bytes.
+            let mut start = Vec::new();
+            std::fs::File::open(page_path(&dir, job_id, 1))
+                .ok()?
+                .take(MOST_FIRST_WORDS as u64 * 8)
+                .read_to_end(&mut start)
+                .ok()?;
+            let words = first_words(&String::from_utf8_lossy(&start));
+            (!words.is_empty()).then_some(words)
+        }
+        OriginalKind::Pdf => std::fs::read_to_string(words_path(&dir, job_id)).ok(),
+        OriginalKind::Picture => None,
+    }
+}
+
+/// Whether a small copy of `job_id`'s picture is kept (#463).
+pub(super) fn has_preview(data_dir: &std::path::Path, job_id: &str) -> bool {
+    preview_path(&originals_dir(data_dir), job_id).is_file()
+}
+
+/// Where the small copy of a Job's picture is fetched, by the Person who
+/// handed it over (#463).
+pub fn preview_address(job_id: &str) -> String {
+    format!("/api/originals/{job_id}/preview")
 }
 
 /// Whether a Job's Original is still on the disk: not deleted by the sweep,

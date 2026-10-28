@@ -6,7 +6,7 @@
  */
 
 import { m } from '$lib/paraglide/messages';
-import { aClock, aWeekday } from '$lib/dates';
+import { aClock, aWeekday, byDay as byDayOf, type Day } from '$lib/dates';
 import type { ListSecurityRecordOutput } from '$lib/api/catalogue';
 
 export type SecurityEvent = ListSecurityRecordOutput['events'][number];
@@ -226,27 +226,6 @@ function saidBy(event: SecurityEvent): string | undefined {
 	}
 }
 
-export interface Day {
-	heading: string;
-	events: SecurityEvent[];
-}
-
 /** The rows by the day they last happened on, newest first as the Core sends them. */
-export function byDay(events: SecurityEvent[], now: Date = new Date()): Day[] {
-	const days: Day[] = [];
-	const yesterday = new Date(now);
-	yesterday.setDate(now.getDate() - 1);
-	for (const event of events) {
-		const at = new Date(event.at);
-		const heading =
-			at.toDateString() === now.toDateString()
-				? m.security_today()
-				: at.toDateString() === yesterday.toDateString()
-					? m.security_yesterday()
-					: aWeekday(at);
-		const last = days.at(-1);
-		if (last?.heading === heading) last.events.push(event);
-		else days.push({ heading, events: [event] });
-	}
-	return days;
-}
+export const byDay = (events: SecurityEvent[], now: Date = new Date()): Day<SecurityEvent>[] =>
+	byDayOf(events, (event) => event.at, now);

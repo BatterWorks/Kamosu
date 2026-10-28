@@ -972,6 +972,7 @@ describe('the settings screen', () => {
 			'/settings/import',
 			'/settings/share',
 			'/imports',
+			'/settings/agent',
 			'/settings/people',
 			'/settings/backups',
 			'/settings/runner',
