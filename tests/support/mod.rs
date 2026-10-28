@@ -68,7 +68,18 @@ pub fn spawn_sample_demo_counting_in(
     analytics: Option<kamosu::config::Analytics>,
 ) -> TestApp {
     let db = Arc::new(db::Db::open(data_dir).expect("database"));
-    let core = kamosu::core::start_demo(db, analytics).expect("a Demo with its Sample Library");
+    let core =
+        kamosu::core::start_demo(db, analytics, None).expect("a Demo with its Sample Library");
+    serve_core(core, kamosu::admission::Limits::KAMOSU)
+}
+
+/// Start a Demo as `spawn_sample_demo_in` does, given the public address
+/// `KAMOSU_DEMO_PUBLIC_ADDRESS` would give it (#468).
+#[allow(dead_code)]
+pub fn spawn_sample_demo_at(data_dir: &std::path::Path, public_address: &str) -> TestApp {
+    let db = Arc::new(db::Db::open(data_dir).expect("database"));
+    let core = kamosu::core::start_demo(db, None, Some(public_address))
+        .expect("a Demo with its Sample Library");
     serve_core(core, kamosu::admission::Limits::KAMOSU)
 }
 

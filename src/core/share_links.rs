@@ -246,6 +246,18 @@ impl Core {
         stored
     }
 
+    /// Store the address a Demo is given at every start (#468), which a
+    /// Demo's refusals keep out of `set_public_address`'s reach. No event
+    /// goes in the Security Record: the operator set it, not a person here.
+    pub(crate) fn keep_public_address_given_at_start(&self, address: &str) -> Result<(), OpError> {
+        let address = normalise_public_address(address)?;
+        let stored = self
+            .db()
+            .with_conn(|conn| store_public_address(conn, &address));
+        self.forget_public_address();
+        stored
+    }
+
     /// The public address, read from the database once and kept until it is
     /// stored again (#368). Nothing when none is stored, or when the database
     /// could not be read, which is asked again next time.

@@ -141,6 +141,7 @@ struct Step {
 
 /// A Sample Library, built in a folder of its own: its database, and the
 /// Photographs and Originals beside it.
+#[derive(Clone)]
 pub struct Built {
     dir: PathBuf,
     replays: Vec<Replay>,

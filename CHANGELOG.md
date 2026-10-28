@@ -17,6 +17,11 @@
 - A Kitchen invite is a link to send, which shows the Kitchen, who is in it and whose recipes it holds before the person joins, and can be cancelled until it is used. Before, it was a code the other person pasted into a field in Settings. Agents read a link with `read_kitchen_invite` and cancel one with `cancel_kitchen_invite`. [#469]
 - A new Translation in the same Cookbook as its original starts filed under every Tag the original carries, each shown by its name in the reader's language where it has one. Before, a Translation started with no Tags. Taking a Tag off one afterwards leaves the other as it is. [#472]
 
+### Fixed
+
+- A demo's shared recipe shows its link. A demo takes its public address from the new `KAMOSU_DEMO_PUBLIC_ADDRESS` at every start, where before it had no way to learn one, and a shared recipe on an instance with no address says the address is not set instead of telling the visitor to end the link. [#468]
+
+[#468]: https://github.com/BatterWorks/Kamosu/issues/468
 [#469]: https://github.com/BatterWorks/Kamosu/issues/469
 [#472]: https://github.com/BatterWorks/Kamosu/issues/472
 

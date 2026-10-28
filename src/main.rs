@@ -60,7 +60,8 @@ enum Command {
     },
     /// Build a Demo's Sample Library into a folder of its own, as a Demo does
     /// when it starts, and print what it holds and how long it took. Fails if
-    /// any step of the story does. The folder is emptied first.
+    /// any step of the story does, or if a Demo given a public address would
+    /// show a shared recipe with no link. The folder is emptied first.
     SampleLibrary { folder: std::path::PathBuf },
     /// Read the PDF on standard input and write its text to standard output.
     /// Kamosu starts this itself to read a PDF apart from everything else
@@ -113,8 +114,18 @@ fn sample_library(folder: &std::path::Path) -> i32 {
             return 1;
         }
     };
+    // A Demo started as the README says shows a link on every shared recipe
+    // (#468), checked in a Demo of its own beside the library.
+    let links = match kamosu::core::links_a_demo_shows(&built, &folder.join("as-a-demo")) {
+        Ok(links) => links,
+        Err(err) => {
+            eprintln!("{}", err.to_sentence());
+            return 1;
+        }
+    };
     match kamosu::sample_library::summary(&built) {
         Ok(mut summary) => {
+            summary["share_links_a_demo_shows"] = json!(links);
             summary["seconds"] = json!(started.elapsed().as_secs_f64());
             println!(
                 "{}",
@@ -149,8 +160,12 @@ fn serve(config: Config) {
             eprintln!("This Demo counts no visits: {why}");
             None
         });
+        let public_address = config.public_address.clone().unwrap_or_else(|why| {
+            eprintln!("This Demo keeps the public address it had: {why}");
+            None
+        });
         let core = if config.demo {
-            kamosu::core::start_demo(db, analytics.clone())
+            kamosu::core::start_demo(db, analytics.clone(), public_address.as_deref())
                 .unwrap_or_else(|e| panic!("cannot start the Demo with its Sample Library: {e}"))
         } else {
             Core::start(db)
@@ -177,6 +192,9 @@ fn serve(config: Config) {
                     "It counts its visits with the Umami at {}",
                     analytics.origin
                 );
+            }
+            if let Some(address) = &public_address {
+                println!("Its public address is {address}");
             }
         }
 

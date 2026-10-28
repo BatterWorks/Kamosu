@@ -3611,7 +3611,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Change this instance's public address. That is where it \
                       says it is reachable from outside. Kept in the database \
                       and never in an environment variable, so moving an \
-                      instance is one act rather than a redeployment. It fixes \
+                      instance is one act rather than a redeployment. A Demo \
+                      refuses it and is given its address at every start by \
+                      `KAMOSU_DEMO_PUBLIC_ADDRESS`. It fixes \
                       the future, not the past: Share Links minted after it \
                       carry the new address, while a link already sent stays \
                       the text it was sent as. A live link's `url`, as \

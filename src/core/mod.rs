@@ -81,7 +81,9 @@ mod translation;
 pub use accounts::*;
 use cookbooks::*;
 pub use cooking::*;
-pub use demo::{DEMO_ACCESS_KEY, DEMO_VISITOR, Mode, refused_in_demo, start_demo};
+pub use demo::{
+    DEMO_ACCESS_KEY, DEMO_VISITOR, Mode, links_a_demo_shows, refused_in_demo, start_demo,
+};
 pub use imports::*;
 use keeping_backups::*;
 pub(crate) use keeping_photographs::photograph_seen_by;
