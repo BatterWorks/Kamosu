@@ -65,6 +65,11 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// still counted beside the very sentence saying it is gone. Found in live
 	// acceptance, where a new source did not appear until the second load.
 	list_imports: 'server-first',
+	// Everything sent to the agent (#463), for the same reason: a kept
+	// answer misses the send from the phone's Share menu it is opened to
+	// find, and shows a row waiting that ended long ago. Offline, the list
+	// last read is still worth reading.
+	list_agent_jobs: 'server-first',
 	// An older Version against the recipe as it stands (#211). A line written
 	// back from it is saved as the whole recipe, built from the newest
 	// Version this answer holds, so a kept answer from before an edit would

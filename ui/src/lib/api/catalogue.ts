@@ -2622,6 +2622,33 @@ export type ListImportsOutput = {
 	}[];
 };
 
+/** List everything you sent to Kamosu's AI agent. Newest first, your own alone: links, pasted text, PDFs, photos and recipes read again. Each says what was sent, as far as Kamosu still holds it, and how it ended: the recipe it made, or why it failed and what to do next. `list_imports` lists the same Jobs by source, and `get_job` reads one's Import Report. */
+export type ListAgentJobsInput = Record<string, never>;
+/** What list_agent_jobs answers. */
+export type ListAgentJobsOutput = {
+	jobs: {
+		created_at: string;
+		ended_at: string | null;
+		fills_in: boolean;
+		first_words: string | null;
+		in_agents_words: boolean;
+		job_id: string;
+		kept: boolean;
+		kind: "link" | "pasted_text" | "pdf" | "picture";
+		link: string | null;
+		next: ("read_recipe_again" | "send_again" | "send_link_again" | "choose_another" | "paste_instead")[];
+		pages: number;
+		preview: string | null;
+		read_again: boolean;
+		reason: string | null;
+		recipe: {
+			branch_id: string;
+			title: string;
+		} | null;
+		status: "queued" | "running" | "completed" | "failed" | "cancelled";
+	}[];
+};
+
 /** Throw an Import's ledger away whole. The ledger is the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
 export type ForgetImportInput = {
 	import_id: string;
@@ -6366,6 +6393,12 @@ export interface Operations {
 	list_imports: {
 		input: ListImportsInput;
 		output: ListImportsOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	list_agent_jobs: {
+		input: ListAgentJobsInput;
+		output: ListAgentJobsOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -19613,6 +19646,167 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"imports"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_agent_jobs",
+		"summary": "List everything you sent to Kamosu's AI agent. Newest first, your own alone: links, pasted text, PDFs, photos and recipes read again. Each says what was sent, as far as Kamosu still holds it, and how it ended: the recipe it made, or why it failed and what to do next. `list_imports` lists the same Jobs by source, and `get_job` reads one's Import Report.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"jobs": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"ended_at": {
+								"description": "When it ended. Null while it works.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"fills_in": {
+								"description": "Kamosu read the link, then sent the agent to fill in the recipe it made.",
+								"type": "boolean"
+							},
+							"first_words": {
+								"description": "The start of pasted text or a PDF.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"in_agents_words": {
+								"description": "Whether `reason` is the agent's own words.",
+								"type": "boolean"
+							},
+							"job_id": {
+								"description": "The Job, whose Import Report `get_job` serves.",
+								"type": "string"
+							},
+							"kept": {
+								"description": "Whether Kamosu still keeps what was sent, 30 days after the Job ended.",
+								"type": "boolean"
+							},
+							"kind": {
+								"description": "What was sent.",
+								"enum": [
+									"link",
+									"pasted_text",
+									"pdf",
+									"picture"
+								]
+							},
+							"link": {
+								"description": "The link sent. Null for a file.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"next": {
+								"description": "What can be done about a failure: `read_recipe_again`, `read_job_again` (`send_again`), `import_by_agent` with the link or another file (`send_link_again`, `choose_another`), or pasting its text.",
+								"items": {
+									"enum": [
+										"read_recipe_again",
+										"send_again",
+										"send_link_again",
+										"choose_another",
+										"paste_instead"
+									]
+								},
+								"type": "array"
+							},
+							"pages": {
+								"description": "How many photos, as one recipe's pages.",
+								"type": "integer"
+							},
+							"preview": {
+								"description": "Where a small copy of the first photo is fetched, by you alone.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"read_again": {
+								"description": "A recipe you asked to have read again.",
+								"type": "boolean"
+							},
+							"reason": {
+								"description": "Why it failed.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"recipe": {
+								"additionalProperties": false,
+								"description": "The recipe it made or worked on, now.",
+								"properties": {
+									"branch_id": {
+										"type": "string"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"branch_id",
+									"title"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"status": {
+								"description": "`queued` waits, `running` is being read.",
+								"enum": [
+									"queued",
+									"running",
+									"completed",
+									"failed",
+									"cancelled"
+								]
+							}
+						},
+						"required": [
+							"job_id",
+							"created_at",
+							"ended_at",
+							"status",
+							"kind",
+							"pages",
+							"link",
+							"kept",
+							"first_words",
+							"preview",
+							"read_again",
+							"fills_in",
+							"recipe",
+							"reason",
+							"in_agents_words",
+							"next"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"jobs"
 			],
 			"type": "object"
 		}
@@ -36283,6 +36477,7 @@ export const READS: readonly OperationName[] = [
 	'read_pasted_recipe',
 	'read_recipe_pdf',
 	'list_imports',
+	'list_agent_jobs',
 	'search_recipes',
 	'home_shelves',
 	'meaning_search_status',
@@ -36398,6 +36593,7 @@ export const METHOD_NAMES = {
 	import_crouton: 'importCrouton',
 	import_from_another_app: 'importFromAnotherApp',
 	list_imports: 'listImports',
+	list_agent_jobs: 'listAgentJobs',
 	forget_import: 'forgetImport',
 	add_this: 'addThis',
 	import_web_link: 'importWebLink',
@@ -36643,6 +36839,8 @@ export interface KamosuClient {
 	importFromAnotherApp(input: ImportFromAnotherAppInput): Promise<Answer<'import_from_another_app'>>;
 	/** List every Import, and what happened each time. It covers what has been brought into your Kitchens from outside. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025). */
 	listImports(input?: ListImportsInput): Promise<Answer<'list_imports'>>;
+	/** List everything you sent to Kamosu's AI agent. Newest first, your own alone: links, pasted text, PDFs, photos and recipes read again. Each says what was sent, as far as Kamosu still holds it, and how it ended: the recipe it made, or why it failed and what to do next. `list_imports` lists the same Jobs by source, and `get_job` reads one's Import Report. */
+	listAgentJobs(input?: ListAgentJobsInput): Promise<Answer<'list_agent_jobs'>>;
 	/** Throw an Import's ledger away whole. The ledger is the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
 	forgetImport(input: ForgetImportInput): Promise<Answer<'forget_import'>>;
 	/** Add a recipe from whatever a phone's Share menu sent. It takes a link, text, a PDF, or one or more pictures, the pages of one recipe in order. An agent may call it too, rather than choose the route itself. Kamosu decides: a link goes to Kamosu's own reader, or to the agent where the Credential in hand sends everything there (`get_agent_choice`), and text that is only a link is that link. Text, pictures and a PDF go to the agent, and are refused in the answer where this Kamosu has none. One file that is text is text. A link already the Source of a recipe you can see, or one of your imports still reading, adds nothing. A link waits for its page to be read, about 10 seconds at most; anything else answers at once. The answer is `message`, in your Reading Language, to show as it is, and `outcome`. A failure later shows on the Imports screen as any import's does. Send files to POST /api/uploads first, one per request, and pass their ids in order as `files`. A Shortcut sends its own `shortcut_version`, and hears when a newer one is available. */

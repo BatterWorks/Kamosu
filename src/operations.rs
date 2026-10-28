@@ -2053,6 +2053,15 @@ pub fn list_imports(core: &Core, invocation: &Invocation, _input: Value) -> Resu
     core.list_imports(&caller.person_id)
 }
 
+/// Everything the caller sent to the agent, and how each ended (#463).
+pub fn list_agent_jobs(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.list_agent_jobs(caller_of(invocation)?)
+}
+
 /// Throw an Import's ledger away whole (ADR 0025); every recipe it made stays.
 pub fn forget_import(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let import_id = input

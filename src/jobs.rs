@@ -124,7 +124,7 @@ impl JobStatus {
         }
     }
 
-    fn from_column(value: String) -> Self {
+    pub fn from_column(value: String) -> Self {
         match value.as_str() {
             "running" => JobStatus::Running,
             "completed" => JobStatus::Completed,

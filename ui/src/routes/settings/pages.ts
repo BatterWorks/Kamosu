@@ -89,6 +89,14 @@ export const GROUPS: Group[] = [
 				offered: () => !demo.is,
 			},
 			{ href: '/imports', title: m.settings_brought_in, inside: m.settings_brought_in_inside },
+			// What went to the agent and how it ended (#463). A Demo refuses
+			// what a visitor sends it, so it has nothing to list.
+			{
+				href: '/settings/agent',
+				title: m.settings_sent_page,
+				inside: m.settings_sent_inside,
+				offered: () => !demo.is,
+			},
 		],
 	},
 	{

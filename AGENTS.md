@@ -399,6 +399,9 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     0048, #260, #262, #263, #264, #266, #268, #344)
   shelves.rs        the home shelves, and the shelf entry every list shows
   translation.rs    translation and a Branch's Language
+  sent_to_agent.rs  everything a Person sent the agent, in one list: what
+                    was sent as far as Kamosu holds it, how it ended, and
+                    what to do next where it failed (#463)
   reading_again.rs  a Co-author asking for an agent to read a recipe again
                     from its kept Original, a file handed over again, or
                     its Source's link, and whether one can (#272, #273)
@@ -410,6 +413,9 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     several pictures as the pages of one recipe (#452),
                     kept under originals/ for its Job's Job Key alone and
                     in no Backup, and deleted 30 days after its Job ended.
+                    A small copy of a picture and a PDF's first words are
+                    kept beside it for the list of sends, and go with it
+                    (#463).
                     The same file handed over again is known by its
                     contents, and a Job that failed on one is asked
                     again from it (#269, #270, #271, #273)

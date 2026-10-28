@@ -481,7 +481,11 @@ impl Core {
             file.split_once('-')
                 .is_some_and(|(hash, _)| kept_photograph(hash))
         });
-        forget_files_in(&originals_dir(&data_dir), |file| originals.contains(file));
+        // A Job's later pages and what Settings shows of it are named after
+        // the Job too, before a dot (#463).
+        forget_files_in(&originals_dir(&data_dir), |file| {
+            originals.contains(file.split_once('.').map_or(file, |(job_id, _)| job_id))
+        });
         Ok(())
     }
 

@@ -2716,6 +2716,129 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::list_imports,
         },
         Operation {
+            name: "list_agent_jobs",
+            summary: "List everything you sent to Kamosu's AI agent. Newest \
+                      first, your own alone: links, pasted text, PDFs, photos \
+                      and recipes read again. Each says what was sent, as far \
+                      as Kamosu still holds it, and how it ended: the recipe \
+                      it made, or why it failed and what to do next. \
+                      `list_imports` lists the same Jobs by source, and \
+                      `get_job` reads one's Import Report.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::GoesThrough,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "jobs": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "job_id": {
+                                    "type": "string",
+                                    "description": "The Job, whose Import Report `get_job` serves.",
+                                },
+                                "created_at": { "type": "string" },
+                                "ended_at": {
+                                    "type": ["string", "null"],
+                                    "description": "When it ended. Null while it works.",
+                                },
+                                "status": {
+                                    "enum": ["queued", "running", "completed", "failed", "cancelled"],
+                                    "description": "`queued` waits, `running` is being read.",
+                                },
+                                "kind": {
+                                    "enum": ["link", "pasted_text", "pdf", "picture"],
+                                    "description": "What was sent.",
+                                },
+                                "pages": {
+                                    "type": "integer",
+                                    "description": "How many photos, as one recipe's pages.",
+                                },
+                                "link": {
+                                    "type": ["string", "null"],
+                                    "description": "The link sent. Null for a file.",
+                                },
+                                "kept": {
+                                    "type": "boolean",
+                                    "description": "Whether Kamosu still keeps what was \
+                                                     sent, 30 days after the Job ended.",
+                                },
+                                "first_words": {
+                                    "type": ["string", "null"],
+                                    "description": "The start of pasted text or a PDF.",
+                                },
+                                "preview": {
+                                    "type": ["string", "null"],
+                                    "description": "Where a small copy of the first photo \
+                                                     is fetched, by you alone.",
+                                },
+                                "read_again": {
+                                    "type": "boolean",
+                                    "description": "A recipe you asked to have read again.",
+                                },
+                                "fills_in": {
+                                    "type": "boolean",
+                                    "description": "Kamosu read the link, then sent the agent \
+                                                     to fill in the recipe it made.",
+                                },
+                                "recipe": {
+                                    "type": ["object", "null"],
+                                    "description": "The recipe it made or worked on, now.",
+                                    "properties": {
+                                        "branch_id": { "type": "string" },
+                                        "title": { "type": "string" },
+                                    },
+                                    "required": ["branch_id", "title"],
+                                    "additionalProperties": false,
+                                },
+                                "reason": {
+                                    "type": ["string", "null"],
+                                    "description": "Why it failed.",
+                                },
+                                "in_agents_words": {
+                                    "type": "boolean",
+                                    "description": "Whether `reason` is the agent's own words.",
+                                },
+                                "next": {
+                                    "type": "array",
+                                    "description": "What can be done about a failure: \
+                                                     `read_recipe_again`, `read_job_again` \
+                                                     (`send_again`), `import_by_agent` with \
+                                                     the link or another file \
+                                                     (`send_link_again`, `choose_another`), \
+                                                     or pasting its text.",
+                                    "items": {
+                                        "enum": [
+                                            "read_recipe_again", "send_again",
+                                            "send_link_again", "choose_another",
+                                            "paste_instead"
+                                        ],
+                                    },
+                                },
+                            },
+                            "required": [
+                                "job_id", "created_at", "ended_at", "status", "kind", "pages",
+                                "link", "kept", "first_words", "preview", "read_again",
+                                "fills_in", "recipe", "reason", "in_agents_words", "next"
+                            ],
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "required": ["jobs"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_agent_jobs,
+        },
+        Operation {
             name: "forget_import",
             summary: "Throw an Import's ledger away whole. The ledger is the \
                       memory of which outside recipe became which of yours. \

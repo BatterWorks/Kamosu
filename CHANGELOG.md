@@ -10,6 +10,7 @@
 
 - An Operator's invite can bring the newcomer into one of the Operator's own Kitchens, chosen beside *Make the invite link* in Settings › People, so a housemate needs one link for their account and their Kitchen. Agents pass `kitchen_id` to `mint_invite`. [#469]
 - Agents put several Tags on a recipe, or take them off, in one `set_recipe_tag` call by naming them in `tag_ids`. They go on or come off together: if one cannot, none does and the recipe is left as it was. [#472]
+- Settings › Add recipes › *Sent to the AI agent* lists everything you handed Kamosu's AI agent, newest first: the link, the first words of a text or PDF, or a small copy of a photo, then the recipe it made, or, for one that failed, the agent's reason on the row with a button to send it again, choose another photo or PDF, read it again or paste the text instead. Before, a failure was one tap down on its Report in *What has been brought in*, under the source it came in by. Agents read the same list with `list_agent_jobs`. [#463]
 
 ### Changed
 
@@ -21,6 +22,7 @@
 
 - A demo's shared recipe shows its link. A demo takes its public address from the new `KAMOSU_DEMO_PUBLIC_ADDRESS` at every start, where before it had no way to learn one, and a shared recipe on an instance with no address says the address is not set instead of telling the visitor to end the link. [#468]
 
+[#463]: https://github.com/BatterWorks/Kamosu/issues/463
 [#468]: https://github.com/BatterWorks/Kamosu/issues/468
 [#469]: https://github.com/BatterWorks/Kamosu/issues/469
 [#472]: https://github.com/BatterWorks/Kamosu/issues/472

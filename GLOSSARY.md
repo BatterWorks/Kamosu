@@ -145,7 +145,7 @@ What an **Import** made, as a person reads it — and it does not go away when t
 _Avoid_: Log, error list, summary, receipt, job output
 
 **Original**:
-What an agent's **Job** reads when that is not a link: a PDF, pasted text, or one or more pictures of one recipe, in order. It is kept for 30 days so the recipe can be read again, and it is never part of the recipe. It is read and never shown, which is what sets it apart from a **Photograph**.
+What an agent's **Job** reads when that is not a link: a PDF, pasted text, or one or more pictures of one recipe, in order. It is kept for 30 days so the recipe can be read again, and it is never part of the recipe. It is read and never shown, which is what sets it apart from a **Photograph**. The one exception is a small copy of a picture's first page, shown to the Person who handed it over in the list of what they sent the agent.
 _Avoid_: Attachment, upload, source file, scan
 
 **Read Again**:
