@@ -2,6 +2,8 @@
 
 _(Amended 2026-09-28, for the v0.1.0 release: the list moved from `README.md` to `SECURITY.md`, beside how to report a vulnerability, and the README links to it. It is still public and still shipped whole, which is what the rejected option "keep the list internal" was about; the settings screen carries it too. `tests/defences.rs` now reads `SECURITY.md`.)_
 
+_(Amended 2026-10-26 by [ADR 0056](./0056-settings-is-grouped-by-whose-a-thing-is.md), #469: the settings screen no longer carries the list. No app shows its users such a list. It is in `SECURITY.md`, which the README links, and `tests/defences.rs` checks that one place.)_
+
 Kamosu ships a plainly written list of the things it does **not** protect you from, in the same voice [ADR 0015](./0015-a-name-is-not-identification-it-is-a-reminder.md) uses to say a **Hand** is never verified and [#11](https://github.com/BatterWorks/Kamosu/issues/11) uses to call the Operator boundary a courtesy. The list is part of the product, not an internal note.
 
 - **Whoever holds the disk holds everything.** The Operator boundary is a courtesy. Nothing is encrypted at rest, and there is no pepper ([ADR 0031](./0031-a-secret-is-spent-or-revoked-never-on-a-clock.md)).

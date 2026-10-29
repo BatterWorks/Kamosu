@@ -1,5 +1,7 @@
 /**
- * The screen-seam test: Settings, against a stand-in Kamosu.
+ * The screen-seam test: Settings' menu and the pages everybody has (#469),
+ * against a stand-in Kamosu. This instance's pages are tested in
+ * `this-instance.svelte.spec.ts`.
  *
  * What makes this worth having is not that it runs — it is that the answers
  * below are checked against the Catalogue before the screen sees them. Rename
@@ -11,11 +13,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, screen, fireEvent, within, waitFor } from '@testing-library/svelte';
 import Settings from './+page.svelte';
-import Account from './account/+page.svelte';
+import SettingsMenu from './SettingsMenu.svelte';
+import Name from './name/+page.svelte';
+import SigningIn from './signing-in/+page.svelte';
+import Keys from './keys/+page.svelte';
+import Language from './language/+page.svelte';
 import Device from './device/+page.svelte';
 import Kitchens from './kitchens/+page.svelte';
-import Instance from './instance/+page.svelte';
-import { renderScreen } from '../../testing/render';
+import Cookbook from './cookbook/+page.svelte';
+import Tags from './tags/+page.svelte';
+import About from './about/+page.svelte';
+import { renderScreen, type ScreenComponent } from '../../testing/render';
 import type { Answers } from '$lib/api/stand-in';
 import { went } from '../../testing/navigation';
 import type { GetCookbookOutput, MeaningSearchStatusOutput } from '$lib/api/catalogue';
@@ -23,6 +31,7 @@ import { cookbookLabel, kitchenAnswer } from '../../testing/recipes';
 import { holdTheInstallOffer } from '$lib/offline/device.svelte';
 import { signingIn } from '$lib/shell/signing-in.svelte';
 import { offerToInstall } from '../../testing/install';
+import { demo } from '$lib/demo.svelte';
 
 /**
  * Paraglide's `setLocale` reloads the page, which jsdom cannot do. What a test
@@ -120,8 +129,8 @@ const readsInAmerican: Answers = {
 };
 
 describe('the settings screen', () => {
-	it('asks the instance what it is, and says so', async () => {
-		const { kamosu } = renderScreen(Instance, {
+	it('says which Kamosu this is, under About Kamosu (#469)', async () => {
+		const { kamosu } = renderScreen(About, {
 			instance_status: {
 				version: '0.1.0',
 				setup_complete: true,
@@ -132,14 +141,16 @@ describe('the settings screen', () => {
 			...anonymous,
 		});
 
-		expect(await screen.findByText(/Version 0\.1\.0/)).toBeInTheDocument();
-		expect(screen.getByText(/Setup is complete/)).toBeInTheDocument();
+		expect(await screen.findByText('Kamosu 0.1.0')).toBeInTheDocument();
 		expect(kamosu.calls.map((call) => call.operation)).toContain('instance_status');
+		// What Kamosu does not protect left Settings with #469: it is in
+		// SECURITY.md, where a project keeps such a list.
+		expect(screen.queryByText(/does not protect/)).not.toBeInTheDocument();
 	});
 
 	// The story (#158), for showing somebody what Kamosu is.
 	it('leads to the story of what Kamosu is', async () => {
-		renderScreen(Instance, {
+		renderScreen(About, {
 			instance_status: {
 				version: '0.1.0',
 				setup_complete: true,
@@ -156,33 +167,26 @@ describe('the settings screen', () => {
 		);
 	});
 
-	it("offers the Operator's screen only to somebody who administers the instance", async () => {
-		renderScreen(Instance, {
-			instance_status: {
-				version: '0.1.0',
-				setup_complete: true,
-				password_minimum: 15,
-				passkey_origin: null,
-				demo: false,
-			},
+	it('says so plainly when the instance cannot be reached', async () => {
+		renderScreen(About, {
+			instance_status: { refuse: 'internal', message: 'Kamosu could not be reached.' },
 			...anonymous,
 		});
-		expect(await screen.findByText(/Version 0\.1\.0/)).toBeInTheDocument();
-		expect(
-			screen.queryByRole('link', { name: 'Administer this instance' }),
-		).not.toBeInTheDocument();
+
+		expect(await screen.findByText(/could not be reached/)).toBeInTheDocument();
 	});
 
-	it("shows the way into the Operator's screen to an Operator", async () => {
-		renderScreen(Instance, {
-			instance_status: {
-				version: '0.1.0',
-				setup_complete: true,
-				password_minimum: 15,
-				passkey_origin: null,
-				demo: false,
-			},
-			...anonymous,
+	it("shows a cook no group of the instance's (#469, ADR 0040)", async () => {
+		renderScreen(Settings, { ...readsInAmerican });
+
+		expect(await screen.findByRole('link', { name: /Stéphane/ })).toHaveTextContent('Cook');
+		expect(screen.queryByRole('heading', { name: 'This instance' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('link', { name: /People/ })).not.toBeInTheDocument();
+	});
+
+	it("shows an Operator the instance's group, People first (#469)", async () => {
+		renderScreen(Settings, {
+			...readsInAmerican,
 			list_accounts: {
 				accounts: [
 					{
@@ -195,38 +199,17 @@ describe('the settings screen', () => {
 				],
 			},
 		});
-		expect(await screen.findByRole('link', { name: 'Administer this instance' })).toHaveAttribute(
+
+		expect(await screen.findByRole('link', { name: /People/ })).toHaveAttribute(
 			'href',
-			'/operator',
+			'/settings/people',
 		);
-	});
-
-	it('says setup has not happened when it has not', async () => {
-		renderScreen(Instance, {
-			instance_status: {
-				version: '0.1.0',
-				setup_complete: false,
-				password_minimum: 15,
-				passkey_origin: null,
-				demo: false,
-			},
-			...anonymous,
-		});
-
-		expect(await screen.findByText(/Setup has not happened yet/)).toBeInTheDocument();
-	});
-
-	it('says so plainly when the instance cannot be reached', async () => {
-		renderScreen(Instance, {
-			instance_status: { refuse: 'internal', message: 'Kamosu could not be reached.' },
-			...anonymous,
-		});
-
-		expect(await screen.findByText(/could not be reached/)).toBeInTheDocument();
+		expect(screen.getByRole('heading', { name: 'This instance' })).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: /Stéphane/ })).toHaveTextContent('Operator');
 	});
 
 	it('offers every language Paraglide compiled, with the current one pressed', () => {
-		renderScreen(Account, {
+		renderScreen(Language, {
 			instance_status: {
 				version: '0.1.0',
 				setup_complete: true,
@@ -243,8 +226,8 @@ describe('the settings screen', () => {
 		expect(screen.getByRole('button', { name: 'English' })).toHaveAttribute('aria-pressed', 'true');
 	});
 
-	it('shows nothing about Access when the visitor is not signed in', async () => {
-		renderScreen(Account, {
+	it('shows nothing about signing in when the visitor is not signed in', async () => {
+		const { kamosu } = renderScreen(SigningIn, {
 			instance_status: {
 				version: '0.1.0',
 				setup_complete: true,
@@ -255,8 +238,11 @@ describe('the settings screen', () => {
 			...anonymous,
 		});
 
-		await screen.findByRole('heading', { name: 'Language' });
-		expect(screen.queryByText('Access')).not.toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(kamosu.calls.map((call) => call.operation)).toContain('list_sessions'),
+		);
+		expect(screen.queryByRole('heading', { name: 'Password' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('heading', { name: 'Devices signed in' })).not.toBeInTheDocument();
 	});
 
 	it("marks a phone's Add-only key, and changes where what it shares goes (#452)", async () => {
@@ -271,7 +257,7 @@ describe('the settings screen', () => {
 			last_used_at: null,
 			revoked: false,
 		};
-		const { kamosu } = renderScreen(Account, {
+		const { kamosu } = renderScreen(Keys, {
 			instance_status: {
 				version: '0.1.0',
 				setup_complete: true,
@@ -302,8 +288,8 @@ describe('the settings screen', () => {
 		);
 	});
 
-	it("lists a signed-in Person's Sessions and Access Keys together, each ending on its own", async () => {
-		const { kamosu } = renderScreen(Account, {
+	it('ends a device signed in and an Access Key, each from its own page (#469)', async () => {
+		const answers: Answers = {
 			instance_status: {
 				version: '0.1.0',
 				setup_complete: true,
@@ -343,24 +329,24 @@ describe('the settings screen', () => {
 			},
 			revoke_session: { revoked: true, current: false },
 			revoke_access_key: { revoked: true },
-			list_kitchens: { kitchens: [] },
-		});
+		};
 
-		expect(await screen.findByText('iPhone')).toBeInTheDocument();
-		expect(screen.getByText('my agent')).toBeInTheDocument();
-		expect(screen.getByText('Read-only')).toBeInTheDocument();
-
-		const sessionRow = screen.getByText('iPhone').closest('li');
+		const devices = renderScreen(SigningIn, answers);
+		const sessionRow = (await screen.findByText('iPhone')).closest('li');
+		expect(screen.queryByText('my agent')).not.toBeInTheDocument();
 		await fireEvent.click(within(sessionRow as HTMLElement).getByRole('button', { name: 'End' }));
-		expect(kamosu.calls.map((call) => call.operation)).toContain('revoke_session');
+		expect(devices.kamosu.calls.map((call) => call.operation)).toContain('revoke_session');
+		cleanup();
 
-		const keyRow = screen.getByText('my agent').closest('li');
+		const keys = renderScreen(Keys, answers);
+		const keyRow = (await screen.findByText('my agent')).closest('li');
+		expect(within(keyRow as HTMLElement).getByText('Read-only')).toBeInTheDocument();
 		await fireEvent.click(within(keyRow as HTMLElement).getByRole('button', { name: 'End' }));
-		expect(kamosu.calls.map((call) => call.operation)).toContain('revoke_access_key');
+		expect(keys.kamosu.calls.map((call) => call.operation)).toContain('revoke_access_key');
 	});
 
 	it('offers Reading Measures on the account, defaulting to American', async () => {
-		const { kamosu } = renderScreen(Device, {
+		const { kamosu } = renderScreen(Language, {
 			instance_status: {
 				version: '0.1.0',
 				setup_complete: true,
@@ -393,7 +379,7 @@ describe('the settings screen', () => {
 	});
 
 	it("shows a minted Access Key's secret where the form was, once, then never again (#142)", async () => {
-		const { kamosu } = renderScreen(Account, {
+		const { kamosu } = renderScreen(Keys, {
 			instance_status: {
 				version: '0.1.0',
 				setup_complete: true,
@@ -419,27 +405,27 @@ describe('the settings screen', () => {
 
 		await screen.findByText('No Access Keys yet.');
 		await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'a new agent' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Create Access Key' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Make the key' }));
 
 		const secret = await screen.findByText('the-one-time-secret');
 		expect(kamosu.calls.map((call) => call.operation)).toContain('mint_access_key');
 
-		// In the form's place, under the list, not at the top of the section:
-		// the key is where the eye already is when Create is pressed.
-		const heading = screen.getByRole('heading', { name: 'Access Keys' });
+		// In the form's place, under the list, not at the top of the page: the
+		// key is where the eye already is when Make the key is pressed.
+		const heading = screen.getByRole('heading', { name: 'Make a key' });
 		expect(heading.compareDocumentPosition(secret) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 		expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
-		expect(screen.queryByRole('button', { name: 'Create Access Key' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Make the key' })).not.toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Copy' })).toHaveFocus();
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Done, I copied it' }));
 		expect(screen.queryByText('the-one-time-secret')).not.toBeInTheDocument();
 		expect(screen.getByLabelText('Name')).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Create Access Key' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Make the key' })).toBeInTheDocument();
 	});
 
-	it('offers an Operator, and nobody else, a key that acts as Operator, and warns when it is chosen (#369)', async () => {
-		const { kamosu } = renderScreen(Account, {
+	it('offers an Operator, and nobody else, a key that acts as Operator, and asks first (#369, #469)', async () => {
+		const { kamosu } = renderScreen(Keys, {
 			instance_status: {
 				version: '0.1.0',
 				setup_complete: true,
@@ -489,23 +475,30 @@ describe('the settings screen', () => {
 		});
 
 		expect(await screen.findByText('Acts as Operator')).toBeInTheDocument();
-		const asCook = await screen.findByRole('radio', { name: /You, as a cook/ });
+		const asCook = await screen.findByRole('radio', { name: /You, a cook/ });
 		expect(asCook).toBeChecked();
 		const warning = /House Notes every agent reads/;
 		expect(screen.queryByText(warning)).not.toBeInTheDocument();
 
-		await fireEvent.click(screen.getByRole('radio', { name: /You, as Operator too/ }));
-		expect(screen.getByText(warning)).toBeInTheDocument();
+		// The warning is said where the key is made, not under the choice.
+		await fireEvent.click(screen.getByRole('radio', { name: /You, and an Operator too/ }));
+		expect(screen.queryByText(warning)).not.toBeInTheDocument();
 
 		await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'a new agent' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Create Access Key' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Make the key' }));
+		const sheet = await screen.findByRole('dialog', { name: 'Make an Operator key?' });
+		expect(within(sheet).getByText(warning)).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('mint_access_key');
+
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Make the key' }));
 		await screen.findByText('the-one-time-secret');
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 		const sent = kamosu.calls.find((call) => call.operation === 'mint_access_key');
 		expect(sent?.input).toEqual({ name: 'a new agent', read_only: false, operator: true });
 	});
 
 	it('offers a Person who is no Operator no choice, and mints them an ordinary key (#369)', async () => {
-		const { kamosu } = renderScreen(Account, {
+		const { kamosu } = renderScreen(Keys, {
 			instance_status: {
 				version: '0.1.0',
 				setup_complete: true,
@@ -533,14 +526,14 @@ describe('the settings screen', () => {
 		await screen.findByText('No Access Keys yet.');
 		expect(screen.queryByRole('radio')).not.toBeInTheDocument();
 		await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'a new agent' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Create Access Key' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Make the key' }));
 		await screen.findByText('the-one-time-secret');
 		const sent = kamosu.calls.find((call) => call.operation === 'mint_access_key');
 		expect(sent?.input).toEqual({ name: 'a new agent', read_only: false, operator: false });
 	});
 
 	it('copies a minted Access Key, and still shows it when the browser will not copy (#142)', async () => {
-		renderScreen(Account, {
+		renderScreen(Keys, {
 			instance_status: {
 				version: '0.1.0',
 				setup_complete: true,
@@ -568,7 +561,7 @@ describe('the settings screen', () => {
 
 		await screen.findByText('No Access Keys yet.');
 		await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'a new agent' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Create Access Key' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Make the key' }));
 		await fireEvent.click(await screen.findByRole('button', { name: 'Copy' }));
 
 		expect(writeText).toHaveBeenCalledWith('the-one-time-secret');
@@ -794,7 +787,7 @@ describe('the settings screen', () => {
 		});
 	});
 
-	it('mints a Kitchen Invite and shows its secret once', async () => {
+	it('makes a Kitchen Invite a link to send, copies it, and cancels it (#469)', async () => {
 		const { kamosu } = renderScreen(Kitchens, {
 			instance_status: {
 				version: '0.1.0',
@@ -803,11 +796,7 @@ describe('the settings screen', () => {
 				passkey_origin: null,
 				demo: false,
 			},
-			list_sessions: { sessions: [] },
-			list_passkeys: NO_PASSKEYS,
-			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
-			list_tags: { tags: [] },
 			list_kitchens: {
 				kitchens: [
 					{
@@ -820,58 +809,35 @@ describe('the settings screen', () => {
 				],
 			},
 			invite_to_kitchen: { invite_id: 'ki_1', secret: 'the-invite-secret' },
+			cancel_kitchen_invite: { ended: true },
 		});
 
 		await screen.findByDisplayValue('Maison Batterman');
+		// Nothing to paste any more: the link does the joining.
+		expect(screen.queryByText('Join a Kitchen')).not.toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Invite someone' }));
 
-		expect(await screen.findByText('the-invite-secret')).toBeInTheDocument();
+		const link = `${location.origin}/kitchen-invite/the-invite-secret`;
+		expect(await screen.findByText(link)).toBeInTheDocument();
+		expect(screen.getByText('Send this link to the person. It works once.')).toBeInTheDocument();
 		expect(kamosu.calls.map((call) => call.operation)).toContain('invite_to_kitchen');
 
 		const writeText = vi.fn(async () => {});
 		Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
 		await fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
-		expect(writeText).toHaveBeenCalledWith('the-invite-secret');
+		expect(writeText).toHaveBeenCalledWith(link);
 		expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
 		Reflect.deleteProperty(navigator, 'clipboard');
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Done, I copied it' }));
-		expect(screen.queryByText('the-invite-secret')).not.toBeInTheDocument();
-	});
-
-	it('joins a Kitchen through a pasted Invite', async () => {
-		const { kamosu } = renderScreen(Kitchens, {
-			instance_status: {
-				version: '0.1.0',
-				setup_complete: true,
-				password_minimum: 15,
-				passkey_origin: null,
-				demo: false,
-			},
-			list_sessions: { sessions: [] },
-			list_passkeys: NO_PASSKEYS,
-			list_access_keys: { access_keys: [] },
-			...readsInAmerican,
-			list_kitchens: { kitchens: [] },
-			accept_kitchen_invite: {
-				id: 'k_shared',
-				name: 'Supper Club',
-				cookbooks: [cookbookLabel()],
-				nickname: null,
-				members: [{ person_id: 'p_1', name: 'Stéphane' }],
-			},
-		});
-
-		await screen.findByText('Join a Kitchen');
-		await fireEvent.input(screen.getByLabelText('Invite'), {
-			target: { value: 'someones-invite-secret' },
-		});
-		await fireEvent.click(screen.getByRole('button', { name: 'Join' }));
-
-		expect(kamosu.calls).toContainEqual({
-			operation: 'accept_kitchen_invite',
-			input: { secret: 'someones-invite-secret' },
-		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Cancel it' }));
+		await waitFor(() =>
+			expect(kamosu.calls).toContainEqual({
+				operation: 'cancel_kitchen_invite',
+				input: { invite_id: 'ki_1' },
+			}),
+		);
+		await waitFor(() => expect(screen.queryByText(link)).not.toBeInTheDocument());
+		expect(screen.getByRole('button', { name: 'Invite someone' })).toBeInTheDocument();
 	});
 
 	it('carries the expanding pair, and names no Kitchen in its title, on six Kitchens (#102)', async () => {
@@ -924,18 +890,21 @@ describe('the settings screen', () => {
 		expect(title).toHaveTextContent(/^Settings$/);
 	});
 
-	it('draws the menu and a page on the wide layout too (#221)', async () => {
+	it('offers no Save from your phone in a Demo, which refuses imports (ADR 0055)', async () => {
+		demo.is = true;
+		try {
+			renderScreen(Settings, { ...readsInAmerican });
+			await screen.findByRole('heading', { name: 'Add recipes' });
+			expect(screen.queryByRole('link', { name: /Save from your phone/ })).not.toBeInTheDocument();
+			expect(screen.getByRole('link', { name: /Import from another app/ })).toBeInTheDocument();
+		} finally {
+			demo.is = false;
+		}
+	});
+
+	it('opens the first page beside the menu on the wide layout, and marks it there (#469)', async () => {
 		renderScreen(
 			Settings,
-			{ get_person: { person_id: 'p_1', name: 'Stéphane' } },
-			undefined,
-			'wide',
-		);
-		expect(await screen.findAllByRole('link')).toHaveLength(7);
-		cleanup();
-
-		renderScreen(
-			Account,
 			{
 				...readsInAmerican,
 				list_sessions: { sessions: [] },
@@ -945,38 +914,93 @@ describe('the settings screen', () => {
 			undefined,
 			'wide',
 		);
-		expect(await screen.findByRole('heading', { name: 'Language' })).toBeInTheDocument();
-		expect(screen.queryByRole('heading', { name: 'Kitchens' })).not.toBeInTheDocument();
+		expect(
+			await screen.findByRole('heading', { level: 1, name: 'Signing in' }),
+		).toBeInTheDocument();
+		cleanup();
+
+		renderScreen(
+			SettingsMenu as unknown as ScreenComponent,
+			{ ...readsInAmerican },
+			undefined,
+			'wide',
+		);
+		// A column of its own beside the page, which the layout draws.
+		const nav = await screen.findByRole('navigation', { name: 'Settings' });
+		expect(within(nav).getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+		expect(within(nav).getByRole('link', { name: /Signing in/ })).toHaveAttribute(
+			'href',
+			'/settings/signing-in',
+		);
 	});
 
-	it('is a menu of seven pages, each named with what it holds (#221, #371, #412, #452)', async () => {
+	it('groups its pages by whose they are, each row saying what is inside (#469)', async () => {
 		const { kamosu } = renderScreen(Settings, {
 			get_person: { person_id: 'p_1', name: 'Stéphane' },
+			list_accounts: {
+				accounts: [
+					{
+						name: 'Stéphane',
+						is_operator: true,
+						disabled: false,
+						is_you: true,
+						created_at: '2026-01-04T10:00:00Z',
+					},
+				],
+			},
 		});
 
-		const rows = await screen.findAllByRole('link');
+		await screen.findByRole('heading', { name: 'This instance' });
+		expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent?.trim())).toEqual([
+			'You',
+			'Your household',
+			'Add recipes',
+			'This instance',
+		]);
+		const rows = screen.getAllByRole('link');
 		expect(rows.map((row) => row.getAttribute('href'))).toEqual([
+			'/settings/name',
+			'/settings/signing-in',
+			'/settings/keys',
+			'/settings/language',
+			'/settings/device',
+			'/settings/security',
+			'/settings/kitchens',
+			'/settings/cookbook',
+			'/settings/tags',
+			'/foods',
 			'/settings/import',
 			'/settings/share',
-			'/settings/account',
-			'/settings/device',
-			'/settings/kitchens',
-			'/settings/instance',
-			'/settings/security',
+			'/imports',
+			'/settings/agent',
+			'/settings/people',
+			'/settings/backups',
+			'/settings/runner',
+			'/settings/address',
+			'/settings/meaning',
+			'/settings/upkeep',
+			'/settings/instance-security',
+			'/settings/about',
 		]);
-		// Import from another app comes first, naming the apps it reads (#412).
-		expect(rows[0]).toHaveTextContent('Import from another app');
-		expect(rows[0]).toHaveTextContent('Crouton');
-		// Setting a phone up comes second (#452, option B).
-		expect(rows[1]).toHaveTextContent('Share from your phone');
-		expect(rows[1]).toHaveTextContent("Add a recipe from any app's Share menu");
-		expect(rows[2]).toHaveTextContent('Account');
-		expect(rows[2]).toHaveTextContent('Your name, the language, who is signed in, your password');
-		expect(rows[4]).toHaveTextContent('Kitchens and cookbooks');
-		expect(rows[5]).toHaveTextContent('What arrived, Meaning Search, the version');
-		// The menu reads who is signed in, for the foot of it (#380), and nothing
-		// else: every page reads what its own sections need.
-		expect(kamosu.calls).toEqual([{ operation: 'get_person', input: {} }]);
+		const row = (href: string) => rows.find((each) => each.getAttribute('href') === href)!;
+		expect(row('/settings/signing-in')).toHaveTextContent('Password, passkeys, devices signed in');
+		expect(row('/settings/kitchens')).toHaveTextContent('Who sees and cooks your recipes');
+		expect(row('/settings/cookbook')).toHaveTextContent('Who can change your recipes');
+		expect(row('/settings/import')).toHaveTextContent('Crouton');
+		expect(row('/settings/share')).toHaveTextContent('Save from your phone');
+		expect(row('/settings/share')).toHaveTextContent(
+			'With the Share button in Safari, Instagram, Photos…',
+		);
+		// Foods is for every Person: all five of its Operations are
+		// Permission::Person, so it is no Operator's power (#107).
+		expect(row('/foods')).toHaveTextContent('Foods');
+		// The menu reads who is signed in, and whether they administer the
+		// instance, and nothing else: every page reads what it needs.
+		expect(kamosu.calls.map((call) => call.operation).sort()).toEqual([
+			'get_person',
+			'list_accounts',
+		]);
+		expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
 	});
 
 	it('keeps the "not right now" facts once their cards are put away (#76)', async () => {
@@ -992,7 +1016,7 @@ describe('the settings screen', () => {
 		});
 		// The test browser is not a secure page, so this device can keep nothing.
 		expect(
-			await screen.findByRole('heading', { level: 2, name: 'This device' }),
+			await screen.findByRole('heading', { level: 2, name: 'Offline copy' }),
 		).toBeInTheDocument();
 		expect(screen.getByText(/Kamosu is on http:\/\//)).toBeInTheDocument();
 	});
@@ -1097,18 +1121,18 @@ describe('the settings screen', () => {
 	});
 
 	it('says a Cookbook has no tags yet rather than showing an empty box', async () => {
-		renderScreen(Kitchens, { ...withKitchen, list_tags: { tags: [] } });
+		renderScreen(Tags, { ...withKitchen, list_tags: { tags: [] } });
 
 		expect(await screen.findByRole('heading', { name: 'Tags' })).toBeInTheDocument();
 		expect(
 			await screen.findByText('No tags yet. Add one to a recipe and it appears here.'),
 		).toBeInTheDocument();
-		// And it says what renaming and deleting a tag reach.
-		expect(screen.getByText(/A deleted one comes off them all/)).toBeInTheDocument();
+		// And it says what a change to a tag reaches.
+		expect(screen.getByText(/reaches every recipe with the tag/)).toBeInTheDocument();
 	});
 
 	it('renames a tag through the Operation, saying it reaches every recipe at once', async () => {
-		const { kamosu } = renderScreen(Kitchens, {
+		const { kamosu } = renderScreen(Tags, {
 			...withKitchen,
 			list_tags: { tags: [settingsTag('t_dessert', 'dessert', 12)] },
 			rename_tag: settingsTag('t_dessert', 'desserts', 9),
@@ -1118,8 +1142,8 @@ describe('the settings screen', () => {
 		// fact a person weighs before touching it.
 		expect(await screen.findByDisplayValue('dessert')).toBeInTheDocument();
 		expect(screen.getByText('12 recipes')).toBeInTheDocument();
-		// The promise a rename makes, said once at the top of the section.
-		expect(screen.getByText(/shows its new name on every recipe at once/)).toBeInTheDocument();
+		// The promise a rename makes, said once at the top of the page.
+		expect(screen.getByText(/reaches every recipe with the tag/)).toBeInTheDocument();
 
 		const field = screen.getByDisplayValue('dessert');
 		await fireEvent.input(field, { target: { value: 'desserts' } });
@@ -1145,7 +1169,7 @@ describe('the settings screen', () => {
 	it('names a tag in the Language the Person reads recipes in, not the interface locale', async () => {
 		// Two separate settings (ADR 0006, ADR 0016). A French interface over an
 		// English Reading Language must not name a new word `fr`.
-		const { kamosu } = renderScreen(Kitchens, {
+		const { kamosu } = renderScreen(Tags, {
 			...withKitchen,
 			get_reading_preferences: { reading_language: 'es', reading_measures: 'metric' },
 			list_tags: { tags: [settingsTag('t_mijote', 'mijoté', 7, 'fr')] },
@@ -1165,7 +1189,7 @@ describe('the settings screen', () => {
 	it('gives a tag known only in French an English name, without renaming the French one', async () => {
 		// The fallback ADR 0006 built, finally fixable: nothing until now let
 		// anybody add the name it fell back from.
-		const { kamosu } = renderScreen(Kitchens, {
+		const { kamosu } = renderScreen(Tags, {
 			...withKitchen,
 			list_tags: { tags: [settingsTag('t_mijote', 'mijoté', 7, 'fr')] },
 			rename_tag: settingsTag('t_mijote', 'slow-cooked', 7),
@@ -1187,7 +1211,7 @@ describe('the settings screen', () => {
 	});
 
 	it('asks before deleting a tag, leading with how many recipes lose it', async () => {
-		const { kamosu } = renderScreen(Kitchens, {
+		const { kamosu } = renderScreen(Tags, {
 			...withKitchen,
 			list_tags: { tags: [settingsTag('t_try', 'to try', 18)] },
 			delete_tag: { deleted: true },
@@ -1218,7 +1242,7 @@ describe('the settings screen', () => {
 	it('says “1 recipe loses this tag”, never “1 recipes”', async () => {
 		// The figure and the phrase sit side by side in the sheet, so the phrase
 		// has to inflect with it.
-		renderScreen(Kitchens, {
+		renderScreen(Tags, {
 			...withKitchen,
 			list_tags: { tags: [settingsTag('t_one', 'brunch', 1)] },
 			delete_tag: { deleted: true },
@@ -1232,7 +1256,7 @@ describe('the settings screen', () => {
 	});
 
 	it('asks before merging two tags, saying which way round it goes', async () => {
-		const { kamosu } = renderScreen(Kitchens, {
+		const { kamosu } = renderScreen(Tags, {
 			...withKitchen,
 			list_tags: {
 				tags: [settingsTag('t_quick', 'quick', 9), settingsTag('t_weeknight', 'weeknight', 21)],
@@ -1256,34 +1280,6 @@ describe('the settings screen', () => {
 			operation: 'merge_tags',
 			input: { keep_tag_id: 't_weeknight', merge_tag_id: 't_quick' },
 		});
-	});
-
-	/**
-	 * The second of the two doors onto a Food (#107). The first is the Reading
-	 * corrector on the recipe; this is the one for a Food you have to go looking
-	 * for, and nothing else in the interface reaches it.
-	 */
-	it('offers the way into the Foods, to every Person and not only an Operator', async () => {
-		renderScreen(Kitchens, {
-			instance_status: {
-				version: '0.1.0',
-				setup_complete: true,
-				password_minimum: 15,
-				passkey_origin: null,
-				demo: false,
-			},
-			list_sessions: { sessions: [] },
-			list_passkeys: NO_PASSKEYS,
-			list_access_keys: { access_keys: [] },
-			list_kitchens: { kitchens: [] },
-			...readsInAmerican,
-		});
-
-		const door = await screen.findByRole('link', { name: 'Look up a Food' });
-		expect(door).toHaveAttribute('href', '/foods');
-		// A Food is instance-wide and all five of its Operations are
-		// Permission::Person, so this door is not the Operator's (#103).
-		expect(screen.queryByRole('link', { name: 'Administer this Kamosu' })).not.toBeInTheDocument();
 	});
 });
 
@@ -1314,17 +1310,12 @@ describe('the Reading Language (#112)', () => {
 
 	it('says recipes follow the one control, and moves both when it is changed', async () => {
 		setLocale.mockClear();
-		const { kamosu } = renderScreen(Account, {
+		const { kamosu } = renderScreen(Language, {
 			...signedIn('en'),
 			set_reading_preferences: { reading_language: 'fr', reading_measures: 'us' },
 		});
 
-		expect(
-			await screen.findByText(
-				"Kamosu's words, and recipe titles where there's one in this language.",
-			),
-		).toBeInTheDocument();
-		expect(screen.getByText(/Recipes follow it\./)).toBeInTheDocument();
+		expect(await screen.findByText(/Recipe titles follow it\./)).toBeInTheDocument();
 		expect(screen.queryByRole('list', { name: 'Recipes in' })).not.toBeInTheDocument();
 
 		// The account first, then the interface: `setLocale` reloads the page,
@@ -1349,7 +1340,7 @@ describe('the Reading Language (#112)', () => {
 
 	it('says what moved once the reload that carried both is over', async () => {
 		sessionStorage.setItem('kamosu.reading-language-moved', 'fr');
-		renderScreen(Account, signedIn('en'));
+		renderScreen(Language, signedIn('en'));
 
 		expect(
 			await screen.findByText("Titles now show in French where there's one. Others are marked."),
@@ -1360,7 +1351,7 @@ describe('the Reading Language (#112)', () => {
 
 	it('splits the recipes off on request, and moves only them', async () => {
 		setLocale.mockClear();
-		const { kamosu } = renderScreen(Account, {
+		const { kamosu } = renderScreen(Language, {
 			...signedIn('en'),
 			set_reading_preferences: { reading_language: 'es', reading_measures: 'us' },
 		});
@@ -1369,10 +1360,7 @@ describe('the Reading Language (#112)', () => {
 			await screen.findByRole('button', { name: 'Read recipes in another language' }),
 		);
 
-		// Split, the first control is only the interface's words, and says so.
-		expect(
-			screen.getByText("Kamosu's buttons and headings. This browser only."),
-		).toBeInTheDocument();
+		// Split, the recipes have a control of their own.
 		expect(within(recipes()).getByRole('button', { name: 'English' })).toHaveAttribute(
 			'aria-pressed',
 			'true',
@@ -1400,7 +1388,7 @@ describe('the Reading Language (#112)', () => {
 		// A new phone, or a split made on another device. The screen says what
 		// is true rather than pretending the two are one.
 		setLocale.mockClear();
-		const { kamosu } = renderScreen(Account, signedIn('fr'));
+		const { kamosu } = renderScreen(Language, signedIn('fr'));
 
 		await vi.waitFor(() =>
 			expect(within(recipes()).getByRole('button', { name: 'Français' })).toHaveAttribute(
@@ -1420,7 +1408,7 @@ describe('the Reading Language (#112)', () => {
 	});
 
 	it('joins them again, reading recipes in the interface Language', async () => {
-		const { kamosu } = renderScreen(Account, {
+		const { kamosu } = renderScreen(Language, {
 			...signedIn('fr'),
 			set_reading_preferences: { reading_language: 'en', reading_measures: 'us' },
 		});
@@ -1433,15 +1421,15 @@ describe('the Reading Language (#112)', () => {
 			operation: 'set_reading_preferences',
 			input: { reading_language: 'en', reading_measures: 'us' },
 		});
-		expect(await screen.findByText(/Recipes follow it\./)).toBeInTheDocument();
+		expect(await screen.findByText(/Recipe titles follow it\./)).toBeInTheDocument();
 		expect(screen.queryByRole('list', { name: 'Recipes in' })).not.toBeInTheDocument();
 		expect(
 			screen.getByText("Titles now show in English where there's one. Others are marked."),
 		).toBeInTheDocument();
 	});
 
-	it('reads no Tags on Account: they live on Kitchens and cookbooks, which reads the Reading Language afresh (#221)', async () => {
-		const { kamosu } = renderScreen(Account, {
+	it('reads no Tags here: they live on their own page, which reads the Reading Language afresh (#221)', async () => {
+		const { kamosu } = renderScreen(Language, {
 			...signedIn('en'),
 			list_kitchens: {
 				kitchens: [
@@ -1472,7 +1460,7 @@ describe('the Reading Language (#112)', () => {
 	});
 
 	it('puts the Reading Language back when the account refuses it', async () => {
-		renderScreen(Account, {
+		renderScreen(Language, {
 			...signedIn('fr'),
 			set_reading_preferences: { refuse: 'busy' },
 		});
@@ -1491,8 +1479,8 @@ describe('the Reading Language (#112)', () => {
 		expect(screen.queryByText(/Your shelf now shows/)).not.toBeInTheDocument();
 	});
 
-	it('tells a stranger only what the words control does, since there is no account to follow', async () => {
-		renderScreen(Account, {
+	it('promises a stranger nothing about recipes, since there is no account to follow', async () => {
+		const { kamosu } = renderScreen(Language, {
 			instance_status: {
 				version: '0.1.0',
 				setup_complete: true,
@@ -1504,10 +1492,11 @@ describe('the Reading Language (#112)', () => {
 		});
 
 		await screen.findByRole('heading', { name: 'Language' });
-		expect(
-			screen.getByText("Kamosu's buttons and headings. This browser only."),
-		).toBeInTheDocument();
-		expect(screen.queryByText(/Recipes follow it/)).not.toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(kamosu.calls.map((call) => call.operation)).toContain('get_reading_preferences'),
+		);
+		expect(screen.queryByText(/Recipe titles follow it/)).not.toBeInTheDocument();
+		expect(screen.queryByRole('heading', { name: 'Measures' })).not.toBeInTheDocument();
 	});
 });
 
@@ -1552,78 +1541,42 @@ describe('your own name (#113)', () => {
 		...over,
 	});
 
-	/** The You section alone, so a name elsewhere on the screen cannot answer for it. */
-	const youSection = async () =>
-		(await screen.findByRole('heading', { name: 'You' })).closest('section') as HTMLElement;
+	it('opens the menu with your name, which leads to the page that changes it (#469)', async () => {
+		renderScreen(Settings, signedIn());
 
-	it('shows your name first, and marks your own row in every Kitchen and your Cookbook as you', async () => {
-		renderScreen(Account, signedIn());
-
-		const you = await youSection();
-		expect(within(you).getByText('Stéphane')).toBeInTheDocument();
-		expect(
-			within(you).getByText('The name on your Versions, and the one you sign in with.'),
-		).toBeInTheDocument();
-		// It is the first section on the screen.
-		expect(document.querySelector('section h2')?.textContent?.trim()).toBe('You');
+		const card = await screen.findByRole('link', { name: /Stéphane/ });
+		expect(card).toHaveAttribute('href', '/settings/name');
+		// It is the first thing on the menu.
+		expect(screen.getAllByRole('link')[0]).toBe(card);
 	});
 
-	it('marks your own row in every Kitchen and your Cookbook as you, on their page (#221)', async () => {
+	it('marks your own row in every Kitchen as you, on their page (#221)', async () => {
 		renderScreen(Kitchens, signedIn());
 
 		await screen.findByDisplayValue('Supper Club');
 		const marked = screen.getAllByText('you');
-		// Two Kitchens, and the Written by list of your Cookbook (#131).
-		expect(marked).toHaveLength(3);
+		expect(marked).toHaveLength(2);
 		for (const mark of marked) expect(mark.closest('li')?.textContent).toContain('Stéphane');
 		const marieRow = screen.getByText('Marie').closest('li') as HTMLElement;
 		expect(within(marieRow).queryByText('you')).not.toBeInTheDocument();
 	});
 
 	it('says what renaming reaches before anything is renamed', async () => {
-		const { kamosu } = renderScreen(Account, signedIn());
+		const { kamosu } = renderScreen(Name, signedIn());
 
-		await fireEvent.click(
-			within(await youSection()).getByRole('button', { name: 'Change your name' }),
-		);
-
-		expect(screen.getByLabelText('Your name')).toHaveValue('Stéphane');
+		expect(await screen.findByLabelText('Your name')).toHaveValue('Stéphane');
 		expect(
-			screen.getByText('Every Version you ever saved shows the new name, in every Kitchen.'),
+			screen.getByText('On every Version you saved, and the name you sign in with.'),
 		).toBeInTheDocument();
-		expect(
-			screen.getByText(
-				"You'll sign in with the new name. Recipe files already sent keep the old one.",
-			),
-		).toBeInTheDocument();
-		expect(kamosu.calls.map((call) => call.operation)).not.toContain('rename_person');
-
-		await fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
-		expect(within(await youSection()).getByText('Stéphane')).toBeInTheDocument();
+		// Nothing to change until the name is changed.
+		expect(screen.getByRole('button', { name: 'Change my name' })).toBeDisabled();
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('rename_person');
 	});
 
-	it('renames you through the Operation, and every place on the screen reads the new name', async () => {
-		let renamed = false;
-		const { kamosu } = renderScreen(
-			Account,
-			signedIn({
-				list_kitchens: () => kitchensNaming(renamed ? 'Stéphane Dupont' : 'Stéphane'),
-				get_cookbook: () =>
-					cookbookOf({
-						authors: [{ person_id: 'p_1', name: renamed ? 'Stéphane Dupont' : 'Stéphane' }],
-					}),
-				rename_person: () => {
-					renamed = true;
-					return { name: 'Stéphane Dupont' };
-				},
-			}),
-		);
+	it('renames you through the Operation, and says what it did', async () => {
+		const { kamosu } = renderScreen(Name, signedIn({ rename_person: { name: 'Stéphane Dupont' } }));
 
-		await fireEvent.click(
-			within(await youSection()).getByRole('button', { name: 'Change your name' }),
-		);
-		await fireEvent.input(screen.getByLabelText('Your name'), {
+		await fireEvent.input(await screen.findByLabelText('Your name'), {
 			target: { value: 'Stéphane Dupont' },
 		});
 		await fireEvent.click(screen.getByRole('button', { name: 'Change my name' }));
@@ -1637,16 +1590,12 @@ describe('your own name (#113)', () => {
 			operation: 'rename_person',
 			input: { name: 'Stéphane Dupont' },
 		});
-		const you = await youSection();
-		expect(within(you).getByText('Stéphane Dupont')).toBeInTheDocument();
-		expect(within(you).getByRole('button', { name: 'Change your name' })).toBeInTheDocument();
-		// Your rows in the Kitchens and your Cookbook are on their own page
-		// since #221, which reads the Person afresh when it is opened.
+		expect(screen.getByLabelText('Your name')).toHaveValue('Stéphane Dupont');
 	});
 
-	it('says why a name was refused, and keeps the field open to try another', async () => {
+	it('says why a name was refused, and keeps the field to try another', async () => {
 		renderScreen(
-			Account,
+			Name,
 			signedIn({
 				rename_person: {
 					refuse: 'bad_request',
@@ -1655,10 +1604,9 @@ describe('your own name (#113)', () => {
 			}),
 		);
 
-		await fireEvent.click(
-			within(await youSection()).getByRole('button', { name: 'Change your name' }),
-		);
-		await fireEvent.input(screen.getByLabelText('Your name'), { target: { value: 'Marie' } });
+		await fireEvent.input(await screen.findByLabelText('Your name'), {
+			target: { value: 'Marie' },
+		});
 		await fireEvent.click(screen.getByRole('button', { name: 'Change my name' }));
 
 		expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -1669,7 +1617,7 @@ describe('your own name (#113)', () => {
 	});
 
 	it('shows a stranger no name to change', async () => {
-		renderScreen(Account, {
+		const { kamosu } = renderScreen(Name, {
 			instance_status: {
 				version: '0.1.0',
 				setup_complete: true,
@@ -1680,9 +1628,10 @@ describe('your own name (#113)', () => {
 			...anonymous,
 		});
 
-		await screen.findByRole('heading', { name: 'Language' });
-		expect(screen.queryByRole('heading', { name: 'You' })).not.toBeInTheDocument();
-		expect(screen.queryByRole('button', { name: 'Change your name' })).not.toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(kamosu.calls.map((call) => call.operation)).toContain('get_person'),
+		);
+		expect(screen.queryByLabelText('Your name')).not.toBeInTheDocument();
 	});
 });
 
@@ -1721,13 +1670,13 @@ describe('telling your Sessions apart (#114)', () => {
 	});
 
 	const rows = async () => {
-		const heading = await screen.findByRole('heading', { name: 'Sessions' });
+		const heading = await screen.findByRole('heading', { name: 'Devices signed in' });
 		const list = heading.nextElementSibling as HTMLElement;
 		return within(list).getAllByRole('listitem');
 	};
 
 	it('puts the device in your hand first and marks it, and names every other one', async () => {
-		renderScreen(Account, signedIn());
+		renderScreen(SigningIn, signedIn());
 
 		const [first, second, third] = await rows();
 		expect(within(first).getByText('Safari · iPhone')).toBeInTheDocument();
@@ -1750,7 +1699,7 @@ describe('telling your Sessions apart (#114)', () => {
 	it('ends an older Session on its own, and stays here', async () => {
 		let ended = false;
 		const { kamosu } = renderScreen(
-			Account,
+			SigningIn,
 			signedIn({
 				list_sessions: () => ({ sessions: ended ? three.slice(0, 2) : three }),
 				revoke_session: () => {
@@ -1773,7 +1722,7 @@ describe('telling your Sessions apart (#114)', () => {
 
 	it('signs you out when the Session ended is the one in your hand', async () => {
 		const { kamosu } = renderScreen(
-			Account,
+			SigningIn,
 			signedIn({ revoke_session: { revoked: true, current: true } }),
 		);
 
@@ -1795,7 +1744,7 @@ describe('telling your Sessions apart (#114)', () => {
 	it('renames an older Session in place, starting from an empty name', async () => {
 		let renamed = false;
 		const { kamosu } = renderScreen(
-			Account,
+			SigningIn,
 			signedIn({
 				list_sessions: () => ({
 					sessions: renamed ? [three[0], three[1], session('s_old', 'Kitchen laptop')] : three,
@@ -1823,7 +1772,7 @@ describe('telling your Sessions apart (#114)', () => {
 	});
 
 	it('starts renaming a named Session from its name, and Keep it changes nothing', async () => {
-		const { kamosu } = renderScreen(Account, signedIn());
+		const { kamosu } = renderScreen(SigningIn, signedIn());
 
 		await fireEvent.click(within((await rows())[0]).getByRole('button', { name: 'Rename' }));
 		expect(screen.getByLabelText('Call it')).toHaveValue('Safari · iPhone');
@@ -1836,7 +1785,7 @@ describe('telling your Sessions apart (#114)', () => {
 
 	it('says why a rename was refused, and keeps the field open', async () => {
 		renderScreen(
-			Account,
+			SigningIn,
 			signedIn({
 				rename_session: {
 					refuse: 'not_found',
@@ -1856,8 +1805,8 @@ describe('telling your Sessions apart (#114)', () => {
 	});
 });
 
-// #131, screen choices 2 and 5: your Cookbook, above the Kitchens, with the
-// one-use link that makes it a Cookbook you write with somebody.
+// #131, screen choices 2 and 5: your Cookbook, a page of its own since #469,
+// with the one-use link that makes it a Cookbook you write with somebody.
 describe('your Cookbook (#131)', () => {
 	const signedIn = (over: Answers = {}): Answers => ({
 		instance_status: {
@@ -1874,10 +1823,11 @@ describe('your Cookbook (#131)', () => {
 		list_kitchens: { kitchens: [] },
 		...over,
 	});
-	const card = async () =>
-		(await screen.findByRole('heading', { level: 2, name: 'Your Cookbook' })).closest(
-			'section',
-		) as HTMLElement;
+	/** The page, once its card has drawn. */
+	const card = async () => {
+		await screen.findByLabelText('Your Cookbook’s name');
+		return document.body;
+	};
 	const TOGETHER = cookbookOf({
 		authors: [
 			{ person_id: 'p_1', name: 'Stéphane' },
@@ -1887,22 +1837,20 @@ describe('your Cookbook (#131)', () => {
 	});
 
 	it('says who writes it and how many recipes, and is named after them until renamed', async () => {
-		renderScreen(Kitchens, signedIn());
+		renderScreen(Cookbook, signedIn());
 		const book = within(await card());
 		const name = book.getByLabelText('Your Cookbook’s name');
 		expect(name).toHaveValue('');
 		expect(name).toHaveAttribute('placeholder', 'Stéphane’s');
-		expect(book.getByText('Named after its writer until you rename it.')).toBeInTheDocument();
-		expect(
-			book.getByText(/^87 recipes\. Only this Cookbook's writers change them/),
-		).toBeInTheDocument();
+		expect(book.getByText('Who can change your recipes.')).toBeInTheDocument();
+		expect(book.getByText('87 recipes.')).toBeInTheDocument();
 		// A Cookbook of one has nobody to leave.
 		expect(book.queryByRole('button', { name: 'Leave this Cookbook' })).not.toBeInTheDocument();
 	});
 
 	it('renames it, and clears the name back to its authors’ with an empty box', async () => {
 		const { kamosu } = renderScreen(
-			Kitchens,
+			Cookbook,
 			signedIn({ rename_cookbook: cookbookOf({ name: 'Chez nous' }) }),
 		);
 		const book = within(await card());
@@ -1927,7 +1875,7 @@ describe('your Cookbook (#131)', () => {
 	it('mints a one-use link on this instance, copies it, and cancels it', async () => {
 		let minted = false;
 		const { kamosu } = renderScreen(
-			Kitchens,
+			Cookbook,
 			signedIn({
 				invite_to_cookbook: () => {
 					minted = true;
@@ -1951,11 +1899,7 @@ describe('your Cookbook (#131)', () => {
 		);
 		const link = `${location.origin}/cookbook-invite/the-cookbook-secret`;
 		expect(await screen.findByText(link)).toBeInTheDocument();
-		expect(
-			screen.getByText(
-				'Send this to the person. Opening it makes your recipes one Cookbook you both change. Works once.',
-			),
-		).toBeInTheDocument();
+		expect(screen.getByText('Send this link to the person. It works once.')).toBeInTheDocument();
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
 		expect(writeText).toHaveBeenCalledWith(link);
@@ -1974,7 +1918,7 @@ describe('your Cookbook (#131)', () => {
 
 	it('offers to end a link minted on an earlier visit, which it cannot show again', async () => {
 		const { kamosu } = renderScreen(
-			Kitchens,
+			Cookbook,
 			signedIn({
 				get_cookbook: cookbookOf({
 					invites: [{ invite_id: 'ci_old', created_at: '2026-09-20T08:00:00Z' }],
@@ -1997,13 +1941,10 @@ describe('your Cookbook (#131)', () => {
 
 	it('asks before leaving a Cookbook written together, saying what each keeps', async () => {
 		const { kamosu } = renderScreen(
-			Kitchens,
+			Cookbook,
 			signedIn({ get_cookbook: TOGETHER, leave_cookbook: cookbookOf({ recipe_count: 99 }) }),
 		);
 		const book = within(await card());
-		expect(
-			book.getByText('Named after its writers until one of you renames it.'),
-		).toBeInTheDocument();
 		await fireEvent.click(book.getByRole('button', { name: 'Leave this Cookbook' }));
 
 		const sheet = within(await screen.findByRole('dialog'));
@@ -2024,7 +1965,7 @@ describe('your Cookbook (#131)', () => {
 
 	it('asks before removing a Co-author, and removes them by the Operation', async () => {
 		const { kamosu } = renderScreen(
-			Kitchens,
+			Cookbook,
 			signedIn({ get_cookbook: TOGETHER, remove_cookbook_author: cookbookOf() }),
 		);
 		const camille = (await card()).querySelectorAll('li');
@@ -2072,7 +2013,7 @@ describe('your Cookbook (#131)', () => {
 
 		it('says whom it waits for, and lets the one who accepted take the yes back', async () => {
 			const { kamosu } = renderScreen(
-				Kitchens,
+				Cookbook,
 				signedIn({
 					get_cookbook: { ...TOGETHER, joins: [joinOf()] },
 					answer_cookbook_join: TOGETHER,
@@ -2097,7 +2038,7 @@ describe('your Cookbook (#131)', () => {
 
 		it('offers anyone else in it the same no, as calling it off', async () => {
 			renderScreen(
-				Kitchens,
+				Cookbook,
 				signedIn({ get_cookbook: { ...TOGETHER, joins: [joinOf({ you: 'invited' })] } }),
 			);
 			const book = within(await card());
@@ -2106,7 +2047,7 @@ describe('your Cookbook (#131)', () => {
 
 		it('asks the question here too, to someone it waits on', async () => {
 			const { kamosu } = renderScreen(
-				Kitchens,
+				Cookbook,
 				signedIn({
 					get_cookbook: { ...TOGETHER, joins: [joinOf({ you: 'asked' })] },
 					answer_cookbook_join: TOGETHER,
@@ -2127,7 +2068,7 @@ describe('your Cookbook (#131)', () => {
 
 		it('tells the one who accepted who said no, and how to join anyway', async () => {
 			renderScreen(
-				Kitchens,
+				Cookbook,
 				signedIn({
 					get_cookbook: {
 						...TOGETHER,
@@ -2153,7 +2094,7 @@ describe('your Cookbook (#131)', () => {
 
 		it('gives no leaving advice where the no came from the other side', async () => {
 			renderScreen(
-				Kitchens,
+				Cookbook,
 				signedIn({
 					get_cookbook: {
 						...TOGETHER,
@@ -2174,10 +2115,10 @@ describe('your Cookbook (#131)', () => {
 	});
 
 	it('heads the Tags with your Cookbook, the only one whose words you rename', async () => {
-		renderScreen(Kitchens, signedIn({ get_cookbook: cookbookOf({ name: 'Chez nous' }) }));
-		const tags = (await screen.findByRole('heading', { name: 'Tags' })).closest(
-			'section',
-		) as HTMLElement;
-		expect(await within(tags).findByRole('heading', { name: 'Chez nous' })).toBeInTheDocument();
+		renderScreen(
+			Tags,
+			signedIn({ get_cookbook: cookbookOf({ name: 'Chez nous' }), list_tags: { tags: [] } }),
+		);
+		expect(await screen.findByRole('heading', { name: 'Chez nous' })).toBeInTheDocument();
 	});
 });

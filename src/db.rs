@@ -2085,6 +2085,19 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 64,
+        description: "a Kitchen invite as a link, and an Operator's Invite into a Kitchen (#469)",
+        sql: r#"
+        -- A Kitchen Invite's link can be cancelled before anybody opens it,
+        -- as a Cookbook Invite's can.
+        ALTER TABLE kitchen_invites ADD COLUMN ended_at TEXT;
+        -- The Kitchen an Operator's Invite brings its newcomer into, where it
+        -- names one. Every Invite before this one names none.
+        ALTER TABLE account_links ADD COLUMN kitchen_id TEXT REFERENCES kitchens(id);
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

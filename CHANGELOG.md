@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+## v0.5.0 - 2026-10-29
+
+### After upgrading
+
+- A Kitchen invite code made before this version can no longer be pasted anywhere: make a new invite, which is now a link. [#469]
+
+### Added
+
+- An Operator's invite can bring the newcomer into one of the Operator's own Kitchens, chosen beside *Make the invite link* in Settings › People, so a housemate needs one link for their account and their Kitchen. Agents pass `kitchen_id` to `mint_invite`. [#469]
+- Agents put several Tags on a recipe, or take them off, in one `set_recipe_tag` call by naming them in `tag_ids`. They go on or come off together: if one cannot, none does and the recipe is left as it was. [#472]
+- Settings › Add recipes › *Sent to the AI agent* lists everything you handed Kamosu's AI agent, newest first: the link, the first words of a text or PDF, or a small copy of a photo, then the recipe it made, or, for one that failed, the agent's reason on the row with a button to send it again, choose another photo or PDF, read it again or paste the text instead. Before, a failure was one tap down on its Report in *What has been brought in*, under the source it came in by. Agents read the same list with `list_agent_jobs`. [#463]
+
+### Changed
+
+- Settings is grouped by whose a thing is: *You*, *Your household*, *Add recipes*, and *This instance* for an Operator alone, with your name at the top and one short page for each job, each row saying what is inside. The Operator page is gone: its people, Backups, Runner, House Notes, public address and upkeep are pages of *This instance*. On a tablet or a computer the menu stays beside the page that is open. Every page says what it is in a line, a warning is said when its button is pressed, and the list of what Kamosu does not protect moved out of Settings to `SECURITY.md`. *Share from your phone* is now *Save from your phone*, and so is the page the iPhone Shortcut names when it asks for the setup code. An old address of a Settings page or of the Operator page opens its new page. [#469]
+- A Kitchen invite is a link to send, which shows the Kitchen, who is in it and whose recipes it holds before the person joins, and can be cancelled until it is used. Before, it was a code the other person pasted into a field in Settings. Agents read a link with `read_kitchen_invite` and cancel one with `cancel_kitchen_invite`. [#469]
+- A new Translation in the same Cookbook as its original starts filed under every Tag the original carries, each shown by its name in the reader's language where it has one. Before, a Translation started with no Tags. Taking a Tag off one afterwards leaves the other as it is. [#472]
+
+### Fixed
+
+- Kamosu's image is built on a newer distroless base, whose OpenSSL has the fix for CVE-2026-84782, and the agent's image is built again with Alpine's Python 3.14.10, which has the fix for CVE-2026-115557. Kamosu itself never loads OpenSSL. [#479] [#480]
+- A demo's shared recipe shows its link. A demo takes its public address from the new `KAMOSU_DEMO_PUBLIC_ADDRESS` at every start, where before it had no way to learn one, and a shared recipe on an instance with no address says the address is not set instead of telling the visitor to end the link. [#468]
+
+[#463]: https://github.com/BatterWorks/Kamosu/issues/463
+[#468]: https://github.com/BatterWorks/Kamosu/issues/468
+[#469]: https://github.com/BatterWorks/Kamosu/issues/469
+[#472]: https://github.com/BatterWorks/Kamosu/issues/472
+[#479]: https://github.com/BatterWorks/Kamosu/pull/479
+[#480]: https://github.com/BatterWorks/Kamosu/pull/480
+
 ## v0.4.0 - 2026-10-25
 
 ### After upgrading

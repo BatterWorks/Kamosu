@@ -76,6 +76,7 @@ export type ListAccountsOutput = {
 /** Mint a one-use Invite link for a new Person. */
 export type MintInviteInput = {
 	is_operator?: boolean;
+	kitchen_id?: string;
 };
 /** What mint_invite answers. */
 export type MintInviteOutput = {
@@ -625,6 +626,45 @@ export type AcceptKitchenInviteOutput = {
 	}[];
 	name: string;
 	nickname: string | null;
+};
+
+/** Preview a Kitchen Invite before joining. It answers the Kitchen as its members see it, who sent the link, and whether you are in it already, and spends nothing. */
+export type ReadKitchenInviteInput = {
+	secret: string;
+};
+/** What read_kitchen_invite answers. */
+export type ReadKitchenInviteOutput = {
+	already_member: boolean;
+	invited_by: {
+		name: string;
+		person_id: string;
+	};
+	kitchen: {
+		cookbooks: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		}[];
+		id: string;
+		members: {
+			name: string;
+			person_id: string;
+		}[];
+		name: string;
+		nickname: string | null;
+	};
+};
+
+/** End a Kitchen Invite nobody has used yet. Any member of its Kitchen may. */
+export type CancelKitchenInviteInput = {
+	invite_id: string;
+};
+/** What cancel_kitchen_invite answers. */
+export type CancelKitchenInviteOutput = {
+	ended: boolean;
 };
 
 /** Remove a Person from a Kitchen, or yourself to leave it. Their Cookbook leaves with them; each member who stays keeps a Branch of every recipe of theirs they cooked, and they keep one of every recipe they cooked from the others. */
@@ -1233,12 +1273,13 @@ export type DeleteTagOutput = {
 	deleted: boolean;
 };
 
-/** File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Kitchen's Tags. Mints no Version: filing is not what a recipe is. */
+/** File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Cookbook's Tags. Name one Tag in `tag_id`, or several in `tag_ids`: those go on or come off together, and if one cannot, none does. Mints no Version: filing is not what a recipe is. */
 export type SetRecipeTagInput = {
 	as_operator?: boolean;
 	branch_id: string;
 	carried: boolean;
-	tag_id: string;
+	tag_id?: string;
+	tag_ids?: string[];
 };
 /** What set_recipe_tag answers. */
 export type SetRecipeTagOutput = {
@@ -2581,6 +2622,33 @@ export type ListImportsOutput = {
 	}[];
 };
 
+/** List everything you sent to Kamosu's AI agent. Newest first, your own alone: links, pasted text, PDFs, photos and recipes read again. Each says what was sent, as far as Kamosu still holds it, and how it ended: the recipe it made, or why it failed and what to do next. `list_imports` lists the same Jobs by source, and `get_job` reads one's Import Report. */
+export type ListAgentJobsInput = Record<string, never>;
+/** What list_agent_jobs answers. */
+export type ListAgentJobsOutput = {
+	jobs: {
+		created_at: string;
+		ended_at: string | null;
+		fills_in: boolean;
+		first_words: string | null;
+		in_agents_words: boolean;
+		job_id: string;
+		kept: boolean;
+		kind: "link" | "pasted_text" | "pdf" | "picture";
+		link: string | null;
+		next: ("read_recipe_again" | "send_again" | "send_link_again" | "choose_another" | "paste_instead")[];
+		pages: number;
+		preview: string | null;
+		read_again: boolean;
+		reason: string | null;
+		recipe: {
+			branch_id: string;
+			title: string;
+		} | null;
+		status: "queued" | "running" | "completed" | "failed" | "cancelled";
+	}[];
+};
+
 /** Throw an Import's ledger away whole. The ledger is the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
 export type ForgetImportInput = {
 	import_id: string;
@@ -3272,7 +3340,7 @@ export type GetPublicAddressOutput = {
 	public_address: string | null;
 };
 
-/** Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. A passkey works only at the address it was made at: `get_public_address` says how many work at the current one and would stop at a new one. */
+/** Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. A Demo refuses it and is given its address at every start by `KAMOSU_DEMO_PUBLIC_ADDRESS`. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. A passkey works only at the address it was made at: `get_public_address` says how many work at the current one and would stop at a new one. */
 export type SetPublicAddressInput = {
 	public_address: string;
 };
@@ -6094,6 +6162,18 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	read_kitchen_invite: {
+		input: ReadKitchenInviteInput;
+		output: ReadKitchenInviteOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	cancel_kitchen_invite: {
+		input: CancelKitchenInviteInput;
+		output: CancelKitchenInviteOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	remove_kitchen_member: {
 		input: RemoveKitchenMemberInput;
 		output: RemoveKitchenMemberOutput;
@@ -6313,6 +6393,12 @@ export interface Operations {
 	list_imports: {
 		input: ListImportsInput;
 		output: ListImportsOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	list_agent_jobs: {
+		input: ListAgentJobsInput;
+		output: ListAgentJobsOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -7013,6 +7099,10 @@ export const CATALOGUE = [
 				"is_operator": {
 					"default": false,
 					"type": "boolean"
+				},
+				"kitchen_id": {
+					"description": "One of your own Kitchens, which the newcomer joins with their account. Omit for none.",
+					"type": "string"
 				}
 			},
 			"type": "object"
@@ -9294,6 +9384,170 @@ export const CATALOGUE = [
 				"nickname",
 				"members",
 				"cookbooks"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "read_kitchen_invite",
+		"summary": "Preview a Kitchen Invite before joining. It answers the Kitchen as its members see it, who sent the link, and whether you are in it already, and spends nothing.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"secret": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"secret"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"already_member": {
+					"type": "boolean"
+				},
+				"invited_by": {
+					"additionalProperties": false,
+					"properties": {
+						"name": {
+							"type": "string"
+						},
+						"person_id": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"person_id",
+						"name"
+					],
+					"type": "object"
+				},
+				"kitchen": {
+					"additionalProperties": false,
+					"properties": {
+						"cookbooks": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"id": {
+							"type": "string"
+						},
+						"members": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"name": {
+							"type": "string"
+						},
+						"nickname": {
+							"type": [
+								"string",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"id",
+						"name",
+						"nickname",
+						"members",
+						"cookbooks"
+					],
+					"type": "object"
+				}
+			},
+			"required": [
+				"kitchen",
+				"invited_by",
+				"already_member"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "cancel_kitchen_invite",
+		"summary": "End a Kitchen Invite nobody has used yet. Any member of its Kitchen may.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"invite_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"invite_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"ended": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"ended"
 			],
 			"type": "object"
 		}
@@ -12104,7 +12358,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_recipe_tag",
-		"summary": "File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Kitchen's Tags. Mints no Version: filing is not what a recipe is.",
+		"summary": "File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Cookbook's Tags. Name one Tag in `tag_id`, or several in `tag_ids`: those go on or come off together, and if one cannot, none does. Mints no Version: filing is not what a recipe is.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -12122,11 +12376,16 @@ export const CATALOGUE = [
 				},
 				"tag_id": {
 					"type": "string"
+				},
+				"tag_ids": {
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
 				}
 			},
 			"required": [
 				"branch_id",
-				"tag_id",
 				"carried"
 			],
 			"type": "object"
@@ -19392,6 +19651,167 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "list_agent_jobs",
+		"summary": "List everything you sent to Kamosu's AI agent. Newest first, your own alone: links, pasted text, PDFs, photos and recipes read again. Each says what was sent, as far as Kamosu still holds it, and how it ended: the recipe it made, or why it failed and what to do next. `list_imports` lists the same Jobs by source, and `get_job` reads one's Import Report.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"jobs": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"ended_at": {
+								"description": "When it ended. Null while it works.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"fills_in": {
+								"description": "Kamosu read the link, then sent the agent to fill in the recipe it made.",
+								"type": "boolean"
+							},
+							"first_words": {
+								"description": "The start of pasted text or a PDF.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"in_agents_words": {
+								"description": "Whether `reason` is the agent's own words.",
+								"type": "boolean"
+							},
+							"job_id": {
+								"description": "The Job, whose Import Report `get_job` serves.",
+								"type": "string"
+							},
+							"kept": {
+								"description": "Whether Kamosu still keeps what was sent, 30 days after the Job ended.",
+								"type": "boolean"
+							},
+							"kind": {
+								"description": "What was sent.",
+								"enum": [
+									"link",
+									"pasted_text",
+									"pdf",
+									"picture"
+								]
+							},
+							"link": {
+								"description": "The link sent. Null for a file.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"next": {
+								"description": "What can be done about a failure: `read_recipe_again`, `read_job_again` (`send_again`), `import_by_agent` with the link or another file (`send_link_again`, `choose_another`), or pasting its text.",
+								"items": {
+									"enum": [
+										"read_recipe_again",
+										"send_again",
+										"send_link_again",
+										"choose_another",
+										"paste_instead"
+									]
+								},
+								"type": "array"
+							},
+							"pages": {
+								"description": "How many photos, as one recipe's pages.",
+								"type": "integer"
+							},
+							"preview": {
+								"description": "Where a small copy of the first photo is fetched, by you alone.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"read_again": {
+								"description": "A recipe you asked to have read again.",
+								"type": "boolean"
+							},
+							"reason": {
+								"description": "Why it failed.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"recipe": {
+								"additionalProperties": false,
+								"description": "The recipe it made or worked on, now.",
+								"properties": {
+									"branch_id": {
+										"type": "string"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"branch_id",
+									"title"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"status": {
+								"description": "`queued` waits, `running` is being read.",
+								"enum": [
+									"queued",
+									"running",
+									"completed",
+									"failed",
+									"cancelled"
+								]
+							}
+						},
+						"required": [
+							"job_id",
+							"created_at",
+							"ended_at",
+							"status",
+							"kind",
+							"pages",
+							"link",
+							"kept",
+							"first_words",
+							"preview",
+							"read_again",
+							"fills_in",
+							"recipe",
+							"reason",
+							"in_agents_words",
+							"next"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"jobs"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "forget_import",
 		"summary": "Throw an Import's ledger away whole. The ledger is the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone.",
 		"permission": "person",
@@ -22913,7 +23333,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_public_address",
-		"summary": "Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. A passkey works only at the address it was made at: `get_public_address` says how many work at the current one and would stop at a new one.",
+		"summary": "Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. A Demo refuses it and is given its address at every start by `KAMOSU_DEMO_PUBLIC_ADDRESS`. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. A passkey works only at the address it was made at: `get_public_address` says how many work at the current one and would stop at a new one.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -36048,6 +36468,7 @@ export const READS: readonly OperationName[] = [
 	'list_security_record',
 	'list_passkeys',
 	'list_kitchens',
+	'read_kitchen_invite',
 	'preview_leaving_kitchen',
 	'get_cookbook',
 	'list_cookbooks',
@@ -36056,6 +36477,7 @@ export const READS: readonly OperationName[] = [
 	'read_pasted_recipe',
 	'read_recipe_pdf',
 	'list_imports',
+	'list_agent_jobs',
 	'search_recipes',
 	'home_shelves',
 	'meaning_search_status',
@@ -36132,6 +36554,8 @@ export const METHOD_NAMES = {
 	set_kitchen_nickname: 'setKitchenNickname',
 	invite_to_kitchen: 'inviteToKitchen',
 	accept_kitchen_invite: 'acceptKitchenInvite',
+	read_kitchen_invite: 'readKitchenInvite',
+	cancel_kitchen_invite: 'cancelKitchenInvite',
 	remove_kitchen_member: 'removeKitchenMember',
 	delete_kitchen: 'deleteKitchen',
 	preview_leaving_kitchen: 'previewLeavingKitchen',
@@ -36169,6 +36593,7 @@ export const METHOD_NAMES = {
 	import_crouton: 'importCrouton',
 	import_from_another_app: 'importFromAnotherApp',
 	list_imports: 'listImports',
+	list_agent_jobs: 'listAgentJobs',
 	forget_import: 'forgetImport',
 	add_this: 'addThis',
 	import_web_link: 'importWebLink',
@@ -36336,6 +36761,10 @@ export interface KamosuClient {
 	inviteToKitchen(input: InviteToKitchenInput): Promise<Answer<'invite_to_kitchen'>>;
 	/** Open a Kitchen Invite: join the Kitchen it names. Spent on use. */
 	acceptKitchenInvite(input: AcceptKitchenInviteInput): Promise<Answer<'accept_kitchen_invite'>>;
+	/** Preview a Kitchen Invite before joining. It answers the Kitchen as its members see it, who sent the link, and whether you are in it already, and spends nothing. */
+	readKitchenInvite(input: ReadKitchenInviteInput): Promise<Answer<'read_kitchen_invite'>>;
+	/** End a Kitchen Invite nobody has used yet. Any member of its Kitchen may. */
+	cancelKitchenInvite(input: CancelKitchenInviteInput): Promise<Answer<'cancel_kitchen_invite'>>;
 	/** Remove a Person from a Kitchen, or yourself to leave it. Their Cookbook leaves with them; each member who stays keeps a Branch of every recipe of theirs they cooked, and they keep one of every recipe they cooked from the others. */
 	removeKitchenMember(input: RemoveKitchenMemberInput): Promise<Answer<'remove_kitchen_member'>>;
 	/** Delete a Kitchen nobody is left in. This is an Operator's only power over a Kitchen: nothing else about one. */
@@ -36372,7 +36801,7 @@ export interface KamosuClient {
 	mergeTags(input: MergeTagsInput): Promise<Answer<'merge_tags'>>;
 	/** Delete a Tag from a Kitchen and every recipe carrying it. It comes out of the Kitchen's list and off each of those recipes. No recipe changes. */
 	deleteTag(input: DeleteTagInput): Promise<Answer<'delete_tag'>>;
-	/** File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Kitchen's Tags. Mints no Version: filing is not what a recipe is. */
+	/** File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Cookbook's Tags. Name one Tag in `tag_id`, or several in `tag_ids`: those go on or come off together, and if one cannot, none does. Mints no Version: filing is not what a recipe is. */
 	setRecipeTag(input: SetRecipeTagInput): Promise<Answer<'set_recipe_tag'>>;
 	/** Relate two Recipes, or take that link back off. One is a Recipe of your Cookbook, the other any Recipe you may see, joined by a single two-way, untyped link. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
 	setRelatedRecipe(input: SetRelatedRecipeInput): Promise<Answer<'set_related_recipe'>>;
@@ -36410,6 +36839,8 @@ export interface KamosuClient {
 	importFromAnotherApp(input: ImportFromAnotherAppInput): Promise<Answer<'import_from_another_app'>>;
 	/** List every Import, and what happened each time. It covers what has been brought into your Kitchens from outside. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025). */
 	listImports(input?: ListImportsInput): Promise<Answer<'list_imports'>>;
+	/** List everything you sent to Kamosu's AI agent. Newest first, your own alone: links, pasted text, PDFs, photos and recipes read again. Each says what was sent, as far as Kamosu still holds it, and how it ended: the recipe it made, or why it failed and what to do next. `list_imports` lists the same Jobs by source, and `get_job` reads one's Import Report. */
+	listAgentJobs(input?: ListAgentJobsInput): Promise<Answer<'list_agent_jobs'>>;
 	/** Throw an Import's ledger away whole. The ledger is the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
 	forgetImport(input: ForgetImportInput): Promise<Answer<'forget_import'>>;
 	/** Add a recipe from whatever a phone's Share menu sent. It takes a link, text, a PDF, or one or more pictures, the pages of one recipe in order. An agent may call it too, rather than choose the route itself. Kamosu decides: a link goes to Kamosu's own reader, or to the agent where the Credential in hand sends everything there (`get_agent_choice`), and text that is only a link is that link. Text, pictures and a PDF go to the agent, and are refused in the answer where this Kamosu has none. One file that is text is text. A link already the Source of a recipe you can see, or one of your imports still reading, adds nothing. A link waits for its page to be read, about 10 seconds at most; anything else answers at once. The answer is `message`, in your Reading Language, to show as it is, and `outcome`. A failure later shows on the Imports screen as any import's does. Send files to POST /api/uploads first, one per request, and pass their ids in order as `files`. A Shortcut sends its own `shortcut_version`, and hears when a newer one is available. */
@@ -36452,7 +36883,7 @@ export interface KamosuClient {
 	getShareLink(input: GetShareLinkInput): Promise<Answer<'get_share_link'>>;
 	/** Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. Also how many passkeys work at it, which a new address would leave unable to sign in. */
 	getPublicAddress(input?: GetPublicAddressInput): Promise<Answer<'get_public_address'>>;
-	/** Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. A passkey works only at the address it was made at: `get_public_address` says how many work at the current one and would stop at a new one. */
+	/** Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. A Demo refuses it and is given its address at every start by `KAMOSU_DEMO_PUBLIC_ADDRESS`. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. A passkey works only at the address it was made at: `get_public_address` says how many work at the current one and would stop at a new one. */
 	setPublicAddress(input: SetPublicAddressInput): Promise<Answer<'set_public_address'>>;
 	/** Write a Bundle of one recipe. A Bundle is a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed. */
 	exportBundle(input: ExportBundleInput): Promise<Answer<'export_bundle'>>;

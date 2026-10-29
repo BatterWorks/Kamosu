@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, within } from '@testing-library/svelte';
 import Settings from './+page.svelte';
-import Account from './account/+page.svelte';
+import SigningIn from './signing-in/+page.svelte';
 import { keepingForTests, renderScreen } from '../../testing/render';
 import type { Answers } from '$lib/api/stand-in';
 import { went } from '../../testing/navigation';
@@ -29,12 +29,14 @@ const session = (id: string, current = false) => ({
 
 const signedIn = (over: Answers = {}): Answers => ({
 	get_person: { person_id: 'p_1', name: 'Stéphane' },
+	// A cook, so the menu draws no group of the instance's (#469).
+	list_accounts: { refuse: 'unauthorized' },
 	list_sessions: { sessions: [session('s_laptop'), session('s_phone', true)] },
 	revoke_session: { revoked: true, current: true },
 	...over,
 });
 
-/** What Settings › Account reads, for the Sessions list's way in. */
+/** What Settings › Signing in reads, for the devices list's way in. */
 const accountAnswers = (): Answers => ({
 	...signedIn(),
 	instance_status: {
@@ -53,7 +55,6 @@ const accountAnswers = (): Answers => ({
 	},
 	list_access_keys: { access_keys: [] },
 	get_reading_preferences: { reading_language: 'en', reading_measures: 'us' },
-	list_accounts: { refuse: 'unauthorized' },
 });
 
 /** An outbox still holding writes the server has not taken, as many as each try says. */
@@ -66,10 +67,13 @@ function holding(...tries: number[]) {
 const sheet = () => screen.findByRole('dialog');
 
 describe('signing out (#380)', () => {
-	it('stands at the foot of Settings, saying who is signed in', async () => {
+	it('stands at the foot of Settings, under your name at the top (#469)', async () => {
 		renderScreen(Settings, signedIn());
 
-		expect(await screen.findByText('Signed in as Stéphane')).toBeInTheDocument();
+		expect(await screen.findByRole('link', { name: /Stéphane/ })).toHaveAttribute(
+			'href',
+			'/settings/name',
+		);
 		expect(screen.getByRole('button', { name: 'Sign out' })).toBeEnabled();
 	});
 
@@ -213,10 +217,10 @@ describe('signing out (#380)', () => {
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 	});
 
-	it('asks the same question from the Sessions list', async () => {
-		const { kamosu } = renderScreen(Account, accountAnswers());
+	it('asks the same question from the list of devices signed in', async () => {
+		const { kamosu } = renderScreen(SigningIn, accountAnswers());
 
-		const heading = await screen.findByRole('heading', { name: 'Sessions' });
+		const heading = await screen.findByRole('heading', { name: 'Devices signed in' });
 		const list = heading.nextElementSibling as HTMLElement;
 		const mine = within(list).getAllByRole('listitem')[0];
 		await fireEvent.click(within(mine).getByRole('button', { name: 'Sign out' }));
@@ -224,11 +228,11 @@ describe('signing out (#380)', () => {
 		expect(await sheet()).toHaveAccessibleName('Sign out on this device?');
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('revoke_session');
 	});
-	it("greys the Sessions list's Sign out offline too", async () => {
+	it("greys the devices list's Sign out offline too", async () => {
 		Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
-		renderScreen(Account, accountAnswers());
+		renderScreen(SigningIn, accountAnswers());
 
-		const heading = await screen.findByRole('heading', { name: 'Sessions' });
+		const heading = await screen.findByRole('heading', { name: 'Devices signed in' });
 		const list = heading.nextElementSibling as HTMLElement;
 		const mine = within(list).getAllByRole('listitem')[0];
 		expect(

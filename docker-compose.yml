@@ -1,6 +1,6 @@
 services:
   kamosu:
-    # Pin a release (battermanz/kamosu:0.4.0) to choose when you upgrade. An
+    # Pin a release (battermanz/kamosu:0.5.0) to choose when you upgrade. An
     # upgrade migrates the database forward only, after taking a Snapshot of it.
     image: battermanz/kamosu:latest
     container_name: kamosu
@@ -13,10 +13,11 @@ services:
       # user 65532, so the folder must belong to that user:
       #   mkdir -p kamosu-data && sudo chown 65532:65532 kamosu-data
       - ./kamosu-data:/data
-    # No environment variable is required. Seven exist, all optional:
-    # KAMOSU_ADDRESS, KAMOSU_PORT, KAMOSU_DATA_DIR, KAMOSU_LOG, and three for
+    # No environment variable is required. Eight exist, all optional:
+    # KAMOSU_ADDRESS, KAMOSU_PORT, KAMOSU_DATA_DIR, KAMOSU_LOG, and four for
     # a public demo only: KAMOSU_DEMO_ERASES_LIBRARY_DAILY,
-    # KAMOSU_DEMO_UMAMI_SCRIPT and KAMOSU_DEMO_UMAMI_WEBSITE_ID.
+    # KAMOSU_DEMO_PUBLIC_ADDRESS, KAMOSU_DEMO_UMAMI_SCRIPT and
+    # KAMOSU_DEMO_UMAMI_WEBSITE_ID.
     restart: unless-stopped
     # Declared here as well as in the image, because a Podman-built image
     # (the podman-* tags) carries no HEALTHCHECK. The distroless runtime has

@@ -147,17 +147,24 @@ pub fn set_operator(core: &Core, invocation: &Invocation, input: Value) -> Resul
 
 /// Mint a one-use Invite. The Operator receives the link once; its Secret is
 /// stored only hashed and is spent when a stranger uses it.
-pub fn mint_invite(core: &Core, _invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+pub fn mint_invite(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let is_operator = match input.get("is_operator") {
         None => false,
         Some(Value::Bool(value)) => *value,
         _ => {
             return Err(OpError::bad_request(
-                "mint_invite takes optional { is_operator }",
+                "mint_invite takes optional { is_operator, kitchen_id }",
             ));
         }
     };
-    Ok(json!({ "link": core.mint_invite(is_operator)? }))
+    let link = match input.get("kitchen_id").and_then(Value::as_str) {
+        Some(kitchen_id) => {
+            let caller = caller_of(invocation)?;
+            core.mint_invite_into_kitchen(&caller.person_id, kitchen_id, is_operator)?
+        }
+        None => core.mint_invite(is_operator)?,
+    };
+    Ok(json!({ "link": link }))
 }
 
 pub fn disable_account(
@@ -672,6 +679,33 @@ pub fn accept_kitchen_invite(
     core.accept_kitchen_invite(&caller.person_id, secret)
 }
 
+pub fn read_kitchen_invite(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let secret = input
+        .get("secret")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("read_kitchen_invite takes { secret }"))?;
+    let caller = caller_of(invocation)?;
+    core.read_kitchen_invite(&caller.person_id, secret)
+}
+
+pub fn cancel_kitchen_invite(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let invite_id = input
+        .get("invite_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("cancel_kitchen_invite takes { invite_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.cancel_kitchen_invite(&caller.person_id, invite_id)?;
+    Ok(json!({ "ended": true }))
+}
+
 pub fn remove_kitchen_member(
     core: &Core,
     invocation: &Invocation,
@@ -990,21 +1024,37 @@ pub fn set_recipe_tag(
     invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
-    let takes = "set_recipe_tag takes { branch_id, tag_id, carried }";
+    let takes = "set_recipe_tag takes { branch_id, tag_id or tag_ids, carried }";
     let branch_id = input
         .get("branch_id")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request(takes))?;
-    let tag_id = input
-        .get("tag_id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request(takes))?;
+    // Exactly one of the two names the Tags, for the reason
+    // `set_related_recipe` gives: a schema cannot say "one of these".
+    let tag_ids: Vec<&str> = match (
+        input.get("tag_id").and_then(Value::as_str),
+        input.get("tag_ids").and_then(Value::as_array),
+    ) {
+        (Some(tag_id), None) => vec![tag_id],
+        (None, Some(listed)) => listed.iter().filter_map(Value::as_str).collect(),
+        (Some(_), Some(_)) => {
+            return Err(OpError::bad_request(
+                "set_recipe_tag takes tag_id or tag_ids, not both",
+            ));
+        }
+        (None, None) => return Err(OpError::bad_request(takes)),
+    };
+    if tag_ids.is_empty() {
+        return Err(OpError::bad_request(
+            "set_recipe_tag's tag_ids names no Tag",
+        ));
+    }
     let carried = input
         .get("carried")
         .and_then(Value::as_bool)
         .ok_or_else(|| OpError::bad_request(takes))?;
     let caller = caller_of(invocation)?;
-    core.set_recipe_tag(caller, branch_id, tag_id, carried)
+    core.set_recipe_tag(caller, branch_id, &tag_ids, carried)
 }
 
 pub fn set_related_recipe(
@@ -2001,6 +2051,15 @@ pub fn import_from_another_app(
 pub fn list_imports(core: &Core, invocation: &Invocation, _input: Value) -> Result<Value, OpError> {
     let caller = caller_of(invocation)?;
     core.list_imports(&caller.person_id)
+}
+
+/// Everything the caller sent to the agent, and how each ended (#463).
+pub fn list_agent_jobs(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.list_agent_jobs(caller_of(invocation)?)
 }
 
 /// Throw an Import's ledger away whole (ADR 0025); every recipe it made stays.

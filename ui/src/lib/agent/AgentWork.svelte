@@ -29,7 +29,7 @@
 	import { aTime } from '$lib/dates';
 	import { asksWhetherAdministering } from '$lib/operator/administering';
 	import type { GetJobOutput } from '$lib/api/catalogue';
-	import { EVERY_MS, RUNNER_KEYS, noAgentAnswering, working, type Saying } from './agent';
+	import { EVERY_MS, RUNNER_PAGE, noAgentAnswering, working, type Saying } from './agent';
 
 	interface Props {
 		jobId: string;
@@ -219,8 +219,7 @@
 				{m.agent_no_answer()}
 				{#if operator}
 					{m.agent_no_answer_operator()}
-					<a href="/operator#{RUNNER_KEYS}" class="text-accent underline">{m.agent_runner_keys()}</a
-					>.
+					<a href={RUNNER_PAGE} class="text-accent underline">{m.agent_runner_keys()}</a>.
 				{:else}
 					{m.agent_no_answer_cook()}
 				{/if}

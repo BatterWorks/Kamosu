@@ -213,6 +213,24 @@ describe('the share screen', () => {
 		expect(ended?.input).toEqual({ branch_id: 'b_1' });
 		expect(await screen.findByText(/Only your Kitchen can see it\./)).toBeInTheDocument();
 	});
+	it('says an instance with no address has no link to show, and offers no fix it refuses', async () => {
+		renderShare({
+			get_share_link: {
+				shared: true,
+				share_id: 'sl_1',
+				// A Demo started with no address (#468): its Sample Library's
+				// link is live, and nothing can be built for it.
+				url: null,
+				shared_by: 'Camille',
+				created_at: '2026-08-30T00:00:00Z',
+				public_address: null,
+			},
+		});
+
+		expect(await screen.findByText(/no public address set/)).toBeInTheDocument();
+		expect(screen.queryByText(/made before Kamosu kept its address/)).toBeNull();
+		expect(screen.queryByRole('button', { name: /Copy the link/ })).toBeNull();
+	});
 	// --- The recipe file (#65, #66, ADR 0020) --------------------------------
 	//
 	// Described before it is taken, which is the habit this whole screen keeps:

@@ -598,7 +598,7 @@ between the two versions.
 
 For a change of one rule, such as "grams, never cups" or "put the Tag
 Sweet on every dessert", there is no file to mount. An Operator writes **House
-Notes** on the Operator screen, in the Runner section, or with
+Notes** in Settings › Runner and House Notes, or with
 `set_house_notes` at either Door. Every Job carries them as `house_notes`, and
 the published image adds them to the end of its instructions, under a heading
 saying they are the Operator's and win where the two disagree. They sit on top
@@ -957,7 +957,7 @@ do asks every ten seconds.
   address from the Runner's machine, with `curl` or a browser.
 - **"answered with a redirect"**: the address sends the Runner elsewhere, such
   as `http` to `https`. Give it the address the redirect leads to.
-- **"No Runner has asked for work yet"** on the Operator screen: the Runner is
+- **"No Runner has asked for work yet"** in Settings › Runner and House Notes: the Runner is
   not running, or not asking this Kamosu. Read its output.
 - **"Kamosu's AI agent isn't answering right now"** on a recipe: a Job
   waits, and no Runner has asked for work in the last five minutes. The

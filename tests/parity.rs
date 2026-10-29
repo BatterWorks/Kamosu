@@ -47,7 +47,10 @@ fn arguments_for(name: &str) -> Value {
         "rename_kitchen" => json!({ "kitchen_id": "k_parity", "name": "Parity Kitchen" }),
         "set_kitchen_nickname" => json!({ "kitchen_id": "k_parity", "nickname": "Parity" }),
         "invite_to_kitchen" => json!({ "kitchen_id": "k_parity" }),
-        "accept_kitchen_invite" => json!({ "secret": "parity-no-such-invite" }),
+        "accept_kitchen_invite" | "read_kitchen_invite" => {
+            json!({ "secret": "parity-no-such-invite" })
+        }
+        "cancel_kitchen_invite" => json!({ "invite_id": "ki_parity" }),
         "remove_kitchen_member" => json!({ "kitchen_id": "k_parity", "person_id": "p_parity" }),
         "delete_kitchen" => json!({ "kitchen_id": "k_parity" }),
         "preview_leaving_kitchen" => json!({ "kitchen_id": "k_parity" }),
@@ -153,6 +156,8 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "set_kitchen_nickname"
             | "invite_to_kitchen"
             | "accept_kitchen_invite"
+            | "read_kitchen_invite"
+            | "cancel_kitchen_invite"
             | "remove_kitchen_member"
             | "delete_kitchen"
             | "preview_leaving_kitchen"
@@ -194,6 +199,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "import_crouton"
             | "import_from_another_app"
             | "list_imports"
+            | "list_agent_jobs"
             | "forget_import"
             | "rename_version"
             | "search_recipes"
@@ -387,6 +393,8 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "set_kitchen_nickname"
                 | "invite_to_kitchen"
                 | "accept_kitchen_invite"
+                | "read_kitchen_invite"
+                | "cancel_kitchen_invite"
                 | "remove_kitchen_member"
                 | "delete_kitchen"
                 | "preview_leaving_kitchen"
@@ -428,6 +436,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "import_crouton"
                 | "import_from_another_app"
                 | "list_imports"
+                | "list_agent_jobs"
                 | "forget_import"
                 | "rename_version"
                 | "search_recipes"

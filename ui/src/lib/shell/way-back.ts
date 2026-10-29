@@ -18,18 +18,18 @@ const PARENTS: [RegExp, string][] = [
 	[/^\/foods\/./, '/foods'],
 	// A Report, and what one source brought in.
 	[/^\/imports\/./, '/imports'],
-	// Reached from the Settings page that lists each of them (#221).
-	[/^\/foods$/, '/settings/kitchens'],
-	[/^\/(imports|operator)$/, '/settings/instance'],
-	// One of Settings' four pages, reached from its menu.
+	// Reached from rows of Settings' menu (#469).
+	[/^\/(foods|imports)$/, '/settings'],
+	// One of Settings' pages, reached from its menu.
 	[/^\/settings\/./, '/settings'],
 ];
 
 /**
- * A Cookbook Invite is opened from a link somebody sent, and no page of
- * Kamosu leads to it. Its own two buttons are the ways on (#214).
+ * A Cookbook Invite or a Kitchen Invite is opened from a link somebody sent,
+ * and no page of Kamosu leads to it. Its own two buttons are the ways on
+ * (#214, #469).
  */
-const OPENED_FROM_A_LINK = /^\/cookbook-invite\//;
+const OPENED_FROM_A_LINK = /^\/(cookbook|kitchen)-invite\//;
 
 /**
  * Where a page's back arrow goes when there is nothing behind it. The

@@ -29,6 +29,13 @@ impl Core {
     /// (ADR 0041): of a recipe they write, it sits beside it there; of anybody
     /// else's they may see, it is a Branch of their own, as a change to it
     /// would be.
+    ///
+    /// Beside its source in the same Cookbook, it starts filed under every
+    /// Tag the source carries (#472): a Tag is named per Language rather than
+    /// split by it, so a French Translation shows the Tags' French names at
+    /// once. From then on each Branch is filed on its own. In the caller's
+    /// own Cookbook, apart from the source's, it starts with none: those Tags
+    /// are another Cookbook's words.
     #[allow(clippy::too_many_arguments)]
     pub fn start_translation(
         &self,
@@ -46,7 +53,7 @@ impl Core {
         let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
 
         let foods_created = self.db().with_conn(|conn| {
-            ensure_sees_branch(conn, source_branch_id, &caller.person_id)?;
+            let source_cookbook_id = ensure_sees_branch(conn, source_branch_id, &caller.person_id)?;
             let (lineage_id, source_language, source_head): (String, String, String) = conn
                 .query_row(
                     "SELECT lineage_id, language, head_version_id FROM branches WHERE id = ?1",
@@ -140,6 +147,14 @@ impl Core {
                 ],
             )
             .map_err(|e| OpError::internal(format!("cannot record first Version: {e}")))?;
+            if source_cookbook_id == own_cookbook_id {
+                conn.execute(
+                    "INSERT INTO branch_tags (branch_id, tag_id) \
+                     SELECT ?1, tag_id FROM branch_tags WHERE branch_id = ?2",
+                    params![branch_id, source_branch_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot file Translation under Tags: {e}")))?;
+            }
             // The input is the recipe as it now reads in the new Language, so
             // its lines are read here, in that Language, as a new recipe's are
             // (#172). No later save would: it carries an unchanged line's

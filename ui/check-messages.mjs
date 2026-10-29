@@ -22,8 +22,6 @@ const LIMIT = 170;
 // list short: a key belongs here only if cutting it would drop a fact
 // someone needs to act, or words chosen one by one.
 const ALLOWED_LONGER = {
-	// Who can slow a sign-in, how long the wait is, and the way out.
-	settings_name_held_off: 250,
 	// The story's everyday card (#158): four features in one line, approved
 	// sentence by sentence on 25 September 2026.
 	story_10_said: 190,

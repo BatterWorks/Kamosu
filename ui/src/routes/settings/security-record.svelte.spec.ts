@@ -1,13 +1,14 @@
 /**
  * The Security Record on Settings (#371, choice A), against a stand-in
- * Kamosu: a page of its own, "Yours" for everybody and "This instance" for an
- * Operator.
+ * Kamosu. Since #469 each half is a page: yours under You for everybody, and
+ * the instance's under This instance for an Operator.
  */
 
 import { describe, expect, it } from 'vitest';
 import { screen, within } from '@testing-library/svelte';
 import Settings from './+page.svelte';
 import Security from './security/+page.svelte';
+import InstanceSecurity from './instance-security/+page.svelte';
 import { renderScreen } from '../../testing/render';
 import type { Answers } from '$lib/api/stand-in';
 import type { ListSecurityRecordOutput } from '$lib/api/catalogue';
@@ -96,25 +97,31 @@ function security(more: Answers) {
 	return renderScreen(Security, { ...signedIn, ...more });
 }
 
+function instanceSecurity(more: Answers) {
+	return renderScreen(InstanceSecurity, { ...signedIn, ...more });
+}
+
 /** A row's two lines, read as one. */
 const rowOf = (text: string) => screen.getByText(text).closest('li')!;
 
 describe('the Security Record (#371)', () => {
-	it('is a fifth row on the Settings menu', async () => {
-		renderScreen(Settings, { ...signedIn, get_person: { person_id: 'p_1', name: 'Stéphane' } });
-		const row = await screen.findByRole('link', { name: /Security record/ });
+	it('is a row of You on the Settings menu, and of This instance for an Operator (#469)', async () => {
+		renderScreen(Settings, {
+			...signedIn,
+			get_person: { person_id: 'p_1', name: 'Stéphane' },
+			list_accounts: { accounts: [] },
+		});
+		const row = await screen.findByRole('link', { name: /Your security record/ });
 		expect(row).toHaveAttribute('href', '/settings/security');
-		expect(row).toHaveTextContent('Sign-ins, wrong passwords, keys and changes, the last 90 days');
+		expect(row).toHaveTextContent('Sign-ins and keys, the last 90 days');
+		const instance = await screen.findByRole('link', { name: /Instance security record/ });
+		expect(instance).toHaveAttribute('href', '/settings/instance-security');
 	});
 
-	it('shows a cook their own record by day, and no instance record', async () => {
-		security({
-			list_security_record: record(MINE),
-			list_instance_security_record: { refuse: 'unauthorized' },
-		});
+	it('shows a cook their own record by day', async () => {
+		security({ list_security_record: record(MINE) });
 
-		expect(await screen.findByRole('heading', { name: 'Yours' })).toBeInTheDocument();
-		expect(screen.getByRole('heading', { name: 'Today' })).toBeInTheDocument();
+		expect(await screen.findByRole('heading', { name: 'Today' })).toBeInTheDocument();
 		expect(screen.getByRole('heading', { name: 'Yesterday' })).toBeInTheDocument();
 		expect(rowOf('Signed in on Safari · iPhone')).toHaveTextContent(/With a passkey · 09:15$/);
 		const wrong = rowOf('3 wrong passwords at your name');
@@ -125,17 +132,20 @@ describe('the Security Record (#371)', () => {
 		expect(rowOf('Password changed')).toHaveTextContent(
 			/On Firefox on Linux · 2 other devices signed out · \d\d:\d\d$/,
 		);
-		expect(screen.queryByRole('heading', { name: 'This instance' })).not.toBeInTheDocument();
 	});
 
-	it('shows an Operator the instance record too, saying who did what and through what', async () => {
-		security({
-			list_security_record: record(MINE),
-			list_instance_security_record: record(INSTANCE),
-		});
+	it('shows a cook who opens the instance record nothing at all (ADR 0040)', async () => {
+		instanceSecurity({ list_instance_security_record: { refuse: 'unauthorized' } });
 
-		const heading = await screen.findByRole('heading', { name: 'This instance' });
-		const section = heading.closest('section')!;
+		expect(await screen.findByText('There is nothing here for you.')).toBeInTheDocument();
+		expect(screen.queryByRole('listitem')).not.toBeInTheDocument();
+	});
+
+	it('shows an Operator the instance record, saying who did what and through what', async () => {
+		instanceSecurity({ list_instance_security_record: record(INSTANCE) });
+
+		await screen.findByText('House Notes changed');
+		const section = document.body;
 		expect(within(section).getByText('House Notes changed').closest('li')).toHaveTextContent(
 			'By Stéphane, through the key “Hermes” · 10:02',
 		);
@@ -148,10 +158,7 @@ describe('the Security Record (#371)', () => {
 	});
 
 	it('says when there is nothing yet', async () => {
-		security({
-			list_security_record: record([]),
-			list_instance_security_record: { refuse: 'unauthorized' },
-		});
+		security({ list_security_record: record([]) });
 		expect(await screen.findByText('Nothing in the last 90 days.')).toBeInTheDocument();
 	});
 });
@@ -170,7 +177,6 @@ describe('how a row is said (#371)', () => {
 					count: 4,
 				}),
 			]),
-			list_instance_security_record: { refuse: 'unauthorized' },
 		});
 		const row = (await screen.findByText('4 wrong passwords at your name')).closest('li')!;
 		expect(row).toHaveTextContent(/From \w{3},? \d+ \w+ 23:50 to 00:10/);
@@ -191,7 +197,6 @@ describe('how a row is said (#371)', () => {
 					},
 				}),
 			]),
-			list_instance_security_record: { refuse: 'unauthorized' },
 		});
 		const row = (await screen.findByText('Signed in on replacement browser')).closest('li')!;
 		expect(row).toHaveTextContent(
@@ -200,8 +205,7 @@ describe('how a row is said (#371)', () => {
 	});
 
 	it('says a new Operator arrived through an Operator Invite', async () => {
-		security({
-			list_security_record: record([]),
+		instanceSecurity({
 			list_instance_security_record: record([
 				event({
 					event: 'operator_raised',
@@ -222,7 +226,6 @@ it('says a run within one minute as that minute (#371)', async () => {
 		list_security_record: record([
 			event({ event: 'sign_in_failed', at: today(9, 57), first_at: today(9, 57), count: 2 }),
 		]),
-		list_instance_security_record: { refuse: 'unauthorized' },
 	});
 	const row = (await screen.findByText('2 wrong passwords at your name')).closest('li')!;
 	expect(row).toHaveTextContent(

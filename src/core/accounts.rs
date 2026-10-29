@@ -710,9 +710,34 @@ impl Core {
     }
 
     pub fn mint_invite(&self, is_operator: bool) -> Result<String, OpError> {
+        self.mint_invite_into(is_operator, None)
+    }
+
+    /// An Invite that brings its newcomer into a Kitchen too (#469): one of
+    /// the Operator's own, since one they are not in is not theirs to fill.
+    pub fn mint_invite_into_kitchen(
+        &self,
+        person_id: &str,
+        kitchen_id: &str,
+        is_operator: bool,
+    ) -> Result<String, OpError> {
+        let mine = self
+            .db()
+            .with_conn(|conn| super::kitchens::is_member(conn, kitchen_id, person_id))?;
+        if !mine {
+            return Err(OpError::not_found("no Kitchen of yours by that id"));
+        }
+        self.mint_invite_into(is_operator, Some(kitchen_id))
+    }
+
+    fn mint_invite_into(
+        &self,
+        is_operator: bool,
+        kitchen_id: Option<&str>,
+    ) -> Result<String, OpError> {
         let secret = generate_secret();
         self.db().with_conn(|conn| {
-            conn.execute("INSERT INTO account_links (secret_hash, kind, is_operator) VALUES (?1, 'invite', ?2)", params![hash_secret(&secret), is_operator as i64])
+            conn.execute("INSERT INTO account_links (secret_hash, kind, is_operator, kitchen_id) VALUES (?1, 'invite', ?2, ?3)", params![hash_secret(&secret), is_operator as i64, kitchen_id])
                 .map_err(|e| OpError::internal(format!("cannot mint Invite: {e}")))?;
             Ok(())
         })?;
@@ -750,11 +775,15 @@ impl Core {
         let (operator, cookbook_id) = self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| OpError::internal(e.to_string()))?;
             let result = (|| -> Result<(bool, String), OpError> {
-                let role: Option<i64> = conn.query_row("SELECT is_operator FROM account_links WHERE secret_hash=?1 AND kind='invite' AND spent=0 AND revoked=0", params![hash_secret(secret)], |r| r.get(0)).optional().map_err(|e| OpError::internal(e.to_string()))?;
-                let role = role.ok_or_else(|| OpError::unauthorized("this Invite has already been spent or revoked"))?;
+                let found: Option<(i64, Option<String>)> = conn.query_row("SELECT is_operator, kitchen_id FROM account_links WHERE secret_hash=?1 AND kind='invite' AND spent=0 AND revoked=0", params![hash_secret(secret)], |r| Ok((r.get(0)?, r.get(1)?))).optional().map_err(|e| OpError::internal(e.to_string()))?;
+                let (role, kitchen_id) = found.ok_or_else(|| OpError::unauthorized("this Invite has already been spent or revoked"))?;
                 conn.execute("UPDATE account_links SET spent=1 WHERE secret_hash=?1", params![hash_secret(secret)]).map_err(|e| OpError::internal(e.to_string()))?;
                 conn.execute("INSERT INTO people (id,name,password_hash,is_operator) VALUES (?1,?2,?3,?4)", params![person_id,name,password_hash,role]).map_err(|e| refusal_for_a_taken_name(e, name, "cannot create this Person"))?;
                 let cookbook_id = insert_person_cookbook(conn, &person_id)?;
+                // The Kitchen the Invite names, where it still stands (#469).
+                if let Some(kitchen_id) = kitchen_id {
+                    conn.execute("INSERT OR IGNORE INTO kitchen_members (kitchen_id, person_id) SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM kitchens WHERE id = ?1)", params![kitchen_id, person_id]).map_err(|e| OpError::internal(format!("cannot join the Invite's Kitchen: {e}")))?;
+                }
                 conn.execute("INSERT INTO sessions (id,secret_hash,person_id,name) VALUES (?1,?2,?3,?4)", params![session.id,hash_secret(&session.secret),person_id,session_name]).map_err(|e| OpError::internal(e.to_string()))?;
                 Ok((role != 0, cookbook_id))
             })();

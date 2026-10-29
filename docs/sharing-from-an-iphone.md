@@ -27,7 +27,7 @@ Every request carries the header `Authorization: Bearer <key>`.
 
 ## The setup code
 
-Settings → Share from your phone shows one code, once: the format's name,
+Settings → Save from your phone shows one code, once: the format's name,
 `kamosu1`, the address the phone reaches Kamosu at, and the Add-only key, with
 one space between each.
 
@@ -88,9 +88,9 @@ to **Stop and Respond**, with the response
    **Setup**, choose **Add Import Question** on this Text action, with the
    question below and no default answer. Set Variable **Code** to the Text.
 
-   > Kamosu → Settings → Share from your phone: paste the setup code. ·
-   > Kamosu → Réglages → Partager depuis votre téléphone : collez le code de
-   > réglage. · Kamosu → Ajustes → Compartir desde tu teléfono: pega el
+   > Kamosu → Settings → Save from your phone: paste the setup code. ·
+   > Kamosu → Réglages → Enregistrer depuis votre téléphone : collez le code
+   > de réglage. · Kamosu → Ajustes → Guardar desde tu teléfono: pega el
    > código de configuración.
 
 2. **Split Text** Code by **Spaces**.
@@ -196,4 +196,4 @@ always holds.
    repository is public: the page must name no person and no Apple account.
 3. Put the link in `SHORTCUT_URL` in `ui/src/lib/sharing.ts` and below.
 
-The published Shortcut: <https://www.icloud.com/shortcuts/4e9859c8609a4221846f0f55915c6423>
+The published Shortcut: <https://www.icloud.com/shortcuts/193a2777774d45bcb45944faec9f59d7>

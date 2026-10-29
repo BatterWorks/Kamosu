@@ -6,6 +6,7 @@
 </p>
 
 <p align="center">
+  <a href="https://kamosu.battercloud.cc"><img alt="Live demo" src="https://img.shields.io/badge/live_demo-kamosu.battercloud.cc-e4572e"></a>
   <a href="https://hub.docker.com/r/battermanz/kamosu"><img alt="Docker Hub" src="https://img.shields.io/docker/v/battermanz/kamosu?sort=semver&label=docker%20hub&color=2496ed"></a>
   <a href="Dockerfile"><img alt="Rootless and distroless image" src="https://img.shields.io/badge/image-rootless_%26_distroless-2ea44f"></a>
   <a href="#connecting-an-agent"><img alt="MCP 2026-07-28" src="https://img.shields.io/badge/MCP-2026--07--28-1d2b4c"></a>
@@ -34,6 +35,12 @@ Everything you can do in the web app, an agent can do over MCP (the Model
 Context Protocol), because both are built from the same list of operations.
 Kamosu runs on a machine you own, in one container with one folder and one
 port, and it sends your data nowhere.
+
+<p align="center">
+  <b><a href="https://kamosu.battercloud.cc">&#9654;&nbsp; Try the live demo</a></b>: a family's library of
+  about 40 recipes with their history, where you arrive signed in and can cook and shop. It goes
+  back to how it was every morning.
+</p>
 
 <p align="center">
   <img src="docs/readme/wide-recipe.png" width="880" alt="A recipe on a computer: a sidebar on the left, the photograph across the top, the ingredients and the method in two columns">
@@ -80,6 +87,7 @@ port, and it sends your data nowhere.
 - [Meaning Search](#meaning-search)
 - [Your data](#your-data)
 - [Configuration](#configuration)
+- [Running a demo](#running-a-demo)
 - [Troubleshooting](#troubleshooting)
 - [Security](#security)
 - [Building from source](#building-from-source)
@@ -129,6 +137,8 @@ port, and it sends your data nowhere.
   a cookbook page, or several photos of one recipe, a scanned PDF or a cooking
   video. On a computer, drop the file or the link onto Recipes. Importing the
   same thing twice matches what is already there instead of doubling it.
+  **Settings › Sent to the AI agent** lists what you handed the agent and how
+  each one ended, with a way to try again where it failed.
 - **Share with anyone.** A Share Link shows one recipe to whoever holds it, no
   account needed, with a printable PDF and a file another Kamosu can import
   with the recipe's full history.
@@ -157,8 +167,8 @@ every recipe.
 cook, and record how it went for every recipe in every member's Cookbook. A
 Kitchen holds no recipes of its own and changes none. You can be in several at
 once, your household, your family, a group of friends, or in none. Anyone can
-create one, any member can invite someone or remove them, and each member can
-give it a nickname that only they see.
+create one, any member can invite someone with a link or remove them, and
+each member can give it a nickname that only they see.
 
 **Changing a recipe someone else wrote gives you your own version.** It starts
 in your Cookbook with the whole history behind it, and theirs stays exactly as
@@ -187,7 +197,7 @@ It is not:
   figure you typed. Kamosu never calculates nutrition from ingredients.
 - **A public recipe site.** There is no signup. Every account starts from an
   invite, and nothing is visible to strangers unless you share a link.
-- **Finished.** This is 0.4.0. It is used in one kitchen, and nobody else has
+- **Finished.** This is 0.5.0. It is used in one kitchen, and nobody else has
   run it yet.
 
 ## Quick start
@@ -323,7 +333,7 @@ when it is created. Only an Operator key can do what an Operator does, such as
 changing the House Notes every agent reads or taking a Backup. Give one only to
 an agent that looks after the instance.
 
-An Add-only key, made in **Settings › Share from your phone** for the iPhone
+An Add-only key, made in **Settings › Save from your phone** for the iPhone
 Shortcut, can add recipes and nothing else.
 
 An agent that reads a web page or someone else's recipe can be given
@@ -360,8 +370,9 @@ by what they are about, so "that thing with aubergines" finds a recipe that
 never says aubergine. Each result says whether it matched on words or on
 meaning.
 
-It is off until an Operator turns it on in **Settings**, under **This
-instance**. It needs Google's
+It is off until an Operator turns it on. Kamosu offers it the first time an
+Operator's search finds nothing, and once that offer is answered it can be
+turned on or off in **Settings**, under **This instance**. It needs Google's
 EmbeddingGemma model, which Kamosu does not ship and does not download until
 the Operator accepts Google's terms. The model then runs on your own machine,
 and no recipe leaves it.
@@ -405,8 +416,47 @@ No environment variable is required.
 | `KAMOSU_DATA_DIR` | `/data` | The folder that holds everything. Inside the container, leave it alone and change the mount instead. |
 | `KAMOSU_LOG` | `info` | Log level, as a `tracing` filter such as `debug` or `kamosu=debug,info`. |
 | `KAMOSU_DEMO_ERASES_LIBRARY_DAILY` | unset | `true` makes this instance a public demo: anyone gets in without a password, and only cooking and shopping save. It erases the library when it starts and every day at 04:00 UTC, putting its Sample Library in its place, so never set it on a Kamosu you keep recipes in. |
+| `KAMOSU_DEMO_PUBLIC_ADDRESS` | unset | In a demo only, the address visitors reach it at, such as `https://demo.example.com`. The demo's shared recipe builds its link on it. Stored at every start, since a demo refuses to change the address from its settings. Without demo mode, Kamosu ignores it: an ordinary instance keeps its address in Settings. |
 | `KAMOSU_DEMO_UMAMI_SCRIPT` | unset | In a demo only, the address of an Umami script to count visits with, such as `https://umami.example.com/script.js`. The demo's pages load it and let its address through their security policy. It must send its counts to its own address, as a self-hosted Umami does. Without demo mode, Kamosu ignores it and sends nothing anywhere. |
 | `KAMOSU_DEMO_UMAMI_WEBSITE_ID` | unset | The website id Umami gave the demo. Needed with `KAMOSU_DEMO_UMAMI_SCRIPT`; one without the other counts nothing. |
+
+## Running a demo
+
+`KAMOSU_DEMO_ERASES_LIBRARY_DAILY=true` turns an instance into a public demo,
+like [the live one](https://kamosu.battercloud.cc). Anyone who opens it
+arrives signed in, with nothing to type, as Camille, who runs the instance, so
+every screen opens. Cooking and shopping save. Anything else that would change
+the library, reach beyond it or do work for a visitor is refused with a note
+that this is a demo: creating or editing a recipe, importing, uploading a
+photo, fetching a link, accounts, keys, Kitchens and every Operator setting.
+
+It erases the library when it starts and every day at 04:00 UTC, and puts its
+Sample Library in its place: about 40 recipes with their versions, cookings and
+a shopping list, every date moved forward so the history reads as recent. The
++ menu replays four ready examples of the agent reading a recipe, since no
+model runs. **Never set it on a Kamosu you keep recipes in.**
+
+It is meant for a public instance behind HTTPS. Visitors stay signed in by the
+same cookie as anyone else, which a browser only sends over HTTPS.
+
+Set `KAMOSU_DEMO_PUBLIC_ADDRESS` to the demo's address, such as
+`https://demo.example.com`. Without it, the demo's shared recipe has no link to
+show.
+
+Meaning Search has to be on before demo mode goes on. A demo refuses to turn it
+on, and its daily cleaning keeps it.
+
+1. Start Kamosu without `KAMOSU_DEMO_ERASES_LIBRARY_DAILY` and create the first
+   account, an Operator. The demo erases it with the rest of the library.
+2. Turn on Meaning Search: search for a word no recipe holds, and accept the
+   offer under *nothing found*. That accepts Google's terms and fetches the
+   model. Without it, the demo searches by words only.
+3. Restart it with `KAMOSU_DEMO_ERASES_LIBRARY_DAILY=true`.
+
+A visitor's own AI agent can read the demo too. The welcome card shows the
+demo's MCP address and a read-only Access Key. Every Kamosu demo publishes the
+same key, and an instance not in demo mode refuses it. The two Umami variables
+under [Configuration](#configuration) count visits, in demo mode only.
 
 ## Troubleshooting
 
@@ -436,7 +486,7 @@ It prints a path starting `/recover/`. Open it after your Kamosu's address
 (`https://your-kamosu/recover/...`) and choose a new password. Setting it signs
 out every device and ends every Access Key and Runner Key you held, so a
 Runner needs a new key afterwards. Another
-Operator can also send you one from the Operator screen.
+Operator can also send you one from **Settings › People**.
 
 **Podman shows no health status.** The `podman-*` images are built in
 Podman's own format, which has no field for a health check. The
@@ -449,7 +499,7 @@ way, which Kamosu refuses. Start it with the profile from [Codex](#codex),
 which turns on the 2026-07-28 revision.
 
 **A phone still shows an old version of a recipe.** Each phone keeps a copy of
-the library for offline cooking. **Settings**, under **This device**, says how
+the library for offline cooking. **Settings › This device** says how
 many recipes it holds and when they were last updated, and **Bring it up to
 date** refreshes them.
 
@@ -459,7 +509,7 @@ Authorisation happens in one place and depends only on who you signed in as.
 Every secret is 256 bits and revocable one at a time, passwords need 15
 characters, and URLs Kamosu fetches for you can only reach public addresses.
 You can sign in with a passkey where the public address is `https://`, and
-change your own password in **Settings › Account**. Kamosu keeps a Security
+change your own password in **Settings › Signing in**. Kamosu keeps a Security
 Record of sign-ins, keys and changes to the instance for 90 days, in Settings
 and as `kamosu-security` lines in its log
 ([docs/security-record.md](docs/security-record.md)). Kamosu has not been

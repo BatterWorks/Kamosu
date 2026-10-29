@@ -1,6 +1,11 @@
-<!-- One of Settings' four pages (#221): `Settings.svelte` draws the sections it holds. -->
+<!--
+	`/settings/instance` was This instance until #469 made it a group of pages
+	for an Operator. An address somebody kept lands on About Kamosu, where its
+	version and its story went.
+-->
 <script lang="ts">
-	import Settings from '../Settings.svelte';
-</script>
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 
-<Settings page="instance" />
+	onMount(() => void goto('/settings/about', { replaceState: true }));
+</script>

@@ -514,6 +514,266 @@ async fn an_invite_is_spent_on_first_use_and_refused_afterwards() {
     assert_eq!(status, 401, "{refused}");
 }
 
+/// A Kitchen Invite is a link, and the page it opens shows the Kitchen as its
+/// members see it before anybody says yes (#469, choice B): its name, who is
+/// in it, whose recipes it holds and who sent it. Reading it spends nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kitchen_invite_says_which_kitchen_before_anybody_joins() {
+    let app = support::spawn_app();
+    let alice = app.core.create_person("Alice").expect("person");
+    let alice_key = app
+        .core
+        .mint_access_key(&alice, "browser", false)
+        .unwrap()
+        .secret;
+    let bob = app.core.create_person("Bob").expect("person");
+    let bob_key = app
+        .core
+        .mint_access_key(&bob, "browser", false)
+        .unwrap()
+        .secret;
+    let carol = app.core.create_person("Carol").expect("person");
+    let carol_key = app
+        .core
+        .mint_access_key(&carol, "browser", false)
+        .unwrap()
+        .secret;
+
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&alice_key),
+        &json!({ "name": "Home" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+    let (_, minted) = app.post_op(
+        "invite_to_kitchen",
+        Some(&alice_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    let secret = minted["result"]["secret"].as_str().unwrap().to_string();
+
+    let (status, read) = app.post_op(
+        "read_kitchen_invite",
+        Some(&bob_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    let read = &read["result"];
+    assert_eq!(read["kitchen"]["name"], json!("Home"));
+    assert_eq!(read["kitchen"]["nickname"], json!(null));
+    assert_eq!(read["kitchen"]["members"][0]["name"], json!("Alice"));
+    assert_eq!(read["kitchen"]["cookbooks"].as_array().unwrap().len(), 1);
+    assert_eq!(read["invited_by"]["name"], json!("Alice"));
+    assert_eq!(read["already_member"], json!(false));
+
+    // Alice reading her own link is told she is in it already.
+    let (_, own) = app.post_op(
+        "read_kitchen_invite",
+        Some(&alice_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(own["result"]["already_member"], json!(true));
+
+    // Reading spent nothing: Bob still joins with it, and then it is gone.
+    let (status, joined) = app.post_op(
+        "accept_kitchen_invite",
+        Some(&bob_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+    let (status, spent) = app.post_op(
+        "read_kitchen_invite",
+        Some(&carol_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 401, "{spent}");
+}
+
+/// The member who made a Kitchen link can cancel it before it is used, and
+/// then nobody gets in with it (#469). Nobody outside the Kitchen can.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cancelled_kitchen_invite_lets_nobody_in() {
+    let app = support::spawn_app();
+    let alice = app.core.create_person("Alice").expect("person");
+    let alice_key = app
+        .core
+        .mint_access_key(&alice, "browser", false)
+        .unwrap()
+        .secret;
+    let bob = app.core.create_person("Bob").expect("person");
+    let bob_key = app
+        .core
+        .mint_access_key(&bob, "browser", false)
+        .unwrap()
+        .secret;
+
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&alice_key),
+        &json!({ "name": "Home" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+    let (_, minted) = app.post_op(
+        "invite_to_kitchen",
+        Some(&alice_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    let invite_id = minted["result"]["invite_id"].as_str().unwrap().to_string();
+    let secret = minted["result"]["secret"].as_str().unwrap().to_string();
+
+    // Bob is in no Kitchen of Alice's, so to him the link is not there.
+    let (status, refused) = app.post_op(
+        "cancel_kitchen_invite",
+        Some(&bob_key),
+        &json!({ "invite_id": invite_id }).to_string(),
+    );
+    assert_eq!(status, 404, "{refused}");
+
+    let (status, ended) = app.post_op(
+        "cancel_kitchen_invite",
+        Some(&alice_key),
+        &json!({ "invite_id": invite_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{ended}");
+    assert_eq!(ended["result"]["ended"], json!(true));
+
+    for operation in ["read_kitchen_invite", "accept_kitchen_invite"] {
+        let (status, refused) = app.post_op(
+            operation,
+            Some(&bob_key),
+            &json!({ "secret": secret }).to_string(),
+        );
+        assert_eq!(status, 401, "{operation}: {refused}");
+    }
+
+    // Cancelling it twice finds nothing to cancel.
+    let (status, again) = app.post_op(
+        "cancel_kitchen_invite",
+        Some(&alice_key),
+        &json!({ "invite_id": invite_id }).to_string(),
+    );
+    assert_eq!(status, 404, "{again}");
+}
+
+/// An Operator's Invite can name one of the Operator's own Kitchens, so a
+/// newcomer gets an account and that Kitchen from the one link, or none
+/// (#469). A Kitchen the Operator is not in is refused as one not there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_operators_invite_can_bring_a_newcomer_into_a_kitchen() {
+    let app = support::spawn_app();
+    let create =
+        json!({ "name": "Stéphane", "password": "the right password", "session_name": "operator" });
+    let operator = app.post_auth_response("/auth/first-person", &create.to_string());
+    assert_eq!(operator.status, 200, "{}", operator.text());
+    let operator = support::session_cookie_secret(&operator);
+
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&operator),
+        &json!({ "name": "Home" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+
+    let join = |link: &str, name: &str| {
+        let joined = app.post_auth_response(
+            "/auth/invite",
+            &json!({ "link": link, "name": name, "password": "their own password",
+                     "session_name": "their phone" })
+            .to_string(),
+        );
+        assert_eq!(joined.status, 200, "{}", joined.text());
+        support::session_cookie_secret(&joined)
+    };
+    let kitchens_of = |secret: &str| {
+        let (_, listed) = app.post_op("list_kitchens", Some(secret), "{}");
+        listed["result"]["kitchens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|kitchen| kitchen["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+
+    let (status, minted) = app.post_op(
+        "mint_invite",
+        Some(&operator),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{minted}");
+    let camille = join(minted["result"]["link"].as_str().unwrap(), "Camille");
+    assert_eq!(kitchens_of(&camille), vec![kitchen_id.clone()]);
+
+    let (_, minted) = app.post_op("mint_invite", Some(&operator), "{}");
+    let robin = join(minted["result"]["link"].as_str().unwrap(), "Robin");
+    assert!(kitchens_of(&robin).is_empty());
+
+    // Robin's own Kitchen, which the Operator is not in.
+    let (_, theirs) = app.post_op(
+        "create_kitchen",
+        Some(&robin),
+        &json!({ "name": "Robin's" }).to_string(),
+    );
+    let (status, refused) = app.post_op(
+        "mint_invite",
+        Some(&operator),
+        &json!({ "kitchen_id": theirs["result"]["id"] }).to_string(),
+    );
+    assert_eq!(status, 404, "{refused}");
+}
+
+/// A Kitchen an Invite names can still be deleted once nobody is in it, and
+/// the Invite then brings its newcomer into no Kitchen (#469).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kitchen_an_invite_names_can_still_be_deleted() {
+    let app = support::spawn_app();
+    let create =
+        json!({ "name": "Stéphane", "password": "the right password", "session_name": "operator" });
+    let operator = app.post_auth_response("/auth/first-person", &create.to_string());
+    let operator = support::session_cookie_secret(&operator);
+    let (_, operators) = app.post_op("get_person", Some(&operator), "{}");
+    let operator_id = operators["result"]["person_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&operator),
+        &json!({ "name": "Home" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+    let (_, minted) = app.post_op(
+        "mint_invite",
+        Some(&operator),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    let link = minted["result"]["link"].as_str().unwrap().to_string();
+
+    let (status, left) = app.post_op(
+        "remove_kitchen_member",
+        Some(&operator),
+        &json!({ "kitchen_id": kitchen_id, "person_id": operator_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{left}");
+    let (status, deleted) = app.post_op(
+        "delete_kitchen",
+        Some(&operator),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+
+    let joined = app.post_auth_response(
+        "/auth/invite",
+        &json!({ "link": link, "name": "Camille", "password": "their own password",
+                 "session_name": "their phone" })
+        .to_string(),
+    );
+    assert_eq!(joined.status, 200, "{}", joined.text());
+    let camille = support::session_cookie_secret(&joined);
+    let (_, kitchens) = app.post_op("list_kitchens", Some(&camille), "{}");
+    assert_eq!(kitchens["result"]["kitchens"], json!([]));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn leaving_is_not_a_deletion_and_even_the_last_member_may_leave() {
     let app = support::spawn_app();
@@ -5494,6 +5754,208 @@ async fn deleting_a_tag_takes_it_off_every_recipe_and_changes_no_recipe() {
     );
     let (_, listed) = app.post_op("list_tags", Some(&key), &json!({}).to_string());
     assert_eq!(listed["result"]["tags"], json!([]));
+}
+
+/// The names of the Tags a `set_recipe_tag` or `get_recipe` answer carries.
+fn tag_names_in(answer: &Value) -> Vec<String> {
+    answer["tags"]
+        .as_array()
+        .unwrap_or_else(|| panic!("an answer with Tags: {answer}"))
+        .iter()
+        .map(|tag| tag["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Several Tags in one call, all or none (#472): an agent putting a
+/// recipe's Tags back made one call each, and a passing network error
+/// halfway left the recipe half-filed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn several_tags_go_on_and_come_off_in_one_call() {
+    let app = support::spawn_app();
+    let (_, key, _) = person_with_kitchen(&app, "Stéphane");
+    let quick = tag_in(&app, &key, "en", "quick");
+    let dessert = tag_in(&app, &key, "en", "dessert");
+    let summer = tag_in(&app, &key, "en", "summer");
+    let branch = recipe_in(&app, &key, "Clafoutis");
+    let (_, before) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+
+    let (status, filed) = app.post_op(
+        "set_recipe_tag",
+        Some(&key),
+        &json!({ "branch_id": branch, "tag_ids": [quick, dessert, summer], "carried": true })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{filed}");
+    assert_eq!(
+        tag_names_in(&filed["result"]),
+        ["quick", "dessert", "summer"]
+    );
+
+    let (status, taken_off) = app.post_op(
+        "set_recipe_tag",
+        Some(&key),
+        &json!({ "branch_id": branch, "tag_ids": [quick, summer], "carried": false }).to_string(),
+    );
+    assert_eq!(status, 200, "{taken_off}");
+    assert_eq!(tag_names_in(&taken_off["result"]), ["dessert"]);
+
+    // Filing is still not what a recipe is: no Version for any of it.
+    let (_, after) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    assert_eq!(tag_names_in(&after["result"]), ["dessert"]);
+    assert_eq!(
+        after["result"]["head_version_id"],
+        before["result"]["head_version_id"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_list_naming_one_tag_the_caller_cannot_use_changes_nothing() {
+    let app = support::spawn_app();
+    let (_, key, _) = person_with_kitchen(&app, "Stéphane");
+    let (_, stranger, _) = person_with_kitchen(&app, "Marc");
+    let quick = tag_in(&app, &key, "en", "quick");
+    let dessert = tag_in(&app, &key, "en", "dessert");
+    let theirs = tag_in(&app, &stranger, "en", "summer");
+    let branch = recipe_in(&app, &key, "Clafoutis");
+    file_under(&app, &key, &branch, &dessert, true);
+    let tags_now = || {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        tag_names_in(&read["result"])
+    };
+
+    // Another Cookbook's Tag, and one that names nothing, each last in a
+    // list whose other Tags are the recipe's own to use: none goes on, and
+    // none comes off. The stranger's Tag is answered as one not there
+    // (ADR 0040).
+    for carried in [true, false] {
+        for unusable in [theirs.as_str(), "t_ffffffffffffffff"] {
+            let (status, refused) = app.post_op(
+                "set_recipe_tag",
+                Some(&key),
+                &json!({
+                    "branch_id": branch,
+                    "tag_ids": [quick, dessert, unusable],
+                    "carried": carried,
+                })
+                .to_string(),
+            );
+            assert_eq!(status, 404, "{refused}");
+            assert_eq!(refused["error"]["message"], json!("no such Tag"));
+            assert_eq!(tags_now(), ["dessert"], "carried: {carried}");
+        }
+    }
+
+    // A call names its Tags one way, and names at least one.
+    for input in [
+        json!({ "branch_id": branch, "tag_id": quick, "tag_ids": [quick], "carried": true }),
+        json!({ "branch_id": branch, "tag_ids": [], "carried": true }),
+        json!({ "branch_id": branch, "carried": true }),
+    ] {
+        let (status, refused) = app.post_op("set_recipe_tag", Some(&key), &input.to_string());
+        assert_eq!(status, 400, "{input}: {refused}");
+        assert_eq!(tags_now(), ["dessert"], "{input}");
+    }
+}
+
+/// A new Translation starts with its original's Tags (#472). It is the same
+/// recipe in another Language (ADR 0006), and a Tag is named per Language
+/// rather than split by it, so the Translation reads its Tags in French at
+/// once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_translation_starts_with_its_originals_tags() {
+    let app = support::spawn_app();
+    let (_, key, kitchen) = person_with_kitchen(&app, "Stéphane");
+    let dessert = tag_in(&app, &key, "en", "dessert");
+    let summer = tag_in(&app, &key, "en", "summer");
+    for (tag, french) in [(&dessert, "dessert sucré"), (&summer, "été")] {
+        let (status, renamed) = app.post_op(
+            "rename_tag",
+            Some(&key),
+            &json!({ "tag_id": tag, "language": "fr", "name": french }).to_string(),
+        );
+        assert_eq!(status, 200, "{renamed}");
+    }
+    let original = recipe_in(&app, &key, "Cherry clafoutis");
+    let (status, _) = app.post_op(
+        "set_recipe_tag",
+        Some(&key),
+        &json!({ "branch_id": original, "tag_ids": [dessert, summer], "carried": true })
+            .to_string(),
+    );
+    assert_eq!(status, 200);
+    let translate = |key: &str| {
+        let (status, translated) = app.post_op(
+            "start_translation",
+            Some(key),
+            &json!({
+                "branch_id": original,
+                "language": "fr",
+                "title": "Clafoutis aux cerises",
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{translated}");
+        translated["result"].clone()
+    };
+    let tags_of = |key: &str, branch: &str| {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        tag_names_in(&read["result"])
+    };
+
+    // A cook reading French sees the Translation's Tags in French.
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "fr", "reading_measures": "metric" }).to_string(),
+    );
+    let translated = translate(&key);
+    assert_eq!(tag_names_in(&translated), ["dessert sucré", "été"]);
+    let french = translated["branch_id"].as_str().unwrap().to_string();
+    assert_eq!(tags_of(&key, &french), ["dessert sucré", "été"]);
+
+    // From then on each Branch is filed on its own.
+    file_under(&app, &key, &french, &summer, false);
+    assert_eq!(tags_of(&key, &french), ["dessert sucré"]);
+    assert_eq!(tags_of(&key, &original), ["dessert sucré", "été"]);
+    file_under(&app, &key, &original, &dessert, false);
+    assert_eq!(tags_of(&key, &original), ["été"]);
+    assert_eq!(tags_of(&key, &french), ["dessert sucré"]);
+
+    // A Kitchen-mate's Translation is a Branch of their own Cookbook, which
+    // files by its own words: it starts with none of these Tags, and makes
+    // none in their list.
+    let (_, marc, _) = person_with_kitchen(&app, "Marc");
+    let (_, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen }).to_string(),
+    );
+    let secret = invite["result"]["secret"].as_str().unwrap();
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&marc),
+        &json!({ "secret": secret }).to_string(),
+    );
+    let marcs = translate(&marc);
+    assert_eq!(marcs["tags"], json!([]), "{marcs}");
+    let (_, listed) = app.post_op("list_tags", Some(&marc), &json!({}).to_string());
+    assert_eq!(listed["result"]["tags"], json!([]), "{listed}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -14883,6 +15345,11 @@ mod web_link_importer {
                 "set_recipe_tag",
                 json!({ "branch_id": branch_id, "tag_id": tag_id, "carried": true }),
             ),
+            // Several Tags in one call are held to the one recipe too (#472).
+            (
+                "set_recipe_tag",
+                json!({ "branch_id": branch_id, "tag_ids": [tag_id], "carried": true }),
+            ),
         ]
     }
 
@@ -14947,6 +15414,16 @@ mod web_link_importer {
         assert_eq!(status, 200, "{read}");
         let filed = super::file_under(&app, &held.job_key, &held.branch_id, &tag, true);
         assert_eq!(filed["tags"][0]["id"], json!(tag), "{filed}");
+        // And several at once, in one call (#472).
+        let quick = super::tag_in(&app, &cook, "fr", "rapide");
+        let (status, both) = app.post_op(
+            "set_recipe_tag",
+            Some(&held.job_key),
+            &json!({ "branch_id": held.branch_id, "tag_ids": [tag, quick], "carried": true })
+                .to_string(),
+        );
+        assert_eq!(status, 200, "{both}");
+        assert_eq!(super::tag_names_in(&both["result"]), ["soupes", "rapide"]);
 
         // The cook reads what the agent wrote, under their own Hand, and
         // nothing on the recipe says who held the pen.
@@ -15173,7 +15650,7 @@ mod web_link_importer {
         let mut writes = each_write_on("", "");
         writes.push(("upload_photograph", json!({ "data": super::a_picture(3) })));
         writes.push(("POST /api/photographs", json!(null)));
-        for (operation, _) in writes {
+        for (nth_write, (operation, _)) in writes.into_iter().enumerate() {
             let app = support::spawn_app();
             let (stephane_id, stephane, recipe, tag) =
                 a_recipe_the_asker_sees_and_does_not_write(&app);
@@ -15199,7 +15676,7 @@ mod web_link_importer {
                 _ => {
                     let input = each_write_on(&recipe, &tag)
                         .into_iter()
-                        .find(|(name, _)| *name == operation)
+                        .nth(nth_write)
                         .unwrap()
                         .1;
                     app.post_op(operation, Some(&held.job_key), &input.to_string())
@@ -40725,9 +41202,10 @@ mod handing_an_original_to_an_agent {
             assert!(!holds(&bytes, MARKER.as_bytes()), "{path:?} holds the text");
             assert!(!holds(&bytes, of_the_pdf), "{path:?} holds the PDF");
         }
-        // The Originals are on disk, beside the database.
+        // The Originals are on disk, beside the database, and so are the
+        // PDF's first words the list of sends quotes (#463).
         let originals = app.core.data_dir().join("originals");
-        assert_eq!(std::fs::read_dir(&originals).unwrap().count(), 2);
+        assert_eq!(std::fs::read_dir(&originals).unwrap().count(), 3);
 
         super::take_a_backup(&app, &at.cook);
         let backups = app.core.data_dir().join("backups");
@@ -42287,6 +42765,350 @@ mod handing_an_original_to_an_agent {
         let (_, listed) = app.post_op("list_jobs", Some(&at.cook), "{}");
         assert_eq!(listed["result"]["jobs"], json!([]), "{listed}");
         assert_eq!(agent_jobs_held(&app), 0);
+    }
+
+    // --- Everything sent to the agent, in one list (#463) -----------------
+
+    fn sent(app: &support::TestApp, key: &str) -> Vec<Value> {
+        let (status, listed) = app.post_op("list_agent_jobs", Some(key), "{}");
+        assert_eq!(status, 200, "{listed}");
+        listed["result"]["jobs"].as_array().unwrap().clone()
+    }
+
+    fn row<'a>(rows: &'a [Value], job_id: &str) -> &'a Value {
+        rows.iter()
+            .find(|row| row["job_id"] == json!(job_id))
+            .unwrap_or_else(|| panic!("{job_id} is listed"))
+    }
+
+    /// The Runner reports the Job it is handed next as holding no recipe.
+    fn the_agent_could_not_read_it(app: &support::TestApp, runner: &str, why: &str) -> String {
+        let work = ask_for_work(app, runner);
+        let (status, reported) = app.post_op(
+            "report_on_job",
+            Some(runner),
+            &json!({ "job_id": work["job_id"], "outcome": "could_not_be_read", "reason": why })
+                .to_string(),
+        );
+        assert_eq!(status, 200, "{reported}");
+        work["job_id"].as_str().unwrap().to_string()
+    }
+
+    /// Each thing a cook hands the agent is one row, newest first, naming
+    /// what was sent as far as Kamosu holds it and how it ended: the recipe
+    /// it made, still waiting, or failed in the agent's own words with what
+    /// to do next. Nobody else's Jobs are in it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_cook_sees_everything_they_sent_and_how_each_ended() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let (picture, _) = a_picture_taken_somewhere();
+
+        let text = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        let pdf = handed(&app, &at.cook, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        let photo = handed(
+            &app,
+            &at.cook,
+            json!({ "data": base64_of(&picture) }),
+            "picture",
+        );
+        let link = handed(&app, &at.cook, json!({ "link": A_VIDEO }), "web");
+        let someone_else = a_cook(&app, "Someone else");
+        let theirs = handed(
+            &app,
+            &someone_else,
+            json!({ "text": pasted() }),
+            "pasted_text",
+        );
+
+        // The text is made into a recipe, the PDF holds none, the photo and
+        // the link wait.
+        let branch_id = an_agent_creates(&app, &at.runner, "Tarte au citron");
+        let why = "The PDF is a furniture invoice, with no recipe in it.";
+        assert_eq!(the_agent_could_not_read_it(&app, &at.runner, why), pdf);
+
+        let rows = sent(&app, &at.cook);
+        let listed: Vec<&str> = rows
+            .iter()
+            .map(|row| row["job_id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            listed,
+            [&link, &photo, &pdf, &text],
+            "newest first, and only theirs"
+        );
+        assert!(!listed.contains(&theirs.as_str()));
+
+        let made = row(&rows, &text);
+        assert_eq!(made["status"], json!("completed"), "{made}");
+        assert_eq!(made["kind"], json!("pasted_text"));
+        assert_eq!(
+            made["first_words"],
+            json!(format!(
+                "Tarte au citron 200 g flour 1 lemon, {MARKER} Bake it."
+            )),
+            "the text's start, on one line"
+        );
+        assert_eq!(
+            made["recipe"],
+            json!({ "branch_id": branch_id, "title": "Tarte au citron" })
+        );
+        assert_eq!(made["reason"], Value::Null);
+        assert_eq!(made["in_agents_words"], json!(false));
+        assert_eq!(made["next"], json!([]));
+        assert!(made["ended_at"].is_string());
+
+        let failed = row(&rows, &pdf);
+        assert_eq!(failed["status"], json!("failed"), "{failed}");
+        assert_eq!(failed["reason"], json!(why));
+        assert_eq!(failed["in_agents_words"], json!(true));
+        assert_eq!(failed["recipe"], Value::Null);
+        assert_eq!(
+            failed["next"],
+            json!(["choose_another"]),
+            "the agent said this PDF holds no recipe, so another is chosen"
+        );
+        let words = failed["first_words"].as_str().expect("a PDF's first words");
+        assert!(words.starts_with("Biscuit de Savoie"), "{words}");
+
+        let waiting = row(&rows, &photo);
+        assert_eq!(waiting["status"], json!("queued"), "{waiting}");
+        assert_eq!(waiting["kind"], json!("picture"));
+        assert_eq!(waiting["pages"], json!(1));
+        assert_eq!(waiting["ended_at"], Value::Null);
+        let preview = waiting["preview"]
+            .as_str()
+            .expect("a small copy of the photo");
+        assert_eq!(preview, format!("/api/originals/{photo}/preview"));
+
+        let link_row = row(&rows, &link);
+        assert_eq!(link_row["kind"], json!("link"), "{link_row}");
+        assert_eq!(link_row["link"], json!(A_VIDEO));
+        assert_eq!(link_row["kept"], json!(true));
+        assert_eq!(link_row["read_again"], json!(false));
+        assert_eq!(link_row["fills_in"], json!(false));
+
+        // The small copy is the cook's alone, and small.
+        let (status, kind, bytes) = app.get_bytes(preview, Some(&at.cook));
+        assert_eq!(status, 200);
+        assert_eq!(kind, "image/webp");
+        let small = image::load_from_memory(&bytes).expect("a picture");
+        assert_eq!(small.width().max(small.height()), 192);
+        let (status, _, _) = app.get_bytes(preview, Some(&someone_else));
+        assert_eq!(status, 404, "to anybody else it is not there");
+        let (status, _, _) = app.get_bytes(preview, None);
+        assert_eq!(status, 401);
+        let work = ask_for_work(&app, &at.runner);
+        assert_eq!(work["job_id"], json!(photo));
+        let (status, _, _) = app.get_bytes(preview, Some(work["job_key"].as_str().unwrap()));
+        assert_eq!(
+            status, 404,
+            "a Job Key reads the Original's pages and nothing else"
+        );
+
+        // A link that made nothing is sent again, or its text pasted.
+        let gone_wrong = "Instagram showed a sign-in page instead of the reel.";
+        let second = another_runner(&app, "a second Runner");
+        assert_eq!(the_agent_could_not_read_it(&app, &second, gone_wrong), link);
+        let rows = sent(&app, &at.cook);
+        assert_eq!(
+            row(&rows, &link)["next"],
+            json!(["send_link_again", "paste_instead"])
+        );
+        assert_eq!(row(&rows, &photo)["status"], json!("running"));
+
+        // Text the agent made nothing of is sent again while Kamosu keeps it.
+        let jumble = handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        // Someone else's text waits ahead of it, for a Runner of its own.
+        let third = another_runner(&app, "a third Runner");
+        assert_eq!(ask_for_work(&app, &third)["job_id"], json!(theirs));
+        let fourth = another_runner(&app, "a fourth Runner");
+        assert_eq!(
+            the_agent_could_not_read_it(&app, &fourth, "A jumble."),
+            jumble
+        );
+        assert_eq!(
+            row(&sent(&app, &at.cook), &jumble)["next"],
+            json!(["send_again"])
+        );
+        let rows = sent(&app, &at.cook);
+
+        // The same list at the MCP door.
+        let payload = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": "list_agent_jobs", "arguments": {} },
+        });
+        let (status, answered) = app.post_mcp(&payload.to_string(), Some(&at.cook));
+        assert_eq!(status, 200, "{answered}");
+        assert_eq!(answered["result"]["structuredContent"]["jobs"], json!(rows));
+    }
+
+    /// Thirty days after its Job ended, Kamosu deletes what was sent and
+    /// what the list showed of it. The row still says what kind of thing it
+    /// was, and offers nothing that would need it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn once_what_was_sent_is_deleted_the_row_says_only_what_it_was() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let (picture, _) = a_picture_taken_somewhere();
+        let photo = handed(
+            &app,
+            &at.cook,
+            json!({ "data": base64_of(&picture) }),
+            "picture",
+        );
+        let pdf = handed(&app, &at.cook, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        the_agent_could_not_read_it(&app, &at.runner, "A dark picture.");
+        the_agent_could_not_read_it(&app, &at.runner, "An invoice.");
+        sweep_after(&app, &photo, 31);
+        sweep_after(&app, &pdf, 31);
+
+        let rows = sent(&app, &at.cook);
+        for job_id in [&photo, &pdf] {
+            let gone = row(&rows, job_id);
+            assert_eq!(gone["kept"], json!(false), "{gone}");
+            assert_eq!(gone["first_words"], Value::Null);
+            assert_eq!(gone["preview"], Value::Null);
+            assert_eq!(
+                gone["next"],
+                json!(["choose_another"]),
+                "the agent said it holds no recipe, so another is chosen"
+            );
+            assert!(gone["reason"].is_string());
+        }
+        let left: Vec<_> = std::fs::read_dir(app.core.data_dir().join("originals"))
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name())
+            .collect();
+        assert_eq!(
+            left,
+            Vec::<std::ffi::OsString>::new(),
+            "nothing of either is left"
+        );
+        let (status, _, _) =
+            app.get_bytes(&format!("/api/originals/{photo}/preview"), Some(&at.cook));
+        assert_eq!(status, 404);
+    }
+
+    /// A photo that failed for a reason of Kamosu's own, not the agent's
+    /// word that it holds no recipe, is sent again while Kamosu keeps it,
+    /// and once the photo is deleted nothing is offered that would need it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_file_that_failed_on_every_try_is_sent_again_only_while_it_is_kept() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let (picture, _) = a_picture_taken_somewhere();
+        let photo = handed(
+            &app,
+            &at.cook,
+            json!({ "data": base64_of(&picture) }),
+            "picture",
+        );
+        for _ in 0..3 {
+            assert_eq!(ask_for_work(&app, &at.runner)["job_id"], json!(photo));
+            let (status, reported) = app.post_op(
+                "report_on_job",
+                Some(&at.runner),
+                &json!({ "job_id": photo, "outcome": "failed", "reason": "The agent crashed." })
+                    .to_string(),
+            );
+            assert_eq!(status, 200, "{reported}");
+        }
+        let failed = row(&sent(&app, &at.cook), &photo).clone();
+        assert_eq!(failed["status"], json!("failed"), "{failed}");
+        assert_eq!(failed["in_agents_words"], json!(false));
+        assert_eq!(failed["next"], json!(["send_again"]));
+
+        sweep_after(&app, &photo, 31);
+        let gone = row(&sent(&app, &at.cook), &photo).clone();
+        assert_eq!(gone["kept"], json!(false), "{gone}");
+        assert_eq!(gone["next"], json!([]), "nothing kept to send again");
+    }
+
+    /// A failed Job sent again keeps its small copy and its first words, so
+    /// the new row shows what the old one did.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_file_sent_again_shows_what_it_showed_before() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let (picture, _) = a_picture_taken_somewhere();
+        let photo = handed(
+            &app,
+            &at.cook,
+            json!({ "data": base64_of(&picture) }),
+            "picture",
+        );
+        let pdf = handed(&app, &at.cook, json!({ "data": base64_of(BISCUIT) }), "pdf");
+        the_agent_could_not_read_it(&app, &at.runner, "Blurred.");
+        the_agent_could_not_read_it(&app, &at.runner, "Torn.");
+        let (status, again) = read_job_again(&app, &at.cook, &photo);
+        assert_eq!(status, 200, "{again}");
+        let photo_again = again["result"]["job_id"].as_str().unwrap().to_string();
+        let (status, again) = read_job_again(&app, &at.cook, &pdf);
+        assert_eq!(status, 200, "{again}");
+        let pdf_again = again["result"]["job_id"].as_str().unwrap().to_string();
+
+        let rows = sent(&app, &at.cook);
+        let (before, after) = (row(&rows, &pdf), row(&rows, &pdf_again));
+        assert!(after["first_words"].is_string(), "{after}");
+        assert_eq!(after["first_words"], before["first_words"]);
+        let preview = row(&rows, &photo_again)["preview"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let (status, _, _) = app.get_bytes(&preview, Some(&at.cook));
+        assert_eq!(status, 200);
+    }
+
+    /// A recipe read again that failed is a row of its own, naming the
+    /// recipe, which is offered to be read again: a failed reading gives the
+    /// turn back.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_failed_reading_again_names_its_recipe_and_offers_another() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        handed(&app, &at.cook, json!({ "text": pasted() }), "pasted_text");
+        let branch_id = an_agent_creates(&app, &at.runner, "Tarte au citron");
+        let again = asked_to_read_again(&app, &at.cook, &branch_id, json!({}));
+        assert_eq!(
+            the_agent_could_not_read_it(&app, &at.runner, "Smudged."),
+            again
+        );
+
+        let rows = sent(&app, &at.cook);
+        let failed = row(&rows, &again);
+        assert_eq!(failed["read_again"], json!(true), "{failed}");
+        assert_eq!(failed["kind"], json!("pasted_text"));
+        assert_eq!(failed["recipe"]["title"], json!("Tarte au citron"));
+        assert_eq!(failed["reason"], json!("Smudged."));
+        assert_eq!(failed["next"], json!(["read_recipe_again"]));
+        // Read from what somebody handed over first, which may have been
+        // another Co-author: the row names the recipe and shows none of it.
+        assert_eq!(failed["first_words"], Value::Null);
+        assert_eq!(failed["preview"], Value::Null);
+    }
+
+    /// With no Runner, a failure offers only what needs none: pasting.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn with_no_runner_a_failed_link_offers_only_pasting() {
+        let app = support::spawn_app();
+        let at = beside_a_runner(&app);
+        let link = handed(&app, &at.cook, json!({ "link": A_VIDEO }), "web");
+        the_agent_could_not_read_it(&app, &at.runner, "A sign-in page.");
+        let (_, keys) = app.post_op("list_runner_keys", Some(&at.cook), "{}");
+        for key in keys["result"]["runner_keys"].as_array().unwrap() {
+            let (status, revoked) = app.post_op(
+                "revoke_runner_key",
+                Some(&at.cook),
+                &json!({ "runner_key_id": key["id"] }).to_string(),
+            );
+            assert_eq!(status, 200, "{revoked}");
+        }
+        assert_eq!(
+            row(&sent(&app, &at.cook), &link)["next"],
+            json!(["paste_instead"])
+        );
     }
 }
 
@@ -44166,6 +44988,75 @@ mod a_demos_sample_library {
             assert_eq!(address.as_deref(), Some("https://try.kamosu.example"));
             app.core.put_back_sample_library().unwrap();
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_demo_given_its_address_shows_the_shared_recipe_s_link() {
+        // Set before demo mode went on, and replaced by the address the
+        // Demo is given at its start (#468).
+        let dir = tempfile::tempdir().expect("temp dir");
+        let before = support::spawn_app_in(dir.path());
+        let first = json!({
+            "name": "Operator",
+            "password": "a password only its person knows",
+            "session_name": "setting the Demo up",
+        });
+        let created = before.post_auth_response("/auth/first-person", &first.to_string());
+        assert_eq!(created.status, 200, "{}", created.text());
+        let operator = support::session_cookie_secret(&created);
+        let (status, _) = before.post_op(
+            "set_public_address",
+            Some(&operator),
+            &json!({ "public_address": "https://old.kamosu.example" }).to_string(),
+        );
+        assert_eq!(status, 200);
+
+        let app = support::spawn_sample_demo_at(dir.path(), "https://try.kamosu.example/");
+        for _ in 0..2 {
+            let visitor = arrive(&app);
+            let tarte = the_tarte(&app, &visitor);
+            let link = op(
+                &app,
+                "get_share_link",
+                &visitor,
+                json!({ "branch_id": tarte }),
+            );
+            assert_eq!(link["shared"], json!(true), "{link}");
+            assert!(
+                link["url"]
+                    .as_str()
+                    .is_some_and(|url| url.starts_with("https://try.kamosu.example/s/")),
+                "{link}"
+            );
+            app.core.put_back_sample_library().unwrap();
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_demo_with_no_address_says_it_has_none() {
+        // What the share screen reads to say the address is the operator's
+        // to set, rather than to end the link and turn it back on (#468).
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app = support::spawn_sample_demo_in(dir.path());
+        let visitor = arrive(&app);
+        let tarte = the_tarte(&app, &visitor);
+        let link = op(
+            &app,
+            "get_share_link",
+            &visitor,
+            json!({ "branch_id": tarte }),
+        );
+        assert_eq!(link["shared"], json!(true), "{link}");
+        assert_eq!(link["url"], Value::Null, "{link}");
+        assert_eq!(link["public_address"], Value::Null, "{link}");
+    }
+
+    #[test]
+    fn the_release_check_reads_every_link_a_demo_shows() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let built = kamosu::sample_library::build(&dir.path().join("built")).unwrap();
+        let shown = kamosu::core::links_a_demo_shows(&built, &dir.path().join("as-a-demo"));
+        assert_eq!(shown.unwrap(), 1, "the Tarte Tatin's");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

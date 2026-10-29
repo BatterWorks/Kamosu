@@ -1,6 +1,7 @@
 <!--
-	Share from your phone (#452, option B of 24 October 2026): a page of its
-	own on the Settings menu, which sets a phone up to add recipes from any
+	Save from your phone (#452, option B of 24 October 2026; named so by #469,
+	since "share" read as sending a recipe out): a page of its own on the
+	Settings menu, which sets a phone up to add recipes from any
 	app's Share menu (ADR 0055). The prototype is
 	`.dev/prototypes/452-share/setup-b-start-phone.html` and its states.
 
@@ -208,7 +209,7 @@
 		<p class="mt-2 text-read text-support" role="alert"><Refusal words={failed} /></p>
 	{/if}
 {:else}
-	<p class="mt-2 text-body">{runner === false ? m.share_what_short() : m.share_what()}</p>
+	<p class="mt-2 text-body">{m.share_what_short()}</p>
 	<ol class="mt-4 grid gap-3">
 		{#if runner === false}
 			{@render step(1, m.share_step_works(), false, noRunner)}

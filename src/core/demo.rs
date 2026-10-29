@@ -135,9 +135,14 @@ pub(super) fn fail_waiting_jobs_a_demo_refuses(db: &Db) -> Result<usize, OpError
 /// Start a Demo. Its Sample Library is built, the Core started, and the
 /// library poured in before the Demo answers anyone, then put back every day
 /// at 04:00 UTC (#404). A Demo whose library cannot be built does not start.
+///
+/// `public_address` is the one `KAMOSU_DEMO_PUBLIC_ADDRESS` gives, stored
+/// over whatever was there at every start (#468). With none, the Demo keeps
+/// the address it held.
 pub fn start_demo(
     db: Arc<Db>,
     analytics: Option<crate::config::Analytics>,
+    public_address: Option<&str>,
 ) -> Result<Arc<Core>, OpError> {
     let built = sample_library::build(&db.data_dir().join(SAMPLE_LIBRARY_DIR))?;
     let core = Core::start_as(db, Mode::Demo);
@@ -145,9 +150,52 @@ pub fn start_demo(
     if let Some(analytics) = analytics {
         let _ = core.analytics.set(analytics);
     }
-    core.put_back_sample_library()?;
+    core.open_with_sample_library(public_address)?;
     spawn_daily_cleaning(core.clone());
     Ok(core)
+}
+
+/// The address a Demo started as the release checklist starts one is given:
+/// a stand-in, since the check opens no link.
+const CHECKED_ADDRESS: &str = "https://demo.kamosu.example";
+
+/// The release checklist's look at a built Sample Library as a Demo shows it
+/// (#468): poured into a Demo's database in `dir`, emptied first, opened as
+/// `start_demo` opens one with an address given, and every live Share Link
+/// read as the share screen reads it. Answers how many there are, and fails
+/// on one with no link to copy, naming its recipe's Branch.
+pub fn links_a_demo_shows(
+    built: &sample_library::Built,
+    dir: &std::path::Path,
+) -> Result<usize, OpError> {
+    let failed = |e: std::io::Error| {
+        OpError::internal(format!("cannot open a Demo in {}: {e}", dir.display()))
+    };
+    if dir.exists() {
+        std::fs::remove_dir_all(dir).map_err(failed)?;
+    }
+    std::fs::create_dir_all(dir).map_err(failed)?;
+    let core = Core::open_to_build_sample_library(Arc::new(Db::open(dir)?));
+    let _ = core.sample_library.set(built.clone());
+    core.open_with_sample_library(Some(CHECKED_ADDRESS))?;
+    let live: Vec<(String, String)> = core.db().with_conn(|conn| {
+        conn.prepare("SELECT branch_id, shared_by FROM share_links WHERE ended_at IS NULL")
+            .and_then(|mut stmt| {
+                stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                    .collect()
+            })
+            .map_err(|e| OpError::internal(format!("cannot list the Share Links: {e}")))
+    })?;
+    for (branch_id, shared_by) in &live {
+        let shown = core.get_share_link(shared_by, branch_id)?;
+        if shown["url"].is_null() {
+            return Err(OpError::internal(format!(
+                "a Demo started at {CHECKED_ADDRESS} shows no link to copy for the recipe \
+                 on Branch {branch_id}: {shown}"
+            )));
+        }
+    }
+    Ok(live.len())
 }
 
 /// The cleaning, which waits for the next 04:00 UTC and puts the library
@@ -281,7 +329,8 @@ fn pour(conn: &Connection, by: &str) -> Result<(), OpError> {
     .map_err(failed)?;
     // The address is the instance's own, never the story's: it is which
     // Origin a browser's request must come from and whether one came over
-    // HTTPS (#368), so a Demo's Operator sets it before demo mode goes on.
+    // HTTPS (#368), so a Demo is given it, by `KAMOSU_DEMO_PUBLIC_ADDRESS`
+    // or by its Operator before demo mode went on.
     conn.execute(
         "UPDATE main.instance_setup SET public_address = ?1 WHERE singleton = 1",
         params![public_address],
@@ -335,6 +384,15 @@ impl Core {
             says_security_lines: false,
             ..Core::open(db)
         }
+    }
+
+    /// What a Demo does before it answers anyone: store the address it was
+    /// given, if any, and pour its Sample Library in, which keeps it.
+    fn open_with_sample_library(&self, public_address: Option<&str>) -> Result<(), OpError> {
+        if let Some(address) = public_address {
+            self.keep_public_address_given_at_start(address)?;
+        }
+        self.put_back_sample_library()
     }
 
     /// Put the Sample Library back as it was built, its dates moved forward
@@ -423,7 +481,11 @@ impl Core {
             file.split_once('-')
                 .is_some_and(|(hash, _)| kept_photograph(hash))
         });
-        forget_files_in(&originals_dir(&data_dir), |file| originals.contains(file));
+        // A Job's later pages and what Settings shows of it are named after
+        // the Job too, before a dot (#463).
+        forget_files_in(&originals_dir(&data_dir), |file| {
+            originals.contains(file.split_once('.').map_or(file, |(job_id, _)| job_id))
+        });
         Ok(())
     }
 

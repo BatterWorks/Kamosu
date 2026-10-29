@@ -30,7 +30,13 @@ export const EVERY_MS = 3000;
 /** The Operation of a Job an agent reads: its own Import, or another's recipe (#269, #272). */
 export const AGENTS_OWN = 'read_by_agent';
 
-/** Where on the Operator's screen the Runner Keys are, which a notice links to. */
+/** The page holding the Runner Keys, which a notice links to (#469). */
+export const RUNNER_PAGE = '/settings/runner';
+
+/**
+ * Where the Runner Keys were on the Operator's screen before #469, which
+ * `/operator` still reads off an address somebody kept.
+ */
 export const RUNNER_KEYS = 'runner-keys';
 
 /** Which sentence goes under the steps. A Replay says it is sped up (#406). */
