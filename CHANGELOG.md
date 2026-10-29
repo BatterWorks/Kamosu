@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.5.0 - 2026-10-29
+
 ### After upgrading
 
 - A Kitchen invite code made before this version can no longer be pasted anywhere: make a new invite, which is now a link. [#469]
@@ -20,12 +22,15 @@
 
 ### Fixed
 
+- Kamosu's image is built on a newer distroless base, whose OpenSSL has the fix for CVE-2026-84782, and the agent's image is built again with Alpine's Python 3.14.10, which has the fix for CVE-2026-115557. Kamosu itself never loads OpenSSL. [#479] [#480]
 - A demo's shared recipe shows its link. A demo takes its public address from the new `KAMOSU_DEMO_PUBLIC_ADDRESS` at every start, where before it had no way to learn one, and a shared recipe on an instance with no address says the address is not set instead of telling the visitor to end the link. [#468]
 
 [#463]: https://github.com/BatterWorks/Kamosu/issues/463
 [#468]: https://github.com/BatterWorks/Kamosu/issues/468
 [#469]: https://github.com/BatterWorks/Kamosu/issues/469
 [#472]: https://github.com/BatterWorks/Kamosu/issues/472
+[#479]: https://github.com/BatterWorks/Kamosu/pull/479
+[#480]: https://github.com/BatterWorks/Kamosu/pull/480
 
 ## v0.4.0 - 2026-10-25
 

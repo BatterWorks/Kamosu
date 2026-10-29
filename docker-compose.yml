@@ -1,6 +1,6 @@
 services:
   kamosu:
-    # Pin a release (battermanz/kamosu:0.4.0) to choose when you upgrade. An
+    # Pin a release (battermanz/kamosu:0.5.0) to choose when you upgrade. An
     # upgrade migrates the database forward only, after taking a Snapshot of it.
     image: battermanz/kamosu:latest
     container_name: kamosu
