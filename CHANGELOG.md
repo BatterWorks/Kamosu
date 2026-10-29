@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.5.0 - 2026-10-29
+
 ### After upgrading
 
 - A Kitchen invite code made before this version can no longer be pasted anywhere: make a new invite, which is now a link. [#469]
