@@ -137,6 +137,8 @@ port, and it sends your data nowhere.
   a cookbook page, or several photos of one recipe, a scanned PDF or a cooking
   video. On a computer, drop the file or the link onto Recipes. Importing the
   same thing twice matches what is already there instead of doubling it.
+  **Settings › Sent to the AI agent** lists what you handed the agent and how
+  each one ended, with a way to try again where it failed.
 - **Share with anyone.** A Share Link shows one recipe to whoever holds it, no
   account needed, with a printable PDF and a file another Kamosu can import
   with the recipe's full history.
@@ -165,8 +167,8 @@ every recipe.
 cook, and record how it went for every recipe in every member's Cookbook. A
 Kitchen holds no recipes of its own and changes none. You can be in several at
 once, your household, your family, a group of friends, or in none. Anyone can
-create one, any member can invite someone or remove them, and each member can
-give it a nickname that only they see.
+create one, any member can invite someone with a link or remove them, and
+each member can give it a nickname that only they see.
 
 **Changing a recipe someone else wrote gives you your own version.** It starts
 in your Cookbook with the whole history behind it, and theirs stays exactly as
@@ -195,7 +197,7 @@ It is not:
   figure you typed. Kamosu never calculates nutrition from ingredients.
 - **A public recipe site.** There is no signup. Every account starts from an
   invite, and nothing is visible to strangers unless you share a link.
-- **Finished.** This is 0.4.0. It is used in one kitchen, and nobody else has
+- **Finished.** This is 0.5.0. It is used in one kitchen, and nobody else has
   run it yet.
 
 ## Quick start
