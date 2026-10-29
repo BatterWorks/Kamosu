@@ -97,7 +97,7 @@ RUN printf '%s\n%s\n' "$VERSION" "$GIT_SHA" > /stamp
 # digest deliberately, the way a dependency is upgraded. `nonroot` runs Kamosu
 # as uid 65532 rather than root, so an escape from the process lands in an
 # account that owns nothing but /data.
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:54df941ed0d06a1bd95ef5e0ce391fd8d9f94b64782dc9a60062727849ee3f97
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e
 COPY --from=build /kamosu /app/kamosu
 # /data exists in the image, owned by the user who writes it, so a fresh named
 # volume mounted there starts out writable. A bind-mounted host folder brings
