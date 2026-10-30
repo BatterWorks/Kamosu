@@ -1,7 +1,7 @@
 /**
  * A Language, said in words (ADR 0006, #106).
  *
- * A Language reaches a screen as a code — `en`, `fr`, `es`, or `unknown` — and
+ * A Language reaches a screen as a code — `en`, `fr`, `nl`, or `unknown` — and
  * no screen may print one. "In fr" is not a sentence, and a code read aloud by
  * a screen reader is worse than one looked at.
  *
@@ -14,7 +14,7 @@
  * derived from the generated client rather than typed out again, because the
  * client is generated from the Catalogue precisely so the frontend and the
  * Core cannot disagree about an Operation's shape (AGENTS.md, "The
- * interface"). A self-hoster adding a fourth Language to `src/catalogue.rs`
+ * interface"). A self-hoster adding a Language to `src/catalogue.rs`
  * regenerates the client, and a hand-written copy here would go quietly stale
  * with nothing going red. `LANGUAGE_WORDS` below is the one place that then
  * fails to compile, which is the right place to be told.
@@ -42,6 +42,7 @@ const LANGUAGE_WORDS: Record<BranchLanguage, () => string> = {
 	en: m.recipes_language_en,
 	fr: m.recipes_language_fr,
 	es: m.recipes_language_es,
+	nl: m.recipes_language_nl,
 	unknown: m.recipes_language_unknown,
 };
 

@@ -17,27 +17,33 @@
  */
 
 import { m } from '$lib/paraglide/messages';
-import { languageName } from '$lib/language';
-import type { GetReadingPreferencesOutput, ListTagsOutput } from '$lib/api/catalogue';
+import { languageName, WRITTEN_LANGUAGES } from '$lib/language';
+import type {
+	GetReadingPreferencesOutput,
+	ListTagsOutput,
+	RenameTagInput,
+} from '$lib/api/catalogue';
 
-/** The three Languages Kamosu holds a name in, as the Catalogue declares them. */
+/** The Languages a Person reads Kamosu in, as the Catalogue declares them. */
 export type ReadingLanguage = GetReadingPreferencesOutput['reading_language'];
 
-const READING_LANGUAGES: readonly ReadingLanguage[] = ['en', 'fr', 'es'];
+/** The Languages a Tag holds a name in, as the Catalogue declares them. */
+export type TagLanguage = RenameTagInput['language'];
 
 /**
- * One of the three, from the looser `string | null` a Tag's `language` is
- * served as. A **check** rather than a cast: `tag_schema` shares its
- * reader-facing shape with a Food's, so tightening the declaration there would
- * make the two diverge for a reason that has nothing to do with Foods — and the
- * compiler is the reviewer this frontend does not have (ADR 0012), so the place
- * to be honest about a widening is here, once, with a stated fallback.
+ * One of those, from the looser `string | null` a Tag's `language` is served
+ * as. A **check** rather than a cast: `tag_schema` shares its reader-facing
+ * shape with a Food's, so tightening the declaration there would make the two
+ * diverge for a reason that has nothing to do with Foods — and the compiler is
+ * the reviewer this frontend does not have (ADR 0012), so the place to be
+ * honest about a widening is here, once, with a stated fallback.
  *
- * Nothing in Kamosu writes a fourth Language: every path that names a Tag takes
- * the same three-way enum. The fallback exists for the shape, not for a case.
+ * It walks the Catalogue's list and no copy of it, so a Dutch name renamed in
+ * Settings stays a Dutch name rather than landing under the reader's Language
+ * (#495). The fallback exists for the shape, not for a case.
  */
-export function oneOfThree(code: string | null, fallback: ReadingLanguage): ReadingLanguage {
-	return READING_LANGUAGES.find((language) => language === code) ?? fallback;
+export function tagLanguage(code: string | null, fallback: TagLanguage): TagLanguage {
+	return WRITTEN_LANGUAGES.find((language) => language === code) ?? fallback;
 }
 
 /** A Tag as every Operation that answers with one serves it. */

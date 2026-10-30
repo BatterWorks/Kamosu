@@ -353,7 +353,9 @@ offline what the button says. Never read `dataTransfer` on a screen.
 **`svelte-check` runs strict and its warnings are failures**, Svelte's
 accessibility warnings included (ADR 0012). **Paraglide compiles every phrase to
 a function**, so a misspelt key is a build error; messages live in
-`ui/messages/{en,fr,es}.json` and all three are present from the first day.
+`ui/messages/<language>.json`, one file per Reading Language, each holding every
+phrase. Every Dutch phrase, the server's and the screens', uses the words in
+`ui/messages/nl-words.md`.
 
 ## Project layout
 
@@ -505,6 +507,15 @@ src/jobs.rs         slow work: two lanes (one for strangers, ADR 0032), progress
                     recipe again (ADR 0048, #261, #262, #263, #266, #267,
                     #269, #273)
 src/language.rs     a Branch's Language, read off the recipe's own text (ADR 0006)
+src/words.rs        which words read which recipe, and every list a word file
+                    may hold (ADR 0057). The words themselves are data, one
+                    file per Language in src/words/, built into the binary:
+                    change a word there, never in code. A Language's grammar
+                    stays in code
+src/words/          en.toml, fr.toml, es.toml, nl.toml, and every.toml for the
+                    Unit spellings every Language writes
+src/dutch.rs        Dutch grammar: stems for plurals and diminutives, and how a
+                    compound names its main word (#495)
 src/meaning.rs      Meaning Search: the model Kamosu does not ship, and the
                     index it builds from the recipes (ADR 0029)
 src/operations.rs   the functions the Catalogue's declarations name
@@ -513,7 +524,8 @@ src/schema.rs       the Catalogue's declared input, compiled into the thing
                     both Doors inherit it (#85)
 src/reading.rs      reading an Ingredient Line into a Reading — where the
                     number ends, the Unit ends and the Food begins. Its
-                    vocabulary is units.rs's, not its own (ADR 0036)
+                    vocabulary is the word files', not its own (ADR 0036,
+                    ADR 0057)
 src/step_uses.rs    which Ingredient Lines a Step uses, by the short names
                     recipes call them after the list (#184). A short name
                     holds the name's main word, which sits at the end the

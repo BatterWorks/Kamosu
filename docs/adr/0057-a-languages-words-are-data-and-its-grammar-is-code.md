@@ -1,0 +1,31 @@
+# A Language's words are data, and its grammar is code
+
+Each Language's words live in one file of their own, `src/words/<language>.toml`, built into the binary and read once. Its grammar stays in code. A recipe in English, French or Spanish, or marked Unknown, or with no Language, is read with those three files together, exactly as the mixed lists read it before. A recipe in Dutch is read with the Dutch file alone. `words::of(language)` is the one place that says which files read which recipe, and every reading of a line, a Unit, a timer, an oven or a paste asks it. Settled in the spec for Dutch ([#494](https://github.com/BatterWorks/Kamosu/issues/494)). This amends [ADR 0036](./0036-kamosu-reads-an-ingredient-line-itself.md) and [ADR 0016](./0016-kamosu-converts-to-the-kitchen-not-to-the-arithmetic.md), which kept the reader's vocabulary in code, and the wording of [ADR 0013](./0013-offline-you-may-write-your-own-history-never-the-recipes.md) and [ADR 0055](./0055-a-phone-shares-into-kamosu-through-one-operation-and-an-add-only-key.md), which counted three Languages.
+
+The reader's vocabulary sat in about 45 lists in the code, most of them holding English, French and Spanish mixed, and every recipe was read against all three at once. That served those three, and Kamosu's corpus leans on it: `2 cups farine` is a real line. Dutch cannot join the mix, because several of its everyday words already mean something else there. `el` is a tablespoon and a Spanish article the reader skips. `of` is *or* and English filler. `en` is *and* and French for *in*. In the shared lists a Dutch word would misread Dutch recipes and could start misreading the other three.
+
+## What was decided
+
+- **Words are data.** Unit spellings, joining and filler words, articles, size and describing words, the phrases for *to taste* and *a little*, duration words, range and choice words, the words a Step uses to point at a line, the headings of a paste, and what a cup of a staple weighs. A contributor fixing a missing word changes one file. The closed set of Units stays closed ([ADR 0016](./0016-kamosu-converts-to-the-kitchen-not-to-the-arithmetic.md)): only where its spellings are kept moved, and `every.toml` holds the spellings every Language writes, `g`, `ml`, `cup`, `tbsp`.
+- **Grammar is code.** Where a name's main word sits, how plurals, diminutives and compounds form, what an elision does, how a number is written. `src/words.rs` names a `Grammar` for each set of files, and Dutch's rules are in `src/dutch.rs`.
+- **Which files read which recipe.** English, French, Spanish, Unknown and no Language: `en`, `fr`, `es` and `every` together, so the move changed nothing a cook can see. No existing test was edited when it landed. Dutch: `nl` and `every`, and never another Language's joining words, articles or filler. A word the code already confined to one Language stays confined by that code: French *pour* counts as *for* only in a French recipe, and English alone takes thousands commas out.
+- **Every reading takes the Language the text is written in.** Recognising a written Unit took no Language and is called again wherever a line is converted, scaled or shopped, so a Dutch spelling would have either never converted or leaked into every recipe. It now takes the line's Language at each of those places, as reading a Step's timer does. A shopping row adds lines of several Languages, so the Unit each line names is decided from its own recipe's Language when its Basis is made.
+- **A pasted recipe is detected first**, so a Dutch paste meets Dutch words. The other Languages are read as one, as they were.
+- **A Dutch Food is matched on a stem.** `uien` and `ui` are one Food: the name's main word has its plural and diminutive taken off in the column a Food Match compares. Stems are never shown. This is the one place a Food Match is looser than folding, and it holds for Dutch alone, where the plural changes the word's spelling and a recipe writes one form as often as the other. No migration runs, since no name in Dutch existed before this.
+- **`graden` with no letter is Celsius on the oven ladder, in Dutch alone.** A Dutch oven's dial is in Celsius, and `180 graden` is how Dutch recipes write it. So is a bare `180°` in a Dutch recipe, and `º` is read as the degree sign Dutch sites type it for. `180 grados` stays no temperature, as it was.
+- **A compound is linked by a closed list of main words.** A Step's `de bloem` links `tarwebloem`, but the end of a long word is as often an accident, and `zijn` ends `wijnazijn`. Only the kinds of food in `compound_heads` count, and a word missing from it costs a link, where a wrong one puts a line in the wrong Step.
+- **German is on the detector's list and is answered as none.** Measured on a library of 205 recipes, with Dutch alone added all four German recipes were detected as Dutch. Two English recipes that are little more than a title lose their detection, which leaves their stored Language as it is.
+
+## Considered options
+
+- **Dutch in the shared lists.** Rejected for the collisions above.
+- **Every Language read with its own file alone.** Rejected: it would change how every English, French and Spanish recipe reads, and `2 cups farine` is exactly what the mix is for.
+- **The word files as JSON.** Rejected: a word list needs comments. *The accepted cost is `2 pinces de crabe`* is what stops the next person removing a word, and TOML keeps it beside the word.
+- **The word files as Rust constants.** Rejected: a contributor correcting Dutch should not have to read Rust, and a word file is the shape Mealie's Dutch units take.
+
+## Consequences
+
+- **The next Language is a file, an arm in `words::of`, an arm in each table of the server's prose, and whatever grammar it needs.** Most of the work is the word list and a test set of real lines, as `tests/fixtures/dutch/` is.
+- **Editing words is a release, not a setting.** A missing Dutch word is fixed by changing `src/words/nl.toml`.
+- **A word file that does not read stops the program at its first use**, and a test uses every one, so it cannot reach a build.
+- **The prose the server writes stays in its phrase tables.** Moving those into the word files would fix no collision.

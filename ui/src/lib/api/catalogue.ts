@@ -1185,7 +1185,7 @@ export type CreateTagInput = {
 	as_operator?: boolean;
 	cookbook_id?: string;
 	kitchen_id?: string;
-	language: "en" | "fr" | "es";
+	language: "en" | "fr" | "es" | "nl";
 	name: string;
 };
 /** What create_tag answers. */
@@ -1227,7 +1227,7 @@ export type ListTagsOutput = {
 
 /** Name a Tag in one Language, or change the name it has there. Reaches every recipe carrying it at once, and mints no Version. */
 export type RenameTagInput = {
-	language: "en" | "fr" | "es";
+	language: "en" | "fr" | "es" | "nl";
 	name: string;
 	tag_id: string;
 };
@@ -1327,7 +1327,7 @@ export type CreateRecipeInput = {
 		text: string;
 	}[];
 	kitchen_id?: string;
-	language?: "en" | "fr" | "es" | "unknown";
+	language?: "en" | "fr" | "es" | "nl" | "unknown";
 	main_photo?: string | null;
 	note?: string | null;
 	nutrition?: {
@@ -2098,7 +2098,7 @@ export type StartTranslationInput = {
 		text: string;
 	}[];
 	kitchen_id?: string;
-	language: "en" | "fr" | "es";
+	language: "en" | "fr" | "es" | "nl";
 	main_photo?: string | null;
 	name?: string;
 	note?: string | null;
@@ -2306,7 +2306,7 @@ export type StartTranslationOutput = {
 /** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so, except to set one guessed for a recipe that held too little text to read, from the first text that says one. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
 export type SetRecipeLanguageInput = {
 	branch_id: string;
-	language: "en" | "fr" | "es" | "unknown";
+	language: "en" | "fr" | "es" | "nl" | "unknown";
 };
 /** What set_recipe_language answers. */
 export type SetRecipeLanguageOutput = {
@@ -2325,7 +2325,7 @@ export type ImportInput = {
 			kind: "section" | "ingredient";
 			text: string;
 		}[];
-		language?: "en" | "fr" | "es" | "unknown";
+		language?: "en" | "fr" | "es" | "nl" | "unknown";
 		main_photo?: string | null;
 		note?: string | null;
 		nutrition?: {
@@ -5645,7 +5645,7 @@ export type GetFoodOutput = {
 /** Say every name a Food answers to in one Language. Send them in order: the list replaces the names it had there. A line naming any of them reads as this Food, so "œufs" and "œuf" can both be the eggs. The first is the one a reader is shown. An empty list takes the Language off, but a Food's last name may not go. Any Person may — a Food is instance-wide, not a Kitchen's to guard. */
 export type SetFoodNamesInput = {
 	food_id: string;
-	language: "en" | "fr" | "es";
+	language: "en" | "fr" | "es" | "nl";
 	names: string[];
 };
 /** What set_food_names answers. */
@@ -11989,7 +11989,8 @@ export const CATALOGUE = [
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"nl"
 					]
 				},
 				"name": {
@@ -12170,7 +12171,8 @@ export const CATALOGUE = [
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"nl"
 					]
 				},
 				"name": {
@@ -12603,6 +12605,7 @@ export const CATALOGUE = [
 						"en",
 						"fr",
 						"es",
+						"nl",
 						"unknown"
 					]
 				},
@@ -16829,7 +16832,8 @@ export const CATALOGUE = [
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"nl"
 					]
 				},
 				"main_photo": {
@@ -18027,6 +18031,7 @@ export const CATALOGUE = [
 						"en",
 						"fr",
 						"es",
+						"nl",
 						"unknown"
 					]
 				}
@@ -18117,6 +18122,7 @@ export const CATALOGUE = [
 									"en",
 									"fr",
 									"es",
+									"nl",
 									"unknown"
 								]
 							},
@@ -35419,7 +35425,8 @@ export const CATALOGUE = [
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"nl"
 					]
 				},
 				"names": {

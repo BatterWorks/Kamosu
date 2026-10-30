@@ -1,0 +1,310 @@
+# Kamosu's Dutch words. `src/words.rs` says what each list is for and which
+# files read which recipe (ADR 0057).
+#
+# A Dutch recipe is read with this file and `every.toml`, and with no other
+# Language's words. Every kitchen word here was checked against how Dutch recipes
+# are really written: the pages named in `tests/fixtures/dutch/lines.json`, and
+# the Dutch unit names Mealie ships. A misread line goes in that file too.
+
+# --- Reading an Ingredient Line ---
+open_units = [
+    "blik", "blikje", "blikjes", "blikken",
+    "zak", "zakje", "zakjes", "zakken",
+    "pak", "pakje", "pakjes", "pakken",
+    "pot", "potje", "potjes", "potten",
+    "fles", "flesje", "flesjes", "flessen",
+    "doos", "doosje", "doosjes", "dozen",
+    "kuipje", "kuipjes", "beker", "bekertje", "bekers", "glas", "glaasje",
+    "glazen",
+    "bos", "bosje", "bosjes", "bossen", "bundel", "bundels",
+    "tak", "takje", "takjes", "takken", "tros", "trosje", "trosjes",
+    "stengel", "stengels", "krop", "kroppen",
+    "blad", "blaadje", "blaadjes", "bladeren", "bladen",
+    "teen", "tenen", "teentje", "teentjes",
+    "snuf", "snufje", "snufjes", "snuifje", "snuifjes",
+    "scheut", "scheutje", "scheutjes", "scheuten",
+    "mespunt", "mespuntje", "mespuntjes",
+    "handje", "handjes", "handvol", "handjevol",
+    "klont", "klontje", "klontjes",
+    "stuk", "stuks", "stukje", "stukjes", "stukken",
+    "plak", "plakje", "plakjes", "plakken",
+    "schijf", "schijfje", "schijfjes", "schijven",
+    "snee", "snede", "sneden", "sneetje", "sneetjes",
+    "blok", "blokje", "blokjes", "blokken",
+    "reep", "repen", "reepje", "reepjes",
+    "moot", "moten", "mootje", "mootjes",
+    "bol", "bollen", "bolletje", "bolletjes",
+    "vel", "vellen", "velletje", "velletjes",
+    "druppel", "druppels", "lepel", "lepels", "schep", "schepje", "schepjes",
+    "portie", "porties",
+    # A pond is 500 g in Dutch and an ons 100 g, neither the Unit of the closed
+    # set an English `pound` or `ounce` is, so neither converts.
+    "pond", "ons",
+    # A length of ginger, as in the other files.
+    "cm",
+]
+# Dutch writes an adjective before the noun, so a word that says nothing about
+# what to buy is a size here wherever it says that: `verse peterselie` is
+# *peterselie*, and `fijngehakte ui` is *ui*. A word that does say what to buy
+# stays out, and in `describing`: `gerookte zalm` is not fresh salmon, and
+# `gehakt` is a food.
+sizes = [
+    "groot", "grote", "klein", "kleine", "kleintje", "middelgroot",
+    "middelgrote", "middel", "medium", "heel", "hele", "half", "halve",
+    "anderhalve", "dun", "dunne", "rijp", "rijpe", "vers", "verse",
+    "versgemalen", "fijngehakt", "fijngehakte", "fijngesneden", "gesneden",
+    "voorgesneden", "gesnipperd", "gesnipperde", "fijngesnipperd",
+    "fijngesnipperde", "gehakte", "geschild", "geschilde", "gepeld", "gepelde",
+    "geschrapt", "geschrapte", "losgeklopt", "losgeklopte", "uitgeperst",
+    "uitgeperste", "iets", "schoongemaakt", "schoongemaakte",
+]
+praise = [
+    "goed", "goede", "flink", "flinke", "royaal", "royale", "ruim", "ruime",
+    "volle", "afgestreken", "gestreken", "lekker", "lekkere",
+]
+warmth = [
+    "koud", "koude", "gekoeld", "gekoelde", "warm", "warme", "lauw", "lauwe",
+    "lauwwarm", "lauwwarme", "kamertemperatuur", "op kamertemperatuur",
+]
+glue = ["de", "het", "een", "van", "'n"]
+# `ca.`, `circa` and `ongeveer` are Dutch for *about*: `ca. 200 g bloem` has its
+# 200 reach the amount. `eventueel` and `evt.` say *if you like*.
+a_few = [
+    "enkele", "paar", "wat", "nog", "ca", "circa", "ongeveer", "eventueel",
+    "evt", "eventuele",
+]
+a_little = [
+    "een beetje", "een klein beetje", "een heel klein beetje", "beetje",
+    "een paar",
+]
+# What opens the cook's aside with no comma before it: `1 grote rookworst van
+# ongeveer 275 g`, `2 el olie om in te bakken`, `Vlaamse mosterd voor op brood`.
+asides = [
+    "van ongeveer", "van circa", "van ca", "van de molen", "om", "voor", "zoals",
+    "bijvoorbeeld",
+]
+to_taste = [
+    "naar smaak", "naar eigen smaak", "naar wens", "naar keuze", "naar believen",
+    "naar behoefte",
+]
+describing = [
+    "vers", "verse", "versgemalen", "gesneden", "fijngesneden", "voorgesneden",
+    "fijngehakt", "fijngehakte", "gesnipperd", "gesnipperde", "fijngesnipperd",
+    "fijngesnipperde", "geschild", "geschilde", "gepeld", "gepelde", "geraspt",
+    "geraspte", "gemalen", "gesmolten", "gekookt", "gekookte", "gebakken",
+    "gerookt", "gerookte", "gedroogd", "gedroogde", "ontpit", "ontpitte",
+    "ontdooid", "ontdooide", "uitgelekt", "uitgelekte", "uitgeperst",
+    "uitgeperste", "gezeefd", "gezeefde", "gehalveerd", "gehalveerde",
+    "gewassen", "losgeklopt", "losgeklopte", "geschrapt", "geschrapte",
+    "diepvries", "bevroren", "rauw", "rauwe", "optioneel", "eventueel", "fijn",
+    "grof", "dun", "dik",
+]
+describing_joins = ["en"]
+fixed_names = ["warme chocolademelk", "warme worst"]
+very = ["heel", "erg", "zeer"]
+names_nothing_alone = [
+    # Colours, tastes and textures
+    "rood", "rode", "wit", "witte", "zwart", "zwarte", "groen", "groene",
+    "geel", "gele", "bruin", "bruine", "roze", "paars", "paarse", "oranje",
+    "zoet", "zoete", "zuur", "zure", "pittig", "pittige", "mild", "milde",
+    "licht", "lichte", "lichtbruin", "lichtbruine", "donker", "donkere",
+    "krokant", "krokante", "romig", "romige", "zacht", "zachte", "hard",
+    "harde", "grove", "fijne", "dikke", "lang", "lange", "kort", "korte",
+    # Fat, salt, how it was grown
+    "mager", "magere", "halfvol", "halfvolle", "vol", "vet", "vette",
+    "kruimig", "kruimige", "vastkokend", "vastkokende", "ongezouten",
+    "gezouten", "ongezoet", "gezoet", "naturel", "puur", "pure",
+    "extra", "vierge", "biologisch", "biologische", "neutraal", "neutrale",
+    # Where it is from
+    "griekse", "italiaanse", "franse", "spaanse", "hollandse", "vlaamse",
+    "indonesische", "indiase", "chinese", "japanse", "thaise", "mexicaanse",
+    "amerikaanse", "engelse",
+    # New and old
+    "nieuw", "nieuwe", "oud", "oude", "jong", "jonge", "belegen",
+    # A form or a use rather than a food
+    "zelfrijzend", "zelfrijzende", "gemengd", "gemengde", "kant-en-klaar",
+    "zelfgemaakt", "zelfgemaakte", "poeder", "extract", "ring", "ringen",
+    "partje", "partjes", "bakken", "frituren", "garnering", "serveren",
+    "keuze", "andere", "meer", "alle", "elke", "rest", "mix",
+]
+cuts_and_parts = [
+    "filet", "filets", "dij", "dijen", "dijfilet", "dijfilets", "borst",
+    "borsten", "borstfilet", "borstfilets", "vleugel", "vleugels", "vleugeltje",
+    "vleugeltjes", "poot", "poten", "pootje", "pootjes", "bout", "bouten",
+    "drumstick", "drumsticks", "lende", "rib", "ribben", "lap", "lappen",
+    "lapje", "lapjes", "karbonade", "karbonades", "kotelet", "koteletten",
+    "steak", "steaks", "roosje", "roosjes", "stronk", "stronken", "knol",
+    "knollen", "zaad", "zaden", "zaadje", "zaadjes", "pit", "pitten", "hart",
+    "harten", "punt", "punten", "teen", "tenen", "teentje", "teentjes", "blad",
+    "bladeren", "blaadje", "blaadjes", "takje", "takjes", "tak", "takken",
+    "stengel", "stengels", "moot", "moten", "mootje", "mootjes", "reep", "repen",
+    "reepje", "reepjes", "blokje", "blokjes", "stukje", "stukjes", "plakje",
+    "plakjes", "schijfje", "schijfjes",
+]
+named_kinds = [
+    "parmezaan", "cheddar", "mozzarella", "feta", "ricotta", "mascarpone",
+    "halloumi", "gruyère", "pecorino", "gouda", "emmentaler", "manchego",
+    "basmati", "pandan", "shiitake", "chorizo", "panko", "miso", "sambal",
+]
+made_from = [
+    "poeder", "extract", "essence", "rasp", "sap", "bouillon", "fond", "saus",
+    "bloem", "meel", "olie", "boter", "melk", "room", "siroop", "stroop",
+    "azijn", "puree", "concentraat", "jam", "water",
+]
+made_here = [
+    "saus", "mengsel", "marinade", "dressing", "beslag", "deeg", "glazuur",
+    "vulling", "massa", "soep",
+]
+name_tails = ["voor", "zoals", "bijvoorbeeld", "om"]
+amount_ranges = ["tot", "of", "a"]
+choices = ["of", "en/of"]
+food_ends = [
+    "aan", "op", "in", "met", "bij", "voor", "tot", "en", "dan", "daarna", "toe",
+    "door", "over", "uit", "onder", "naar", "tegen", "erbij", "erdoor", "erop",
+    "erin", "eraan",
+]
+
+# --- Timers and ovens in a Step's text ---
+degrees = ["graden", "graad"]
+# `à` folds to `a`: `2 à 3 minuten`.
+timer_ranges = ["a", "tot", "of"]
+# `tal` is the Flemish `een 10tal minuten`.
+timer_more = ["extra", "tal"]
+spoken_half = ["en een half"]
+spoken_quarter = ["en een kwartier"]
+timer_joins = [
+    "de", "het", "een", "van", "op", "in", "aan", "met", "voor", "per", "en",
+    "of", "tot", "bij", "dan", "daarna", "ongeveer", "zonder", "tegen", "elke",
+    "elk", "om", "tussen", "door", "over", "na", "tijdens",
+]
+half_words = ["half", "halve"]
+timer_one = ["een"]
+timer_one_and_a_half = ["anderhalf", "anderhalve"]
+
+# --- Which lines a Step uses ---
+step_until = ["tot", "totdat"]
+# `als` is left out. It is *when* and it is *as*, and `voeg als laatste de ananas
+# toe` adds the pineapple.
+step_when = ["wanneer", "zodra", "terwijl", "nadat"]
+step_for = ["voor"]
+step_stocks = ["bouillon", "fond"]
+step_of = ["van"]
+step_ingredients = ["ingredient", "ingredienten"]
+step_articles = ["de", "het", "een", "n", "deze", "die", "dit", "dat"]
+step_then = ["dan", "daarna", "vervolgens"]
+step_next_actions = [
+    "voeg", "doe", "giet", "schenk", "roer", "meng", "klop", "strooi",
+    "bestrooi", "schep", "leg", "serveer", "garneer", "druppel", "verdeel",
+]
+step_and = ["en"]
+
+# --- Reading a paste ---
+paste_ingredients = ["ingrediënten", "benodigdheden"]
+paste_sections = [
+    "bereiding", "bereidingswijze", "werkwijze", "instructies", "stappen",
+    "stappenplan", "aan de slag",
+]
+paste_notes = [
+    "beschrijving", "notities", "notitie", "opmerking", "opmerkingen", "tips",
+    "tip", "bewaren", "bewaartip", "serveertip",
+]
+paste_not_a_name = [
+    "voor", "personen", "porties", "portie", "aantal", "recept", "bron", "uit",
+    "door", "van", "naar", "moeilijkheid", "moeilijkheidsgraad", "niveau",
+    "bereidingstijd", "kooktijd", "tijd", "totale", "auteur", "foto", "foto's",
+]
+
+# --- Dutch grammar's words (`src/dutch.rs`) ---
+# Two letters are too few to name a food by anywhere else.
+short_foods = ["ui", "ei"]
+# The words a Step shortens a compound to: the kind of thing it is. Closed on
+# purpose, see `src/dutch.rs`. A word here links `tarwebloem` by `bloem`.
+compound_heads = [
+    "bloem", "meel", "bouillon", "fond", "olie", "boter", "melk", "room", "kaas",
+    "worst", "worstje", "worstjes", "spek", "ham", "gehakt", "vlees", "stoofvlees",
+    "vis", "look",
+    "kip", "kool", "sla", "peper", "pepers", "zout", "suiker", "azijn", "wijn",
+    "bier", "puree", "pasta", "rijst", "noot", "noten", "boon", "bonen", "erwt",
+    "erwten", "linzen", "tomaat", "tomaten", "paprika", "paprikas", "wortel",
+    "wortels", "wortelen", "peen", "penen", "appel", "appels", "peer", "peren",
+    "uien", "citroen", "citroenen", "knoflook", "gember", "selderij", "chocolade",
+    "chocola", "brood", "deeg", "jus", "kruiden", "garnalen", "zalm", "stroop",
+    "siroop", "mosterd", "ketjap", "yoghurt", "kwark",
+]
+not_compounds = [
+    "aardappel", "aardappelen", "aardappels", "aardpeer", "aardperen",
+    "sinaasappel", "sinaasappels", "sinaasappelen", "pijnappel", "zonnebloem",
+    "kruisbes", "kruisbessen",
+]
+
+# --- What each Unit of the closed set is called ---
+
+[units]
+gram = ["gram", "grammen"]
+kilogram = ["kilo", "kilos", "kilogram", "kilogrammen"]
+millilitre = ["milliliter", "milliliters"]
+centilitre = ["centiliter", "centiliters"]
+decilitre = ["deciliter", "deciliters"]
+litre = ["liter", "liters", "ltr"]
+# `etl` and `eetl` are how recipes shorten it. `el` is a Spanish article and `kl`
+# nothing at all elsewhere, which is why these live here. Flanders says
+# `soeplepel` and `koffielepel` for the same spoons.
+teaspoon = [
+    "theelepel", "theelepels", "theel", "tl", "koffielepel", "koffielepels", "kl",
+]
+tablespoon = [
+    "eetlepel", "eetlepels", "eetl", "etl", "el", "soeplepel", "soeplepels", "sl",
+]
+cup = ["kopje", "kopjes"]
+
+# --- The plurals no rule of `src/dutch.rs` reaches ---
+
+[irregular]
+"champignons" = "champignon"
+"stuks" = "stuk"
+"cashews" = "cashew"
+"eieren" = "ei"
+"bladeren" = "blad"
+"kinderen" = "kind"
+
+# --- What a cup of a staple weighs, about (ADR 0016), by its name here ---
+
+[cup_weights]
+"bloem" = 125.0
+"tarwebloem" = 125.0
+"zelfrijzend bakmeel" = 125.0
+"volkorenmeel" = 120.0
+"suiker" = 200.0
+"kristalsuiker" = 200.0
+"basterdsuiker" = 213.0
+"bruine suiker" = 213.0
+"poedersuiker" = 120.0
+"boter" = 227.0
+"roomboter" = 227.0
+"geraspte kaas" = 100.0
+"rijst" = 185.0
+"havermout" = 90.0
+"linzen" = 200.0
+"chocoladedruppels" = 170.0
+"cacaopoeder" = 85.0
+"honing" = 340.0
+"walnoten" = 117.0
+"pecannoten" = 109.0
+"amandelen" = 143.0
+"amandelmeel" = 96.0
+"paneermeel" = 108.0
+
+# --- What a word for a length of time is worth ---
+
+# The English words are here for an app's own time fields, which write `1 hr 30
+# mins` whatever the recipe's Language.
+[durations]
+second = [
+    "seconde", "seconden", "secondes", "sec", "secs", "second", "seconds",
+]
+minute = [
+    "minuut", "minuten", "minuutje", "minuutjes", "min", "mins", "minute",
+    "minutes",
+]
+hour = ["uur", "uren", "uurtje", "uurtjes", "u", "hour", "hours", "hr", "hrs", "h"]
+quarter_hour = ["kwartier", "kwartieren", "kwartiertje"]

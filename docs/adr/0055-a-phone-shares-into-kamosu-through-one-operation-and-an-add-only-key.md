@@ -1,5 +1,7 @@
 # A phone shares into Kamosu through one Operation and an Add-only key
 
+_(Amended by [ADR 0057](./0057-a-languages-words-are-data-and-its-grammar-is-code.md), #495: the count of Languages `add_this` answers in follows what a Person can read Kamosu in.)_
+
 A cook on a phone can add a recipe from the phone's own Share menu. They share a web page, an Instagram or TikTok post, one or several photos, copied text or a PDF, tap "Add to Kamosu", and a short message says it was sent. On an iPhone the way in is an Apple Shortcut that Kamosu publishes. On Android it is Kamosu itself, installed from Chrome. Both hand what was shared to one new Operation, `add_this`, and show the message it answers with. Settled on 2026-10-24 in a design session (#452). How other recipe apps do it is in `docs/research/sharing-a-recipe-in-from-a-phone.md`. This amends [ADR 0048](./0048-an-agent-beside-kamosu-reads-what-kamosu-cannot.md), whose Original is one file, and [ADR 0044](./0044-wide-screens-are-the-same-app-laid-out-by-room-and-designed-by-role.md), whose Recipes refuses more than one file.
 
 Until now a recipe found on a phone had to be carried into Kamosu by hand: open Kamosu, find the add box, paste. That works for whoever set Kamosu up and loses everyone else in the household, which is the person this is for.
@@ -43,5 +45,5 @@ Until now a recipe found on a phone had to be carried into Kamosu by hand: open 
 - **The published Shortcut lives on the maintainer's iCloud account.** Apple publishes a Shortcut only from an Apple device, so it cannot be built from the repository. The step list is the way back if the link is lost, and a release that changes the Shortcut changes the link Kamosu shows.
 - **`add_this` is a contract with phones Kamosu cannot reach.** What it takes and answers changes only in ways an older Shortcut survives, and the version number is how Kamosu says when one has to be replaced.
 - **An Original can be several files.** Reading again and sending again handle the set, and the agent fetches each one.
-- **The server writes prose in the reader's language.** `add_this` words its answer in the asker's Reading Language, in all three languages. A Sheet and the Share Link page also keep their words in Rust, but choose the recipe's Language, since their reader has told Kamosu nothing.
+- **The server writes prose in the reader's language.** `add_this` words its answer in the asker's Reading Language, in every language a Person can read Kamosu in. A Sheet and the Share Link page also keep their words in Rust, but choose the recipe's Language, since their reader has told Kamosu nothing.
 - **Android is tested through Chrome's Android emulation** until someone with an Android phone tries it.

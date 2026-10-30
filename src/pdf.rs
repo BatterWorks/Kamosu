@@ -75,7 +75,7 @@ pub fn read_pdfs_with(program: PathBuf) {
 }
 
 /// The `reason` a PDF with no text is refused with, which the interface says
-/// in its own words and three Languages (#176).
+/// in its own words and each Language (#176).
 pub const NO_TEXT: &str = "pdf_has_no_text";
 
 /// The refusal a scanned PDF gets. The wording was chosen on #176: it

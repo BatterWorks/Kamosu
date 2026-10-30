@@ -272,7 +272,7 @@
 
 	<!--
 		THE WAY TO THE FOOD ITSELF (#107). One line, not a panel: everything a
-		Food needs saying — its names in three Languages, what a cup of it
+		Food needs saying — its names in each Language, what a cup of it
 		weighs, how many lines point at it — is a screen's worth, and this box
 		already carries five controls.
 

@@ -142,6 +142,7 @@ hyper-util = { version = "0.1.21", features = ["server", "server-graceful", "htt
 webauthn-rs = { version = "=0.6.1-dev", features = ["conditional-ui"] }
 # A Paprika export is a zip of gzip files, one recipe in each (#414).
 flate2 = "1.1.10"
+toml = { version = "1.1.8", default-features = false, features = ["parse", "serde"] }
 
 [features]
 # Adds `probe_job`, a demonstration Job Operation, so the behaviour suite can

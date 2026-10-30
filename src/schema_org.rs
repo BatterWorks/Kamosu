@@ -684,6 +684,36 @@ pub(crate) fn words(language: Option<&str>) -> Words {
                 ("description", ""),
             ],
         },
+        Some("nl") => Words {
+            servings: "porties",
+            prep: "Voorbereidingstijd:",
+            cook: "Kooktijd:",
+            total: "Totale tijd:",
+            servings_label: "Porties:",
+            difficulty: "Moeilijkheid:",
+            equipment: "Benodigdheden:",
+            method: "Methode:",
+            nutrition: "Voedingswaarde:",
+            video: "Video:",
+            photo: "Foto:",
+            hour: ("uur", "uur"),
+            minute: ("minuut", "minuten"),
+            figures: [
+                ("servingSize", "portiegrootte"),
+                ("calories", "calorieën"),
+                ("fatContent", "vet"),
+                ("saturatedFatContent", "verzadigd vet"),
+                ("transFatContent", "transvet"),
+                ("unsaturatedFatContent", "onverzadigd vet"),
+                ("cholesterolContent", "cholesterol"),
+                ("sodiumContent", "natrium"),
+                ("carbohydrateContent", "koolhydraten"),
+                ("fiberContent", "vezels"),
+                ("sugarContent", "suikers"),
+                ("proteinContent", "eiwitten"),
+                ("description", ""),
+            ],
+        },
         _ => Words {
             servings: "servings",
             prep: "Prep time:",
@@ -738,7 +768,7 @@ impl Time {
 /// A time field: an ISO 8601 duration, read by the web mapping where it set
 /// `read`; bare minutes, which Tandoor writes; or words a Step's timer reads.
 /// A time of nothing is none.
-fn time(node: &Value, field: &str, read: Option<i64>) -> Time {
+fn time(node: &Value, field: &str, read: Option<i64>, language: &str) -> Time {
     if let Some(minutes) = read {
         return if minutes > 0 {
             Time::Minutes(minutes)
@@ -774,7 +804,7 @@ fn time(node: &Value, field: &str, read: Option<i64>) -> Time {
             None => Time::Unread(written),
         };
     }
-    match crate::units::step_duration(&written) {
+    match crate::units::step_duration(&written, language) {
         Some(seconds) if seconds >= 60 => Time::Minutes((seconds as f64 / 60.0).round() as i64),
         _ => Time::Unread(written),
     }
@@ -864,9 +894,10 @@ fn content(
     }));
     let words = words(language);
 
-    let prep = time(node, "prepTime", parsed.prep_time_minutes);
-    let mut cook = time(node, "cookTime", parsed.cook_time_minutes);
-    let total = time(node, "totalTime", None);
+    let time_in = language.unwrap_or(crate::language::UNKNOWN);
+    let prep = time(node, "prepTime", parsed.prep_time_minutes, time_in);
+    let mut cook = time(node, "cookTime", parsed.cook_time_minutes, time_in);
+    let total = time(node, "totalTime", None, time_in);
     // Tandoor writes its working time and the two added up, and the waiting
     // time is what lies between.
     if app == App::Tandoor

@@ -271,7 +271,8 @@ export function asFraction(quantity: number): string {
 }
 
 function about(language: string): string {
-	return language === 'fr' ? 'environ' : language === 'es' ? 'aprox.' : 'about';
+	const words: Record<string, string> = { fr: 'environ', es: 'aprox.', nl: 'ongeveer' };
+	return words[language] ?? 'about';
 }
 
 /** `units::display`: only the cup has a plural. */
@@ -279,6 +280,7 @@ function display(of: Unit, language: string, plural: boolean): string {
 	if (of.id === 'cup') {
 		if (language === 'fr') return plural ? 'tasses' : 'tasse';
 		if (language === 'es') return plural ? 'tazas' : 'taza';
+		if (language === 'nl') return plural ? 'kopjes' : 'kopje';
 		return plural ? 'cups' : 'cup';
 	}
 	const fixed: Record<string, string> = {
@@ -294,10 +296,14 @@ function display(of: Unit, language: string, plural: boolean): string {
 		'imperial tablespoon': 'imperial tbsp',
 		'australian tablespoon': 'australian tbsp',
 	};
-	if (of.id === 'teaspoon')
-		return language === 'fr' ? 'c. à c.' : language === 'es' ? 'cdta' : 'tsp';
-	if (of.id === 'tablespoon')
-		return language === 'fr' ? 'c. à s.' : language === 'es' ? 'cda' : 'tbsp';
+	if (of.id === 'teaspoon') {
+		const words: Record<string, string> = { fr: 'c. à c.', es: 'cdta', nl: 'tl' };
+		return words[language] ?? 'tsp';
+	}
+	if (of.id === 'tablespoon') {
+		const words: Record<string, string> = { fr: 'c. à s.', es: 'cda', nl: 'el' };
+		return words[language] ?? 'tbsp';
+	}
 	return fixed[of.id] ?? of.id;
 }
 
@@ -335,7 +341,12 @@ function plainNumber(quantity: number): string {
 }
 
 function noAmountWritten(language: string): string {
-	return language === 'fr' ? 'sans quantité' : language === 'es' ? 'sin cantidad' : 'some';
+	const words: Record<string, string> = {
+		fr: 'sans quantité',
+		es: 'sin cantidad',
+		nl: 'zonder hoeveelheid',
+	};
+	return words[language] ?? 'some';
 }
 
 // --- Adding up ---------------------------------------------------------------
@@ -523,15 +534,17 @@ export function rows(chosen: Chosen[], loose: Row[], measures: Measures, languag
 // --- The text that leaves ------------------------------------------------------
 
 function goneWritten(language: string): string {
-	return language === 'fr'
-		? 'ne peut plus être lu'
-		: language === 'es'
-			? 'ya no se puede leer'
-			: 'can no longer be read';
+	const words: Record<string, string> = {
+		fr: 'ne peut plus être lu',
+		es: 'ya no se puede leer',
+		nl: 'kan niet meer worden gelezen',
+	};
+	return words[language] ?? 'can no longer be read';
 }
 
 function forWritten(language: string): string {
-	return language === 'fr' ? 'pour' : language === 'es' ? 'para' : 'for';
+	const words: Record<string, string> = { fr: 'pour', es: 'para', nl: 'voor' };
+	return words[language] ?? 'for';
 }
 
 /** `shopping::as_text`: the list as the text a Shortcut hands to Notes. */

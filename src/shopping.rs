@@ -97,7 +97,26 @@ impl Part {
 /// The order is fixed rather than incidental — mass, volume, count, the cook's
 /// own words, then *some* — so two readings of one list put the same amount
 /// first, and so the amount Kamosu is most confident about leads.
+#[cfg(test)]
 pub fn parts_for(contributions: &[Contribution], measures: Measures, language: &str) -> Vec<Part> {
+    let read = contributions
+        .iter()
+        .map(|contribution| {
+            let word = contribution.unit.as_deref();
+            let key = word.map(unit_key).unwrap_or_default();
+            (contribution, word.and_then(units::recognise), key)
+        })
+        .collect::<Vec<_>>();
+    parts_read(&read, measures, language)
+}
+
+/// [`parts_for`], each contribution with the Unit its own recipe's Language
+/// read it as: the words of a Dutch line are no words of an English one.
+fn parts_read(
+    contributions: &[(&Contribution, Option<&'static units::Unit>, String)],
+    measures: Measures,
+    language: &str,
+) -> Vec<Part> {
     let mut grams = 0.0f64;
     let mut millilitres = 0.0f64;
     let mut count = 0.0f64;
@@ -110,7 +129,7 @@ pub fn parts_for(contributions: &[Contribution], measures: Measures, language: &
     let mut count_from: Vec<String> = Vec::new();
     let mut unstated_from: Vec<String> = Vec::new();
 
-    for contribution in contributions {
+    for (contribution, known, key) in contributions {
         let Some(amount) = contribution.amount else {
             remember(&mut unstated_from, &contribution.recipe);
             continue;
@@ -119,9 +138,7 @@ pub fn parts_for(contributions: &[Contribution], measures: Measures, language: &
         // A reader who asked for her Units left alone gets them left alone: a
         // known Unit takes the same road as an unknown one, so nothing is
         // converted and identical words still add.
-        let known = word
-            .filter(|_| measures != Measures::AsWritten)
-            .and_then(units::recognise);
+        let known = known.filter(|_| measures != Measures::AsWritten);
         match (known, word) {
             // A number with no Unit at all is a count of things.
             (None, None) => {
@@ -130,7 +147,7 @@ pub fn parts_for(contributions: &[Contribution], measures: Measures, language: &
             }
             // The number adds, the word is untouched (ADR 0016).
             (None, Some(word)) => {
-                add_as_written(&mut as_written, word, amount, &contribution.recipe)
+                add_as_written(&mut as_written, word, key, amount, &contribution.recipe)
             }
             (Some(unit), _) => {
                 let base = amount * unit.base;
@@ -237,15 +254,29 @@ pub fn unit_key(word: &str) -> String {
     folded
 }
 
-fn add_as_written(entries: &mut Vec<AsWritten>, word: &str, amount: f64, recipe: &str) {
-    let folded = unit_key(word);
+/// [`unit_key`], for a Unit written in `language`: Dutch writes *blikken* for
+/// *blik*, which no rule of that function reads.
+pub fn unit_key_in(word: &str, language: &str) -> String {
+    match crate::words::of(language).grammar {
+        crate::words::Grammar::Dutch => crate::dutch::unit_stem(&units::fold(word)),
+        crate::words::Grammar::Together => unit_key(word),
+    }
+}
+
+fn add_as_written(
+    entries: &mut Vec<AsWritten>,
+    word: &str,
+    folded: &str,
+    amount: f64,
+    recipe: &str,
+) {
     match entries.iter_mut().find(|entry| entry.folded == folded) {
         Some(entry) => {
             entry.total += amount;
             remember(&mut entry.sources, recipe);
         }
         None => entries.push(AsWritten {
-            folded,
+            folded: folded.to_string(),
             word: word.to_string(),
             total: amount,
             sources: vec![recipe.to_string()],
@@ -295,7 +326,8 @@ pub fn rows(
     // than as a list searched from the top for every line: a list of a few
     // recipes is already several hundred Ingredient Lines, and the order still
     // has to be the order they arrived in so that two reads of one list agree.
-    let mut foods: std::collections::HashMap<&str, (Vec<Contribution>, &Value)> =
+    type Read = (Contribution, Option<&'static units::Unit>, String);
+    let mut foods: std::collections::HashMap<&str, (Vec<Read>, &Value)> =
         std::collections::HashMap::new();
     let mut food_order: Vec<&str> = Vec::new();
     let mut out: Vec<Value> = Vec::new();
@@ -325,6 +357,8 @@ pub fn rows(
                 }));
                 continue;
             };
+            let known = food["unit_id"].as_str().and_then(units::by_id);
+            let key = food["unit_key"].as_str().unwrap_or_default().to_string();
             let contribution = Contribution {
                 recipe: recipe.to_string(),
                 text: text.to_string(),
@@ -340,7 +374,7 @@ pub fn rows(
                     (Vec::new(), food)
                 })
                 .0
-                .push(contribution);
+                .push((contribution, known, key));
         }
     }
 
@@ -357,15 +391,22 @@ pub fn rows(
             // be asked about.
             "name": food["name"].as_str().unwrap_or_else(|| contributions
                 .first()
-                .map(|first| first.text.as_str())
+                .map(|(first, ..)| first.text.as_str())
                 .unwrap_or_default()),
             // Which Language that name is in, so a name borrowed from another
             // Language can be marked as borrowed (GLOSSARY.md, "Shopping Row").
             "name_language": food["name_language"],
-            "parts": parts_json(&parts_for(&contributions, measures, language)),
+            "parts": parts_json(&parts_read(
+                &contributions
+                    .iter()
+                    .map(|(contribution, known, key)| (contribution, *known, key.clone()))
+                    .collect::<Vec<_>>(),
+                measures,
+                language,
+            )),
             "lines": contributions
                 .iter()
-                .map(|contribution| json!({
+                .map(|(contribution, ..)| json!({
                     "branch_id": contribution.branch_id,
                     "recipe": contribution.recipe,
                     "text": contribution.text,
@@ -509,6 +550,7 @@ fn gone_written(language: &str) -> &'static str {
     match language {
         "fr" => "ne peut plus être lu",
         "es" => "ya no se puede leer",
+        "nl" => "kan niet meer worden gelezen",
         _ => "can no longer be read",
     }
 }
@@ -519,6 +561,7 @@ fn for_written(language: &str) -> &'static str {
     match language {
         "fr" => "pour",
         "es" => "para",
+        "nl" => "voor",
         _ => "for",
     }
 }
@@ -908,7 +951,7 @@ mod tests {
             ("metric", Measures::Metric),
             ("as_written", Measures::AsWritten),
         ];
-        let languages = ["en", "fr", "es"];
+        let languages = ["en", "fr", "es", "nl"];
         let amounts = [0.3, 1.0, 7.0, 99.0, 1234.5];
 
         // One recipe per Unit, at every amount, with and without a Cup Weight
@@ -927,6 +970,34 @@ mod tests {
             }
             singles.push(lines);
         }
+
+        // A Dutch recipe's own Units, which only its Language's words know.
+        let mut dutch = Vec::new();
+        for (n, unit) in [
+            "el",
+            "eetlepels",
+            "tl",
+            "kopjes",
+            "liter",
+            "teentjes",
+            "blikken",
+            "blik",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let food = format!("f_dutch_{n}");
+            let mut line = basis_line(
+                n,
+                &format!("3 {unit} ding"),
+                Some((food.as_str(), Some("ding"), Some(3.0), Some(unit), None)),
+            );
+            let known = crate::words::of("nl").unit(unit);
+            line["food"]["unit_id"] = json!(known.map(|known| known.id));
+            line["food"]["unit_key"] = json!(unit_key_in(unit, "nl"));
+            dutch.push(line);
+        }
+        singles.push(dutch);
 
         // The rows that merge, break open, or stand alone.
         let flour_a = vec![
@@ -1132,7 +1203,7 @@ mod tests {
                             lines,
                         }];
                         cases.push(json!({
-                            "name": format!("unit {} ×{scale} {measures_name} {language}", UNITS_FOR_PARITY[at]),
+                            "name": format!("unit {} ×{scale} {measures_name} {language}", UNITS_FOR_PARITY.get(at).unwrap_or(&"dutch")),
                             "measures": measures_name,
                             "language": language,
                             "chosen": [{ "branch_id": "b_one", "title": "One", "scale": scale, "lines": lines }],

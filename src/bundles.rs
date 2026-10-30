@@ -431,6 +431,7 @@ fn language_name(language: &str) -> &str {
         "en" => "English",
         "fr" => "Français",
         "es" => "Español",
+        "nl" => "Nederlands",
         other => other,
     }
 }
@@ -501,10 +502,26 @@ const ES: Words = Words {
     translated_from: "Traducida de",
 };
 
+const NL: Words = Words {
+    ingredients: "Ingrediënten",
+    method: "Bereiding",
+    note: "Notitie",
+    tags: "Labels",
+    from_source: "Van",
+    history: "Geschiedenis",
+    written_down: "Geschreven",
+    min_prep: "min voorbereiden",
+    min_cook: "min koken",
+    see: "zie",
+    branched_here: "Hier afgetakt",
+    translated_from: "Vertaald uit",
+};
+
 fn words(language: &str) -> &'static Words {
     match language {
         "fr" => &FR,
         "es" => &ES,
+        "nl" => &NL,
         _ => &EN,
     }
 }
@@ -1589,5 +1606,14 @@ mod tests {
             !text.contains("## Ingrédients") && !text.contains("## Préparation"),
             "a recipe with nothing listed gets no heading over nothing:\n{text}"
         );
+    }
+
+    #[test]
+    fn a_dutch_recipes_note_is_in_dutch() {
+        assert_eq!(words("nl").ingredients, "Ingrediënten");
+        assert_eq!(words("nl").method, "Bereiding");
+        assert_eq!(words("nl").history, "Geschiedenis");
+        assert_eq!(words("nl").tags, "Labels");
+        assert_eq!(language_name("nl"), "Nederlands");
     }
 }

@@ -46676,3 +46676,470 @@ mod sharing_from_a_phone {
         }
     }
 }
+
+// ── Dutch (#495, ADR 0057) ───────────────────────────────────────────────────
+
+/// A Dutch recipe, as a cook saves it: no Language said.
+fn dutch_soup() -> Value {
+    json!({
+        "title": "Tomatensoep met kip en verse kruiden",
+        "yield": { "amount": "4", "noun": "porties" },
+        "ingredients": [
+            { "kind": "ingredient", "text": "2 el olijfolie" },
+            { "kind": "ingredient", "text": "1,5 kg tomaten" },
+            { "kind": "ingredient", "text": "2 grote uien" },
+            { "kind": "ingredient", "text": "1 teentje knoflook" },
+            { "kind": "ingredient", "text": "250 g tarwebloem" },
+            { "kind": "ingredient", "text": "500 ml kippenbouillon" },
+            { "kind": "ingredient", "text": "zout naar smaak" },
+        ],
+        "steps": [
+            { "kind": "step", "text": "Verwarm de oven voor op 180 graden en fruit de ui in de olijfolie." },
+            { "kind": "step", "text": "Voeg de bloem toe en roer een kwartier op laag vuur door de tomaten." },
+            { "kind": "step", "text": "Giet de bouillon erbij, voeg 100 g boter toe en laat anderhalf uur zachtjes koken." },
+        ],
+    })
+}
+
+fn saved_dutch_soup(app: &support::TestApp, key: &str) -> Value {
+    let (status, created) = app.post_op("create_recipe", Some(key), &dutch_soup().to_string());
+    assert_eq!(status, 200, "{created}");
+    created["result"].clone()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dutch_recipe_saved_with_no_language_is_read_as_dutch_through_the_web_door() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let created = saved_dutch_soup(&app, &key);
+    let branch = created["branch_id"].as_str().unwrap();
+    assert_eq!(created["language"], json!("nl"), "{created}");
+
+    // American measures, the stated default: the oven and the spoons convert.
+    let (status, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    assert_eq!(status, 200, "{recipe}");
+    assert_eq!(recipe["result"]["language"], json!("nl"));
+    let version = recipe["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+
+    let read = |index: usize| {
+        let reading = &version["readings"][index];
+        (
+            reading["amount"].clone(),
+            reading["unit"].clone(),
+            reading["target"].clone(),
+        )
+    };
+    assert_eq!(read(0), (json!("2"), json!("el"), json!("olijfolie")));
+    assert_eq!(read(1), (json!("1,5"), json!("kg"), json!("tomaten")));
+    assert_eq!(read(2), (json!("2"), Value::Null, json!("uien")));
+    assert_eq!(read(3), (json!("1"), json!("teentje"), json!("knoflook")));
+    assert_eq!(read(6), (Value::Null, Value::Null, json!("zout")));
+
+    let steps = &version["cooking"]["steps"];
+    assert_eq!(steps[0]["uses"], json!([0, 2]), "{steps}");
+    assert_eq!(steps[1]["uses"], json!([1, 4]), "{steps}");
+    assert_eq!(steps[1]["timer_seconds"], json!(900), "{steps}");
+    assert_eq!(steps[2]["uses"], json!([5]), "{steps}");
+    assert_eq!(steps[2]["timer_seconds"], json!(5400), "{steps}");
+
+    let measured = version["measured"].to_string();
+    assert!(measured.contains("about 350 °F"), "{measured}");
+    assert!(measured.contains("about 3½ oz"), "{measured}");
+    assert_eq!(version["measured"]["ingredients"][1], json!("about 3¼ lb"));
+
+    // Scaled to twice the Yield, the amount inside a Step scales too.
+    let (status, scaled) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch, "wanted_yield": { "amount": "8", "noun": "porties" } })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{scaled}");
+    let scaled = scaled["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()["measured"]
+        .to_string();
+    assert!(scaled.contains("about 7 oz"), "{scaled}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dutch_line_and_an_english_line_naming_one_food_add_on_the_shopping_list() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    read_in(&app, &key, "metric");
+    let dutch = saved_dutch_soup(&app, &key);
+
+    // One Food, known in both Languages, before the English line is read.
+    let (status, foods) = app.post_op("list_foods", Some(&key), "{}");
+    assert_eq!(status, 200, "{foods}");
+    let olive_oil = foods["result"]["foods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|food| food["name"] == json!("olijfolie"))
+        .unwrap_or_else(|| panic!("{foods}"))["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, named) = app.post_op(
+        "set_food_names",
+        Some(&key),
+        &json!({ "food_id": olive_oil, "language": "en", "names": ["olive oil"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+
+    let (status, english) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Plain white loaf for the whole family to share every day",
+            "language": "en",
+            "ingredients": [{ "kind": "ingredient", "text": "1 cup olive oil" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{english}");
+
+    for branch in [&dutch["branch_id"], &english["result"]["branch_id"]] {
+        let (status, added) = app.post_op(
+            "add_to_shopping_list",
+            Some(&key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        assert_eq!(status, 200, "{added}");
+    }
+    let (status, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert_eq!(status, 200, "{list}");
+    let rows = list["result"]["rows"].as_array().unwrap();
+    let oil = rows
+        .iter()
+        .find(|row| row["id"] == json!(olive_oil))
+        .unwrap_or_else(|| panic!("{list}"));
+    // 2 el is 30 ml and a cup is 240: one volume, on one row.
+    assert_eq!(oil["parts"].as_array().unwrap().len(), 1, "{oil}");
+    assert_eq!(oil["parts"][0]["text"], json!("about 270 ml"), "{oil}");
+    assert_eq!(oil["lines"].as_array().unwrap().len(), 2, "{oil}");
+    // And `uien` and `ui` are one Food however a recipe writes them.
+    let (status, again) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Uiensoep met veel uien en een beetje tijm uit de tuin",
+            "language": "nl",
+            "ingredients": [{ "kind": "ingredient", "text": "1 ui" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{again}");
+    let (_, foods) = app.post_op("list_foods", Some(&key), "{}");
+    let named: Vec<&Value> = foods["result"]["foods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|food| food["name"] == json!("uien") || food["name"] == json!("ui"))
+        .collect();
+    assert_eq!(named.len(), 1, "{foods}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn setting_a_recipe_to_dutch_reads_its_lines_again_and_so_does_reading_every_line_again() {
+    let app = support::spawn_app();
+    let (key, _kitchen) = operator_with_kitchen(&app);
+    read_in(&app, &key, "metric");
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Soep",
+            "language": "en",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 el olijfolie" },
+                { "kind": "ingredient", "text": "1 teentje knoflook" },
+                { "kind": "ingredient", "text": "boter om in de pan te smelten voor het bakken" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let branch = created["result"]["branch_id"].as_str().unwrap();
+    assert_eq!(
+        created["result"]["versions"][0]["readings"][2],
+        Value::Null,
+        "a sentence in English: {created}"
+    );
+    assert_eq!(
+        created["result"]["versions"][0]["readings"][0]["unit"],
+        Value::Null,
+        "`el` is no Unit in English: {created}"
+    );
+
+    let (status, set) = app.post_op(
+        "set_recipe_language",
+        Some(&key),
+        &json!({ "branch_id": branch, "language": "nl" }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+    let (_, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    let version = recipe["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(version["readings"][0]["unit"], json!("el"), "{version}");
+    assert_eq!(
+        version["readings"][1]["unit"],
+        json!("teentje"),
+        "{version}"
+    );
+    // Only lines that had a Reading are read again here (#397).
+    assert_eq!(version["readings"][2], Value::Null, "{version}");
+
+    // The Version now stands in Dutch: everything after the Reading asks Dutch
+    // words too, what the Unit is worth and what the shopping list adds up.
+    assert_eq!(
+        version["measured"]["ingredients"][0],
+        json!("about 30 ml"),
+        "{version}"
+    );
+    let (status, basis) = app.post_op(
+        "shopping_basis",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    assert_eq!(status, 200, "{basis}");
+    assert_eq!(
+        basis["result"]["lines"][0]["food"]["unit_id"],
+        json!("tablespoon"),
+        "{basis}"
+    );
+
+    // Read again wholesale, a Dutch recipe is read with Dutch words.
+    let (status, asked) = app.post_op("reread_ingredient_lines", Some(&key), "{}");
+    assert_eq!(status, 200, "{asked}");
+    let job = support::wait_terminal(
+        &app,
+        Some(&key),
+        asked["result"]["job_id"].as_str().unwrap(),
+    );
+    assert_eq!(job["status"], json!("completed"), "{job}");
+    let (_, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    let version = recipe["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(
+        version["readings"][2]["target"],
+        json!("boter"),
+        "{version}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translation_into_and_out_of_dutch_takes_the_food_of_the_line_in_its_place() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Gochujang chicken",
+            "language": "en",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 tbsp olive oil" },
+                { "kind": "ingredient", "text": "2 onions" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let english = created["result"]["branch_id"].as_str().unwrap();
+    let foods_before = food_count(&app, &key);
+
+    let (status, dutch) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({
+            "branch_id": english,
+            "language": "nl",
+            "title": "Gochujang-kip",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 el olijfolie" },
+                { "kind": "ingredient", "text": "2 uien" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{dutch}");
+    let version = &dutch["result"]["versions"][0];
+    assert_eq!(version["readings"][0]["unit"], json!("el"), "{version}");
+    assert_eq!(
+        food_count(&app, &key),
+        foods_before,
+        "each Dutch line took the Food of the line in its place"
+    );
+
+    // And out of Dutch: the source is read in Dutch, the Translation in French.
+    let dutch_branch = dutch["result"]["branch_id"].as_str().unwrap();
+    let (status, french) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({
+            "branch_id": dutch_branch,
+            "language": "fr",
+            "title": "Poulet au gochujang",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 c. à soupe d'huile d'olive" },
+                { "kind": "ingredient", "text": "2 oignons" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{french}");
+    assert_eq!(food_count(&app, &key), foods_before, "{french}");
+    assert_eq!(
+        french["result"]["versions"][0]["readings"][0]["unit"],
+        json!("c. à soupe"),
+        "{french}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dutch_recipe_pasted_as_text_has_its_lines_found_and_read_as_dutch() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let text = "Stamppot boerenkool met worst\n\n\
+                Ingrediënten\n\
+                1 kg kruimige aardappelen\n\
+                2 el boter\n\
+                1 tl mosterd\n\
+                een snufje zout\n\n\
+                Bereiding\n\
+                Schil de aardappelen en kook ze in ongeveer twintig minuten gaar in een ruime pan.\n\
+                Stamp alles fijn met de boter en de mosterd en breng op smaak met wat zout en peper.\n";
+    let (status, read) = app.post_op(
+        "read_pasted_recipe",
+        Some(&key),
+        &json!({ "text": text }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    assert_eq!(read["result"]["boundary"], json!(5), "{read}");
+    let lines = read["result"]["lines"].as_array().unwrap();
+    assert_eq!(lines[0]["kind"], json!("section"), "{read}");
+    assert_eq!(lines[2]["text"], json!("2 el boter"), "{read}");
+    assert_eq!(lines[5]["text"], json!("Bereiding"), "{read}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dutch_is_a_language_a_recipe_a_tag_and_a_food_can_be_named_in_at_both_doors() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let created = saved_dutch_soup(&app, &key);
+    let branch = created["branch_id"].as_str().unwrap();
+
+    let (status, tag) = app.post_op(
+        "create_tag",
+        Some(&key),
+        &json!({ "language": "nl", "name": "Hoofdgerecht" }).to_string(),
+    );
+    assert_eq!(status, 200, "{tag}");
+    let tag_id = tag["result"]["id"].as_str().unwrap();
+
+    // A name in no other Language is shown, wherever the reader reads.
+    let (_, tags) = app.post_op("list_tags", Some(&key), "{}");
+    let listed = &tags["result"]["tags"][0];
+    assert_eq!(listed["name"], json!("Hoofdgerecht"), "{tags}");
+    assert_eq!(listed["language"], json!("nl"), "{tags}");
+    assert_eq!(listed["language_fallback"], json!(true), "{tags}");
+
+    // The Spanish name comes before the Dutch in the fixed order.
+    let (status, renamed) = app.post_op(
+        "rename_tag",
+        Some(&key),
+        &json!({ "tag_id": tag_id, "language": "es", "name": "Plato principal" }).to_string(),
+    );
+    assert_eq!(status, 200, "{renamed}");
+    let (_, tags) = app.post_op("list_tags", Some(&key), "{}");
+    assert_eq!(
+        tags["result"]["tags"][0]["name"],
+        json!("Plato principal"),
+        "{tags}"
+    );
+
+    let (_, foods) = app.post_op("list_foods", Some(&key), "{}");
+    let food_id = foods["result"]["foods"][0]["id"].as_str().unwrap();
+    let (status, named) = app.post_op(
+        "set_food_names",
+        Some(&key),
+        &json!({ "food_id": food_id, "language": "nl", "names": ["Knoflookje"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+
+    // The MCP Door takes it the same way, being built from one declaration.
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "set_recipe_language",
+            "arguments": { "branch_id": branch, "language": "nl" },
+        },
+    });
+    let (status, answered) = app.post_mcp(&call.to_string(), Some(&key));
+    assert_eq!(status, 200, "{answered}");
+    assert_eq!(answered["result"]["isError"], json!(false), "{answered}");
+
+    // Reading Language is the screens' to widen.
+    let (status, refused) = app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "nl", "reading_measures": "metric" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dutch_recipes_sheet_and_share_link_page_are_in_dutch() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let created = saved_dutch_soup(&app, &key);
+    let branch = created["branch_id"].as_str().unwrap();
+
+    let (_result, _type, text) = a_sheet(
+        &app,
+        "make_sheet",
+        Some(&key),
+        json!({ "branch_id": branch }),
+    );
+    assert!(text.contains("Voor 4 porties"), "{text}");
+    assert!(text.contains("geschreven op"), "{text}");
+    assert!(text.contains("pagina 1 van 1"), "{text}");
+    assert!(!text.contains("written"), "{text}");
+
+    let (token, _url) = share(&app, &key, branch);
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(page.contains(r#"lang="nl""#), "{page}");
+    assert!(page.contains("Ingrediënten"), "{page}");
+    assert!(page.contains("Bereiding"), "{page}");
+    assert!(page.contains("Dit recept importeren"), "{page}");
+    assert!(!page.contains(">Ingredients<"), "{page}");
+}

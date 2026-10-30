@@ -1186,6 +1186,26 @@ describe('the settings screen', () => {
 		});
 	});
 
+	it('keeps a Dutch name a Dutch name when it is renamed', async () => {
+		// The name shown here is the fallback, in Dutch. Corrected where it
+		// stands, it stays in Dutch and lands nowhere near the reader's Language.
+		const { kamosu } = renderScreen(Tags, {
+			...withKitchen,
+			get_reading_preferences: { reading_language: 'en', reading_measures: 'metric' },
+			list_tags: { tags: [settingsTag('t_hoofd', 'Hoofdgerecht', 7, 'nl')] },
+			rename_tag: settingsTag('t_hoofd', 'Hoofdgerechten', 7, 'nl'),
+		});
+
+		const shown = await screen.findByDisplayValue('Hoofdgerecht');
+		await fireEvent.input(shown, { target: { value: 'Hoofdgerechten' } });
+		await fireEvent.submit(shown.closest('form') as HTMLElement);
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'rename_tag',
+			input: { tag_id: 't_hoofd', language: 'nl', name: 'Hoofdgerechten' },
+		});
+	});
+
 	it('gives a tag known only in French an English name, without renaming the French one', async () => {
 		// The fallback ADR 0006 built, finally fixable: nothing until now let
 		// anybody add the name it fell back from.

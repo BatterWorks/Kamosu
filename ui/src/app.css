@@ -24,7 +24,7 @@
    into this stylesheet. Only src/ holds markup, so only src/ is read.
 
    paraglide is excluded because an explicit @source overrides .gitignore, and
-   that directory is every translated phrase in three languages compiled into
+   that directory is every translated phrase in every language compiled into
    functions. A phrase is not a class name.
 
    When the Share Link page arrives it is rendered from Rust strings (ADR 0013)

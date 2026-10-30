@@ -363,6 +363,7 @@ pub fn read_crumb(crumb: &Value) -> Result<Crumb, String> {
             let noun = match crate::language::detect_content(&candidate) {
                 Some("fr") => "portions",
                 Some("es") => "raciones",
+                Some("nl") => "porties",
                 _ => "servings",
             };
             json!({ "amount": serves.to_string(), "noun": noun })

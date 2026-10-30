@@ -2,11 +2,20 @@
 
 ## Unreleased
 
+### After upgrading
+
+- If you hold Dutch recipes, set each one to Dutch, then run *Read every line again* so they are read with Dutch words from then on. [#495]
+
+### Added
+
+- Kamosu reads Dutch recipes, as a preview: machine-written and corrections welcome. It sees a recipe is Dutch and reads its lines with Dutch words, `2 el olijfolie` as tablespoons and `1 teentje knoflook` as garlic. A Step's `voeg de bloem toe` links `250 g tarwebloem`, `een kwartier` starts a timer, `180 graden` converts, and Dutch lines scale, convert and add up on a shopping list. A Dutch recipe's Sheet, Share Link page and Bundle notes are in Dutch, and agents can set a recipe to `nl` and translate into or out of Dutch. [#495]
+
 ### Fixed
 
 - Sharing a video Kamosu already holds, or is already reading, says so instead of starting it again, whichever tracking code Instagram, YouTube or TikTok put on the link that time. A recipe added from such a link now keeps it without the code, which names who shared it. [#464]
 
 [#464]: https://github.com/BatterWorks/Kamosu/issues/464
+[#495]: https://github.com/BatterWorks/Kamosu/issues/495
 
 ## v0.5.0 - 2026-10-29
 

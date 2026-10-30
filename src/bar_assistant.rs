@@ -199,6 +199,16 @@ fn words(language: Option<&str>) -> Words {
             bar: "Bar:",
             photo: "Foto:",
         },
+        Some("nl") => Words {
+            drink: "glas",
+            optional: "optioneel",
+            or: "of",
+            garnish: "Garnering:",
+            glass: "Glas:",
+            method: "Methode:",
+            bar: "Bar:",
+            photo: "Foto:",
+        },
         _ => Words {
             drink: "drink",
             optional: "optional",

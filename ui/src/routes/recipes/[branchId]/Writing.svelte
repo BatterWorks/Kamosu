@@ -385,7 +385,7 @@
 	// (#83): paste a whole recipe, and Kamosu says what it made of it BEFORE
 	// anything lands. The engine is `read_pasted_recipe`, an Operation rather
 	// than a second parser in a second language — it rests on `reading.rs`,
-	// whose Unit vocabulary is `units.rs`'s in three Languages. What it made is
+	// whose Unit vocabulary is in each Language's word file. What it made is
 	// drawn by `PasteCheck`, which holds why the guess is never applied
 	// silently.
 	//

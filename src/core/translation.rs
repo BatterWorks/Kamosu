@@ -527,7 +527,7 @@ pub(super) fn supported_language(language: &str) -> Result<&str, OpError> {
     }
 }
 
-/// The Languages a **Branch** may carry: the three Kamosu is written in, plus
+/// The Languages a **Branch** may carry: those Kamosu is written in, plus
 /// **Unknown** for a recipe that is honestly more than one (ADR 0006). Wider
 /// than [`supported_language`], which guards a Tag's or a Food's name — a word
 /// in no language at all is a mistake, whereas a recipe in no single one is a
