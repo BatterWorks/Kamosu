@@ -120,6 +120,7 @@ pub fn read_line(line: &str, language: &str) -> Option<Reading> {
     // is respelt: the line itself is the recipe's, and stays as written.
     let line: String = without_brackets(line).nfc().collect();
     let line = with_thousands_read(&line, language);
+    let line = with_asides_cut(lists, &line);
     // A comma straight after an opening aside in brackets ends nothing, since
     // nothing stood before it: `(white part), finely sliced Spring onion` is
     // the aside and then the line itself (#353). Without the bracket the
@@ -1017,6 +1018,26 @@ fn strip_glue<'a>(lists: &Words, mut words: &'a [&'a str]) -> &'a [&'a str] {
         words = &words[1..];
     }
     words
+}
+
+/// The line with a comma before the first of [`Words::asides`] it holds, and
+/// in Dutch without the `+/-` that says *about* before an amount.
+fn with_asides_cut(lists: &Words, line: &str) -> String {
+    let line = if lists.is_dutch() {
+        line.trim_start_matches(|c: char| "+/-±~".contains(c) || c.is_whitespace())
+    } else {
+        line
+    };
+    let lowered = line.to_lowercase();
+    let aside = lists
+        .asides
+        .iter()
+        .filter_map(|phrase| lowered.find(&format!(" {} ", phrase.join(" "))))
+        .min();
+    match aside.and_then(|at| Some((line.get(..at)?, line.get(at..)?))) {
+        Some((before, after)) => format!("{before},{after}"),
+        None => line.to_string(),
+    }
 }
 
 /// The text as `language` reads its numbers: an English one with its
@@ -3151,5 +3172,139 @@ mod tests {
             read("un peu de sel : 2 g"),
             parts(Some("2"), Some("g"), Some("sel"))
         );
+    }
+
+    /// A Dutch line's Reading, as its three parts.
+    fn dutch(line: &str) -> Option<(Option<String>, Option<String>, Option<String>)> {
+        read_line(line, "nl").map(|reading| (reading.amount, reading.unit, reading.target))
+    }
+
+    fn in_language(
+        line: &str,
+        language: &str,
+    ) -> Option<(Option<String>, Option<String>, Option<String>)> {
+        read_line(line, language).map(|reading| (reading.amount, reading.unit, reading.target))
+    }
+
+    #[test]
+    fn a_dutch_line_is_read_with_dutch_words() {
+        assert_eq!(
+            dutch("2 el olijfolie"),
+            parts(Some("2"), Some("el"), Some("olijfolie"))
+        );
+        assert_eq!(
+            dutch("1,5 kg aardappelen"),
+            parts(Some("1,5"), Some("kg"), Some("aardappelen"))
+        );
+        assert_eq!(
+            dutch("1 teentje knoflook"),
+            parts(Some("1"), Some("teentje"), Some("knoflook"))
+        );
+        assert_eq!(dutch("zout naar smaak"), parts(None, None, Some("zout")));
+        assert_eq!(dutch("een beetje olie"), parts(None, None, Some("olie")));
+        assert_eq!(dutch("2 grote uien"), parts(Some("2"), None, Some("uien")));
+        assert_eq!(
+            dutch("3 el fijngehakte verse peterselie"),
+            parts(Some("3"), Some("el"), Some("peterselie"))
+        );
+        assert_eq!(
+            dutch("1 tot 2 el honing"),
+            parts(Some("1 tot 2"), Some("el"), Some("honing"))
+        );
+        assert_eq!(
+            dutch("1 grote rookworst van ongeveer 275 g"),
+            parts(Some("1"), None, Some("rookworst"))
+        );
+        assert_eq!(
+            dutch("2 eetlepels olie om in te bakken"),
+            parts(Some("2"), Some("eetlepels"), Some("olie"))
+        );
+        // A choice names no Food, as it does in the other Languages.
+        assert_eq!(
+            dutch("200 g boter of margarine"),
+            parts(Some("200"), Some("g"), None)
+        );
+    }
+
+    #[test]
+    fn the_words_dutch_shares_with_another_language_keep_each_ones_meaning() {
+        // Spanish `el` is an article, English `of` is filler, French `en` is
+        // *in*: read together as ever.
+        assert_eq!(
+            in_language("500 g el pollo", "es"),
+            parts(Some("500"), Some("g"), Some("pollo"))
+        );
+        assert_eq!(
+            in_language("1 cup of sugar", "en"),
+            parts(Some("1"), Some("cup"), Some("sugar"))
+        );
+        assert_eq!(
+            in_language("200 g de lait en poudre", "fr"),
+            parts(Some("200"), Some("g"), Some("lait en poudre"))
+        );
+        // The same words the Dutch way.
+        assert_eq!(
+            dutch("1 el suiker"),
+            parts(Some("1"), Some("el"), Some("suiker"))
+        );
+        assert_eq!(
+            dutch("2 of 3 uien"),
+            parts(Some("2 of 3"), None, Some("uien"))
+        );
+        assert_eq!(
+            dutch("peper en zout"),
+            parts(None, None, Some("peper en zout"))
+        );
+    }
+
+    #[test]
+    fn a_recipe_of_any_of_the_three_reads_the_others_units() {
+        assert_eq!(
+            in_language("2 cups farine", "fr"),
+            parts(Some("2"), Some("cups"), Some("farine"))
+        );
+    }
+
+    #[test]
+    fn dutch_units_are_no_units_in_another_language() {
+        for language in ["es", "en", "fr", crate::language::UNKNOWN] {
+            let lists = crate::words::of(language);
+            for unit in ["tl", "kopje", "eetlepel"] {
+                assert!(lists.unit(unit).is_none(), "{unit} in {language}");
+            }
+            assert_eq!(
+                read_line("2 el pollo", language).and_then(|reading| reading.unit),
+                None,
+                "el in {language}"
+            );
+        }
+        let dutch = crate::words::of("nl");
+        for (unit, id) in [
+            ("el", "tablespoon"),
+            ("eetlepel", "tablespoon"),
+            ("tl", "teaspoon"),
+            ("kopje", "cup"),
+            ("g", "gram"),
+            ("cup", "cup"),
+            ("tbsp", "tablespoon"),
+        ] {
+            assert_eq!(dutch.unit(unit).map(|unit| unit.id), Some(id), "{unit}");
+        }
+        // No other Language's shorthand reaches a Dutch recipe: `cc` is a
+        // cubic centimetre to a Dutch cook, and `T` a capital.
+        assert!(dutch.unit("cc").is_none());
+        assert!(dutch.unit("T").is_none());
+    }
+
+    #[test]
+    fn an_amount_in_a_dutch_step_is_read_with_dutch_units() {
+        let found = amounts_in_step("Voeg 100 g boter en 2 el olie toe.", "nl");
+        let read: Vec<(&str, &str)> = found
+            .iter()
+            .map(|amount| (amount.amount.as_str(), amount.unit.as_str()))
+            .collect();
+        assert_eq!(read, [("100", "g"), ("2", "el")]);
+        assert_eq!(found[0].food.as_deref(), Some("boter"));
+        assert!(amounts_in_step("Add 2 el pollo.", "es").is_empty());
     }
 }

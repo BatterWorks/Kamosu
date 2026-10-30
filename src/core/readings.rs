@@ -487,7 +487,7 @@ impl Core {
         let mut wanted: Vec<(String, String)> = Vec::new();
         for name in names {
             let name = required_text(name, "names")?.to_string();
-            let folded = folded_word(&name);
+            let folded = food_key(&language, &name);
             if !wanted.iter().any(|(_, held)| *held == folded) {
                 wanted.push((name, folded));
             }
@@ -917,9 +917,10 @@ fn foods_already_answering_to(
         )
         .map_err(|e| OpError::internal(format!("cannot look up Food: {e}")))?;
     let found = statement
-        .query_map(params![language, folded_word(name), other_than], |row| {
-            row.get(0)
-        })
+        .query_map(
+            params![language, food_key(language, name), other_than],
+            |row| row.get(0),
+        )
         .map_err(|e| OpError::internal(format!("cannot look up Food: {e}")))?
         .collect::<Result<_, _>>()
         .map_err(|e| OpError::internal(format!("cannot look up Food: {e}")))?;
@@ -1298,7 +1299,7 @@ pub(super) fn read_unread_lines(
         };
         let taken = rendered
             .as_ref()
-            .and_then(|rendered| rendered.food_for(index, &reading));
+            .and_then(|rendered| rendered.food_for(index, &reading, language));
         let food_id = match reading
             .target
             .as_deref()
@@ -1412,7 +1413,7 @@ pub(super) fn foods_created_json(foods: &[CreatedFood]) -> Value {
 /// nothing else in the library. A source line read as a Component, or read
 /// as nothing, passes nothing on. Where a match declines, the line is read on
 /// its own words like any other.
-struct RenderedFoods(Vec<Option<SourceLine>>);
+struct RenderedFoods(Vec<Option<SourceLine>>, String);
 
 /// One source line as it is measured, and the Food its Reading points at.
 struct SourceLine {
@@ -1487,14 +1488,20 @@ impl RenderedFoods {
                     })
                 })
                 .collect(),
+            source_language,
         ))
     }
 
-    /// The Food the line at `index`, read as `reading`, takes from the source
-    /// line in its place, or nothing.
-    fn food_for(&self, index: usize, reading: &crate::reading::Reading) -> Option<String> {
+    /// The Food the line at `index`, read as `reading` in `language`, takes
+    /// from the source line in its place, or nothing.
+    fn food_for(
+        &self,
+        index: usize,
+        reading: &crate::reading::Reading,
+        language: &str,
+    ) -> Option<String> {
         let source = self.0.get(index)?.as_ref()?;
-        same_measure(&source.read, reading).then(|| source.food_id.clone())
+        same_measure((&source.read, &self.1), (reading, language)).then(|| source.food_id.clone())
     }
 }
 
@@ -1540,8 +1547,12 @@ fn source_foods(
 
 /// Whether two lines read the same amount of the same Unit, the test a
 /// Translation's line meets before it takes its source line's Food (#356).
-fn same_measure(theirs: &crate::reading::Reading, mine: &crate::reading::Reading) -> bool {
-    use crate::units::{fold, parse_amount, recognise};
+fn same_measure(
+    (theirs, their_language): (&crate::reading::Reading, &str),
+    (mine, my_language): (&crate::reading::Reading, &str),
+) -> bool {
+    use crate::units::{fold, parse_amount};
+    use crate::words;
     let amount = match (theirs.amount.as_deref(), mine.amount.as_deref()) {
         (Some(theirs), Some(mine)) => match (parse_amount(theirs), parse_amount(mine)) {
             (Some(theirs), Some(mine)) => (theirs - mine).abs() < 1e-9,
@@ -1553,7 +1564,10 @@ fn same_measure(theirs: &crate::reading::Reading, mine: &crate::reading::Reading
     let unit = match (theirs.unit.as_deref(), mine.unit.as_deref()) {
         (None, None) => true,
         (Some(theirs), Some(mine)) => {
-            matches!((recognise(theirs), recognise(mine)), (Some(theirs), Some(mine)) if theirs.id == mine.id)
+            matches!(
+                (words::of(their_language).unit(theirs), words::of(my_language).unit(mine)),
+                (Some(theirs), Some(mine)) if theirs.id == mine.id
+            )
         }
         _ => false,
     };
@@ -2075,7 +2089,7 @@ fn resolve_or_create_food(
     // same Language, deduplicated — two arriving names may hit the same Food.
     let mut hits: Vec<String> = Vec::new();
     for (language, word) in names {
-        let folded = folded_word(word);
+        let folded = food_key(language, word);
         let mut statement = conn
             .prepare("SELECT food_id FROM food_names WHERE language = ?1 AND name_folded = ?2")
             .map_err(|e| OpError::internal(format!("cannot look up Food: {e}")))?;
@@ -2185,7 +2199,7 @@ impl FoodMatches {
     ) -> Result<String, OpError> {
         let mut known_as: Vec<(String, String)> = names
             .iter()
-            .map(|(language, word)| ((*language).to_string(), folded_word(word)))
+            .map(|(language, word)| ((*language).to_string(), food_key(language, word)))
             .collect();
         known_as.sort();
         if let Some(matched) = self.0.get(&known_as)
@@ -2324,10 +2338,22 @@ fn add_food_name(
         "INSERT OR IGNORE INTO food_names (food_id, language, name, name_folded, position) \
          SELECT ?1, ?2, ?3, ?4, COALESCE(MAX(position) + 1, 0) FROM food_names \
           WHERE food_id = ?1 AND language = ?2",
-        params![food_id, language, name, folded_word(name)],
+        params![food_id, language, name, food_key(language, name)],
     )
     .map_err(|e| OpError::internal(format!("cannot name Food: {e}")))?;
     Ok(())
+}
+
+/// **What a Food's name is matched on in this Language**: the name folded, which
+/// is the whole of a Food Match, and in Dutch its main word stemmed too (ADR
+/// 0057).
+fn food_key(language: &str, name: &str) -> String {
+    let lists = crate::words::of(language);
+    let folded = folded_word(name);
+    match lists.grammar {
+        crate::words::Grammar::Dutch => crate::dutch::food_key(lists, &folded),
+        crate::words::Grammar::Together => folded,
+    }
 }
 
 /// That a Food exists at all — and, by failing, that it doesn't.

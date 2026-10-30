@@ -179,6 +179,7 @@ fn read_recipe(recipe: &Value, foreign_id: String) -> other_apps::Recipe {
         let section = match language {
             Some("fr") => "Facultatif",
             Some("es") => "Opcional",
+            Some("nl") => "Optioneel",
             _ => "Optional",
         };
         ingredients.push(json!({ "kind": "section", "text": section }));

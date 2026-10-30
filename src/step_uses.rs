@@ -43,9 +43,10 @@ use std::ops::Range;
 use serde_json::Value;
 
 use crate::core::folded_for_search;
+use crate::dutch;
 use crate::language::UNKNOWN;
 use crate::reading;
-use crate::words::{self, Words};
+use crate::words::{self, Grammar, Words};
 
 /// Whether a folded word is one of [`Words::step_for`] on a Branch in `language`.
 fn opens_a_purpose(lists: &Words, word: &str, language: Option<&str>) -> bool {
@@ -84,7 +85,9 @@ fn split_words(lists: &Words, text: &str, breaks: &[char]) -> Vec<(String, usize
         }
     };
     for c in text.chars() {
-        if c.is_alphanumeric() || is_combining_mark(c) {
+        // Dutch writes a plural with an apostrophe, *paprika's*, one word.
+        let in_a_word = lists.is_dutch() && matches!(c, '\'' | '\u{2019}');
+        if c.is_alphanumeric() || is_combining_mark(c) || in_a_word {
             current.push(c);
             continue;
         }
@@ -151,9 +154,10 @@ fn words_of(lists: &Words, text: &str) -> Vec<Word> {
             }
         }
         if until_in.is_none() && lists.step_when.has(text) {
-            let doing = words
-                .get(at + 1)
-                .is_some_and(|(next, _)| next.ends_with("ing"));
+            let doing = !lists.is_dutch()
+                && words
+                    .get(at + 1)
+                    .is_some_and(|(next, _)| next.ends_with("ing"));
             if !doing {
                 until_in = Some(*clause);
                 when_open = true;
@@ -173,6 +177,9 @@ fn words_of(lists: &Words, text: &str) -> Vec<Word> {
 /// [`folded_word`] kept is not looked at, so *the vert* typed without it is
 /// still *thé vert*.
 fn same_word(lists: &Words, a: &str, b: &str) -> bool {
+    if lists.is_dutch() {
+        return dutch::stem(lists, a) == dutch::stem(lists, b);
+    }
     same_to_the_accent(a, b)
         // Only a kept accent is left to tell two folded words apart.
         || ((kept_its_accent(lists, a) || kept_its_accent(lists, b))
@@ -301,7 +308,7 @@ fn main_words(
         match language {
             Some("fr" | "es") => walk(&mut food.clone()),
             Some("en") if written_with_of => walk(&mut headed.clone()),
-            Some("en") => walk(&mut headed.rev()),
+            Some("en" | "nl") => walk(&mut headed.rev()),
             _ => {
                 walk(&mut food.clone());
                 walk(&mut headed.rev());
@@ -379,7 +386,9 @@ fn names_the_food(lists: &Words, run: &[String]) -> bool {
     match run {
         [] => false,
         [only] => {
-            (only.chars().count() >= 3 || kept_its_accent(lists, only))
+            (only.chars().count() >= 3
+                || kept_its_accent(lists, only)
+                || lists.short_foods.has(only))
                 && !reading::names_nothing_alone(lists, only)
         }
         [first, .., last] => {
@@ -418,6 +427,34 @@ fn mentions_of(lists: &Words, line: &Line, step: &[Word]) -> Vec<Mention> {
                     start,
                     len: run.words.len(),
                     whole: run.whole,
+                    made_from: run.made_from,
+                });
+            }
+        }
+    }
+    if lists.is_dutch() {
+        found.extend(dutch_mentions(lists, line, step));
+    }
+    found
+}
+
+/// Every place in `step` a Dutch compound of this line is named by one part of
+/// it: *de bloem* for *tarwebloem*, *de kip* for *kipfilet*. A part of a name,
+/// so a line named whole wins over it.
+fn dutch_mentions(lists: &Words, line: &Line, step: &[Word]) -> Vec<Mention> {
+    let compounds = line.runs.iter().filter(|run| run.words.len() == 1);
+    let mut found = Vec::new();
+    for run in compounds {
+        let whole = &run.words[0];
+        for (start, word) in step.iter().enumerate() {
+            let names = dutch::is_main_word_of(lists, &word.text, whole)
+                || dutch::is_cut_of(lists, &word.text, whole);
+            if names && names_the_food(lists, std::slice::from_ref(&word.text)) {
+                found.push(Mention {
+                    line: line.index,
+                    start,
+                    len: 1,
+                    whole: false,
                     made_from: run.made_from,
                 });
             }
@@ -496,7 +533,10 @@ pub fn step_uses(
                     index,
                     food: words
                         .iter()
-                        .map(|w| singular(w))
+                        .map(|w| match lists.grammar {
+                            Grammar::Dutch => dutch::stem(lists, w),
+                            Grammar::Together => singular(w).to_string(),
+                        })
                         .collect::<Vec<_>>()
                         .join(" "),
                     runs,
@@ -2207,5 +2247,108 @@ mod tests {
                 "the (Step, line) links the whole-name rule made that are gone"
             );
         }
+    }
+
+    #[test]
+    fn a_dutch_step_names_a_compound_by_its_main_word() {
+        let nl = Some("nl");
+        assert_eq!(
+            uses_in(nl, &["Voeg de bloem toe."], &["tarwebloem"]),
+            vec![Some(vec![0])]
+        );
+        assert_eq!(
+            uses_in(nl, &["Giet de bouillon erbij."], &["kippenbouillon"]),
+            vec![Some(vec![0])]
+        );
+        // The other end of a compound is no main word, and a potato is no
+        // apple.
+        assert_eq!(
+            uses_in(nl, &["Voeg de tarwe toe."], &["tarwebloem"]),
+            vec![Some(vec![])]
+        );
+        assert_eq!(
+            uses_in(nl, &["Schil de appels."], &["aardappels"]),
+            vec![Some(vec![])]
+        );
+        // A word for what the recipe makes is no line of the list.
+        assert_eq!(
+            uses_in(nl, &["Roer de saus."], &["sojasaus"]),
+            vec![Some(vec![])]
+        );
+    }
+
+    #[test]
+    fn a_line_named_whole_wins_over_a_compound_of_the_same_word() {
+        assert_eq!(
+            uses_in(
+                Some("nl"),
+                &["Voeg de bloem toe."],
+                &["tarwebloem", "bloem"]
+            ),
+            vec![Some(vec![1])]
+        );
+    }
+
+    #[test]
+    fn a_dutch_step_names_the_food_of_a_part_of_it() {
+        let nl = Some("nl");
+        assert_eq!(
+            uses_in(nl, &["Bak de kip."], &["kipfilet"]),
+            vec![Some(vec![0])]
+        );
+        assert_eq!(
+            uses_in(nl, &["Voeg de laurier toe."], &["laurierblaadjes"]),
+            vec![Some(vec![0])]
+        );
+    }
+
+    #[test]
+    fn a_dutch_plural_and_small_one_name_the_line() {
+        let nl = Some("nl");
+        for (step, target) in [
+            ("Snipper de ui.", "uien"),
+            ("Snipper de uien.", "ui"),
+            ("Klop de eieren.", "ei"),
+            ("Snijd de tomaten.", "tomaat"),
+            ("Snijd de paprika.", "paprika's"),
+            ("Fruit het uitje.", "ui"),
+        ] {
+            assert_eq!(
+                uses_in(nl, &[step], &[target]),
+                vec![Some(vec![0])],
+                "{step}"
+            );
+        }
+        assert_eq!(
+            uses_in(nl, &["Snipper de ui."], &["rode ui"]),
+            vec![Some(vec![0])]
+        );
+    }
+
+    #[test]
+    fn what_comes_after_tot_is_not_going_in() {
+        let nl = Some("nl");
+        assert_eq!(
+            uses_in(nl, &["Kook tot het water verdampt is."], &["water"]),
+            vec![Some(vec![])]
+        );
+        // A number after it is a range, or an amount going in.
+        assert_eq!(
+            uses_in(nl, &["Voeg tot 100 ml water toe."], &["water"]),
+            vec![Some(vec![0])]
+        );
+        // `als laatste` adds the last thing.
+        assert_eq!(
+            uses_in(nl, &["Voeg als laatste de ananas toe."], &["ananas"]),
+            vec![Some(vec![0])]
+        );
+    }
+
+    #[test]
+    fn an_english_recipe_finds_nothing_inside_a_word() {
+        assert_eq!(
+            uses_in(Some("en"), &["Add the bloem."], &["tarwebloem"]),
+            vec![Some(vec![])]
+        );
     }
 }

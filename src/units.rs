@@ -529,6 +529,7 @@ pub fn component_line(
     match language {
         "fr" => component_words(held, stopped, title, share, FR_COMPONENT),
         "es" => component_words(held, stopped, title, share, ES_COMPONENT),
+        "nl" => component_words(held, stopped, title, share, NL_COMPONENT),
         _ => component_words(held, stopped, title, share, EN_COMPONENT),
     }
 }
@@ -565,6 +566,14 @@ const ES_COMPONENT: ComponentWords = ComponentWords {
     unscaled: "{title} — Kamosu no pudo calcular la cantidad: esta es la receta tal como está escrita.",
     whole: "{title} · la receta entera",
     part: "{title} · {share} de la receta",
+};
+
+const NL_COMPONENT: ComponentWords = ComponentWords {
+    missing: "Kamosu heeft dit recept niet.",
+    stopped: "{title} staat hierboven al open — Kamosu stopt hier.",
+    unscaled: "{title} — Kamosu kon de hoeveelheid niet bepalen, dus dit is het recept zoals het is geschreven.",
+    whole: "{title} · het hele recept",
+    part: "{title} · {share} van het recept",
 };
 
 fn component_words(
@@ -866,6 +875,7 @@ pub fn no_amount_written(language: &str) -> &'static str {
     match language {
         "fr" => "sans quantité",
         "es" => "sin cantidad",
+        "nl" => "zonder hoeveelheid",
         _ => "some",
     }
 }
@@ -924,6 +934,7 @@ fn about(language: &str) -> &'static str {
     match language {
         "fr" => "environ",
         "es" => "aprox.",
+        "nl" => "ongeveer",
         _ => "about",
     }
 }
@@ -937,6 +948,8 @@ fn display(unit: &Unit, language: &str, plural: bool) -> String {
         ("cup", "fr", true) => "tasses",
         ("cup", "es", false) => "taza",
         ("cup", "es", true) => "tazas",
+        ("cup", "nl", false) => "kopje",
+        ("cup", "nl", true) => "kopjes",
         ("cup", _, false) => "cup",
         ("cup", _, true) => "cups",
         ("gram", _, _) => "g",
@@ -951,9 +964,11 @@ fn display(unit: &Unit, language: &str, plural: bool) -> String {
         ("quart", _, _) => "qt",
         ("teaspoon", "fr", _) => "c. à c.",
         ("teaspoon", "es", _) => "cdta",
+        ("teaspoon", "nl", _) => "tl",
         ("teaspoon", _, _) => "tsp",
         ("tablespoon", "fr", _) => "c. à s.",
         ("tablespoon", "es", _) => "cda",
+        ("tablespoon", "nl", _) => "el",
         ("tablespoon", _, _) => "tbsp",
         ("imperial tablespoon", _, _) => "imperial tbsp",
         ("australian tablespoon", _, _) => "australian tbsp",
@@ -991,6 +1006,10 @@ pub(crate) const CUP_PLURALS: &[(f64, &str, &str)] = &[
     (1.0, "es", "aprox. 1 taza"),
     (1.5, "es", "aprox. 1½ tazas"),
     (2.0, "es", "aprox. 2 tazas"),
+    (0.5, "nl", "ongeveer ½ kopje"),
+    (1.0, "nl", "ongeveer 1 kopje"),
+    (1.5, "nl", "ongeveer 1½ kopjes"),
+    (2.0, "nl", "ongeveer 2 kopjes"),
 ];
 
 /// A number of cups as millilitres, for a test that words them back.
@@ -1303,7 +1322,18 @@ fn temperatures_written(
     text: &str,
     written_in: Option<System>,
 ) -> Vec<FoundTemperature> {
-    let characters: Vec<char> = text.chars().collect();
+    // Dutch sites type a temperature with the ordinal sign as often as the
+    // degree sign: `160 ºC`. The two are as long as each other in bytes.
+    let characters: Vec<char> = text
+        .chars()
+        .map(|c| {
+            if lists.is_dutch() && c == 'º' {
+                '°'
+            } else {
+                c
+            }
+        })
+        .collect();
     // Where each character starts in bytes, and the text's end after the last.
     let bytes: Vec<usize> = text
         .char_indices()
@@ -1325,10 +1355,13 @@ fn temperatures_written(
         let Ok(degrees) = digits.parse::<i32>() else {
             continue;
         };
-        let marked = scale_after(lists, &characters, index).or_else(|| {
-            let end = degree_sign_after(&characters, index)?;
-            bare_degrees(degrees, written_in).map(|scale| (scale, end))
-        });
+        let marked = scale_after(lists, &characters, index)
+            .or_else(|| {
+                let end = degree_sign_after(&characters, index)?;
+                let written_in = written_in.or(lists.is_dutch().then_some(System::Metric));
+                bare_degrees(degrees, written_in).map(|scale| (scale, end))
+            })
+            .or_else(|| dutch_degrees(lists, &characters, index, degrees));
         if let Some((scale, end)) = marked {
             found.push(FoundTemperature {
                 degrees,
@@ -1339,6 +1372,33 @@ fn temperatures_written(
         }
     }
     found
+}
+
+/// **A Dutch `180 graden`**, with no `C` or `F` after it, which is Celsius, as
+/// a Dutch oven's dial is. It has to be an oven: `draai het deeg 90 graden` is
+/// no temperature, and a rung of [`METRIC_LADDER`] from 100 up is.
+fn dutch_degrees(
+    lists: &Words,
+    characters: &[char],
+    index: usize,
+    degrees: i32,
+) -> Option<(Scale, usize)> {
+    if !lists.is_dutch() || degrees < 100 {
+        return None;
+    }
+    ladder_from_celsius(degrees)?;
+    let mut at = index;
+    while characters.get(at) == Some(&' ') {
+        at += 1;
+    }
+    let word: String = characters[at..]
+        .iter()
+        .take_while(|c| c.is_alphabetic())
+        .collect();
+    lists
+        .degrees
+        .has(&word.to_lowercase())
+        .then_some((Scale::Celsius, at + word.chars().count()))
 }
 
 /// Where a degree sign following a number ends, spaces allowed between, or
@@ -1602,6 +1662,10 @@ fn count_before(
     };
     let part = spoken.map_or(0.0, |(_, part)| part);
     match at.map(|at| (at, pieces.get(at))) {
+        Some((at, Some(Piece::Word(word)))) if lists.timer_one.has(word) => Some((at, 1.0 + part)),
+        Some((at, Some(Piece::Word(word)))) if lists.timer_one_and_a_half.has(word) => {
+            Some((at, 1.5 + part))
+        }
         Some((at, Some(Piece::Number(number)))) => Some(
             fraction_ending_at(pieces, at)
                 .filter(|_| unit_seconds == 3600)
@@ -1926,5 +1990,104 @@ mod tests {
     fn a_hundred_and_twenty_millilitres_is_half_a_cup_not_half_cups() {
         // The line that found this, from production (#147).
         assert_eq!(worded_volume(120.0, Measures::Us, "en"), "about ½ cup");
+    }
+
+    fn timer(text: &str) -> Option<i64> {
+        step_duration(text, "nl")
+    }
+
+    #[test]
+    fn a_dutch_timer_reads_the_way_a_dutch_recipe_writes_one() {
+        for (text, seconds) in [
+            ("Bak 30 minuten in de oven.", 1800),
+            ("Laat 1 uur rusten.", 3600),
+            ("Laat een kwartier staan.", 900),
+            ("Laat een kwartiertje staan.", 900),
+            ("Laat anderhalf uur pruttelen.", 5400),
+            ("Bak 2 à 3 minuten.", 120),
+            ("Bak 10 tot 15 minuten.", 600),
+            ("Laat een half uur rusten.", 1800),
+            ("Laat een half uurtje rusten.", 1800),
+            ("Bak nog een minuut mee.", 60),
+            ("Laat een uur rusten.", 3600),
+            ("Laat er de ui een 10tal minuten zweten.", 600),
+            ("Bak 10-15 minuutjes.", 600),
+            ("Verwarm 30 seconden.", 30),
+        ] {
+            assert_eq!(timer(text), Some(seconds), "{text}");
+        }
+        for text in [
+            "Bak een paar minuten.",
+            "Roer een keer om.",
+            "Voeg 2 el olie toe.",
+        ] {
+            assert_eq!(timer(text), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn dutch_timer_words_are_no_timer_in_another_language() {
+        assert_eq!(step_duration("Laat een kwartier staan.", "en"), None);
+        assert_eq!(step_duration("Laat 1 uur rusten.", "fr"), None);
+    }
+
+    fn dutch_oven(text: &str, measures: Measures) -> Option<String> {
+        step_temperature_in("nl", text, measures, "en", None).map(|found| found.measured)
+    }
+
+    #[test]
+    fn a_dutch_oven_needs_no_letter() {
+        assert_eq!(
+            dutch_oven("Verwarm de oven voor op 180 graden.", Measures::Us),
+            Some("about 350 °F".into())
+        );
+        assert_eq!(
+            dutch_oven("Bak op 200 graden boven- en onderwarmte.", Measures::Us),
+            Some("about 400 °F".into())
+        );
+        assert_eq!(
+            dutch_oven("Verwarm de oven voor op 200 °C.", Measures::Us),
+            Some("about 400 °F".into())
+        );
+        assert_eq!(
+            dutch_oven("Verwarm de oven voor op 160 ºC.", Measures::Us),
+            Some("about 325 °F".into())
+        );
+        assert_eq!(
+            step_temperature_in("nl", "Op 180 graden.", Measures::Us, "en", None)
+                .map(|found| found.written("Op 180 graden.").to_string()),
+            Some("180 graden".into())
+        );
+        // Already in a metric reader's measures, and no oven at all.
+        assert_eq!(dutch_oven("Op 180 graden.", Measures::Metric), None);
+        assert_eq!(dutch_oven("Draai het deeg 90 graden.", Measures::Us), None);
+    }
+
+    #[test]
+    fn grados_with_no_letter_stay_no_temperature() {
+        for language in ["es", UNKNOWN] {
+            assert_eq!(
+                step_temperature_in(language, "Hornear a 180 grados.", Measures::Us, "en", None),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn a_dutch_spoon_scales_and_converts_in_a_dutch_recipe() {
+        let line = |unit, language| {
+            measured_line_in(
+                language,
+                Some("2"),
+                Some(unit),
+                1.0,
+                Measures::Metric,
+                "en",
+                None,
+            )
+        };
+        assert_eq!(line("el", "nl"), Some("about 30 ml".to_string()));
+        assert_eq!(line("kopje", "nl"), Some("about 470 ml".to_string()));
+        assert_eq!(line("el", "es"), None);
     }
 }

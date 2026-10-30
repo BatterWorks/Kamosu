@@ -376,6 +376,7 @@ fn recipe_yield(written: &str, language: Option<&str>) -> Option<Value> {
     let servings = match language {
         Some("fr") => "portions",
         Some("es") => "raciones",
+        Some("nl") => "porties",
         _ => "servings",
     };
     let noun = match noun.to_lowercase().as_str() {

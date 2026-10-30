@@ -8,6 +8,7 @@
  */
 
 import { m } from '$lib/paraglide/messages';
+import { WRITTEN_LANGUAGES } from '$lib/language';
 import type { GetFoodOutput, ListFoodsOutput, SetFoodNamesInput } from '$lib/api/catalogue';
 
 /** A Food as every Operation that answers with one serves it. */
@@ -21,13 +22,13 @@ export type Food = GetFoodOutput;
  * generated client rather than typed out again, for the reason `language.ts`
  * gives in capitals: the client is generated from the Catalogue precisely so
  * the frontend and the Core cannot disagree about an Operation's shape
- * (AGENTS.md, "The interface"). A self-hoster adding a fourth Language to
+ * (AGENTS.md, "The interface"). A self-hoster adding a Language to
  * `src/catalogue.rs` regenerates the client and finds this list grew with it,
  * where a hand-written copy would have gone quietly stale with nothing going
- * red.
+ * red, as one did until #495.
  */
 export type NameLanguage = SetFoodNamesInput['language'];
-export const NAME_LANGUAGES: NameLanguage[] = ['en', 'fr', 'es'] satisfies NameLanguage[];
+export const NAME_LANGUAGES: readonly NameLanguage[] = WRITTEN_LANGUAGES;
 
 /**
  * A word reduced for SEARCHING, which is the only thing it is for.

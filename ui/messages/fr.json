@@ -856,6 +856,7 @@
   "recipes_language_es": "espagnol",
   "recipes_language_fallback": "En {language}",
   "recipes_language_fr": "français",
+  "recipes_language_nl": "Néerlandais",
   "recipes_language_unknown": "Plusieurs langues",
   "recipes_matched_attempt": "Votre note de cuisine",
   "recipes_matched_ingredient": "Ingrédient",

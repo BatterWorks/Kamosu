@@ -21,6 +21,7 @@ pub mod cover_faces;
 pub mod crouton;
 pub mod db;
 pub mod design_tokens;
+pub mod dutch;
 pub mod entities;
 pub mod fingerprint;
 pub mod http_min;

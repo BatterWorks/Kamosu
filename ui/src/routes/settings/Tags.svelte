@@ -36,7 +36,14 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import Confirm from '$lib/Confirm.svelte';
-	import { byWord, oneOfThree, tagWord, type ReadingLanguage, type Tag } from '$lib/tags';
+	import {
+		byWord,
+		tagLanguage,
+		tagWord,
+		type ReadingLanguage,
+		type Tag,
+		type TagLanguage,
+	} from '$lib/tags';
 	import { languageName } from '$lib/language';
 
 	interface Props {
@@ -138,7 +145,7 @@
 	 * ago — the row's is the stale one, and a sentence about how far a rename
 	 * reached is the wrong place to be approximately right.
 	 */
-	function rename(tag: Tag, language: ReadingLanguage, name: string) {
+	function rename(tag: Tag, language: TagLanguage, name: string) {
 		const word = name.trim();
 		if (word === '' || word === tag.name) return;
 		renamed = null;
@@ -217,7 +224,7 @@
 							// recipes in (ADR 0006).
 							// The Language the name on screen is written in, or
 							// this reader's own where it is already theirs.
-							rename(tag, oneOfThree(word.elsewhere, readingLanguage), input.value);
+							rename(tag, tagLanguage(word.elsewhere, readingLanguage), input.value);
 						}}
 					>
 						<label class="sr-only" for={`tag-name-${tag.id}`}>

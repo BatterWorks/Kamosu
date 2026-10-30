@@ -148,6 +148,9 @@ pub struct Paste {
     /// of it exactly as pasted. It lands in the recipe's own `note`, and
     /// nothing here is lost by leaving the two lists (#176).
     pub note: Option<String>,
+    /// The Language the lines were read in: Dutch, or none known, since the
+    /// others are read as one (ADR 0057).
+    pub language: &'static str,
 }
 
 /// How many lines above the split must open with an amount before the
@@ -165,7 +168,7 @@ impl Paste {
             .iter()
             .filter(|line| line.kind == Kind::Line)
             .filter(|line| {
-                reading::read_line(&line.text, crate::language::UNKNOWN)
+                reading::read_line(&line.text, self.language)
                     .is_some_and(|reading| reading.amount.is_some())
             })
             .count()
@@ -184,8 +187,20 @@ pub const LONGEST_PASTE: usize = 64 * 1024;
 /// Pure, and deliberately so: no database, no Core, no Person. It is testable
 /// against corpus fixtures with no server, the same way `extract_recipe` is.
 pub fn read_paste(text: &str) -> Paste {
+    let language = read_as(text);
     let (title, rest) = take_title(text);
-    read_lines(title, rest)
+    read_lines(language, title, rest)
+}
+
+/// **Which words a paste is read with**, known before its lines are found, so
+/// a Dutch paste meets Dutch words. The other Languages are read as one, and
+/// English's own habit with numbers waits for the Language the Branch is given
+/// (ADR 0057).
+fn read_as(text: &str) -> &'static str {
+    match crate::language::detect(text) {
+        Some("nl") => "nl",
+        _ => crate::language::UNKNOWN,
+    }
 }
 
 /// **Read the text a PDF printed** (#176): [`read_paste`] after two things
@@ -198,6 +213,7 @@ pub fn read_paste(text: &str) -> Paste {
 /// one. Neither happens to pasted text, whose line breaks are the ones the
 /// person typed.
 pub fn read_printed(text: &str) -> Paste {
+    let language = read_as(text);
     let rows: Vec<String> = text
         .lines()
         .map(|line| line.trim().to_string())
@@ -208,7 +224,7 @@ pub fn read_printed(text: &str) -> Paste {
         .map(|line| clean(&line))
         .filter(|line| !line.is_empty());
     let title = rows.next();
-    read_lines(title, rows.collect())
+    read_lines(language, title, rows.collect())
 }
 
 /// **One printed line that wrapped is one line.** A line that does not end
@@ -246,9 +262,9 @@ fn join_wrapped(lines: Vec<String>) -> Vec<String> {
 
 /// What both ways in share once the title is settled: the notes taken out,
 /// every remaining line looked at once, and the one split.
-fn read_lines(title: Option<String>, rest: Vec<String>) -> Paste {
-    let (rest, note) = take_notes(rest);
-    let (title, rest, preamble) = take_preamble(title, rest);
+fn read_lines(language: &'static str, title: Option<String>, rest: Vec<String>) -> Paste {
+    let (rest, note) = take_notes(language, rest);
+    let (title, rest, preamble) = take_preamble(language, title, rest);
     let note = match (preamble, note) {
         (Some(preamble), Some(note)) => Some(format!("{preamble}\n\n{note}")),
         (preamble, note) => preamble.or(note),
@@ -269,7 +285,7 @@ fn read_lines(title: Option<String>, rest: Vec<String>) -> Paste {
     // sub-list of things to add (`• ½ tablespoon red miso paste`), and read
     // without the marker every one of them opens with an amount and drags the
     // split down to it: one real recipe was missed by nine lines that way.
-    let looked: Vec<Looked> = rest.iter().map(|line| look(line)).collect();
+    let looked: Vec<Looked> = rest.iter().map(|line| look(language, line)).collect();
     let boundary = split(&looked);
     let rest: Vec<String> = rest.into_iter().map(unbullet).collect();
 
@@ -286,6 +302,7 @@ fn read_lines(title: Option<String>, rest: Vec<String>) -> Paste {
         lines,
         boundary,
         note,
+        language,
     }
 }
 
@@ -376,13 +393,13 @@ fn as_heading(line: &str) -> String {
     line.trim().trim_end_matches(':').trim_end().to_lowercase()
 }
 
-fn is_section_word(line: &str) -> bool {
+fn is_section_word(language: &str, line: &str) -> bool {
     let heading = as_heading(line);
-    is_ingredients_heading(line) || words::unknown().paste_sections.has(&heading)
+    is_ingredients_heading(language, line) || words::of(language).paste_sections.has(&heading)
 }
 
-fn is_ingredients_heading(line: &str) -> bool {
-    words::unknown().paste_ingredients.has(&as_heading(line))
+fn is_ingredients_heading(language: &str, line: &str) -> bool {
+    words::of(language).paste_ingredients.has(&as_heading(line))
 }
 
 /// Where a line opens a note, and how far that note runs.
@@ -398,8 +415,8 @@ enum NoteStart {
     Inline,
 }
 
-fn note_start(line: &str) -> Option<NoteStart> {
-    let notes = &words::unknown().paste_notes;
+fn note_start(language: &str, line: &str) -> Option<NoteStart> {
+    let notes = &words::of(language).paste_notes;
     if notes.has(&as_heading(line)) {
         return Some(NoteStart::Heading);
     }
@@ -415,13 +432,13 @@ fn note_start(line: &str) -> Option<NoteStart> {
 ///
 /// A heading's block ends at the first line that is plainly the recipe
 /// again ([`ends_a_note`]). Answers the lines left, and the note.
-fn take_notes(lines: Vec<String>) -> (Vec<String>, Option<String>) {
+fn take_notes(language: &str, lines: Vec<String>) -> (Vec<String>, Option<String>) {
     let mut kept = Vec::with_capacity(lines.len());
     let mut notes: Vec<Vec<String>> = Vec::new();
     let mut open: Option<NoteStart> = None;
 
     for line in lines {
-        if let Some(start) = note_start(&line) {
+        if let Some(start) = note_start(language, &line) {
             let mut block = Vec::new();
             if matches!(start, NoteStart::Inline) {
                 block.push(line);
@@ -431,7 +448,7 @@ fn take_notes(lines: Vec<String>) -> (Vec<String>, Option<String>) {
             continue;
         }
         let carried_on = match open {
-            Some(NoteStart::Heading) => !ends_a_note(&line),
+            Some(NoteStart::Heading) => !ends_a_note(language, &line),
             Some(NoteStart::Inline) => line.chars().next().is_some_and(char::is_lowercase),
             None => false,
         };
@@ -458,20 +475,20 @@ fn take_notes(lines: Vec<String>) -> (Vec<String>, Option<String>) {
 /// a Unit, which is what an ingredient is and a sentence of prose is not.
 /// An amount alone is not a safe sign: `180°` opens prose as readily as a
 /// list, so the Unit and the shortness are both asked for.
-fn ends_a_note(line: &str) -> bool {
+fn ends_a_note(language: &str, line: &str) -> bool {
     let words = line.split_whitespace().count();
-    is_section_word(line)
+    is_section_word(language, line)
         || strip_step_number(line).is_some()
         || unbulleted(line).is_some()
-        || reads_as_an_ingredient(line)
+        || reads_as_an_ingredient(language, line)
         || (line.ends_with(':') && words <= LONGEST_SECTION)
 }
 
 /// A short line that opens with an amount and a Unit, which is what an
 /// ingredient is and a sentence of prose is not.
-fn reads_as_an_ingredient(line: &str) -> bool {
+fn reads_as_an_ingredient(language: &str, line: &str) -> bool {
     line.split_whitespace().count() <= SHORT && {
-        let reading = reading::read_line(line, crate::language::UNKNOWN).unwrap_or_default();
+        let reading = reading::read_line(line, language).unwrap_or_default();
         reading.amount.is_some() && reading.unit.is_some()
     }
 }
@@ -495,15 +512,21 @@ fn reads_as_an_ingredient(line: &str) -> bool {
 /// a first line that lost the title among them. Answers the title, the lines
 /// from the heading on, and the note.
 fn take_preamble(
+    language: &str,
     title: Option<String>,
     lines: Vec<String>,
 ) -> (Option<String>, Vec<String>, Option<String>) {
-    let heading = lines.iter().position(|line| is_ingredients_heading(line));
+    let heading = lines
+        .iter()
+        .position(|line| is_ingredients_heading(language, line));
     // Ingredients above the heading mean it heads a second list, the
     // filling's after the pastry's, and nothing above it is a preamble.
-    let Some(heading) =
-        heading.filter(|&at| at > 0 && !lines[..at].iter().any(|line| reads_as_a_list_item(line)))
-    else {
+    let Some(heading) = heading.filter(|&at| {
+        at > 0
+            && !lines[..at]
+                .iter()
+                .any(|line| reads_as_a_list_item(language, line))
+    }) else {
         return (title, lines, None);
     };
     let mut preamble = lines;
@@ -511,8 +534,8 @@ fn take_preamble(
 
     let named = preamble
         .iter()
-        .rposition(|line| !is_web_address(line) && !is_a_label(line))
-        .filter(|&at| names_a_recipe(&preamble[at]));
+        .rposition(|line| !is_web_address(line) && !is_a_label(language, line))
+        .filter(|&at| names_a_recipe(language, &preamble[at]));
     let (title, displaced) = match named {
         Some(at) => (Some(preamble.remove(at)), title),
         None => (title, None),
@@ -537,9 +560,9 @@ fn is_web_address(line: &str) -> bool {
 /// it: it opens on one of [`crate::words::Words::paste_not_a_name`]. Stepped over looking for the name,
 /// as a web address is, because a recipe card sets these between its name
 /// and its list.
-fn is_a_label(line: &str) -> bool {
+fn is_a_label(language: &str, line: &str) -> bool {
     line.split_whitespace().next().is_some_and(|first| {
-        words::unknown()
+        words::of(language)
             .paste_not_a_name
             .has(&first.trim_end_matches(':').to_lowercase())
     })
@@ -547,21 +570,20 @@ fn is_a_label(line: &str) -> bool {
 
 /// A short line that opens with an amount, or carries a list marker: an
 /// item of a list, which prose above a heading never is.
-fn reads_as_a_list_item(line: &str) -> bool {
+fn reads_as_a_list_item(language: &str, line: &str) -> bool {
     unbulleted(line).is_some()
         || (line.split_whitespace().count() <= SHORT
-            && reading::read_line(line, crate::language::UNKNOWN)
-                .is_some_and(|reading| reading.amount.is_some()))
+            && reading::read_line(line, language).is_some_and(|reading| reading.amount.is_some()))
 }
 
-fn names_a_recipe(line: &str) -> bool {
+fn names_a_recipe(language: &str, line: &str) -> bool {
     let words = line.split_whitespace().count();
     (1..=LONGEST_SECTION).contains(&words)
         && !line.ends_with(['.', '!', '?', ':'])
         && !line.contains(|c: char| c.is_ascii_digit())
-        && !is_a_label(line)
-        && !is_section_word(line)
-        && note_start(line).is_none()
+        && !is_a_label(language, line)
+        && !is_section_word(language, line)
+        && note_start(language, line).is_none()
 }
 
 /// A Section: a line ending in a colon, short, carrying no quantity. See the
@@ -601,17 +623,14 @@ struct Looked {
     sentence: bool,
 }
 
-fn look(line: &str) -> Looked {
+fn look(language: &str, line: &str) -> Looked {
     let text = line.trim();
     let words = text.split_whitespace().count();
     let numbered = strip_step_number(text).is_some();
-    let reading = reading::read_line(
-        strip_step_number(text).unwrap_or(text),
-        crate::language::UNKNOWN,
-    )
-    .unwrap_or_default();
+    let reading =
+        reading::read_line(strip_step_number(text).unwrap_or(text), language).unwrap_or_default();
 
-    let kind = if is_section_word(text)
+    let kind = if is_section_word(language, text)
         || (text.ends_with(':') && words <= LONGEST_SECTION && reading.amount.is_none())
     {
         Kind::Section
@@ -1258,5 +1277,40 @@ Add the coconut milk and simmer, uncovered, until the beef is tender.";
         let texts: Vec<&str> = paste.lines.iter().map(|row| row.text.as_str()).collect();
         assert_eq!(texts[..3], ["250 g flour", "500 ml milk", "3 eggs"]);
         assert_eq!(paste.boundary, 3);
+    }
+
+    #[test]
+    fn a_dutch_paste_meets_dutch_words() {
+        let paste = read_paste(
+            "Stamppot boerenkool met worst\n\n\
+             Ingrediënten\n\
+             1 kg kruimige aardappelen\n\
+             2 el boter\n\
+             1 tl mosterd\n\
+             een snufje zout\n\n\
+             Bereiding\n\
+             Schil de aardappelen en kook ze in ongeveer twintig minuten gaar in een ruime pan.\n\
+             Stamp alles fijn met de boter en de mosterd en breng op smaak met wat zout en peper.\n",
+        );
+        assert_eq!(paste.language, "nl");
+        assert_eq!(
+            paste.title.as_deref(),
+            Some("Stamppot boerenkool met worst")
+        );
+        let lines: Vec<&str> = paste.lines[..paste.boundary]
+            .iter()
+            .filter(|line| line.kind == Kind::Line)
+            .map(|line| line.text.as_str())
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "1 kg kruimige aardappelen",
+                "2 el boter",
+                "1 tl mosterd",
+                "een snufje zout"
+            ]
+        );
+        assert!(paste.has_ingredient_lines());
     }
 }

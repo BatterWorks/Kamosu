@@ -721,6 +721,7 @@ fn recipe_yield(recipe: &Value, language: Option<&str>) -> Value {
     let servings = || match language {
         Some("fr") => "portions",
         Some("es") => "raciones",
+        Some("nl") => "porties",
         _ => "servings",
     };
     let positive = |field: &str| recipe[field].as_f64().filter(|amount| *amount > 0.0);
@@ -777,6 +778,7 @@ fn note(recipe: &Value, language: Option<&str>, candidate: &Value) -> Value {
         let lead = match language {
             Some("fr") => "Matériel :",
             Some("es") => "Utensilios:",
+            Some("nl") => "Benodigdheden:",
             _ => "Equipment:",
         };
         paragraphs.push(format!("{lead} {}.", tools.join(", ")));

@@ -14,25 +14,29 @@
 //! No detector can be right about such a recipe, so Kamosu does not pretend to
 //! be: it offers the cook a place to say so instead.
 //!
-//! The detector is `whatlang`, restricted to the three Languages Kamosu is
-//! written in and gated on its own `is_reliable`. Restricting it matters: an
+//! The detector is `whatlang`, restricted to the Languages Kamosu is written in
+//! and gated on its own `is_reliable`. Restricting it matters: an
 //! unrestricted detector asked about "Sukiyaki Udon" reaches for Japanese,
 //! which is not one of the answers Kamosu has. The gate matters just as much —
 //! a recipe that is nothing but a title and a link (the corpus holds three) is
 //! far too little text to read a Language out of, and the honest answer there
 //! is none.
+//!
+//! **German is on the detector's list and is no answer.** With Dutch alone
+//! added, all four German recipes in a library of 205 were read as Dutch (#494).
+//! Listed, they are read as German, and answered as none, as they always were.
 
 use serde_json::Value;
 
 /// The Languages Kamosu is written in, and the only ones detection can answer.
-pub const LANGUAGES: [&str; 3] = ["en", "fr", "es"];
+pub const LANGUAGES: [&str; 4] = ["en", "fr", "es", "nl"];
 
 /// The Language of a recipe that is honestly more than one — permanent,
 /// unremarkable, and never the result of detection (ADR 0006).
 pub const UNKNOWN: &str = "unknown";
 
-/// Every Language a Branch may carry: the three, plus Unknown.
-pub const BRANCH_LANGUAGES: [&str; 4] = ["en", "fr", "es", UNKNOWN];
+/// Every Language a Branch may carry: those, plus Unknown.
+pub const BRANCH_LANGUAGES: [&str; 5] = ["en", "fr", "es", "nl", UNKNOWN];
 
 /// Whether a Branch in this Language takes part in detection at all. Unknown
 /// does not: no prompt, no badge, no nag.
@@ -68,6 +72,8 @@ pub fn detect(text: &str) -> Option<&'static str> {
         whatlang::Lang::Eng,
         whatlang::Lang::Fra,
         whatlang::Lang::Spa,
+        whatlang::Lang::Nld,
+        whatlang::Lang::Deu,
     ]);
     let info = detector.detect(text)?;
     if !info.is_reliable() {
@@ -77,8 +83,9 @@ pub fn detect(text: &str) -> Option<&'static str> {
         whatlang::Lang::Eng => Some("en"),
         whatlang::Lang::Fra => Some("fr"),
         whatlang::Lang::Spa => Some("es"),
-        // Unreachable through the allowlist above, and answered as "could not
-        // tell" rather than by panicking if the allowlist ever grows.
+        whatlang::Lang::Nld => Some("nl"),
+        // German, and anything else the allowlist ever grows: "could not tell"
+        // rather than a Language Kamosu is not written in.
         _ => None,
     }
 }
@@ -129,6 +136,34 @@ mod tests {
             ],
         );
         assert_eq!(detect_content(&content), Some("en"));
+    }
+
+    #[test]
+    fn a_recipe_written_in_dutch_reads_as_dutch() {
+        let content = recipe(
+            "Stamppot boerenkool met rookworst",
+            &[
+                "1 kg kruimige aardappels, geschild en in stukken gesneden",
+                "500 gram verse boerenkool",
+                "150 milliliter lauwwarme melk en een klontje boter",
+                "1 rookworst en peper en zout naar smaak",
+            ],
+        );
+        assert_eq!(detect_content(&content), Some("nl"));
+    }
+
+    #[test]
+    fn a_recipe_written_in_german_reads_as_nothing() {
+        let content = recipe(
+            "Kartoffelsuppe mit Würstchen",
+            &[
+                "1 kg mehlig kochende Kartoffeln, geschält und gewürfelt",
+                "500 ml kräftige Gemüsebrühe und zwei Zwiebeln",
+                "150 g geräucherter Speck in kleinen Würfeln",
+                "Salz und Pfeffer aus der Mühle nach Geschmack",
+            ],
+        );
+        assert_eq!(detect_content(&content), None);
     }
 
     #[test]

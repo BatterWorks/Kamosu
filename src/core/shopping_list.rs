@@ -732,7 +732,8 @@ fn version_basis_lines(
                 "unit_id": unit
                     .and_then(|unit| crate::words::of(&reading.written_in_language).unit(unit))
                     .map(|known| known.id),
-                "unit_key": unit.map(shopping::unit_key),
+                "unit_key": unit
+                    .map(|unit| shopping::unit_key_in(unit, &reading.written_in_language)),
                 // The very same reader the recipe page's subordinate lines
                 // are built from, Cup Weights and all — because a cup of flour
                 // must not weigh one thing on a recipe page and another in a

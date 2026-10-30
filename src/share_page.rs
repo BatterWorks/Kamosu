@@ -313,10 +313,44 @@ const ES: Words = Words {
     component_method_below: "Su preparación está al pie de la página ↓",
 };
 
+const NL: Words = Words {
+    sent_you: "stuurde je dit recept",
+    ingredients: "Ingrediënten",
+    method: "Bereiding",
+    from_source: "Van",
+    source_opens: "opent de oorspronkelijke pagina",
+    also_in: "Ook geschreven in het",
+    history: "Geschiedenis",
+    import: "Dit recept importeren",
+    bundle: "Receptbestand",
+    file_note: "Een zip met leesbare notities en foto's die overal opent. Een andere Kamosu \
+                neemt het in zijn geheel over, met elke versie erachter.",
+    sheet: "Recept op papier afdrukken",
+    sheet_making: "Je recept op papier wordt gemaakt",
+    sheet_making_body: "Dit duurt even. Het opent hier vanzelf zodra het klaar is.",
+    sheet_failed: "Het recept op papier kon niet worden gemaakt",
+    file_failed: "Het receptbestand kon niet worden gemaakt",
+    written_down: "Geschreven",
+    standing: "Deze link bevat elke versie van dit recept, tot en met de eerste. Beëindigen \
+                houdt nieuwe bezoekers tegen, geen kopieën die al zijn verstuurd.",
+    shared_by: "Gedeeld door {name}",
+    ended_title: "Deze link is beëindigd",
+    ended_body: "Degene die dit recept deelde, heeft de link uitgezet. Een link beëindigen \
+                 bereikt geen kopie die al is verstuurd, dus iemand kan dit recept nog hebben, \
+                 maar dit adres opent het niet meer.",
+    min_prep: "min voorbereiden",
+    min_cook: "min koken",
+    kcal_serving: "{n} kcal per portie",
+    kcal_100g: "{n} kcal per 100 g",
+    component_method: "de eigen bereiding",
+    component_method_below: "De bereiding staat onder aan de pagina ↓",
+};
+
 fn words(language: &str) -> &'static Words {
     match language {
         "fr" => &FR,
         "es" => &ES,
+        "nl" => &NL,
         _ => &EN,
     }
 }
@@ -326,6 +360,7 @@ fn language_name(language: &str) -> &'static str {
     match language {
         "fr" => "Français",
         "es" => "Español",
+        "nl" => "Nederlands",
         "en" => "English",
         _ => "—",
     }

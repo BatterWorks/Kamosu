@@ -10,10 +10,10 @@
 //! **Which files read which recipe.** [`of`] answers that and nothing else asks
 //! it. English, French and Spanish are read with their three files together,
 //! as they always were, and so is a recipe marked Unknown or with no Language:
-//! `2 cups farine` is two cups. `every.toml` holds the Unit spellings every
-//! Language writes, and goes with whichever files read a recipe. A word the
-//! code confines to one Language stays confined by that code, such as French
-//! *pour* in `step_uses.rs`.
+//! `2 cups farine` is two cups. A Dutch recipe is read with the Dutch file
+//! alone. `every.toml` holds the Unit spellings every Language writes, and goes
+//! with whichever files read a recipe. A word the code confines to one Language
+//! stays confined by that code, such as French *pour* in `step_uses.rs`.
 //!
 //! Reading a word file fails at the first use, naming the file and the place,
 //! and a test uses every one of them: a spelling mistake in a list's name or in
@@ -140,6 +140,7 @@ pub struct Durations {
     second: Loose,
     minute: Loose,
     hour: Loose,
+    quarter_hour: Loose,
 }
 
 /// Adding one file's words to another's.
@@ -176,6 +177,7 @@ impl Gather for Durations {
         self.second.gather(from.second);
         self.minute.gather(from.minute);
         self.hour.gather(from.hour);
+        self.quarter_hour.gather(from.quarter_hour);
     }
 }
 
@@ -184,6 +186,12 @@ impl Gather for HashMap<String, Vec<String>> {
         for (unit, spellings) in from {
             self.entry(unit).or_default().extend(spellings);
         }
+    }
+}
+
+impl Gather for HashMap<String, String> {
+    fn gather(&mut self, from: Self) {
+        self.extend(from);
     }
 }
 
@@ -208,6 +216,9 @@ macro_rules! word_lists {
             /// `units`, never read from a file.
             #[serde(skip)]
             by_spelling: HashMap<String, &'static Unit>,
+            /// The rules these words are read by.
+            #[serde(skip)]
+            pub grammar: Grammar,
         }
 
         impl Words {
@@ -334,6 +345,10 @@ word_lists! {
     /// Only the whole phrase, and only at the start of the line. `peu de sel`
     /// and `1 little gem lettuce` read as they always have.
     a_little: Phrases,
+
+    /// What opens the cook's aside where no comma stands before it, read as
+    /// though one did.
+    asides: Phrases,
 
     /// The ways a recipe says *as much as you like*. Such a phrase measures
     /// nothing and names nothing, so it is dropped from the front or the end
@@ -526,6 +541,14 @@ word_lists! {
     /// A half joined to the duration word by a hyphen: *une demi-heure*.
     half_hyphened: Phrases,
 
+    /// The word for *one* that stands against a duration word in place of a
+    /// digit: Dutch *een kwartier*.
+    timer_one: Loose,
+
+    /// The word for *one and a half* that stands against a duration word:
+    /// Dutch *anderhalf uur*.
+    timer_one_and_a_half: Loose,
+
     /// The words that open a clause describing how things should look, never
     /// what goes in: *until*, *jusqu'à* (folded to two words, the first
     /// `jusqu`), and *hasta*. *Till* is English's short *until*.
@@ -604,6 +627,18 @@ word_lists! {
     /// never its name, however short.
     paste_not_a_name: Exact,
 
+    /// A food's name of two letters, which a Step may name a line by though
+    /// nothing else that short does: Dutch *ui* and *ei*.
+    short_foods: List,
+
+    /// Dutch words that end in another food and are no kind of it: an
+    /// *aardappel* is no *appel* ([`crate::dutch`]).
+    not_compounds: List,
+
+    /// The Dutch plurals no rule reaches, folded, each with its singular:
+    /// *eieren*, *ei*.
+    irregular: HashMap<String, String>,
+
     /// Each Unit of the closed set's spellings, by the Unit's id. Written the
     /// way a person reads them, since [`units::fold`] is applied to both these
     /// and the cook's word, so punctuation and capitals need no thought.
@@ -630,9 +665,20 @@ word_lists! {
     durations: Durations,
 }
 
+/// Which rules a set of words is read by. The rules each Language keeps in code
+/// and the rest of the program asks through this, so that adding a Language is
+/// one more arm wherever it reads otherwise.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub enum Grammar {
+    /// English, French and Spanish, and anything of no known Language.
+    #[default]
+    Together,
+    Dutch,
+}
+
 impl Words {
     /// One or more files read as one set of words.
-    fn gathered(files: &[(&str, &str)]) -> Words {
+    fn gathered(grammar: Grammar, files: &[(&str, &str)]) -> Words {
         let mut words = Words::default();
         for (name, text) in files {
             let file: Words = toml::from_str(text)
@@ -640,6 +686,7 @@ impl Words {
             words.gather(file);
         }
         words.by_spelling = spellings_of(&words.units);
+        words.grammar = grammar;
         words
     }
 
@@ -647,7 +694,7 @@ impl Words {
     /// word outside the closed set is no less real a Unit; it simply never
     /// converts.
     pub fn unit(&self, word: &str) -> Option<&'static Unit> {
-        if let Some(letter) = units::lone_spoon(word) {
+        if let Some(letter) = units::lone_spoon(word).filter(|_| !self.is_dutch()) {
             let id = if letter == "t" {
                 "teaspoon"
             } else {
@@ -662,6 +709,11 @@ impl Words {
         self.by_spelling.get(&folded).copied()
     }
 
+    /// Whether these are the Dutch words, and read by Dutch grammar.
+    pub fn is_dutch(&self) -> bool {
+        self.grammar == Grammar::Dutch
+    }
+
     /// What one of this duration word is worth in seconds, or nothing where
     /// the word names no duration.
     pub fn seconds_each(&self, word: &str) -> Option<i64> {
@@ -670,6 +722,8 @@ impl Words {
             Some(1)
         } else if durations.minute.has(word) {
             Some(60)
+        } else if durations.quarter_hour.has(word) {
+            Some(900)
         } else if durations.hour.has(word) {
             Some(3600)
         } else {
@@ -716,16 +770,25 @@ const EVERY: (&str, &str) = ("every.toml", include_str!("words/every.toml"));
 const EN: (&str, &str) = ("en.toml", include_str!("words/en.toml"));
 const FR: (&str, &str) = ("fr.toml", include_str!("words/fr.toml"));
 const ES: (&str, &str) = ("es.toml", include_str!("words/es.toml"));
+const NL: (&str, &str) = ("nl.toml", include_str!("words/nl.toml"));
 
 /// English, French and Spanish read as one.
-static TOGETHER: LazyLock<Words> = LazyLock::new(|| Words::gathered(&[EVERY, EN, FR, ES]));
+static TOGETHER: LazyLock<Words> =
+    LazyLock::new(|| Words::gathered(Grammar::Together, &[EVERY, EN, FR, ES]));
+
+/// Dutch, which several of the others' everyday words would misread: `el` is a
+/// tablespoon here and a Spanish article there, `of` is *or* here and English
+/// filler there, and `en` is *and* here and French for *in* there.
+static DUTCH: LazyLock<Words> = LazyLock::new(|| Words::gathered(Grammar::Dutch, &[EVERY, NL]));
 
 /// **The words a recipe in this Language is read with.** The one place that
 /// says which files read which recipe (ADR 0057). `language` is a Branch's, or
 /// [`UNKNOWN`] where a caller knows none.
 pub fn of(language: &str) -> &'static Words {
-    let _ = language;
-    &TOGETHER
+    match language {
+        "nl" => &DUTCH,
+        _ => &TOGETHER,
+    }
 }
 
 /// The words of a caller that knows no Language.
@@ -739,6 +802,7 @@ pub static CUP_WEIGHTS: LazyLock<HashMap<String, f64>> = LazyLock::new(|| {
     TOGETHER
         .cup_weights
         .iter()
+        .chain(&DUTCH.cup_weights)
         .map(|(staple, grams)| (units::fold(staple), *grams))
         .collect()
 });
@@ -750,6 +814,7 @@ mod tests {
     #[test]
     fn every_word_file_reads() {
         assert!(of("en").unit("g").is_some());
+        assert!(of("nl").unit("g").is_some());
         assert!(!CUP_WEIGHTS.is_empty());
     }
 

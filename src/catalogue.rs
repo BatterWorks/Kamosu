@@ -1856,7 +1856,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" }, "kitchen_id": ignored_kitchen_id(), "cookbook_id": landing_cookbook_id() }, "required": ["language", "name"], "additionalProperties": false }),
+            input_schema: json!({ "type": "object", "properties": { "language": { "enum": ["en", "fr", "es", "nl"] }, "name": { "type": "string" }, "kitchen_id": ignored_kitchen_id(), "cookbook_id": landing_cookbook_id() }, "required": ["language", "name"], "additionalProperties": false }),
             output_schema: tag_schema(),
             handler: crate::operations::create_tag,
         },
@@ -1898,7 +1898,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "tag_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" } }, "required": ["tag_id", "language", "name"], "additionalProperties": false }),
+            input_schema: json!({ "type": "object", "properties": { "tag_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es", "nl"] }, "name": { "type": "string" } }, "required": ["tag_id", "language", "name"], "additionalProperties": false }),
             output_schema: tag_schema(),
             handler: crate::operations::rename_tag,
         },
@@ -2457,7 +2457,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "type": "object",
                 "properties": {
                     "branch_id": { "type": "string" },
-                    "language": { "enum": ["en", "fr", "es", "unknown"] },
+                    "language": { "enum": ["en", "fr", "es", "nl", "unknown"] },
                 },
                 "required": ["branch_id", "language"],
                 "additionalProperties": false,
@@ -4973,7 +4973,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "type": "object",
                 "properties": {
                     "food_id": { "type": "string" },
-                    "language": { "enum": ["en", "fr", "es"] },
+                    "language": { "enum": ["en", "fr", "es", "nl"] },
                     "names": { "type": "array", "items": { "type": "string" } },
                 },
                 "required": ["food_id", "language", "names"],
@@ -6671,7 +6671,7 @@ fn create_recipe_input_schema() -> Value {
     map.insert(
         "language".to_string(),
         json!({
-            "enum": ["en", "fr", "es", "unknown"],
+            "enum": ["en", "fr", "es", "nl", "unknown"],
             "description": "The Language this recipe is written in. Left out, it \
                              is detected from the recipe's own text, falling back \
                              to the writer's Reading Language where there is too \
@@ -6760,7 +6760,7 @@ fn start_translation_input_schema() -> Value {
     map.insert(
         "language".to_string(),
         json!({
-            "enum": ["en", "fr", "es"],
+            "enum": ["en", "fr", "es", "nl"],
             "description": "The Language this rendering is written in — necessarily \
                              a different one from the recipe it translates. Never \
                              `unknown`: a recipe that is honestly more than one \
@@ -6807,7 +6807,7 @@ fn import_input_schema() -> Value {
     map.insert(
         "language".to_string(),
         json!({
-            "enum": ["en", "fr", "es", "unknown"],
+            "enum": ["en", "fr", "es", "nl", "unknown"],
             "description": "The Language this recipe is written in. Left out, it \
                              is detected from the recipe's own text, falling back \
                              to the writer's Reading Language where there is too \
