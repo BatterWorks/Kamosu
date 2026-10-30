@@ -46417,6 +46417,169 @@ mod sharing_from_a_phone {
         assert_eq!(said["outcome"], json!("sent"), "{said}");
     }
 
+    /// One reel shared twice carries two codes (#464), which Instagram does
+    /// not even name the same. It is one link while it is read and once it is
+    /// a recipe, and the agent and the Source never see a code.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_reel_shared_again_under_another_code_is_the_same_reel() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        ask_for_work(&app, &runner);
+        let (key, _) = add_only_key(&app, &session, true);
+        let reel = "https://www.instagram.com/reel/POSTID/";
+
+        let sent = add(&app, &key, json!({ "link": format!("{reel}?rpxt=one") }));
+        assert_eq!(sent["outcome"], json!("sent"), "{sent}");
+        let twice = add(&app, &key, json!({ "link": format!("{reel}?psln=two") }));
+        assert_eq!(twice["outcome"], json!("already"), "{twice}");
+        assert_eq!(twice["job_id"], sent["job_id"]);
+
+        let work = ask_for_work(&app, &runner);
+        assert_eq!(work["link"], json!(reel), "{work}");
+        let (status, created) = app.post_op(
+            "create_recipe",
+            work["job_key"].as_str(),
+            &json!({
+                "title": "Tarte au citron",
+                "source": { "text": "Instagram", "link": work["link"] },
+                "ingredients": [{ "kind": "ingredient", "text": "4 eggs" }],
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{created}");
+        app.post_op(
+            "report_on_job",
+            Some(&runner),
+            &json!({ "job_id": work["job_id"], "outcome": "completed" }).to_string(),
+        );
+
+        // Its Job has ended, so the shelf answers now. A post's own address
+        // is the same post.
+        let held = add(
+            &app,
+            &key,
+            json!({ "link": "https://instagram.com/p/POSTID/?igsh=three" }),
+        );
+        assert_eq!(held["outcome"], json!("already"), "{held}");
+        assert_eq!(held["branch_id"], created["result"]["branch_id"]);
+        assert_eq!(recipes_held(&app), 1);
+    }
+
+    /// A Source written before #464 keeps its code, because it is part of its
+    /// Version's id, and is still found under any other.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_source_that_still_holds_a_code_is_found_and_left_as_it_is() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let (key, _) = add_only_key(&app, &session, false);
+        let (_, made) = app.post_op(
+            "create_recipe",
+            Some(&session),
+            &json!({ "title": "Tarte au citron" }).to_string(),
+        );
+        let branch_id = made["result"]["branch_id"].as_str().unwrap();
+        let written = "https://youtu.be/VIDEOID?si=old";
+        let (status, saved) = app.post_op(
+            "save_recipe_version",
+            Some(&session),
+            &json!({
+                "branch_id": branch_id,
+                "title": "Tarte au citron",
+                "source": { "text": "YouTube", "link": written },
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{saved}");
+
+        let held = add(
+            &app,
+            &key,
+            json!({ "link": "https://www.youtube.com/shorts/VIDEOID?is=new&t=30" }),
+        );
+        assert_eq!(held["outcome"], json!("already"), "{held}");
+        assert_eq!(held["branch_id"], json!(branch_id));
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&session),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(
+            read["result"]["versions"][0]["content"]["source"]["link"],
+            json!(written),
+            "{read}"
+        );
+    }
+
+    /// Whoever calls `create_recipe`, a code does not reach its Source, and
+    /// any other link is kept to the letter.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_new_recipe_keeps_a_video_link_with_no_code_and_any_other_link_as_written() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let source_of = |link: &str| {
+            let (status, made) = app.post_op(
+                "create_recipe",
+                Some(&session),
+                &json!({ "title": "Tart", "source": { "text": "x", "link": link } }).to_string(),
+            );
+            assert_eq!(status, 200, "{made}");
+            let (_, read) = app.post_op(
+                "get_recipe",
+                Some(&session),
+                &json!({ "branch_id": made["result"]["branch_id"] }).to_string(),
+            );
+            read["result"]["versions"][0]["content"]["source"]["link"].clone()
+        };
+        assert_eq!(
+            source_of("https://www.instagram.com/reel/POSTID/?igsh=code"),
+            json!("https://www.instagram.com/reel/POSTID/")
+        );
+        let page = "https://example.org/tart?utm_source=share";
+        assert_eq!(source_of(page), json!(page));
+    }
+
+    /// The recipe an agent made from a link is in the ledger under that
+    /// link, so Kamosu's own reader finds it and lands no second one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_link_an_agent_read_alone_is_found_by_the_ledger() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        ask_for_work(&app, &runner);
+        let (everything, _) = add_only_key(&app, &session, true);
+        let (plain, _) = add_only_key(&app, &session, false);
+        let base = serve(&[("story", "<html><body><p>Our trip.</p></body></html>".into())]);
+        let story = format!("{base}/pages/story");
+
+        add(&app, &everything, json!({ "link": story }));
+        let work = ask_for_work(&app, &runner);
+        let (status, created) = app.post_op(
+            "create_recipe",
+            work["job_key"].as_str(),
+            // No Source: the ledger is what finds it, and the shelf cannot.
+            &json!({
+                "title": "Tarte au citron",
+                "ingredients": [{ "kind": "ingredient", "text": "4 eggs" }],
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{created}");
+        app.post_op(
+            "report_on_job",
+            Some(&runner),
+            &json!({ "job_id": work["job_id"], "outcome": "completed" }).to_string(),
+        );
+
+        for key in [&plain, &everything] {
+            let again = add(&app, key, json!({ "link": story }));
+            assert_eq!(again["outcome"], json!("already"), "{again}");
+            assert_eq!(again["title"], json!("Tarte au citron"), "{again}");
+            assert_eq!(again["branch_id"], created["result"]["branch_id"]);
+        }
+        assert_eq!(recipes_held(&app), 1);
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_link_answers_sent_when_its_wait_runs_out() {
         let app = support::spawn_app();

@@ -36,6 +36,7 @@ use tokio::sync::mpsc;
 use crate::catalogue;
 use crate::core::{Asker, Caller, ErrorKind, Invocation, OpError, generate_secret, hash_secret};
 use crate::db::Db;
+use crate::video_link::without_tracking;
 
 /// How often a client should look back at a running Job.
 pub const POLL_INTERVAL_MS: i64 = 5000;
@@ -745,7 +746,7 @@ fn insert_on_link(
     let job_id = insert(conn, AGENT_OPERATION, Some(caller), input)?;
     conn.execute(
         "INSERT INTO agent_jobs (job_id, branch_id, link) VALUES (?1, ?2, ?3)",
-        params![job_id, branch_id, link],
+        params![job_id, branch_id, without_tracking(link)],
     )
     .map_err(|e| OpError::internal(format!("cannot record the agent's Job: {e}")))?;
     Ok(job_id)
@@ -841,7 +842,7 @@ pub fn wait_for_agent_on_link_alone(
     let job_id = insert(conn, AGENT_OPERATION, Some(caller), &input)?;
     conn.execute(
         "INSERT INTO agent_jobs (job_id, link) VALUES (?1, ?2)",
-        params![job_id, link],
+        params![job_id, without_tracking(link)],
     )
     .map_err(|e| OpError::internal(format!("cannot record the agent's Job: {e}")))?;
     Ok(job_id)
@@ -1002,9 +1003,10 @@ pub fn cookbook_asked_for(conn: &Connection, job_id: &str) -> Result<Option<Stri
 /// by a second create, which the Core refuses before it runs.
 ///
 /// A Job reading a file also has its Import's ledger name the recipe by the
-/// file's digest, so the same file handed over again finds it (#271). Not
-/// where that Import was forgotten while the Job waited, and not where the
-/// ledger names something else by that digest already. Nor where the recipe
+/// file's digest, so the same file handed over again finds it (#271), and one
+/// reading a link by what that link is matched by (#464). Not where that
+/// Import was forgotten while the Job waited, and not where the ledger names
+/// something else by that digest or link already. Nor where the recipe
 /// is in another Cookbook than the Import, as when the asker left the
 /// Cookbook while the Job waited: that Import's other Co-authors could not
 /// open it.
@@ -1021,13 +1023,14 @@ pub fn take_its_recipe(conn: &Connection, job_id: &str, branch_id: &str) -> Resu
     }
     conn.execute(
         "INSERT OR IGNORE INTO import_ledger (import_id, foreign_id, lineage_id, branch_id)
-         SELECT imports.id, agent_jobs.original_digest, branches.lineage_id, branches.id
+         SELECT imports.id, COALESCE(agent_jobs.original_digest, link_identity(agent_jobs.link)),
+                branches.lineage_id, branches.id
            FROM agent_jobs
            JOIN jobs ON jobs.id = agent_jobs.job_id
            JOIN imports ON imports.id = json_extract(jobs.result, '$.import_id')
            JOIN branches ON branches.id = agent_jobs.branch_id
                         AND branches.cookbook_id = imports.cookbook_id
-          WHERE agent_jobs.job_id = ?1 AND agent_jobs.original_digest IS NOT NULL",
+          WHERE agent_jobs.job_id = ?1",
         params![job_id],
     )
     .map_err(failed)?;

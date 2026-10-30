@@ -2098,6 +2098,19 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 65,
+        description: "the ledger knows a video by its post, not by the code on its link (#464)",
+        sql: r#"
+        -- A link is now landed under what it is matched by. Where one video
+        -- was landed twice under two codes the first row takes that name, and
+        -- the second, which nothing asks for again, stays as it was. A
+        -- recipe's Source is left alone: it is part of its Version's id.
+        UPDATE OR IGNORE import_ledger SET foreign_id = link_identity(foreign_id)
+         WHERE import_id IN (SELECT id FROM imports WHERE source_kind = 'web');
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.
@@ -2213,6 +2226,8 @@ impl Db {
         // computes is worth being able to ask a live database about.
         crate::fingerprint::register(&conn)
             .map_err(|e| OpError::internal(format!("cannot teach SQLite the fingerprint: {e}")))?;
+        crate::video_link::register(&conn)
+            .map_err(|e| OpError::internal(format!("cannot teach SQLite video links: {e}")))?;
         let db = Db {
             conn: Mutex::new(conn),
             data_dir: data_dir.to_path_buf(),
@@ -2467,6 +2482,60 @@ mod tests {
                 ("ak_1".to_string(), true),
                 ("ak_2".to_string(), true),
                 ("ak_3".to_string(), false),
+            ]
+        );
+    }
+
+    /// **Migration 65 names a linked video by its post** (#464), in the
+    /// ledger of links alone. Where one video landed twice the first row
+    /// takes that name, and nothing else moves.
+    #[test]
+    fn migration_65_names_a_linked_video_by_its_post() {
+        let dir = tempfile::tempdir().unwrap();
+        let before_65 = MIGRATIONS
+            .iter()
+            .position(|m| m.version == 65)
+            .expect("migration 65");
+        {
+            let old = Db::open_with_migrations(dir.path(), &MIGRATIONS[..before_65]).unwrap();
+            old.with_conn(|conn| {
+                conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
+                conn.execute_batch(
+                    r#"
+                    INSERT INTO imports (id, cookbook_id, source_kind) VALUES
+                      ('i_web', 'c', 'web'), ('i_file', 'c', 'crouton');
+                    INSERT INTO import_ledger (import_id, foreign_id, lineage_id, branch_id) VALUES
+                      ('i_web', 'https://youtu.be/VIDEOID?si=one', 'l1', 'b1'),
+                      ('i_web', 'https://youtu.be/VIDEOID?si=two', 'l2', 'b2'),
+                      ('i_web', 'https://example.org/tart?utm_source=x', 'l3', 'b3'),
+                      ('i_file', 'https://youtu.be/VIDEOID?si=one', 'l4', 'b4');
+                    "#,
+                )
+                .map_err(|e| OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        }
+        let db = Db::open(dir.path()).unwrap();
+        let ledger: Vec<(String, String)> = db
+            .with_conn(|conn| {
+                let mut statement = conn
+                    .prepare("SELECT branch_id, foreign_id FROM import_ledger ORDER BY branch_id")
+                    .unwrap();
+                Ok(statement
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .unwrap()
+                    .collect::<Result<_, _>>()
+                    .unwrap())
+            })
+            .unwrap();
+        let row = |branch: &str, foreign: &str| (branch.to_string(), foreign.to_string());
+        assert_eq!(
+            ledger,
+            [
+                row("b1", "https://www.youtube.com/watch?v=VIDEOID"),
+                row("b2", "https://youtu.be/VIDEOID?si=two"),
+                row("b3", "https://example.org/tart?utm_source=x"),
+                row("b4", "https://youtu.be/VIDEOID?si=one"),
             ]
         );
     }
