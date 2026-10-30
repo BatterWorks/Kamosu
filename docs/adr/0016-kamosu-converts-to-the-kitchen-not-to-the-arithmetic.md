@@ -1,6 +1,8 @@
 # Kamosu converts to the kitchen, not to the arithmetic
 
-A **unit** is whatever the cook wrote. Kamosu ships a closed list of units it can do arithmetic on — gram, kilogram, millilitre, litre, teaspoon, tablespoon, cup, fluid ounce, ounce, pound, and a few explicitly-named regional variants — each knowing its own spellings in the three interface languages, so `g`, `gr`, `gramme`, `grammes` and `grams` are one unit. Anything else — `poignée`, `noix`, `sachet`, `bottle` — is kept exactly as written, is a perfectly legitimate unit, and simply never offers a conversion. **The unit set is open; the convertible set is closed.**
+_(Amended by [ADR 0057](./0057-a-languages-words-are-data-and-its-grammar-is-code.md), #495: each Language's spellings of a Unit are data in its own word file.)_
+
+A **unit** is whatever the cook wrote. Kamosu ships a closed list of units it can do arithmetic on — gram, kilogram, millilitre, litre, teaspoon, tablespoon, cup, fluid ounce, ounce, pound, and a few explicitly-named regional variants — each spelled in every language's word file ([ADR 0057](./0057-a-languages-words-are-data-and-its-grammar-is-code.md)), so `g`, `gr`, `gramme`, `grammes` and `grams` are one unit. Anything else — `poignée`, `noix`, `sachet`, `bottle` — is kept exactly as written, is a perfectly legitimate unit, and simply never offers a conversion. **The unit set is open; the convertible set is closed.**
 
 A conversion is never a rewrite. The **Ingredient Line** stays verbatim ([ADR 0002](./0002-the-written-ingredient-line-is-the-truth.md)), and beneath it sits **one** number: how much, for you, right now — scaled to the Yield being cooked and expressed in your **Reading Measures**, a per-person setting alongside **Reading Language**. It is absent when it would only repeat the line unchanged, so a recipe already in your measures at its written Yield is untouched.
 

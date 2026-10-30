@@ -18,13 +18,13 @@
 //! worker. Measured against the corpus, the two credible libraries both lost
 //! to ninety lines resting on [`crate::units`] — because both carry their own
 //! **English-only** vocabulary of Units, and Kamosu already has that
-//! vocabulary in three Languages. `20 cl de crème fraîche` is a line neither
+//! vocabulary in several Languages. `20 cl de crème fraîche` is a line neither
 //! library reads and this one does. See ADR 0036 for the measurement.
 //!
 //! **So the split is the only thing here.** Where the number ends, where the
 //! Unit ends and where the Food begins is this module's whole question;
 //! *what the number is worth* is [`crate::units::parse_amount`] and *what the
-//! Unit is* is [`crate::units::recognise`], both of which already existed.
+//! Unit is* is [`Words::unit`], both of which already existed.
 //!
 //! ## The one rule that shapes the rest
 //!
@@ -35,12 +35,12 @@
 //! a Unit of breasts, and a Food list fills with words that are not foods.
 //!
 //! [`Words::open_units`] is therefore not a second vocabulary competing with
-//! [`crate::units`], which was the whole objection to the libraries: it is the
+//! the closed set, which was the whole objection to the libraries: it is the
 //! **open** half ADR 0016 says `units.rs` deliberately does not hold, because
 //! nothing in it converts to anything. `units.rs` answers *what is this Unit
-//! worth*; these words never have an answer, and are listed here only so the
-//! split knows where a Food begins. Every word that does convert is looked up
-//! there and defined nowhere else.
+//! worth*; these words never have an answer, and are listed only so the split
+//! knows where a Food begins. Each Language's words are in its word file
+//! ([`crate::words`], ADR 0057).
 
 use crate::units;
 use crate::words::{self, Phrases, Words, folded, folded_keeping_accents};
@@ -621,7 +621,7 @@ fn opens_a_fixed_name(lists: &Words, words: &[&str]) -> bool {
 }
 
 /// **Whether a Food still carries a [`Words::to_taste`] phrase** anywhere in its
-/// name, in any of the three Languages: the other fault #163 fixed, asked by
+/// name, in English, French or Spanish: the other fault #163 fixed, asked by
 /// the corpus test of every Reading.
 pub fn keeps_to_taste(target: &str) -> bool {
     let words: Vec<&str> = target.split_whitespace().collect();

@@ -331,7 +331,7 @@ const FRACTIONS: &[(char, f64)] = &[
 /// read is shown whole rather than guessed at (ADR 0002), which here means no
 /// subordinate line at all.
 ///
-/// It reads `2`, `2.5`, `2,5` (the French decimal comma), `1/2`, `1 1/2`, `½`
+/// It reads `2`, `2.5`, `2,5` (the decimal comma), `1/2`, `1 1/2`, `½`
 /// and `4½`.
 pub fn parse_amount(text: &str) -> Option<f64> {
     let text = text.trim();
@@ -923,7 +923,7 @@ fn round_to(quantity: f64, unit: Option<&'static Unit>) -> f64 {
 
 // --- Wording it --------------------------------------------------------------
 
-/// "about", in the three interface Languages.
+/// "about", in the Languages Kamosu words things in.
 ///
 /// It is unconditional. Kamosu rounded, every time, so "about" is true every
 /// time — and a mark that appears *sometimes* teaches people that its absence
@@ -941,7 +941,7 @@ fn about(language: &str) -> &'static str {
 
 /// How a Unit is written for a reader, singular and plural. Only the cup needs
 /// both: every other member of the closed set is written as an invariant
-/// symbol or abbreviation in all three Languages.
+/// symbol or abbreviation in every Language.
 fn display(unit: &Unit, language: &str, plural: bool) -> String {
     let word = match (unit.id, language, plural) {
         ("cup", "fr", false) => "tasse",

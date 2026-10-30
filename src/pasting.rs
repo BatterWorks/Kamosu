@@ -47,8 +47,8 @@
 //! Three signals that clean need no fourth. The amount and the Unit are read
 //! by [`crate::reading::read_line`] rather than by a leading-digit test, which
 //! is what makes this work outside English: `20 cl de crème fraîche` is a line
-//! `reading.rs` reads in full, because [`crate::units`] holds the Unit
-//! vocabulary in three Languages.
+//! `reading.rs` reads in full, because each Language's word file holds its
+//! Unit vocabulary.
 //!
 //! **The boundary is found exactly in 81.2% of them (65 of 80) and within
 //! one line in 95.0% (76 of 80)**, against the 92% within-one-line bar #94 set
@@ -86,7 +86,7 @@
 //!
 //! **The one exception is a fixed list of words** (#176): a line that is
 //! exactly `Ingrédients`, `Préparation`, `Method`, `Instructions`,
-//! `Preparación` and a few more in the three Languages is a heading with no
+//! `Preparación` and a few more in each Language is a heading with no
 //! colon. That does not reopen the refusal above. A list of whole lines names
 //! what a heading *is*, and `Salt and pepper` is on no list; a rule about the
 //! shape of a line would guess. And a heading heads what follows it, so one
@@ -381,7 +381,7 @@ fn unbulleted(line: &str) -> Option<&str> {
 
 // --- Headings known by name (#176) ------------------------------------------
 //
-// Two short, fixed lists, in the three Languages Kamosu reads. They are the
+// Short, fixed lists, one set per Language, in the word files. They are the
 // only words recognised as headings without a colon, and only when the line
 // is that word and nothing else: the module header's reason for refusing the
 // wider Title Case rule still holds, and a fixed list of whole lines cannot

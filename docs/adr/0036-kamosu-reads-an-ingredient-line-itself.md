@@ -1,8 +1,10 @@
 # Kamosu reads an Ingredient Line itself
 
+_(Amended by [ADR 0057](./0057-a-languages-words-are-data-and-its-grammar-is-code.md), #495: the reader's vocabulary is data, one file per Language, and a recipe's Language says which files read it.)_
+
 **Kamosu reads its own Ingredient Lines, in its own process, off the Unit vocabulary and amount reader it already owns.** There is no `ingredient-parser-nlp` subprocess worker, no Python in the image, and no vendored parsing crate.
 
-Reading a line is one job: deciding where the number ends, where the **Unit** ends and where the **Food** begins. What the number is worth and what the Unit is were already answered by `src/units.rs`, which spells every convertible Unit in all three interface Languages. `src/reading.rs` is the split and nothing else.
+Reading a line is one job: deciding where the number ends, where the **Unit** ends and where the **Food** begins. What the number is worth and what the Unit is were already answered by `src/units.rs`, with every convertible Unit spelled in each Language's word file ([ADR 0057](./0057-a-languages-words-are-data-and-its-grammar-is-code.md)). `src/reading.rs` is the split and nothing else.
 
 This **reverses** [#71](https://github.com/BatterWorks/Kamosu/issues/71)'s first acceptance criterion and the line in the spec ([#32](https://github.com/BatterWorks/Kamosu/issues/32)) deferring ingredient parsing to a subprocess worker. It leaves [ADR 0021](./0021-a-reading-is-kamosus-reading-not-the-recipe.md) standing exactly as written: that ADR's argument is that *a parser is a moving part and must stay outside the fingerprint*, which is true of a parser in this process as much as one in another — more so, since this one is now ours to change.
 

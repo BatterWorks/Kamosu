@@ -146,12 +146,12 @@ pub fn router(core: Arc<Core>) -> Router {
 
 // ── The words ────────────────────────────────────────────────────────────────
 
-/// The page's own words, in the three Languages Kamosu speaks.
+/// The page's own words, in the Languages Kamosu speaks.
 ///
 /// Written here rather than compiled by Paraglide because this page is Rust and
 /// Paraglide compiles to TypeScript. They are the only prose the server
 /// renders; anything else belongs in the app, where Paraglide already checks
-/// that all three Languages carry every phrase.
+/// that every Language carries every phrase.
 ///
 /// The Language chosen is the **recipe's**, not the reader's — a stranger
 /// arriving from a link has told Kamosu nothing, and the one thing known about
