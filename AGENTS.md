@@ -520,6 +520,11 @@ src/step_uses.rs    which Ingredient Lines a Step uses, by the short names
                     Branch's Language puts it (#212). A line is taken from
                     the section the Step works in, and the food itself
                     before what is made from it (#439)
+src/video_link.rs   a link to an Instagram, YouTube or TikTok post told
+                    apart from the code each share adds: what two links are
+                    matched by, also as `link_identity` in SQL, and what a
+                    recipe's Source keeps. Its real shapes are in
+                    tests/fixtures/shared-links.json (#464)
 src/page_text.rs    the text of a page's own article, found as a reader
                     would and written out as a browser copies it, for a
                     link with no recipe data on an instance with no

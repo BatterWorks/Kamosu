@@ -18,7 +18,13 @@ impl Core {
         language: Option<&str>,
         into: Option<&str>,
     ) -> Result<Value, OpError> {
-        let content = parse_recipe_content(input)?;
+        let mut content = parse_recipe_content(input)?;
+        // A code on a video's link names who shared it, and a new recipe does
+        // not pass that on (#464). A save keeps what it is given: a Version's
+        // Source is part of its id, and an existing recipe stays as written.
+        if let Some(link) = content["source"]["link"].as_str() {
+            content["source"]["link"] = json!(crate::video_link::without_tracking(link));
+        }
         let (version_id, content_text) = stored_version(&content);
         let lineage_id = format!("l_{}", hex::encode(random_bytes(8)));
         let branch_id = format!("b_{}", hex::encode(random_bytes(8)));

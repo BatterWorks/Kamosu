@@ -1,0 +1,140 @@
+{
+  "about": "Links as phones really shared them to Kamosu, with each id and code replaced. `link` is what arrived, `source` is what a recipe's Source keeps, `identity` is what two links are matched by. A link the three sites serve in a new shape goes here (#464).",
+  "links": [
+    {
+      "link": "https://www.instagram.com/reel/POSTID/",
+      "source": "https://www.instagram.com/reel/POSTID/",
+      "identity": "https://www.instagram.com/p/POSTID/"
+    },
+    {
+      "link": "https://www.instagram.com/reel/POSTID/?igsh=CODE",
+      "source": "https://www.instagram.com/reel/POSTID/",
+      "identity": "https://www.instagram.com/p/POSTID/"
+    },
+    {
+      "link": "https://www.instagram.com/reel/POSTID/?igsi=CODE",
+      "source": "https://www.instagram.com/reel/POSTID/",
+      "identity": "https://www.instagram.com/p/POSTID/"
+    },
+    {
+      "link": "https://www.instagram.com/reel/POSTID/?stkn=CODE",
+      "source": "https://www.instagram.com/reel/POSTID/",
+      "identity": "https://www.instagram.com/p/POSTID/"
+    },
+    {
+      "link": "https://www.instagram.com/reel/POSTID/?cplk=CODE",
+      "source": "https://www.instagram.com/reel/POSTID/",
+      "identity": "https://www.instagram.com/p/POSTID/"
+    },
+    {
+      "link": "https://www.instagram.com/reel/POSTID/?srtk=CODE",
+      "source": "https://www.instagram.com/reel/POSTID/",
+      "identity": "https://www.instagram.com/p/POSTID/"
+    },
+    {
+      "link": "https://www.instagram.com/reel/POSTID/?dlrf=CODE",
+      "source": "https://www.instagram.com/reel/POSTID/",
+      "identity": "https://www.instagram.com/p/POSTID/"
+    },
+    {
+      "link": "https://www.instagram.com/reel/POSTID/?mdxt=CODE",
+      "source": "https://www.instagram.com/reel/POSTID/",
+      "identity": "https://www.instagram.com/p/POSTID/"
+    },
+    {
+      "link": "https://www.instagram.com/reel/POSTID/?exln=CODE",
+      "source": "https://www.instagram.com/reel/POSTID/",
+      "identity": "https://www.instagram.com/p/POSTID/"
+    },
+    {
+      "link": "https://www.instagram.com/reel/POSTID/?psln=CODE",
+      "source": "https://www.instagram.com/reel/POSTID/",
+      "identity": "https://www.instagram.com/p/POSTID/"
+    },
+    {
+      "link": "https://www.instagram.com/reel/POSTID/?rpxt=CODE",
+      "source": "https://www.instagram.com/reel/POSTID/",
+      "identity": "https://www.instagram.com/p/POSTID/"
+    },
+    {
+      "link": "https://www.instagram.com/p/POSTID/?igsh=CODE",
+      "source": "https://www.instagram.com/p/POSTID/",
+      "identity": "https://www.instagram.com/p/POSTID/"
+    },
+    {
+      "link": "https://www.youtube.com/watch?v=VIDEOID",
+      "source": "https://www.youtube.com/watch?v=VIDEOID",
+      "identity": "https://www.youtube.com/watch?v=VIDEOID"
+    },
+    {
+      "link": "https://youtube.com/watch?v=VIDEOID&si=CODE",
+      "source": "https://youtube.com/watch?v=VIDEOID",
+      "identity": "https://www.youtube.com/watch?v=VIDEOID"
+    },
+    {
+      "link": "https://www.youtube.com/watch?v=VIDEOID&feature=CODE",
+      "source": "https://www.youtube.com/watch?v=VIDEOID",
+      "identity": "https://www.youtube.com/watch?v=VIDEOID"
+    },
+    {
+      "link": "https://www.youtube.com/watch?v=VIDEOID&t=95",
+      "source": "https://www.youtube.com/watch?v=VIDEOID&t=95",
+      "identity": "https://www.youtube.com/watch?v=VIDEOID"
+    },
+    {
+      "link": "https://youtube.com/shorts/VIDEOID",
+      "source": "https://youtube.com/shorts/VIDEOID",
+      "identity": "https://www.youtube.com/watch?v=VIDEOID"
+    },
+    {
+      "link": "https://youtube.com/shorts/VIDEOID?si=CODE",
+      "source": "https://youtube.com/shorts/VIDEOID",
+      "identity": "https://www.youtube.com/watch?v=VIDEOID"
+    },
+    {
+      "link": "https://youtube.com/shorts/VIDEOID?is=CODE",
+      "source": "https://youtube.com/shorts/VIDEOID",
+      "identity": "https://www.youtube.com/watch?v=VIDEOID"
+    },
+    {
+      "link": "https://www.youtube.com/shorts/VIDEOID?cbrd=CODE&ucbcb=CODE",
+      "source": "https://www.youtube.com/shorts/VIDEOID",
+      "identity": "https://www.youtube.com/watch?v=VIDEOID"
+    },
+    {
+      "link": "https://youtu.be/VIDEOID",
+      "source": "https://youtu.be/VIDEOID",
+      "identity": "https://www.youtube.com/watch?v=VIDEOID"
+    },
+    {
+      "link": "https://youtu.be/VIDEOID?si=CODE",
+      "source": "https://youtu.be/VIDEOID",
+      "identity": "https://www.youtube.com/watch?v=VIDEOID"
+    },
+    {
+      "link": "https://youtu.be/VIDEOID?is=CODE",
+      "source": "https://youtu.be/VIDEOID",
+      "identity": "https://www.youtube.com/watch?v=VIDEOID"
+    },
+    {
+      "link": "https://www.tiktok.com/@somecook/video/7000000000000000000",
+      "source": "https://www.tiktok.com/@somecook/video/7000000000000000000",
+      "identity": "https://www.tiktok.com/video/7000000000000000000"
+    },
+    {
+      "link": "https://www.tiktok.com/@somecook/video/7000000000000000000?is_from_webapp=1&sender_device=pc",
+      "source": "https://www.tiktok.com/@somecook/video/7000000000000000000",
+      "identity": "https://www.tiktok.com/video/7000000000000000000"
+    }
+  ],
+  "left_as_they_are": [
+    "https://www.seriouseats.com/lemon-tart-recipe?utm_source=share",
+    "https://www.instagram.com/somecook/",
+    "https://www.instagram.com/reels/audio/1234567890/",
+    "https://www.instagram.com/share/reel/TOKEN/",
+    "https://www.youtube.com/embed/videoseries?list=CODE",
+    "https://www.youtube.com/@somecook",
+    "https://www.youtube.com/watch",
+    "https://vm.tiktok.com/SHORTCODE/"
+  ]
+}

@@ -226,6 +226,7 @@ impl Core {
                 crate::operations::LONGEST_LINK
             )));
         }
+        let link = &crate::video_link::without_tracking(link);
         if let Some((branch_id, title)) = self.on_a_shelf(caller, link)? {
             return Ok(
                 Answer::new(Outcome::Already, Said::AlreadyOnShelf(title)).recipe(Some(&branch_id))
@@ -277,10 +278,17 @@ impl Core {
             };
         }
         let report = record.result.unwrap_or_default();
-        if report["agent_jobs"]
-            .as_array()
-            .is_some_and(|jobs| !jobs.is_empty())
-        {
+        // A Job that has ended already read this link: the recipe is held,
+        // and nothing was sent.
+        let reading = report["agent_jobs"].as_array().is_some_and(|named| {
+            named.iter().any(|job| {
+                job["job_id"]
+                    .as_str()
+                    .and_then(|job_id| jobs::read(self, job_id).ok().flatten())
+                    .is_some_and(|job| !has_ended(&job))
+            })
+        });
+        if reading {
             return self.sent_to_agent();
         }
         let arrived = report["arrived"].as_array().and_then(|rows| {
@@ -289,7 +297,7 @@ impl Core {
                 .or(rows.first())
         });
         // The ledger knows a recipe by its page's own address, after
-        // redirects: a link that only led there is that recipe, which arrives
+        // redirects, and a video by its post: a link that only led there is that recipe, which arrives
         // unchanged, or is offered where it has changed since.
         let known = report["offered"].as_array().and_then(|rows| rows.first());
         let named = |row: &Value| row["title"].as_str().unwrap_or_default().to_string();
@@ -322,12 +330,7 @@ impl Core {
             loop {
                 let record = jobs::read(self, job_id)?
                     .ok_or_else(|| OpError::internal("the link's Job went missing"))?;
-                if matches!(
-                    record.status,
-                    jobs::JobStatus::Completed
-                        | jobs::JobStatus::Failed
-                        | jobs::JobStatus::Cancelled
-                ) {
+                if has_ended(&record) {
                     return Ok(Some(record));
                 }
                 if Instant::now() >= until {
@@ -338,21 +341,33 @@ impl Core {
         })
     }
 
-    /// A recipe the caller can see whose Source is this link, and its name.
+    /// A recipe the caller can see that came from this link, or from another
+    /// link to the same video, and its name: its Source says so, or the ledger
+    /// of links does, for a recipe whose Source has changed or names none.
     fn on_a_shelf(&self, caller: &Caller, link: &str) -> Result<Option<(String, String)>, OpError> {
         self.db().with_conn(|conn| {
             conn.query_row(
                 &format!(
                     "SELECT branches.id, COALESCE(json_extract(versions.content, '$.title'), '')
                        FROM branches JOIN versions ON versions.id = branches.head_version_id
-                      WHERE json_extract(versions.content, '$.source.link') = ?1
+                      WHERE (link_identity(json_extract(versions.content, '$.source.link')) = ?1
+                             OR branches.id IN (
+                                SELECT import_ledger.branch_id
+                                  FROM import_ledger
+                                  JOIN imports ON imports.id = import_ledger.import_id
+                                 WHERE imports.source_kind = ?3
+                                   AND link_identity(import_ledger.foreign_id) = ?1))
                         AND {}
                       ORDER BY {}
                       LIMIT 1",
                     visible_to("branches", "?2"),
                     own_first("branches", "?2"),
                 ),
-                params![link, caller.person_id],
+                params![
+                    crate::video_link::link_identity(link),
+                    caller.person_id,
+                    jobs::LINK_SOURCE
+                ],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
@@ -360,8 +375,9 @@ impl Core {
         })
     }
 
-    /// One of the caller's own imports of this link that waits or runs:
-    /// Kamosu reading its page, or an agent reading it.
+    /// One of the caller's own imports of this link, or of another link to
+    /// the same video, that waits or runs: Kamosu reading its page, or an
+    /// agent reading it.
     fn being_added(&self, caller: &Caller, link: &str) -> Result<Option<String>, OpError> {
         self.db().with_conn(|conn| {
             conn.query_row(
@@ -369,11 +385,11 @@ impl Core {
                    LEFT JOIN agent_jobs ON agent_jobs.job_id = jobs.id
                   WHERE jobs.person_id = ?2 AND jobs.status IN ('queued', 'running')
                     AND ((jobs.operation = 'import_web_link'
-                          AND json_extract(jobs.input, '$.url') = ?1)
-                         OR agent_jobs.link = ?1)
+                          AND link_identity(json_extract(jobs.input, '$.url')) = ?1)
+                         OR link_identity(agent_jobs.link) = ?1)
                   ORDER BY jobs.created_at
                   LIMIT 1",
-                params![link, caller.person_id],
+                params![crate::video_link::link_identity(link), caller.person_id],
                 |row| row.get(0),
             )
             .optional()
@@ -428,6 +444,13 @@ pub const PAGE_REFUSED: &str = "page_refused";
 /// The refusal `import_web_link` asked with `refuse_unread` fails with where
 /// a page holds no recipe data and there is no Runner to read it.
 pub const NOT_READ_ALONE: &str = "not_read_alone";
+
+fn has_ended(job: &JobRecord) -> bool {
+    matches!(
+        job.status,
+        jobs::JobStatus::Completed | jobs::JobStatus::Failed | jobs::JobStatus::Cancelled
+    )
+}
 
 /// Text that is a link and nothing else, as an app that shares links as text
 /// sends one.

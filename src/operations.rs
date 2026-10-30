@@ -1630,6 +1630,7 @@ pub fn import_web_link(
             html,
             effective_url,
         } => {
+            let effective_url = crate::video_link::without_tracking(&effective_url);
             let parsed = crate::web_import::extract_recipe(&html, &effective_url);
             if refuse_unread && !parsed.found_recipe {
                 return Err(OpError::refused_because(
@@ -1654,10 +1655,13 @@ pub fn import_web_link(
         }
         // A page that refused Kamosu may let an agent in (ADR 0048), so it
         // lands as a bare recipe for the agent to fill.
-        crate::web_import::Page::Refused { effective_url, .. } if has_runner => (
-            crate::web_import::unread_page(&effective_url),
-            effective_url,
-        ),
+        crate::web_import::Page::Refused { effective_url, .. } if has_runner => {
+            let effective_url = crate::video_link::without_tracking(&effective_url);
+            (
+                crate::web_import::unread_page(&effective_url),
+                effective_url,
+            )
+        }
         crate::web_import::Page::Refused { status, .. } => {
             return Err(OpError::refused_because(
                 crate::core::PAGE_REFUSED,
@@ -1719,7 +1723,7 @@ pub fn import_web_link(
         .map(|calories| json!({ "calories": calories, "basis": "per_serving" }));
 
     let candidate = json!({
-        "foreign_id": effective_url,
+        "foreign_id": crate::video_link::link_identity(&effective_url),
         "title": parsed.title,
         "yield": recipe_yield,
         "prep_time_minutes": parsed.prep_time_minutes,

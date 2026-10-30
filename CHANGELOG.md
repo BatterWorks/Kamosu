@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- Sharing a video Kamosu already holds, or is already reading, says so instead of starting it again, whichever tracking code Instagram, YouTube or TikTok put on the link that time. A recipe added from such a link now keeps it without the code, which names who shared it. [#464]
+
+[#464]: https://github.com/BatterWorks/Kamosu/issues/464
+
 ## v0.5.0 - 2026-10-29
 
 ### After upgrading

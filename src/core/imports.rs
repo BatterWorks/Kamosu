@@ -980,8 +980,8 @@ impl Core {
     /// text is handed over (#269): a Job that waits for a Runner with no
     /// recipe, whose agent creates it in the caller's own Cookbook under
     /// their Hand. Kamosu never fetches the link itself, so no bare recipe
-    /// lands from the page's title. The same link sent again is not matched,
-    /// and makes a Job of its own.
+    /// lands from the page's title. The same link sent again here is not
+    /// matched, and makes a Job of its own: `add_this` asks first.
     ///
     /// The answer is the Job's id. Its result is an Import Report from the
     /// moment it is asked for, under the source a link imported is listed
@@ -1531,7 +1531,7 @@ impl LandedShape {
                 .as_str()
                 .map(str::trim)
                 .filter(|link| !link.is_empty())
-                .map(str::to_string),
+                .map(crate::video_link::link_identity),
         }
     }
 }
