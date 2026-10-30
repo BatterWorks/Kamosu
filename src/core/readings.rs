@@ -487,7 +487,7 @@ impl Core {
         let mut wanted: Vec<(String, String)> = Vec::new();
         for name in names {
             let name = required_text(name, "names")?.to_string();
-            let folded = food_key(&language, &name);
+            let folded = food_key(language, &name);
             if !wanted.iter().any(|(_, held)| *held == folded) {
                 wanted.push((name, folded));
             }
