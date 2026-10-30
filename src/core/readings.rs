@@ -1646,7 +1646,10 @@ pub(super) fn measured_for_version(
 
     let readings = readings_to_measure(conn, version_id)?;
     // What decides a bare `180°` in a Step, which could be either dial (#150).
-    let written_in = units::written_in(readings.iter().filter_map(|r| r.unit.as_deref()));
+    let written_in = units::written_in_words(
+        crate::words::of(written_in_language),
+        readings.iter().filter_map(|r| r.unit.as_deref()),
+    );
 
     // A Step's truth is its text, so everything here is an addition beside it
     // and never written into it (GLOSSARY.md, ADR 0016): the oven in the other
@@ -1663,8 +1666,14 @@ pub(super) fn measured_for_version(
             let Some(text) = line["text"].as_str() else {
                 return Value::Null;
             };
-            let oven = units::step_temperature(text, measures, language, written_in)
-                .map(|oven| (oven.start, oven.written(text), oven.measured));
+            let oven = units::step_temperature_in(
+                written_in_language,
+                text,
+                measures,
+                language,
+                written_in,
+            )
+            .map(|oven| (oven.start, oven.written(text), oven.measured));
             // The Step is read in the Language it is written in, and the
             // additions worded in the reader's (#397).
             let amounts = crate::reading::amounts_in_step(text, written_in_language)
@@ -1675,7 +1684,8 @@ pub(super) fn measured_for_version(
                         .as_deref()
                         .and_then(|food| line_named_first(&readings, food))
                         .and_then(|reading| reading.cup_weight);
-                    let measured = units::measured_line(
+                    let measured = units::measured_line_in(
+                        written_in_language,
                         Some(&amount.amount),
                         Some(&amount.unit),
                         scale,
@@ -1770,6 +1780,7 @@ pub(super) fn readings_to_measure(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| OpError::internal(format!("cannot read Readings to measure: {e}")))?;
 
+    let written_in_language = written_language(conn, version_id)?;
     Ok(rows
         .into_iter()
         .map(
@@ -1789,6 +1800,7 @@ pub(super) fn readings_to_measure(
                     unit,
                     target,
                     cup_weight,
+                    written_in_language: written_in_language.clone(),
                     food_id,
                 }
             },
@@ -1815,6 +1827,27 @@ impl Reader {
     }
 }
 
+/// **The Language a Version is written in**, as the Branch that holds it says,
+/// and [`crate::language::UNKNOWN`] where none does. Which words read its Units
+/// hang on this (ADR 0057).
+pub(super) fn written_language(conn: &Connection, version_id: &str) -> Result<String, OpError> {
+    conn.query_row(
+        "SELECT COALESCE(branch_versions.language, branches.language) \
+           FROM branch_versions JOIN branches ON branches.id = branch_versions.branch_id \
+          WHERE branch_versions.version_id = ?1 \
+          ORDER BY branches.id LIMIT 1",
+        params![version_id],
+        |row| row.get::<_, Option<String>>(0),
+    )
+    .optional()
+    .map(|language| {
+        language
+            .flatten()
+            .unwrap_or_else(|| crate::language::UNKNOWN.to_string())
+    })
+    .map_err(|e| OpError::internal(format!("cannot read a Version's Language: {e}")))
+}
+
 /// One Reading that might carry a measurement, with the effective Cup Weight of
 /// the Food it points at.
 pub(super) struct Measurable {
@@ -1825,6 +1858,9 @@ pub(super) struct Measurable {
     /// Line by it, and borrows that line's Cup Weight (#150).
     pub(super) target: Option<String>,
     pub(super) cup_weight: Option<f64>,
+    /// The Language the line is written in, whose words say which Unit it
+    /// names.
+    pub(super) written_in_language: String,
     /// The Food this Reading points at, where it found one. Unused when a
     /// recipe is merely being read; a Shopping Row is built on it (#73), and
     /// it rides here rather than in a reader of its own so that a cup of flour
@@ -1835,7 +1871,8 @@ pub(super) struct Measurable {
 impl Measurable {
     /// The one subordinate line this Reading produces for one reader, or null.
     fn worded(&self, reader: &Reader, scale: f64) -> Value {
-        units::measured_line(
+        units::measured_line_in(
+            &self.written_in_language,
             self.amount.as_deref(),
             self.unit.as_deref(),
             scale,

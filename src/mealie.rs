@@ -431,10 +431,17 @@ fn read_recipe(recipe: &Value, shape: Shape) -> Result<ReadRecipe, String> {
         .map(|(_, name)| name.as_str())
         .collect();
 
+    let written_in = crate::language::detect_content(&json!({
+        "title": title,
+        "ingredients": ingredients,
+        "steps": steps,
+    }))
+    .unwrap_or(crate::language::UNKNOWN);
     let mut candidate = json!({
         "title": title,
-        "prep_time_minutes": minutes(recipe, "prep_time"),
-        "cook_time_minutes": minutes(recipe, "perform_time").or_else(|| minutes(recipe, "cook_time")),
+        "prep_time_minutes": minutes(recipe, "prep_time", written_in),
+        "cook_time_minutes": minutes(recipe, "perform_time", written_in)
+            .or_else(|| minutes(recipe, "cook_time", written_in)),
         "source": text(recipe, "org_url").map_or(Value::Null, |link| other_apps::source_of_link(&link)),
         "nutrition": nutrition(recipe),
         "ingredients": ingredients,
@@ -695,13 +702,13 @@ fn as_sentence(heading: &str) -> String {
 
 /// One of Mealie's free-text times in whole minutes, or the seconds Mealie 3
 /// keeps beside it where it has them.
-fn minutes(recipe: &Value, field: &str) -> Option<i64> {
+fn minutes(recipe: &Value, field: &str, language: &str) -> Option<i64> {
     let seconds = recipe[format!("{field}_seconds")]
         .as_f64()
         .filter(|seconds| *seconds > 0.0)
         .or_else(|| {
             let written = text(recipe, field)?;
-            crate::units::step_duration(&written).map(|seconds| seconds as f64)
+            crate::units::step_duration(&written, language).map(|seconds| seconds as f64)
         })?;
     let minutes = (seconds / 60.0).round() as i64;
     (minutes > 0).then_some(minutes)

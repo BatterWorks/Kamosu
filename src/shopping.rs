@@ -98,6 +98,23 @@ impl Part {
 /// own words, then *some* — so two readings of one list put the same amount
 /// first, and so the amount Kamosu is most confident about leads.
 pub fn parts_for(contributions: &[Contribution], measures: Measures, language: &str) -> Vec<Part> {
+    let read = contributions
+        .iter()
+        .map(|contribution| {
+            let unit = contribution.unit.as_deref().and_then(units::recognise);
+            (contribution, unit)
+        })
+        .collect::<Vec<_>>();
+    parts_read(&read, measures, language)
+}
+
+/// [`parts_for`], each contribution with the Unit its own recipe's Language
+/// read it as: the words of a Dutch line are no words of an English one.
+fn parts_read(
+    contributions: &[(&Contribution, Option<&'static units::Unit>)],
+    measures: Measures,
+    language: &str,
+) -> Vec<Part> {
     let mut grams = 0.0f64;
     let mut millilitres = 0.0f64;
     let mut count = 0.0f64;
@@ -110,7 +127,7 @@ pub fn parts_for(contributions: &[Contribution], measures: Measures, language: &
     let mut count_from: Vec<String> = Vec::new();
     let mut unstated_from: Vec<String> = Vec::new();
 
-    for contribution in contributions {
+    for &(contribution, known) in contributions {
         let Some(amount) = contribution.amount else {
             remember(&mut unstated_from, &contribution.recipe);
             continue;
@@ -119,9 +136,7 @@ pub fn parts_for(contributions: &[Contribution], measures: Measures, language: &
         // A reader who asked for her Units left alone gets them left alone: a
         // known Unit takes the same road as an unknown one, so nothing is
         // converted and identical words still add.
-        let known = word
-            .filter(|_| measures != Measures::AsWritten)
-            .and_then(units::recognise);
+        let known = known.filter(|_| measures != Measures::AsWritten);
         match (known, word) {
             // A number with no Unit at all is a count of things.
             (None, None) => {
@@ -295,7 +310,8 @@ pub fn rows(
     // than as a list searched from the top for every line: a list of a few
     // recipes is already several hundred Ingredient Lines, and the order still
     // has to be the order they arrived in so that two reads of one list agree.
-    let mut foods: std::collections::HashMap<&str, (Vec<Contribution>, &Value)> =
+    type Read = (Contribution, Option<&'static units::Unit>);
+    let mut foods: std::collections::HashMap<&str, (Vec<Read>, &Value)> =
         std::collections::HashMap::new();
     let mut food_order: Vec<&str> = Vec::new();
     let mut out: Vec<Value> = Vec::new();
@@ -325,6 +341,7 @@ pub fn rows(
                 }));
                 continue;
             };
+            let known = food["unit_id"].as_str().and_then(units::by_id);
             let contribution = Contribution {
                 recipe: recipe.to_string(),
                 text: text.to_string(),
@@ -340,7 +357,7 @@ pub fn rows(
                     (Vec::new(), food)
                 })
                 .0
-                .push(contribution);
+                .push((contribution, known));
         }
     }
 
@@ -357,15 +374,22 @@ pub fn rows(
             // be asked about.
             "name": food["name"].as_str().unwrap_or_else(|| contributions
                 .first()
-                .map(|first| first.text.as_str())
+                .map(|(first, _)| first.text.as_str())
                 .unwrap_or_default()),
             // Which Language that name is in, so a name borrowed from another
             // Language can be marked as borrowed (GLOSSARY.md, "Shopping Row").
             "name_language": food["name_language"],
-            "parts": parts_json(&parts_for(&contributions, measures, language)),
+            "parts": parts_json(&parts_read(
+                &contributions
+                    .iter()
+                    .map(|(contribution, known)| (contribution, *known))
+                    .collect::<Vec<_>>(),
+                measures,
+                language,
+            )),
             "lines": contributions
                 .iter()
-                .map(|contribution| json!({
+                .map(|(contribution, _)| json!({
                     "branch_id": contribution.branch_id,
                     "recipe": contribution.recipe,
                     "text": contribution.text,

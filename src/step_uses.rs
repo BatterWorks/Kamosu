@@ -43,115 +43,18 @@ use std::ops::Range;
 use serde_json::Value;
 
 use crate::core::folded_for_search;
+use crate::language::UNKNOWN;
 use crate::reading;
+use crate::words::{self, Words};
 
-/// The words that open a clause describing how things should look, never what
-/// goes in: *until*, *jusqu'à* (folded to two words, the first `jusqu`), and
-/// *hasta*. *Till* is English's short *until*.
-///
-/// French and Spanish also write these for *up to* before an amount, as in
-/// *ajoutez jusqu'à 100 ml d'eau*, where the water does go in. So a number
-/// straight after one, past an `a`, opens no such clause.
-const UNTIL: &[&str] = &["until", "till", "jusqu", "hasta"];
-
-/// The words that open a clause saying when to do the next thing, which holds
-/// nothing going in either: *when the rice and chicken are ready, remove the
-/// chicken* (#439). It ends where an [`UNTIL`] clause does. One before a word
-/// ending in *-ing* opens none, since *whisk while adding the oil* adds the
-/// oil. French *lorsqu'* is folded to `lorsqu`.
-const WHEN: &[&str] = &[
-    "when", "once", "while", "quand", "lorsque", "lorsqu", "cuando", "mientras",
-];
-
-/// The words before which a food is what something is for, not what goes in:
-/// *reserving 1 tablespoon for the rice* (#439). French *pour* is also
-/// English *pour*, so it counts only on a Branch written in French.
-const FOR: &[&str] = &["for", "para"];
-
-/// Whether a folded word is one of [`FOR`] on a Branch in `language`.
-fn opens_a_purpose(word: &str, language: Option<&str>) -> bool {
-    FOR.contains(&word) || (language == Some("fr") && word == "pour")
+/// Whether a folded word is one of [`Words::step_for`] on a Branch in `language`.
+fn opens_a_purpose(lists: &Words, word: &str, language: Option<&str>) -> bool {
+    lists.step_for.has(word) || (language == Some("fr") && word == "pour")
 }
-
-/// The words for a stock, which a food named beside it describes: *chicken
-/// stock*, *bouillon de poulet*, *caldo de pollo* (#439).
-const STOCKS: &[&str] = &["stock", "broth", "bouillon", "fond", "caldo"];
-
-/// What joins a French or Spanish thing to the food that describes it, as
-/// *de* does in *le mélange de tomates*.
-const OF: &[&str] = &["de", "d", "du", "des", "del"];
-
-/// What follows a section's heading, or comes before it, where a Step names
-/// the section whole: *all the spice blend ingredients* (#439). Folded, so
-/// French *ingrédients* is here too.
-const INGREDIENTS: &[&str] = &["ingredient", "ingredients", "ingrediente", "ingredientes"];
-
-/// The articles that may stand between [`FOR`] and its food.
-const ARTICLES: &[&str] = &[
-    "the", "a", "an", "le", "la", "les", "l", "un", "une", "el", "los", "las", "una",
-];
 
 /// What ends such a clause: a comma, the end of a sentence, or anything that
 /// sets words apart as firmly as one.
 const CLAUSE_ENDS: &[char] = &[',', '.', ';', ':', '!', '?', '(', ')', '\n'];
-
-/// The words that end an [`UNTIL`] clause where no mark does, since what
-/// follows is the next thing to do: *whisk until pale then fold in the
-/// flour* (#294).
-/// Spanish *después* is left out, since *después de* is *after*.
-const THEN: &[&str] = &["then", "puis", "luego"];
-
-/// The things a cook does that end an [`UNTIL`] clause after *and*, *et* or
-/// *y*: *cook until soft and add the garlic*. *And* alone does not, since it
-/// joins two foods inside the condition as often, as in *until the butter and
-/// sugar are pale*, and nor does a word as often a noun, as *top* is in *until
-/// the bottom and top are crisp* (#294).
-const NEXT_ACTIONS: &[&str] = &[
-    "add",
-    "fold",
-    "stir",
-    "pour",
-    "mix",
-    "whisk",
-    "beat",
-    "toss",
-    "sprinkle",
-    "scatter",
-    "drizzle",
-    "season",
-    "combine",
-    "transfer",
-    "place",
-    "put",
-    "serve",
-    "ajoutez",
-    "ajouter",
-    "incorporez",
-    "versez",
-    "mélangez",
-    "saupoudrez",
-    "parsemez",
-    "salez",
-    "servez",
-    "añade",
-    "añadir",
-    "agrega",
-    "agregar",
-    "incorpora",
-    "vierte",
-    "mezcla",
-    "espolvorea",
-    "sirve",
-];
-
-/// What joins the condition to one of the [`NEXT_ACTIONS`].
-const AND: &[&str] = &["and", "et", "y"];
-
-/// Whether a folded word is one of `list`, which is written with its accents.
-fn one_of(list: &[&str], word: &str) -> bool {
-    let word = folded_for_search(word);
-    list.iter().any(|listed| folded_for_search(listed) == word)
-}
 
 /// One word of folded text, whether it sits in an *until* or a *when* clause,
 /// and the clause it sits in.
@@ -169,13 +72,13 @@ const NAME_BREAKS: &[char] = &[',', '&', '/', '+', ';', '(', ')'];
 /// The folded words of `text`, split at anything that is not a letter, a
 /// digit or an accent typed as its own character, each with the number of
 /// `breaks` that came before it.
-fn split_words(text: &str, breaks: &[char]) -> Vec<(String, usize)> {
+fn split_words(lists: &Words, text: &str, breaks: &[char]) -> Vec<(String, usize)> {
     use unicode_normalization::char::is_combining_mark;
     let mut words: Vec<(String, usize)> = Vec::new();
     let mut part = 0;
     let mut current = String::new();
     let mut close = |current: &mut String, part: usize| {
-        let word = folded_word(&std::mem::take(current));
+        let word = folded_word(lists, &std::mem::take(current));
         if !word.is_empty() {
             words.push((word, part));
         }
@@ -197,11 +100,11 @@ fn split_words(text: &str, breaks: &[char]) -> Vec<(String, usize)> {
 /// One word folded for comparison: case and accents gone, as a search folds
 /// it. A word [`reading::accented_name`] knows keeps its accent, since the
 /// accent is all that tells *thé* from *the* (#230).
-fn folded_word(word: &str) -> String {
+fn folded_word(lists: &Words, word: &str) -> String {
     let plural = word
         .strip_suffix(['s', 'S'])
-        .and_then(reading::accented_name);
-    match (reading::accented_name(word), plural) {
+        .and_then(|word| reading::accented_name(lists, word));
+    match (reading::accented_name(lists, word), plural) {
         (Some(name), _) => name.to_string(),
         (None, Some(name)) => format!("{name}s"),
         (None, None) => folded_for_search(word),
@@ -209,15 +112,16 @@ fn folded_word(word: &str) -> String {
 }
 
 /// Whether [`folded_word`] kept this word's accent, one trailing `s` forgiven.
-fn kept_its_accent(word: &str) -> bool {
-    reading::accented_name(word).is_some() || reading::accented_name(singular(word)).is_some()
+fn kept_its_accent(lists: &Words, word: &str) -> bool {
+    reading::accented_name(lists, word).is_some()
+        || reading::accented_name(lists, singular(word)).is_some()
 }
 
-/// The folded words of a Step, each marked with whether an [`UNTIL`] or a
-/// [`WHEN`] clause holds it.
-fn words_of(text: &str) -> Vec<Word> {
+/// The folded words of a Step, each marked with whether an [`Words::step_until`] or a
+/// [`Words::step_when`] clause holds it.
+fn words_of(lists: &Words, text: &str) -> Vec<Word> {
     // Each word, and the clause it sits in.
-    let words = split_words(text, CLAUSE_ENDS);
+    let words = split_words(lists, text, CLAUSE_ENDS);
 
     let mut marked = Vec::with_capacity(words.len());
     let mut until_in: Option<usize> = None;
@@ -226,17 +130,17 @@ fn words_of(text: &str) -> Vec<Word> {
     // flour* (#439).
     let mut when_open = false;
     for (at, (text, clause)) in words.iter().enumerate() {
-        let next_action = one_of(THEN, text)
-            || (when_open && one_of(NEXT_ACTIONS, text))
-            || (one_of(AND, text)
+        let next_action = lists.step_then.has(text)
+            || (when_open && lists.step_next_actions.has(text))
+            || (lists.step_and.has(text)
                 && words
                     .get(at + 1)
-                    .is_some_and(|(next, _)| one_of(NEXT_ACTIONS, next)));
+                    .is_some_and(|(next, _)| lists.step_next_actions.has(next)));
         if until_in.is_some_and(|open| open != *clause) || next_action {
             until_in = None;
             when_open = false;
         }
-        if until_in.is_none() && UNTIL.contains(&text.as_str()) {
+        if until_in.is_none() && lists.step_until.has(text) {
             let next = words[at + 1..]
                 .iter()
                 .find(|(word, _)| word != "a")
@@ -246,7 +150,7 @@ fn words_of(text: &str) -> Vec<Word> {
                 until_in = Some(*clause);
             }
         }
-        if until_in.is_none() && WHEN.contains(&text.as_str()) {
+        if until_in.is_none() && lists.step_when.has(text) {
             let doing = words
                 .get(at + 1)
                 .is_some_and(|(next, _)| next.ends_with("ing"));
@@ -268,10 +172,10 @@ fn words_of(text: &str) -> Vec<Word> {
 /// `s` — the plural tolerance a Step has always had. An accent
 /// [`folded_word`] kept is not looked at, so *the vert* typed without it is
 /// still *thé vert*.
-fn same_word(a: &str, b: &str) -> bool {
+fn same_word(lists: &Words, a: &str, b: &str) -> bool {
     same_to_the_accent(a, b)
         // Only a kept accent is left to tell two folded words apart.
-        || ((kept_its_accent(a) || kept_its_accent(b))
+        || ((kept_its_accent(lists, a) || kept_its_accent(lists, b))
             && same_to_the_accent(&folded_for_search(a), &folded_for_search(b)))
 }
 
@@ -321,12 +225,15 @@ struct Run {
 /// name is one food unless a [`NAME_BREAKS`] mark or a word that
 /// [`reading::joins_two_foods`] sets two apart, as in *fresh thyme and basil*.
 /// A split made in error only loosens: it gives a name one main word more.
-fn name_words(target: &str) -> (Vec<String>, Vec<Range<usize>>) {
+fn name_words(lists: &Words, target: &str) -> (Vec<String>, Vec<Range<usize>>) {
     let mut words = Vec::new();
     let mut foods: Vec<Range<usize>> = Vec::new();
     let mut last_part = None;
-    for (at, (word, part)) in split_words(target, NAME_BREAKS).into_iter().enumerate() {
-        let joins = reading::joins_two_foods(&word);
+    for (at, (word, part)) in split_words(lists, target, NAME_BREAKS)
+        .into_iter()
+        .enumerate()
+    {
+        let joins = reading::joins_two_foods(lists, &word);
         if joins || last_part != Some(part) {
             foods.push(at..at);
         }
@@ -354,26 +261,31 @@ fn name_words(target: &str) -> (Vec<String>, Vec<Range<usize>>) {
 /// *cuisse* and *poulet* in *hauts de cuisse de poulet*. Words that only join
 /// are stepped over. A word that [`reading::names_its_kind`] is a main word
 /// wherever it sits. A name holding two foods has the main words of each.
-fn main_words(words: &[String], foods: &[Range<usize>], language: Option<&str>) -> Vec<bool> {
+fn main_words(
+    lists: &Words,
+    words: &[String],
+    foods: &[Range<usize>],
+    language: Option<&str>,
+) -> Vec<bool> {
     let mut main: Vec<bool> = words
         .iter()
-        .map(|word| reading::names_its_kind(word))
+        .map(|word| reading::names_its_kind(lists, word))
         .collect();
     let mut walk = |inward: &mut dyn Iterator<Item = usize>| {
         for at in inward {
-            if reading::only_joins(&words[at]) {
+            if reading::only_joins(lists, &words[at]) {
                 continue;
             }
             // *Dés de jambon* is called *les dés* and *le jambon* alike, so
             // the walk marks such a word and goes on past it, to the word
             // that was the main one while this passed for a joining word
             // (#230).
-            if kept_its_accent(&words[at]) {
+            if kept_its_accent(lists, &words[at]) {
                 main[at] = true;
                 continue;
             }
             main[at] = true;
-            if !reading::gives_way(&words[at]) {
+            if !reading::gives_way(lists, &words[at]) {
                 break;
             }
         }
@@ -382,7 +294,7 @@ fn main_words(words: &[String], foods: &[Range<usize>], language: Option<&str>) 
         // The food as English reads it: up to the first word that opens a tail.
         let tail = food
             .clone()
-            .find(|&at| at > food.start && reading::opens_a_tail(&words[at]))
+            .find(|&at| at > food.start && reading::opens_a_tail(lists, &words[at]))
             .unwrap_or(food.end);
         let headed = food.start..tail;
         let written_with_of = words[headed.clone()].iter().any(|word| word == "of");
@@ -403,21 +315,21 @@ fn main_words(words: &[String], foods: &[Range<usize>], language: Option<&str>) 
 /// every shorter run that [`names_the_food`] allows and that holds one of the
 /// name's [`main_words`]. Worked out once per line rather than once per Step,
 /// since it depends on nothing a Step says.
-fn runs_of(target: &str, language: Option<&str>) -> (Vec<String>, Vec<Run>) {
-    let (words, foods) = name_words(target);
+fn runs_of(lists: &Words, target: &str, language: Option<&str>) -> (Vec<String>, Vec<Run>) {
+    let (words, foods) = name_words(lists, target);
     let n = words.len();
-    let main = main_words(&words, &foods, language);
+    let main = main_words(lists, &words, &foods, language);
     let mut runs = Vec::new();
     for from in 0..n {
         for to in (from + 1)..=n {
             let run = &words[from..to];
             let whole = from == 0 && to == n;
-            if whole || (main[from..to].contains(&true) && names_the_food(run)) {
+            if whole || (main[from..to].contains(&true) && names_the_food(lists, run)) {
                 let mut left_out = words[..from].iter().chain(&words[to..]);
                 runs.push(Run {
                     words: run.to_vec(),
                     whole,
-                    made_from: left_out.any(|word| reading::made_from(word)),
+                    made_from: left_out.any(|word| reading::made_from(lists, word)),
                 });
             }
         }
@@ -456,39 +368,43 @@ impl Mention {
 /// shredded coconut*; *de coco* may not stand for anything. Nor may a word a
 /// recipe uses for what it makes itself, so *the sauce* is no soy sauce
 /// (#439).
-fn names_the_food(run: &[String]) -> bool {
+fn names_the_food(lists: &Words, run: &[String]) -> bool {
     let only_made_here = run
         .iter()
-        .filter(|word| !reading::names_nothing_alone(word))
-        .all(|word| reading::made_here(word));
+        .filter(|word| !reading::names_nothing_alone(lists, word))
+        .all(|word| reading::made_here(lists, word));
     if only_made_here {
         return false;
     }
     match run {
         [] => false,
         [only] => {
-            (only.chars().count() >= 3 || kept_its_accent(only))
-                && !reading::names_nothing_alone(only)
+            (only.chars().count() >= 3 || kept_its_accent(lists, only))
+                && !reading::names_nothing_alone(lists, only)
         }
         [first, .., last] => {
-            !reading::only_joins(first)
-                && !reading::only_joins(last)
-                && run.iter().any(|word| !reading::names_nothing_alone(word))
+            !reading::only_joins(lists, first)
+                && !reading::only_joins(lists, last)
+                && run
+                    .iter()
+                    .any(|word| !reading::names_nothing_alone(lists, word))
         }
     }
 }
 
 /// Every place in `step` this line is named, whole or by a part of its name.
-fn mentions_of(line: &Line, step: &[Word]) -> Vec<Mention> {
+fn mentions_of(lists: &Words, line: &Line, step: &[Word]) -> Vec<Mention> {
     let mut found = Vec::new();
     for run in &line.runs {
         // A run of nothing but words an accent sets apart from a joining
         // word is named only with the accent: *the* alone is no tea (#230).
-        let by_accent = run.words.iter().all(|word| kept_its_accent(word));
-        let same = if by_accent {
-            same_to_the_accent
-        } else {
-            same_word
+        let by_accent = run.words.iter().all(|word| kept_its_accent(lists, word));
+        let same = |word: &str, want: &str| {
+            if by_accent {
+                same_to_the_accent(word, want)
+            } else {
+                same_word(lists, word, want)
+            }
         };
         for start in 0..step.len().saturating_sub(run.words.len() - 1) {
             let there = &step[start..start + run.words.len()];
@@ -523,7 +439,8 @@ pub fn step_uses(
     language: Option<&str>,
     title: &str,
 ) -> Vec<Option<Vec<usize>>> {
-    let dish: Vec<String> = split_words(title, &[])
+    let lists = words::of(language.unwrap_or(UNKNOWN));
+    let dish: Vec<String> = split_words(lists, title, &[])
         .into_iter()
         .map(|(word, _)| word)
         .collect();
@@ -546,16 +463,17 @@ pub fn step_uses(
         .filter(|row| row["kind"] == "section")
         .map(|row| {
             numbered += 1;
-            let words: Vec<String> = split_words(row["text"].as_str().unwrap_or_default(), &[])
-                .into_iter()
-                .map(|(word, _)| word)
-                .skip_while(|word| {
-                    opens_a_purpose(word, language) || ARTICLES.contains(&word.as_str())
-                })
-                .collect();
+            let words: Vec<String> =
+                split_words(lists, row["text"].as_str().unwrap_or_default(), &[])
+                    .into_iter()
+                    .map(|(word, _)| word)
+                    .skip_while(|word| {
+                        opens_a_purpose(lists, word, language) || lists.step_articles.has(word)
+                    })
+                    .collect();
             // *Marinade ingredients* is named as *the marinade ingredients*.
             let words = match words.split_last() {
-                Some((last, rest)) if INGREDIENTS.contains(&last.as_str()) => rest.to_vec(),
+                Some((last, rest)) if lists.step_ingredients.has(last) => rest.to_vec(),
                 _ => words,
             };
             (numbered, words)
@@ -563,6 +481,7 @@ pub fn step_uses(
         .filter(|(_, words)| !words.is_empty())
         .collect();
     let recipe = Recipe {
+        lists,
         dish,
         language,
         has_sections: section > 0,
@@ -572,7 +491,7 @@ pub fn step_uses(
             .enumerate()
             .filter_map(|(index, reading)| {
                 let target = reading.get("target")?.as_str()?;
-                let (words, runs) = runs_of(target, language);
+                let (words, runs) = runs_of(lists, target, language);
                 (!words.is_empty()).then(|| Line {
                     index,
                     food: words
@@ -582,7 +501,7 @@ pub fn step_uses(
                         .join(" "),
                     runs,
                     section: sections[index],
-                    one_food: name_words(target).1.len() == 1,
+                    one_food: name_words(lists, target).1.len() == 1,
                 })
             })
             .collect(),
@@ -597,7 +516,7 @@ pub fn step_uses(
                 return None;
             }
             let text = row["text"].as_str()?;
-            let uses = recipe.uses_of(&words_of(text), &used_before, &mut own_section);
+            let uses = recipe.uses_of(&words_of(lists, text), &used_before, &mut own_section);
             used_before.extend(&uses);
             Some(uses)
         })
@@ -608,6 +527,7 @@ pub fn step_uses(
 /// its Language, whether its list has sections and what each is headed, and
 /// its lines.
 struct Recipe<'a> {
+    lists: &'static Words,
     dish: Vec<String>,
     language: Option<&'a str>,
     has_sections: bool,
@@ -646,6 +566,7 @@ impl Recipe<'_> {
     /// The sections a Step names whole, as *all the spice blend ingredients*
     /// or *les ingrédients de la sauce*, and the words that name each (#439).
     fn sections_named(&self, step: &[Word]) -> Vec<(usize, Range<usize>)> {
+        let lists = self.lists;
         // A heading is named whole, or by its main word where no other
         // heading holds that word there: *the sauce ingredients* of a list
         // headed *Teriyaki sauce*.
@@ -661,7 +582,7 @@ impl Recipe<'_> {
             let shared = self
                 .headings
                 .iter()
-                .filter(|(_, other)| main_word(other).is_some_and(|w| same_word(&w, &word)))
+                .filter(|(_, other)| main_word(other).is_some_and(|w| same_word(lists, &w, &word)))
                 .count()
                 > 1;
             if !shared {
@@ -676,22 +597,22 @@ impl Recipe<'_> {
                 if !there
                     .iter()
                     .zip(heading)
-                    .all(|(word, want)| same_word(&word.text, want))
+                    .all(|(word, want)| same_word(lists, &word.text, want))
                 {
                     continue;
                 }
                 let after = step
                     .get(end)
-                    .is_some_and(|word| INGREDIENTS.contains(&word.text.as_str()));
+                    .is_some_and(|word| lists.step_ingredients.has(&word.text));
                 let before = step[..start]
                     .iter()
                     .rev()
                     .find(|word| {
-                        !ARTICLES.contains(&word.text.as_str())
-                            && !OF.contains(&word.text.as_str())
-                            && !opens_a_purpose(&word.text, self.language)
+                        !lists.step_articles.has(&word.text)
+                            && !lists.step_of.has(&word.text)
+                            && !opens_a_purpose(lists, &word.text, self.language)
                     })
-                    .is_some_and(|word| INGREDIENTS.contains(&word.text.as_str()));
+                    .is_some_and(|word| lists.step_ingredients.has(&word.text));
                 if after || before {
                     named.push((*section, start..end));
                 }
@@ -703,12 +624,14 @@ impl Recipe<'_> {
     /// Whether this mention names what something is for rather than what goes
     /// in: *for the rice*, *para el arroz*, *pour le riz* (#439).
     fn is_for(&self, step: &[Word], mention: &Mention) -> bool {
+        let lists = self.lists;
         let before = step[..mention.start]
             .iter()
             .rev()
-            .find(|word| !ARTICLES.contains(&word.text.as_str()));
+            .find(|word| !lists.step_articles.has(&word.text));
         before.is_some_and(|word| {
-            word.clause == step[mention.start].clause && opens_a_purpose(&word.text, self.language)
+            word.clause == step[mention.start].clause
+                && opens_a_purpose(lists, &word.text, self.language)
         })
     }
 
@@ -717,18 +640,20 @@ impl Recipe<'_> {
     /// English writes the thing after, French and Spanish before, and a
     /// Branch with no Language is read both ways.
     fn describes_what_is_made(&self, step: &[Word], mention: &Mention) -> bool {
+        let lists = self.lists;
         let clause = step[mention.start].clause;
-        let made_here = |word: &Word| word.clause == clause && reading::made_here(&word.text);
+        let made_here =
+            |word: &Word| word.clause == clause && reading::made_here(lists, &word.text);
         // A stock is made from what is named beside it, and holds none of
         // the line: *the chicken stock* is no chicken thighs.
-        let a_stock = |word: &Word| word.clause == clause && STOCKS.contains(&word.text.as_str());
+        let a_stock = |word: &Word| word.clause == clause && lists.step_stocks.has(&word.text);
         let after = || {
             let next = &step[mention.start + mention.len..];
             next.first().is_some_and(a_stock)
                 || next
                     .iter()
                     .take(2)
-                    .take_while(|word| !reading::only_joins(&word.text))
+                    .take_while(|word| !reading::only_joins(lists, &word.text))
                     .any(made_here)
         };
         let before = || {
@@ -736,7 +661,7 @@ impl Recipe<'_> {
                 .iter()
                 .rev()
                 .take(2)
-                .skip_while(|word| OF.contains(&word.text.as_str()))
+                .skip_while(|word| lists.step_of.has(&word.text))
                 .take(1)
                 .any(|word| made_here(word) || a_stock(word))
         };
@@ -756,11 +681,12 @@ impl Recipe<'_> {
         used_before: &[usize],
         own_section: &mut Option<usize>,
     ) -> Vec<usize> {
+        let lists = self.lists;
         let sections_named = self.sections_named(step);
         let mentions: Vec<Mention> = self
             .lines
             .iter()
-            .flat_map(|line| mentions_of(line, step))
+            .flat_map(|line| mentions_of(lists, line, step))
             .filter(|mention| !step[mention.start].not_going_in)
             .filter(|mention| !self.is_for(step, mention))
             .filter(|mention| !self.describes_what_is_made(step, mention))

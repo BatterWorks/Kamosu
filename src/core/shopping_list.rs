@@ -729,7 +729,9 @@ fn version_basis_lines(
                     .and_then(units::parse_amount)
                     .map(|amount| amount * share)),
                 "unit": unit,
-                "unit_id": unit.and_then(units::recognise).map(|known| known.id),
+                "unit_id": unit
+                    .and_then(|unit| crate::words::of(&reading.written_in_language).unit(unit))
+                    .map(|known| known.id),
                 "unit_key": unit.map(shopping::unit_key),
                 // The very same reader the recipe page's subordinate lines
                 // are built from, Cup Weights and all — because a cup of flour

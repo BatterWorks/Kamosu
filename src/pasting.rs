@@ -95,6 +95,7 @@
 
 use crate::entities::decode_entities;
 use crate::reading;
+use crate::words;
 
 /// What one pasted line turned out to be. A **Section** is a Section in
 /// either block; everything else is an Ingredient Line above the boundary and
@@ -369,64 +370,6 @@ fn unbulleted(line: &str) -> Option<&str> {
 // wider Title Case rule still holds, and a fixed list of whole lines cannot
 // swallow `Salt and pepper`.
 
-/// The heading a recipe puts over its list of ingredients, in the three
-/// Languages. It is a Section like the words below, and above it a page says
-/// what it likes, none of which is an Ingredient Line (#301).
-const INGREDIENTS_WORDS: &[&str] = &["ingredients", "ingrédients", "ingredientes"];
-
-/// A line that is exactly one of these, or of [`INGREDIENTS_WORDS`], is a
-/// Section, colon or none. The words a recipe page puts over its two lists:
-/// `Préparation` has no colon, and was read as a step.
-const SECTION_WORDS: &[&str] = &[
-    // English
-    "method",
-    "instructions",
-    "directions",
-    "preparation",
-    "steps",
-    // Français
-    "préparation",
-    "étapes",
-    "méthode",
-    "instructions",
-    "déroulé",
-    // Español
-    "preparación",
-    "elaboración",
-    "instrucciones",
-    "pasos",
-    "modo de preparación",
-];
-
-/// A block under one of these is about the recipe rather than in it, and
-/// goes to its `note`.
-const NOTE_WORDS: &[&str] = &[
-    // English
-    "description",
-    "notes",
-    "note",
-    "tips",
-    "serving suggestions",
-    "storage",
-    // Français
-    "description",
-    "notes",
-    "note",
-    "conseils",
-    "astuces",
-    "suggestions de service",
-    "suggestion de service",
-    "conservation",
-    // Español
-    "descripción",
-    "notas",
-    "nota",
-    "consejos",
-    "sugerencias",
-    "sugerencias de presentación",
-    "conservación",
-];
-
 /// The line as a heading reads, whatever its case and however its colon is
 /// spaced: `Préparation`, `PRÉPARATION :` and `préparation:` are one word.
 fn as_heading(line: &str) -> String {
@@ -435,11 +378,11 @@ fn as_heading(line: &str) -> String {
 
 fn is_section_word(line: &str) -> bool {
     let heading = as_heading(line);
-    is_ingredients_heading(line) || SECTION_WORDS.contains(&heading.as_str())
+    is_ingredients_heading(line) || words::unknown().paste_sections.has(&heading)
 }
 
 fn is_ingredients_heading(line: &str) -> bool {
-    INGREDIENTS_WORDS.contains(&as_heading(line).as_str())
+    words::unknown().paste_ingredients.has(&as_heading(line))
 }
 
 /// Where a line opens a note, and how far that note runs.
@@ -456,11 +399,12 @@ enum NoteStart {
 }
 
 fn note_start(line: &str) -> Option<NoteStart> {
-    if NOTE_WORDS.contains(&as_heading(line).as_str()) {
+    let notes = &words::unknown().paste_notes;
+    if notes.has(&as_heading(line)) {
         return Some(NoteStart::Heading);
     }
     let (heading, said) = line.split_once(':')?;
-    (NOTE_WORDS.contains(&heading.trim().to_lowercase().as_str()) && !said.trim().is_empty())
+    (notes.has(&heading.trim().to_lowercase()) && !said.trim().is_empty())
         .then_some(NoteStart::Inline)
 }
 
@@ -590,12 +534,14 @@ fn is_web_address(line: &str) -> bool {
 }
 
 /// A line saying how many a recipe feeds, how long it takes or who wrote
-/// it: it opens on one of [`NOT_A_NAME`]. Stepped over looking for the name,
+/// it: it opens on one of [`crate::words::Words::paste_not_a_name`]. Stepped over looking for the name,
 /// as a web address is, because a recipe card sets these between its name
 /// and its list.
 fn is_a_label(line: &str) -> bool {
     line.split_whitespace().next().is_some_and(|first| {
-        NOT_A_NAME.contains(&first.trim_end_matches(':').to_lowercase().as_str())
+        words::unknown()
+            .paste_not_a_name
+            .has(&first.trim_end_matches(':').to_lowercase())
     })
 }
 
@@ -617,63 +563,6 @@ fn names_a_recipe(line: &str) -> bool {
         && !is_section_word(line)
         && note_start(line).is_none()
 }
-
-/// The first words of a line saying how many a recipe feeds, how long it
-/// takes, how hard it is or who wrote it, in the three Languages, with or
-/// without a colon after: never its name, however short.
-const NOT_A_NAME: &[&str] = &[
-    // English
-    "serves",
-    "serving",
-    "servings",
-    "makes",
-    "yield",
-    "yields",
-    "portions",
-    "by",
-    "recipe",
-    "adapted",
-    "source",
-    "difficulty",
-    "prep",
-    "cook",
-    "cooking",
-    "total",
-    "time",
-    "feeds",
-    "author",
-    "posted",
-    "photo",
-    "photos",
-    // Français
-    "pour",
-    "personnes",
-    "recette",
-    "adapté",
-    "adaptée",
-    "d'après",
-    "difficulté",
-    "temps",
-    "cuisson",
-    "par",
-    "auteur",
-    "niveau",
-    // Español
-    "para",
-    "por",
-    "rinde",
-    "raciones",
-    "porciones",
-    "receta",
-    "adaptado",
-    "adaptada",
-    "fuente",
-    "dificultad",
-    "tiempo",
-    "cocción",
-    "autor",
-    "nivel",
-];
 
 /// A Section: a line ending in a colon, short, carrying no quantity. See the
 /// module header for why the rule is not wider than that.

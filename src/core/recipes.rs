@@ -1908,7 +1908,9 @@ pub(super) fn unfold_components(
             continue;
         };
 
-        let share = units::how_much_of(
+        let share = units::how_much_of_in(
+            &written_language(conn, version_id)?,
+            &written_language(conn, &inner_version_id)?,
             amount.as_deref(),
             unit.as_deref(),
             content["yield"]["amount"].as_str(),
@@ -2118,7 +2120,8 @@ fn cooking_for_version(
                 // (#439, ADR 0054), and what was read is said beside it: it
                 // is what putting the correction back returns to (#456).
                 let corrected = by_hand.iter().find(|(step, _)| *step == at);
-                let duration = units::step_duration(text);
+                let duration =
+                    units::step_duration(text, language.unwrap_or(crate::language::UNKNOWN));
                 match corrected {
                     Some((_, uses)) => json!({
                         "uses": uses,

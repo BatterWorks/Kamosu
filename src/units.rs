@@ -4,9 +4,9 @@
 //! the cook wrote is a Unit and is kept exactly as written: *poignée*, *noix*,
 //! *sachet* and *bottle* are all perfectly legitimate, and simply never offer a
 //! conversion. Against that open set sits [`UNITS`], a closed list Kamosu knows
-//! well enough to do arithmetic on, each knowing its own spellings in the three
-//! interface Languages — so `g`, `gr`, `gramme`, `grammes` and `grams` are one
-//! Unit and spelling is not a data-entry problem.
+//! well enough to do arithmetic on, whose spellings each Language keeps in its
+//! word file ([`crate::words`]) — so `g`, `gr`, `gramme`, `grammes` and `grams`
+//! are one Unit and spelling is not a data-entry problem.
 //!
 //! **A conversion is never a rewrite.** Nothing here touches an Ingredient Line
 //! (ADR 0002). What it produces is one subordinate line — *how much, for you,
@@ -37,8 +37,8 @@
 //! them through `get_recipe` against a real database, which is the only way to
 //! prove both Doors got it.
 
-use std::collections::HashMap;
-use std::sync::LazyLock;
+use crate::language::UNKNOWN;
+use crate::words::{self, Words};
 
 /// Which arithmetic a Unit takes part in. Cross-family conversion — a volume of
 /// a dry good into grams — is the one crossing, and it runs off a Cup Weight.
@@ -60,8 +60,8 @@ pub enum System {
     Customary,
 }
 
-/// One member of the closed convertible set: what it is, how big it is, and
-/// every way the three interface Languages spell it.
+/// One member of the closed convertible set: what it is and how big it is. How
+/// each Language spells it is in the word files ([`crate::words`]).
 pub struct Unit {
     /// Stable internal name. Never shown; [`display`] renders what is.
     pub id: &'static str,
@@ -69,16 +69,6 @@ pub struct Unit {
     pub system: System,
     /// How many grams (Mass) or millilitres (Volume) one of these is.
     pub base: f64,
-    /// Every spelling, written the way a person reads it — [`fold`] is applied
-    /// to both this table and the cook's word, so punctuation and capitals need
-    /// no thought here.
-    ///
-    /// Accented and unaccented forms ARE both listed, rather than being folded
-    /// together: elsewhere in Kamosu accents are meaning (a Food Match will not
-    /// equate *maïs* with *mais*), and a unit table that quietly stripped them
-    /// would be the one place that rule did not hold. Listing `cuillere a cafe`
-    /// beside `cuillère à café` says the same forgiveness out loud.
-    pub spellings: &'static [&'static str],
 }
 
 /// The closed set. ADR 0016 names it: gram, kilogram, millilitre, litre,
@@ -103,46 +93,24 @@ pub const UNITS: &[Unit] = &[
         family: Family::Mass,
         system: System::Metric,
         base: 1.0,
-        spellings: &[
-            "g", "gr", "gm", "gram", "grams", "gramme", "grammes", "gramo", "gramos",
-        ],
     },
     Unit {
         id: "kilogram",
         family: Family::Mass,
         system: System::Metric,
         base: 1000.0,
-        spellings: &[
-            "kg",
-            "kgs",
-            "kilo",
-            "kilos",
-            "kilogram",
-            "kilograms",
-            "kilogramme",
-            "kilogrammes",
-            "kilogramo",
-            "kilogramos",
-        ],
     },
     Unit {
         id: "ounce",
         family: Family::Mass,
         system: System::Customary,
         base: 28.349_523_125,
-        spellings: &["oz", "ounce", "ounces", "once", "onces", "onza", "onzas"],
     },
     Unit {
         id: "pound",
         family: Family::Mass,
         system: System::Customary,
         base: 453.592_37,
-        spellings: &[
-            "lb", "lbs", "pound", "pounds", "livre", "livres", "libra", "libras",
-            // The pound sign of an old American recipe card, `¼ # butter`. A
-            // Unit only after an amount, as every [`lone_letter`] is (#326).
-            "#",
-        ],
     },
     // --- Volume -----------------------------------------------------------
     Unit {
@@ -150,55 +118,24 @@ pub const UNITS: &[Unit] = &[
         family: Family::Volume,
         system: System::Metric,
         base: 1.0,
-        spellings: &[
-            "ml",
-            "mls",
-            "millilitre",
-            "millilitres",
-            "milliliter",
-            "milliliters",
-            "mililitro",
-            "mililitros",
-        ],
     },
     Unit {
         id: "centilitre",
         family: Family::Volume,
         system: System::Metric,
         base: 10.0,
-        spellings: &[
-            "cl",
-            "centilitre",
-            "centilitres",
-            "centiliter",
-            "centiliters",
-            "centilitro",
-            "centilitros",
-        ],
     },
     Unit {
         id: "decilitre",
         family: Family::Volume,
         system: System::Metric,
         base: 100.0,
-        spellings: &[
-            "dl",
-            "decilitre",
-            "decilitres",
-            "deciliter",
-            "deciliters",
-            "decilitro",
-            "decilitros",
-        ],
     },
     Unit {
         id: "litre",
         family: Family::Volume,
         system: System::Metric,
         base: 1000.0,
-        spellings: &[
-            "l", "lt", "litre", "litres", "liter", "liters", "litro", "litros",
-        ],
     },
     Unit {
         id: "teaspoon",
@@ -206,47 +143,6 @@ pub const UNITS: &[Unit] = &[
         system: System::Customary,
         // A third of a tablespoon, which is a sixteenth of a cup.
         base: 236.588_236_5 / 48.0,
-        spellings: &[
-            "tsp",
-            "tsps",
-            "ts",
-            "teaspoon",
-            "teaspoons",
-            "cuillère à café",
-            "cuillere a cafe",
-            "cuillères à café",
-            "cuilleres a cafe",
-            // The short forms a French recipe writes as often as the long (#161).
-            "c à café",
-            "c a cafe",
-            "cuil à café",
-            "cuil a cafe",
-            "cuill à café",
-            "cuill a cafe",
-            // The same spoon as Quebec names it. `thé` is a word of a Food's
-            // name everywhere else, so the reader needs the whole Unit to
-            // know this one is not (#213).
-            "cuillère à thé",
-            "cuillere a the",
-            "cuillères à thé",
-            "cuilleres a the",
-            "c à thé",
-            "c a the",
-            "cuil à thé",
-            "cuil a the",
-            "cuill à thé",
-            "cuill a the",
-            "c à c",
-            "càc",
-            "cac",
-            // *Cuillère à café*, never a cubic centimetre. The accepted cost
-            // is an English `5 cc`, which reads five times too big (#208).
-            "cc",
-            "c.c.",
-            "cucharadita",
-            "cucharaditas",
-            "cdta",
-        ],
     },
     Unit {
         id: "tablespoon",
@@ -255,45 +151,12 @@ pub const UNITS: &[Unit] = &[
         // A sixteenth of a cup — which is what makes one Cup Weight enough to
         // answer every volume measure of a Food (ADR 0016).
         base: 236.588_236_5 / 16.0,
-        spellings: &[
-            "tbsp",
-            "tbsps",
-            "tbs",
-            "tb",
-            "tablespoon",
-            "tablespoons",
-            "cuillère à soupe",
-            "cuillere a soupe",
-            "cuillères à soupe",
-            "cuilleres a soupe",
-            // The short forms a French recipe writes as often as the long (#161).
-            "c à soupe",
-            "c a soupe",
-            "cuil à soupe",
-            "cuil a soupe",
-            "cuill à soupe",
-            "cuill a soupe",
-            "c à s",
-            "càs",
-            "cas",
-            "cs",
-            "c.s.",
-            "cucharada",
-            "cucharadas",
-            "cda",
-            "cdas",
-        ],
     },
     Unit {
         id: "cup",
         family: Family::Volume,
         system: System::Customary,
         base: 236.588_236_5,
-        // A lone `c` is the cup of an old American recipe card, `3/4 c
-        // brown sugar`, and a Unit only after an amount, as every
-        // [`lone_letter`] is (#326). Where `à` follows it is a French
-        // *cuillère*, and the reader leaves it be.
-        spellings: &["cup", "cups", "tasse", "tasses", "taza", "tazas", "c"],
     },
     // The US liquid quart, four cups (#182). The bare word `quart` is left
     // out on purpose: in French it is a quarter, and a Step reading *laisser
@@ -303,62 +166,24 @@ pub const UNITS: &[Unit] = &[
         family: Family::Volume,
         system: System::Customary,
         base: 236.588_236_5 * 4.0,
-        spellings: &[
-            "qt",
-            "qts",
-            "usqt",
-            "us qt",
-            "us qts",
-            "us quart",
-            "us quarts",
-        ],
     },
     Unit {
         id: "fluid ounce",
         family: Family::Volume,
         system: System::Customary,
         base: 29.573_529_562_5,
-        spellings: &[
-            "fl oz",
-            "floz",
-            "fluid ounce",
-            "fluid ounces",
-            "once liquide",
-            "onces liquides",
-            "onza líquida",
-            "onza liquida",
-            "onzas líquidas",
-            "onzas liquidas",
-        ],
     },
     Unit {
         id: "imperial tablespoon",
         family: Family::Volume,
         system: System::Customary,
         base: 17.758_164_0,
-        spellings: &[
-            "imperial tablespoon",
-            "imperial tablespoons",
-            "imperial tbsp",
-            "cuillère à soupe impériale",
-            "cuillere a soupe imperiale",
-            "cucharada imperial",
-        ],
     },
     Unit {
         id: "australian tablespoon",
         family: Family::Volume,
         system: System::Customary,
         base: 20.0,
-        spellings: &[
-            "australian tablespoon",
-            "australian tablespoons",
-            "australian tbsp",
-            "aus tbsp",
-            "cuillère à soupe australienne",
-            "cuillere a soupe australienne",
-            "cucharada australiana",
-        ],
     },
 ];
 
@@ -422,33 +247,6 @@ pub fn fold(word: &str) -> String {
     folded
 }
 
-/// Every spelling in the closed set, folded once, pointing at its Unit.
-///
-/// Built rather than searched so that the tables above can be written the way a
-/// person reads them — accented, punctuated, in three languages — while every
-/// lookup still compares fold against fold. A spelling listed twice, here or
-/// across two Units, would be a table Kamosu could not answer consistently, so
-/// it is caught at build time rather than left to shadow silently.
-static BY_SPELLING: LazyLock<HashMap<String, &'static Unit>> = LazyLock::new(|| {
-    let mut index = HashMap::new();
-    for unit in UNITS {
-        for spelling in unit.spellings {
-            let folded = fold(spelling);
-            assert!(
-                !folded.is_empty(),
-                "a Unit spelling folds away to nothing: {spelling:?}"
-            );
-            if let Some(taken) = index.insert(folded.clone(), unit) {
-                panic!(
-                    "the spelling {folded:?} names two Units: {} and {}",
-                    taken.id, unit.id
-                );
-            }
-        }
-    }
-    index
-});
-
 impl Unit {
     /// Whether this is a spoon — teaspoon, tablespoon and the regional
     /// tablespoons. Every kitchen has spoons, so a spoon says nothing about
@@ -461,22 +259,10 @@ impl Unit {
     }
 }
 
-/// The Unit a written word names, or nothing — which is not an error. A word
-/// outside the closed set is no less real a Unit; it simply never converts.
+/// The Unit a written word names in a line of no known Language, or nothing.
+/// Everything that knows the line's Language asks [`crate::words::of`].
 pub fn recognise(word: &str) -> Option<&'static Unit> {
-    if let Some(letter) = lone_spoon(word) {
-        let id = if letter == "t" {
-            "teaspoon"
-        } else {
-            "tablespoon"
-        };
-        return Some(unit_by_id(id));
-    }
-    let folded = fold(word);
-    if folded.is_empty() {
-        return None;
-    }
-    BY_SPELLING.get(&folded).copied()
+    words::unknown().unit(word)
 }
 
 /// **The one Unit whose case matters** (#208). American recipes write a
@@ -485,7 +271,7 @@ pub fn recognise(word: &str) -> Option<&'static Unit> {
 /// before anything is folded, and every other spelling stays blind to case:
 /// `Tbsp` and `TBSP` are the same tablespoon.
 ///
-/// [`recognise`] asks it first, so reading a line and working out what a
+/// [`Words::unit`] asks it first, so reading a line and working out what a
 /// stored `T` is worth cannot answer differently.
 ///
 /// The answer is the letter with its full stop gone, `t` or `T`. Two callers
@@ -594,7 +380,10 @@ fn parse_plain(text: &str) -> Option<f64> {
 
 // --- Cup Weight --------------------------------------------------------------
 
-/// What one cup of a staple weighs, about — the shipped half of Cup Weight.
+/// The shipped Cup Weight for a Food, found by any of its names: what one cup of
+/// a staple weighs, about, from the word files. Nothing is the ordinary answer
+/// and is not a gap: a Food with no Cup Weight is a line that offers millilitres
+/// instead of grams.
 ///
 /// ADR 0016 costed this precisely: of the 118 real cup rows in the corpus, 42
 /// are liquids (pure arithmetic to millilitres) and 58 are baking staples, so
@@ -605,107 +394,11 @@ fn parse_plain(text: &str) -> Option<f64> {
 ///
 /// A figure stored on the Food always beats the figure here (ADR 0016: "an
 /// override always beats the shipped figure"), and #47 already owns that
-/// column. This is a curated list checked against USDA SR Legacy's
-/// `food_portion.csv`, not an ingest of it.
-///
-/// Each entry is (folded name, grams per cup). Names are listed in all three
-/// interface Languages because a Food is known by its words and a French
-/// recipe's *farine* is the same staple as an English one's *flour*.
-const SHIPPED_CUP_WEIGHTS: &[(&str, f64)] = &[
-    // Flours
-    ("flour", 125.0),
-    ("all-purpose flour", 125.0),
-    ("plain flour", 125.0),
-    ("farine", 125.0),
-    ("harina", 125.0),
-    ("bread flour", 127.0),
-    ("wholemeal flour", 120.0),
-    ("whole wheat flour", 120.0),
-    ("farine complète", 120.0),
-    ("harina integral", 120.0),
-    ("cornflour", 120.0),
-    ("cornstarch", 120.0),
-    ("maïzena", 120.0),
-    ("maizena", 120.0),
-    // Sugars
-    ("sugar", 200.0),
-    ("granulated sugar", 200.0),
-    ("caster sugar", 200.0),
-    ("sucre", 200.0),
-    ("azúcar", 200.0),
-    ("azucar", 200.0),
-    ("brown sugar", 213.0),
-    ("cassonade", 213.0),
-    ("azúcar moreno", 213.0),
-    ("azucar moreno", 213.0),
-    ("icing sugar", 120.0),
-    ("powdered sugar", 120.0),
-    ("sucre glace", 120.0),
-    ("azúcar glas", 120.0),
-    ("azucar glas", 120.0),
-    // Fats and dairy. No milk, water, cream or yoghurt: a liquid poured into a
-    // jug is pure arithmetic to millilitres, which is 42 of the corpus's 118
-    // cup rows and needs no table at all. Giving them a Cup Weight would turn
-    // `2 cups milk` into grams, which is not how anybody measures milk.
-    ("butter", 227.0),
-    ("beurre", 227.0),
-    ("mantequilla", 227.0),
-    ("grated cheese", 100.0),
-    ("fromage râpé", 100.0),
-    ("fromage rape", 100.0),
-    ("queso rallado", 100.0),
-    // Grains and pulses
-    ("rice", 185.0),
-    ("riz", 185.0),
-    ("arroz", 185.0),
-    ("rolled oats", 90.0),
-    ("oats", 90.0),
-    ("flocons d'avoine", 90.0),
-    ("avena", 90.0),
-    ("lentils", 200.0),
-    ("lentilles", 200.0),
-    ("lentejas", 200.0),
-    // The rest of the baking shelf
-    ("chocolate chips", 170.0),
-    ("pépites de chocolat", 170.0),
-    ("pepites de chocolat", 170.0),
-    ("pepitas de chocolate", 170.0),
-    ("cocoa powder", 85.0),
-    ("cacao", 85.0),
-    ("honey", 340.0),
-    ("miel", 340.0),
-    ("walnuts", 117.0),
-    ("noix", 117.0),
-    ("nueces", 117.0),
-    ("pecans", 109.0),
-    ("noix de pécan", 109.0),
-    ("nueces pecanas", 109.0),
-    ("almonds", 143.0),
-    ("amandes", 143.0),
-    ("almendras", 143.0),
-    ("ground almonds", 96.0),
-    ("poudre d'amandes", 96.0),
-    ("almendra molida", 96.0),
-    ("breadcrumbs", 108.0),
-    ("chapelure", 108.0),
-    ("pan rallado", 108.0),
-    // No salt, vanilla, baking powder or spice mix. The corpus's teaspoon and
-    // tablespoon rows are dominated by exactly those, and ADR 0016's reading of
-    // them is blunt: nobody wants them in grams.
-];
-
-/// The shipped staples, folded once. Same reason as [`BY_SPELLING`]: a Food is
-/// matched on the fold everywhere else in Kamosu, and this table names Foods.
-static BY_STAPLE: LazyLock<HashMap<String, f64>> = LazyLock::new(|| {
-    SHIPPED_CUP_WEIGHTS
-        .iter()
-        .map(|(staple, grams)| (fold(staple), *grams))
-        .collect()
-});
-
-/// The shipped Cup Weight for a Food, found by any of its names. Nothing is the
-/// ordinary answer and is not a gap: a Food with no Cup Weight is a line that
-/// offers millilitres instead of grams.
+/// column. The list is curated, checked against USDA SR Legacy's
+/// `food_portion.csv`, not an ingest of it. No milk, water, cream or yoghurt:
+/// giving a liquid a Cup Weight would turn `2 cups milk` into grams, which is
+/// not how anybody measures milk. No salt, vanilla, baking powder or spice mix
+/// either: nobody wants those in grams.
 ///
 /// The match is exact on the fold, exactly as a Food Match is (GLOSSARY.md) —
 /// `farine T55` is its own Food and gets silence rather than a guess at which
@@ -713,7 +406,7 @@ static BY_STAPLE: LazyLock<HashMap<String, f64>> = LazyLock::new(|| {
 pub fn shipped_cup_weight<'a>(names: impl IntoIterator<Item = &'a str>) -> Option<f64> {
     names
         .into_iter()
-        .find_map(|name| BY_STAPLE.get(&fold(name)).copied())
+        .find_map(|name| words::CUP_WEIGHTS.get(&fold(name)).copied())
 }
 
 // --- How much of a Component is wanted ---------------------------------------
@@ -738,6 +431,19 @@ pub fn how_much_of(
     yield_amount: Option<&str>,
     yield_noun: Option<&str>,
 ) -> Option<f64> {
+    how_much_of_in(UNKNOWN, UNKNOWN, amount, unit, yield_amount, yield_noun)
+}
+
+/// [`how_much_of`], for a line written in `line_language` measured against a
+/// Yield written in `yield_language`.
+pub fn how_much_of_in(
+    line_language: &str,
+    yield_language: &str,
+    amount: Option<&str>,
+    unit: Option<&str>,
+    yield_amount: Option<&str>,
+    yield_noun: Option<&str>,
+) -> Option<f64> {
     // No quantity on the line means the whole recipe. 28% of real Ingredient
     // rows carry none, so this is the common case rather than the edge one.
     let Some(amount) = amount else {
@@ -757,8 +463,8 @@ pub fn how_much_of(
     // Mass against mass, volume against volume — through the same base values
     // everything else here converts on, so `500 g` of a dough yielding `1 kg`
     // is half of it and `3 tbsp` of an oil yielding `250 ml` is about a fifth.
-    if let Some(from) = unit.and_then(recognise)
-        && let Some(to) = recognise(noun)
+    if let Some(from) = unit.and_then(|unit| words::of(line_language).unit(unit))
+        && let Some(to) = words::of(yield_language).unit(noun)
         && from.family == to.family
     {
         return Some((wanted * from.base) / (made * to.base));
@@ -917,12 +623,35 @@ pub fn measured_line(
     language: &str,
     cup_weight_grams: Option<f64>,
 ) -> Option<String> {
+    measured_line_in(
+        UNKNOWN,
+        amount,
+        unit,
+        scale,
+        measures,
+        language,
+        cup_weight_grams,
+    )
+}
+
+/// [`measured_line`], for a line written in `written_in_language`, whose words
+/// say which Unit it names. `language` is the reader's, whose words say the
+/// answer.
+pub fn measured_line_in(
+    written_in_language: &str,
+    amount: Option<&str>,
+    unit: Option<&str>,
+    scale: f64,
+    measures: Measures,
+    language: &str,
+    cup_weight_grams: Option<f64>,
+) -> Option<String> {
     let quantity = parse_amount(amount?)?;
     if !scale.is_finite() || scale <= 0.0 {
         return None;
     }
     let scaled = quantity * scale;
-    let source = unit.and_then(recognise);
+    let source = unit.and_then(|unit| words::of(written_in_language).unit(unit));
 
     let measured = convert(scaled, source, unit, measures, cup_weight_grams);
 
@@ -1141,11 +870,13 @@ pub fn no_amount_written(language: &str) -> &'static str {
     }
 }
 
-fn unit_by_id(id: &'static str) -> &'static Unit {
-    UNITS
-        .iter()
-        .find(|unit| unit.id == id)
-        .expect("every id named here is in UNITS")
+pub(crate) fn unit_by_id(id: &'static str) -> &'static Unit {
+    by_id(id).expect("every id named here is in UNITS")
+}
+
+/// The Unit of the closed set with this id.
+pub fn by_id(id: &str) -> Option<&'static Unit> {
+    UNITS.iter().find(|unit| unit.id == id)
 }
 
 // --- Rounding, which happens last and once -----------------------------------
@@ -1314,6 +1045,8 @@ pub fn as_fraction(quantity: f64) -> String {
 /// kept it as a number (#415, #416): metric as a decimal, anything else as the
 /// fraction on the cup where there is one. A decimal keeps three places, as
 /// Tandoor shows them: `0.375 kg`, where [`as_decimal`] would make it `0.38`.
+/// It writes the very lines a Language is read from, so it knows none, and a
+/// Unit it does not recognise is written as a fraction the reader reads back.
 pub fn amount_for(amount: f64, unit: Option<&str>) -> String {
     let metric = unit
         .and_then(recognise)
@@ -1419,12 +1152,23 @@ pub fn step_temperature(
     language: &str,
     written_in: Option<System>,
 ) -> Option<StepTemperature> {
+    step_temperature_in(UNKNOWN, text, measures, language, written_in)
+}
+
+/// [`step_temperature`], for a Step written in `written_in_language`.
+pub fn step_temperature_in(
+    written_in_language: &str,
+    text: &str,
+    measures: Measures,
+    language: &str,
+    written_in: Option<System>,
+) -> Option<StepTemperature> {
     let wanted = match measures {
         Measures::Metric => Scale::Celsius,
         Measures::Us => Scale::Fahrenheit,
         Measures::AsWritten => return None,
     };
-    let found = temperatures_in(text, written_in);
+    let found = temperatures_written(words::of(written_in_language), text, written_in);
     if found.is_empty() {
         return None;
     }
@@ -1523,9 +1267,17 @@ fn nearest_rung(
 /// its grams, and Kamosu files every spoon as customary, so counting them would
 /// call half the French library mixed.
 pub fn written_in<'a>(units: impl IntoIterator<Item = &'a str>) -> Option<System> {
+    written_in_words(words::of(UNKNOWN), units)
+}
+
+/// [`written_in`], for Units read with `lists`.
+pub fn written_in_words<'a>(
+    lists: &Words,
+    units: impl IntoIterator<Item = &'a str>,
+) -> Option<System> {
     let mut systems = units
         .into_iter()
-        .filter_map(recognise)
+        .filter_map(|unit| lists.unit(unit))
         .filter(|unit| !unit.is_spoon())
         .map(|unit| unit.system);
     let first = systems.next()?;
@@ -1540,7 +1292,17 @@ pub fn written_in<'a>(units: impl IntoIterator<Item = &'a str>) -> Option<System
 /// A degree sign with no letter is how Bon Appétit and most American magazines
 /// print every oven (#150), so it counts where only one dial fits: see
 /// [`bare_degrees`].
+#[cfg(test)]
 fn temperatures_in(text: &str, written_in: Option<System>) -> Vec<FoundTemperature> {
+    temperatures_written(words::of(UNKNOWN), text, written_in)
+}
+
+/// [`temperatures_in`], read with `lists`.
+fn temperatures_written(
+    lists: &Words,
+    text: &str,
+    written_in: Option<System>,
+) -> Vec<FoundTemperature> {
     let characters: Vec<char> = text.chars().collect();
     // Where each character starts in bytes, and the text's end after the last.
     let bytes: Vec<usize> = text
@@ -1563,7 +1325,7 @@ fn temperatures_in(text: &str, written_in: Option<System>) -> Vec<FoundTemperatu
         let Ok(degrees) = digits.parse::<i32>() else {
             continue;
         };
-        let marked = scale_after(&characters, index).or_else(|| {
+        let marked = scale_after(lists, &characters, index).or_else(|| {
             let end = degree_sign_after(&characters, index)?;
             bare_degrees(degrees, written_in).map(|scale| (scale, end))
         });
@@ -1612,7 +1374,7 @@ fn bare_degrees(degrees: i32, written_in: Option<System>) -> Option<Scale> {
 /// optional spaces, an optional degree sign, then `C`, `F`, or the word
 /// `degrees` followed by one of those. Answers the scale and where the marker
 /// ends, the whole word where the letter is spelled out (`Celsius`).
-fn scale_after(characters: &[char], mut index: usize) -> Option<(Scale, usize)> {
+fn scale_after(lists: &Words, characters: &[char], mut index: usize) -> Option<(Scale, usize)> {
     let skip_spaces = |index: &mut usize| {
         while characters.get(*index).is_some_and(|c| *c == ' ') {
             *index += 1;
@@ -1620,7 +1382,7 @@ fn scale_after(characters: &[char], mut index: usize) -> Option<(Scale, usize)> 
     };
     skip_spaces(&mut index);
     // `350 degrees F`, and the French and Spanish words for it.
-    for word in ["degrees", "degree", "degrés", "degres", "grados"] {
+    for word in lists.degrees.iter() {
         let letters: Vec<char> = word.chars().collect();
         if characters[index..].starts_with(&letters[..]) {
             index += letters.len();
@@ -1659,107 +1421,6 @@ fn scale_after(characters: &[char], mut index: usize) -> Option<(Scale, usize)> 
 
 // --- Durations in Step text --------------------------------------------------
 
-/// What each duration word is worth in seconds, folded once. The three
-/// interface Languages sit in one table for the same reason [`UNITS`] does:
-/// a French recipe read by an English cook still says *minutes* in its own
-/// text, so the reader is never told which Language to expect.
-///
-/// The bare `h` is here although the real 86-recipe export contains not one
-/// — `1 h 30` is the ordinary French spelling and its absence from 579 real
-/// Steps is a fact about those recipes rather than about French. What is *not*
-/// here is a bare `m` or `s`: a metre and a gram's neighbour are too close, and
-/// a duration nobody offers is cheaper than a timer offered on `500 g`. The one
-/// place a bare `s` is read is right after minutes — `2 min 30 s` — where it
-/// cannot be anything else ([`rest_after_unit`]).
-const DURATION_WORDS: &[(&str, i64)] = &[
-    ("second", 1),
-    ("seconds", 1),
-    ("sec", 1),
-    ("secs", 1),
-    ("seconde", 1),
-    ("secondes", 1),
-    ("segundo", 1),
-    ("segundos", 1),
-    ("minute", 60),
-    ("minutes", 60),
-    ("min", 60),
-    ("mins", 60),
-    ("mn", 60),
-    ("minuto", 60),
-    ("minutos", 60),
-    ("hour", 3600),
-    ("hours", 3600),
-    ("hr", 3600),
-    ("hrs", 3600),
-    ("h", 3600),
-    ("heure", 3600),
-    ("heures", 3600),
-    ("hora", 3600),
-    ("horas", 3600),
-];
-
-/// The words that join the two ends of a range, beside [`Piece::Dash`] and
-/// [`Piece::Slash`]. `a` is here for the Spanish *de 5 a 7 minutos*
-/// and takes the French *à* with it, since [`fold_loosely`] drops the accent.
-const RANGE_WORDS: &[&str] = &["to", "a", "or", "ou", "y", "o", "hasta"];
-
-/// The one word a cook is allowed to slip between the number and its unit —
-/// *cook for 3 more minutes*. Four real Steps in the export do it, all of them
-/// with `more`, and none of them with two words; the rest of this list is that
-/// one habit written in the other two Languages rather than a guess at what
-/// else might appear.
-const MORE_WORDS: &[&str] = &[
-    "more",
-    "additional",
-    "further",
-    "extra",
-    "other",
-    "autres",
-    "mas",
-    "otros",
-    "otras",
-];
-
-/// The half and the quarter a cook says rather than writes as a number —
-/// *2 heures et demie*, *1 hour and a quarter*, *2 minutos y medio* — and what
-/// each adds, as a share of the unit it sits against. Listed folded, and in the
-/// three Languages together for the same reason as [`DURATION_WORDS`].
-///
-/// A phrase counts only directly against its duration: after the unit word
-/// (*2 minutes and a half*) or between the number and it (*2 and a half
-/// minutes*). The set was settled in #157; *trois quarts
-/// d'heure* and the other spelled-out fractions are not in it.
-const SPOKEN_PARTS: &[(&[&str], f64)] = &[
-    (&["et", "demie"], 0.5),
-    (&["et", "demi"], 0.5),
-    (&["et", "quart"], 0.25),
-    (&["and", "a", "half"], 0.5),
-    (&["and", "a", "quarter"], 0.25),
-    (&["y", "medio"], 0.5),
-    (&["y", "media"], 0.5),
-    (&["y", "cuarto"], 0.25),
-];
-
-/// The words that may follow a duration's trailing number without taking it
-/// for their own — *2 minutes 30 **de** chaque côté*, *2 min 30 **per** side*.
-///
-/// Any other word claims the number: *2 minutes 30 **g** de beurre* is two
-/// minutes and a weight, *stir 2 minutes 3 **times*** two minutes and a count.
-/// A list of the short words that join a sentence is closed and can be written
-/// down; a list of every noun a number might count is not, so this names the
-/// first and treats everything else as the second. Missing a word here costs a
-/// timer that stops at the whole minutes, which is what every Step offered
-/// before #157.
-///
-/// French first, then English, then Spanish. `d` and `jusqu` are what is left
-/// of *d'un* and *jusqu'à* once the apostrophe splits them.
-const JOINING_WORDS: &[&str] = &[
-    "de", "d", "du", "des", "a", "au", "aux", "en", "par", "pour", "sur", "dans", "avec", "sans",
-    "puis", "et", "ou", "environ", "chaque", "jusqu", "per", "each", "an", "on", "in", "at", "for",
-    "of", "the", "with", "then", "and", "or", "about", "until", "to", "del", "por", "cada", "al",
-    "con", "sin", "hasta", "y", "o", "luego", "para", "sobre",
-];
-
 /// The denominators a written fraction of an hour uses — *1/2 hour*,
 /// *3/4 hour*, *1 1/8 hours* — the common cooking ones and no others. A slash
 /// between two numbers is otherwise a range (*cuire 20/25 minutes*), which is
@@ -1770,11 +1431,6 @@ const JOINING_WORDS: &[&str] = &[
 /// three to four, and a written fraction of a minute is rare where that range
 /// is common.
 const DENOMINATORS: &[f64] = &[2.0, 3.0, 4.0, 8.0];
-
-/// The words for a half that stand against a duration word with no number:
-/// *une demi-heure*, *media hora*, *medio minuto*. English puts an article
-/// between, *half an hour*, which [`half_alone`] reads as a phrase instead.
-const HALF_WORDS: &[&str] = &["demi", "media", "medio"];
 
 /// One piece of a Step's text, as the duration reader sees it. Whitespace
 /// produces nothing at all, so `20-30 min` and `20 - 30 min` are one shape.
@@ -1799,7 +1455,7 @@ enum Piece {
 /// It is not a call to that function because the dependency runs the other way:
 /// `core` uses `units`, never the reverse. What the two share is the rule, and
 /// the rule is written down in both places rather than in neither.
-fn fold_loosely(word: &str) -> String {
+pub(crate) fn fold_loosely(word: &str) -> String {
     use unicode_normalization::char::is_combining_mark;
     fold(word)
         .chars()
@@ -1831,19 +1487,20 @@ fn fold_loosely(word: &str) -> String {
 /// before it (#157): *2 minutes 30*, *2 min 30 s*, *2 heures et demie*, *2 and
 /// a half minutes*, *1 1/2 hours* and *une demi-heure* each read whole. A sear
 /// timer that drops the half minute is a fifth short.
-pub fn step_duration(text: &str) -> Option<i64> {
+pub fn step_duration(text: &str, language: &str) -> Option<i64> {
+    let lists = words::of(language);
     let pieces = tokenise(text);
     for (index, piece) in pieces.iter().enumerate() {
         let Piece::Word(word) = piece else { continue };
-        let Some(unit_seconds) = seconds_each(word) else {
+        let Some(unit_seconds) = lists.seconds_each(word) else {
             continue;
         };
-        let Some((start, written)) = count_before(&pieces, index, unit_seconds) else {
+        let Some((start, written)) = count_before(lists, &pieces, index, unit_seconds) else {
             continue;
         };
-        let quantity = lower_end(&pieces, start, written).unwrap_or(written);
+        let quantity = lower_end(lists, &pieces, start, written).unwrap_or(written);
         let seconds =
-            quantity * unit_seconds as f64 + rest_after_unit(&pieces, index, unit_seconds);
+            quantity * unit_seconds as f64 + rest_after_unit(lists, &pieces, index, unit_seconds);
         if !(1.0..=LONGEST_TIMER_SECONDS as f64).contains(&seconds) {
             continue;
         }
@@ -1861,15 +1518,6 @@ pub fn step_duration(text: &str) -> Option<i64> {
 /// timer at all.
 const LONGEST_TIMER_SECONDS: i64 = 7 * 24 * 60 * 60;
 
-/// What one of this duration word is worth in seconds, or nothing where the
-/// word names no duration.
-fn seconds_each(word: &str) -> Option<i64> {
-    DURATION_WORDS
-        .iter()
-        .find(|(spelling, _)| *spelling == word)
-        .map(|(_, seconds)| *seconds)
-}
-
 /// What is written after a duration's unit and still belongs to it, in
 /// seconds, or zero: the spoken half or quarter (*2 heures et demie*), a
 /// written fraction (*2 heures 1/2*), or a number of the next smaller unit,
@@ -1885,10 +1533,10 @@ fn seconds_each(word: &str) -> Option<i64> {
 /// None of these is in the real 86-recipe export, which is why they are
 /// handled from the language rather than from the corpus: `1 h 30` is how
 /// French writes an hour and a half, and *2 minutes 30* how it writes a sear.
-fn rest_after_unit(pieces: &[Piece], unit: usize, unit_seconds: i64) -> f64 {
+fn rest_after_unit(lists: &Words, pieces: &[Piece], unit: usize, unit_seconds: i64) -> f64 {
     let fraction = || fraction_after(pieces, unit).filter(|_| unit_seconds == 3600);
-    if let Some((end, part)) = spoken_part_after(pieces, unit).or_else(fraction) {
-        return if claimed(pieces, end) {
+    if let Some((end, part)) = spoken_part_after(lists, pieces, unit).or_else(fraction) {
+        return if claimed(lists, pieces, end) {
             0.0
         } else {
             part * unit_seconds as f64
@@ -1907,9 +1555,9 @@ fn rest_after_unit(pieces: &[Piece], unit: usize, unit_seconds: i64) -> f64 {
     }
     let next = pieces.get(unit + 2);
     let named = matches!(next, Some(Piece::Word(word))
-        if seconds_each(word) == Some(smaller) || (smaller == 1 && word == "s"));
-    let unnamed =
-        !claimed(pieces, unit + 2) && (*count >= 10.0 || !matches!(next, Some(Piece::Word(_))));
+        if lists.seconds_each(word) == Some(smaller) || (smaller == 1 && word == "s"));
+    let unnamed = !claimed(lists, pieces, unit + 2)
+        && (*count >= 10.0 || !matches!(next, Some(Piece::Word(_))));
     if named || unnamed {
         count * smaller as f64
     } else {
@@ -1921,14 +1569,16 @@ fn rest_after_unit(pieces: &[Piece], unit: usize, unit_seconds: i64) -> f64 {
 /// quantity — `30 g`, `3 times`, `35°C`, `1 1/2 cups` — rather than leaving it
 /// to the duration. A range is looked past to what names both its ends:
 /// *3 or 4 times* is a count, *1 h 30 - 2 h* a range of durations.
-fn claimed(pieces: &[Piece], after: usize) -> bool {
-    if joins_a_range(pieces.get(after)) && matches!(pieces.get(after + 1), Some(Piece::Number(_))) {
+fn claimed(lists: &Words, pieces: &[Piece], after: usize) -> bool {
+    if joins_a_range(lists, pieces.get(after))
+        && matches!(pieces.get(after + 1), Some(Piece::Number(_)))
+    {
         return !matches!(pieces.get(after + 2), Some(Piece::Word(word))
-            if seconds_each(word).is_some());
+            if lists.seconds_each(word).is_some());
     }
     match pieces.get(after) {
         Some(Piece::Number(_)) => true,
-        Some(Piece::Word(word)) => !JOINING_WORDS.contains(&word.as_str()),
+        Some(Piece::Word(word)) => !lists.timer_joins.has(word),
         _ => false,
     }
 }
@@ -1936,12 +1586,17 @@ fn claimed(pieces: &[Piece], after: usize) -> bool {
 /// How many of this duration word the text counts, and the piece where that
 /// count begins: `2`, `3 more`, `2 and a half`, `1/2` and `1 1/2` of an hour,
 /// or a bare `half an` / `demi-` / `media` with no number at all.
-fn count_before(pieces: &[Piece], unit: usize, unit_seconds: i64) -> Option<(usize, f64)> {
-    let spoken = spoken_part_before(pieces, unit);
+fn count_before(
+    lists: &Words,
+    pieces: &[Piece],
+    unit: usize,
+    unit_seconds: i64,
+) -> Option<(usize, f64)> {
+    let spoken = spoken_part_before(lists, pieces, unit);
     let at = match spoken {
         Some((start, _)) => start.checked_sub(1),
         None => unit.checked_sub(1).and_then(|at| match pieces.get(at) {
-            Some(Piece::Word(word)) if MORE_WORDS.contains(&word.as_str()) => at.checked_sub(1),
+            Some(Piece::Word(word)) if lists.timer_more.has(word) => at.checked_sub(1),
             _ => Some(at),
         }),
     };
@@ -1954,7 +1609,7 @@ fn count_before(pieces: &[Piece], unit: usize, unit_seconds: i64) -> Option<(usi
                     (start, fraction + part)
                 }),
         ),
-        _ => half_alone(pieces, unit).map(|start| (start, 0.5)),
+        _ => half_alone(lists, pieces, unit).map(|start| (start, 0.5)),
     }
 }
 
@@ -2004,49 +1659,62 @@ fn written_fraction(top: f64, bottom: f64) -> Option<f64> {
 
 /// Where a half with no number before it begins — *une demi-heure*, *media
 /// hora*, *half an hour* — right against the duration word at `unit`.
-fn half_alone(pieces: &[Piece], unit: usize) -> Option<usize> {
+fn half_alone(lists: &Words, pieces: &[Piece], unit: usize) -> Option<usize> {
     let before = unit.checked_sub(1)?;
-    if matches!(pieces.get(before), Some(Piece::Word(word)) if HALF_WORDS.contains(&word.as_str()))
-    {
+    if matches!(pieces.get(before), Some(Piece::Word(word)) if lists.half_words.has(word)) {
         return Some(before);
     }
     let start = before.checked_sub(1)?;
-    let hyphenated =
-        matches!(pieces.get(before), Some(Piece::Dash)) && spells(pieces, start, &["demi"]);
-    let english = spells(pieces, start, &["half", "a"]) || spells(pieces, start, &["half", "an"]);
-    (hyphenated || english).then_some(start)
+    let hyphenated = matches!(pieces.get(before), Some(Piece::Dash))
+        && lists
+            .half_hyphened
+            .iter()
+            .any(|half| spells(pieces, start, half));
+    let with_article = lists
+        .half_with_article
+        .iter()
+        .any(|half| spells(pieces, start, half));
+    (hyphenated || with_article).then_some(start)
+}
+
+/// The half and the quarter a cook says rather than writes as a number, and
+/// what each adds, as a share of the unit it sits against.
+fn spoken_parts(lists: &Words) -> impl Iterator<Item = (&[String], f64)> {
+    let halves = lists.spoken_half.iter().map(|phrase| (phrase, 0.5));
+    let quarters = lists.spoken_quarter.iter().map(|phrase| (phrase, 0.25));
+    halves.chain(quarters)
 }
 
 /// The spoken half or quarter written directly after the duration word at
 /// `unit`, as the piece after it and the share it adds.
-fn spoken_part_after(pieces: &[Piece], unit: usize) -> Option<(usize, f64)> {
-    SPOKEN_PARTS.iter().find_map(|(words, part)| {
-        spells(pieces, unit + 1, words).then_some((unit + 1 + words.len(), *part))
+fn spoken_part_after(lists: &Words, pieces: &[Piece], unit: usize) -> Option<(usize, f64)> {
+    spoken_parts(lists).find_map(|(words, part)| {
+        spells(pieces, unit + 1, words).then_some((unit + 1 + words.len(), part))
     })
 }
 
 /// The spoken half or quarter written between a number and the duration word
 /// at `unit` — *2 and a half minutes* — as where it begins and the share it adds.
-fn spoken_part_before(pieces: &[Piece], unit: usize) -> Option<(usize, f64)> {
-    SPOKEN_PARTS.iter().find_map(|(words, part)| {
+fn spoken_part_before(lists: &Words, pieces: &[Piece], unit: usize) -> Option<(usize, f64)> {
+    spoken_parts(lists).find_map(|(words, part)| {
         let start = unit.checked_sub(words.len())?;
-        spells(pieces, start, words).then_some((start, *part))
+        spells(pieces, start, words).then_some((start, part))
     })
 }
 
 /// Whether the pieces from `start` are exactly these words, in order.
-fn spells(pieces: &[Piece], start: usize, words: &[&str]) -> bool {
+fn spells(pieces: &[Piece], start: usize, words: &[String]) -> bool {
     words.iter().enumerate().all(|(offset, expected)| {
         matches!(pieces.get(start + offset), Some(Piece::Word(word)) if word == expected)
     })
 }
 
 /// Whether this piece joins the two ends of a range: a dash, a slash, or one
-/// of [`RANGE_WORDS`].
-fn joins_a_range(piece: Option<&Piece>) -> bool {
+/// of [`Words::timer_ranges`].
+fn joins_a_range(lists: &Words, piece: Option<&Piece>) -> bool {
     match piece {
         Some(Piece::Dash | Piece::Slash) => true,
-        Some(Piece::Word(word)) => RANGE_WORDS.contains(&word.as_str()),
+        Some(Piece::Word(word)) => lists.timer_ranges.has(word),
         _ => false,
     }
 }
@@ -2056,8 +1724,8 @@ fn joins_a_range(piece: Option<&Piece>) -> bool {
 /// `5`, `-`, `8` or `1`, `to`, `3`. Nothing where this is a plain duration, and
 /// nothing where the supposed lower end is not actually lower, since
 /// `30-20 minutes` is not a range anybody wrote.
-fn lower_end(pieces: &[Piece], start: usize, upper: f64) -> Option<f64> {
-    if !joins_a_range(pieces.get(start.checked_sub(1)?)) {
+fn lower_end(lists: &Words, pieces: &[Piece], start: usize, upper: f64) -> Option<f64> {
+    if !joins_a_range(lists, pieces.get(start.checked_sub(1)?)) {
         return None;
     }
     match pieces.get(start.checked_sub(2)?)? {

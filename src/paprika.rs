@@ -349,7 +349,15 @@ fn minutes(recipe: &Value, field: &str) -> Option<i64> {
     let minutes = if written.bytes().all(|b| b.is_ascii_digit()) {
         written.parse::<i64>().ok()?
     } else {
-        (crate::units::step_duration(&written)? as f64 / 60.0).round() as i64
+        let lines = [
+            text(recipe, "name"),
+            text(recipe, "ingredients"),
+            text(recipe, "directions"),
+        ];
+        let language =
+            crate::language::detect(&lines.into_iter().flatten().collect::<Vec<_>>().join("\n"))
+                .unwrap_or(crate::language::UNKNOWN);
+        (crate::units::step_duration(&written, language)? as f64 / 60.0).round() as i64
     };
     (minutes > 0).then_some(minutes)
 }

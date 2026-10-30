@@ -34,7 +34,7 @@
 //! would stand. Without that restraint `3 chicken breasts` reads *chicken* as
 //! a Unit of breasts, and a Food list fills with words that are not foods.
 //!
-//! [`OPEN_UNITS`] is therefore not a second vocabulary competing with
+//! [`Words::open_units`] is therefore not a second vocabulary competing with
 //! [`crate::units`], which was the whole objection to the libraries: it is the
 //! **open** half ADR 0016 says `units.rs` deliberately does not hold, because
 //! nothing in it converts to anything. `units.rs` answers *what is this Unit
@@ -43,6 +43,7 @@
 //! there and defined nowhere else.
 
 use crate::units;
+use crate::words::{self, Phrases, Words, folded, folded_keeping_accents};
 
 /// What Kamosu read off one Ingredient Line: the three parts of a Reading,
 /// each optional and each meaningless without the written line above it.
@@ -67,606 +68,35 @@ impl Reading {
     }
 }
 
-/// Units outside the closed set that a recipe writes constantly: a vessel, a
-/// piece, a handful. None of them converts to anything — a *gousse* is not a
-/// quantity of anything measurable — and that is fine: ADR 0016 keeps the set
-/// of Units open precisely so these are ordinary rather than exceptional.
-///
-/// They are listed in the three interface Languages, unaccented spellings
-/// included, because the fold in [`folded`] strips accents but a French
-/// keyboard produces both.
-const OPEN_UNITS: &[&str] = &[
-    // English
-    "clove",
-    "cloves",
-    "can",
-    "cans",
-    "tin",
-    "tins",
-    "packet",
-    "packets",
-    "package",
-    "packages",
-    "sachet",
-    "sachets",
-    "pinch",
-    "pinches",
-    "bunch",
-    "bunches",
-    "head",
-    "heads",
-    "stick",
-    "sticks",
-    "slice",
-    "slices",
-    "strip",
-    "strips",
-    "leaf",
-    "leaves",
-    "sprig",
-    "sprigs",
-    "stalk",
-    "stalks",
-    "strand",
-    "strands",
-    "jar",
-    "jars",
-    "bottle",
-    "bottles",
-    "box",
-    "boxes",
-    "bag",
-    "bags",
-    "piece",
-    "pieces",
-    "drop",
-    "drops",
-    "dash",
-    "dashes",
-    "handful",
-    "handfuls",
-    "knob",
-    "knobs",
-    "square",
-    "squares",
-    "sheet",
-    "sheets",
-    "block",
-    "blocks",
-    "cube",
-    "cubes",
-    "bundle",
-    "bundles",
-    // A pour of oil or wine, as #181 made `filet` one in French (#186).
-    "glug",
-    "glugs",
-    // A length of ginger or lemongrass, the same in all three Languages
-    // (#207): `Gingembre : 1 à 3 cm`. It measures the Food and converts to
-    // nothing, as a *gousse* does.
-    "cm",
-    // French. `cube` and `cubes` are spelt the same, so the English pair above
-    // covers both (#161).
-    "gousse",
-    "gousses",
-    "boite",
-    "boites",
-    "pincee",
-    "pincees",
-    // The accepted cost is `2 pinces de crabe`, two pinches of crab (#208).
-    "pince",
-    "pinces",
-    "bouquet",
-    "bouquets",
-    "tranche",
-    "tranches",
-    "brin",
-    "brins",
-    "feuille",
-    "feuilles",
-    "poignee",
-    "poignees",
-    "noix",
-    "filet",
-    "filets",
-    "pot",
-    "pots",
-    "botte",
-    "bottes",
-    "branche",
-    "branches",
-    "morceau",
-    "morceaux",
-    "trait",
-    "traits",
-    "cuillere",
-    "cuilleres",
-    "verre",
-    "verres",
-    "paquet",
-    "paquets",
-    // What a shop sells a thing in, seen translating recipes into French
-    // (#181). `filet` above stays a Unit too: `un filet d'huile d'olive` is a
-    // drizzle, and `2 filets de saumon` is two fillets of salmon.
-    "bloc",
-    "blocs",
-    "bouteille",
-    "bouteilles",
-    "barquette",
-    "barquettes",
-    "brique",
-    "briques",
-    "tablette",
-    "tablettes",
-    // Spanish
-    "diente",
-    "dientes",
-    "rama",
-    "ramas",
-    "hoja",
-    "hojas",
-    "punado",
-    "punados",
-    "rodaja",
-    "rodajas",
-    "lata",
-    "latas",
-    "manojo",
-    "manojos",
-    "pizca",
-    "pizcas",
-    "trozo",
-    "trozos",
-    "bote",
-    "botes",
-    "ramita",
-    "ramitas",
-    "chorrito",
-    "chorritos",
-    "pastilla",
-    "pastillas",
-    "cubito",
-    "cubitos",
-    "botella",
-    "botellas",
-    "tableta",
-    "tabletas",
-];
-
-/// Words that stand exactly where a Unit stands and are not one: they describe
-/// the thing rather than measure it. Dropped so `1 large onion` and `2 onions`
-/// point at one Food rather than two.
-///
-/// Every form a French or Spanish size takes is listed, plurals included,
-/// because the fold in [`folded`] strips accents but not endings: without
-/// `petits`, `2 petits poireaux` named a Food *petits poireaux* (#185).
-const SIZES: &[&str] = &[
-    "large", "small", "medium", "big", "whole", "extra", "jumbo", "gros", "grosse", "grosses",
-    "petit", "petite", "petits", "petites", "moyen", "moyenne", "moyens", "moyennes", "grand",
-    "grande", "grands", "grandes", "pequeno", "pequena", "pequenos", "pequenas", "mediano",
-    "mediana", "medianos", "medianas", "entier", "entiere", "entiers", "entieres",
-];
-
-/// The [`SIZES`] French and Spanish write after the food rather than before
-/// it, `2 tomates moyennes` and `1 cebolla grande`, dropped from the end of
-/// the Food's name as the others are from its start (#185).
-///
-/// **`entier` is not one of them.** After the food it says *whole* the way a
-/// product does: `farine de blé entier` is whole-wheat flour, and `lait
-/// entier` whole milk, neither the same thing to buy as plain flour or milk.
-/// Nor is `gros`, for the same reason: `sel gros` is coarse salt.
-/// English `whole` before the food is still dropped as a size, as it was
-/// before #185, so `whole milk` reads as *milk*; that was left alone there.
-///
-/// Kept as its own list rather than derived from [`SIZES`]: a new French or
-/// Spanish size goes into both.
-const SIZES_AFTER: &[&str] = &[
-    "petit", "petite", "petits", "petites", "moyen", "moyenne", "moyens", "moyennes", "grand",
-    "grande", "grands", "grandes", "pequeno", "pequena", "pequenos", "pequenas", "mediano",
-    "mediana", "medianos", "medianas",
-];
-
-/// Words of praise for a measure, or for how full it is: `1 good pinch salt`,
-/// `1 heaping tablespoon sugar`, `1 scant cup flour`, `1 bonne poignée de
-/// basilic`. Like a size, such a word says nothing about which Food to buy,
-/// but it is dropped only where a measure makes it one (#186): straight
-/// before a Unit, and at the start of a Food that follows an amount or a
-/// Unit. Anywhere else it stays in the name, which is the choice on
-/// #186: *poulet à la bonne femme* is a dish, not a good woman's chicken.
-///
-/// Kept apart from [`SIZES`] for that reason, since a size is dropped from
-/// the front of any Food. Every form is listed, as for [`SIZES`]. Words that
-/// are as often part of a name are left out: *Nice* biscuits are a biscuit.
-const PRAISE: &[&str] = &[
-    // English
-    "good",
-    "good-quality",
-    "generous",
-    "heaping",
-    "heaped",
-    "rounded",
-    "level",
-    "scant",
-    // French
-    "bon",
-    "bonne",
-    "bons",
-    "bonnes",
-    "genereux",
-    "genereuse",
-    "genereuses",
-    "beau",
-    "belle",
-    "beaux",
-    "belles",
-    "copieux",
-    "copieuse",
-    "copieuses",
-    // Spanish
-    "buen",
-    "buena",
-    "buenos",
-    "buenas",
-    "generoso",
-    "generosa",
-    "generosos",
-    "generosas",
-];
-
-/// The ways a recipe says how warm a food should be when it goes in, each
-/// written as its words. How warm the butter is says nothing about which
-/// butter to buy, so a phrase at either end of a Food's name is dropped:
-/// `100 g de beurre froid` is a Reading of *beurre* (#185).
-///
-/// **`hot` and `glacé` are left out on purpose.** Hot sauce and a hot dog are
-/// things to buy, and the fold in [`folded`] makes `glacé` one word with the
-/// `glace` of *sucre glace*, which is icing sugar. `chaud` is in, although
-/// *chocolat chaud* is a drink: the question answered on #185 named
-/// `chaud` among the words to drop, and an Ingredient Line far more often
-/// means warm milk than hot chocolate.
-///
-/// A word that only says *very* goes with the temperature it strengthens, so
-/// `eau très chaude` is *eau* and not *eau très* ([`VERY`]).
-///
-/// Only temperature, and never strength: `fond de volaille corsé` and
-/// `moutarde forte` keep their names, because a strong mustard is not the
-/// mustard beside it on the shelf.
-const WARMTH: &[&[&str]] = &[
-    // English
-    &["cold"],
-    &["warm"],
-    &["lukewarm"],
-    &["room-temperature"],
-    &["room", "temperature"],
-    &["at", "room", "temperature"],
-    // French
-    &["froid"],
-    &["froide"],
-    &["froids"],
-    &["froides"],
-    &["chaud"],
-    &["chaude"],
-    &["chauds"],
-    &["chaudes"],
-    &["tiède"],
-    &["tièdes"],
-    &["température", "ambiante"],
-    &["à", "température", "ambiante"],
-    &["à", "la", "température", "ambiante"],
-    // Spanish
-    &["frío"],
-    &["fría"],
-    &["fríos"],
-    &["frías"],
-    &["caliente"],
-    &["calientes"],
-    &["tibio"],
-    &["tibia"],
-    &["tibios"],
-    &["tibias"],
-    &["templado"],
-    &["templada"],
-    &["templados"],
-    &["templadas"],
-    &["temperatura", "ambiente"],
-    &["a", "temperatura", "ambiente"],
-];
-
-/// The article or preposition gluing an amount to what it is an amount of.
-/// A name never keeps one: `200 g de farine` is a Reading of *farine*, and a
-/// Food called *de farine* would never match the *farine* beside it.
-///
-/// This is the whole of why the corpus's French lines read correctly here and
-/// do not in either library measured in ADR 0036.
-///
-/// **`d` and `l` are deliberately absent.** They are glue only as `d'` and
-/// `l'`, which [`split_elisions`] leaves carrying their apostrophe and
-/// [`is_glue`] recognises by that apostrophe — because a bare `l` is a litre,
-/// and `1 l milk` is a real line in the corpus.
-///
-/// Ask [`listed_as_glue`] whether a word is one of these, never [`listed`]:
-/// [`ACCENTED_NAMES`] fold onto three of them and are not glue (#213).
-const GLUE: &[&str] = &[
-    "of", "de", "du", "des", "la", "le", "les", "un", "une", "el", "los", "las", "al", "the", "a",
-];
-
-/// Words that fold onto a [`GLUE`] word and are no such thing: French for
-/// tea, for diced pieces and for one of them. Each is glue once [`folded`]
-/// throws its accent away, which named a tea after its colour, `1 thé vert`
-/// as *vert*, and left `200 ml de thé` naming nothing (#213).
-///
-/// Only the accented spelling is kept. `1 the vert` is what an English
-/// article looks like, and goes on reading as *vert*.
-const ACCENTED_NAMES: &[&str] = &["thé", "dés", "dé"];
-
-/// Words that open a line to say *a few* or *about*. Kamosu can do no
-/// arithmetic on *a few*, so one is never the amount; left standing it hid the
-/// Unit behind it, and `quelques feuilles de menthe` named a Food after the
-/// leaves (#181).
-///
-/// Dropped only at the start of the line and **before** the amount is read,
-/// never as [`GLUE`]: `unos 200 g de harina` is Spanish for *about* 200 g, and
-/// the 200 has to reach the amount rather than the Food.
-const A_FEW: &[&str] = &["quelques", "unos", "unas"];
-
-/// The ways a line opens to say *a little*, each written as its words. Like
-/// [`A_FEW`] it is no amount, and left standing its second word opened the
-/// Food: `un peu de sirop d'érable` named *peu de sirop d'érable* (#208).
-///
-/// Only the whole phrase, and only at the start of the line. `peu de sel` and
-/// `1 little gem lettuce` read as they always have.
-const A_LITTLE: &[&[&str]] = &[
-    &["un", "peu", "de"],
-    &["un", "peu", "d'"],
-    &["a", "little"],
-    &["a", "bit", "of"],
-    &["un", "poco", "de"],
-];
-
-/// The ways a recipe says *as much as you like*, each written as its words.
-/// Such a phrase measures nothing and names nothing, so it is dropped from the
-/// front or the end of what a Reading reads (#163): `to taste sea salt` and
-/// `salt and pepper to taste` read exactly as `sea salt` and `salt and pepper`
-/// do. Inside brackets or after a comma it was already the cook's aside.
-///
-/// Only the two ends, because in the middle a phrase can mean something else:
-/// `huile au goût de truffe` is truffle-flavoured oil, one thing to buy.
-const TO_TASTE: &[&[&str]] = &[
-    &["to", "taste"],
-    &["to", "your", "taste"],
-    &["au", "goût"],
-    &["selon", "le", "goût"],
-    &["selon", "votre", "goût"],
-    &["selon", "goût"],
-    &["à", "volonté"],
-    &["à", "convenance"],
-    &["al", "gusto"],
-    &["a", "gusto"],
-];
-
-/// Words that say how a food is prepared or bought, never what it is: a Food
-/// made of nothing else is not a Food (#163). `4 cloves, minced` measures
-/// garlic that the line never names, and a Food called *minced* would sit on
-/// the shopping list meaning nothing.
-///
-/// Beside a food they stay part of its name, as they always have — `minced
-/// garlic` and `boneless chicken thighs` are what the cook wrote. Only a name
-/// that is **all** of these is refused, and where a comma cut such a run off
-/// from its food, as in `boneless, skinless chicken thighs`, the Food is read
-/// on past the comma instead.
-///
-/// Every form a French or Spanish word takes is listed, because the fold in
-/// [`folded`] strips accents but not endings. A word that is also a food is
-/// left out, whatever else it means: *fondue*, *cocido*, *confit*, *cortado*
-/// the coffee and *picada* the Catalan sauce.
-const DESCRIBING: &[&str] = &[
-    // English
-    "boneless",
-    "skinless",
-    "bone-in",
-    "skin-on",
-    "minced",
-    "divided",
-    "chopped",
-    "diced",
-    "sliced",
-    "grated",
-    "shredded",
-    "crushed",
-    "peeled",
-    "seeded",
-    "deseeded",
-    "pitted",
-    "cubed",
-    "halved",
-    "quartered",
-    "trimmed",
-    "melted",
-    "softened",
-    "beaten",
-    "sifted",
-    "drained",
-    "rinsed",
-    "cooked",
-    "uncooked",
-    "toasted",
-    "julienned",
-    "zested",
-    "juiced",
-    "mashed",
-    "packed",
-    "heaping",
-    "heaped",
-    "level",
-    "rounded",
-    "optional",
-    "fresh",
-    "dried",
-    "frozen",
-    "ground",
-    "raw",
-    "finely",
-    "roughly",
-    "coarsely",
-    "thinly",
-    "freshly",
-    "lightly",
-    // French
-    "haché",
-    "hachée",
-    "hachés",
-    "hachées",
-    "émincé",
-    "émincée",
-    "émincés",
-    "émincées",
-    "désossé",
-    "désossée",
-    "désossés",
-    "désossées",
-    "coupé",
-    "coupée",
-    "coupés",
-    "coupées",
-    "râpé",
-    "râpée",
-    "râpés",
-    "râpées",
-    "pelé",
-    "pelée",
-    "pelés",
-    "pelées",
-    "écrasé",
-    "écrasée",
-    "écrasés",
-    "écrasées",
-    "concassé",
-    "concassée",
-    "concassés",
-    "concassées",
-    "cuit",
-    "cuite",
-    "cuits",
-    "cuites",
-    "surgelé",
-    "surgelée",
-    "surgelés",
-    "surgelées",
-    "frais",
-    "fraîche",
-    "fraîches",
-    "sec",
-    "sèche",
-    "secs",
-    "sèches",
-    "finement",
-    "grossièrement",
-    // Spanish
-    "picado",
-    "picados",
-    "deshuesado",
-    "deshuesada",
-    "deshuesados",
-    "deshuesadas",
-    "rallado",
-    "rallada",
-    "rallados",
-    "ralladas",
-    "pelado",
-    "pelada",
-    "pelados",
-    "peladas",
-    "troceado",
-    "troceada",
-    "troceados",
-    "troceadas",
-    "molido",
-    "molida",
-    "molidos",
-    "molidas",
-    "fresco",
-    "fresca",
-    "frescos",
-    "frescas",
-    "seco",
-    "seca",
-    "secos",
-    "secas",
-    "finamente",
-];
-
-/// What may join two [`DESCRIBING`] words without naming anything itself:
-/// `peeled and chopped`.
-const DESCRIBING_JOINS: &[&str] = &["and", "et", "y"];
-
-/// The elided articles French and Spanish write against the next word. Split
-/// off so [`GLUE`] can see them, and glued back wherever one survives inside a
-/// name — `un filet d'huile d'olive` keeps its *d'huile*.
-const ELISIONS: &[&str] = &["d'", "l'", "qu'", "n'"];
-
-/// Fold a word for comparison against the lists above: the same Unicode fold
-/// [`crate::units`] uses, then everything that is not a letter or a digit
-/// thrown away — combining marks included — so neither punctuation nor an
-/// accent can make one spelling two. `pincée`, `pincee` and `Pincée` are one
-/// word here, which is what lets each list be written once.
-///
-/// [`ACCENTED_NAMES`] is the one list an accent does tell apart, and it is
-/// compared through [`folded_keeping_accents`].
-fn folded(word: &str) -> String {
-    fold(word, false)
-}
-
-/// [`folded`], with the accents left on: `Thé,` and `thé` are one word here,
-/// and `the` is another.
-fn folded_keeping_accents(word: &str) -> String {
-    fold(word, true)
-}
-
-fn fold(word: &str, keep_accents: bool) -> String {
-    use caseless::Caseless;
-    use unicode_normalization::UnicodeNormalization;
-    use unicode_normalization::char::is_combining_mark;
-    word.chars()
-        .nfd()
-        .default_case_fold()
-        .nfd()
-        .filter(|c| c.is_alphanumeric() || (keep_accents && is_combining_mark(*c)))
-        .collect()
-}
-
 /// Whether a word is holding an amount to a Food rather than being part of
 /// either: an article, a preposition, a size, or an elided article left
 /// carrying its apostrophe by [`split_elisions`]. That last test is by the
 /// apostrophe and not by the letter, because the fold in [`folded`] throws
 /// punctuation away and `l'` and `l` would otherwise be one word — one of
 /// which is a litre.
-fn is_glue(word: &str) -> bool {
+fn is_glue(lists: &Words, word: &str) -> bool {
     word.ends_with('\'')
         || word.ends_with('\u{2019}')
-        || listed_as_glue(word)
-        || listed(SIZES, word)
+        || listed_as_glue(lists, word)
+        || lists.sizes.has(word)
 }
 
-/// Whether a word is one of [`GLUE`], which a word of [`ACCENTED_NAMES`] is
+/// Whether a word is one of [`Words::glue`], which a word of [`Words::accented_names`] is
 /// not, whatever [`folded`] makes of it.
-fn listed_as_glue(word: &str) -> bool {
-    listed(GLUE, word) && accented_name(word).is_none()
+fn listed_as_glue(lists: &Words, word: &str) -> bool {
+    lists.glue.has(word) && accented_name(lists, word).is_none()
 }
 
-/// **The word of [`ACCENTED_NAMES`] this is, accent and all**, as the list
+/// **The word of [`Words::accented_names`] this is, accent and all**, as the list
 /// spells it, and nothing for any other word. The Step linker compares words
 /// with their accents gone, and asks this first so that `thé` does not reach
 /// [`only_joins`] as `the` (#230).
-pub fn accented_name(word: &str) -> Option<&'static str> {
+pub fn accented_name<'a>(lists: &'a Words, word: &str) -> Option<&'a str> {
     let word = folded_keeping_accents(word);
-    ACCENTED_NAMES
+    lists
+        .accented_names
         .iter()
-        .copied()
         .find(|name| folded_keeping_accents(name) == word)
-}
-
-fn listed(list: &[&str], word: &str) -> bool {
-    let word = folded(word);
-    !word.is_empty() && list.iter().any(|entry| folded(entry) == word)
 }
 
 /// **Read one Ingredient Line**, or answer nothing where there is nothing
@@ -683,6 +113,7 @@ fn listed(list: &[&str], word: &str) -> bool {
 /// no Language passes [`crate::language::UNKNOWN`].
 pub fn read_line(line: &str, language: &str) -> Option<Reading> {
     use unicode_normalization::UnicodeNormalization;
+    let lists = words::of(language);
     let opens_with_a_bracket = line.trim_start().starts_with(['(', '[', '{']);
     // An accent typed as its own character is put back on its letter, so one
     // name read from two keyboards is one spelling (#230). Only the Reading
@@ -701,42 +132,44 @@ pub fn read_line(line: &str, language: &str) -> Option<Reading> {
     // The slashes are stood apart only to find a restated measure. Where
     // there is none, the line is read as written, so `salt/2 tsp pepper`
     // names the Food the cook spelt and not a respaced copy of it (#182).
-    match read_split(&slashes_apart(line)) {
+    match read_split(lists, &slashes_apart(line)) {
         (reading, true) => reading,
-        _ => read_split(line).0,
+        _ => read_split(lists, line).0,
     }
 }
 
 /// [`read_line`]'s work on a line with its brackets gone, and whether a
 /// measure restated after a slash was left out of the Food.
-fn read_split(line: &str) -> (Option<Reading>, bool) {
-    let Some((before, rest)) = at_the_colon(line) else {
-        return read_clauses(line);
+fn read_split(lists: &Words, line: &str) -> (Option<Reading>, bool) {
+    let Some((before, rest)) = at_the_colon(lists, line) else {
+        return read_clauses(lists, line);
     };
-    match past_the_colon(rest) {
+    match past_the_colon(lists, rest) {
         // `Eau : 800 ml` is read as `800 ml Eau`, so it cannot read otherwise
         // than its amount-first twin does.
         PastTheColon::Measure(measure) => {
             // The Food before the colon may open with `un peu de`, which is
             // dropped only at the start of what is read (#208).
-            let opening = split_elisions(before);
+            let opening = split_elisions(lists, before);
             let opening: Vec<&str> = opening.split_whitespace().collect();
-            let food = match a_few_or_a_little_at(&opening) {
+            let food = match a_few_or_a_little_at(lists, &opening) {
                 0 => before.to_string(),
                 dropped => opening[dropped..].join(" "),
             };
-            read_clauses(&format!("{measure} {food}"))
+            read_clauses(lists, &format!("{measure} {food}"))
         }
-        PastTheColon::Aside => read_clauses(before),
-        PastTheColon::Unplaced => read_clauses(line),
+        PastTheColon::Aside => read_clauses(lists, before),
+        PastTheColon::Unplaced => read_clauses(lists, line),
         // What ends as a sentence does is a step under its heading and not a
         // Food under a label, so the colon cuts nothing there: `Add Garlic:
         // Once the onions are translucent, add the garlic.` The paste reader
         // puts every line it is given through here (#94), and the heading is
         // what kept such a line from reading as a measure.
-        PastTheColon::Named if rest.trim_end().ends_with(['.', '!', '?']) => read_clauses(line),
+        PastTheColon::Named if rest.trim_end().ends_with(['.', '!', '?']) => {
+            read_clauses(lists, line)
+        }
         PastTheColon::Named => {
-            let read = read_split(rest);
+            let read = read_split(lists, rest);
             // The label is dropped only where what follows reads as a line
             // should. Where it names no Food, or an amount in it has no Unit
             // Kamosu knows, or its Food opens with a number, the amount may
@@ -750,7 +183,11 @@ fn read_split(line: &str) -> (Option<Reading>, bool) {
                 reading.target.as_ref().is_some_and(has_a_name)
                     && (reading.amount.is_none() || reading.unit.is_some())
             });
-            if placed { read } else { read_clauses(line) }
+            if placed {
+                read
+            } else {
+                read_clauses(lists, line)
+            }
         }
     }
 }
@@ -785,25 +222,25 @@ enum PastTheColon {
 /// - one with nothing after it, the heading `For the sauce:`;
 /// - one in a line that opens with an amount. Such a line already has its
 ///   measure, and `1 tsp EACH: Dijon Mustard and Honey` would lose it.
-fn at_the_colon(line: &str) -> Option<(&str, &str)> {
+fn at_the_colon<'a>(lists: &Words, line: &'a str) -> Option<(&'a str, &'a str)> {
     let digit = |c: Option<char>| c.is_some_and(|c| c.is_ascii_digit());
     let (before, rest) = line.match_indices(':').find_map(|(at, _)| {
         let (before, rest) = (&line[..at], &line[at + 1..]);
         let ratio = digit(before.chars().next_back()) && digit(rest.chars().next());
         (!ratio && !rest.starts_with("//")).then_some((before, rest))
     })?;
-    let opening = split_elisions(split_clauses(before)[0]);
+    let opening = split_elisions(lists, split_clauses(before)[0]);
     let mut opening: Vec<&str> = opening.split_whitespace().collect();
-    opening.drain(..a_few_or_a_little_at(&opening));
-    stand_the_unit_apart(&mut opening, 0);
-    let cuts = rest.chars().any(char::is_alphanumeric) && amount_words(&opening).is_none();
+    opening.drain(..a_few_or_a_little_at(lists, &opening));
+    stand_the_unit_apart(lists, &mut opening, 0);
+    let cuts = rest.chars().any(char::is_alphanumeric) && amount_words(lists, &opening).is_none();
     cuts.then_some((before, rest))
 }
 
 /// Which of the three things what stands after a colon is.
 ///
 /// It is a measure when it is an amount, an amount and its Unit, or a Unit
-/// with a word before it that says a Unit is coming: one of [`A_FEW`], an
+/// with a word before it that says a Unit is coming: one of [`Words::a_few`], an
 /// article or a word of praise, `quelques brins`, `une pincée`, `bonne
 /// pincée`. A Unit with nothing before it is a name, since `Spices: cloves`
 /// lists a spice. A measure restated after a slash is still the one measure
@@ -813,26 +250,26 @@ fn at_the_colon(line: &str) -> Option<(&str, &str)> {
 ///
 /// Anything else names something, and [`read_split`] decides whether that is
 /// enough to drop what stood before the colon.
-fn past_the_colon(rest: &str) -> PastTheColon {
-    let head = split_elisions(split_clauses(rest)[0]);
+fn past_the_colon(lists: &Words, rest: &str) -> PastTheColon {
+    let head = split_elisions(lists, split_clauses(rest)[0]);
     let mut tokens: Vec<&str> = head.split_whitespace().collect();
-    let a_few = a_few_or_a_little_at(&tokens);
-    stand_the_unit_apart(&mut tokens, a_few);
-    let words = without_to_taste(&tokens[a_few..]);
-    if only_describing(words) || without_warmth_or_size(words).is_empty() {
+    let a_few = a_few_or_a_little_at(lists, &tokens);
+    stand_the_unit_apart(lists, &mut tokens, a_few);
+    let words = without_to_taste(lists, &tokens[a_few..]);
+    if only_describing(lists, words) || without_warmth_or_size(lists, words).is_empty() {
         return PastTheColon::Aside;
     }
-    let amount = amount_words(words);
+    let amount = amount_words(lists, words);
     let measured = &words[amount.unwrap_or(0)..];
     // How many of the words are the measure: up to the end of the Unit and
     // of anything restated, where all that is left only describes.
-    let measure = [strip_glue(measured), without_praise(measured)]
+    let measure = [strip_glue(lists, measured), without_praise(lists, measured)]
         .into_iter()
         .find_map(|after| {
-            let unit = unit_at(after, after.len(), amount.is_some());
+            let unit = unit_at(lists, after, after.len(), amount.is_some());
             let mut left = &after[unit..];
             while amount.is_some() && unit > 0 {
-                match restated(left) {
+                match restated(lists, left) {
                     Some(taken) => left = &left[taken..],
                     None => break,
                 }
@@ -843,15 +280,20 @@ fn past_the_colon(rest: &str) -> PastTheColon {
             } else {
                 unit > 0 && announced
             };
-            (is_a_measure && (left.is_empty() || only_describing(left)))
+            (is_a_measure && (left.is_empty() || only_describing(lists, left)))
                 .then_some(words.len() - left.len())
         });
     // A measure with a name joined to it is a line under a label, `Pour la
     // sauce : 2 c. à soupe de miel`. With no word joining them, nothing says
     // which side of the colon the measure belongs to.
-    let after = strip_glue(measured);
-    let unit = unit_at(after, after.len().saturating_sub(1), amount.is_some());
-    let joined = after.get(unit).is_some_and(|word| is_glue(word));
+    let after = strip_glue(lists, measured);
+    let unit = unit_at(
+        lists,
+        after,
+        after.len().saturating_sub(1),
+        amount.is_some(),
+    );
+    let joined = after.get(unit).is_some_and(|word| is_glue(lists, word));
     match measure {
         None if amount.is_some() && unit > 0 && !joined => PastTheColon::Unplaced,
         // The `quelques` goes along, for the reader to drop as it does at the
@@ -869,31 +311,31 @@ fn past_the_colon(rest: &str) -> PastTheColon {
 }
 
 /// [`read_split`]'s work on a line no colon cuts.
-fn read_clauses(line: &str) -> (Option<Reading>, bool) {
+fn read_clauses(lists: &Words, line: &str) -> (Option<Reading>, bool) {
     let mut clauses = split_clauses(line).into_iter();
-    let head = split_elisions(clauses.next().unwrap_or_default());
+    let head = split_elisions(lists, clauses.next().unwrap_or_default());
     let mut tokens: Vec<&str> = head.split_whitespace().collect();
-    tokens.drain(..a_few_or_a_little_at(&tokens));
+    tokens.drain(..a_few_or_a_little_at(lists, &tokens));
     // `to taste` goes before anything else is read, so a line reads exactly
     // as it would without the phrase: `cloves to taste` as `cloves` (#163).
-    let to_taste = to_taste_at(&tokens, End::Start);
+    let to_taste = to_taste_at(lists, &tokens, End::Start);
     tokens.drain(..to_taste);
-    let to_taste = to_taste_at(&tokens, End::Finish);
+    let to_taste = to_taste_at(lists, &tokens, End::Finish);
     tokens.truncate(tokens.len() - to_taste);
     if tokens.is_empty() {
         return (None, false);
     }
-    stand_the_unit_apart(&mut tokens, 0);
-    let pack_restated = drop_the_pack_size(&mut tokens);
+    stand_the_unit_apart(lists, &mut tokens, 0);
+    let pack_restated = drop_the_pack_size(lists, &mut tokens);
     // A measure written after the Food is read where a measure is always
     // read, at the start: `Pâtes orzo 200 g` as `200 g Pâtes orzo` (#207).
     // Its amount may stand against its Unit, `Pâtes orzo 200g`, and the two
     // are parted only where they are that measure (#208).
     let mut turned = tokens.clone();
-    if let Some((amount, unit)) = tokens.last().and_then(|word| against_its_unit(word)) {
+    if let Some((amount, unit)) = tokens.last().and_then(|word| against_its_unit(lists, word)) {
         turned.splice(tokens.len() - 1.., [amount, unit]);
     }
-    if let Some(at) = measure_at_the_end(&turned) {
+    if let Some(at) = measure_at_the_end(lists, &turned) {
         turned.rotate_left(at);
         tokens = turned;
     }
@@ -901,7 +343,9 @@ fn read_clauses(line: &str) -> (Option<Reading>, bool) {
     // of the Reading: in `garlic, minced` the cook is talking *about* the
     // garlic. It is kept here only for the cases below where the comma fell
     // between the measure and the thing measured, or inside the thing's name.
-    let later: Vec<String> = clauses.map(split_elisions).collect();
+    let later: Vec<String> = clauses
+        .map(|clause| split_elisions(lists, clause))
+        .collect();
     let past_the_comma = later.first();
 
     let mut reading = Reading::default();
@@ -909,12 +353,12 @@ fn read_clauses(line: &str) -> (Option<Reading>, bool) {
     // The amount: the longest leading run of words Kamosu can read as one
     // quantity, so `1 1/2` beats `1` and `2` beats nothing at all.
     let mut rest = tokens.as_slice();
-    if let Some(take) = amount_words(&tokens) {
+    if let Some(take) = amount_words(lists, &tokens) {
         reading.amount = Some(tokens[..take].join(" "));
         rest = &tokens[take..];
     }
 
-    rest = strip_glue(rest);
+    rest = strip_glue(lists, rest);
 
     // The Unit: the longest window the closed set recognises — `fl oz` and
     // `c. à c.` are two and three words — and failing that one word from the
@@ -932,15 +376,15 @@ fn read_clauses(line: &str) -> (Option<Reading>, bool) {
         rest.len().saturating_sub(1)
     };
     let after_an_amount = reading.amount.is_some();
-    let mut unit_taken = unit_at(rest, longest, after_an_amount);
+    let mut unit_taken = unit_at(lists, rest, longest, after_an_amount);
     // Failing that, a Unit behind a word that only praises it: `good pinch`
     // is a pinch (#186). The praise is skipped only when a Unit follows, with
     // or without an amount before it, so `bonne pincée de sel` is a pinch
     // too, while a name that opens with such a word keeps it.
-    let praised = without_praise(rest);
+    let praised = without_praise(lists, rest);
     if unit_taken == 0 && praised.len() < rest.len() {
         let longest = longest.saturating_sub(rest.len() - praised.len());
-        unit_taken = unit_at(praised, longest, after_an_amount);
+        unit_taken = unit_at(lists, praised, longest, after_an_amount);
         if unit_taken > 0 {
             rest = praised;
         }
@@ -959,25 +403,25 @@ fn read_clauses(line: &str) -> (Option<Reading>, bool) {
     let mut named = &rest[unit_taken..];
     let mut restating = pack_restated;
     if reading.amount.is_some() && reading.unit.is_some() {
-        while let Some(taken) = restated(named) {
+        while let Some(taken) = restated(lists, named) {
             named = &named[taken..];
             restating = true;
         }
     }
     let measured = reading.amount.is_some() || reading.unit.is_some();
-    let mut food = without_warmth_or_size(strip_glue(named));
+    let mut food = without_warmth_or_size(lists, strip_glue(lists, named));
     // A word of praise opening the Food goes only after a measure (#186):
     // `200 g good dark chocolate` is dark chocolate. The sizes are taken off
     // again after it, since one can stand behind it: `1 good big onion`.
     if measured {
-        food = without_warmth_or_size(without_praise(food));
+        food = without_warmth_or_size(lists, without_praise(lists, food));
     }
-    reading.target = if offers_a_choice(named) {
+    reading.target = if offers_a_choice(lists, named) {
         None
-    } else if !food.is_empty() && !only_describing(food) {
+    } else if !food.is_empty() && !only_describing(lists, food) {
         rejoin(food)
     } else if !food.is_empty() || measured {
-        food_past_the_comma(food, &later)
+        food_past_the_comma(lists, food, &later)
     } else {
         None
     };
@@ -997,19 +441,19 @@ fn read_clauses(line: &str) -> (Option<Reading>, bool) {
 /// `Oeufs de 60 g`, the measure says which Food and not how much of it. And
 /// more than [`LONGEST_FOOD_NAME`] words before the measure are a sentence
 /// that happens to end in one, `Pour over enough stock to cover by 2 cm`.
-fn measure_at_the_end(words: &[&str]) -> Option<usize> {
-    if amount_words(words).is_some() || words.iter().any(|word| word.ends_with(':')) {
+fn measure_at_the_end(lists: &Words, words: &[&str]) -> Option<usize> {
+    if amount_words(lists, words).is_some() || words.iter().any(|word| word.ends_with(':')) {
         return None;
     }
     (1..words.len().min(LONGEST_FOOD_NAME + 1))
         .find(|&at| {
             let measure = &words[at..];
-            amount_words(measure).is_some_and(|amount| {
+            amount_words(lists, measure).is_some_and(|amount| {
                 let unit = &measure[amount..];
-                !unit.is_empty() && unit_at(unit, unit.len(), true) == unit.len()
+                !unit.is_empty() && unit_at(lists, unit, unit.len(), true) == unit.len()
             })
         })
-        .filter(|&at| !is_glue(words[at - 1]))
+        .filter(|&at| !is_glue(lists, words[at - 1]))
 }
 
 /// The Food's name carried on past a comma: the describing words before it
@@ -1024,15 +468,16 @@ fn measure_at_the_end(words: &[&str]) -> Option<usize> {
 /// a measure straight before the comma, the first clause is the Food, as
 /// #160 made it. A choice, an empty clause, or running out of clauses before
 /// anything is named leaves the Reading naming no Food.
-fn food_past_the_comma(describing: &[&str], later: &[String]) -> Option<String> {
+fn food_past_the_comma(lists: &Words, describing: &[&str], later: &[String]) -> Option<String> {
     let mut name: Vec<String> = describing.iter().map(|word| word.to_string()).collect();
     for clause in later {
         let words: Vec<&str> = clause.split_whitespace().collect();
-        if offers_a_choice(&words) {
+        if offers_a_choice(lists, &words) {
             return None;
         }
-        let words = without_warmth_or_size(strip_glue(without_to_taste(&words)));
-        let carries_on = words.first().is_some_and(|word| listed(DESCRIBING, word));
+        let words =
+            without_warmth_or_size(lists, strip_glue(lists, without_to_taste(lists, &words)));
+        let carries_on = words.first().is_some_and(|word| lists.describing.has(word));
         if words.is_empty() || !(name.is_empty() || carries_on) {
             return None;
         }
@@ -1040,7 +485,7 @@ fn food_past_the_comma(describing: &[&str], later: &[String]) -> Option<String> 
             last.push(',');
         }
         name.extend(words.iter().map(|word| word.to_string()));
-        if !only_describing(words) {
+        if !only_describing(lists, words) {
             let name: Vec<&str> = name.iter().map(String::as_str).collect();
             return rejoin(&name);
         }
@@ -1049,12 +494,12 @@ fn food_past_the_comma(describing: &[&str], later: &[String]) -> Option<String> 
 }
 
 /// Whether every word says how a food is prepared or bought and none says what
-/// it is: [`DESCRIBING`] words, joined by [`DESCRIBING_JOINS`] at most.
-fn only_describing(words: &[&str]) -> bool {
-    words.iter().any(|word| listed(DESCRIBING, word))
+/// it is: [`Words::describing`] words, joined by [`Words::describing_joins`] at most.
+fn only_describing(lists: &Words, words: &[&str]) -> bool {
+    words.iter().any(|word| lists.describing.has(word))
         && words
             .iter()
-            .all(|word| listed(DESCRIBING, word) || listed(DESCRIBING_JOINS, word))
+            .all(|word| lists.describing.has(word) || lists.describing_joins.has(word))
 }
 
 /// **Whether a Food is made only of describing words**, `boneless` or
@@ -1065,7 +510,7 @@ pub fn is_only_describing(target: &str) -> bool {
         .split(|c: char| c.is_whitespace() || c == ',')
         .filter(|word| !word.is_empty())
         .collect();
-    only_describing(&words)
+    only_describing(words::unknown(), &words)
 }
 
 /// One end of a run of words.
@@ -1075,13 +520,13 @@ enum End {
     Finish,
 }
 
-/// How many words at one end are a [`TO_TASTE`] phrase, the longest first.
-fn to_taste_at(words: &[&str], end: End) -> usize {
-    phrase_at(TO_TASTE, words, end)
+/// How many words at one end are a [`Words::to_taste`] phrase, the longest first.
+fn to_taste_at(lists: &Words, words: &[&str], end: End) -> usize {
+    phrase_at(&lists.to_taste, words, end)
 }
 
 /// How many words at one end are one of `phrases`, the longest first.
-fn phrase_at(phrases: &[&[&str]], words: &[&str], end: End) -> usize {
+fn phrase_at(phrases: &Phrases, words: &[&str], end: End) -> usize {
     phrases
         .iter()
         .filter(|phrase| {
@@ -1100,35 +545,35 @@ fn phrase_at(phrases: &[&[&str]], words: &[&str], end: End) -> usize {
 }
 
 /// Whether two runs of words are the same once folded.
-fn same_words(expected: &[&str], words: &[&str]) -> bool {
+fn same_words(expected: &[String], words: &[&str]) -> bool {
     expected.len() == words.len()
         && expected
             .iter()
             .zip(words)
-            .all(|(expected, word)| folded(expected) == folded(word))
+            .all(|(expected, word)| *expected == folded(word))
 }
 
-/// The words with a [`TO_TASTE`] phrase dropped from either end.
-fn without_to_taste<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
-    words = &words[to_taste_at(words, End::Start)..];
-    &words[..words.len() - to_taste_at(words, End::Finish)]
+/// The words with a [`Words::to_taste`] phrase dropped from either end.
+fn without_to_taste<'a>(lists: &Words, mut words: &'a [&'a str]) -> &'a [&'a str] {
+    words = &words[to_taste_at(lists, words, End::Start)..];
+    &words[..words.len() - to_taste_at(lists, words, End::Finish)]
 }
 
-/// A Food's name without how warm it is ([`WARMTH`], at either end) or a size
-/// ([`SIZES`] before it, [`SIZES_AFTER`] after), taken off one at a time until
+/// A Food's name without how warm it is ([`Words::warmth`], at either end) or a size
+/// ([`Words::sizes`] before it, [`Words::sizes_after`] after), taken off one at a time until
 /// neither end holds one: `oeufs moyens à température ambiante` is *oeufs*,
 /// and `cold large eggs` is *eggs*.
-fn without_warmth_or_size<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
+fn without_warmth_or_size<'a>(lists: &Words, mut words: &'a [&'a str]) -> &'a [&'a str] {
     loop {
-        words = strip_glue(words);
-        let from_start = if opens_a_fixed_name(words) {
+        words = strip_glue(lists, words);
+        let from_start = if opens_a_fixed_name(lists, words) {
             0
         } else {
-            warmth_at(words, End::Start)
+            warmth_at(lists, words, End::Start)
         };
         let from_end = match words.last() {
-            Some(word) if listed(SIZES_AFTER, word) => 1,
-            _ => warmth_at(words, End::Finish),
+            Some(word) if lists.sizes_after.has(word) => 1,
+            _ => warmth_at(lists, words, End::Finish),
         };
         if from_start + from_end == 0 {
             return words;
@@ -1143,642 +588,80 @@ fn without_warmth_or_size<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
 /// beside [`is_only_describing`].
 pub fn keeps_warmth_or_size(target: &str) -> bool {
     let words: Vec<&str> = target.split_whitespace().collect();
-    without_warmth_or_size(&words).len() < words.len()
+    without_warmth_or_size(words::unknown(), &words).len() < words.len()
 }
 
-/// Names that open with a [`SIZES`] or [`WARMTH`] word which is no size or
-/// temperature there: *petits pois* are green peas, not small *pois*, and
-/// *cold cuts* are not cold *cuts* (#185). Neither end-stripping touches the
-/// opening word of one.
-const FIXED_NAMES: &[&[&str]] = &[
-    &["petit", "pois"],
-    &["petits", "pois"],
-    &["petit", "suisse"],
-    &["petits", "suisses"],
-    &["cold", "cuts"],
-    &["cold", "brew"],
-];
-
-/// The words that strengthen a [`WARMTH`] word and mean nothing without one.
-const VERY: &[&str] = &["very", "très", "bien", "muy"];
-
-/// How many words at one end are a [`WARMTH`] phrase, with the [`VERY`] word
+/// How many words at one end are a [`Words::warmth`] phrase, with the [`Words::very`] word
 /// in front of it where there is one.
-fn warmth_at(words: &[&str], end: End) -> usize {
+fn warmth_at(lists: &Words, words: &[&str], end: End) -> usize {
     match end {
         End::Start => {
-            let very = usize::from(words.first().is_some_and(|word| listed(VERY, word)));
-            match phrase_at(WARMTH, &words[very..], End::Start) {
+            let very = usize::from(words.first().is_some_and(|word| lists.very.has(word)));
+            match phrase_at(&lists.warmth, &words[very..], End::Start) {
                 0 => 0,
                 warmth => very + warmth,
             }
         }
-        End::Finish => match phrase_at(WARMTH, words, End::Finish) {
+        End::Finish => match phrase_at(&lists.warmth, words, End::Finish) {
             0 => 0,
             warmth => {
                 let very = words
                     .len()
                     .checked_sub(warmth + 1)
-                    .is_some_and(|at| listed(VERY, words[at]));
+                    .is_some_and(|at| lists.very.has(words[at]));
                 warmth + usize::from(very)
             }
         },
     }
 }
 
-fn opens_a_fixed_name(words: &[&str]) -> bool {
-    phrase_at(FIXED_NAMES, words, End::Start) > 0
+fn opens_a_fixed_name(lists: &Words, words: &[&str]) -> bool {
+    phrase_at(&lists.fixed_names, words, End::Start) > 0
 }
 
-/// **Whether a Food still carries a [`TO_TASTE`] phrase** anywhere in its
+/// **Whether a Food still carries a [`Words::to_taste`] phrase** anywhere in its
 /// name, in any of the three Languages: the other fault #163 fixed, asked by
 /// the corpus test of every Reading.
 pub fn keeps_to_taste(target: &str) -> bool {
     let words: Vec<&str> = target.split_whitespace().collect();
-    TO_TASTE.iter().any(|phrase| {
+    words::unknown().to_taste.iter().any(|phrase| {
         words
             .windows(phrase.len())
             .any(|window| same_words(phrase, window))
     })
 }
 
-/// Words that say which kind of a food, or what it is like, and are never
-/// what a cook calls the food by on its own: nobody adds *the crispy* or *the
-/// Greek*. Beside its food such a word stays part of the name, as the
-/// [`DESCRIBING`] words do; this list only stops a Step's `uses` from linking
-/// *crispy chilli oil* to *the crispy dumpling base* (#184).
-///
-/// Colours, textures, sweetness, fat and where a food is from, then the words
-/// that name a form or a use rather than a food (*paste*, *cubes*, *baking*,
-/// *for serving*), in the three interface Languages. Every French and Spanish
-/// ending is written out, for the reason [`DESCRIBING`] gives.
-const NAMES_NOTHING_ALONE: &[&str] = &[
-    // English
-    "crispy",
-    "crisp",
-    "crunchy",
-    "smooth",
-    "chunky",
-    "creamy",
-    "spicy",
-    "hot",
-    "mild",
-    "sweet",
-    "sweetened",
-    "unsweetened",
-    "salted",
-    "unsalted",
-    "plain",
-    "natural",
-    "organic",
-    "light",
-    "dark",
-    "fine",
-    "coarse",
-    "extra",
-    "virgin",
-    "low",
-    "fat",
-    "full",
-    "free",
-    "reduced",
-    "black",
-    "white",
-    "red",
-    "green",
-    "yellow",
-    "brown",
-    "golden",
-    "pink",
-    "purple",
-    "chinese",
-    "japanese",
-    "korean",
-    "thai",
-    "greek",
-    "italian",
-    "french",
-    "spanish",
-    "mexican",
-    "indian",
-    "english",
-    "american",
-    "spring",
-    "new",
-    "baby",
-    "young",
-    "sea",
-    "store",
-    "bought",
-    "homemade",
-    "good",
-    "quality",
-    "best",
-    "real",
-    "pure",
-    "instant",
-    "quick",
-    "self",
-    "raising",
-    "rising",
-    "all",
-    "purpose",
-    "such",
-    "any",
-    "other",
-    "more",
-    "some",
-    "your",
-    "dry",
-    "baking",
-    "cooking",
-    "cut",
-    "set",
-    "each",
-    "mix",
-    "mixed",
-    "see",
-    "note",
-    "notes",
-    "serve",
-    "serving",
-    "garnish",
-    "coating",
-    "reserved",
-    "additional",
-    "ready",
-    "choice",
-    "style",
-    "paste",
-    "powder",
-    "extract",
-    "cube",
-    "cubes",
-    "piece",
-    "pieces",
-    "chunk",
-    "chunks",
-    "flake",
-    "flakes",
-    "wedge",
-    "wedges",
-    "fillet",
-    "fillets",
-    "stem",
-    "stems",
-    "seed",
-    "seeds",
-    "sheet",
-    "sheets",
-    "ball",
-    "balls",
-    "portion",
-    "portions",
-    "pouch",
-    "pouches",
-    "spoon",
-    "spoons",
-    "bulk",
-    "loaf",
-    "splash",
-    "minute",
-    // French
-    "croustillant",
-    "croustillante",
-    "croustillants",
-    "croustillantes",
-    "doux",
-    "douce",
-    "douces",
-    "sucré",
-    "sucrée",
-    "sucrés",
-    "sucrées",
-    "salé",
-    "salée",
-    "salés",
-    "salées",
-    "non",
-    "nature",
-    "noir",
-    "noire",
-    "noirs",
-    "noires",
-    "blanc",
-    "blanche",
-    "blancs",
-    "blanches",
-    "rouge",
-    "rouges",
-    "vert",
-    "verte",
-    "verts",
-    "vertes",
-    "jaune",
-    "jaunes",
-    "chinois",
-    "chinoise",
-    "chinoises",
-    "japonais",
-    "japonaise",
-    "grec",
-    "grecque",
-    "grecs",
-    "grecques",
-    "italien",
-    "italienne",
-    "nouveau",
-    "nouveaux",
-    "nouvelle",
-    "nouvelles",
-    "fin",
-    "fine",
-    "fins",
-    "fines",
-    "bon",
-    "bonne",
-    "demi",
-    "peu",
-    "écrémé",
-    "écrémée",
-    "extrait",
-    "poudre",
-    "feuille",
-    "feuilles",
-    "tranche",
-    "tranches",
-    "morceau",
-    "morceaux",
-    "cuisson",
-    "service",
-    "paquet",
-    "paquets",
-    "boîte",
-    "boîtes",
-    "pot",
-    // Spanish
-    "crujiente",
-    "crujientes",
-    "dulce",
-    "dulces",
-    "azucarado",
-    "azucarada",
-    "salado",
-    "salada",
-    "negro",
-    "negra",
-    "negros",
-    "negras",
-    "blanco",
-    "blanca",
-    "blancos",
-    "blancas",
-    "rojo",
-    "roja",
-    "rojos",
-    "rojas",
-    "verde",
-    "verdes",
-    "amarillo",
-    "amarilla",
-    "chino",
-    "china",
-    "griego",
-    "griega",
-    "italiano",
-    "italiana",
-    "nuevo",
-    "nueva",
-    "fino",
-    "fina",
-    "bueno",
-    "buena",
-    "sin",
-    "desnatado",
-    "desnatada",
-    "extracto",
-    "polvo",
-    "hoja",
-    "hojas",
-    "trozo",
-    "trozos",
-];
-
 /// **Whether a word says nothing a cook would call a food by, on its own**: an
 /// article or preposition, a size or a word of praise, a temperature, a way
-/// of preparing it, a measure, or one of [`NAMES_NOTHING_ALONE`]. A Step's
+/// of preparing it, a measure, or one of [`Words::names_nothing_alone`]. A Step's
 /// `uses` lets a shorter part of an ingredient's name count, as *syrup* for
 /// *maple syrup*, and this is what keeps that part from being only *the*,
 /// *fresh* or *crispy* (#184).
-pub fn names_nothing_alone(word: &str) -> bool {
+pub fn names_nothing_alone(lists: &Words, word: &str) -> bool {
     let bare = word.trim_end_matches(['\'', '\u{2019}']);
-    only_joins(bare)
-        || listed(SIZES, bare)
-        || listed(PRAISE, bare)
-        || listed(DESCRIBING, bare)
-        || listed(VERY, bare)
-        || listed(NAMES_NOTHING_ALONE, bare)
-        || is_a_unit_word(bare)
-        || WARMTH
+    only_joins(lists, bare)
+        || lists.sizes.has(bare)
+        || lists.praise.has(bare)
+        || lists.describing.has(bare)
+        || lists.very.has(bare)
+        || lists.names_nothing_alone.has(bare)
+        || measures(lists, bare)
+        || lists
+            .warmth
             .iter()
-            .any(|phrase| phrase.iter().any(|part| folded(part) == folded(bare)))
+            .any(|phrase| phrase.iter().any(|part| *part == folded(bare)))
 }
-
-/// Words for a cut, a part or a form of a food, which a recipe writes beside
-/// the food and a Step leaves off: *chicken thighs* is *the chicken* by the
-/// second Step, and *hauts de cuisse de poulet* is *le poulet* (#212). Where a
-/// name's main word would be one of these, the word beside it is a main word
-/// too.
-///
-/// A word belongs here only when what is left without it is still the same
-/// food. *Meal*, *stock*, *juice* and *zest* do not: almond meal is not
-/// almonds and lemon juice is not a lemon. A word listed here by mistake links
-/// a Step to one line too many, and a word missing from here leaves a Step
-/// linking only by the cut. The forms [`NAMES_NOTHING_ALONE`] already holds
-/// (*extract*, *powder*, *paste*, *fillet*) and the measures (*cloves*,
-/// *leaves*, *gousses*) give way the same way and are not repeated.
-///
-/// French *pâte* and Spanish *pasta* are left out on purpose. *Pâte de miso*
-/// is a form of miso, but *pâte à pizza* is no form of a pizza, and one list
-/// cannot tell them apart.
-const CUTS_AND_PARTS: &[&str] = &[
-    // English
-    "thigh",
-    "thighs",
-    "breast",
-    "breasts",
-    "drumstick",
-    "drumsticks",
-    "wing",
-    "wings",
-    "leg",
-    "legs",
-    "tender",
-    "tenders",
-    "tenderloin",
-    "tenderloins",
-    "loin",
-    "shoulder",
-    "belly",
-    "rib",
-    "ribs",
-    "chop",
-    "chops",
-    "steak",
-    "steaks",
-    "cutlet",
-    "cutlets",
-    "rasher",
-    "rashers",
-    "mince",
-    "meat",
-    "floret",
-    "florets",
-    "bulb",
-    "bulbs",
-    "root",
-    "pod",
-    "pods",
-    "kernel",
-    "kernels",
-    "nut",
-    "nuts",
-    "half",
-    "halves",
-    "heart",
-    "hearts",
-    "tip",
-    "tips",
-    "spear",
-    "spears",
-    "nib",
-    "nibs",
-    "thread",
-    "threads",
-    "granule",
-    "granules",
-    // French
-    "haut",
-    "hauts",
-    "cuisse",
-    "cuisses",
-    "filet",
-    "filets",
-    "aile",
-    "ailes",
-    "pilon",
-    "pilons",
-    "escalope",
-    "escalopes",
-    "aiguillette",
-    "aiguillettes",
-    "côte",
-    "côtes",
-    "côtelette",
-    "côtelettes",
-    "épaule",
-    "branche",
-    "branches",
-    "brin",
-    "brins",
-    "tige",
-    "tiges",
-    "fleurette",
-    "fleurettes",
-    "tête",
-    "têtes",
-    "grain",
-    "grains",
-    "graine",
-    "graines",
-    "bâton",
-    "bâtons",
-    "cerneau",
-    "cerneaux",
-    "copeau",
-    "copeaux",
-    "pousse",
-    "pousses",
-    "cœur",
-    "cœurs",
-    "pointe",
-    "pointes",
-    // Spanish
-    "muslo",
-    "muslos",
-    "contramuslo",
-    "contramuslos",
-    "pechuga",
-    "pechugas",
-    "filete",
-    "filetes",
-    "ala",
-    "alas",
-    "alita",
-    "alitas",
-    "costilla",
-    "costillas",
-    "chuleta",
-    "chuletas",
-    "carne",
-    "diente",
-    "dientes",
-    "rama",
-    "ramas",
-    "ramita",
-    "ramitas",
-    "tallo",
-    "tallos",
-    "cabeza",
-    "cabezas",
-    "grano",
-    "granos",
-    "semilla",
-    "semillas",
-];
-
-/// Foods whose own name is all a Step needs, though the list writes the kind
-/// of thing after it: *Parmesan cheese* is *the parmesan* (#212). Such a word
-/// is a main word of its name wherever it sits.
-const NAMED_KINDS: &[&str] = &[
-    "parmesan",
-    "cheddar",
-    "mozzarella",
-    "feta",
-    "ricotta",
-    "mascarpone",
-    "halloumi",
-    "gruyère",
-    "pecorino",
-    "gouda",
-    "emmental",
-    "manchego",
-    "basmati",
-    "shiitake",
-    "chorizo",
-    "panko",
-    "miso",
-];
-
-/// Words that make a name **something made from a food** rather than the food:
-/// curry *powder* is no curry, and lemon *zest* is no lemon. A word of the
-/// title that a Step names a line by still names the dish where the line is
-/// one of these, and a Step naming the food links the food itself before
-/// something made from it, so *the garlic* is the cloves and not the powder
-/// (#439). [`CUTS_AND_PARTS`] holds the other kind, the food itself in
-/// pieces.
-///
-/// French *pâte* and Spanish *pasta* are left out for the reason they are left
-/// out there.
-const MADE_FROM: &[&str] = &[
-    // English
-    "powder",
-    "paste",
-    "extract",
-    "essence",
-    "zest",
-    "juice",
-    "stock",
-    "broth",
-    "bouillon",
-    "sauce",
-    "flour",
-    "meal",
-    "oil",
-    "butter",
-    "milk",
-    "cream",
-    "syrup",
-    "vinegar",
-    "purée",
-    "puree",
-    "concentrate",
-    "jam",
-    "jelly",
-    "water",
-    // French
-    "poudre",
-    "extrait",
-    "zeste",
-    "jus",
-    "fond",
-    "farine",
-    "huile",
-    "beurre",
-    "lait",
-    "crème",
-    "sirop",
-    "vinaigre",
-    "concentré",
-    "confiture",
-    "eau",
-    // Spanish
-    "polvo",
-    "extracto",
-    "esencia",
-    "ralladura",
-    "jugo",
-    "zumo",
-    "caldo",
-    "salsa",
-    "harina",
-    "aceite",
-    "mantequilla",
-    "leche",
-    "crema",
-    "nata",
-    "jarabe",
-    "sirope",
-    "vinagre",
-    "puré",
-    "concentrado",
-    "mermelada",
-    "agua",
-];
-
-/// Words a recipe calls something it makes itself: *the sauce* is the one in
-/// the pan, not the soy sauce in the list. French *pâte* and Spanish *masa*
-/// are left out, since *la pâte* is as often the *pâte brisée* the list buys. Such a word never names a line on
-/// its own, though a line's whole name still does, and a food named just
-/// before it is describing it: *the tomato-spice mixture* adds no tomato
-/// (#439).
-const MADE_HERE: &[&str] = &[
-    // English
-    "sauce",
-    "mixture",
-    "marinade",
-    "dressing",
-    "batter",
-    "dough",
-    "glaze",
-    "filling",
-    // French
-    "mélange",
-    "marinade",
-    "vinaigrette",
-    "glaçage",
-    "garniture",
-    "farce",
-    "appareil",
-    // Spanish
-    "salsa",
-    "mezcla",
-    "marinada",
-    "aliño",
-    "glaseado",
-    "relleno",
-];
 
 /// **Whether a word makes a name something made from a food**, as *powder*
 /// does in *curry powder* (#439).
-pub fn made_from(word: &str) -> bool {
-    listed(MADE_FROM, word)
+pub fn made_from(lists: &Words, word: &str) -> bool {
+    lists.made_from.has(word)
 }
 
 /// **Whether a recipe uses this word for something it makes itself**, as
 /// *the sauce* (#439).
-pub fn made_here(word: &str) -> bool {
-    listed(MADE_HERE, word)
+pub fn made_here(lists: &Words, word: &str) -> bool {
+    lists.made_here.has(word)
 }
 
 /// **Whether a word gives way to the word beside it as a name's main word**:
@@ -1788,9 +671,9 @@ pub fn made_here(word: &str) -> bool {
 ///
 /// An amount left in a name gives way too: *3 paquets d'Enoki* is *les
 /// enoki*.
-pub fn gives_way(word: &str) -> bool {
-    listed(CUTS_AND_PARTS, word)
-        || names_nothing_alone(word)
+pub fn gives_way(lists: &Words, word: &str) -> bool {
+    lists.cuts_and_parts.has(word)
+        || names_nothing_alone(lists, word)
         || word.starts_with(|c: char| c.is_ascii_digit())
 }
 
@@ -1799,45 +682,39 @@ pub fn gives_way(word: &str) -> bool {
 ///
 /// *Or* does not: a choice the reader kept whole is as often between two
 /// kinds of one food, and *chicken or vegetable stock* is no chicken.
-pub fn joins_two_foods(word: &str) -> bool {
-    listed(DESCRIBING_JOINS, word)
+pub fn joins_two_foods(lists: &Words, word: &str) -> bool {
+    lists.describing_joins.has(word)
 }
-
-/// The words after which an English name says what the food is for, or gives
-/// an example of it, and no longer names it: *oil for frying*, *dry sherry
-/// such as Amontillado*, *a neutral oil like canola*. Kept to these three:
-/// *to* sits inside *ready to wok udon noodles*, and *in* and *on* inside
-/// *bone-in* and *skin-on*, all before the food they describe.
-const NAME_TAILS: &[&str] = &["for", "such", "like"];
 
 /// **Whether a word opens the tail of an English name**, which holds no main
 /// word (#212).
-pub fn opens_a_tail(word: &str) -> bool {
-    listed(NAME_TAILS, word)
+pub fn opens_a_tail(lists: &Words, word: &str) -> bool {
+    lists.name_tails.has(word)
 }
 
 /// **Whether a word names its food whatever kind-word follows it**, as
 /// *parmesan* does in *Parmesan cheese* (#212).
-pub fn names_its_kind(word: &str) -> bool {
-    listed(NAMED_KINDS, word)
+pub fn names_its_kind(lists: &Words, word: &str) -> bool {
+    lists.named_kinds.has(word)
 }
 
 /// **Whether a word only joins two others**: an article, a preposition, a
 /// conjunction, or an elided article. A part of a name a Step may use never
 /// begins or ends on one (#184).
-pub fn only_joins(word: &str) -> bool {
+pub fn only_joins(lists: &Words, word: &str) -> bool {
     let bare = word.trim_end_matches(['\'', '\u{2019}']);
-    listed_as_glue(bare)
-        || listed(DESCRIBING_JOINS, bare)
-        || listed(CHOICE_WORDS, bare)
-        || listed(FOOD_ENDS, bare)
-        || ELISIONS
+    listed_as_glue(lists, bare)
+        || lists.describing_joins.has(bare)
+        || lists.choices.has(bare)
+        || lists.food_ends.has(bare)
+        || lists
+            .elisions
             .iter()
             .any(|elision| folded(elision) == folded(bare))
 }
 
 /// Whether a word is a measure: a Unit the closed set recognises, or one of
-/// the [`OPEN_UNITS`]. A Food named by one of these is almost always a Unit
+/// the [`Words::open_units`]. A Food named by one of these is almost always a Unit
 /// left standing where the Food should be, the fault #160 fixed, and the
 /// corpus test asks this of every Reading so it cannot come back unseen.
 ///
@@ -1845,7 +722,12 @@ pub fn only_joins(word: &str) -> bool {
 /// that way on purpose. The corpus holds no such line, so the test can afford
 /// the stricter question; a library that does hold one should not.
 pub fn is_a_unit_word(word: &str) -> bool {
-    units::recognise(word).is_some() || listed(OPEN_UNITS, word)
+    measures(words::unknown(), word)
+}
+
+/// [`is_a_unit_word`], in one set of words.
+fn measures(lists: &Words, word: &str) -> bool {
+    lists.unit(word).is_some() || lists.open_units.has(word)
 }
 
 /// How many words a measure restated after a slash takes: `/ 0.9 lb` in
@@ -1854,21 +736,23 @@ pub fn is_a_unit_word(word: &str) -> bool {
 /// amount nor part of the Food.
 ///
 /// **Both halves must be there**: an amount, then a Unit — `0.9 lb`, glued
-/// `0.6lb`, or one of the [`OPEN_UNITS`], `1 stick`. A slash before anything else is a Food
+/// `0.6lb`, or one of the [`Words::open_units`], `1 stick`. A slash before anything else is a Food
 /// joined to a Food, and `salt/pepper` stays one name.
-fn restated(words: &[&str]) -> Option<usize> {
+fn restated(lists: &Words, words: &[&str]) -> Option<usize> {
     if words.first() != Some(&"/") {
         return None;
     }
     let words = &words[1..];
-    let glued = words.first().and_then(|first| against_its_unit(first));
+    let glued = words
+        .first()
+        .and_then(|first| against_its_unit(lists, first));
     if glued.is_some_and(|(amount, _)| units::parse_amount(amount).is_some()) {
         return Some(2);
     }
-    let amount = amount_words(words)?;
+    let amount = amount_words(lists, words)?;
     let after = &words[amount..];
-    let unit = match closed_unit_at(after) {
-        0 if after.first().is_some_and(|word| listed(OPEN_UNITS, word)) => 1,
+    let unit = match closed_unit_at(lists, after) {
+        0 if after.first().is_some_and(|word| lists.open_units.has(word)) => 1,
         unit => unit,
     };
     (unit > 0).then_some(1 + amount + unit)
@@ -1877,10 +761,10 @@ fn restated(words: &[&str]) -> Option<usize> {
 /// How many words at the start of `words` are a Unit of the closed set: the
 /// longest window of up to three it recognises, `fl oz` or `g`, and 0 where
 /// none opens them.
-fn closed_unit_at(words: &[&str]) -> usize {
+fn closed_unit_at(lists: &Words, words: &[&str]) -> usize {
     (1..=words.len().min(3))
         .rev()
-        .find(|&take| units::recognise(&words[..take].join(" ")).is_some())
+        .find(|&take| lists.unit(&words[..take].join(" ")).is_some())
         .unwrap_or(0)
 }
 
@@ -1889,10 +773,10 @@ fn closed_unit_at(words: &[&str]) -> usize {
 /// against anything else is part of a name and is not cut: `7up`, `3D`,
 /// `3oeufs`, `2cm`, `2sachets`. Whether the number is an amount is the
 /// caller's to ask.
-fn against_its_unit(word: &str) -> Option<(&str, &str)> {
+fn against_its_unit<'a>(lists: &Words, word: &'a str) -> Option<(&'a str, &'a str)> {
     let at = word.find(char::is_alphabetic).filter(|&at| at > 0)?;
     let (number, unit) = word.split_at(at);
-    units::recognise(unit).map(|_| (number, unit))
+    lists.unit(unit).map(|_| (number, unit))
 }
 
 /// **An amount written against its Unit stood apart as two words**, so
@@ -1903,13 +787,13 @@ fn against_its_unit(word: &str) -> Option<(&str, &str)> {
 /// amount the words open with, alone or after others: `1 1/2tsp`, `2 to
 /// 3tbsp`. `1 400g tin tomatoes` is therefore one tin, as it always was,
 /// because `1 400` is no amount.
-fn stand_the_unit_apart(words: &mut Vec<&str>, from: usize) {
+fn stand_the_unit_apart(lists: &Words, words: &mut Vec<&str>, from: usize) {
     let end = words.len().min(from + LONGEST_RANGE);
     let found = (from..end).find_map(|at| {
-        let (number, unit) = against_its_unit(words[at])?;
+        let (number, unit) = against_its_unit(lists, words[at])?;
         let mut amount = words[from..at].to_vec();
         amount.push(number);
-        (amount_words(&amount) == Some(amount.len())).then_some((at, number, unit))
+        (amount_words(lists, &amount) == Some(amount.len())).then_some((at, number, unit))
     });
     if let Some((at, number, unit)) = found {
         words.splice(at..=at, [number, unit]);
@@ -1932,29 +816,29 @@ const TIMES: &[char] = &['x', 'X', '×'];
 /// alone, so `2x eggs` is still a name. The pack size restated after a slash
 /// goes with it, `2 x 400 g / 14 oz tins`, since left behind it read as an
 /// amount of `2 / 14` (#182), and the answer says whether one was.
-fn drop_the_pack_size<'a>(words: &mut Vec<&'a str>) -> bool {
+fn drop_the_pack_size<'a>(lists: &Words, words: &mut Vec<&'a str>) -> bool {
     let parted: Vec<&'a str> = words
         .iter()
         .flat_map(|word| around_the_sign(word))
         .collect();
-    let Some(amount) = amount_words(&parted) else {
+    let Some(amount) = amount_words(lists, &parted) else {
         return false;
     };
     if !parted.get(amount).is_some_and(|word| is_times(word)) {
         return false;
     }
     let mut size = parted[amount + 1..].to_vec();
-    stand_the_unit_apart(&mut size, 0);
-    let Some(number) = amount_words(&size) else {
+    stand_the_unit_apart(lists, &mut size, 0);
+    let Some(number) = amount_words(lists, &size) else {
         return false;
     };
-    let unit = closed_unit_at(&size[number..]);
+    let unit = closed_unit_at(lists, &size[number..]);
     if unit == 0 {
         return false;
     }
     let mut measured = &size[number + unit..];
     let mut restating = false;
-    while let Some(taken) = restated(measured) {
+    while let Some(taken) = restated(lists, measured) {
         measured = &measured[taken..];
         restating = true;
     }
@@ -1990,28 +874,24 @@ fn around_the_sign(word: &str) -> Vec<&str> {
 }
 
 /// How many words open a line only to say *a few* or *a little*: any of
-/// [`A_FEW`], then one [`A_LITTLE`] phrase.
-fn a_few_or_a_little_at(words: &[&str]) -> usize {
-    let a_few = words.iter().take_while(|word| listed(A_FEW, word)).count();
-    a_few + phrase_at(A_LITTLE, &words[a_few..], End::Start)
+/// [`Words::a_few`], then one [`Words::a_little`] phrase.
+fn a_few_or_a_little_at(lists: &Words, words: &[&str]) -> usize {
+    let a_few = words
+        .iter()
+        .take_while(|word| lists.a_few.has(word))
+        .count();
+    a_few + phrase_at(&lists.a_little, &words[a_few..], End::Start)
 }
 
 /// How many leading words read as one amount: a range if one opens the line,
 /// and otherwise the longest run of up to three, so `1 1/2` beats `1`.
-fn amount_words(words: &[&str]) -> Option<usize> {
-    range_words(words).or_else(|| {
+fn amount_words(lists: &Words, words: &[&str]) -> Option<usize> {
+    range_words(lists, words).or_else(|| {
         (1..=words.len().min(3))
             .rev()
             .find(|&take| units::parse_amount(&words[..take].join(" ")).is_some())
     })
 }
-
-/// The words that join the two ends of a range written out, in each Language
-/// Kamosu reads: `2 to 3`, `2 ou 3`, `2 o 3`, and `2 a 3`, which [`listed`]
-/// folds so it is French `2 à 3` too. `or`, `ou` and `o` are
-/// [`CHOICE_WORDS`] as well: between two numbers they join a range, and
-/// anywhere else they offer a choice.
-const RANGE_WORDS: &[&str] = &["to", "or", "a", "ou", "o"];
 
 /// The most words a range takes: an amount of up to three either side of
 /// the word that joins them, `1 1/2 to 2 1/2`.
@@ -2020,7 +900,7 @@ const LONGEST_RANGE: usize = 7;
 /// **How many leading words are a range**, `2-3` or `1 1/2 to 2` (#167).
 ///
 /// Both ends must be amounts [`units::parse_amount`] reads, joined by a
-/// hyphen, a dash or one of the [`RANGE_WORDS`], with nothing between
+/// hyphen, a dash or one of the [`Words::amount_ranges`], with nothing between
 /// them. `4 g or 1 tsp` is therefore two measures and no range, and `1-inch`
 /// is a number measuring a word.
 ///
@@ -2028,12 +908,12 @@ const LONGEST_RANGE: usize = 7;
 /// nothing to it, so a range is never scaled, converted or added up on a
 /// shopping list (ADR 0016). What follows it is read as it is after any other
 /// amount, so `2-3 basil leaves` names basil leaves.
-fn range_words(words: &[&str]) -> Option<usize> {
+fn range_words(lists: &Words, words: &[&str]) -> Option<usize> {
     (1..=words.len().min(LONGEST_RANGE)).rev().find(|&take| {
         let words = &words[..take];
         let joined = words
             .iter()
-            .position(|word| listed(RANGE_WORDS, word))
+            .position(|word| lists.amount_ranges.has(word))
             .map(|at| (words[..at].join(" "), words[at + 1..].join(" ")));
         let dashed = || {
             let text = words.join(" ");
@@ -2068,9 +948,6 @@ fn slashes_apart(head: &str) -> String {
     out
 }
 
-/// The word that offers the cook a choice, in each Language Kamosu reads.
-const CHOICE_WORDS: &[&str] = &["or", "ou", "o", "and/or", "et/ou", "y/o"];
-
 /// **Whether the words offer a choice of two things to buy**, `butter or oil`
 /// (#148). Such a line names no Food at any length. Taking the first
 /// alternative is wrong more often than right, because the two usually share
@@ -2082,25 +959,25 @@ const CHOICE_WORDS: &[&str] = &["or", "ou", "o", "and/or", "et/ou", "y/o"];
 /// the choice is between two measures. An `or` straight after an elided
 /// article is French for gold, so `poudre d'or` is one Food. `and/or` and its
 /// French and Spanish forms offer the same choice.
-fn offers_a_choice(words: &[&str]) -> bool {
+fn offers_a_choice(lists: &Words, words: &[&str]) -> bool {
     (0..words.len().saturating_sub(1)).any(|at| {
-        listed(CHOICE_WORDS, words[at])
+        lists.choices.has(words[at])
             && !at.checked_sub(1).is_some_and(|before| {
                 let word = words[before].to_lowercase().replace('\u{2019}', "'");
-                ELISIONS.contains(&word.as_str())
+                lists.elisions.has(&word)
             })
     })
 }
 
 /// How many words at the start of `words` are a Unit, looking at no more than
 /// `longest` of them: the longest window the closed set recognises, and
-/// failing that one word from the [`OPEN_UNITS`]. Nothing is a Unit at 0.
+/// failing that one word from the [`Words::open_units`]. Nothing is a Unit at 0.
 ///
 /// A lone `t`, `T`, `c` or `#` is a Unit only after an amount (#208, #326).
 /// With none before it a single letter opens a name, `T bone steak`. A lone
-/// `c` before one of the [`FRENCH_SPOON_WORDS`] is a French spoon this
+/// `c` before one of the [`Words::spoon_after_c`] is a French spoon this
 /// reader has no name for, `c. à dessert`, and never a cup.
-fn unit_at(words: &[&str], longest: usize, after_an_amount: bool) -> usize {
+fn unit_at(lists: &Words, words: &[&str], longest: usize, after_an_amount: bool) -> usize {
     (1..=longest.min(3))
         .rev()
         .find(|&take| {
@@ -2108,28 +985,22 @@ fn unit_at(words: &[&str], longest: usize, after_an_amount: bool) -> usize {
             let french_spoon = units::lone_cup(&written)
                 && words
                     .get(take)
-                    .is_some_and(|next| listed(FRENCH_SPOON_WORDS, next));
-            let known = units::recognise(&written).is_some()
+                    .is_some_and(|next| lists.spoon_after_c.has(next));
+            let known = lists.unit(&written).is_some()
                 && (after_an_amount || !units::lone_letter(&written))
                 && !french_spoon;
-            known || (take == 1 && listed(OPEN_UNITS, words[0]))
+            known || (take == 1 && lists.open_units.has(words[0]))
         })
         .unwrap_or(0)
 }
 
-/// The words after a French `c.` that say it is a *cuillère* and not the
-/// cup of an American card (#326): `à`, a spoon's name written without it,
-/// `c. soupe`, or the `de` of a spoon left unnamed, `1 c. de sel`. A cup in
-/// French is a `tasse`, so no French line is a lone `c` of something.
-const FRENCH_SPOON_WORDS: &[&str] = &["à", "soupe", "café", "thé", "dessert", "moka", "de", "d'"];
-
-/// The words with any [`PRAISE`] word at their start dropped, and the glue
+/// The words with any [`Words::praise`] word at their start dropped, and the glue
 /// and sizes around it: `good big pinch of salt` is `pinch of salt`.
-fn without_praise<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
+fn without_praise<'a>(lists: &Words, mut words: &'a [&'a str]) -> &'a [&'a str] {
     loop {
-        words = strip_glue(words);
+        words = strip_glue(lists, words);
         match words.first() {
-            Some(word) if listed(PRAISE, word) => words = &words[1..],
+            Some(word) if lists.praise.has(word) => words = &words[1..],
             _ => return words,
         }
     }
@@ -2139,8 +1010,10 @@ fn without_praise<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
 /// after it — and belong to neither the Unit nor the Food. Stripped on both
 /// sides of the Unit so `a pinch of salt` reads exactly as `pinch of salt`
 /// does, which is the whole point: an article is not a measurement.
-fn strip_glue<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
-    while !opens_a_fixed_name(words) && words.first().is_some_and(|word| is_glue(word)) {
+fn strip_glue<'a>(lists: &Words, mut words: &'a [&'a str]) -> &'a [&'a str] {
+    while !opens_a_fixed_name(lists, words)
+        && words.first().is_some_and(|word| is_glue(lists, word))
+    {
         words = &words[1..];
     }
     words
@@ -2227,16 +1100,17 @@ fn without_brackets(line: &str) -> String {
 /// apostrophes are one character for the purpose of spotting `d'`, and are
 /// still two characters in what gets stored, because a Reading lays over a
 /// line and never edits it (ADR 0002).
-fn split_elisions(head: &str) -> String {
+fn split_elisions(lists: &Words, head: &str) -> String {
     let mut out = String::with_capacity(head.len() + 8);
     for word in head.split_whitespace() {
         let lowered = word.to_lowercase().replace('\u{2019}', "'");
         // Cut by characters and never by bytes: `’` is three bytes where `'`
         // is one, so a byte offset taken from the folded copy would land
         // inside the apostrophe of the original and panic.
-        let cut = ELISIONS
+        let cut = lists
+            .elisions
             .iter()
-            .find(|elision| lowered.starts_with(**elision))
+            .find(|elision| lowered.starts_with(elision))
             .map(|elision| elision.chars().count())
             .and_then(|chars| word.char_indices().nth(chars).map(|(at, _)| at));
         match cut {
@@ -2346,11 +1220,12 @@ impl StepAmount {
 /// `1,020 g` is a thousand and twenty grams (#397). Only the amount is read
 /// without the comma. The Step's text, and every place in it, is as written.
 pub fn amounts_in_step(text: &str, language: &str) -> Vec<StepAmount> {
+    let lists = words::of(language);
     let words = words_with_places(text);
     let mut found = Vec::new();
     let mut index = 0;
     while index < words.len() {
-        match amount_at(text, &words, index, language) {
+        match amount_at(lists, text, &words, index, language) {
             Some((amount, taken)) => {
                 index += taken;
                 found.push(amount);
@@ -2383,6 +1258,7 @@ fn words_with_places(text: &str) -> Vec<(usize, usize)> {
 
 /// The amount starting at word `index`, and how many words it took.
 fn amount_at(
+    lists: &Words,
     text: &str,
     words: &[(usize, usize)],
     index: usize,
@@ -2417,13 +1293,13 @@ fn amount_at(
         if units::lone_cup(unit) {
             return None;
         }
-        units::recognise(unit).map(|_| (end, take))
+        lists.unit(unit).map(|_| (end, take))
     })?;
     let unit_start = words[unit_from].0;
     let end = full_stop_left_out(text, unit_start, unit_end);
 
     let after = unit_from + unit_words;
-    let food = food_after(&text[end..]);
+    let food = food_after(lists, &text[end..]);
     Some((
         StepAmount {
             start: words[index].0 + opened,
@@ -2462,40 +1338,26 @@ fn full_stop_left_out(text: &str, start: usize, end: usize) -> usize {
     if goes_on || abbreviated { end } else { end - 1 }
 }
 
-/// The words that end what an amount in a Step is an amount of: *1 cup of
-/// water **to** the flour* is water, and without this the words would run on
-/// to the flour and weigh the water by its Cup Weight. Prepositions and
-/// conjunctions in the three interface Languages; `or` is not one, because
-/// *homemade or store-bought marinara sauce* is one Food.
-const FOOD_ENDS: &[&str] = &[
-    // English
-    "to", "into", "onto", "over", "with", "in", "on", "for", "from", "and", "then", "until",
-    // French
-    "dans", "sur", "avec", "pour", "et", "puis", "jusqu'à", "a", "au", "aux", "en",
-    // Spanish
-    "con", "sobre", "para", "y", "luego", "hasta",
-];
-
 /// What the words after a Unit name, glue stripped, up to the end of the
-/// clause or the first word in [`FOOD_ENDS`]: `ground chicken` from *1 lb.
+/// clause or the first word in [`Words::food_ends`]: `ground chicken` from *1 lb.
 /// ground chicken in the center*. Nothing where nothing is named, as in
 /// `(½ cup)`.
-fn food_after(rest: &str) -> Option<String> {
+fn food_after(lists: &Words, rest: &str) -> Option<String> {
     let clause = rest
         .split([',', ';', ':', '(', ')', '.', '!', '?'])
         .next()
         .unwrap_or_default();
-    let clause = split_elisions(clause);
+    let clause = split_elisions(lists, clause);
     let words: Vec<&str> = clause.split_whitespace().collect();
     let mut from = 0;
-    while words.get(from).is_some_and(|word| is_glue(word)) {
+    while words.get(from).is_some_and(|word| is_glue(lists, word)) {
         from += 1;
     }
     let until = words[from..]
         .iter()
-        .position(|word| listed(FOOD_ENDS, word))
+        .position(|word| lists.food_ends.has(word))
         .map_or(words.len(), |at| from + at);
-    let name = without_warmth_or_size(&words[from..until])
+    let name = without_warmth_or_size(lists, &words[from..until])
         .join(" ")
         .replace("' ", "'")
         .replace("\u{2019} ", "\u{2019}");
