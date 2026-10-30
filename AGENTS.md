@@ -524,7 +524,8 @@ src/schema.rs       the Catalogue's declared input, compiled into the thing
                     both Doors inherit it (#85)
 src/reading.rs      reading an Ingredient Line into a Reading — where the
                     number ends, the Unit ends and the Food begins. Its
-                    vocabulary is units.rs's, not its own (ADR 0036)
+                    vocabulary is the word files', not its own (ADR 0036,
+                    ADR 0057)
 src/step_uses.rs    which Ingredient Lines a Step uses, by the short names
                     recipes call them after the list (#184). A short name
                     holds the name's main word, which sits at the end the

@@ -369,7 +369,7 @@ const NL: Words = Words {
     makes: "Voor {yield}",
     prep: "Voorbereiden {time}",
     cook: "Koken {time}",
-    scaled: "Omgerekend naar {wanted} — zoals geschreven, voor {written}",
+    scaled: "Omgerekend naar {wanted}, zoals geschreven voor {written}",
     scaled_times: "Omgerekend ×{times}",
     for_recipe: "voor {title}",
     whole: "het hele recept",

@@ -894,10 +894,10 @@ fn content(
     }));
     let words = words(language);
 
-    let written_in = language.unwrap_or(crate::language::UNKNOWN);
-    let prep = time(node, "prepTime", parsed.prep_time_minutes, written_in);
-    let mut cook = time(node, "cookTime", parsed.cook_time_minutes, written_in);
-    let total = time(node, "totalTime", None, written_in);
+    let time_in = language.unwrap_or(crate::language::UNKNOWN);
+    let prep = time(node, "prepTime", parsed.prep_time_minutes, time_in);
+    let mut cook = time(node, "cookTime", parsed.cook_time_minutes, time_in);
+    let total = time(node, "totalTime", None, time_in);
     // Tandoor writes its working time and the two added up, and the waiting
     // time is what lies between.
     if app == App::Tandoor

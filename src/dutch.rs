@@ -20,23 +20,26 @@ fn is_vowel(c: char) -> bool {
 
 /// The word with its plural ending off, if it has one Dutch would write there.
 ///
-/// `-s` is the plural after a vowel or an unstressed `-e`, `-el`, `-en`, `-em`
-/// or `-er`, *paprika's*, *appels*. A word that doubles its vowel before the
-/// `s` is no plural: *kaas* stays. `-en` is any other, and takes what stands
-/// before it for the word, however little: *uien* is *ui*.
+/// `-s` is the plural after a vowel or an unstressed `-el`, `-en`, `-em` or
+/// `-er`, *paprika's*, *appels*. A word that doubles its vowel before the `s`
+/// is no plural, *kaas*, and nor is one whose only vowel is that `e`, *kers*.
+/// `-en` is any other, and takes what stands before it for the word, however
+/// little: *uien* is *ui*. Not after `e` or `o`: *teen* and *citroen* are
+/// singular, and no Dutch plural is written that way.
 fn without_plural(word: &str) -> String {
     let characters: Vec<char> = word.chars().collect();
     let n = characters.len();
     if n >= 4 && word.ends_with('s') {
         let before = characters[n - 2];
         let doubled = characters[n - 3] == before;
-        let unstressed = n >= 3 && characters[n - 3] == 'e' && "lnmr".contains(before);
+        let unstressed = characters[n - 3] == 'e'
+            && "lnmr".contains(before)
+            && characters[..n - 3].iter().any(|c| is_vowel(*c));
         if (is_vowel(before) && !doubled) || unstressed {
             return characters[..n - 1].iter().collect();
         }
     }
-    // `-een` is a long vowel, *teen*, and no plural.
-    if n >= 4 && word.ends_with("en") && characters[n - 3] != 'e' {
+    if n >= 4 && word.ends_with("en") && !"eo".contains(characters[n - 3]) {
         return characters[..n - 2].iter().collect();
     }
     word.to_string()
@@ -127,18 +130,18 @@ pub fn food_key(lists: &Words, folded_name: &str) -> String {
 /// *bloem* in *tarwebloem*, *bouillon* in *kippenbouillon*. Both are folded.
 /// `-en-` and `-s-` need no rule, since whatever joins the two parts stands
 /// before the main word.
+///
+/// **Only a word of [`Words::compound_heads`] can be one.** The end of a long
+/// word is as often an accident: *zijn* ends *wijnazijn* and *pel* ends
+/// *appel*, and both are everyday verbs. A link missed leaves a line on screen,
+/// where a wrong one puts the vinegar in the wrong Step.
 pub fn is_main_word_of(lists: &Words, word: &str, whole: &str) -> bool {
-    if lists.not_compounds.has(whole) {
+    if lists.not_compounds.has(whole) || !lists.compound_heads.has(word) {
         return false;
     }
     let wanted = stem(lists, word);
     let length = without_plural(word).chars().count();
-    let long_enough = wanted.chars().count() >= 3 || lists.short_foods.has(&wanted);
-    if word.chars().count() < 3 || !long_enough {
-        return false;
-    }
-    // The end of the compound has to be the word, plural or not: as a stem,
-    // `keer` would be found in *suiker*.
+    // The end of the compound has to be the word, plural or not.
     whole
         .char_indices()
         .skip(2)
@@ -200,6 +203,13 @@ mod tests {
             ("wortel", "worteltjes"),
             ("groente", "groenten"),
             ("paprika", "paprikas"),
+            ("paprika", "paprika's"),
+            ("citroen", "citroenen"),
+            ("limoen", "limoenen"),
+            ("pompoen", "pompoenen"),
+            ("kers", "kersen"),
+            ("champignon", "champignons"),
+            ("stuk", "stuks"),
             ("teen", "tenen"),
             ("teen", "teentjes"),
             ("blad", "blaadjes"),
@@ -248,6 +258,12 @@ mod tests {
             ("bloem", "bloem"),
             ("ei", "prei"),
             ("keer", "suiker"),
+            ("zijn", "wijnazijn"),
+            ("zijn", "rozijnen"),
+            ("uit", "fruit"),
+            ("pers", "kappers"),
+            ("pel", "appels"),
+            ("oven", "witlof"),
         ] {
             assert!(!is_main_word_of(lists, word, whole), "{word} in {whole}");
         }

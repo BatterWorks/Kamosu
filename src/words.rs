@@ -631,6 +631,10 @@ word_lists! {
     /// nothing else that short does: Dutch *ui* and *ei*.
     short_foods: List,
 
+    /// The Dutch words a Step may name a compound by, its main word: *bloem*
+    /// for *tarwebloem* ([`crate::dutch::is_main_word_of`]).
+    compound_heads: List,
+
     /// Dutch words that end in another food and are no kind of it: an
     /// *aardappel* is no *appel* ([`crate::dutch`]).
     not_compounds: List,

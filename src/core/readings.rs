@@ -1413,7 +1413,11 @@ pub(super) fn foods_created_json(foods: &[CreatedFood]) -> Value {
 /// nothing else in the library. A source line read as a Component, or read
 /// as nothing, passes nothing on. Where a match declines, the line is read on
 /// its own words like any other.
-struct RenderedFoods(Vec<Option<SourceLine>>, String);
+struct RenderedFoods {
+    lines: Vec<Option<SourceLine>>,
+    /// The Language the source is written in, whose words read its Units.
+    language: String,
+}
 
 /// One source line as it is measured, and the Food its Reading points at.
 struct SourceLine {
@@ -1466,8 +1470,8 @@ impl RenderedFoods {
                 )
             })
             .ok()?;
-        Some(Self(
-            source_lines
+        Some(Self {
+            lines: source_lines
                 .iter()
                 .enumerate()
                 .map(|(index, line)| {
@@ -1488,8 +1492,8 @@ impl RenderedFoods {
                     })
                 })
                 .collect(),
-            source_language,
-        ))
+            language: source_language,
+        })
     }
 
     /// The Food the line at `index`, read as `reading` in `language`, takes
@@ -1500,8 +1504,9 @@ impl RenderedFoods {
         reading: &crate::reading::Reading,
         language: &str,
     ) -> Option<String> {
-        let source = self.0.get(index)?.as_ref()?;
-        same_measure((&source.read, &self.1), (reading, language)).then(|| source.food_id.clone())
+        let source = self.lines.get(index)?.as_ref()?;
+        same_measure((&source.read, &self.language), (reading, language))
+            .then(|| source.food_id.clone())
     }
 }
 
@@ -1843,13 +1848,14 @@ impl Reader {
 
 /// **The Language a Version is written in**, as the Branch that holds it says,
 /// and [`crate::language::UNKNOWN`] where none does. Which words read its Units
-/// hang on this (ADR 0057).
+/// hang on this (ADR 0057). Setting a recipe's Language holds the Version a
+/// second time, so the latest occurrence is the one that says.
 pub(super) fn written_language(conn: &Connection, version_id: &str) -> Result<String, OpError> {
     conn.query_row(
         "SELECT COALESCE(branch_versions.language, branches.language) \
            FROM branch_versions JOIN branches ON branches.id = branch_versions.branch_id \
           WHERE branch_versions.version_id = ?1 \
-          ORDER BY branches.id LIMIT 1",
+          ORDER BY branch_versions.sequence DESC, branches.id LIMIT 1",
         params![version_id],
         |row| row.get::<_, Option<String>>(0),
     )

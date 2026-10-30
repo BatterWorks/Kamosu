@@ -56,7 +56,7 @@ self.addEventListener('install', (event) => {
 	event.waitUntil(
 		(async () => {
 			const store = await caches.open(SHELL);
-			// The app, all three languages included — Paraglide compiles every
+			// The app, every language included — Paraglide compiles every
 			// phrase into these chunks, so precaching them is precaching fr, en
 			// and es alike (ADR 0013).
 			await store.addAll([...PRECACHED, '/']);

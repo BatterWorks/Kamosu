@@ -46855,6 +46855,7 @@ async fn a_dutch_line_and_an_english_line_naming_one_food_add_on_the_shopping_li
 async fn setting_a_recipe_to_dutch_reads_its_lines_again_and_so_does_reading_every_line_again() {
     let app = support::spawn_app();
     let (key, _kitchen) = operator_with_kitchen(&app);
+    read_in(&app, &key, "metric");
     let (status, created) = app.post_op(
         "create_recipe",
         Some(&key),
@@ -46864,12 +46865,18 @@ async fn setting_a_recipe_to_dutch_reads_its_lines_again_and_so_does_reading_eve
             "ingredients": [
                 { "kind": "ingredient", "text": "2 el olijfolie" },
                 { "kind": "ingredient", "text": "1 teentje knoflook" },
+                { "kind": "ingredient", "text": "boter om in de pan te smelten voor het bakken" },
             ],
         })
         .to_string(),
     );
     assert_eq!(status, 200, "{created}");
     let branch = created["result"]["branch_id"].as_str().unwrap();
+    assert_eq!(
+        created["result"]["versions"][0]["readings"][2],
+        Value::Null,
+        "a sentence in English: {created}"
+    );
     assert_eq!(
         created["result"]["versions"][0]["readings"][0]["unit"],
         Value::Null,
@@ -46898,6 +46905,27 @@ async fn setting_a_recipe_to_dutch_reads_its_lines_again_and_so_does_reading_eve
         json!("teentje"),
         "{version}"
     );
+    // Only lines that had a Reading are read again here (#397).
+    assert_eq!(version["readings"][2], Value::Null, "{version}");
+
+    // The Version now stands in Dutch: everything after the Reading asks Dutch
+    // words too, what the Unit is worth and what the shopping list adds up.
+    assert_eq!(
+        version["measured"]["ingredients"][0],
+        json!("about 30 ml"),
+        "{version}"
+    );
+    let (status, basis) = app.post_op(
+        "shopping_basis",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    assert_eq!(status, 200, "{basis}");
+    assert_eq!(
+        basis["result"]["lines"][0]["food"]["unit_id"],
+        json!("tablespoon"),
+        "{basis}"
+    );
 
     // Read again wholesale, a Dutch recipe is read with Dutch words.
     let (status, asked) = app.post_op("reread_ingredient_lines", Some(&key), "{}");
@@ -46919,8 +46947,8 @@ async fn setting_a_recipe_to_dutch_reads_its_lines_again_and_so_does_reading_eve
         .last()
         .unwrap();
     assert_eq!(
-        version["readings"][0]["target"],
-        json!("olijfolie"),
+        version["readings"][2]["target"],
+        json!("boter"),
         "{version}"
     );
 }

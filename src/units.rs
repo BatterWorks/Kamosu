@@ -37,6 +37,7 @@
 //! them through `get_recipe` against a real database, which is the only way to
 //! prove both Doors got it.
 
+#[cfg(test)]
 use crate::language::UNKNOWN;
 use crate::words::{self, Words};
 
@@ -425,6 +426,7 @@ pub fn shipped_cup_weight<'a>(names: impl IntoIterator<Item = &'a str>) -> Optio
 /// question is a Units question: *is this quantity commensurable with that
 /// one, and by what factor* — the same closed set of Units, the same base
 /// values, the same silence outside them (ADR 0016, ADR 0036).
+#[cfg(test)]
 pub fn how_much_of(
     amount: Option<&str>,
     unit: Option<&str>,
@@ -570,8 +572,8 @@ const ES_COMPONENT: ComponentWords = ComponentWords {
 
 const NL_COMPONENT: ComponentWords = ComponentWords {
     missing: "Kamosu heeft dit recept niet.",
-    stopped: "{title} staat hierboven al open — Kamosu stopt hier.",
-    unscaled: "{title} — Kamosu kon de hoeveelheid niet bepalen, dus dit is het recept zoals het is geschreven.",
+    stopped: "{title} staat hierboven al open. Kamosu stopt hier.",
+    unscaled: "{title}: Kamosu kon de hoeveelheid niet bepalen, dus dit is het recept zoals het is geschreven.",
     whole: "{title} · het hele recept",
     part: "{title} · {share} van het recept",
 };
@@ -624,6 +626,7 @@ struct Measured {
 /// effective Cup Weight — the override where somebody set one, the shipped
 /// figure otherwise — and its absence is what turns a cup of something into
 /// millilitres rather than into grams.
+#[cfg(test)]
 pub fn measured_line(
     amount: Option<&str>,
     unit: Option<&str>,
@@ -1165,6 +1168,7 @@ enum Scale {
 /// `written_in` is the system the recipe's own Readings are in, where they all
 /// agree ([`written_in`]). It is what decides a bare `180°`, which could be
 /// either dial.
+#[cfg(test)]
 pub fn step_temperature(
     text: &str,
     measures: Measures,
@@ -1285,6 +1289,7 @@ fn nearest_rung(
 /// Spoons cast no vote. A French recipe measures its oil in `c. à s.` beside
 /// its grams, and Kamosu files every spoon as customary, so counting them would
 /// call half the French library mixed.
+#[cfg(test)]
 pub fn written_in<'a>(units: impl IntoIterator<Item = &'a str>) -> Option<System> {
     written_in_words(words::of(UNKNOWN), units)
 }
@@ -1662,6 +1667,12 @@ fn count_before(
     };
     let part = spoken.map_or(0.0, |(_, part)| part);
     match at.map(|at| (at, pieces.get(at))) {
+        // *Een uur of 2* is about two hours, which no timer can say.
+        Some((_, Some(Piece::Word(word))))
+            if lists.timer_one.has(word) && joins_a_range(lists, pieces.get(unit + 1)) =>
+        {
+            None
+        }
         Some((at, Some(Piece::Word(word)))) if lists.timer_one.has(word) => Some((at, 1.0 + part)),
         Some((at, Some(Piece::Word(word)))) if lists.timer_one_and_a_half.has(word) => {
             Some((at, 1.5 + part))
@@ -2010,6 +2021,7 @@ mod tests {
             ("Laat een half uurtje rusten.", 1800),
             ("Bak nog een minuut mee.", 60),
             ("Laat een uur rusten.", 3600),
+            ("1 hr 30 mins", 5400),
             ("Laat er de ui een 10tal minuten zweten.", 600),
             ("Bak 10-15 minuutjes.", 600),
             ("Verwarm 30 seconden.", 30),
@@ -2020,6 +2032,7 @@ mod tests {
             "Bak een paar minuten.",
             "Roer een keer om.",
             "Voeg 2 el olie toe.",
+            "Laat een minuut of 5 staan.",
         ] {
             assert_eq!(timer(text), None, "{text}");
         }

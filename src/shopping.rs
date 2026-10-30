@@ -97,6 +97,7 @@ impl Part {
 /// The order is fixed rather than incidental — mass, volume, count, the cook's
 /// own words, then *some* — so two readings of one list put the same amount
 /// first, and so the amount Kamosu is most confident about leads.
+#[cfg(test)]
 pub fn parts_for(contributions: &[Contribution], measures: Measures, language: &str) -> Vec<Part> {
     let read = contributions
         .iter()
@@ -256,9 +257,9 @@ pub fn unit_key(word: &str) -> String {
 /// [`unit_key`], for a Unit written in `language`: Dutch writes *blikken* for
 /// *blik*, which no rule of that function reads.
 pub fn unit_key_in(word: &str, language: &str) -> String {
-    match language {
-        "nl" => crate::dutch::unit_stem(&units::fold(word)),
-        _ => unit_key(word),
+    match crate::words::of(language).grammar {
+        crate::words::Grammar::Dutch => crate::dutch::unit_stem(&units::fold(word)),
+        crate::words::Grammar::Together => unit_key(word),
     }
 }
 

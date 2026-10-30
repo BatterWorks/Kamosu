@@ -46,4 +46,30 @@ written.
 | Access Key | Toegangssleutel | The usual rendering. |
 | Backup | Back-up | Written with a hyphen, as the Dutch spelling list has it. |
 | Cook (a person) | Kok | The only word in use. |
+| Copy | Kopie | The only word in use. |
+| Variation | Variatie | The only word in use. |
+| Component | Onderdeel | Chosen over `Component`, which is no kitchen word. |
+| Section | Kopje | Chosen over `Sectie`. A heading in a list is a `kopje` in Dutch writing. It is also the spoken word for a cup, so the screen's phrase says which. |
+| Yield amount word | Porties | As Servings above. |
+| As Cooked | Zoals gekookt | Follows the English: the recipe as it really went. |
+| Promotion | Overnemen | Chosen over `Promotie`, which is a step up at work. What the cook does is take a change over into the recipe. |
+| Cup Weight | Kopgewicht | A new compound, and short. |
+| Related Recipe | Verwant recept | The usual rendering. |
+| Invite | Uitnodiging | The only word in use. |
+| Merge | Samenvoegen | The only word in use. |
+| Prep Time | Voorbereidingstijd | The word Dutch recipe sites use. |
+| Cook Time | Kooktijd | The word Dutch recipe sites use. |
+| Nutrition | Voedingswaarde | The word on a Dutch food label. |
+| Passkey | Toegangssleutel op apparaat | Long, so a phrase may say `passkey`, which Dutch software also leaves as it is. |
+| Session | Sessie | The only word in use. |
+| Security Record | Beveiligingslogboek | Chosen over `Beveiligingsverslag`: it is a running log, not a report. |
+| Loose Item | Los artikel | The usual rendering. |
+| Main Photo | Hoofdfoto | The only word in use. |
+| Cover | Omslag | The word for a book's cover. |
+| Demo | Demo | The only word in use. |
+| Import | Importeren | The only word in use. |
+| Export | Exporteren | The only word in use. |
+| Original | Origineel | The only word in use. |
+| Read Again | Opnieuw lezen | Follows the English. |
+| In Progress | Bezig | Short, and what a Dutch screen says. |
 | Co-author | Medeauteur | The only word in use. |

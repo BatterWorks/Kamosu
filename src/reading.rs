@@ -1028,14 +1028,20 @@ fn with_asides_cut(lists: &Words, line: &str) -> String {
     } else {
         line
     };
-    let lowered = line.to_lowercase();
+    // Lowered by ASCII alone, so a place in it is a place in the line. A
+    // phrase may end in a full stop, `van ca. 275 g`.
+    let lowered = line.to_ascii_lowercase();
     let aside = lists
         .asides
         .iter()
-        .filter_map(|phrase| lowered.find(&format!(" {} ", phrase.join(" "))))
+        .flat_map(|phrase| {
+            let phrase = format!(" {}", phrase.join(" "));
+            [format!("{phrase} "), format!("{phrase}. ")]
+        })
+        .filter_map(|phrase| lowered.find(&phrase))
         .min();
-    match aside.and_then(|at| Some((line.get(..at)?, line.get(at..)?))) {
-        Some((before, after)) => format!("{before},{after}"),
+    match aside {
+        Some(at) => format!("{},{}", &line[..at], &line[at..]),
         None => line.to_string(),
     }
 }

@@ -347,6 +347,8 @@ describe('saying what Language a recipe is in, by hand', () => {
 
 		await fireEvent.click(await screen.findByRole('button', { name: 'Into Dutch' }));
 		expect(translate).toHaveBeenCalledWith('nl');
+		// The row that sets a recipe's Language names it the same way.
+		expect(screen.getByRole('button', { name: 'Dutch' })).toBeInTheDocument();
 		expect(screen.queryByText('nl')).not.toBeInTheDocument();
 	});
 

@@ -217,6 +217,20 @@ paste_not_a_name = [
 # --- Dutch grammar's words (`src/dutch.rs`) ---
 # Two letters are too few to name a food by anywhere else.
 short_foods = ["ui", "ei"]
+# The words a Step shortens a compound to: the kind of thing it is. Closed on
+# purpose, see `src/dutch.rs`. A word here links `tarwebloem` by `bloem`.
+compound_heads = [
+    "bloem", "meel", "bouillon", "fond", "olie", "boter", "melk", "room", "kaas",
+    "worst", "worstje", "worstjes", "spek", "ham", "gehakt", "vlees", "stoofvlees",
+    "vis", "look",
+    "kip", "kool", "sla", "peper", "pepers", "zout", "suiker", "azijn", "wijn",
+    "bier", "puree", "pasta", "rijst", "noot", "noten", "boon", "bonen", "erwt",
+    "erwten", "linzen", "tomaat", "tomaten", "paprika", "paprikas", "wortel",
+    "wortels", "wortelen", "peen", "penen", "appel", "appels", "peer", "peren",
+    "uien", "citroen", "citroenen", "knoflook", "gember", "selderij", "chocolade",
+    "chocola", "brood", "deeg", "jus", "kruiden", "garnalen", "zalm", "stroop",
+    "siroop", "mosterd", "ketjap", "yoghurt", "kwark",
+]
 not_compounds = [
     "aardappel", "aardappelen", "aardappels", "aardpeer", "aardperen",
     "sinaasappel", "sinaasappels", "sinaasappelen", "pijnappel", "zonnebloem",
@@ -246,6 +260,9 @@ cup = ["kopje", "kopjes"]
 # --- The plurals no rule of `src/dutch.rs` reaches ---
 
 [irregular]
+"champignons" = "champignon"
+"stuks" = "stuk"
+"cashews" = "cashew"
 "eieren" = "ei"
 "bladeren" = "blad"
 "kinderen" = "kind"
@@ -279,8 +296,15 @@ cup = ["kopje", "kopjes"]
 
 # --- What a word for a length of time is worth ---
 
+# The English words are here for an app's own time fields, which write `1 hr 30
+# mins` whatever the recipe's Language.
 [durations]
-second = ["seconde", "seconden", "secondes", "sec"]
-minute = ["minuut", "minuten", "minuutje", "minuutjes", "min", "mins"]
-hour = ["uur", "uren", "uurtje", "uurtjes", "u"]
+second = [
+    "seconde", "seconden", "secondes", "sec", "secs", "second", "seconds",
+]
+minute = [
+    "minuut", "minuten", "minuutje", "minuutjes", "min", "mins", "minute",
+    "minutes",
+]
+hour = ["uur", "uren", "uurtje", "uurtjes", "u", "hour", "hours", "hr", "hrs", "h"]
 quarter_hour = ["kwartier", "kwartieren", "kwartiertje"]

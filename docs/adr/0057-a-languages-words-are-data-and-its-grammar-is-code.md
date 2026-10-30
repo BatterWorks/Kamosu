@@ -12,7 +12,8 @@ The reader's vocabulary sat in about 45 lists in the code, most of them holding 
 - **Every reading takes the Language the text is written in.** Recognising a written Unit took no Language and is called again wherever a line is converted, scaled or shopped, so a Dutch spelling would have either never converted or leaked into every recipe. It now takes the line's Language at each of those places, as reading a Step's timer does. A shopping row adds lines of several Languages, so the Unit each line names is decided from its own recipe's Language when its Basis is made.
 - **A pasted recipe is detected first**, so a Dutch paste meets Dutch words. The other Languages are read as one, as they were.
 - **A Dutch Food is matched on a stem.** `uien` and `ui` are one Food: the name's main word has its plural and diminutive taken off in the column a Food Match compares. Stems are never shown. This is the one place a Food Match is looser than folding, and it holds for Dutch alone, where the plural changes the word's spelling and a recipe writes one form as often as the other. No migration runs, since no name in Dutch existed before this.
-- **`graden` with no letter is Celsius on the oven ladder, in Dutch alone.** A Dutch oven's dial is in Celsius, and `180 graden` is how Dutch recipes write it. `180 grados` stays no temperature, as it was.
+- **`graden` with no letter is Celsius on the oven ladder, in Dutch alone.** A Dutch oven's dial is in Celsius, and `180 graden` is how Dutch recipes write it. So is a bare `180°` in a Dutch recipe, and `º` is read as the degree sign Dutch sites type it for. `180 grados` stays no temperature, as it was.
+- **A compound is linked by a closed list of main words.** A Step's `de bloem` links `tarwebloem`, but the end of a long word is as often an accident, and `zijn` ends `wijnazijn`. Only the kinds of food in `compound_heads` count, and a word missing from it costs a link, where a wrong one puts a line in the wrong Step.
 - **German is on the detector's list and is answered as none.** Measured on a library of 205 recipes, with Dutch alone added all four German recipes were detected as Dutch. Two English recipes that are little more than a title lose their detection, which leaves their stored Language as it is.
 
 ## Considered options
@@ -24,7 +25,7 @@ The reader's vocabulary sat in about 45 lists in the code, most of them holding 
 
 ## Consequences
 
-- **The next Language is a file, one match arm in `words::of`, and whatever grammar it needs.** Most of the work is the word list and a test set of real lines, as `tests/fixtures/dutch/` is.
+- **The next Language is a file, an arm in `words::of`, an arm in each table of the server's prose, and whatever grammar it needs.** Most of the work is the word list and a test set of real lines, as `tests/fixtures/dutch/` is.
 - **Editing words is a release, not a setting.** A missing Dutch word is fixed by changing `src/words/nl.toml`.
 - **A word file that does not read stops the program at its first use**, and a test uses every one, so it cannot reach a build.
 - **The prose the server writes stays in its phrase tables.** Moving those into the word files would fix no collision.

@@ -431,24 +431,24 @@ fn read_recipe(recipe: &Value, shape: Shape) -> Result<ReadRecipe, String> {
         .map(|(_, name)| name.as_str())
         .collect();
 
-    let written_in = crate::language::detect_content(&json!({
+    // The recipe's own Language reads its times, and words its Yield and its
+    // Equipment line.
+    let language = crate::language::detect_content(&json!({
         "title": title,
         "ingredients": ingredients,
         "steps": steps,
-    }))
-    .unwrap_or(crate::language::UNKNOWN);
+    }));
+    let time_in = language.unwrap_or(crate::language::UNKNOWN);
     let mut candidate = json!({
         "title": title,
-        "prep_time_minutes": minutes(recipe, "prep_time", written_in),
-        "cook_time_minutes": minutes(recipe, "perform_time", written_in)
-            .or_else(|| minutes(recipe, "cook_time", written_in)),
+        "prep_time_minutes": minutes(recipe, "prep_time", time_in),
+        "cook_time_minutes": minutes(recipe, "perform_time", time_in)
+            .or_else(|| minutes(recipe, "cook_time", time_in)),
         "source": text(recipe, "org_url").map_or(Value::Null, |link| other_apps::source_of_link(&link)),
         "nutrition": nutrition(recipe),
         "ingredients": ingredients,
         "steps": steps,
     });
-    // The recipe's own Language words its Yield and its Equipment line.
-    let language = crate::language::detect_content(&candidate);
     candidate["yield"] = recipe_yield(recipe, language);
     candidate["note"] = note(recipe, language, &candidate);
 
