@@ -227,7 +227,12 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
         ]
     );
 
-    // --- The three `-1` pairs, offered to tick and never joined -------------
+    // --- The related pairs, offered to tick and never joined -----------------
+    //
+    // Four pairs share a name or a page as written. The fifth is one YouTube
+    // video reached by two links, `youtu.be/…?si=…` and `youtube.com/watch?v=…`:
+    // the Coq au Vin and the bare "Cozy Af French Chicken Stew", known as one
+    // page since #464. Each pair is named here by its shorter title.
     let pairs = report["related_candidates"].as_array().unwrap();
     let mut offered: Vec<&str> = pairs
         .iter()
@@ -247,6 +252,7 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
         offered,
         vec![
             "Beef Bourguignon",
+            "Cozy Af French Chicken Stew - Youtube",
             "Dan Dan Noodles",
             "Korean Fried Chicken",
             "Pandebonos"
