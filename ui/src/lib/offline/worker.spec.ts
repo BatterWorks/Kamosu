@@ -140,6 +140,8 @@ describe('what the phone keeps', () => {
 		// #111: whether a new recipe asks whose it is depends on the Kitchens
 		// you cook in now, not the ones you cooked in last time.
 		expect(policyFor('list_kitchens')).toBe('server-first');
+		// #486: a plan made on the phone must be on the iPad's Plan when it opens.
+		expect(policyFor('get_meal_plan')).toBe('server-first');
 		expect(policyFor('get_job')).toBe('never');
 		expect(policyFor('promote_as_cooked')).toBeUndefined();
 	});

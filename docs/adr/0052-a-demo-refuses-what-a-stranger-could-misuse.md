@@ -2,6 +2,8 @@
 
 Kamosu gets a demo mode: one environment variable on the released image turns an instance into a public **Demo** that anyone can open without signing in, where every screen can be seen and only cooking and shopping really save. It loads a **Sample Library** of about 40 recipes with lived-in history, puts it back every day, and shows the agent at work through **Replays** of ready examples, since no model runs. Settled on 2026-10-21 in a design session; how other self-hosted apps run theirs is in `docs/research/demo-modes.md`.
 
+_(Amended by [ADR 0058](./0058-a-meal-plan-is-a-persons-own-days-ahead.md), 2026-10-31: planning saves in a Demo too, beside cooking and shopping.)_
+
 The README had pictures and nothing to try. A stranger deciding whether to install Kamosu had to install it first, and most of what makes it different (a recipe's Thread, two cooks, the agent) only shows on a library that has lived for a while.
 
 ## What was decided

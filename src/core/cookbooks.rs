@@ -1804,7 +1804,7 @@ pub(super) fn keep_branches(conn: &Connection, kept: &[(String, String)]) -> Res
         let own = cookbook_of_person(conn, person)?;
         let copy = copy_branch_into(conn, branch_id, &own, person, None)?;
         mark_copied(conn, &copy, branch_id)?;
-        repoint_shopping(conn, person, branch_id, &copy)?;
+        repoint_shopping_and_plan(conn, person, branch_id, &copy)?;
     }
     Ok(())
 }
@@ -1822,8 +1822,8 @@ fn mark_copied(conn: &Connection, copy: &str, source: &str) -> Result<(), OpErro
 
 /// A Shopping List entry follows a recipe to the Branch its reader keeps of
 /// it (#131, question 12), rather than going dead on one they can no longer
-/// read.
-fn repoint_shopping(
+/// read, and a Planned Meal of theirs with it (#486).
+fn repoint_shopping_and_plan(
     conn: &Connection,
     person_id: &str,
     from: &str,
@@ -1842,7 +1842,7 @@ fn repoint_shopping(
         params![person_id, from],
     )
     .map_err(|e| OpError::internal(format!("cannot move a Shopping List entry: {e}")))?;
-    Ok(())
+    repoint_planned_meals(conn, from, to, Whose::Only(person_id))
 }
 
 /// Two Cookbooks become one: everything `from` holds moves into `into`, and
@@ -2197,6 +2197,9 @@ fn fold_branch(conn: &Connection, drop: &str, keep: &str, into: &str) -> Result<
         params![drop],
     )
     .map_err(|e| OpError::internal(format!("cannot move Shopping List entries: {e}")))?;
+    // A plan may hold both on one day, and keeps both: two dinners planned
+    // are two dinners, whichever Branch each was planned from.
+    repoint_planned_meals(conn, drop, keep, Whose::Everyone)?;
     let keep_has_link: bool = conn
         .query_row(
             "SELECT EXISTS (SELECT 1 FROM share_links WHERE branch_id = ?1 AND ended_at IS NULL)",
@@ -2416,10 +2419,11 @@ pub(super) fn separate(
                 params![branch_id, leaver],
             )
             .map_err(|e| OpError::internal(format!("cannot move Shopping List entries: {e}")))?;
+            repoint_planned_meals(conn, &branch_id, &copy, Whose::AllBut(leaver))?;
         } else {
             let copy = copy_branch_into(conn, &branch_id, &own, leaver, None)?;
             mark_copied(conn, &copy, &branch_id)?;
-            repoint_shopping(conn, leaver, &branch_id, &copy)?;
+            repoint_shopping_and_plan(conn, leaver, &branch_id, &copy)?;
             copies.push(copy);
         }
     }

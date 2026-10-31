@@ -12,6 +12,7 @@
  */
 
 import { aDate } from '$lib/dates';
+import { addDays, mondayOf, today } from '$lib/plan-days';
 import { m } from '$lib/paraglide/messages';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
@@ -381,7 +382,7 @@ function renderRecipe(
 	answers: Answers = forked(),
 	branchId = 'mine',
 	/** The phone it is on, and how it fetches a Sheet to share (#149). */
-	on: Pick<ComponentProps<typeof RecipeTestHarness>, 'device' | 'files' | 'upload'> = {},
+	on: Pick<ComponentProps<typeof RecipeTestHarness>, 'device' | 'files' | 'upload' | 'openAt'> = {},
 ) {
 	// Your own cookings, read for their pictures (#110). Nobody here has
 	// cooked anything unless a test says so.
@@ -1251,7 +1252,7 @@ describe('the recipe screen', () => {
 	 * asked for at an amount — the chicken doubled, the oil with nothing Kamosu
 	 * could scale, as the Core answers it.
 	 */
-	function scalable(extra: Answers = {}) {
+	function scalable(extra: Answers = {}, on: Parameters<typeof renderRecipe>[2] = {}) {
 		const plain = solo().get_recipe as GetRecipeOutput;
 		const held: { kamosu?: ReturnType<typeof standIn> } = {};
 		const asked = () =>
@@ -1261,8 +1262,8 @@ describe('the recipe screen', () => {
 				.at(-1);
 		const answers: Answers = {
 			...solo(),
-			get_recipe: () => {
-				const wanted = asked();
+			get_recipe: (input) => {
+				const wanted = input.wanted_yield ?? asked();
 				if (!wanted) return plain;
 				return {
 					...plain,
@@ -1283,7 +1284,7 @@ describe('the recipe screen', () => {
 			set_shopping_yield: { chosen: [], rows: [] },
 			...extra,
 		};
-		const rendered = renderRecipe(answers);
+		const rendered = renderRecipe(answers, 'mine', on);
 		held.kamosu = rendered.kamosu;
 		return rendered;
 	}
@@ -2297,6 +2298,98 @@ describe('the recipe screen', () => {
 		);
 		expect(said.tagName).toBe('SPAN');
 		expect(said.closest('button')).toBeNull();
+	});
+
+	// ---- planning it (#486) ---------------------------------------------------
+
+	it('plans the version on screen on a day, at an amount, and says where it went (#486)', async () => {
+		const { kamosu } = scalable({
+			get_meal_plan: { planned_meals: [] },
+			plan_recipe: { planned_meal: null },
+		});
+		await screen.findByText('Amounts for 4 servings');
+		await fireEvent.click(screen.getByRole('button', { name: 'Plan this' }));
+		const sheet = await screen.findByRole('dialog');
+		expect(within(sheet).getByRole('button', { name: 'Choose a day' })).toBeDisabled();
+		const tomorrow = addDays(today(), 1);
+		await fireEvent.click(within(sheet).getByRole('radio', { name: /^Tomorrow · / }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'One more' }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: /^Plan it for / }));
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'plan_recipe',
+			input: {
+				branch_id: 'mine',
+				day: tomorrow,
+				planned_yield: { amount: '5', noun: 'servings' },
+			},
+		});
+		const said = await screen.findByRole('status', { name: '' });
+		expect(said).toHaveTextContent(/^Planned for .*, for 5 servings\./);
+		expect(within(said).getByRole('link', { name: 'See the plan' })).toHaveAttribute(
+			'href',
+			`/plan?week=${mondayOf(tomorrow)}`,
+		);
+		expect(screen.queryByRole('dialog')).toBeNull();
+	});
+
+	it('opens a recipe planned as written as written, whatever the list holds (#486)', async () => {
+		const { kamosu } = scalable(
+			{
+				get_shopping_list: {
+					chosen: [
+						{
+							branch_id: 'mine',
+							title: 'Korean Fried Chicken',
+							gone: false,
+							shopping_yield: { amount: '8', noun: 'servings' },
+							written_yield: { amount: '4', noun: 'servings' },
+						},
+					],
+					rows: [],
+				},
+			},
+			{ openAt: null },
+		);
+		expect(await screen.findByText('Amounts for 4 servings')).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(kamosu.calls.some((call) => call.operation === 'get_shopping_list')).toBe(true),
+		);
+		await tick();
+		const asked = kamosu.calls
+			.filter((call) => call.operation === 'get_recipe')
+			.map((call) => (call.input as { wanted_yield?: unknown }).wanted_yield);
+		expect(asked).toEqual([null]);
+		expect(screen.getByText('Amounts for 4 servings')).toBeInTheDocument();
+	});
+
+	it('opens a recipe planned as written with no network, from the copy the phone holds (#486)', async () => {
+		const plain = solo().get_recipe as GetRecipeOutput;
+		const { kamosu } = renderRecipe(
+			{
+				...solo(),
+				get_shopping_list: { chosen: [], rows: [] },
+				get_recipe: (input) => {
+					if (!('wanted_yield' in input)) return plain;
+					throw new OperationError('get_recipe', 'internal', 'Kamosu could not be reached.', {
+						reached: false,
+					});
+				},
+			},
+			'mine',
+			{ openAt: null },
+		);
+		expect(await screen.findByText('Amounts for 4 servings')).toBeInTheDocument();
+		expect(kamosu.calls.filter((call) => call.operation === 'get_recipe')).toHaveLength(2);
+	});
+
+	it('opens at the amount a planned recipe names (#486)', async () => {
+		const { kamosu } = scalable({}, { openAt: { amount: '8', noun: 'servings' } });
+		expect(await screen.findByText('Amounts for 8 servings')).toBeInTheDocument();
+		expect(kamosu.calls.find((call) => call.operation === 'get_recipe')?.input).toEqual({
+			branch_id: 'mine',
+			wanted_yield: { amount: '8', noun: 'servings' },
+		});
 	});
 });
 

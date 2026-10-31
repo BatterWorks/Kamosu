@@ -364,11 +364,21 @@ _Avoid_: Deviation, adjustment, diff, draft, variant, modification
 The deliberate act of taking something provisional out of an Attempt and making it part of the recipe — an As Cooked becoming a Version, or an Attempt photograph becoming the Main Photo or a Step's photo. The interface says *keep*: a cooking whose changed lines were never promoted is *unkept*, and Cooked offers to keep them as a Version. The point at which an Attempt's freedoms end and the recipe's rules begin: what is promoted is append-only, and promoting requires the right to edit the recipe.
 _Avoid_: Apply, merge, commit, save back, accept
 
+### Planning
+
+**Meal Plan**:
+One **Person**'s own calendar of what they will cook: the days ahead, and the recipes put on each. Everyone has exactly one; it has no name, nobody else reads it, and an Operator acting as one does not reach it. It keeps what it held after the week has gone and after the shop, where the **Shopping List** is emptied. That it is a Person's own is a candidate: a plan shared by a **Cookbook**'s Co-authors is the open alternative (ADR 0058).
+_Avoid_: Menu, meal planner, calendar, schedule, agenda
+
+**Planned Meal**:
+A recipe put on a day of a **Meal Plan**: one **Branch**, always at its latest **Version**, at the **Yield** the cook means or as written. A day holds as many as the cook likes, in the order they were put there, with no breakfast, lunch or dinner. One whose recipe is deleted or no longer shared stays, keeps the name it was known by and says it can no longer be read, as a Shopping List entry does.
+_Avoid_: Plan entry, meal, slot, event
+
 ### Shopping
 
 **Shopping List**:
 One **Person**'s standing choice of what they are about to cook — the recipes they picked, how much of each they are shopping for, and any **Loose Item** they typed. Everyone has exactly one; it has no name, it is never archived, and sending it offers to empty it but never does so by itself. It holds a **Branch** rather than a **Lineage**, because on the day you are cooking one particular text and a friend's version of the dish may want anchovies where yours does not — and always that Branch's latest **Version**, never a pinned one, so a recipe edited on Monday is right on Tuesday. What is stored is the choosing; what is shown is worked out from it every time and kept nowhere. A recipe that is deleted or whose sharing is withdrawn stays on the list, keeps the name it was known by and contributes nothing, saying so.
-_Avoid_: Basket, cart, meal plan, groceries, list
+_Avoid_: Basket, cart, meal plan (the days ahead are the **Meal Plan**), groceries, list
 
 **Shopping Row**:
 One thing to buy, worked out from a **Shopping List** and stored nowhere. It names a **Food** rather than any **Ingredient Line**, in the reader's **Reading Language** and falling back to whatever name the Food has, marked — so every mention of flour across every recipe on the list becomes one row. It carries as many amounts as the arithmetic honestly supports: added together where the **Unit**s convert, in the reader's **Reading Measures** and saying *about*; side by side where they do not, `500 g + 2 poignées`, because two true amounts beat one wrong one. An amount nobody stated is one of those, shown as *some* and never dropped. The lines it was made from are always one tap away.
@@ -381,7 +391,7 @@ _Avoid_: Extra, manual item, custom item, note
 ### Showing Kamosu
 
 **Demo**:
-An instance anyone may open without signing in, to see what Kamosu is before installing it, where every screen opens and only cooking and shopping save. Every visitor is the same Person, in a **Sample Library** put back every day (ADR 0052).
+An instance anyone may open without signing in, to see what Kamosu is before installing it, where every screen opens and only cooking, planning and shopping save. Every visitor is the same Person, in a **Sample Library** put back every day (ADR 0052).
 _Avoid_: Sandbox, trial, guest access, read-only mode, playground
 
 **Sample Library**:

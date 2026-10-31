@@ -211,6 +211,7 @@ describe('every sheet in Kamosu', () => {
 		expect(framed).toEqual([
 			'Carrying.svelte',
 			'ChangePassword.svelte',
+			'ChangeSheet.svelte',
 			'ComponentPicker.svelte',
 			'Confirm.svelte',
 			'Cooking.svelte',
@@ -220,6 +221,7 @@ describe('every sheet in Kamosu', () => {
 			'Passkeys.svelte',
 			'PasteSheet.svelte',
 			'PhotoToRecipe.svelte',
+			'PlanThis.svelte',
 			'RelatedSheet.svelte',
 			'RenameSheet.svelte',
 			'Replays.svelte',

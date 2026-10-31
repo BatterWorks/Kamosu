@@ -26528,6 +26528,374 @@ async fn a_version_written_before_a_field_existed_still_answers_the_declared_sha
     );
 }
 
+// --- The Meal Plan (issue #486, ADR 0058) ------------------------------------
+
+/// One Operation on a plan, answering its status and its `result`.
+fn plan_op(app: &support::TestApp, key: &str, name: &str, input: Value) -> (u16, Value) {
+    let (status, answer) = app.post_op(name, Some(key), &input.to_string());
+    (status, answer["result"].clone())
+}
+
+/// Plan a recipe and answer the Planned Meal's id.
+fn plan(app: &support::TestApp, key: &str, input: Value) -> String {
+    let (status, planned) = plan_op(app, key, "plan_recipe", input);
+    assert_eq!(status, 200, "{planned}");
+    planned["planned_meal"]["planned_meal_id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// The Planned Meals from one day to another.
+fn planned(app: &support::TestApp, key: &str, from: &str, to: &str) -> Vec<Value> {
+    let (status, read) = plan_op(app, key, "get_meal_plan", json!({ "from": from, "to": to }));
+    assert_eq!(status, 200, "{read}");
+    read["planned_meals"].as_array().unwrap().clone()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_planned_on_a_day_is_read_back_in_the_order_it_was_put_there() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = written(&app, &key, "Soupe au pistou");
+    let tarte = written(&app, &key, "Tarte Tatin");
+
+    let first = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-05" }),
+    );
+    let second = plan(
+        &app,
+        &key,
+        json!({ "branch_id": tarte, "day": "2026-11-05" }),
+    );
+    // The same recipe again, another day, and a day outside what is read.
+    let monday = plan(
+        &app,
+        &key,
+        json!({ "branch_id": tarte, "day": "2026-11-02" }),
+    );
+    plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-09" }),
+    );
+
+    let week = planned(&app, &key, "2026-11-02", "2026-11-08");
+    let ids = week
+        .iter()
+        .map(|meal| meal["planned_meal_id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, [monday.as_str(), first.as_str(), second.as_str()]);
+    assert_eq!(
+        week[1],
+        json!({
+            "planned_meal_id": first,
+            "day": "2026-11-05",
+            "position": 0,
+            "branch_id": soupe,
+            "title": "Soupe au pistou",
+            "gone": false,
+            "planned_yield": Value::Null,
+            "written_yield": Value::Null,
+            "main_photo": Value::Null,
+        })
+    );
+    assert_eq!(week[2]["position"], json!(1));
+
+    // Taken off, it is gone; taken off again, nothing fails.
+    for _ in 0..2 {
+        let (status, removed) = plan_op(
+            &app,
+            &key,
+            "remove_planned_meal",
+            json!({ "planned_meal_id": first }),
+        );
+        assert_eq!(status, 200, "{removed}");
+        assert_eq!(removed, json!({ "planned_meal": null }));
+    }
+    assert_eq!(planned(&app, &key, "2026-11-05", "2026-11-05").len(), 1);
+
+    // A day that is not one, a range turned round, and one too long.
+    for (input, said) in [
+        (
+            json!({ "from": "2026-02-30", "to": "2026-03-01" }),
+            "calendar date",
+        ),
+        (
+            json!({ "from": "tomorrow", "to": "2026-03-01" }),
+            "calendar date",
+        ),
+        (
+            json!({ "from": "2026-11-08", "to": "2026-11-02" }),
+            "same day",
+        ),
+        (json!({ "from": "2026-01-01", "to": "2027-01-02" }), "366"),
+    ] {
+        let (status, refused) = app.post_op("get_meal_plan", Some(&key), &input.to_string());
+        assert_eq!(status, 400, "{input}: {refused}");
+        assert!(refused.to_string().contains(said), "{refused}");
+    }
+    let (status, refused) = plan_op(
+        &app,
+        &key,
+        "plan_recipe",
+        json!({ "branch_id": soupe, "day": "2026-11-31" }),
+    );
+    assert_eq!(status, 400, "{refused}");
+    let (status, refused) = plan_op(
+        &app,
+        &key,
+        "plan_recipe",
+        json!({ "branch_id": "b_0000000000000000", "day": "2026-11-05" }),
+    );
+    assert_eq!(status, 404, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_planned_recipe_is_its_branch_at_its_newest_version() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = written(&app, &key, "Soupe");
+    plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-05" }),
+    );
+    let (status, edited) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": soupe, "title": "Soupe au pistou", "yield": { "amount": "4", "noun": "bowls" } })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+    let meal = &planned(&app, &key, "2026-11-05", "2026-11-05")[0];
+    assert_eq!(
+        meal["title"],
+        json!("Soupe au pistou"),
+        "Monday's correction is what Thursday shows"
+    );
+    assert_eq!(
+        meal["written_yield"],
+        json!({ "amount": "4", "noun": "bowls" })
+    );
+}
+
+/// **A planned Yield follows the Shopping List's rule** (#109): a Yield in the
+/// recipe's noun, a multiplier, or none for the recipe as written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_planned_yield_holds_to_the_shopping_lists_rule_multiplier_included() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let (status, made) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "title": "Chicken pie", "yield": { "amount": "4 to 6", "noun": "servings" } })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{made}");
+    let pie = made["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // Its own Yield has no amount to count from, so it is planned twice over.
+    let meal = plan(
+        &app,
+        &key,
+        json!({ "branch_id": pie, "day": "2026-11-05", "planned_yield": { "amount": "2", "noun": "" } }),
+    );
+    let read = &planned(&app, &key, "2026-11-05", "2026-11-05")[0];
+    assert_eq!(read["planned_yield"], json!({ "amount": "2", "noun": "" }));
+    assert_eq!(
+        read["written_yield"],
+        json!({ "amount": "4 to 6", "noun": "servings" })
+    );
+
+    for (wanted, status) in [
+        (json!({ "amount": "6", "noun": "servings" }), 200),
+        (json!(null), 200),
+        (json!({ "amount": "nothing", "noun": "" }), 400),
+        (json!({ "amount": "0", "noun": "" }), 400),
+    ] {
+        let (got, answer) = plan_op(
+            &app,
+            &key,
+            "set_planned_yield",
+            json!({ "planned_meal_id": meal, "planned_yield": wanted }),
+        );
+        assert_eq!(got, status, "{wanted}: {answer}");
+        if status == 200 {
+            assert_eq!(answer["planned_meal"]["planned_yield"], wanted);
+        }
+    }
+    // A refused Yield leaves the one stored.
+    assert_eq!(
+        planned(&app, &key, "2026-11-05", "2026-11-05")[0]["planned_yield"],
+        json!(null)
+    );
+}
+
+/// **The last device to write a plan wins**, as with the Shopping List
+/// (ADR 0024): a write the phone held offline and sent after the iPad's
+/// changes nothing, and a meal it named is planned once however often sent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_last_device_to_write_a_plan_wins() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = written(&app, &key, "Soupe");
+    let kept = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-05" }),
+    );
+    let yesterday = minutes_ago(&app, 24 * 60);
+
+    for (operation, input) in [
+        (
+            "plan_recipe",
+            json!({ "branch_id": soupe, "day": "2026-11-06", "planned_meal_id": "pm_00000000000000aa", "written_at": yesterday }),
+        ),
+        (
+            "set_planned_yield",
+            json!({ "planned_meal_id": kept, "planned_yield": { "amount": "3", "noun": "" }, "written_at": yesterday }),
+        ),
+        (
+            "remove_planned_meal",
+            json!({ "planned_meal_id": kept, "written_at": yesterday }),
+        ),
+    ] {
+        let (status, answer) = plan_op(&app, &key, operation, input);
+        assert_eq!(status, 200, "{operation}: {answer}");
+    }
+    let week = planned(&app, &key, "2026-11-02", "2026-11-08");
+    assert_eq!(
+        week.len(),
+        1,
+        "written before the plan's last write, they change nothing"
+    );
+    assert_eq!(week[0]["planned_meal_id"], json!(kept));
+    assert_eq!(week[0]["planned_yield"], json!(null));
+
+    // Written after, a meal the phone named lands under its name, once.
+    let named = json!({ "branch_id": soupe, "day": "2026-11-06", "planned_meal_id": "pm_00000000000000bb" });
+    for _ in 0..2 {
+        assert_eq!(plan(&app, &key, named.clone()), "pm_00000000000000bb");
+    }
+    assert_eq!(planned(&app, &key, "2026-11-06", "2026-11-06").len(), 1);
+
+    let (status, refused) = plan_op(
+        &app,
+        &key,
+        "plan_recipe",
+        json!({ "branch_id": soupe, "day": "2026-11-06", "planned_meal_id": "not-mine" }),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+/// **A plan is one Person's** (ADR 0058): nobody in their Kitchen reads or
+/// changes it, whatever ids they hold.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_plan_is_its_persons_alone() {
+    let app = support::spawn_app();
+    let (_, stephane) = someone(&app, "Stéphane");
+    let (_, helene) = someone(&app, "Hélène");
+    kitchen_of(&app, &stephane, "Family", &[&helene]);
+    let soupe = written(&app, &stephane, "Soupe");
+    let his = plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": soupe, "day": "2026-11-05" }),
+    );
+
+    assert!(planned(&app, &helene, "2026-11-01", "2026-11-30").is_empty());
+    // Her own meal of the same recipe leaves his where it was.
+    let hers = plan(
+        &app,
+        &helene,
+        json!({ "branch_id": soupe, "day": "2026-11-05" }),
+    );
+    assert_eq!(
+        planned(&app, &stephane, "2026-11-05", "2026-11-05").len(),
+        1
+    );
+
+    let (status, refused) = plan_op(
+        &app,
+        &helene,
+        "set_planned_yield",
+        json!({ "planned_meal_id": his, "planned_yield": null }),
+    );
+    assert_eq!(status, 404, "{refused}");
+    plan_op(
+        &app,
+        &helene,
+        "remove_planned_meal",
+        json!({ "planned_meal_id": his }),
+    );
+    assert_eq!(
+        planned(&app, &stephane, "2026-11-05", "2026-11-05").len(),
+        1
+    );
+    let (status, refused) = plan_op(
+        &app,
+        &helene,
+        "plan_recipe",
+        json!({ "branch_id": soupe, "day": "2026-11-06", "planned_meal_id": his }),
+    );
+    assert_eq!(status, 400, "an id of his is not hers to take: {refused}");
+    assert_eq!(
+        planned(&app, &helene, "2026-11-05", "2026-11-05")[0]["planned_meal_id"],
+        json!(hers)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deleted_recipe_stays_on_the_plan_and_says_it_cannot_be_read() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = written(&app, &key, "Ratatouille");
+    let meal = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-05" }),
+    );
+    // Renamed after it was planned, then the Yield changed: the name it is
+    // known by follows, as a Shopping List entry's does.
+    let (status, edited) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": soupe, "title": "Ratatouille aux anchois" }).to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+    let (status, set) = plan_op(
+        &app,
+        &key,
+        "set_planned_yield",
+        json!({ "planned_meal_id": meal, "planned_yield": { "amount": "2", "noun": "" } }),
+    );
+    assert_eq!(status, 200, "{set}");
+    let (status, answered) = delete_recipe(&app, &key, &soupe);
+    assert_eq!(status, 200, "{answered}");
+
+    let read = &planned(&app, &key, "2026-11-05", "2026-11-05")[0];
+    assert_eq!(read["title"], json!("Ratatouille aux anchois"));
+    assert_eq!(read["gone"], json!(true));
+    let (status, refused) = plan_op(
+        &app,
+        &key,
+        "set_planned_yield",
+        json!({ "planned_meal_id": meal, "planned_yield": { "amount": "2", "noun": "" } }),
+    );
+    assert_eq!(status, 400, "{refused}");
+    let (status, _) = plan_op(
+        &app,
+        &key,
+        "remove_planned_meal",
+        json!({ "planned_meal_id": meal }),
+    );
+    assert_eq!(status, 200);
+    assert!(planned(&app, &key, "2026-11-05", "2026-11-05").is_empty());
+}
+
 // --- The Shopping List (issue #73, ADR 0024) ---------------------------------
 
 /// Two real recipes from the Crouton corpus, cut to the lines that make
@@ -30741,6 +31109,48 @@ async fn the_database_inside_a_backup_is_a_working_kamosu_database() {
         titles.contains(&"Tonkatsu".to_string()),
         "the restored database does not hold the recipe: {titles:?}"
     );
+}
+
+/// **A plan is in a Backup and in no Bundle** (#486): it is the cook's own
+/// and restored with the instance, and nothing about it is part of a recipe.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_plan_is_in_a_backup_and_in_no_bundle() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+    let tonkatsu = written(&app, &key, "Tonkatsu");
+    plan(
+        &app,
+        &key,
+        json!({ "branch_id": tonkatsu, "day": "2026-11-05" }),
+    );
+
+    take_a_backup(&app, &key);
+    let restored = restore(&app, &archive_named(&app, &key, "daily"));
+    let days: Vec<String> = restored
+        .with_conn(|conn| {
+            let mut statement = conn
+                .prepare("SELECT day FROM planned_meals")
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(rows.filter_map(Result::ok).collect())
+        })
+        .expect("read the restored plan");
+    assert_eq!(days, ["2026-11-05"]);
+
+    let bytes = bundle_of(&app, &key, &tonkatsu);
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("a zip");
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).unwrap();
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut entry, &mut text).ok();
+        assert!(
+            !text.contains("2026-11-05"),
+            "{} holds the plan",
+            entry.name()
+        );
+    }
 }
 
 /// Unzip one Backup into a directory of its own and open the database in it,
@@ -37414,9 +37824,28 @@ async fn leaving_a_cookbook_opens_your_own_recipes_again() {
         Some("Camille".to_string()),
         "joined, hers is named after her"
     );
+    plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": hers, "day": "2026-11-05" }),
+    );
+    plan(
+        &app,
+        &camille,
+        json!({ "branch_id": hers, "day": "2026-11-05" }),
+    );
 
     let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
     assert_eq!(status, 200, "{left}");
+    // His plan follows her soupe to the Copy he keeps of it; hers stays on it.
+    let his_meal = &planned(&app, &stephane, "2026-11-05", "2026-11-05")[0];
+    assert_ne!(his_meal["branch_id"], json!(hers), "{his_meal}");
+    assert_eq!(his_meal["gone"], json!(false), "{his_meal}");
+    assert_eq!(his_meal["title"], json!("Soupe, with chervil"));
+    assert_eq!(
+        planned(&app, &camille, "2026-11-05", "2026-11-05")[0]["branch_id"],
+        json!(hers)
+    );
     assert_eq!(
         scalar::<Option<String>>(
             &app,
@@ -37461,7 +37890,23 @@ async fn joining_again_folds_the_copies_leaving_took() {
     write_together(&app, &stephane, &camille);
     let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
     assert_eq!(status, 200, "{left}");
+    let her_copy = shelf(&app, &camille, json!({ "query": "Soupe" }))
+        .into_iter()
+        .find(|recipe| recipe["branch_id"] != json!(soupe))
+        .expect("her copy of the soupe")["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    plan(
+        &app,
+        &camille,
+        json!({ "branch_id": her_copy, "day": "2026-11-05" }),
+    );
     write_together(&app, &stephane, &camille);
+    // Her copy folded into his soupe, and her plan moved with it.
+    let meal = &planned(&app, &camille, "2026-11-05", "2026-11-05")[0];
+    assert_ne!(meal["branch_id"], json!(her_copy), "{meal}");
+    assert_eq!(meal["gone"], json!(false), "{meal}");
 
     let joined = cookbook_of(&app, &stephane_id);
     assert_eq!(
@@ -37836,6 +38281,20 @@ async fn leaving_a_kitchen_keeps_each_side_a_branch_of_what_they_cooked() {
         &json!({ "branch_id": cooked_by_her }).to_string(),
     );
     assert_eq!(status, 200, "{listed}");
+    let gratin = shelf(&app, &helene, json!({ "query": "Gratin" }))[0]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    plan(
+        &app,
+        &helene,
+        json!({ "branch_id": cooked_by_her, "day": "2026-11-05" }),
+    );
+    plan(
+        &app,
+        &helene,
+        json!({ "branch_id": gratin, "day": "2026-11-05" }),
+    );
 
     let rows_before: i64 = scalar(&app, "SELECT COUNT(*) FROM branches");
     let (status, preview) = app.post_op(
@@ -37880,6 +38339,15 @@ async fn leaving_a_kitchen_keeps_each_side_a_branch_of_what_they_cooked() {
         .unwrap()
         .to_string();
     assert!(text.contains(&kept), "{list}");
+
+    // Her plan follows it too, in the same step. His gratin, which she never
+    // cooked, left with his Cookbook: it stays, by name, and cannot be read.
+    let day = planned(&app, &helene, "2026-11-05", "2026-11-05");
+    assert_eq!(day[0]["branch_id"], json!(kept), "{day:?}");
+    assert_eq!(day[0]["gone"], json!(false));
+    assert_eq!(day[1]["branch_id"], json!(gratin));
+    assert_eq!(day[1]["title"], json!("Gratin"));
+    assert_eq!(day[1]["gone"], json!(true));
 }
 
 /// **What you already copied, you do not get twice.** A cook who saved her
@@ -43418,6 +43886,50 @@ mod an_operator_looks_after_every_cookbook {
         );
     }
 
+    /// A Person's plan stays theirs: an Operator reads none of it, and may
+    /// not ask to as an Operator (#486).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_operator_reaches_nothing_of_a_plan() {
+        let app = support::spawn_app();
+        let at = an_instance(&app);
+        let (status, planned) = op(
+            &app,
+            "plan_recipe",
+            &at.owner,
+            json!({ "branch_id": at.recipe, "day": "2026-11-05" }),
+        );
+        assert_eq!(status, 200, "{planned}");
+        let meal = planned["result"]["planned_meal"]["planned_meal_id"].clone();
+        let week = json!({ "from": "2026-11-02", "to": "2026-11-08" });
+        let (status, read) = op(&app, "get_meal_plan", &at.operator, week.clone());
+        assert_eq!(status, 200, "{read}");
+        assert_eq!(read["result"]["planned_meals"], json!([]));
+        for (name, input) in [
+            ("get_meal_plan", week.clone()),
+            (
+                "set_planned_yield",
+                json!({ "planned_meal_id": meal, "planned_yield": null }),
+            ),
+            ("remove_planned_meal", json!({ "planned_meal_id": meal })),
+            (
+                "plan_recipe",
+                json!({ "branch_id": at.recipe, "day": "2026-11-05" }),
+            ),
+        ] {
+            let (status, refused) = op(&app, name, &at.operator, as_operator(&input));
+            assert_eq!(status, 400, "{name}: {refused}");
+        }
+        let (status, refused) = op(
+            &app,
+            "set_planned_yield",
+            &at.operator,
+            json!({ "planned_meal_id": meal, "planned_yield": null }),
+        );
+        assert_eq!(status, 404, "{refused}");
+        let (_, read) = op(&app, "get_meal_plan", &at.owner, week);
+        assert_eq!(read["result"]["planned_meals"].as_array().unwrap().len(), 1);
+    }
+
     /// Attempts, shopping lists and who writes a Cookbook stay their owner's.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_operator_reaches_no_attempt_or_shopping_list() {
@@ -44152,7 +44664,7 @@ mod a_demo {
 
     /// The writes a Demo lets through. Every other write is refused in a Demo,
     /// so one let through is added here on purpose or this test fails.
-    const A_DEMOS_WRITES: [&str; 15] = [
+    const A_DEMOS_WRITES: [&str; 18] = [
         "add_loose_item",
         "add_to_shopping_list",
         "advance_attempt",
@@ -44162,10 +44674,13 @@ mod a_demo {
         "empty_shopping_list",
         "finish_attempt",
         "note_recipe_opened",
+        "plan_recipe",
         "remove_from_shopping_list",
         "remove_loose_item",
+        "remove_planned_meal",
         "revoke_session",
         "set_as_cooked",
+        "set_planned_yield",
         "set_shopping_yield",
         "start_attempt",
     ];
@@ -44419,7 +44934,7 @@ mod a_demo {
     /// Cooking and shopping save, and so do noting a recipe opened and
     /// signing out.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn cooking_and_shopping_save_in_a_demo() {
+    async fn cooking_planning_and_shopping_save_in_a_demo() {
         let demo = a_demo_with_camille();
         let app = &demo.app;
         let (session_id, visitor) = arrive(app);
@@ -44492,6 +45007,22 @@ mod a_demo {
         ok("remove_from_shopping_list", recipe.clone());
         ok("add_to_shopping_list", recipe.clone());
         ok("empty_shopping_list", json!({}));
+
+        let meal = ok(
+            "plan_recipe",
+            json!({ "branch_id": demo.recipe, "day": "2026-11-05" }),
+        )["planned_meal"]["planned_meal_id"]
+            .clone();
+        ok(
+            "set_planned_yield",
+            json!({ "planned_meal_id": meal, "planned_yield": { "amount": "2", "noun": "" } }),
+        );
+        let week = ok(
+            "get_meal_plan",
+            json!({ "from": "2026-11-02", "to": "2026-11-08" }),
+        );
+        assert_eq!(week["planned_meals"][0]["planned_meal_id"], meal, "{week}");
+        ok("remove_planned_meal", json!({ "planned_meal_id": meal }));
 
         let signed_out = ok("revoke_session", json!({ "session_id": session_id }));
         assert_eq!(signed_out["current"], json!(true), "{signed_out}");

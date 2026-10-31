@@ -138,6 +138,11 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// and a kept answer from before a save on another device would put the
 	// old notes back over the new ones at the next Save.
 	get_house_notes: 'server-first',
+	// The Meal Plan (#486). It is planned on one device and read on another,
+	// so a kept answer would show the iPad a week without the dinner the phone
+	// just put on it. Found in live acceptance. Offline, the week last read is
+	// still worth reading.
+	get_meal_plan: 'server-first',
 };
 
 /**

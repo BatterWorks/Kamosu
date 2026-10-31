@@ -10,11 +10,14 @@
 
 - Kamosu reads Dutch recipes, as a preview: machine-written and corrections welcome. It sees a recipe is Dutch and reads its lines with Dutch words, `2 el olijfolie` as tablespoons and `1 teentje knoflook` as garlic. A Step's `voeg de bloem toe` links `250 g tarwebloem`, `een kwartier` starts a timer, `180 graden` converts, and Dutch lines scale, convert and add up on a shopping list. A Dutch recipe's Sheet, Share Link page and Bundle notes are in Dutch, and agents can set a recipe to `nl` and translate into or out of Dutch. [#495]
 
+- A Plan, the fifth place between Recipes and Shopping, holds the days ahead and what you will cook on each, a week at a time from Monday to Sunday. *Plan this* beside *Cook this* on a recipe puts it on a day, at as many servings as you will cook, and a planned recipe opens at that amount. Your plan is yours alone. A planned recipe follows its recipe's corrections, and one deleted or no longer shared stays on the day by name. Planning works offline like the shopping list, and saves in a demo. Agents read and write it with `get_meal_plan`, `plan_recipe`, `set_planned_yield` and `remove_planned_meal`. [#486]
+
 ### Fixed
 
 - Sharing a video Kamosu already holds, or is already reading, says so instead of starting it again, whichever tracking code Instagram, YouTube or TikTok put on the link that time. A recipe added from such a link now keeps it without the code, which names who shared it. [#464]
 
 [#464]: https://github.com/BatterWorks/Kamosu/issues/464
+[#486]: https://github.com/BatterWorks/Kamosu/issues/486
 [#495]: https://github.com/BatterWorks/Kamosu/issues/495
 
 ## v0.5.0 - 2026-10-29

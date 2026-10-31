@@ -1,6 +1,6 @@
 //! A Demo (ADR 0052): an instance anyone may open without signing in, where
-//! every visitor is the Sample Library's Camille and only cooking and
-//! shopping save.
+//! every visitor is the Sample Library's Camille and only cooking, planning
+//! and shopping save.
 //!
 //! What a Demo refuses of the Catalogue is each declaration's `in_demo` mark,
 //! met in `Core::execute`. What lives here is the rest: the way in, the
@@ -90,7 +90,7 @@ impl Arrivals {
 pub fn refused_in_demo() -> OpError {
     OpError::refused_because(
         "demo",
-        "This is a demo of Kamosu, where only cooking and shopping are saved. \
+        "This is a demo of Kamosu, where only cooking, planning and shopping are saved. \
          Install your own Kamosu to keep everything else.",
     )
 }

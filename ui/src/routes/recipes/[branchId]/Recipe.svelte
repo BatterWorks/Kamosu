@@ -124,7 +124,7 @@
 </script>
 
 <script lang="ts">
-	import { aDate, aTime } from '$lib/dates';
+	import { aDate, aPlannedDay, aTime } from '$lib/dates';
 	// What the page is made of. The screen keeps its own state — the recipe it
 	// is reading, the Thread around it, the Divergence, how much it is read at,
 	// and what the last save did — and composes the rest. Each concern that
@@ -182,6 +182,7 @@
 	import MyPictures from './MyPictures.svelte';
 	import SheetAction from './SheetAction.svelte';
 	import ShoppingListButton from './ShoppingListButton.svelte';
+	import PlanThis from './PlanThis.svelte';
 	import DeleteRecipe from './DeleteRecipe.svelte';
 	import Carrying from './Carrying.svelte';
 	import { asBranchLanguage, type WrittenLanguage } from '$lib/language';
@@ -190,7 +191,8 @@
 	import StepPhoto from '$lib/StepPhoto.svelte';
 	import { thisDevice, type Device } from '$lib/offline/device.svelte';
 	import { useFiles } from '$lib/api/files';
-	import { same, toSearch, type Wanted } from '$lib/how-much';
+	import { said, same, toSearch, type Wanted } from '$lib/how-much';
+	import { mondayOf, type Day } from '$lib/plan-days';
 	import { takePaste, type PastedDraft } from '$lib/pasted.svelte';
 	import {
 		between,
@@ -221,9 +223,16 @@
 		 * goes to the share sheet rather than a tab (#149). A test hands in its own.
 		 */
 		device?: Pick<Device, 'installed' | 'apple'>;
+		/**
+		 * The amount to open at, where the address names one: a planned
+		 * recipe opens at its planned Yield (#486), as `toSearch` writes it,
+		 * and null where it was planned as written, so neither the Shopping
+		 * List nor an open cooking moves it.
+		 */
+		openAt?: Wanted;
 	}
 
-	let { branchId, device = thisDevice() }: Props = $props();
+	let { branchId, device = thisDevice(), openAt }: Props = $props();
 
 	const kamosu = useKamosu();
 	const files = useFiles();
@@ -282,6 +291,13 @@
 	 * adding twice makes no second entry.
 	 */
 	let onTheList = $state(false);
+
+	// ---- the Meal Plan (#486) ---------------------------------------------
+
+	/** "Plan this" is open. */
+	let planning = $state(false);
+	/** What was just planned from here, which the page says under the button. */
+	let planned = $state<{ day: Day; wanted: Wanted } | null>(null);
 
 	// ---- how much, for the errands (#109) ---------------------------------
 	//
@@ -540,6 +556,7 @@
 				// it, onto a page that has nothing to compare (#131).
 				divergence = undefined;
 				divergent.reset();
+				planned = null;
 				choosingHowMuch = false;
 				howMuchFailed = false;
 				// A Sheet being set was the last recipe's, and stops being
@@ -560,12 +577,23 @@
 				// At the amount already named here, so a Promotion or a Component
 				// re-read does not quietly put the page back to the recipe as
 				// written underneath somebody doing the errands (#109).
-				const at = untrack(() => named);
-				const read = await kamosu.getRecipe(
-					at === undefined ? { branch_id: branchId } : { branch_id: branchId, wanted_yield: at },
-				);
+				// A planned recipe opens at its planned Yield (#486), which the
+				// Plan's link names as the cooking's does (`toSearch`).
+				const at = untrack(() => named) ?? untrack(() => openAt);
+				const read = await kamosu
+					.getRecipe(
+						at === undefined ? { branch_id: branchId } : { branch_id: branchId, wanted_yield: at },
+					)
+					.catch((error: unknown) => {
+						// As written, with no network: the phone holds the recipe
+						// as it was read unasked, which is the same text.
+						if (at === null && error instanceof OperationError && !error.reached)
+							return kamosu.getRecipe({ branch_id: branchId });
+						throw error;
+					});
 				if (!current) return;
 				recipe = read;
+				if (at !== undefined && untrack(() => named) === undefined) named = at;
 
 				// Home's *recently opened* shelf, and the whole of what feeds it
 				// (#64, ADR 0027). It is a separate Operation rather than
@@ -1013,12 +1041,41 @@
 				</p>
 			{/if}
 
-			<a
-				href="/cook/{branchId}{toSearch(pageScaledTo)}"
-				class="mx-gutter mt-4 flex min-h-12 items-center justify-center rounded-sm bg-accent px-4 text-center font-display text-body font-semibold text-on-accent"
-			>
-				{m.recipe_cook_this()}
-			</a>
+			<!--
+				Cook this and Plan this side by side, half the width each: the
+				choice of 31 October 2026 on #486 (T), since planning is decided
+				with the recipe in front of you, and its foot is screens away on
+				a phone.
+			-->
+			<div class="mx-gutter mt-4 grid grid-cols-2 gap-2">
+				<a
+					href="/cook/{branchId}{toSearch(pageScaledTo)}"
+					class="flex min-h-12 items-center justify-center rounded-sm bg-accent px-4 text-center font-display text-body font-semibold text-on-accent"
+				>
+					{m.recipe_cook_this()}
+				</a>
+				<button
+					type="button"
+					class="flex min-h-12 items-center justify-center rounded-sm border border-accent bg-card px-4 text-center font-display text-body font-semibold text-accent"
+					onclick={() => (planning = true)}
+				>
+					{m.plan_this()}
+				</button>
+			</div>
+			{#if planned}
+				{@const amount = said(planned.wanted)}
+				<p
+					class="mx-gutter mt-3 border-l-3 border-accent bg-card px-3 py-2 text-read"
+					role="status"
+				>
+					{amount
+						? m.plan_planned_for_amount({ day: aPlannedDay(planned.day), amount })
+						: m.plan_planned_for({ day: aPlannedDay(planned.day) })}
+					<a href="/plan?week={mondayOf(planned.day)}" class="ms-1 text-accent underline"
+						>{m.plan_see()}</a
+					>
+				</p>
+			{/if}
 
 			<!--
 			What this Kitchen says about the dish, above the dish itself (#104).
@@ -1651,6 +1708,19 @@
 <svelte:head>
 	<title>{content ? `${content.title} · ` : ''}{m.app_name()}</title>
 </svelte:head>
+
+{#if planning && recipe && content}
+	<PlanThis
+		branchId={recipe.branch_id}
+		title={content.title}
+		written={content.yield}
+		onPlanned={(day, wanted) => {
+			planning = false;
+			planned = { day, wanted };
+		}}
+		onClose={() => (planning = false)}
+	/>
+{/if}
 
 {#if renaming && recipe}
 	<RenameSheet

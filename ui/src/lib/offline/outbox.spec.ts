@@ -507,6 +507,121 @@ describe('the Shopping List with no network', () => {
 	});
 });
 
+describe('the Meal Plan with no network (#486)', () => {
+	const meal = (over: Record<string, unknown>) => ({
+		planned_meal_id: 'pm_server0000000001',
+		day: '2026-11-05',
+		position: 0,
+		branch_id: 'b_tart',
+		title: 'Tarte',
+		gone: false,
+		planned_yield: null,
+		written_yield: { amount: '4', noun: 'servings' },
+		main_photo: null,
+		...over,
+	});
+	const week = { from: '2026-11-02', to: '2026-11-08' };
+
+	it('lays its changes over the week it last read, and hands back to the server after', async () => {
+		const at = world({
+			get_meal_plan: () => ({ planned_meals: [meal({})] }),
+			get_recipe: () => recipe,
+			plan_recipe: () => ({ planned_meal: null }),
+			set_planned_yield: () => ({ planned_meal: null }),
+			remove_planned_meal: () => ({ planned_meal: null }),
+		});
+		await at.call('get_meal_plan', week);
+		await at.call('get_recipe', { branch_id: 'b_1' });
+		at.offline();
+
+		const planned = await at.call('plan_recipe', {
+			branch_id: 'b_1',
+			day: '2026-11-05',
+			planned_yield: { amount: '6', noun: 'servings' },
+		});
+		expect(planned.planned_meal).toMatchObject({
+			planned_meal_id: expect.stringMatching(/^pm_[0-9a-f]{16}$/),
+			title: 'Katsu Curry',
+			planned_yield: { amount: '6', noun: 'servings' },
+		});
+		const changed = await at.call('set_planned_yield', {
+			planned_meal_id: 'pm_server0000000001',
+			planned_yield: { amount: '2', noun: '' },
+		});
+		expect(changed.planned_meal.planned_yield).toEqual({ amount: '2', noun: '' });
+
+		const read = await at.call('get_meal_plan', week);
+		expect(read.planned_meals.map((each: { title: string }) => each.title)).toEqual([
+			'Tarte',
+			'Katsu Curry',
+		]);
+		expect(read.planned_meals[0].planned_yield).toEqual({ amount: '2', noun: '' });
+		await at.call('remove_planned_meal', { planned_meal_id: 'pm_server0000000001' });
+		const after = await at.call('get_meal_plan', week);
+		expect(after.planned_meals.map((each: { title: string }) => each.title)).toEqual([
+			'Katsu Curry',
+		]);
+
+		at.online();
+		await at.outbox.flush();
+		const sent = at.sent.slice(-3);
+		expect(sent.map((each) => each.operation)).toEqual([
+			'plan_recipe',
+			'set_planned_yield',
+			'remove_planned_meal',
+		]);
+		expect(sent[0].input).toMatchObject({
+			planned_meal_id: planned.planned_meal.planned_meal_id,
+			written_at: expect.any(String),
+		});
+		expect(at.kept()?.plan).toBeNull();
+		expect(at.told).toHaveBeenCalledWith(expect.arrayContaining(['get_meal_plan']));
+	});
+
+	it('changes offline a meal it planned online, before any read of the plan', async () => {
+		const at = world({
+			plan_recipe: () => ({ planned_meal: meal({ planned_meal_id: 'pm_server0000000009' }) }),
+			set_planned_yield: () => ({ planned_meal: null }),
+		});
+		await at.call('plan_recipe', { branch_id: 'b_tart', day: '2026-11-05' });
+		at.offline();
+
+		const changed = await at.call('set_planned_yield', {
+			planned_meal_id: 'pm_server0000000009',
+			planned_yield: { amount: '3', noun: '' },
+		});
+		expect(changed.planned_meal).toMatchObject({
+			title: 'Tarte',
+			planned_yield: { amount: '3', noun: '' },
+		});
+	});
+
+	it('forgets a meal taken off online, so no change offline brings it back', async () => {
+		const at = world({
+			get_meal_plan: () => ({ planned_meals: [meal({})] }),
+			remove_planned_meal: () => ({ planned_meal: null }),
+		});
+		await at.call('get_meal_plan', week);
+		await at.call('remove_planned_meal', { planned_meal_id: 'pm_server0000000001' });
+		at.offline();
+
+		await expect(
+			at.call('set_planned_yield', {
+				planned_meal_id: 'pm_server0000000001',
+				planned_yield: null,
+			}),
+		).rejects.toThrow();
+	});
+
+	it('cannot plan a recipe the phone has never held', async () => {
+		const at = world({});
+		at.offline();
+		await expect(
+			at.call('plan_recipe', { branch_id: 'b_unknown', day: '2026-11-05' }),
+		).rejects.toThrow();
+	});
+});
+
 describe('two things at once', () => {
 	it('goes on sending to the cooking the server answered with, after everything waiting has gone', async () => {
 		const at = world({

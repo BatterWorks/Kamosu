@@ -352,7 +352,7 @@ fn is_minted_item_id(id: &str) -> bool {
 /// Stored as JSON in one column exactly as `attempts.cooking_yield` is, because
 /// it is the same fact — how much of this recipe somebody means — and two
 /// spellings of one fact is how the two drift apart.
-fn stored_yield(shopping_yield: Option<&Value>) -> Result<Option<String>, OpError> {
+pub(super) fn stored_yield(shopping_yield: Option<&Value>) -> Result<Option<String>, OpError> {
     match shopping_yield {
         None | Some(Value::Null) => Ok(None),
         // The same rule a cooking's Yield is held to, multiplier included

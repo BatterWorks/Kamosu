@@ -2111,6 +2111,46 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 66,
+        description: "the Meal Plan: a recipe planned on a day (#486, ADR 0058)",
+        sql: r#"
+        -- A **Planned Meal**: one recipe a Person means to cook on one day.
+        -- The plan is these rows keyed on the Person, as the Shopping List is
+        -- its choosing (ADR 0024): one plan each, unnamed and always there,
+        -- read by nobody else.
+        CREATE TABLE planned_meals (
+            -- Minted by the server, or by a phone with no network (#77), so a
+            -- write held offline can name the meal it planned.
+            id         TEXT PRIMARY KEY,
+            person_id  TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+            -- A Branch at its newest Version, never pinned, and not
+            -- necessarily one that still stands: a deleted recipe stays on the
+            -- plan under `known_as`, as a Shopping List entry does.
+            branch_id  TEXT NOT NULL,
+            -- A calendar date, YYYY-MM-DD, with no time and no time zone: the
+            -- day the cook means wherever they are.
+            day        TEXT NOT NULL,
+            -- Its place among the day's Planned Meals, in the order put there.
+            position   INTEGER NOT NULL,
+            -- The Yield planned, as `shopping_choices.shopping_yield` holds
+            -- one: {"amount", "noun"}, an empty noun a multiplier. NULL is the
+            -- recipe as written.
+            planned_yield TEXT,
+            -- The name it was known by, read once it can no longer be.
+            known_as   TEXT NOT NULL,
+            planned_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+
+        CREATE INDEX planned_meals_by_day ON planned_meals(person_id, day, position);
+        CREATE INDEX planned_meals_by_branch ON planned_meals(branch_id);
+
+        -- The plan's own clock, as `shopping_written_at` is the list's: a
+        -- write made offline and sent after a later one changes nothing.
+        ALTER TABLE people ADD COLUMN plan_written_at TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

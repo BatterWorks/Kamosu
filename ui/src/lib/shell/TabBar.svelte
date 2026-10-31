@@ -1,11 +1,11 @@
 <!--
-	The tab bar: Home · Recipes · Shopping · Cooked.
+	The tab bar: Home · Recipes · Plan · Shopping · Cooked.
 
-	Four sections, fixed to the bottom of the screen, sized for a thumb at arm's
+	Five sections, fixed to the bottom of the screen, sized for a thumb at arm's
 	length with wet hands. Settings are not here — they live behind the gear in
 	the header (#102, #218), because they are not somewhere you go while
-	cooking. A fifth tab would cost the four that matter for a room nobody
-	reaches mid-recipe (ADR 0011).
+	cooking (ADR 0011). The Plan is the fifth, since #486 (ADR 0058): the days
+	ahead are somewhere a cook goes every week, as the shopping is.
 
 	Since #218 it wears the rail's look (#194): indigo, each place an icon over
 	its word, the current one lit. `PlaceLink.svelte` draws a place for both,

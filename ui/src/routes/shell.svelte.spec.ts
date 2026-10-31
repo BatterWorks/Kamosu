@@ -40,8 +40,8 @@ function places(): string[] {
 		.map((link) => link.getAttribute('href') ?? '');
 }
 
-const SIDEBAR = ['/', '/recipes', '/shopping', '/cooked', '/settings'];
-const TABS = ['/', '/recipes', '/shopping', '/cooked'];
+const SIDEBAR = ['/', '/recipes', '/plan', '/shopping', '/cooked', '/settings'];
+const TABS = ['/', '/recipes', '/plan', '/shopping', '/cooked'];
 
 describe('on the wide layout', () => {
 	it.each<Room>(['wide', 'roomy'])('a %s window gets the sidebar and no tab bar', (room) => {
@@ -63,6 +63,7 @@ describe('on the wide layout', () => {
 		['/recipes', '/recipes'],
 		['/recipes/b_soba', '/recipes'],
 		['/recipes/b_soba/thread', '/recipes'],
+		['/plan', '/plan'],
 		['/shopping', '/shopping'],
 		['/cooked', '/cooked'],
 		['/settings', '/settings'],
@@ -84,6 +85,7 @@ describe('on the wide layout', () => {
 		expect(labels).toEqual([
 			m.nav_home(),
 			m.nav_recipes(),
+			m.nav_plan(),
 			m.nav_shopping(),
 			m.nav_cooked(),
 			m.open_settings(),
@@ -400,7 +402,7 @@ describe('the back arrow', () => {
 		expect(await tapTakenOver()).toBe(false);
 	});
 
-	it.each([['/'], ['/recipes'], ['/shopping'], ['/cooked'], ['/settings']])(
+	it.each([['/'], ['/recipes'], ['/plan'], ['/shopping'], ['/cooked'], ['/settings']])(
 		"is not on %s, one of the sidebar's own places",
 		(pathname) => {
 			shell(pathname, 'roomy');
@@ -436,7 +438,7 @@ describe('the back arrow', () => {
 		},
 	);
 
-	it.each([['/'], ['/recipes'], ['/shopping'], ['/cooked'], ['/settings']])(
+	it.each([['/'], ['/recipes'], ['/plan'], ['/shopping'], ['/cooked'], ['/settings']])(
 		"is not on %s on the phone either, one of the bar's places or the gear's",
 		(pathname) => {
 			shell(pathname, 'phone');

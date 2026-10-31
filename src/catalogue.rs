@@ -123,8 +123,8 @@ pub enum JobKey {
 /// could misuse is refused, with reason `demo`, the moment it is asked.
 ///
 /// Reads go through. A write goes through only when it is marked to, which
-/// is cooking, shopping, noting a recipe was opened and signing out, so a
-/// new write is refused in a Demo until it is let through on purpose:
+/// is cooking, planning, shopping, noting a recipe was opened and signing
+/// out, so a new write is refused in a Demo until it is let through on purpose:
 /// `a_demo_lets_through_these_writes` in `tests/behaviour.rs` holds the
 /// list by name. Enforced in `Core::execute`, and nowhere else.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -269,9 +269,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Read this Kamosu's version and whether setup has \
                       happened. Also the shortest password it accepts, the \
                       address a passkey signs in at, if any, and whether it \
-                      is a Demo, where only cooking and shopping save. A Demo \
-                      also names the read-only Access Key it publishes, and \
-                      the Umami script it counts its visits with, if any.",
+                      is a Demo, where only cooking, planning and shopping \
+                      save. A Demo also names the read-only Access Key it \
+                      publishes, and the Umami script it counts its visits \
+                      with, if any.",
             permission: Permission::Public,
             kind: Kind::Immediate,
             write: false,
@@ -4914,6 +4915,141 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             output_schema: shopping_list_schema(),
             handler: crate::operations::remove_loose_item,
         },
+        // ── The Meal Plan (#486, ADR 0058) ───────────────────────────────────
+        //
+        // A Person's own, as the Shopping List is: nobody else reads it, and
+        // none of these accepts `as_operator`. Its writes carry `written_at`
+        // and the last to reach the plan wins, so a phone with no network
+        // holds them and sends them later (#77).
+        Operation {
+            name: "get_meal_plan",
+            summary: "Read your Meal Plan from one day to another. It answers \
+                      the recipes you planned on each day, both days included, \
+                      in the order of their days and then in the order you put \
+                      each day's there. Everyone has exactly one plan, and nobody \
+                      else reads it. A planned recipe is a Branch at its \
+                      newest Version, so a correction made since shows here. \
+                      One you can no longer read (deleted, or no longer \
+                      shared with you) keeps the name it was known by and says \
+                      gone. Days are calendar dates, such as 2026-11-05; a \
+                      week runs Monday to Sunday. One read covers at most 366 \
+                      days.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::GoesThrough,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "from": { "type": "string", "description": "The first day, such as 2026-11-02." },
+                    "to": { "type": "string", "description": "The last day, such as 2026-11-08." },
+                },
+                "required": ["from", "to"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "planned_meals": { "type": "array", "items": planned_meal_schema() },
+                },
+                "required": ["planned_meals"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::get_meal_plan,
+        },
+        Operation {
+            name: "plan_recipe",
+            summary: "Plan a recipe on a day of your Meal Plan. It goes after \
+                      whatever that day already holds. It plans one Branch, always at \
+                      its newest Version: choosing between a recipe's \
+                      Branches is choosing which method you will cook. Plan it \
+                      at a Yield, a multiplier (a Yield with an empty noun), \
+                      or as written by sending none; a recipe whose own Yield \
+                      has no amount Kamosu can count from is planned by a \
+                      multiplier. The same recipe may be planned on several \
+                      days, or twice on one. Answers the Planned Meal.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::GoesThrough,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "day": { "type": "string", "description": "A calendar date, such as 2026-11-05." },
+                    "planned_yield": wanted_yield_schema(),
+                    "planned_meal_id": {
+                        "type": "string",
+                        "description": "The id to give this Planned Meal, for one planned with no network (#77): pm_ and sixteen lower-case hex digits. Sending the same one twice plans it once.",
+                    },
+                    "written_at": written_at_schema(),
+                },
+                "required": ["branch_id", "day"],
+                "additionalProperties": false,
+            }),
+            output_schema: planned_meal_answer_schema(),
+            handler: crate::operations::plan_recipe,
+        },
+        Operation {
+            name: "set_planned_yield",
+            summary: "Say how much of a Planned Meal you will cook. Send an \
+                      amount and its noun, a multiplier (an amount with an empty \
+                      noun), or null for the recipe as written. Answers the \
+                      Planned Meal.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::GoesThrough,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "planned_meal_id": { "type": "string" },
+                    "planned_yield": wanted_yield_schema(),
+                    "written_at": written_at_schema(),
+                },
+                "required": ["planned_meal_id", "planned_yield"],
+                "additionalProperties": false,
+            }),
+            output_schema: planned_meal_answer_schema(),
+            handler: crate::operations::set_planned_yield,
+        },
+        Operation {
+            name: "remove_planned_meal",
+            summary: "Take a Planned Meal off your Meal Plan. Works whether or \
+                      not its recipe can still be read, and taking one that is \
+                      already gone is not an error. Answers null.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::GoesThrough,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "planned_meal_id": { "type": "string" },
+                    "written_at": written_at_schema(),
+                },
+                "required": ["planned_meal_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: planned_meal_answer_schema(),
+            handler: crate::operations::remove_planned_meal,
+        },
         Operation {
             name: "list_foods",
             summary: "List every Food this instance knows. Each is shown in \
@@ -8149,6 +8285,50 @@ fn diary_entry_schema() -> Value {
     schema
 }
 
+/// **A Planned Meal** (#486, ADR 0058), as the plan and every write to it
+/// answer one.
+fn planned_meal_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "planned_meal_id": { "type": "string" },
+            "day": { "type": "string" },
+            // Its place among the day's, in the order they were put there.
+            "position": { "type": "integer" },
+            "branch_id": { "type": "string" },
+            // The live title while the recipe can be read, and otherwise the
+            // name it was known by when it was planned.
+            "title": { "type": "string" },
+            // Deleted, or in a Cookbook this Person may no longer see. It
+            // stays on the plan, as a Shopping List entry does.
+            "gone": { "type": "boolean" },
+            "planned_yield": wanted_yield_schema(),
+            "written_yield": yield_schema(),
+            // The recipe's main Photograph, or null where it has none or can
+            // no longer be read.
+            "main_photo": { "type": ["string", "null"] },
+        },
+        "required": [
+            "planned_meal_id", "day", "position", "branch_id", "title", "gone",
+            "planned_yield", "written_yield", "main_photo"
+        ],
+        "additionalProperties": false,
+    })
+}
+
+/// What a write to the plan answers: the Planned Meal as it now stands, or
+/// null where there is none.
+fn planned_meal_answer_schema() -> Value {
+    let mut meal = planned_meal_schema();
+    meal["type"] = json!(["object", "null"]);
+    json!({
+        "type": "object",
+        "properties": { "planned_meal": meal },
+        "required": ["planned_meal"],
+        "additionalProperties": false,
+    })
+}
+
 /// **The whole Shopping List** — the only shape any of its six Operations
 /// answers (#73, ADR 0024).
 ///
@@ -8386,7 +8566,7 @@ fn shopping_basis_schema() -> Value {
 fn written_at_schema() -> Value {
     json!({
         "type": "string",
-        "description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+        "description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
     })
 }
 

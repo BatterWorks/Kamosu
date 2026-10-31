@@ -3103,3 +3103,65 @@ pub fn remove_loose_item(
     let caller = caller_of(invocation)?;
     core.remove_loose_item(&caller.person_id, item_id, written_at(&input))
 }
+
+// ── The Meal Plan (#486, ADR 0058) ───────────────────────────────────────────
+//
+// Each write answers the Planned Meal it wrote, as it now stands, or null where
+// there is none: a plan is read a week at a time, so there is no one whole to
+// hand back as the Shopping List does.
+
+/// A string field every caller of these must send.
+fn required<'a>(input: &'a Value, field: &str, operation: &str) -> Result<&'a str, OpError> {
+    input
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(format!("{operation} takes {{ {field} }}")))
+}
+
+pub fn get_meal_plan(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.meal_plan(
+        &caller.person_id,
+        required(&input, "from", "get_meal_plan")?,
+        required(&input, "to", "get_meal_plan")?,
+    )
+}
+
+pub fn plan_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.plan_recipe(
+        &caller.person_id,
+        required(&input, "branch_id", "plan_recipe")?,
+        required(&input, "day", "plan_recipe")?,
+        input.get("planned_yield"),
+        input.get("planned_meal_id").and_then(Value::as_str),
+        written_at(&input),
+    )
+}
+
+pub fn set_planned_yield(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.set_planned_yield(
+        &caller.person_id,
+        required(&input, "planned_meal_id", "set_planned_yield")?,
+        input.get("planned_yield"),
+        written_at(&input),
+    )
+}
+
+pub fn remove_planned_meal(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.remove_planned_meal(
+        &caller.person_id,
+        required(&input, "planned_meal_id", "remove_planned_meal")?,
+        written_at(&input),
+    )
+}

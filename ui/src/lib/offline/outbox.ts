@@ -33,6 +33,7 @@
 import { CATALOGUE } from '$lib/api/catalogue';
 import type {
 	GetCurrentAttemptOutput,
+	GetMealPlanOutput,
 	GetRecipeOutput,
 	GetReadingPreferencesOutput,
 	GetShoppingListOutput,
@@ -70,6 +71,24 @@ const SHOPPING_WRITES = new Set<OperationName>([
 	'remove_loose_item',
 	'empty_shopping_list',
 ]);
+
+/**
+ * The Meal Plan's writes (#486, ADR 0058): a Person's own, written with the
+ * last device winning, as the Shopping List's are.
+ */
+const PLAN_WRITES = new Set<OperationName>([
+	'plan_recipe',
+	'set_planned_yield',
+	'remove_planned_meal',
+]);
+
+type Meal = GetMealPlanOutput['planned_meals'][number];
+
+/** Where a meal planned with no network stands on its day, until the server says. */
+const PLANNED_HERE = 1_000_000;
+
+/** How many Planned Meals the phone remembers from its reads of the plan. */
+const PLAN_SEEN_KEPT = 400;
 
 /**
  * The writes that say when they were made — read off the Catalogue, which
@@ -139,6 +158,18 @@ export interface Kept {
 	 * Null when nothing is: the list is then the server's.
 	 */
 	shopping: { chosen: List['chosen']; loose: { id: string; text: string }[] } | null;
+	/**
+	 * The Meal Plan's changes the phone holds, while they wait: each meal it
+	 * planned or changed, and each it took off. Null when nothing is: the
+	 * plan is then the server's. A read of the plan is answered from what the
+	 * phone kept of it, with these laid over it.
+	 */
+	plan?: { changed: Record<string, Meal>; removed: string[] } | null;
+	/**
+	 * Every Planned Meal the phone has read, by id, so a change made with no
+	 * network has the meal to change.
+	 */
+	planSeen?: Record<string, Meal>;
 	/**
 	 * A cooking started here that the server answered with another it already
 	 * had In Progress (ADR 0010): everything written to the first goes to the
@@ -252,7 +283,11 @@ export class Outbox implements Keeping {
 		this.#call(operation, (input ?? {}) as Input);
 
 	async #call(operation: OperationName, input: Input): Promise<unknown> {
-		if (ATTEMPT_WRITES.has(operation) || SHOPPING_WRITES.has(operation)) {
+		if (
+			ATTEMPT_WRITES.has(operation) ||
+			SHOPPING_WRITES.has(operation) ||
+			PLAN_WRITES.has(operation)
+		) {
 			return this.#writeOne(operation, input);
 		}
 		const kept = this.#read();
@@ -274,6 +309,9 @@ export class Outbox implements Keeping {
 				break;
 			case 'get_shopping_list':
 				if (kept.shopping) return this.#list(kept);
+				break;
+			case 'get_meal_plan':
+				if (kept.plan) return this.#plan(kept, input);
 				break;
 			case 'shopping_list_as_text':
 				if (kept.shopping) {
@@ -332,6 +370,9 @@ export class Outbox implements Keeping {
 		if (operation === 'add_loose_item' && input.item_id === undefined) {
 			input.item_id = `i_${this.#world.mint()}`;
 		}
+		if (operation === 'plan_recipe' && input.planned_meal_id === undefined) {
+			input.planned_meal_id = `pm_${this.#world.mint()}`;
+		}
 
 		// When the tap was made, which is what the server judges it by — not
 		// when a request that timed out gave up, or when this write's turn came.
@@ -385,7 +426,9 @@ export class Outbox implements Keeping {
 			});
 		const answer = SHOPPING_WRITES.has(operation)
 			? await this.#holdShopping(kept, operation, input, cannot)
-			: await this.#holdAttempt(kept, operation, input, written_at, cannot);
+			: PLAN_WRITES.has(operation)
+				? await this.#holdPlan(kept, operation, input, cannot)
+				: await this.#holdAttempt(kept, operation, input, written_at, cannot);
 		if (answer.send)
 			kept.queue.push({ id: this.#world.mint(), operation, input: answer.send, written_at });
 		// Whatever the sender marked meanwhile. In this tab it cannot have —
@@ -597,6 +640,83 @@ export class Outbox implements Keeping {
 	}
 
 	/**
+	 * A change to the plan with no network (#486): kept, laid over what the
+	 * phone last read of the plan, and answered as the server would.
+	 */
+	async #holdPlan(
+		kept: Kept,
+		operation: OperationName,
+		input: Input,
+		cannot: () => OperationError,
+	): Promise<{ value: unknown; send?: Input }> {
+		const plan = kept.plan ?? { changed: {}, removed: [] };
+		const id = input.planned_meal_id as string;
+		const known = plan.changed[id] ?? kept.planSeen?.[id];
+		switch (operation) {
+			case 'plan_recipe': {
+				const recipe = (await this.#world
+					.inner('get_recipe', { branch_id: input.branch_id })
+					.catch(() => {
+						throw cannot();
+					})) as GetRecipeOutput;
+				const content = recipe.versions.at(-1)?.content;
+				if (!content) throw cannot();
+				plan.changed[id] = {
+					planned_meal_id: id,
+					day: input.day as string,
+					// After whatever the day already holds, which is where the
+					// server puts it too: no position the server gives comes
+					// near this, and each planned here comes after the last.
+					position: PLANNED_HERE + Object.keys(plan.changed).length,
+					branch_id: input.branch_id as string,
+					title: content.title,
+					gone: false,
+					planned_yield: (input.planned_yield ?? null) as Meal['planned_yield'],
+					written_yield: content.yield,
+					main_photo: content.main_photo ?? null,
+				};
+				break;
+			}
+			case 'set_planned_yield':
+				if (!known) throw cannot();
+				plan.changed[id] = {
+					...known,
+					planned_yield: (input.planned_yield ?? null) as Meal['planned_yield'],
+				};
+				break;
+			case 'remove_planned_meal':
+				delete plan.changed[id];
+				if (!plan.removed.includes(id)) plan.removed.push(id);
+				kept.plan = plan;
+				return { value: { planned_meal: null }, send: input };
+		}
+		plan.removed = plan.removed.filter((gone) => gone !== id);
+		kept.plan = plan;
+		return { value: { planned_meal: plan.changed[id] }, send: input };
+	}
+
+	/**
+	 * The plan from one day to another, as the phone holds it: what it last
+	 * read of those days, or nothing where it read none, with its own waiting
+	 * changes laid over.
+	 */
+	async #plan(kept: Kept, input: Input): Promise<GetMealPlanOutput> {
+		const plan = kept.plan!;
+		const from = input.from as string;
+		const to = input.to as string;
+		const read = (await this.#world
+			.inner('get_meal_plan', input)
+			.catch(() => ({ planned_meals: [] }))) as GetMealPlanOutput;
+		const mine = new Set([...plan.removed, ...Object.keys(plan.changed)]);
+		const meals = [
+			...read.planned_meals.filter((meal) => !mine.has(meal.planned_meal_id)),
+			...Object.values(plan.changed).filter((meal) => meal.day >= from && meal.day <= to),
+		];
+		meals.sort((a, b) => (a.day === b.day ? a.position - b.position : a.day < b.day ? -1 : 1));
+		return { planned_meals: meals };
+	}
+
+	/**
 	 * A finished cooking, read off the diary the phone last kept, so its
 	 * rating and note can be written with no network: that is where they are
 	 * usually written, a day after the cooking (#59, #60).
@@ -787,6 +907,30 @@ export class Outbox implements Keeping {
 	 */
 	#notice(operation: OperationName, answer: unknown, input: Input = {}): void {
 		const kept = this.#read();
+		if (operation === 'get_meal_plan' || PLAN_WRITES.has(operation)) {
+			// Kept so a change made with no network has the meal to change:
+			// every meal a read or a write answered with. The newest win a
+			// place, and the oldest go past a few hundred.
+			const answered =
+				operation === 'get_meal_plan'
+					? (answer as GetMealPlanOutput).planned_meals
+					: [(answer as { planned_meal: Meal | null }).planned_meal].filter(
+							(meal): meal is Meal => meal !== null,
+						);
+			const seen = { ...(kept.planSeen ?? {}) };
+			// A write that answers with no meal took it off the plan.
+			if (operation !== 'get_meal_plan' && answered.length === 0)
+				delete seen[input.planned_meal_id as string];
+			for (const meal of answered) {
+				delete seen[meal.planned_meal_id];
+				seen[meal.planned_meal_id] = meal;
+			}
+			const ids = Object.keys(seen);
+			for (const old of ids.slice(0, Math.max(0, ids.length - PLAN_SEEN_KEPT))) delete seen[old];
+			kept.planSeen = seen;
+			this.#write(kept);
+			return;
+		}
 		if (operation === 'delete_attempt') {
 			// Thrown away online: remembered as thrown away, so a read the phone
 			// kept from before cannot hand it back to a cook with no network.
@@ -999,6 +1143,7 @@ export class Outbox implements Keeping {
 		const done = this.#read();
 		if (done.queue.length > 0) return false;
 		done.shopping = null;
+		done.plan = null;
 		this.#settle(done);
 		// Which cooking the server answered for one begun here, and which
 		// Photograph it made of each picture, stay known for the whole Session:
@@ -1010,6 +1155,7 @@ export class Outbox implements Keeping {
 		this.#world.told?.([
 			'get_shopping_list',
 			'shopping_list_as_text',
+			'get_meal_plan',
 			'list_attempts',
 			'get_current_attempt',
 			'get_recipe',
