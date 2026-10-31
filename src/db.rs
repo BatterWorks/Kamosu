@@ -2151,6 +2151,52 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 67,
+        description: "a Planned Meal on a week with no day, and written words on the plan (#487)",
+        sql: r#"
+        -- A Planned Meal now stands on a day or on a week with no day, the
+        -- week held by its Monday, and is a recipe or a few written words.
+        -- Two columns lose NOT NULL, which SQLite cannot drop, so the table is
+        -- rebuilt. Nothing references `planned_meals`, and every row carries
+        -- across onto the week its day is in.
+        CREATE TABLE planned_meals_67 (
+            id         TEXT PRIMARY KEY,
+            person_id  TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+            -- The recipe, as before; NULL where the meal is written words.
+            branch_id  TEXT,
+            -- Written words ("leftovers", "eating out"), kept exactly as
+            -- written and never read, as a Loose Item is. NULL for a recipe.
+            words      TEXT,
+            -- The Monday of the week it stands in.
+            week       TEXT NOT NULL,
+            -- The day, or NULL for any day of the week.
+            day        TEXT,
+            -- Its place in its list: the day's, or the week's with no day.
+            position   INTEGER NOT NULL,
+            planned_yield TEXT,
+            -- The name a recipe was known by. NULL for written words.
+            known_as   TEXT,
+            planned_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            CHECK ((branch_id IS NULL) <> (words IS NULL)),
+            CHECK ((branch_id IS NULL) = (known_as IS NULL))
+        );
+
+        INSERT INTO planned_meals_67
+            (id, person_id, branch_id, words, week, day, position, planned_yield, known_as, planned_at)
+        SELECT id, person_id, branch_id, NULL,
+               date(day, '-' || ((CAST(strftime('%w', day) AS INTEGER) + 6) % 7) || ' days'),
+               day, position, planned_yield, known_as, planned_at
+          FROM planned_meals;
+
+        DROP TABLE planned_meals;
+        ALTER TABLE planned_meals_67 RENAME TO planned_meals;
+
+        CREATE INDEX planned_meals_by_week ON planned_meals(person_id, week, day, position);
+        CREATE INDEX planned_meals_by_branch ON planned_meals(branch_id);
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.
@@ -2576,6 +2622,85 @@ mod tests {
                 row("b2", "https://youtu.be/VIDEOID?si=two"),
                 row("b3", "https://example.org/tart?utm_source=x"),
                 row("b4", "https://youtu.be/VIDEOID?si=one"),
+            ]
+        );
+    }
+
+    /// **Migration 67 puts every Planned Meal on its week** (#487): each row
+    /// keeps its day and gains the Monday of that day's week, a Sunday's
+    /// included, and nothing else about it moves.
+    #[test]
+    fn migration_67_puts_every_planned_meal_on_its_week() {
+        let dir = tempfile::tempdir().unwrap();
+        let before_67 = MIGRATIONS
+            .iter()
+            .position(|m| m.version == 67)
+            .expect("migration 67");
+        {
+            let old = Db::open_with_migrations(dir.path(), &MIGRATIONS[..before_67]).unwrap();
+            old.with_conn(|conn| {
+                conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
+                conn.execute_batch(
+                    r#"
+                    INSERT INTO people (id, name, is_operator) VALUES ('p', 'Stéphane', 0);
+                    INSERT INTO planned_meals
+                      (id, person_id, branch_id, day, position, planned_yield, known_as) VALUES
+                      ('pm_mon', 'p', 'b1', '2026-11-02', 0, NULL, 'Soupe'),
+                      ('pm_thu', 'p', 'b2', '2026-11-05', 1, '{"amount":"2","noun":""}', 'Tarte'),
+                      ('pm_sun', 'p', 'b3', '2026-11-08', 0, NULL, 'Rôti');
+                    "#,
+                )
+                .map_err(|e| OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        }
+        let db = Db::open(dir.path()).unwrap();
+        type Row = (String, String, String, i64, Option<String>, Option<String>);
+        let rows: Vec<Row> = db
+            .with_conn(|conn| {
+                let mut statement = conn
+                    .prepare(
+                        "SELECT id, week, day, position, planned_yield, words \
+                           FROM planned_meals ORDER BY id",
+                    )
+                    .unwrap();
+                Ok(statement
+                    .query_map([], |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                        ))
+                    })
+                    .unwrap()
+                    .collect::<Result<_, _>>()
+                    .unwrap())
+            })
+            .unwrap();
+        let row = |id: &str, day: &str, position: i64, wanted: Option<&str>| {
+            (
+                id.to_string(),
+                "2026-11-02".to_string(),
+                day.to_string(),
+                position,
+                wanted.map(str::to_string),
+                None,
+            )
+        };
+        assert_eq!(
+            rows,
+            [
+                row("pm_mon", "2026-11-02", 0, None),
+                row("pm_sun", "2026-11-08", 0, None),
+                row(
+                    "pm_thu",
+                    "2026-11-05",
+                    1,
+                    Some(r#"{"amount":"2","noun":""}"#)
+                ),
             ]
         );
     }

@@ -438,8 +438,9 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     (ADR 0055, #452)
   shopping_list.rs  the shopping list
   meal_plan.rs      the Meal Plan: each Person's own days ahead, a recipe
-                    planned on a day at a Yield, and the plan following
-                    its recipe when Cookbooks join (ADR 0058, #486)
+                    planned on a day or a week at a Yield, written words,
+                    moving and ordering, and the plan following its
+                    recipe when Cookbooks join (ADR 0058, #486, #487)
   search.rs         word search and Meaning Search
   security_record.rs
                     the Security Record: sign-ins, wrong passwords, keys

@@ -26592,9 +26592,11 @@ async fn a_recipe_planned_on_a_day_is_read_back_in_the_order_it_was_put_there() 
         week[1],
         json!({
             "planned_meal_id": first,
+            "week": "2026-11-02",
             "day": "2026-11-05",
             "position": 0,
             "branch_id": soupe,
+            "words": Value::Null,
             "title": "Soupe au pistou",
             "gone": false,
             "planned_yield": Value::Null,
@@ -26894,6 +26896,304 @@ async fn a_deleted_recipe_stays_on_the_plan_and_says_it_cannot_be_read() {
     );
     assert_eq!(status, 200);
     assert!(planned(&app, &key, "2026-11-05", "2026-11-05").is_empty());
+}
+
+/// **A recipe planned on a week waits there with no day** (#487): read with
+/// any day of that week, before the week's days, in its own order. A week is
+/// named by its Monday, and a plan write names a day or a week, never both.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_planned_on_a_week_waits_with_no_day_before_the_days() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = written(&app, &key, "Soupe au pistou");
+    let tarte = written(&app, &key, "Tarte Tatin");
+
+    let tuesday = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-03" }),
+    );
+    let first = plan(
+        &app,
+        &key,
+        json!({ "branch_id": tarte, "week": "2026-11-02", "planned_yield": { "amount": "2", "noun": "" } }),
+    );
+    let second = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "week": "2026-11-02" }),
+    );
+    // Next week's, which a read of this week leaves out.
+    plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "week": "2026-11-09" }),
+    );
+
+    let week = planned(&app, &key, "2026-11-02", "2026-11-08");
+    let ids = week
+        .iter()
+        .map(|meal| meal["planned_meal_id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, [first.as_str(), second.as_str(), tuesday.as_str()]);
+    assert_eq!(week[0]["week"], json!("2026-11-02"));
+    assert_eq!(week[0]["day"], Value::Null);
+    assert_eq!(week[0]["position"], json!(0));
+    assert_eq!(week[1]["position"], json!(1));
+    assert_eq!(
+        week[0]["planned_yield"],
+        json!({ "amount": "2", "noun": "" })
+    );
+    assert_eq!(week[2]["week"], json!("2026-11-02"));
+
+    // From a Saturday on, as "Plan this" reads: the week it is in still has them.
+    let from_saturday = planned(&app, &key, "2026-11-07", "2026-11-20");
+    assert_eq!(
+        from_saturday
+            .iter()
+            .map(|meal| meal["day"].clone())
+            .collect::<Vec<_>>(),
+        [Value::Null, Value::Null, Value::Null],
+        "this week's two and next week's one, and no Tuesday"
+    );
+
+    for (input, said) in [
+        (
+            json!({ "branch_id": soupe, "week": "2026-11-04" }),
+            "Monday",
+        ),
+        (
+            json!({ "branch_id": soupe, "week": "2026-11-31" }),
+            "calendar date",
+        ),
+        (
+            json!({ "branch_id": soupe, "day": "2026-11-04", "week": "2026-11-02" }),
+            "not both",
+        ),
+        (json!({ "branch_id": soupe }), "not both"),
+    ] {
+        let (status, refused) = app.post_op("plan_recipe", Some(&key), &input.to_string());
+        assert_eq!(status, 400, "{input}: {refused}");
+        assert!(refused.to_string().contains(said), "{input}: {refused}");
+    }
+}
+
+/// **Written words on the plan are kept as written and never read** (#487),
+/// as a Loose Item is: on a day or a week, changed, and refused a Yield. A
+/// recipe has no words to change.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn written_words_on_the_plan_are_kept_as_written_and_never_read() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = written(&app, &key, "Soupe au pistou");
+
+    let (status, answer) = plan_op(
+        &app,
+        &key,
+        "plan_words",
+        json!({ "words": "  2 portions of leftovers, ½ a quiche ", "day": "2026-11-06" }),
+    );
+    assert_eq!(status, 200, "{answer}");
+    let leftovers = answer["planned_meal"]["planned_meal_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        answer["planned_meal"],
+        json!({
+            "planned_meal_id": leftovers,
+            "week": "2026-11-02",
+            "day": "2026-11-06",
+            "position": 0,
+            "branch_id": Value::Null,
+            "words": "2 portions of leftovers, ½ a quiche",
+            "title": Value::Null,
+            "gone": false,
+            "planned_yield": Value::Null,
+            "written_yield": Value::Null,
+            "main_photo": Value::Null,
+        })
+    );
+    // On a week with no day, after a recipe already there.
+    plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "week": "2026-11-02" }),
+    );
+    let (status, out) = plan_op(
+        &app,
+        &key,
+        "plan_words",
+        json!({ "words": "Eating out", "week": "2026-11-02" }),
+    );
+    assert_eq!(status, 200, "{out}");
+    assert_eq!(out["planned_meal"]["position"], json!(1));
+    assert_eq!(out["planned_meal"]["day"], Value::Null);
+
+    let (status, changed) = plan_op(
+        &app,
+        &key,
+        "set_planned_words",
+        json!({ "planned_meal_id": leftovers, "words": "Leftovers " }),
+    );
+    assert_eq!(status, 200, "{changed}");
+    assert_eq!(changed["planned_meal"]["words"], json!("Leftovers"));
+    assert_eq!(
+        planned(&app, &key, "2026-11-06", "2026-11-06")
+            .iter()
+            .find(|meal| meal["planned_meal_id"] == json!(leftovers))
+            .unwrap()["words"],
+        json!("Leftovers")
+    );
+
+    let recipe = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-06" }),
+    );
+    for (name, input, said) in [
+        (
+            "plan_words",
+            json!({ "words": "   ", "day": "2026-11-06" }),
+            "words is required",
+        ),
+        (
+            "set_planned_words",
+            json!({ "planned_meal_id": leftovers, "words": "" }),
+            "words is required",
+        ),
+        (
+            "set_planned_words",
+            json!({ "planned_meal_id": recipe, "words": "Soup" }),
+            "is a recipe",
+        ),
+        (
+            "set_planned_yield",
+            json!({ "planned_meal_id": leftovers, "planned_yield": { "amount": "2", "noun": "" } }),
+            "no Yield",
+        ),
+        ("plan_words", json!({ "words": "Pizza" }), "not both"),
+    ] {
+        let (status, refused) = app.post_op(name, Some(&key), &input.to_string());
+        assert_eq!(status, 400, "{name} {input}: {refused}");
+        assert!(refused.to_string().contains(said), "{name}: {refused}");
+    }
+    // Taken off like a recipe.
+    let (status, removed) = plan_op(
+        &app,
+        &key,
+        "remove_planned_meal",
+        json!({ "planned_meal_id": leftovers }),
+    );
+    assert_eq!(status, 200, "{removed}");
+    assert_eq!(
+        planned(&app, &key, "2026-11-06", "2026-11-06")
+            .iter()
+            .filter(|meal| meal["day"] == json!("2026-11-06"))
+            .count(),
+        1
+    );
+}
+
+/// **A Planned Meal moves to another day, a week, or another place** (#487):
+/// the list it lands in is numbered again in its new order, a place past the
+/// end is last, and an older write, another Person's meal or one that is not
+/// there changes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_planned_meal_moves_to_another_day_a_week_or_another_place() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = written(&app, &key, "Soupe");
+    let tarte = written(&app, &key, "Tarte");
+    let thursday = "2026-11-05";
+    let a = plan(&app, &key, json!({ "branch_id": soupe, "day": thursday }));
+    let b = plan(&app, &key, json!({ "branch_id": tarte, "day": thursday }));
+    let (_, c) = plan_op(
+        &app,
+        &key,
+        "plan_words",
+        json!({ "words": "Cheese", "day": thursday }),
+    );
+    let c = c["planned_meal"]["planned_meal_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let order = |day: &str| {
+        planned(&app, &key, day, day)
+            .into_iter()
+            .filter(|meal| meal["day"] == json!(day))
+            .map(|meal| {
+                (
+                    meal["planned_meal_id"].as_str().unwrap().to_string(),
+                    meal["position"].as_i64().unwrap(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let moved = |input: Value| {
+        let (status, answer) = plan_op(&app, &key, "move_planned_meal", input.clone());
+        assert_eq!(status, 200, "{input}: {answer}");
+        answer["planned_meal"].clone()
+    };
+
+    // Up to the top of its own day.
+    moved(json!({ "planned_meal_id": c, "day": thursday, "position": 0 }));
+    assert_eq!(
+        order(thursday),
+        [(c.clone(), 0), (a.clone(), 1), (b.clone(), 2)]
+    );
+    // Down one, then past the end.
+    moved(json!({ "planned_meal_id": c, "day": thursday, "position": 1 }));
+    assert_eq!(order(thursday)[1].0, c);
+    moved(json!({ "planned_meal_id": c, "day": thursday, "position": 99 }));
+    assert_eq!(order(thursday)[2], (c.clone(), 2));
+
+    // To the week with no day, and to another week's Friday, last.
+    let on_week = moved(json!({ "planned_meal_id": a, "week": "2026-11-02" }));
+    assert_eq!(on_week["day"], Value::Null);
+    assert_eq!(on_week["week"], json!("2026-11-02"));
+    plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-13" }),
+    );
+    let friday = moved(json!({ "planned_meal_id": b, "day": "2026-11-13" }));
+    assert_eq!(friday["week"], json!("2026-11-09"));
+    assert_eq!(friday["position"], json!(1));
+    assert_eq!(order(thursday), [(c.clone(), 0)]);
+    // A meal from a week gone by moves like any other.
+    let back = moved(json!({ "planned_meal_id": c, "day": "2026-10-20" }));
+    assert_eq!(back["week"], json!("2026-10-19"));
+
+    // An older write is dropped whole.
+    let (status, _) = plan_op(
+        &app,
+        &key,
+        "move_planned_meal",
+        json!({ "planned_meal_id": c, "day": thursday, "written_at": "2020-01-01T00:00:00Z" }),
+    );
+    assert_eq!(status, 200);
+    assert_eq!(order("2026-10-20").len(), 1);
+
+    // Another Person's, and one that is not there.
+    let (_, helene) = someone(&app, "Hélène");
+    for (who, id) in [(&helene, c.as_str()), (&key, "pm_00000000000000ff")] {
+        let (status, refused) = plan_op(
+            &app,
+            who,
+            "move_planned_meal",
+            json!({ "planned_meal_id": id, "day": thursday }),
+        );
+        assert_eq!(status, 404, "{refused}");
+        let (status, refused) = plan_op(
+            &app,
+            who,
+            "set_planned_words",
+            json!({ "planned_meal_id": id, "words": "Mine now" }),
+        );
+        assert_eq!(status, 404, "{refused}");
+    }
+    assert_eq!(order("2026-10-20").len(), 1);
 }
 
 // --- The Shopping List (issue #73, ADR 0024) ---------------------------------
@@ -43915,6 +44215,18 @@ mod an_operator_looks_after_every_cookbook {
                 "plan_recipe",
                 json!({ "branch_id": at.recipe, "day": "2026-11-05" }),
             ),
+            (
+                "plan_words",
+                json!({ "words": "Soup", "day": "2026-11-05" }),
+            ),
+            (
+                "set_planned_words",
+                json!({ "planned_meal_id": meal, "words": "Soup" }),
+            ),
+            (
+                "move_planned_meal",
+                json!({ "planned_meal_id": meal, "day": "2026-11-06" }),
+            ),
         ] {
             let (status, refused) = op(&app, name, &at.operator, as_operator(&input));
             assert_eq!(status, 400, "{name}: {refused}");
@@ -43926,8 +44238,19 @@ mod an_operator_looks_after_every_cookbook {
             json!({ "planned_meal_id": meal, "planned_yield": null }),
         );
         assert_eq!(status, 404, "{refused}");
+        let (status, refused) = op(
+            &app,
+            "move_planned_meal",
+            &at.operator,
+            json!({ "planned_meal_id": meal, "day": "2026-11-06" }),
+        );
+        assert_eq!(status, 404, "{refused}");
         let (_, read) = op(&app, "get_meal_plan", &at.owner, week);
         assert_eq!(read["result"]["planned_meals"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            read["result"]["planned_meals"][0]["day"],
+            json!("2026-11-05")
+        );
     }
 
     /// Attempts, shopping lists and who writes a Cookbook stay their owner's.
@@ -44664,7 +44987,7 @@ mod a_demo {
 
     /// The writes a Demo lets through. Every other write is refused in a Demo,
     /// so one let through is added here on purpose or this test fails.
-    const A_DEMOS_WRITES: [&str; 18] = [
+    const A_DEMOS_WRITES: [&str; 21] = [
         "add_loose_item",
         "add_to_shopping_list",
         "advance_attempt",
@@ -44673,13 +44996,16 @@ mod a_demo {
         "edit_attempt",
         "empty_shopping_list",
         "finish_attempt",
+        "move_planned_meal",
         "note_recipe_opened",
         "plan_recipe",
+        "plan_words",
         "remove_from_shopping_list",
         "remove_loose_item",
         "remove_planned_meal",
         "revoke_session",
         "set_as_cooked",
+        "set_planned_words",
         "set_planned_yield",
         "set_shopping_yield",
         "start_attempt",
@@ -45022,6 +45348,19 @@ mod a_demo {
             json!({ "from": "2026-11-02", "to": "2026-11-08" }),
         );
         assert_eq!(week["planned_meals"][0]["planned_meal_id"], meal, "{week}");
+        ok(
+            "move_planned_meal",
+            json!({ "planned_meal_id": meal, "week": "2026-11-02" }),
+        );
+        let words = ok(
+            "plan_words",
+            json!({ "words": "Leftovers", "day": "2026-11-06" }),
+        )["planned_meal"]["planned_meal_id"]
+            .clone();
+        ok(
+            "set_planned_words",
+            json!({ "planned_meal_id": words, "words": "Eating out" }),
+        );
         ok("remove_planned_meal", json!({ "planned_meal_id": meal }));
 
         let signed_out = ok("revoke_session", json!({ "session_id": session_id }));

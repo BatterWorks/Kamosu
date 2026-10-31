@@ -2333,6 +2333,30 @@ describe('the recipe screen', () => {
 		expect(screen.queryByRole('dialog')).toBeNull();
 	});
 
+	it('plans the version on screen on any day of a week, and says so (#487)', async () => {
+		const { kamosu } = scalable({
+			get_meal_plan: { planned_meals: [] },
+			plan_recipe: { planned_meal: null },
+		});
+		await screen.findByText('Amounts for 4 servings');
+		await fireEvent.click(screen.getByRole('button', { name: 'Plan this' }));
+		const sheet = await screen.findByRole('dialog');
+		const nextMonday = addDays(mondayOf(today()), 7);
+		await fireEvent.click(within(sheet).getByRole('radio', { name: 'Any day next week' }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Plan it for next week' }));
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'plan_recipe',
+			input: { branch_id: 'mine', week: nextMonday },
+		});
+		const said = await screen.findByRole('status', { name: '' });
+		expect(said).toHaveTextContent(/^Planned for any day next week\./);
+		expect(within(said).getByRole('link', { name: 'See the plan' })).toHaveAttribute(
+			'href',
+			`/plan?week=${nextMonday}`,
+		);
+	});
+
 	it('opens a recipe planned as written as written, whatever the list holds (#486)', async () => {
 		const { kamosu } = scalable(
 			{

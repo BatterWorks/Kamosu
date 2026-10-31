@@ -38,3 +38,21 @@ export const weeksFrom = (from: Day, to: Day): number =>
 /** Whether a string is a calendar date, as a link to a week carries one. */
 export const isDay = (text: string | null): text is Day =>
 	text !== null && /^\d{4}-\d{2}-\d{2}$/.test(text) && asDay(asDate(text)) === text;
+
+/**
+ * Where a Planned Meal stands (#487): on a day, or on any day of a week, the
+ * week named by its Monday.
+ */
+export type Where = { day: Day } | { week: Day };
+
+/** Where a meal the plan answered stands. */
+export const whereOf = (meal: { week: Day; day: Day | null }): Where =>
+	meal.day ? { day: meal.day } : { week: meal.week };
+
+/** Whether two places are the same list: one day, or one week's with no day. */
+export const sameWhere = (a: Where, b: Where): boolean =>
+	'day' in a ? 'day' in b && a.day === b.day : 'week' in b && a.week === b.week;
+
+/** The Monday of the week a place is in. */
+export const weekOfWhere = (where: Where): Day =>
+	'day' in where ? mondayOf(where.day) : where.week;

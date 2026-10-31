@@ -5606,7 +5606,7 @@ export type RemoveLooseItemOutput = {
 	}[];
 };
 
-/** Read your Meal Plan from one day to another. It answers the recipes you planned on each day, both days included, in the order of their days and then in the order you put each day's there. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05; a week runs Monday to Sunday. One read covers at most 366 days. */
+/** Read your Meal Plan from one day to another. It answers what you planned on each day, both days included, and on any day of each week those days touch. A week runs Monday to Sunday and is named by its Monday, and each meal says its week and its day, or no day. They come a week at a time: the week's meals with no day first, then each day's, each list in the order you put it in. A meal is a recipe or written words. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05. One read covers at most 366 days. */
 export type GetMealPlanInput = {
 	from: string;
 	to: string;
@@ -5614,8 +5614,8 @@ export type GetMealPlanInput = {
 /** What get_meal_plan answers. */
 export type GetMealPlanOutput = {
 	planned_meals: {
-		branch_id: string;
-		day: string;
+		branch_id: string | null;
+		day: string | null;
 		gone: boolean;
 		main_photo: string | null;
 		planned_meal_id: string;
@@ -5624,7 +5624,9 @@ export type GetMealPlanOutput = {
 			noun: string;
 		} | null;
 		position: number;
-		title: string;
+		title: string | null;
+		week: string;
+		words: string | null;
 		written_yield: {
 			amount: string;
 			noun: string;
@@ -5632,22 +5634,23 @@ export type GetMealPlanOutput = {
 	}[];
 };
 
-/** Plan a recipe on a day of your Meal Plan. It goes after whatever that day already holds. It plans one Branch, always at its newest Version: choosing between a recipe's Branches is choosing which method you will cook. Plan it at a Yield, a multiplier (a Yield with an empty noun), or as written by sending none; a recipe whose own Yield has no amount Kamosu can count from is planned by a multiplier. The same recipe may be planned on several days, or twice on one. Answers the Planned Meal. */
+/** Plan a recipe on a day or a week of your Meal Plan. Send `day`, or `week` as its Monday for a week with no day yet. It goes after whatever that day, or that week's meals with no day, already hold. It plans one Branch, always at its newest Version: choosing between a recipe's Branches is choosing which method you will cook. Plan it at a Yield, a multiplier (a Yield with an empty noun), or as written by sending none; a recipe whose own Yield has no amount Kamosu can count from is planned by a multiplier. The same recipe may be planned on several days, or twice on one. Planning one again elsewhere is this Operation again. Answers the Planned Meal. */
 export type PlanRecipeInput = {
 	branch_id: string;
-	day: string;
+	day?: string;
 	planned_meal_id?: string;
 	planned_yield?: {
 		amount: string;
 		noun: string;
 	} | null;
+	week?: string;
 	written_at?: string;
 };
 /** What plan_recipe answers. */
 export type PlanRecipeOutput = {
 	planned_meal: {
-		branch_id: string;
-		day: string;
+		branch_id: string | null;
+		day: string | null;
 		gone: boolean;
 		main_photo: string | null;
 		planned_meal_id: string;
@@ -5656,7 +5659,9 @@ export type PlanRecipeOutput = {
 			noun: string;
 		} | null;
 		position: number;
-		title: string;
+		title: string | null;
+		week: string;
+		words: string | null;
 		written_yield: {
 			amount: string;
 			noun: string;
@@ -5664,7 +5669,7 @@ export type PlanRecipeOutput = {
 	} | null;
 };
 
-/** Say how much of a Planned Meal you will cook. Send an amount and its noun, a multiplier (an amount with an empty noun), or null for the recipe as written. Answers the Planned Meal. */
+/** Say how much of a planned recipe you will cook. Send an amount and its noun, a multiplier (an amount with an empty noun), or null for the recipe as written. Written words have no Yield. Answers the Planned Meal. */
 export type SetPlannedYieldInput = {
 	planned_meal_id: string;
 	planned_yield: {
@@ -5676,8 +5681,8 @@ export type SetPlannedYieldInput = {
 /** What set_planned_yield answers. */
 export type SetPlannedYieldOutput = {
 	planned_meal: {
-		branch_id: string;
-		day: string;
+		branch_id: string | null;
+		day: string | null;
 		gone: boolean;
 		main_photo: string | null;
 		planned_meal_id: string;
@@ -5686,7 +5691,100 @@ export type SetPlannedYieldOutput = {
 			noun: string;
 		} | null;
 		position: number;
-		title: string;
+		title: string | null;
+		week: string;
+		words: string | null;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	} | null;
+};
+
+/** Write a few words on a day or a week of your Meal Plan. Words such as "leftovers" or "eating out". Send `day`, or `week` as its Monday for a week with no day yet. They are kept exactly as written, the ends trimmed, and never read: they are not a recipe and reach no Shopping List. They go after whatever that list already holds. Answers the Planned Meal, whose `words` they are. */
+export type PlanWordsInput = {
+	day?: string;
+	planned_meal_id?: string;
+	week?: string;
+	words: string;
+	written_at?: string;
+};
+/** What plan_words answers. */
+export type PlanWordsOutput = {
+	planned_meal: {
+		branch_id: string | null;
+		day: string | null;
+		gone: boolean;
+		main_photo: string | null;
+		planned_meal_id: string;
+		planned_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		position: number;
+		title: string | null;
+		week: string;
+		words: string | null;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	} | null;
+};
+
+/** Change the written words of a Planned Meal. Those are the ones plan_words wrote. They are kept exactly as written, the ends trimmed. A planned recipe has no words to change. Answers the Planned Meal. */
+export type SetPlannedWordsInput = {
+	planned_meal_id: string;
+	words: string;
+	written_at?: string;
+};
+/** What set_planned_words answers. */
+export type SetPlannedWordsOutput = {
+	planned_meal: {
+		branch_id: string | null;
+		day: string | null;
+		gone: boolean;
+		main_photo: string | null;
+		planned_meal_id: string;
+		planned_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		position: number;
+		title: string | null;
+		week: string;
+		words: string | null;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	} | null;
+};
+
+/** Move a Planned Meal to another day, week or place. It may be a recipe or written words. Send `day`, or `week` as its Monday for a week with no day, or the list it is in already, to change only its place. `position` counts from 0 among the others in that list; without it the meal goes last. Answers the Planned Meal. */
+export type MovePlannedMealInput = {
+	day?: string;
+	planned_meal_id: string;
+	position?: number;
+	week?: string;
+	written_at?: string;
+};
+/** What move_planned_meal answers. */
+export type MovePlannedMealOutput = {
+	planned_meal: {
+		branch_id: string | null;
+		day: string | null;
+		gone: boolean;
+		main_photo: string | null;
+		planned_meal_id: string;
+		planned_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		position: number;
+		title: string | null;
+		week: string;
+		words: string | null;
 		written_yield: {
 			amount: string;
 			noun: string;
@@ -5702,8 +5800,8 @@ export type RemovePlannedMealInput = {
 /** What remove_planned_meal answers. */
 export type RemovePlannedMealOutput = {
 	planned_meal: {
-		branch_id: string;
-		day: string;
+		branch_id: string | null;
+		day: string | null;
 		gone: boolean;
 		main_photo: string | null;
 		planned_meal_id: string;
@@ -5712,7 +5810,9 @@ export type RemovePlannedMealOutput = {
 			noun: string;
 		} | null;
 		position: number;
-		title: string;
+		title: string | null;
+		week: string;
+		words: string | null;
 		written_yield: {
 			amount: string;
 			noun: string;
@@ -6855,6 +6955,24 @@ export interface Operations {
 	set_planned_yield: {
 		input: SetPlannedYieldInput;
 		output: SetPlannedYieldOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	plan_words: {
+		input: PlanWordsInput;
+		output: PlanWordsOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_planned_words: {
+		input: SetPlannedWordsInput;
+		output: SetPlannedWordsOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	move_planned_meal: {
+		input: MovePlannedMealInput;
+		output: MovePlannedMealOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -35385,7 +35503,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_meal_plan",
-		"summary": "Read your Meal Plan from one day to another. It answers the recipes you planned on each day, both days included, in the order of their days and then in the order you put each day's there. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05; a week runs Monday to Sunday. One read covers at most 366 days.",
+		"summary": "Read your Meal Plan from one day to another. It answers what you planned on each day, both days included, and on any day of each week those days touch. A week runs Monday to Sunday and is named by its Monday, and each meal says its week and its day, or no day. They come a week at a time: the week's meals with no day first, then each day's, each list in the order you put it in. A meal is a recipe or written words. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05. One read covers at most 366 days.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -35414,10 +35532,16 @@ export const CATALOGUE = [
 						"additionalProperties": false,
 						"properties": {
 							"branch_id": {
-								"type": "string"
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"day": {
-								"type": "string"
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"gone": {
 								"type": "boolean"
@@ -35455,7 +35579,19 @@ export const CATALOGUE = [
 								"type": "integer"
 							},
 							"title": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"week": {
 								"type": "string"
+							},
+							"words": {
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"written_yield": {
 								"additionalProperties": false,
@@ -35479,9 +35615,11 @@ export const CATALOGUE = [
 						},
 						"required": [
 							"planned_meal_id",
+							"week",
 							"day",
 							"position",
 							"branch_id",
+							"words",
 							"title",
 							"gone",
 							"planned_yield",
@@ -35501,7 +35639,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "plan_recipe",
-		"summary": "Plan a recipe on a day of your Meal Plan. It goes after whatever that day already holds. It plans one Branch, always at its newest Version: choosing between a recipe's Branches is choosing which method you will cook. Plan it at a Yield, a multiplier (a Yield with an empty noun), or as written by sending none; a recipe whose own Yield has no amount Kamosu can count from is planned by a multiplier. The same recipe may be planned on several days, or twice on one. Answers the Planned Meal.",
+		"summary": "Plan a recipe on a day or a week of your Meal Plan. Send `day`, or `week` as its Monday for a week with no day yet. It goes after whatever that day, or that week's meals with no day, already hold. It plans one Branch, always at its newest Version: choosing between a recipe's Branches is choosing which method you will cook. Plan it at a Yield, a multiplier (a Yield with an empty noun), or as written by sending none; a recipe whose own Yield has no amount Kamosu can count from is planned by a multiplier. The same recipe may be planned on several days, or twice on one. Planning one again elsewhere is this Operation again. Answers the Planned Meal.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -35511,7 +35649,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"day": {
-					"description": "A calendar date, such as 2026-11-05.",
+					"description": "A calendar date, such as 2026-11-05. Send this or week.",
 					"type": "string"
 				},
 				"planned_meal_id": {
@@ -35538,14 +35676,17 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"week": {
+					"description": "The Monday of a week, such as 2026-11-02, for any day of it. Send this or day.",
+					"type": "string"
+				},
 				"written_at": {
 					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
 					"type": "string"
 				}
 			},
 			"required": [
-				"branch_id",
-				"day"
+				"branch_id"
 			],
 			"type": "object"
 		},
@@ -35556,10 +35697,16 @@ export const CATALOGUE = [
 					"additionalProperties": false,
 					"properties": {
 						"branch_id": {
-							"type": "string"
+							"type": [
+								"string",
+								"null"
+							]
 						},
 						"day": {
-							"type": "string"
+							"type": [
+								"string",
+								"null"
+							]
 						},
 						"gone": {
 							"type": "boolean"
@@ -35597,7 +35744,19 @@ export const CATALOGUE = [
 							"type": "integer"
 						},
 						"title": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"week": {
 							"type": "string"
+						},
+						"words": {
+							"type": [
+								"string",
+								"null"
+							]
 						},
 						"written_yield": {
 							"additionalProperties": false,
@@ -35621,9 +35780,11 @@ export const CATALOGUE = [
 					},
 					"required": [
 						"planned_meal_id",
+						"week",
 						"day",
 						"position",
 						"branch_id",
+						"words",
 						"title",
 						"gone",
 						"planned_yield",
@@ -35644,7 +35805,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_planned_yield",
-		"summary": "Say how much of a Planned Meal you will cook. Send an amount and its noun, a multiplier (an amount with an empty noun), or null for the recipe as written. Answers the Planned Meal.",
+		"summary": "Say how much of a planned recipe you will cook. Send an amount and its noun, a multiplier (an amount with an empty noun), or null for the recipe as written. Written words have no Yield. Answers the Planned Meal.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -35691,10 +35852,16 @@ export const CATALOGUE = [
 					"additionalProperties": false,
 					"properties": {
 						"branch_id": {
-							"type": "string"
+							"type": [
+								"string",
+								"null"
+							]
 						},
 						"day": {
-							"type": "string"
+							"type": [
+								"string",
+								"null"
+							]
 						},
 						"gone": {
 							"type": "boolean"
@@ -35732,7 +35899,19 @@ export const CATALOGUE = [
 							"type": "integer"
 						},
 						"title": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"week": {
 							"type": "string"
+						},
+						"words": {
+							"type": [
+								"string",
+								"null"
+							]
 						},
 						"written_yield": {
 							"additionalProperties": false,
@@ -35756,9 +35935,441 @@ export const CATALOGUE = [
 					},
 					"required": [
 						"planned_meal_id",
+						"week",
 						"day",
 						"position",
 						"branch_id",
+						"words",
+						"title",
+						"gone",
+						"planned_yield",
+						"written_yield",
+						"main_photo"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"planned_meal"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "plan_words",
+		"summary": "Write a few words on a day or a week of your Meal Plan. Words such as \"leftovers\" or \"eating out\". Send `day`, or `week` as its Monday for a week with no day yet. They are kept exactly as written, the ends trimmed, and never read: they are not a recipe and reach no Shopping List. They go after whatever that list already holds. Answers the Planned Meal, whose `words` they are.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"day": {
+					"description": "A calendar date, such as 2026-11-05. Send this or week.",
+					"type": "string"
+				},
+				"planned_meal_id": {
+					"description": "The id to give this Planned Meal, for one planned with no network (#77): pm_ and sixteen lower-case hex digits. Sending the same one twice plans it once.",
+					"type": "string"
+				},
+				"week": {
+					"description": "The Monday of a week, such as 2026-11-02, for any day of it. Send this or day.",
+					"type": "string"
+				},
+				"words": {
+					"type": "string"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"words"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"planned_meal": {
+					"additionalProperties": false,
+					"properties": {
+						"branch_id": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"day": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"gone": {
+							"type": "boolean"
+						},
+						"main_photo": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"planned_meal_id": {
+							"type": "string"
+						},
+						"planned_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						},
+						"position": {
+							"type": "integer"
+						},
+						"title": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"week": {
+							"type": "string"
+						},
+						"words": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"written_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"planned_meal_id",
+						"week",
+						"day",
+						"position",
+						"branch_id",
+						"words",
+						"title",
+						"gone",
+						"planned_yield",
+						"written_yield",
+						"main_photo"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"planned_meal"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_planned_words",
+		"summary": "Change the written words of a Planned Meal. Those are the ones plan_words wrote. They are kept exactly as written, the ends trimmed. A planned recipe has no words to change. Answers the Planned Meal.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"planned_meal_id": {
+					"type": "string"
+				},
+				"words": {
+					"type": "string"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"planned_meal_id",
+				"words"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"planned_meal": {
+					"additionalProperties": false,
+					"properties": {
+						"branch_id": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"day": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"gone": {
+							"type": "boolean"
+						},
+						"main_photo": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"planned_meal_id": {
+							"type": "string"
+						},
+						"planned_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						},
+						"position": {
+							"type": "integer"
+						},
+						"title": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"week": {
+							"type": "string"
+						},
+						"words": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"written_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"planned_meal_id",
+						"week",
+						"day",
+						"position",
+						"branch_id",
+						"words",
+						"title",
+						"gone",
+						"planned_yield",
+						"written_yield",
+						"main_photo"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"planned_meal"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "move_planned_meal",
+		"summary": "Move a Planned Meal to another day, week or place. It may be a recipe or written words. Send `day`, or `week` as its Monday for a week with no day, or the list it is in already, to change only its place. `position` counts from 0 among the others in that list; without it the meal goes last. Answers the Planned Meal.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"day": {
+					"description": "A calendar date, such as 2026-11-05. Send this or week.",
+					"type": "string"
+				},
+				"planned_meal_id": {
+					"type": "string"
+				},
+				"position": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"week": {
+					"description": "The Monday of a week, such as 2026-11-02, for any day of it. Send this or day.",
+					"type": "string"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"planned_meal_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"planned_meal": {
+					"additionalProperties": false,
+					"properties": {
+						"branch_id": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"day": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"gone": {
+							"type": "boolean"
+						},
+						"main_photo": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"planned_meal_id": {
+							"type": "string"
+						},
+						"planned_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						},
+						"position": {
+							"type": "integer"
+						},
+						"title": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"week": {
+							"type": "string"
+						},
+						"words": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"written_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"planned_meal_id",
+						"week",
+						"day",
+						"position",
+						"branch_id",
+						"words",
 						"title",
 						"gone",
 						"planned_yield",
@@ -35805,10 +36416,16 @@ export const CATALOGUE = [
 					"additionalProperties": false,
 					"properties": {
 						"branch_id": {
-							"type": "string"
+							"type": [
+								"string",
+								"null"
+							]
 						},
 						"day": {
-							"type": "string"
+							"type": [
+								"string",
+								"null"
+							]
 						},
 						"gone": {
 							"type": "boolean"
@@ -35846,7 +36463,19 @@ export const CATALOGUE = [
 							"type": "integer"
 						},
 						"title": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"week": {
 							"type": "string"
+						},
+						"words": {
+							"type": [
+								"string",
+								"null"
+							]
 						},
 						"written_yield": {
 							"additionalProperties": false,
@@ -35870,9 +36499,11 @@ export const CATALOGUE = [
 					},
 					"required": [
 						"planned_meal_id",
+						"week",
 						"day",
 						"position",
 						"branch_id",
+						"words",
 						"title",
 						"gone",
 						"planned_yield",
@@ -37305,6 +37936,9 @@ export const METHOD_NAMES = {
 	get_meal_plan: 'getMealPlan',
 	plan_recipe: 'planRecipe',
 	set_planned_yield: 'setPlannedYield',
+	plan_words: 'planWords',
+	set_planned_words: 'setPlannedWords',
+	move_planned_meal: 'movePlannedMeal',
 	remove_planned_meal: 'removePlannedMeal',
 	list_foods: 'listFoods',
 	get_food: 'getFood',
@@ -37607,12 +38241,18 @@ export interface KamosuClient {
 	addLooseItem(input: AddLooseItemInput): Promise<Answer<'add_loose_item'>>;
 	/** Take one typed line off your Shopping List. Answers the whole list. */
 	removeLooseItem(input: RemoveLooseItemInput): Promise<Answer<'remove_loose_item'>>;
-	/** Read your Meal Plan from one day to another. It answers the recipes you planned on each day, both days included, in the order of their days and then in the order you put each day's there. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05; a week runs Monday to Sunday. One read covers at most 366 days. */
+	/** Read your Meal Plan from one day to another. It answers what you planned on each day, both days included, and on any day of each week those days touch. A week runs Monday to Sunday and is named by its Monday, and each meal says its week and its day, or no day. They come a week at a time: the week's meals with no day first, then each day's, each list in the order you put it in. A meal is a recipe or written words. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05. One read covers at most 366 days. */
 	getMealPlan(input: GetMealPlanInput): Promise<Answer<'get_meal_plan'>>;
-	/** Plan a recipe on a day of your Meal Plan. It goes after whatever that day already holds. It plans one Branch, always at its newest Version: choosing between a recipe's Branches is choosing which method you will cook. Plan it at a Yield, a multiplier (a Yield with an empty noun), or as written by sending none; a recipe whose own Yield has no amount Kamosu can count from is planned by a multiplier. The same recipe may be planned on several days, or twice on one. Answers the Planned Meal. */
+	/** Plan a recipe on a day or a week of your Meal Plan. Send `day`, or `week` as its Monday for a week with no day yet. It goes after whatever that day, or that week's meals with no day, already hold. It plans one Branch, always at its newest Version: choosing between a recipe's Branches is choosing which method you will cook. Plan it at a Yield, a multiplier (a Yield with an empty noun), or as written by sending none; a recipe whose own Yield has no amount Kamosu can count from is planned by a multiplier. The same recipe may be planned on several days, or twice on one. Planning one again elsewhere is this Operation again. Answers the Planned Meal. */
 	planRecipe(input: PlanRecipeInput): Promise<Answer<'plan_recipe'>>;
-	/** Say how much of a Planned Meal you will cook. Send an amount and its noun, a multiplier (an amount with an empty noun), or null for the recipe as written. Answers the Planned Meal. */
+	/** Say how much of a planned recipe you will cook. Send an amount and its noun, a multiplier (an amount with an empty noun), or null for the recipe as written. Written words have no Yield. Answers the Planned Meal. */
 	setPlannedYield(input: SetPlannedYieldInput): Promise<Answer<'set_planned_yield'>>;
+	/** Write a few words on a day or a week of your Meal Plan. Words such as "leftovers" or "eating out". Send `day`, or `week` as its Monday for a week with no day yet. They are kept exactly as written, the ends trimmed, and never read: they are not a recipe and reach no Shopping List. They go after whatever that list already holds. Answers the Planned Meal, whose `words` they are. */
+	planWords(input: PlanWordsInput): Promise<Answer<'plan_words'>>;
+	/** Change the written words of a Planned Meal. Those are the ones plan_words wrote. They are kept exactly as written, the ends trimmed. A planned recipe has no words to change. Answers the Planned Meal. */
+	setPlannedWords(input: SetPlannedWordsInput): Promise<Answer<'set_planned_words'>>;
+	/** Move a Planned Meal to another day, week or place. It may be a recipe or written words. Send `day`, or `week` as its Monday for a week with no day, or the list it is in already, to change only its place. `position` counts from 0 among the others in that list; without it the meal goes last. Answers the Planned Meal. */
+	movePlannedMeal(input: MovePlannedMealInput): Promise<Answer<'move_planned_meal'>>;
 	/** Take a Planned Meal off your Meal Plan. Works whether or not its recipe can still be read, and taking one that is already gone is not an error. Answers null. */
 	removePlannedMeal(input: RemovePlannedMealInput): Promise<Answer<'remove_planned_meal'>>;
 	/** List every Food this instance knows. Each is shown in the reader's Reading Language where it has a name there. */

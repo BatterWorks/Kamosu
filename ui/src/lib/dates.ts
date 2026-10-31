@@ -74,6 +74,14 @@ export const aPlannedDay = (day: string): string =>
 		timeZone: 'UTC',
 	});
 
+/** A planned day's date with no weekday, as a week is named by it: `9 November`. */
+export const aPlannedDate = (day: string): string =>
+	at(`${day}T00:00:00Z`).toLocaleDateString(locale(), {
+		day: 'numeric',
+		month: 'long',
+		timeZone: 'UTC',
+	});
+
 /** A planned day's weekday alone, as the Plan heads a day: `Thu`. */
 export const aPlannedWeekday = (day: string): string =>
 	at(`${day}T00:00:00Z`).toLocaleDateString(locale(), { weekday: 'short', timeZone: 'UTC' });

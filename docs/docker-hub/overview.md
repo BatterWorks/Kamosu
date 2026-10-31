@@ -33,7 +33,7 @@ Everything you can do in the web app, an agent can do over MCP (the Model Contex
 - **A recipe keeps its whole history.** Every save is a new version and none is ever lost. Start a variation or a translation beside the original, and Kamosu shows how two versions differ line by line.
 - **A diary of what you cooked.** Each cooking is dated and rated, with photos, notes, and what you actually did if it differed from the recipe.
 - **Scaling and conversions.** Cook for 3 instead of 6 and every amount follows, with metric or US measures beside the amounts as written.
-- **A plan for the days ahead.** Put a recipe on a day, for as many as you will cook for, and it opens at that amount on the night.
+- **A plan for the days ahead.** Put a recipe on a day, or on a week before the day is decided, for as many as you will cook for, and it opens at that amount on the night. Write "leftovers" or "eating out" on a day, and move things around as the week changes.
 - **A shopping list worked out from recipes.** Pick dishes and how many you are cooking for. Flour from three recipes becomes one row.
 - **Search by words, or by meaning.** Turn on Meaning Search and "that thing with aubergines" finds a recipe that never says aubergine.
 - **Bring your recipes in.** A web page, a pasted recipe or a recipe PDF, the export of Mealie, Paprika, Tandoor, KitchenOwl, Nextcloud Cookbook, RecipeSage, Bar Assistant, Crouton and others, anything sent from a phone's Share menu, or a recipe from another Kamosu. With a Runner, also photos of a cookbook page, a scanned PDF or a cooking video.
@@ -45,7 +45,7 @@ Everything you can do in the web app, an agent can do over MCP (the Model Contex
 
 Kamosu suits a person, a household or a group of people who want to keep their recipes on their own server, cook from a phone, and let an agent add, fix or translate recipes for them.
 
-It is not a hosted service, a meal planner, a nutrition tracker or a public recipe site. Every account starts from an invite, and nothing is visible to strangers unless you share a link.
+It is not a hosted service, a nutrition tracker or a public recipe site. Every account starts from an invite, and nothing is visible to strangers unless you share a link.
 
 ## Tags
 

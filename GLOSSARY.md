@@ -371,7 +371,7 @@ One **Person**'s own calendar of what they will cook: the days ahead, and the re
 _Avoid_: Menu, meal planner, calendar, schedule, agenda
 
 **Planned Meal**:
-A recipe put on a day of a **Meal Plan**: one **Branch**, always at its latest **Version**, at the **Yield** the cook means or as written. A day holds as many as the cook likes, in the order they were put there, with no breakfast, lunch or dinner. One whose recipe is deleted or no longer shared stays, keeps the name it was known by and says it can no longer be read, as a Shopping List entry does.
+What stands on a **Meal Plan**: on a day, or on a week with no day yet ("this week, any day"), the week named by its Monday. It is a recipe or a few written words. A recipe is one **Branch**, always at its latest **Version**, at the **Yield** the cook means or as written. Written words ("leftovers", "eating out") are kept exactly as written and never read, as a **Loose Item** is. A day, and a week's meals with no day, each hold as many as the cook likes, in the order the cook puts them, with no breakfast, lunch or dinner. Any Planned Meal can be moved to another day or week, put in another order, or planned again elsewhere, which plans a second one. One whose recipe is deleted or no longer shared stays, keeps the name it was known by and says it can no longer be read, as a Shopping List entry does.
 _Avoid_: Plan entry, meal, slot, event
 
 ### Shopping

@@ -4915,24 +4915,29 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             output_schema: shopping_list_schema(),
             handler: crate::operations::remove_loose_item,
         },
-        // ── The Meal Plan (#486, ADR 0058) ───────────────────────────────────
+        // ── The Meal Plan (#486, #487, ADR 0058) ─────────────────────────────
         //
         // A Person's own, as the Shopping List is: nobody else reads it, and
         // none of these accepts `as_operator`. Its writes carry `written_at`
         // and the last to reach the plan wins, so a phone with no network
-        // holds them and sends them later (#77).
+        // holds them and sends them later (#77). A meal stands on a day or on
+        // a week with no day, and is a recipe or written words.
         Operation {
             name: "get_meal_plan",
             summary: "Read your Meal Plan from one day to another. It answers \
-                      the recipes you planned on each day, both days included, \
-                      in the order of their days and then in the order you put \
-                      each day's there. Everyone has exactly one plan, and nobody \
-                      else reads it. A planned recipe is a Branch at its \
-                      newest Version, so a correction made since shows here. \
-                      One you can no longer read (deleted, or no longer \
-                      shared with you) keeps the name it was known by and says \
-                      gone. Days are calendar dates, such as 2026-11-05; a \
-                      week runs Monday to Sunday. One read covers at most 366 \
+                      what you planned on each day, both days included, and \
+                      on any day of each week those days touch. A week runs \
+                      Monday to Sunday and is named by its Monday, and each \
+                      meal says its week and its day, or no day. They come a \
+                      week at a time: the week's meals with no day first, \
+                      then each day's, each list in the order you put it in. \
+                      A meal is a recipe or written words. Everyone has \
+                      exactly one plan, and nobody else reads it. A planned \
+                      recipe is a Branch at its newest Version, so a \
+                      correction made since shows here. One you can no longer \
+                      read (deleted, or no longer shared with you) keeps the \
+                      name it was known by and says gone. Days are calendar \
+                      dates, such as 2026-11-05. One read covers at most 366 \
                       days.",
             permission: Permission::Person,
             kind: Kind::Immediate,
@@ -4963,15 +4968,18 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "plan_recipe",
-            summary: "Plan a recipe on a day of your Meal Plan. It goes after \
-                      whatever that day already holds. It plans one Branch, always at \
-                      its newest Version: choosing between a recipe's \
+            summary: "Plan a recipe on a day or a week of your Meal Plan. \
+                      Send `day`, or `week` as its Monday for a week with no \
+                      day yet. It goes after whatever that day, or that week's meals \
+                      with no day, already hold. It plans one Branch, always \
+                      at its newest Version: choosing between a recipe's \
                       Branches is choosing which method you will cook. Plan it \
                       at a Yield, a multiplier (a Yield with an empty noun), \
                       or as written by sending none; a recipe whose own Yield \
                       has no amount Kamosu can count from is planned by a \
                       multiplier. The same recipe may be planned on several \
-                      days, or twice on one. Answers the Planned Meal.",
+                      days, or twice on one. Planning one again elsewhere is \
+                      this Operation again. Answers the Planned Meal.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -4984,15 +4992,13 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "type": "object",
                 "properties": {
                     "branch_id": { "type": "string" },
-                    "day": { "type": "string", "description": "A calendar date, such as 2026-11-05." },
+                    "day": day_schema(),
+                    "week": week_schema(),
                     "planned_yield": wanted_yield_schema(),
-                    "planned_meal_id": {
-                        "type": "string",
-                        "description": "The id to give this Planned Meal, for one planned with no network (#77): pm_ and sixteen lower-case hex digits. Sending the same one twice plans it once.",
-                    },
+                    "planned_meal_id": planned_meal_id_schema(),
                     "written_at": written_at_schema(),
                 },
-                "required": ["branch_id", "day"],
+                "required": ["branch_id"],
                 "additionalProperties": false,
             }),
             output_schema: planned_meal_answer_schema(),
@@ -5000,10 +5006,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "set_planned_yield",
-            summary: "Say how much of a Planned Meal you will cook. Send an \
+            summary: "Say how much of a planned recipe you will cook. Send an \
                       amount and its noun, a multiplier (an amount with an empty \
-                      noun), or null for the recipe as written. Answers the \
-                      Planned Meal.",
+                      noun), or null for the recipe as written. Written words \
+                      have no Yield. Answers the Planned Meal.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -5024,6 +5030,96 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             }),
             output_schema: planned_meal_answer_schema(),
             handler: crate::operations::set_planned_yield,
+        },
+        Operation {
+            name: "plan_words",
+            summary: "Write a few words on a day or a week of your Meal Plan. \
+                      Words such as \"leftovers\" or \"eating out\". Send \
+                      `day`, or `week` as its Monday for a week with no day yet. They are kept \
+                      exactly as written, the ends trimmed, and never read: \
+                      they are not a recipe and reach no Shopping List. They \
+                      go after whatever that list already holds. Answers the \
+                      Planned Meal, whose `words` they are.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::GoesThrough,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "words": { "type": "string" },
+                    "day": day_schema(),
+                    "week": week_schema(),
+                    "planned_meal_id": planned_meal_id_schema(),
+                    "written_at": written_at_schema(),
+                },
+                "required": ["words"],
+                "additionalProperties": false,
+            }),
+            output_schema: planned_meal_answer_schema(),
+            handler: crate::operations::plan_words,
+        },
+        Operation {
+            name: "set_planned_words",
+            summary: "Change the written words of a Planned Meal. Those are \
+                      the ones plan_words wrote. They are kept exactly as written, the ends \
+                      trimmed. A planned recipe has no words to change. \
+                      Answers the Planned Meal.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::GoesThrough,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "planned_meal_id": { "type": "string" },
+                    "words": { "type": "string" },
+                    "written_at": written_at_schema(),
+                },
+                "required": ["planned_meal_id", "words"],
+                "additionalProperties": false,
+            }),
+            output_schema: planned_meal_answer_schema(),
+            handler: crate::operations::set_planned_words,
+        },
+        Operation {
+            name: "move_planned_meal",
+            summary: "Move a Planned Meal to another day, week or place. It \
+                      may be a recipe or written words. Send `day`, or `week` \
+                      as its Monday for a week with no day, or the list it is \
+                      in already, to change only its place. `position` \
+                      counts from 0 among the others in that list; without it \
+                      the meal goes last. Answers the Planned Meal.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::GoesThrough,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "planned_meal_id": { "type": "string" },
+                    "day": day_schema(),
+                    "week": week_schema(),
+                    "position": { "type": "integer", "minimum": 0 },
+                    "written_at": written_at_schema(),
+                },
+                "required": ["planned_meal_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: planned_meal_answer_schema(),
+            handler: crate::operations::move_planned_meal,
         },
         Operation {
             name: "remove_planned_meal",
@@ -8285,20 +8381,26 @@ fn diary_entry_schema() -> Value {
     schema
 }
 
-/// **A Planned Meal** (#486, ADR 0058), as the plan and every write to it
-/// answer one.
+/// **A Planned Meal** (#486, #487, ADR 0058), as the plan and every write to
+/// it answer one: a recipe, or written words.
 fn planned_meal_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
             "planned_meal_id": { "type": "string" },
-            "day": { "type": "string" },
-            // Its place among the day's, in the order they were put there.
+            // The Monday of the week it stands in.
+            "week": { "type": "string" },
+            // Its day, or null for any day of the week.
+            "day": { "type": ["string", "null"] },
+            // Its place in its list: the day's, or the week's with no day.
             "position": { "type": "integer" },
-            "branch_id": { "type": "string" },
-            // The live title while the recipe can be read, and otherwise the
-            // name it was known by when it was planned.
-            "title": { "type": "string" },
+            // The recipe, or null for written words.
+            "branch_id": { "type": ["string", "null"] },
+            // Written words, kept as written, or null for a recipe.
+            "words": { "type": ["string", "null"] },
+            // A recipe's live title while it can be read, and otherwise the
+            // name it was known by when it was planned. Null for words.
+            "title": { "type": ["string", "null"] },
             // Deleted, or in a Cookbook this Person may no longer see. It
             // stays on the plan, as a Shopping List entry does.
             "gone": { "type": "boolean" },
@@ -8309,10 +8411,28 @@ fn planned_meal_schema() -> Value {
             "main_photo": { "type": ["string", "null"] },
         },
         "required": [
-            "planned_meal_id", "day", "position", "branch_id", "title", "gone",
-            "planned_yield", "written_yield", "main_photo"
+            "planned_meal_id", "week", "day", "position", "branch_id", "words", "title",
+            "gone", "planned_yield", "written_yield", "main_photo"
         ],
         "additionalProperties": false,
+    })
+}
+
+/// A plan write's day: a calendar date.
+fn day_schema() -> Value {
+    json!({ "type": "string", "description": "A calendar date, such as 2026-11-05. Send this or week." })
+}
+
+/// A plan write's week with no day: its Monday.
+fn week_schema() -> Value {
+    json!({ "type": "string", "description": "The Monday of a week, such as 2026-11-02, for any day of it. Send this or day." })
+}
+
+/// The id a phone gives a meal it plans with no network (#77).
+fn planned_meal_id_schema() -> Value {
+    json!({
+        "type": "string",
+        "description": "The id to give this Planned Meal, for one planned with no network (#77): pm_ and sixteen lower-case hex digits. Sending the same one twice plans it once.",
     })
 }
 

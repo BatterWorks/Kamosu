@@ -91,6 +91,7 @@ use keeping_backups::*;
 pub(crate) use keeping_photographs::photograph_seen_by;
 use keeping_photographs::*;
 use kitchens::*;
+pub use meal_plan::Place;
 use meal_plan::{Whose, repoint_planned_meals};
 pub use originals::*;
 pub use readings::*;

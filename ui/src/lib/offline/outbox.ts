@@ -47,6 +47,7 @@ import { OperationError, httpTransport, type Transport } from '$lib/api/client';
 import { realPhotographUpload } from '$lib/api/upload';
 import { noteReach, refreshed } from './device.svelte';
 import { asText, rows, yieldScale, type List, type Row } from './shopping';
+import { mondayOf, type Day } from '$lib/plan-days';
 
 type Attempt = StartAttemptOutput;
 type DiaryEntry = ListAttemptsOutput['attempts'][number];
@@ -73,12 +74,15 @@ const SHOPPING_WRITES = new Set<OperationName>([
 ]);
 
 /**
- * The Meal Plan's writes (#486, ADR 0058): a Person's own, written with the
- * last device winning, as the Shopping List's are.
+ * The Meal Plan's writes (#486, #487, ADR 0058): a Person's own, written with
+ * the last device winning, as the Shopping List's are.
  */
 const PLAN_WRITES = new Set<OperationName>([
 	'plan_recipe',
+	'plan_words',
 	'set_planned_yield',
+	'set_planned_words',
+	'move_planned_meal',
 	'remove_planned_meal',
 ]);
 
@@ -324,7 +328,7 @@ export class Outbox implements Keeping {
 				break;
 		}
 		const answer = await this.#world.inner(operation, input);
-		this.#notice(operation, answer);
+		this.#notice(operation, answer, input);
 		if (operation === 'list_attempts' || operation === 'get_thread') {
 			this.#freshen((answer as { attempts: Attempt[] }).attempts);
 		}
@@ -370,7 +374,10 @@ export class Outbox implements Keeping {
 		if (operation === 'add_loose_item' && input.item_id === undefined) {
 			input.item_id = `i_${this.#world.mint()}`;
 		}
-		if (operation === 'plan_recipe' && input.planned_meal_id === undefined) {
+		if (
+			(operation === 'plan_recipe' || operation === 'plan_words') &&
+			input.planned_meal_id === undefined
+		) {
 			input.planned_meal_id = `pm_${this.#world.mint()}`;
 		}
 
@@ -652,6 +659,13 @@ export class Outbox implements Keeping {
 		const plan = kept.plan ?? { changed: {}, removed: [] };
 		const id = input.planned_meal_id as string;
 		const known = plan.changed[id] ?? kept.planSeen?.[id];
+		// Where a write puts its meal: a day, or a week with no day (#487).
+		const day = (input.day as Day | undefined) ?? null;
+		const week = day ? mondayOf(day) : (input.week as Day);
+		// After whatever the list already holds, which is where the server puts
+		// it too: no position the server gives comes near this, and each
+		// planned here comes after the last.
+		const last = PLANNED_HERE + Object.keys(plan.changed).length;
 		switch (operation) {
 			case 'plan_recipe': {
 				const recipe = (await this.#world
@@ -663,12 +677,11 @@ export class Outbox implements Keeping {
 				if (!content) throw cannot();
 				plan.changed[id] = {
 					planned_meal_id: id,
-					day: input.day as string,
-					// After whatever the day already holds, which is where the
-					// server puts it too: no position the server gives comes
-					// near this, and each planned here comes after the last.
-					position: PLANNED_HERE + Object.keys(plan.changed).length,
+					week,
+					day,
+					position: last,
 					branch_id: input.branch_id as string,
+					words: null,
 					title: content.title,
 					gone: false,
 					planned_yield: (input.planned_yield ?? null) as Meal['planned_yield'],
@@ -677,6 +690,21 @@ export class Outbox implements Keeping {
 				};
 				break;
 			}
+			case 'plan_words':
+				plan.changed[id] = {
+					planned_meal_id: id,
+					week,
+					day,
+					position: last,
+					branch_id: null,
+					words: (input.words as string).trim(),
+					title: null,
+					gone: false,
+					planned_yield: null,
+					written_yield: null,
+					main_photo: null,
+				};
+				break;
 			case 'set_planned_yield':
 				if (!known) throw cannot();
 				plan.changed[id] = {
@@ -684,6 +712,35 @@ export class Outbox implements Keeping {
 					planned_yield: (input.planned_yield ?? null) as Meal['planned_yield'],
 				};
 				break;
+			case 'set_planned_words':
+				if (!known) throw cannot();
+				plan.changed[id] = { ...known, words: (input.words as string).trim() };
+				break;
+			case 'move_planned_meal': {
+				if (!known) throw cannot();
+				// The list it lands in, as the phone knows it, numbered again
+				// with it in its place, as the server will.
+				const gone = new Set(plan.removed);
+				const all = { ...(kept.planSeen ?? {}), ...plan.changed };
+				const list = Object.values(all)
+					.filter(
+						(meal) =>
+							meal.planned_meal_id !== id &&
+							!gone.has(meal.planned_meal_id) &&
+							meal.week === week &&
+							meal.day === day,
+					)
+					.sort((a, b) => a.position - b.position);
+				const at = Math.min(
+					Math.max(0, (input.position as number | undefined) ?? list.length),
+					list.length,
+				);
+				list.splice(at, 0, { ...known, week, day });
+				list.forEach((meal, position) => {
+					plan.changed[meal.planned_meal_id] = { ...meal, position };
+				});
+				break;
+			}
 			case 'remove_planned_meal':
 				delete plan.changed[id];
 				if (!plan.removed.includes(id)) plan.removed.push(id);
@@ -698,7 +755,8 @@ export class Outbox implements Keeping {
 	/**
 	 * The plan from one day to another, as the phone holds it: what it last
 	 * read of those days, or nothing where it read none, with its own waiting
-	 * changes laid over.
+	 * changes laid over. A week's meals with no day come with any of its days,
+	 * as the server answers them (#487).
 	 */
 	async #plan(kept: Kept, input: Input): Promise<GetMealPlanOutput> {
 		const plan = kept.plan!;
@@ -708,11 +766,17 @@ export class Outbox implements Keeping {
 			.inner('get_meal_plan', input)
 			.catch(() => ({ planned_meals: [] }))) as GetMealPlanOutput;
 		const mine = new Set([...plan.removed, ...Object.keys(plan.changed)]);
+		const inRange = (meal: Meal) =>
+			meal.day === null
+				? meal.week >= mondayOf(from) && meal.week <= to
+				: meal.day >= from && meal.day <= to;
 		const meals = [
 			...read.planned_meals.filter((meal) => !mine.has(meal.planned_meal_id)),
-			...Object.values(plan.changed).filter((meal) => meal.day >= from && meal.day <= to),
+			...Object.values(plan.changed).filter(inRange),
 		];
-		meals.sort((a, b) => (a.day === b.day ? a.position - b.position : a.day < b.day ? -1 : 1));
+		// A week at a time; in each, its meals with no day first, then each day's.
+		const key = (meal: Meal) => `${meal.week} ${meal.day ?? ''}`;
+		meals.sort((a, b) => (key(a) === key(b) ? a.position - b.position : key(a) < key(b) ? -1 : 1));
 		return { planned_meals: meals };
 	}
 
@@ -918,6 +982,20 @@ export class Outbox implements Keeping {
 							(meal): meal is Meal => meal !== null,
 						);
 			const seen = { ...(kept.planSeen ?? {}) };
+			// A read is the truth for the days it covers: a meal it no longer
+			// holds there was taken off or moved elsewhere, and is forgotten, so
+			// a move made later with no network does not bring it back (#487).
+			if (operation === 'get_meal_plan') {
+				const from = input.from as string;
+				const to = input.to as string;
+				for (const [id, meal] of Object.entries(seen)) {
+					const covered =
+						meal.day === null
+							? meal.week >= mondayOf(from) && meal.week <= to
+							: meal.day >= from && meal.day <= to;
+					if (covered) delete seen[id];
+				}
+			}
 			// A write that answers with no meal took it off the plan.
 			if (operation !== 'get_meal_plan' && answered.length === 0)
 				delete seen[input.planned_meal_id as string];

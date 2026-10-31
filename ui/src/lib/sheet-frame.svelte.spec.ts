@@ -218,6 +218,7 @@ describe('every sheet in Kamosu', () => {
 			'FilterList.svelte',
 			'HouseNotes.svelte',
 			'LanguageSheet.svelte',
+			'MoveSheet.svelte',
 			'Passkeys.svelte',
 			'PasteSheet.svelte',
 			'PhotoToRecipe.svelte',
@@ -234,6 +235,7 @@ describe('every sheet in Kamosu', () => {
 			'Thread.svelte',
 			'UseVersion.svelte',
 			'WhichHousehold.svelte',
+			'WriteSheet.svelte',
 			'Writing.svelte',
 		]);
 	});
