@@ -8,6 +8,8 @@ _(Amended by [ADR 0044](./0044-one-app-laid-out-by-room-and-designed-by-role.md)
 
 _(Amended by [ADR 0054](./0054-a-step-s-lines-may-be-corrected-by-hand.md), 2026-10-24: which Ingredients a Step uses is still worked out from the Readings, and a person may now correct it for one Step, kept while the Step and those lines stay as they are ([#439](https://github.com/BatterWorks/Kamosu/issues/439)).)_
 
+_(Amended by [ADR 0058](./0058-a-meal-plan-is-a-persons-own-days-ahead.md), 2026-10-31: the tab bar is Home · Recipes · Plan · Shopping · Cooked. Settings is still not a tab.)_
+
 ## Why
 
 - **The thing that interrupts cooking is a number.** A step says "break the curry roux cake into small blocks" and never says 230g, because the amount lives in the ingredient list and the sentence assumes you remember it. In the first Operator's own 86-recipe export this is not an edge case: 28% of Ingredient Lines carry no quantity at all, and effectively none of the 599 Steps repeat one. A cooking screen showing only the instruction therefore sends the cook back to the list on most steps.

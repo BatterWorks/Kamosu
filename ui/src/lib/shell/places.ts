@@ -13,7 +13,10 @@ export interface Place {
 	path: string;
 }
 
-/** Home · Recipes · Shopping · Cooked: the four the tab bar has always held. */
+/**
+ * Home · Recipes · Plan · Shopping · Cooked. Plan is the fifth, put between the
+ * recipes and the shopping it leads to (#486, ADR 0058).
+ */
 export const places: Place[] = [
 	{
 		href: '/',
@@ -24,6 +27,11 @@ export const places: Place[] = [
 		href: '/recipes',
 		label: () => m.nav_recipes(),
 		path: 'M4 4h11a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V4Zm13 0h3v16M8 8h6M8 12h6',
+	},
+	{
+		href: '/plan',
+		label: () => m.nav_plan(),
+		path: 'M4 6.5A1.5 1.5 0 0 1 5.5 5h13A1.5 1.5 0 0 1 20 6.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6.5ZM4 10h16M8 3v4M16 3v4',
 	},
 	{
 		href: '/shopping',
@@ -38,7 +46,7 @@ export const places: Place[] = [
 ];
 
 /**
- * Settings, the fifth place. Only the sidebar lists it: on the phone the way
+ * Settings, the sixth place. Only the sidebar lists it: on the phone the way
  * in is the gear in the header (#218), which the wide layout does not draw.
  */
 export const settings: Place = {

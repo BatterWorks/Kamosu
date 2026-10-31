@@ -21,7 +21,7 @@ Everything you can do in the web app, an agent can do over MCP (the Model Contex
 | ![Cooking mode on one step, with its ingredients to tick off](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/cooking.png) | ![A cooking in the diary: more garlic, basil added and a reworded step, each above the line it replaced, and a button to keep them as a new version](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/cooked-changed.png) |
 | **Cooking mode**: one step and what it uses | **Cooked**: what you changed at the stove, to keep as a new version |
 
-- **Try the live demo:** https://kamosu.battercloud.cc, a family's library of about 40 recipes, where you arrive signed in and can cook and shop. It goes back to how it was every morning.
+- **Try the live demo:** https://kamosu.battercloud.cc, a family's library of about 40 recipes, where you arrive signed in and can cook, plan and shop. It goes back to how it was every morning.
 - **Source and full README:** https://github.com/BatterWorks/Kamosu
 - **Changelog:** https://github.com/BatterWorks/Kamosu/blob/main/CHANGELOG.md
 
@@ -33,6 +33,7 @@ Everything you can do in the web app, an agent can do over MCP (the Model Contex
 - **A recipe keeps its whole history.** Every save is a new version and none is ever lost. Start a variation or a translation beside the original, and Kamosu shows how two versions differ line by line.
 - **A diary of what you cooked.** Each cooking is dated and rated, with photos, notes, and what you actually did if it differed from the recipe.
 - **Scaling and conversions.** Cook for 3 instead of 6 and every amount follows, with metric or US measures beside the amounts as written.
+- **A plan for the days ahead.** Put a recipe on a day, for as many as you will cook for, and it opens at that amount on the night.
 - **A shopping list worked out from recipes.** Pick dishes and how many you are cooking for. Flour from three recipes becomes one row.
 - **Search by words, or by meaning.** Turn on Meaning Search and "that thing with aubergines" finds a recipe that never says aubergine.
 - **Bring your recipes in.** A web page, a pasted recipe or a recipe PDF, the export of Mealie, Paprika, Tandoor, KitchenOwl, Nextcloud Cookbook, RecipeSage, Bar Assistant, Crouton and others, anything sent from a phone's Share menu, or a recipe from another Kamosu. With a Runner, also photos of a cookbook page, a scanned PDF or a cooking video.
@@ -119,7 +120,7 @@ No environment variable is required.
 | `KAMOSU_PORT` | `5266` | Port to listen on. |
 | `KAMOSU_DATA_DIR` | `/data` | The folder that holds everything. Leave it alone and change the mount instead. |
 | `KAMOSU_LOG` | `info` | Log level, such as `debug`. |
-| `KAMOSU_DEMO_ERASES_LIBRARY_DAILY` | unset | `true` makes this instance a public demo: anyone gets in without a password, and only cooking and shopping save. It erases the library when it starts and every day at 04:00 UTC, putting its Sample Library in its place, so never set it on a Kamosu you keep recipes in. |
+| `KAMOSU_DEMO_ERASES_LIBRARY_DAILY` | unset | `true` makes this instance a public demo: anyone gets in without a password, and only cooking, planning and shopping save. It erases the library when it starts and every day at 04:00 UTC, putting its Sample Library in its place, so never set it on a Kamosu you keep recipes in. |
 | `KAMOSU_DEMO_PUBLIC_ADDRESS` | unset | In a demo only, the address visitors reach it at, such as `https://demo.example.com`. The demo's shared recipe builds its link on it. Without demo mode, Kamosu ignores it: an ordinary instance keeps its address in Settings. |
 | `KAMOSU_DEMO_UMAMI_SCRIPT` | unset | In a demo only, the address of an Umami script to count visits with, such as `https://umami.example.com/script.js`. The demo's pages load it and let its address through their security policy. It must send its counts to its own address, as a self-hosted Umami does. Without demo mode, Kamosu ignores it and sends nothing anywhere. |
 | `KAMOSU_DEMO_UMAMI_WEBSITE_ID` | unset | The website id Umami gave the demo. Needed with `KAMOSU_DEMO_UMAMI_SCRIPT`; one without the other counts nothing. |

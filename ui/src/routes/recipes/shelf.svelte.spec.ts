@@ -1969,7 +1969,7 @@ describe('the + for every new recipe (#174)', () => {
 			/** What a Demo answers a visitor's own file, text or link. */
 			const refusedInDemo = {
 				refuse: 'refused',
-				message: 'This is a demo of Kamosu, where only cooking and shopping are saved.',
+				message: 'This is a demo of Kamosu, where only cooking, planning and shopping are saved.',
 				reason: 'demo',
 			};
 			const inADemo = (answers: object = {}) =>

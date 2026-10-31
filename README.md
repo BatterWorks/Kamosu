@@ -38,7 +38,7 @@ port, and it sends your data nowhere.
 
 <p align="center">
   <b><a href="https://kamosu.battercloud.cc">&#9654;&nbsp; Try the live demo</a></b>: a family's library of
-  about 40 recipes with their history, where you arrive signed in and can cook and shop. It goes
+  about 40 recipes with their history, where you arrive signed in and can cook, plan and shop. It goes
   back to how it was every morning.
 </p>
 
@@ -120,6 +120,8 @@ port, and it sends your data nowhere.
 - **Scaling and conversions.** Cook for 3 instead of 6 and every amount
   follows. Kamosu shows metric or US measures beside the amounts as written,
   and oven temperatures in the other scale.
+- **A plan for the days ahead.** Put a recipe on a day, for as many as you will
+  cook for, and it opens at that amount on the night.
 - **A shopping list worked out from recipes.** Pick dishes and how many you are
   cooking for. Flour from three recipes becomes one row, added together where
   the units convert and shown side by side where they do not.
@@ -193,8 +195,8 @@ It is not:
 
 - **A hosted service.** There is no Kamosu cloud and no sync between servers.
   Recipes move between instances as files or Share Links.
-- **A meal planner or nutrition tracker.** A recipe can carry one calorie
-  figure you typed. Kamosu never calculates nutrition from ingredients.
+- **A nutrition tracker.** A recipe can carry one calorie figure you typed.
+  Kamosu never calculates nutrition from ingredients.
 - **A public recipe site.** There is no signup. Every account starts from an
   invite, and nothing is visible to strangers unless you share a link.
 - **Finished.** This is 0.5.0. It is used in one kitchen, and nobody else has
@@ -415,7 +417,7 @@ No environment variable is required.
 | `KAMOSU_PORT` | `5266` | Port to listen on. |
 | `KAMOSU_DATA_DIR` | `/data` | The folder that holds everything. Inside the container, leave it alone and change the mount instead. |
 | `KAMOSU_LOG` | `info` | Log level, as a `tracing` filter such as `debug` or `kamosu=debug,info`. |
-| `KAMOSU_DEMO_ERASES_LIBRARY_DAILY` | unset | `true` makes this instance a public demo: anyone gets in without a password, and only cooking and shopping save. It erases the library when it starts and every day at 04:00 UTC, putting its Sample Library in its place, so never set it on a Kamosu you keep recipes in. |
+| `KAMOSU_DEMO_ERASES_LIBRARY_DAILY` | unset | `true` makes this instance a public demo: anyone gets in without a password, and only cooking, planning and shopping save. It erases the library when it starts and every day at 04:00 UTC, putting its Sample Library in its place, so never set it on a Kamosu you keep recipes in. |
 | `KAMOSU_DEMO_PUBLIC_ADDRESS` | unset | In a demo only, the address visitors reach it at, such as `https://demo.example.com`. The demo's shared recipe builds its link on it. Stored at every start, since a demo refuses to change the address from its settings. Without demo mode, Kamosu ignores it: an ordinary instance keeps its address in Settings. |
 | `KAMOSU_DEMO_UMAMI_SCRIPT` | unset | In a demo only, the address of an Umami script to count visits with, such as `https://umami.example.com/script.js`. The demo's pages load it and let its address through their security policy. It must send its counts to its own address, as a self-hosted Umami does. Without demo mode, Kamosu ignores it and sends nothing anywhere. |
 | `KAMOSU_DEMO_UMAMI_WEBSITE_ID` | unset | The website id Umami gave the demo. Needed with `KAMOSU_DEMO_UMAMI_SCRIPT`; one without the other counts nothing. |
@@ -425,10 +427,11 @@ No environment variable is required.
 `KAMOSU_DEMO_ERASES_LIBRARY_DAILY=true` turns an instance into a public demo,
 like [the live one](https://kamosu.battercloud.cc). Anyone who opens it
 arrives signed in, with nothing to type, as Camille, who runs the instance, so
-every screen opens. Cooking and shopping save. Anything else that would change
-the library, reach beyond it or do work for a visitor is refused with a note
-that this is a demo: creating or editing a recipe, importing, uploading a
-photo, fetching a link, accounts, keys, Kitchens and every Operator setting.
+every screen opens. Cooking, planning and shopping save. Anything else that
+would change the library, reach beyond it or do work for a visitor is refused
+with a note that this is a demo: creating or editing a recipe, importing,
+uploading a photo, fetching a link, accounts, keys, Kitchens and every Operator
+setting.
 
 It erases the library when it starts and every day at 04:00 UTC, and puts its
 Sample Library in its place: about 40 recipes with their versions, cookings and

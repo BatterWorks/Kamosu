@@ -62,6 +62,34 @@ export const aClock = (when: string | Date): string =>
 export const aWeekday = (when: string | Date): string =>
 	at(when).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' });
 
+/**
+ * A planned day (#486), which is a date with no time zone and so is written as
+ * the date it is, wherever the cook is: `Thursday 5 November`.
+ */
+export const aPlannedDay = (day: string): string =>
+	at(`${day}T00:00:00Z`).toLocaleDateString(locale(), {
+		weekday: 'long',
+		day: 'numeric',
+		month: 'long',
+		timeZone: 'UTC',
+	});
+
+/** A planned day's weekday alone, as the Plan heads a day: `Thu`. */
+export const aPlannedWeekday = (day: string): string =>
+	at(`${day}T00:00:00Z`).toLocaleDateString(locale(), { weekday: 'short', timeZone: 'UTC' });
+
+/** The seven days from a Monday, as the Plan heads a week: `26 October – 1 November`. */
+export const aPlannedWeek = (monday: string, sunday: string): string => {
+	const day = (date: string, month: boolean) =>
+		at(`${date}T00:00:00Z`).toLocaleDateString(locale(), {
+			day: 'numeric',
+			...(month ? { month: 'long' } : {}),
+			timeZone: 'UTC',
+		});
+	const sameMonth = monday.slice(0, 7) === sunday.slice(0, 7);
+	return `${day(monday, !sameMonth)} – ${day(sunday, true)}`;
+};
+
 /** A month, as the diary heads one: `September 2026`. */
 export const aMonth = (when: string | Date): string =>
 	at(when).toLocaleDateString(locale(), { month: 'long', year: 'numeric' });
