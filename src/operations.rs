@@ -3132,9 +3132,57 @@ pub fn plan_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result
     core.plan_recipe(
         &caller.person_id,
         required(&input, "branch_id", "plan_recipe")?,
-        required(&input, "day", "plan_recipe")?,
+        place(&input)?,
         input.get("planned_yield"),
         input.get("planned_meal_id").and_then(Value::as_str),
+        written_at(&input),
+    )
+}
+
+/// Where a plan write puts its meal: `day` or `week`, exactly one (#487).
+fn place(input: &Value) -> Result<crate::core::Place<'_>, OpError> {
+    crate::core::Place::from_input(
+        input.get("day").and_then(Value::as_str),
+        input.get("week").and_then(Value::as_str),
+    )
+}
+
+pub fn plan_words(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.plan_words(
+        &caller.person_id,
+        required(&input, "words", "plan_words")?,
+        place(&input)?,
+        input.get("planned_meal_id").and_then(Value::as_str),
+        written_at(&input),
+    )
+}
+
+pub fn set_planned_words(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.set_planned_words(
+        &caller.person_id,
+        required(&input, "planned_meal_id", "set_planned_words")?,
+        required(&input, "words", "set_planned_words")?,
+        written_at(&input),
+    )
+}
+
+pub fn move_planned_meal(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.move_planned_meal(
+        &caller.person_id,
+        required(&input, "planned_meal_id", "move_planned_meal")?,
+        place(&input)?,
+        input.get("position").and_then(Value::as_i64),
         written_at(&input),
     )
 }

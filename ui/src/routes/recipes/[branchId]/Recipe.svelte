@@ -124,7 +124,7 @@
 </script>
 
 <script lang="ts">
-	import { aDate, aPlannedDay, aTime } from '$lib/dates';
+	import { aDate, aTime } from '$lib/dates';
 	// What the page is made of. The screen keeps its own state — the recipe it
 	// is reading, the Thread around it, the Divergence, how much it is read at,
 	// and what the last save did — and composes the rest. Each concern that
@@ -192,7 +192,8 @@
 	import { thisDevice, type Device } from '$lib/offline/device.svelte';
 	import { useFiles } from '$lib/api/files';
 	import { said, same, toSearch, type Wanted } from '$lib/how-much';
-	import { mondayOf, type Day } from '$lib/plan-days';
+	import { weekOfWhere, type Where } from '$lib/plan-days';
+	import { whereName } from '$lib/plan-where';
 	import { takePaste, type PastedDraft } from '$lib/pasted.svelte';
 	import {
 		between,
@@ -297,7 +298,7 @@
 	/** "Plan this" is open. */
 	let planning = $state(false);
 	/** What was just planned from here, which the page says under the button. */
-	let planned = $state<{ day: Day; wanted: Wanted } | null>(null);
+	let planned = $state<{ where: Where; wanted: Wanted } | null>(null);
 
 	// ---- how much, for the errands (#109) ---------------------------------
 	//
@@ -1069,9 +1070,9 @@
 					role="status"
 				>
 					{amount
-						? m.plan_planned_for_amount({ day: aPlannedDay(planned.day), amount })
-						: m.plan_planned_for({ day: aPlannedDay(planned.day) })}
-					<a href="/plan?week={mondayOf(planned.day)}" class="ms-1 text-accent underline"
+						? m.plan_planned_for_amount({ day: whereName(planned.where), amount })
+						: m.plan_planned_for({ day: whereName(planned.where) })}
+					<a href="/plan?week={weekOfWhere(planned.where)}" class="ms-1 text-accent underline"
 						>{m.plan_see()}</a
 					>
 				</p>
@@ -1714,9 +1715,9 @@
 		branchId={recipe.branch_id}
 		title={content.title}
 		written={content.yield}
-		onPlanned={(day, wanted) => {
+		onPlanned={(where, wanted) => {
 			planning = false;
-			planned = { day, wanted };
+			planned = { where, wanted };
 		}}
 		onClose={() => (planning = false)}
 	/>

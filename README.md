@@ -120,8 +120,10 @@ port, and it sends your data nowhere.
 - **Scaling and conversions.** Cook for 3 instead of 6 and every amount
   follows. Kamosu shows metric or US measures beside the amounts as written,
   and oven temperatures in the other scale.
-- **A plan for the days ahead.** Put a recipe on a day, for as many as you will
-  cook for, and it opens at that amount on the night.
+- **A plan for the days ahead.** Put a recipe on a day, or on a week before the
+  day is decided, for as many as you will cook for, and it opens at that amount
+  on the night. Write "leftovers" or "eating out" on a day, and move things
+  around as the week changes.
 - **A shopping list worked out from recipes.** Pick dishes and how many you are
   cooking for. Flour from three recipes becomes one row, added together where
   the units convert and shown side by side where they do not.

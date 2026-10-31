@@ -5,7 +5,10 @@
  * so a test here can lie about the values and never about the shape. What it
  * is for is what a behaviour test cannot see: the week drawn as option B of
  * #486's prototype, a planned recipe opening at its planned Yield, one that
- * can no longer be read saying so, and an empty week saying how to plan.
+ * can no longer be read saying so, and an empty week saying how to plan. And
+ * from #487's: the week's meals with no day above its days, written words,
+ * the + on each day, moving, planning again and the order, and dragging on
+ * the wide layout.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -14,6 +17,7 @@ import Page from './+page.svelte';
 import { renderScreen } from '../../testing/render';
 import type { GetMealPlanInput, GetMealPlanOutput } from '$lib/api/catalogue';
 import { addDays, mondayOf, today } from '$lib/plan-days';
+import { aPlannedDay } from '$lib/dates';
 
 type Meal = GetMealPlanOutput['planned_meals'][number];
 
@@ -21,9 +25,11 @@ const monday = mondayOf(today());
 
 const meal = (over: Partial<Meal> = {}): Meal => ({
 	planned_meal_id: 'pm_0000000000000001',
+	week: monday,
 	day: addDays(monday, 3),
 	position: 0,
 	branch_id: 'b_katsu',
+	words: null,
 	title: 'Katsu Curry',
 	gone: false,
 	planned_yield: { amount: '6', noun: 'servings' },
@@ -78,7 +84,8 @@ describe('the Plan', () => {
 				.getAllByRole('link')
 				.map((link) => link.getAttribute('href')?.split('?')[0]),
 		).toEqual(['/recipes/b_katsu', '/recipes/b_ceviche']);
-		expect(document.querySelectorAll('section')).toHaveLength(7);
+		// The week's list with no day, then its seven days.
+		expect(document.querySelectorAll('section')).toHaveLength(8);
 		expect(screen.getAllByText('Nothing planned')).toHaveLength(5);
 		expect(kamosu.calls).toContainEqual({
 			operation: 'get_meal_plan',
@@ -197,5 +204,367 @@ describe('the Plan', () => {
 		const katsu = await screen.findByRole('link', { name: /Katsu Curry/ });
 		expect(katsu.closest('.grid-cols-7')).not.toBeNull();
 		expect(screen.getAllByText('Nothing')).toHaveLength(6);
+	});
+});
+
+describe('the Plan, a week with no day and written words (#487)', () => {
+	const words = (over: Partial<Meal> = {}): Meal =>
+		meal({
+			planned_meal_id: 'pm_00000000000000a1',
+			branch_id: null,
+			words: 'Leftovers',
+			title: null,
+			planned_yield: null,
+			written_yield: null,
+			...over,
+		});
+	const anyDay = (over: Partial<Meal> = {}): Meal =>
+		meal({
+			planned_meal_id: 'pm_00000000000000b1',
+			day: null,
+			branch_id: 'b_korean',
+			title: 'Korean Fried Chicken',
+			planned_yield: null,
+			...over,
+		});
+	const answered = ({ planned_meal_id }: { planned_meal_id: string }) => ({
+		planned_meal: meal({ planned_meal_id }),
+	});
+
+	it("draws the week's meals with no day above Monday, and says so when there are none", async () => {
+		renderScreen(Page, {
+			get_meal_plan: ({ from }) => ({
+				planned_meals: from === monday ? [anyDay()] : [meal({ week: from, day: addDays(from, 1) })],
+			}),
+		});
+
+		const korean = await screen.findByRole('link', { name: /Korean Fried Chicken/ });
+		const sections = [...document.querySelectorAll('section')];
+		expect(sections[0]).toContainElement(korean);
+		expect(sections[0]).toHaveTextContent('Any day');
+
+		await fireEvent.click(screen.getByRole('button', { name: 'The week after' }));
+		expect(
+			await screen.findByText(
+				'Nothing yet. A recipe planned for the week, with no day, waits here.',
+			),
+		).toBeInTheDocument();
+	});
+
+	it('draws written words with no photo and nothing to open, and changes them on Done', async () => {
+		const { kamosu } = renderScreen(Page, {
+			get_meal_plan: weekOf([words()]),
+			set_planned_words: ({ planned_meal_id, words: typed }) => ({
+				planned_meal: words({ planned_meal_id, words: typed }),
+			}),
+		});
+
+		const written = await screen.findByText('Leftovers');
+		expect(written.closest('a')).toBeNull();
+		expect(written.closest('li')?.querySelector('img')).toBeNull();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+		const sheet = await screen.findByRole('dialog');
+		expect(within(sheet).queryByRole('link', { name: /Open it/ })).toBeNull();
+		expect(within(sheet).queryByRole('button', { name: 'One more' })).toBeNull();
+		await fireEvent.input(within(sheet).getByLabelText('The words'), {
+			target: { value: 'Leftovers and a salad ' },
+		});
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Done' }));
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'set_planned_words',
+			input: { planned_meal_id: 'pm_00000000000000a1', words: 'Leftovers and a salad' },
+		});
+		expect(await screen.findByText('Leftovers and a salad')).toBeInTheDocument();
+	});
+
+	it('writes words on a day from its +, and on the week from the list with no day', async () => {
+		const { kamosu } = renderScreen(Page, {
+			get_meal_plan: weekOf([meal()]),
+			plan_words: ({ words: typed }) => ({ planned_meal: words({ words: typed }) }),
+		});
+		await screen.findByRole('link', { name: /Katsu Curry/ });
+		const friday = addDays(monday, 4);
+
+		const plus = screen.getAllByRole('button', { name: /^Add to / });
+		expect(plus).toHaveLength(8);
+		await fireEvent.click(plus[5]);
+		const sheet = await screen.findByRole('dialog');
+		const put = within(sheet).getByRole('button', { name: /^Put it on / });
+		expect(put).toBeDisabled();
+		expect(within(sheet).getByRole('link', { name: 'Choose a recipe to plan' })).toHaveAttribute(
+			'href',
+			'/recipes',
+		);
+		await fireEvent.input(within(sheet).getByLabelText('Write something'), {
+			target: { value: 'Eating out' },
+		});
+		await fireEvent.click(put);
+		expect(kamosu.calls).toContainEqual({
+			operation: 'plan_words',
+			input: { words: 'Eating out', day: friday },
+		});
+		expect(screen.queryByRole('dialog')).toBeNull();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Add to any day this week' }));
+		const again = await screen.findByRole('dialog');
+		await fireEvent.input(within(again).getByLabelText('Write something'), {
+			target: { value: 'Soup' },
+		});
+		await fireEvent.click(
+			within(again).getByRole('button', { name: 'Put it on any day this week' }),
+		);
+		expect(kamosu.calls).toContainEqual({
+			operation: 'plan_words',
+			input: { words: 'Soup', week: monday },
+		});
+	});
+
+	it('moves a meal to a week with no day from its sheet, and says where it went', async () => {
+		const { kamosu } = renderScreen(Page, {
+			get_meal_plan: weekOf([meal()]),
+			move_planned_meal: answered,
+		});
+		await screen.findByRole('link', { name: /Katsu Curry/ });
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+		await fireEvent.click(
+			within(await screen.findByRole('dialog')).getByRole('button', { name: 'Move' }),
+		);
+		const sheet = await screen.findByRole('dialog');
+		expect(within(sheet).getByText(/^Now on /)).toBeInTheDocument();
+		await fireEvent.click(within(sheet).getByRole('radio', { name: /^Any day next week/ }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Move it to next week' }));
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'move_planned_meal',
+			input: { planned_meal_id: 'pm_0000000000000001', week: addDays(monday, 7) },
+		});
+		const said = await screen.findByRole('status');
+		expect(said).toHaveTextContent('Moved: Katsu Curry, any day next week.');
+		await fireEvent.click(within(said).getByRole('button', { name: 'See next week' }));
+		expect(await screen.findByText('Next week')).toBeInTheDocument();
+	});
+
+	it('plans a recipe again at its amount and leaves the first where it is', async () => {
+		const { kamosu } = renderScreen(Page, {
+			get_meal_plan: weekOf([meal()]),
+			plan_recipe: { planned_meal: meal({ planned_meal_id: 'pm_00000000000000c1' }) },
+		});
+		await screen.findByRole('link', { name: /Katsu Curry/ });
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+		await fireEvent.click(
+			within(await screen.findByRole('dialog')).getByRole('button', { name: 'Plan again' }),
+		);
+		const sheet = await screen.findByRole('dialog');
+		expect(
+			within(sheet).getByText(/^Stays on .* too, and keeps 6 servings\.$/),
+		).toBeInTheDocument();
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Show 3 more weeks' }));
+		await fireEvent.click(within(sheet).getAllByRole('radio', { name: /^Any day that week/ })[0]);
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'get_meal_plan',
+			input: { from: today(), to: addDays(monday, 41) },
+		});
+		await fireEvent.click(within(sheet).getByRole('button', { name: /^Plan it again for / }));
+		expect(kamosu.calls).toContainEqual({
+			operation: 'plan_recipe',
+			input: {
+				branch_id: 'b_katsu',
+				week: addDays(monday, 14),
+				planned_yield: { amount: '6', noun: 'servings' },
+			},
+		});
+		expect(kamosu.calls.some((call) => call.operation === 'move_planned_meal')).toBe(false);
+		expect(await screen.findByRole('status')).toHaveTextContent(/^Planned again: Katsu Curry, /);
+	});
+
+	it('plans written words again with the same words', async () => {
+		const { kamosu } = renderScreen(Page, {
+			get_meal_plan: weekOf([words()]),
+			plan_words: ({ words: typed }) => ({ planned_meal: words({ words: typed }) }),
+		});
+		await screen.findByText('Leftovers');
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+		await fireEvent.click(
+			within(await screen.findByRole('dialog')).getByRole('button', { name: 'Plan again' }),
+		);
+		const sheet = await screen.findByRole('dialog');
+		await fireEvent.click(within(sheet).getByRole('radio', { name: /^Any day next week/ }));
+		await fireEvent.click(
+			within(sheet).getByRole('button', { name: 'Plan it again for next week' }),
+		);
+		expect(kamosu.calls).toContainEqual({
+			operation: 'plan_words',
+			input: { words: 'Leftovers', week: addDays(monday, 7) },
+		});
+	});
+
+	it('puts a meal earlier or later in its day, and says which of how many it is', async () => {
+		const { kamosu } = renderScreen(Page, {
+			get_meal_plan: weekOf([
+				meal(),
+				meal({ planned_meal_id: 'pm_0000000000000002', position: 1, title: 'Ceviche' }),
+			]),
+			move_planned_meal: answered,
+		});
+		await screen.findByRole('link', { name: /Ceviche/ });
+
+		await fireEvent.click(screen.getAllByRole('button', { name: 'Change' })[1]);
+		const sheet = await screen.findByRole('dialog');
+		expect(within(sheet).getByText('2 of 2 on this day')).toBeInTheDocument();
+		expect(within(sheet).getByRole('button', { name: /Later/ })).toBeDisabled();
+		await fireEvent.click(within(sheet).getByRole('button', { name: /Earlier/ }));
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'move_planned_meal',
+			input: { planned_meal_id: 'pm_0000000000000002', day: addDays(monday, 3), position: 0 },
+		});
+	});
+
+	it('offers no Earlier and Later for the only meal on its day', async () => {
+		renderScreen(Page, { get_meal_plan: weekOf([meal()]) });
+		await screen.findByRole('link', { name: /Katsu Curry/ });
+		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+		const sheet = await screen.findByRole('dialog');
+		expect(within(sheet).queryByRole('button', { name: /Earlier/ })).toBeNull();
+	});
+
+	it('moves a recipe that can no longer be read, and never plans it again', async () => {
+		renderScreen(Page, {
+			get_meal_plan: weekOf([anyDay({ title: 'Shakshuka', gone: true, written_yield: null })]),
+		});
+		await screen.findByText('Shakshuka');
+		await fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+		const sheet = await screen.findByRole('dialog');
+		expect(within(sheet).getByRole('button', { name: 'Move' })).toBeInTheDocument();
+		expect(within(sheet).queryByRole('button', { name: 'Plan again' })).toBeNull();
+		expect(within(sheet).getByText(/^Any day · This week$/)).toBeInTheDocument();
+	});
+
+	it('draws the week with no day as a band on the wide layout, and a meal dragged onto a day moves there', async () => {
+		const { kamosu } = renderScreen(
+			Page,
+			{ get_meal_plan: weekOf([anyDay(), meal()]), move_planned_meal: answered },
+			undefined,
+			'wide',
+		);
+
+		const korean = await screen.findByRole('link', { name: /Korean Fried Chicken/ });
+		const band = screen.getByRole('region', { name: 'Any day this week' });
+		expect(band).toContainElement(korean);
+		expect(screen.getByText(/^Drag a meal to another day/)).toBeInTheDocument();
+
+		const card = korean.closest('li') as HTMLElement;
+		const saturday = screen.getByRole('group', { name: aPlannedDay(addDays(monday, 5)) });
+		await fireEvent.dragStart(card);
+		await fireEvent.dragOver(saturday);
+		// An empty day keeps its box under the pointer, lit, rather than
+		// shrinking to a line and losing the drop (found live).
+		const nothing = within(saturday).getByText('Nothing');
+		expect(nothing).toHaveClass('border-accent');
+		await fireEvent.drop(saturday);
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'move_planned_meal',
+			input: { planned_meal_id: 'pm_00000000000000b1', day: addDays(monday, 5), position: 0 },
+		});
+	});
+});
+
+describe('the Plan when something goes wrong or nothing is there (#487)', () => {
+	it('keeps a + on every day of an empty week, as its sentence says', async () => {
+		renderScreen(Page, { get_meal_plan: { planned_meals: [] } });
+
+		expect(await screen.findByText(/or press \+ on a day to write something/)).toBeInTheDocument();
+		expect(screen.getAllByRole('button', { name: /^Add to / })).toHaveLength(8);
+	});
+
+	it('says so when a move is refused, and keeps the sheet open', async () => {
+		renderScreen(Page, {
+			get_meal_plan: weekOf([meal()]),
+			move_planned_meal: { refuse: 'not_found' as const },
+		});
+		await screen.findByRole('link', { name: /Katsu Curry/ });
+		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+		await fireEvent.click(
+			within(await screen.findByRole('dialog')).getByRole('button', { name: 'Move' }),
+		);
+		const sheet = await screen.findByRole('dialog');
+		await fireEvent.click(within(sheet).getByRole('radio', { name: /^Any day next week/ }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Move it to next week' }));
+
+		expect(await within(sheet).findByRole('alert')).toHaveTextContent("That didn't save");
+	});
+
+	it('says so in the sheet when Earlier is refused', async () => {
+		renderScreen(Page, {
+			get_meal_plan: weekOf([
+				meal(),
+				meal({ planned_meal_id: 'pm_0000000000000002', position: 1, title: 'Ceviche' }),
+			]),
+			move_planned_meal: { refuse: 'not_found' as const },
+		});
+		await screen.findByRole('link', { name: /Ceviche/ });
+		await fireEvent.click(screen.getAllByRole('button', { name: 'Change' })[1]);
+		const sheet = await screen.findByRole('dialog');
+		await fireEvent.click(within(sheet).getByRole('button', { name: /Earlier/ }));
+
+		expect(await within(sheet).findByRole('alert')).toHaveTextContent("That didn't save");
+	});
+
+	it('says so when a move by dragging is refused', async () => {
+		renderScreen(
+			Page,
+			{
+				get_meal_plan: weekOf([meal()]),
+				move_planned_meal: { refuse: 'not_found' as const },
+			},
+			undefined,
+			'wide',
+		);
+		const katsu = await screen.findByRole('link', { name: /Katsu Curry/ });
+		const saturday = screen.getByRole('group', { name: aPlannedDay(addDays(monday, 5)) });
+		await fireEvent.dragStart(katsu.closest('li') as HTMLElement);
+		await fireEvent.dragOver(saturday);
+		await fireEvent.drop(saturday);
+
+		expect(await screen.findByRole('alert')).toHaveTextContent("That didn't save");
+
+		// Gone with the week it was said on.
+		await fireEvent.click(screen.getByRole('button', { name: 'The week after' }));
+		expect(screen.queryByRole('alert')).toBeNull();
+	});
+
+	it('drops a meal onto an empty week with no day, and the lit box goes when the pointer leaves', async () => {
+		const { kamosu } = renderScreen(
+			Page,
+			{
+				get_meal_plan: weekOf([meal()]),
+				move_planned_meal: ({ planned_meal_id }) => ({ planned_meal: meal({ planned_meal_id }) }),
+			},
+			undefined,
+			'wide',
+		);
+		const katsu = await screen.findByRole('link', { name: /Katsu Curry/ });
+		const band = screen.getByRole('region', { name: 'Any day this week' });
+		const empty = within(band).getByText(/^Nothing on .any day. for this week\.$/);
+
+		await fireEvent.dragStart(katsu.closest('li') as HTMLElement);
+		await fireEvent.dragOver(band);
+		expect(empty).toHaveClass('text-accent');
+		await fireEvent.dragLeave(band, { relatedTarget: document.body });
+		expect(empty).not.toHaveClass('text-accent');
+		await fireEvent.dragOver(band);
+		await fireEvent.drop(band);
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'move_planned_meal',
+			input: { planned_meal_id: 'pm_0000000000000001', week: monday, position: 0 },
+		});
 	});
 });

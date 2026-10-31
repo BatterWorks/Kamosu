@@ -276,6 +276,9 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "remove_loose_item"
             | "get_meal_plan"
             | "plan_recipe"
+            | "plan_words"
+            | "set_planned_words"
+            | "move_planned_meal"
             | "set_planned_yield"
             | "remove_planned_meal" => ("{}", 401),
             // Public, and answered on the token alone: a token nobody minted
@@ -518,6 +521,9 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "remove_loose_item"
                 | "get_meal_plan"
                 | "plan_recipe"
+                | "plan_words"
+                | "set_planned_words"
+                | "move_planned_meal"
                 | "set_planned_yield"
                 | "remove_planned_meal"
         ) {
