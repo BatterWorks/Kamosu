@@ -228,6 +228,7 @@ describe('every sheet in Kamosu', () => {
 			'Replays.svelte',
 			'RunnerKeySecret.svelte',
 			'SendSheet.svelte',
+			'SendToShopping.svelte',
 			'SignOut.svelte',
 			'StepPhoto.svelte',
 			'StepUsesSheet.svelte',

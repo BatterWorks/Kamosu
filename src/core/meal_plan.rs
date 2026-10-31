@@ -2,7 +2,7 @@
 //! words planned on them, on a day or on a week with no day (#486, #487,
 //! ADR 0058).
 
-use super::shopping_list::stored_yield;
+use super::shopping_list::{add_to_choosing, shopping_list, shopping_moment, stored_yield};
 use super::*;
 
 /// The longest stretch of days one read of the plan answers: a year, so a
@@ -325,6 +325,227 @@ impl Core {
             Ok(json!({ "planned_meal": Value::Null }))
         })
     }
+
+    /// **Send days and weeks of the plan to the Shopping List** (#488): a day
+    /// sends its own Planned Meals, a week its days' and its undated ones,
+    /// `any_day_of` a week's undated ones alone, and one chosen twice is sent
+    /// once. Each recipe sends the part of its
+    /// planned Yield not sent before, added to what the list holds for its
+    /// Branch through the list's own adding path, and remembers what it has
+    /// now sent. Written words and recipes that can no longer be read send
+    /// nothing and are named.
+    ///
+    /// **It is one write on the Shopping List's clock**: a send older than
+    /// the list's last write, made with no network and sent after the list
+    /// changed elsewhere, adds nothing and marks nothing, and says so.
+    pub fn send_to_shopping_list(
+        &self,
+        person_id: &str,
+        days: &[&str],
+        weeks: &[&str],
+        any_day_of: &[&str],
+        written_at: Option<&str>,
+    ) -> Result<Value, OpError> {
+        if days.is_empty() && weeks.is_empty() && any_day_of.is_empty() {
+            return Err(OpError::bad_request(
+                "send at least one day or week to the Shopping List",
+            ));
+        }
+        self.db().with_conn(|conn| {
+            let mut chosen_days = Vec::with_capacity(days.len());
+            for day in days {
+                chosen_days.push(calendar_day(conn, day, "days")?);
+            }
+            let mondays = |weeks: &[&str]| {
+                weeks
+                    .iter()
+                    .map(|week| Place::Week(week).resolve(conn).map(|(week, _)| week))
+                    .collect::<Result<Vec<_>, _>>()
+            };
+            let chosen_weeks = mondays(weeks)?;
+            let undated_weeks = mondays(any_day_of)?;
+            // Every meal of the weeks touched, in the plan's order, and those
+            // the choice covers: chosen twice is still once.
+            let mut touched = [chosen_weeks.clone(), undated_weeks.clone()].concat();
+            for day in &chosen_days {
+                touched.push(monday_of(conn, day)?);
+            }
+            touched.sort();
+            touched.dedup();
+            let mut meals = Vec::new();
+            for week in &touched {
+                for meal in week_of(conn, person_id, week)? {
+                    let covered = chosen_weeks.iter().any(|chosen| meal["week"] == **chosen)
+                        || (meal["day"].is_null()
+                            && undated_weeks.iter().any(|chosen| meal["week"] == **chosen))
+                        || meal["day"]
+                            .as_str()
+                            .is_some_and(|day| chosen_days.iter().any(|chosen| chosen == day));
+                    if covered {
+                        meals.push(meal);
+                    }
+                }
+            }
+
+            let mut skipped = Vec::new();
+            let mut already_sent = Vec::new();
+            // Each Branch once, in the order its first meal comes, with every
+            // meal of it that has something to send.
+            let mut sending: Vec<Sending> = Vec::new();
+            for meal in &meals {
+                let id = meal["planned_meal_id"].as_str().unwrap_or_default();
+                if !meal["words"].is_null() || meal["gone"] == true {
+                    skipped.push(json!({
+                        "planned_meal_id": id,
+                        "title": meal["title"],
+                        "words": meal["words"],
+                        "reason": if meal["words"].is_null() { "gone" } else { "words" },
+                    }));
+                    continue;
+                }
+                let factor = yield_scale(&meal["planned_yield"], &meal["written_yield"]);
+                let sent = meal["sent_factor"].as_f64().unwrap_or(0.0);
+                if factor - sent <= SAME_FACTOR {
+                    already_sent.push(json!({
+                        "planned_meal_id": id,
+                        "branch_id": meal["branch_id"],
+                        "title": meal["title"],
+                        "planned_fewer": factor < sent - SAME_FACTOR,
+                    }));
+                    continue;
+                }
+                let branch_id = meal["branch_id"].as_str().unwrap_or_default();
+                let at = match sending.iter().position(|each| each.branch_id == branch_id) {
+                    Some(at) => at,
+                    None => {
+                        sending.push(Sending {
+                            branch_id: branch_id.to_string(),
+                            title: meal["title"].as_str().unwrap_or_default().to_string(),
+                            written_yield: meal["written_yield"].clone(),
+                            factor: 0.0,
+                            raised: true,
+                            meals: Vec::new(),
+                        });
+                        sending.len() - 1
+                    }
+                };
+                sending[at].factor += factor - sent;
+                sending[at].raised &= !meal["sent_factor"].is_null();
+                sending[at].meals.push((id.to_string(), factor));
+            }
+
+            // One write: the list, its clock and the marks land together or
+            // not at all.
+            let transaction = conn
+                .unchecked_transaction()
+                .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
+            // Nothing to send writes nothing, so it takes nothing of the
+            // list's clock: an older change made offline still lands after it.
+            let moment = if sending.is_empty() {
+                String::new()
+            } else {
+                let Some(moment) = shopping_moment(conn, person_id, written_at)? else {
+                    return Ok(json!({
+                        "outcome": "refused",
+                        "sent": [],
+                        "already_sent": [],
+                        "skipped": [],
+                        "planned_meals": meals,
+                        "shopping_list": shopping_list(conn, person_id)?,
+                    }));
+                };
+                moment
+            };
+            let mut sent = Vec::with_capacity(sending.len());
+            for each in &sending {
+                let added = add_to_choosing(
+                    conn,
+                    person_id,
+                    &each.branch_id,
+                    &each.title,
+                    &each.written_yield,
+                    each.factor,
+                    &moment,
+                )?;
+                for (id, factor) in &each.meals {
+                    conn.execute(
+                        "UPDATE planned_meals SET sent_factor = ?3, sent_at = ?4 \
+                          WHERE id = ?1 AND person_id = ?2",
+                        params![id, person_id, factor, moment],
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot mark a meal sent: {e}")))?;
+                }
+                sent.push(json!({
+                    "branch_id": each.branch_id,
+                    "title": each.title,
+                    "added_factor": each.factor,
+                    "raised": each.raised,
+                    "planned_meals": each.meals.iter().map(|(id, _)| id).collect::<Vec<_>>(),
+                    "was_on_list": added.was_on_list,
+                    "shopping_yield": added.shopping_yield,
+                    "written_yield": each.written_yield,
+                }));
+            }
+            transaction
+                .commit()
+                .map_err(|e| OpError::internal(format!("cannot send to the list: {e}")))?;
+            let meals = meals
+                .iter()
+                .map(|meal| {
+                    planned_meal(
+                        conn,
+                        person_id,
+                        meal["planned_meal_id"].as_str().unwrap_or_default(),
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(json!({
+                "outcome": "sent",
+                "sent": sent,
+                "already_sent": already_sent,
+                "skipped": skipped,
+                "planned_meals": meals.into_iter().flatten().collect::<Vec<_>>(),
+                "shopping_list": shopping_list(conn, person_id)?,
+            }))
+        })
+    }
+}
+
+/// Two factors closer than this are the same: what was sent is read back
+/// from a REAL column, and a third and two thirds are not exact.
+const SAME_FACTOR: f64 = 1e-9;
+
+/// One Branch on its way to the Shopping List: how much of it, and from
+/// which Planned Meals, each with the factor it will have sent.
+struct Sending {
+    branch_id: String,
+    title: String,
+    written_yield: Value,
+    factor: f64,
+    /// Whether every meal of it had gone before, so what goes is what they grew by.
+    raised: bool,
+    meals: Vec<(String, f64)>,
+}
+
+/// A whole week of one Person's plan, its undated meals first, then each
+/// day's, each list in its order.
+fn week_of(conn: &Connection, person_id: &str, week: &str) -> Result<Vec<Value>, OpError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id FROM planned_meals WHERE person_id = ?1 AND week = ?2 \
+              ORDER BY day IS NOT NULL, day, position, planned_at, id",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
+    let ids: Vec<String> = statement
+        .query_map(params![person_id, week], |row| row.get(0))
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
+    let meals = ids
+        .iter()
+        .map(|id| planned_meal(conn, person_id, id))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(meals.into_iter().flatten().collect())
 }
 
 /// The ids of one list of a Person's plan, a day's or a week's with no day,
@@ -383,10 +604,12 @@ fn planned_meal(conn: &Connection, person_id: &str, id: &str) -> Result<Option<V
         i64,
         Option<String>,
         Option<String>,
+        (Option<f64>, Option<String>),
     );
     let stored: Option<Row> = conn
         .query_row(
-            "SELECT branch_id, words, week, day, position, planned_yield, known_as \
+            "SELECT branch_id, words, week, day, position, planned_yield, known_as, \
+                    sent_factor, sent_at \
                FROM planned_meals WHERE id = ?1 AND person_id = ?2",
             params![id, person_id],
             |row| {
@@ -398,12 +621,23 @@ fn planned_meal(conn: &Connection, person_id: &str, id: &str) -> Result<Option<V
                     row.get(4)?,
                     row.get(5)?,
                     row.get(6)?,
+                    (row.get(7)?, row.get(8)?),
                 ))
             },
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
-    let Some((branch_id, words, week, day, position, planned_yield, known_as)) = stored else {
+    let Some((
+        branch_id,
+        words,
+        week,
+        day,
+        position,
+        planned_yield,
+        known_as,
+        (sent_factor, sent_at),
+    )) = stored
+    else {
         return Ok(None);
     };
     let Some(branch_id) = branch_id else {
@@ -420,6 +654,8 @@ fn planned_meal(conn: &Connection, person_id: &str, id: &str) -> Result<Option<V
             "planned_yield": Value::Null,
             "written_yield": Value::Null,
             "main_photo": Value::Null,
+            "sent_factor": Value::Null,
+            "sent_at": Value::Null,
         })));
     };
     // Always the Branch's newest Version, as the Shopping List reads it: a
@@ -458,6 +694,11 @@ fn planned_meal(conn: &Connection, person_id: &str, id: &str) -> Result<Option<V
             .as_ref()
             .map(|content| content["main_photo"].clone())
             .unwrap_or(Value::Null),
+        // How much of the recipe as written it last sent to the Shopping
+        // List, and when (#488): none until it is sent, and unchanged when
+        // the list is emptied.
+        "sent_factor": sent_factor,
+        "sent_at": sent_at,
     })))
 }
 

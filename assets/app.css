@@ -562,6 +562,9 @@
   .ms-auto {
     margin-inline-start: auto;
   }
+  .me-1 {
+    margin-inline-end: var(--spacing-1);
+  }
   .ingredient-marker {
     width: 7px;
     height: 7px;
@@ -592,8 +595,14 @@
   .mt-12 {
     margin-top: var(--spacing-12);
   }
+  .mt-\[1px\] {
+    margin-top: 1px;
+  }
   .mt-\[2px\] {
     margin-top: 2px;
+  }
+  .mt-\[3px\] {
+    margin-top: 3px;
   }
   .mt-\[6px\] {
     margin-top: 6px;
@@ -741,6 +750,9 @@
   .hidden {
     display: none;
   }
+  .inline {
+    display: inline;
+  }
   .inline-block {
     display: inline-block;
   }
@@ -830,6 +842,12 @@
   }
   .h-\[14px\] {
     height: 14px;
+  }
+  .h-\[15px\] {
+    height: 15px;
+  }
+  .h-\[16px\] {
+    height: 16px;
   }
   .h-\[18px\] {
     height: 18px;
@@ -972,6 +990,12 @@
   .w-\[14px\] {
     width: 14px;
   }
+  .w-\[15px\] {
+    width: 15px;
+  }
+  .w-\[16px\] {
+    width: 16px;
+  }
   .w-\[18px\] {
     width: 18px;
   }
@@ -1093,6 +1117,9 @@
   }
   .shrink-0 {
     flex-shrink: 0;
+  }
+  .basis-full {
+    flex-basis: 100%;
   }
   .-translate-x-1\/2 {
     --tw-translate-x: calc(calc(1 / 2 * 100%) * -1);
@@ -1218,6 +1245,9 @@
   }
   .gap-6 {
     gap: var(--spacing-6);
+  }
+  .gap-\[2px\] {
+    gap: 2px;
   }
   .gap-\[6px\] {
     gap: 6px;
@@ -1589,6 +1619,12 @@
   .py-px {
     padding-block: 1px;
   }
+  .ps-\[36px\] {
+    padding-inline-start: 36px;
+  }
+  .ps-gutter {
+    padding-inline-start: var(--spacing-gutter);
+  }
   @media (min-width: 700px) and (min-height: 560px) {
     .clears-back-arrow {
       --arrow-room: calc(var(--spacing-4) + var(--spacing-12) + var(--spacing-2));
@@ -1892,6 +1928,9 @@
   }
   .opacity-45 {
     opacity: 45%;
+  }
+  .opacity-50 {
+    opacity: 50%;
   }
   .opacity-55 {
     opacity: 55%;

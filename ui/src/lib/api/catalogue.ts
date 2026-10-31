@@ -5624,6 +5624,8 @@ export type GetMealPlanOutput = {
 			noun: string;
 		} | null;
 		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
 		title: string | null;
 		week: string;
 		words: string | null;
@@ -5659,6 +5661,8 @@ export type PlanRecipeOutput = {
 			noun: string;
 		} | null;
 		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
 		title: string | null;
 		week: string;
 		words: string | null;
@@ -5691,6 +5695,8 @@ export type SetPlannedYieldOutput = {
 			noun: string;
 		} | null;
 		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
 		title: string | null;
 		week: string;
 		words: string | null;
@@ -5722,6 +5728,8 @@ export type PlanWordsOutput = {
 			noun: string;
 		} | null;
 		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
 		title: string | null;
 		week: string;
 		words: string | null;
@@ -5751,6 +5759,8 @@ export type SetPlannedWordsOutput = {
 			noun: string;
 		} | null;
 		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
 		title: string | null;
 		week: string;
 		words: string | null;
@@ -5782,6 +5792,8 @@ export type MovePlannedMealOutput = {
 			noun: string;
 		} | null;
 		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
 		title: string | null;
 		week: string;
 		words: string | null;
@@ -5810,6 +5822,8 @@ export type RemovePlannedMealOutput = {
 			noun: string;
 		} | null;
 		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
 		title: string | null;
 		week: string;
 		words: string | null;
@@ -5818,6 +5832,99 @@ export type RemovePlannedMealOutput = {
 			noun: string;
 		} | null;
 	} | null;
+};
+
+/** Send days and weeks of your Meal Plan to your Shopping List. A day sends its own Planned Meals; a week, named by its Monday, sends its days' and its meals with no day; `any_day_of` sends a week's meals with no day alone. One chosen twice (a day and its own week) is sent once. Each recipe goes on at its planned Yield, added to what the list already holds for that Branch, never replacing it: two meals of one recipe add up. A meal sent before sends only what its Yield has grown by since, and nothing when it was lowered: nothing is taken off. Written words and recipes that can no longer be read send nothing and are named in `skipped`. A send is one write on the Shopping List's clock: one older than the list's last write adds nothing, marks nothing and answers `refused`; one with nothing to send writes nothing and answers `sent`. Emptying the list leaves what each meal sent as it was. Answers what went, what was sent before, what was skipped, the meals as they now stand and the whole list. */
+export type SendToShoppingListInput = {
+	any_day_of?: string[];
+	days?: string[];
+	weeks?: string[];
+	written_at?: string;
+};
+/** What send_to_shopping_list answers. */
+export type SendToShoppingListOutput = {
+	already_sent: {
+		branch_id: string;
+		planned_fewer: boolean;
+		planned_meal_id: string;
+		title: string;
+	}[];
+	outcome: "sent" | "refused" | "waiting";
+	planned_meals: {
+		branch_id: string | null;
+		day: string | null;
+		gone: boolean;
+		main_photo: string | null;
+		planned_meal_id: string;
+		planned_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
+		title: string | null;
+		week: string;
+		words: string | null;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	}[];
+	sent: {
+		added_factor: number;
+		branch_id: string;
+		planned_meals: string[];
+		raised: boolean;
+		shopping_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		title: string;
+		was_on_list: boolean;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	}[];
+	shopping_list: {
+		chosen: {
+			branch_id: string;
+			gone: boolean;
+			shopping_yield: {
+				amount: string;
+				noun: string;
+			} | null;
+			title: string;
+			written_yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		}[];
+		rows: {
+			id: string;
+			kind: "food" | "line" | "loose";
+			lines: {
+				branch_id: string;
+				recipe: string;
+				text: string;
+			}[];
+			name: string;
+			name_language: string | null;
+			parts: {
+				kind: "about" | "count" | "as_written" | "no_amount";
+				sources: string[];
+				text: string;
+			}[];
+			said: string | null;
+		}[];
+	};
+	skipped: {
+		planned_meal_id: string;
+		reason: "words" | "gone";
+		title: string | null;
+		words: string | null;
+	}[];
 };
 
 /** List every Food this instance knows. Each is shown in the reader's Reading Language where it has a name there. */
@@ -6979,6 +7086,12 @@ export interface Operations {
 	remove_planned_meal: {
 		input: RemovePlannedMealInput;
 		output: RemovePlannedMealOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	send_to_shopping_list: {
+		input: SendToShoppingListInput;
+		output: SendToShoppingListOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -35578,6 +35691,18 @@ export const CATALOGUE = [
 							"position": {
 								"type": "integer"
 							},
+							"sent_at": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"sent_factor": {
+								"type": [
+									"number",
+									"null"
+								]
+							},
 							"title": {
 								"type": [
 									"string",
@@ -35624,7 +35749,9 @@ export const CATALOGUE = [
 							"gone",
 							"planned_yield",
 							"written_yield",
-							"main_photo"
+							"main_photo",
+							"sent_factor",
+							"sent_at"
 						],
 						"type": "object"
 					},
@@ -35743,6 +35870,18 @@ export const CATALOGUE = [
 						"position": {
 							"type": "integer"
 						},
+						"sent_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"sent_factor": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
 						"title": {
 							"type": [
 								"string",
@@ -35789,7 +35928,9 @@ export const CATALOGUE = [
 						"gone",
 						"planned_yield",
 						"written_yield",
-						"main_photo"
+						"main_photo",
+						"sent_factor",
+						"sent_at"
 					],
 					"type": [
 						"object",
@@ -35898,6 +36039,18 @@ export const CATALOGUE = [
 						"position": {
 							"type": "integer"
 						},
+						"sent_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"sent_factor": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
 						"title": {
 							"type": [
 								"string",
@@ -35944,7 +36097,9 @@ export const CATALOGUE = [
 						"gone",
 						"planned_yield",
 						"written_yield",
-						"main_photo"
+						"main_photo",
+						"sent_factor",
+						"sent_at"
 					],
 					"type": [
 						"object",
@@ -36044,6 +36199,18 @@ export const CATALOGUE = [
 						"position": {
 							"type": "integer"
 						},
+						"sent_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"sent_factor": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
 						"title": {
 							"type": [
 								"string",
@@ -36090,7 +36257,9 @@ export const CATALOGUE = [
 						"gone",
 						"planned_yield",
 						"written_yield",
-						"main_photo"
+						"main_photo",
+						"sent_factor",
+						"sent_at"
 					],
 					"type": [
 						"object",
@@ -36182,6 +36351,18 @@ export const CATALOGUE = [
 						"position": {
 							"type": "integer"
 						},
+						"sent_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"sent_factor": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
 						"title": {
 							"type": [
 								"string",
@@ -36228,7 +36409,9 @@ export const CATALOGUE = [
 						"gone",
 						"planned_yield",
 						"written_yield",
-						"main_photo"
+						"main_photo",
+						"sent_factor",
+						"sent_at"
 					],
 					"type": [
 						"object",
@@ -36328,6 +36511,18 @@ export const CATALOGUE = [
 						"position": {
 							"type": "integer"
 						},
+						"sent_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"sent_factor": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
 						"title": {
 							"type": [
 								"string",
@@ -36374,7 +36569,9 @@ export const CATALOGUE = [
 						"gone",
 						"planned_yield",
 						"written_yield",
-						"main_photo"
+						"main_photo",
+						"sent_factor",
+						"sent_at"
 					],
 					"type": [
 						"object",
@@ -36462,6 +36659,18 @@ export const CATALOGUE = [
 						"position": {
 							"type": "integer"
 						},
+						"sent_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"sent_factor": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
 						"title": {
 							"type": [
 								"string",
@@ -36508,7 +36717,9 @@ export const CATALOGUE = [
 						"gone",
 						"planned_yield",
 						"written_yield",
-						"main_photo"
+						"main_photo",
+						"sent_factor",
+						"sent_at"
 					],
 					"type": [
 						"object",
@@ -36518,6 +36729,494 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"planned_meal"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "send_to_shopping_list",
+		"summary": "Send days and weeks of your Meal Plan to your Shopping List. A day sends its own Planned Meals; a week, named by its Monday, sends its days' and its meals with no day; `any_day_of` sends a week's meals with no day alone. One chosen twice (a day and its own week) is sent once. Each recipe goes on at its planned Yield, added to what the list already holds for that Branch, never replacing it: two meals of one recipe add up. A meal sent before sends only what its Yield has grown by since, and nothing when it was lowered: nothing is taken off. Written words and recipes that can no longer be read send nothing and are named in `skipped`. A send is one write on the Shopping List's clock: one older than the list's last write adds nothing, marks nothing and answers `refused`; one with nothing to send writes nothing and answers `sent`. Emptying the list leaves what each meal sent as it was. Answers what went, what was sent before, what was skipped, the meals as they now stand and the whole list.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"any_day_of": {
+					"description": "The Monday of each week whose meals with no day are sent, without its days.",
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
+				"days": {
+					"description": "Calendar dates, such as 2026-11-05.",
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
+				"weeks": {
+					"description": "The Monday of each week, such as 2026-11-02, for all of it.",
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"type": "string"
+				}
+			},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"already_sent": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"planned_fewer": {
+								"type": "boolean"
+							},
+							"planned_meal_id": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"planned_meal_id",
+							"branch_id",
+							"title",
+							"planned_fewer"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"outcome": {
+					"enum": [
+						"sent",
+						"refused",
+						"waiting"
+					]
+				},
+				"planned_meals": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"day": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"gone": {
+								"type": "boolean"
+							},
+							"main_photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"planned_meal_id": {
+								"type": "string"
+							},
+							"planned_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"position": {
+								"type": "integer"
+							},
+							"sent_at": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"sent_factor": {
+								"type": [
+									"number",
+									"null"
+								]
+							},
+							"title": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"week": {
+								"type": "string"
+							},
+							"words": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"written_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"planned_meal_id",
+							"week",
+							"day",
+							"position",
+							"branch_id",
+							"words",
+							"title",
+							"gone",
+							"planned_yield",
+							"written_yield",
+							"main_photo",
+							"sent_factor",
+							"sent_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"sent": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"added_factor": {
+								"type": "number"
+							},
+							"branch_id": {
+								"type": "string"
+							},
+							"planned_meals": {
+								"items": {
+									"type": "string"
+								},
+								"type": "array"
+							},
+							"raised": {
+								"type": "boolean"
+							},
+							"shopping_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"title": {
+								"type": "string"
+							},
+							"was_on_list": {
+								"type": "boolean"
+							},
+							"written_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"branch_id",
+							"title",
+							"added_factor",
+							"raised",
+							"planned_meals",
+							"was_on_list",
+							"shopping_yield",
+							"written_yield"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"shopping_list": {
+					"additionalProperties": false,
+					"properties": {
+						"chosen": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"branch_id": {
+										"type": "string"
+									},
+									"gone": {
+										"type": "boolean"
+									},
+									"shopping_yield": {
+										"additionalProperties": false,
+										"properties": {
+											"amount": {
+												"type": "string"
+											},
+											"noun": {
+												"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+												"type": "string"
+											}
+										},
+										"required": [
+											"amount",
+											"noun"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"title": {
+										"type": "string"
+									},
+									"written_yield": {
+										"additionalProperties": false,
+										"properties": {
+											"amount": {
+												"type": "string"
+											},
+											"noun": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"amount",
+											"noun"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"branch_id",
+									"title",
+									"gone",
+									"shopping_yield",
+									"written_yield"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"rows": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"id": {
+										"type": "string"
+									},
+									"kind": {
+										"enum": [
+											"food",
+											"line",
+											"loose"
+										]
+									},
+									"lines": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"branch_id": {
+													"type": "string"
+												},
+												"recipe": {
+													"type": "string"
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"branch_id",
+												"recipe",
+												"text"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"name": {
+										"type": "string"
+									},
+									"name_language": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"parts": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"about",
+														"count",
+														"as_written",
+														"no_amount"
+													]
+												},
+												"sources": {
+													"items": {
+														"type": "string"
+													},
+													"type": "array"
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text",
+												"sources"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"said": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"kind",
+									"name",
+									"name_language",
+									"parts",
+									"lines",
+									"said"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						}
+					},
+					"required": [
+						"chosen",
+						"rows"
+					],
+					"type": "object"
+				},
+				"skipped": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"planned_meal_id": {
+								"type": "string"
+							},
+							"reason": {
+								"enum": [
+									"words",
+									"gone"
+								]
+							},
+							"title": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"words": {
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"planned_meal_id",
+							"title",
+							"words",
+							"reason"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"outcome",
+				"sent",
+				"already_sent",
+				"skipped",
+				"planned_meals",
+				"shopping_list"
 			],
 			"type": "object"
 		}
@@ -37940,6 +38639,7 @@ export const METHOD_NAMES = {
 	set_planned_words: 'setPlannedWords',
 	move_planned_meal: 'movePlannedMeal',
 	remove_planned_meal: 'removePlannedMeal',
+	send_to_shopping_list: 'sendToShoppingList',
 	list_foods: 'listFoods',
 	get_food: 'getFood',
 	set_food_names: 'setFoodNames',
@@ -38255,6 +38955,8 @@ export interface KamosuClient {
 	movePlannedMeal(input: MovePlannedMealInput): Promise<Answer<'move_planned_meal'>>;
 	/** Take a Planned Meal off your Meal Plan. Works whether or not its recipe can still be read, and taking one that is already gone is not an error. Answers null. */
 	removePlannedMeal(input: RemovePlannedMealInput): Promise<Answer<'remove_planned_meal'>>;
+	/** Send days and weeks of your Meal Plan to your Shopping List. A day sends its own Planned Meals; a week, named by its Monday, sends its days' and its meals with no day; `any_day_of` sends a week's meals with no day alone. One chosen twice (a day and its own week) is sent once. Each recipe goes on at its planned Yield, added to what the list already holds for that Branch, never replacing it: two meals of one recipe add up. A meal sent before sends only what its Yield has grown by since, and nothing when it was lowered: nothing is taken off. Written words and recipes that can no longer be read send nothing and are named in `skipped`. A send is one write on the Shopping List's clock: one older than the list's last write adds nothing, marks nothing and answers `refused`; one with nothing to send writes nothing and answers `sent`. Emptying the list leaves what each meal sent as it was. Answers what went, what was sent before, what was skipped, the meals as they now stand and the whole list. */
+	sendToShoppingList(input: SendToShoppingListInput): Promise<Answer<'send_to_shopping_list'>>;
 	/** List every Food this instance knows. Each is shown in the reader's Reading Language where it has a name there. */
 	listFoods(input?: ListFoodsInput): Promise<Answer<'list_foods'>>;
 	/** Read one Food: its names and its Cup Weight. Also how many Readings currently point at it. */

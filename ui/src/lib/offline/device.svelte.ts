@@ -7,7 +7,7 @@
 
 import { untrack } from 'svelte';
 import { SvelteMap } from 'svelte/reactivity';
-import type { KamosuClient } from '$lib/api/catalogue';
+import type { KamosuClient, SendToShoppingListOutput } from '$lib/api/catalogue';
 import { putAway } from './put-away';
 import { serverAnswered } from './reads';
 import type { WorkerMessage } from './worker';
@@ -215,6 +215,13 @@ export class Online {
  * `refreshed.get('get_recipe')` in an effect reads again.
  */
 export const refreshed = new SvelteMap<string, number>();
+
+/**
+ * A send to the Shopping List made with no network, as Kamosu answered it
+ * once it landed (#488): the Plan says what it did, or that the list had
+ * changed elsewhere and nothing was sent, and then puts it away.
+ */
+export const landedSend: { answer: SendToShoppingListOutput | null } = $state({ answer: null });
 
 /**
  * Listen to the service worker, once, from the root layout: for reads that

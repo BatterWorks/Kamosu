@@ -3201,6 +3201,28 @@ pub fn set_planned_yield(
     )
 }
 
+pub fn send_to_shopping_list(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    let dates = |field: &str| {
+        input
+            .get(field)
+            .and_then(Value::as_array)
+            .map(|dates| dates.iter().filter_map(Value::as_str).collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
+    core.send_to_shopping_list(
+        &caller.person_id,
+        &dates("days"),
+        &dates("weeks"),
+        &dates("any_day_of"),
+        written_at(&input),
+    )
+}
+
 pub fn remove_planned_meal(
     core: &Core,
     invocation: &Invocation,

@@ -2197,6 +2197,19 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 68,
+        description: "what a Planned Meal last sent to the Shopping List (#488)",
+        sql: r#"
+        -- How much of its recipe a Planned Meal last sent to the Shopping
+        -- List, as a factor of the recipe as written, and when. NULL is never
+        -- sent. Emptying the list leaves both as they are: they say what was
+        -- sent, never what the list holds now.
+        ALTER TABLE planned_meals ADD COLUMN sent_factor REAL;
+        ALTER TABLE planned_meals ADD COLUMN sent_at TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

@@ -5147,6 +5147,136 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::remove_planned_meal,
         },
         Operation {
+            name: "send_to_shopping_list",
+            summary: "Send days and weeks of your Meal Plan to your Shopping \
+                      List. A day sends its own Planned Meals; a week, named \
+                      by its Monday, sends its days' and its meals with no \
+                      day; `any_day_of` sends a week's meals with no day \
+                      alone. One chosen twice (a day and its own week) is \
+                      sent once. Each recipe goes on at its planned Yield, added \
+                      to what the list already holds for that Branch, never \
+                      replacing it: two meals of one recipe add up. A meal \
+                      sent before sends only what its Yield has grown by \
+                      since, and nothing when it was lowered: nothing is \
+                      taken off. Written words and recipes that can no \
+                      longer be read send nothing and are named in \
+                      `skipped`. A send is one write on the Shopping List's \
+                      clock: one older than the list's last write adds \
+                      nothing, marks nothing and answers `refused`; one with \
+                      nothing to send writes nothing and answers `sent`. Emptying \
+                      the list leaves what each meal sent as it was. Answers \
+                      what went, what was sent before, what was skipped, the \
+                      meals as they now stand and the whole list.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::GoesThrough,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Calendar dates, such as 2026-11-05.",
+                    },
+                    "weeks": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "The Monday of each week, such as 2026-11-02, for all of it.",
+                    },
+                    "any_day_of": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "The Monday of each week whose meals with no day are sent, without its days.",
+                    },
+                    "written_at": written_at_schema(),
+                },
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    // `sent` where it reached the list, `refused` where the
+                    // list had been written since. A phone with no network
+                    // answers `waiting` for a send it holds; Kamosu never does.
+                    "outcome": { "enum": ["sent", "refused", "waiting"] },
+                    // Each Branch that went, once, in the plan's order.
+                    "sent": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "branch_id": { "type": "string" },
+                                "title": { "type": "string" },
+                                // How much of the recipe as written was
+                                // added: 2 is twice it over.
+                                "added_factor": { "type": "number" },
+                                // Whether every meal of it had gone before,
+                                // so what was added is what they were raised by.
+                                "raised": { "type": "boolean" },
+                                // The Planned Meals it went for.
+                                "planned_meals": { "type": "array", "items": { "type": "string" } },
+                                // Whether the list held this Branch before.
+                                "was_on_list": { "type": "boolean" },
+                                // The Yield the list now holds for it.
+                                "shopping_yield": wanted_yield_schema(),
+                                "written_yield": yield_schema(),
+                            },
+                            "required": [
+                                "branch_id", "title", "added_factor", "raised", "planned_meals",
+                                "was_on_list", "shopping_yield", "written_yield"
+                            ],
+                            "additionalProperties": false,
+                        },
+                    },
+                    // Recipes with nothing more to send: sent before, and
+                    // not planned for more since. `planned_fewer` where the
+                    // Yield was lowered after it went.
+                    "already_sent": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "planned_meal_id": { "type": "string" },
+                                "branch_id": { "type": "string" },
+                                "title": { "type": "string" },
+                                "planned_fewer": { "type": "boolean" },
+                            },
+                            "required": ["planned_meal_id", "branch_id", "title", "planned_fewer"],
+                            "additionalProperties": false,
+                        },
+                    },
+                    // Written words, and recipes that can no longer be read.
+                    "skipped": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "planned_meal_id": { "type": "string" },
+                                "title": { "type": ["string", "null"] },
+                                "words": { "type": ["string", "null"] },
+                                "reason": { "enum": ["words", "gone"] },
+                            },
+                            "required": ["planned_meal_id", "title", "words", "reason"],
+                            "additionalProperties": false,
+                        },
+                    },
+                    // Every meal the send covered, as it now stands.
+                    "planned_meals": { "type": "array", "items": planned_meal_schema() },
+                    "shopping_list": shopping_list_schema(),
+                },
+                "required": [
+                    "outcome", "sent", "already_sent", "skipped", "planned_meals", "shopping_list"
+                ],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::send_to_shopping_list,
+        },
+        Operation {
             name: "list_foods",
             summary: "List every Food this instance knows. Each is shown in \
                       the reader's Reading Language where it has a name there.",
@@ -8409,10 +8539,15 @@ fn planned_meal_schema() -> Value {
             // The recipe's main Photograph, or null where it has none or can
             // no longer be read.
             "main_photo": { "type": ["string", "null"] },
+            // How much of the recipe as written it last sent to the Shopping
+            // List (2 is twice it over), and when; null until it is sent
+            // (#488). Emptying the list changes neither.
+            "sent_factor": { "type": ["number", "null"] },
+            "sent_at": { "type": ["string", "null"] },
         },
         "required": [
             "planned_meal_id", "week", "day", "position", "branch_id", "words", "title",
-            "gone", "planned_yield", "written_yield", "main_photo"
+            "gone", "planned_yield", "written_yield", "main_photo", "sent_factor", "sent_at"
         ],
         "additionalProperties": false,
     })
