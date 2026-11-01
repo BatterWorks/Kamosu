@@ -48,6 +48,7 @@ A Person's own record:
 | `password_changed` | `credential_name` is the Session that changed it. |
 | `access_key_minted`, `access_key_ended` | `credential` is `operator_key` for an Operator key. |
 | `session_ended` | `credential_name` is the Session ended. |
+| `calendar_link_made`, `calendar_link_ended` | The Person's Calendar Link, which a calendar app reads their Meal Plan with. `credential_name` is the Session that made or ended it. A link made while one was live says `replaced`, since making one ends the one before. |
 
 Every Operator's record:
 

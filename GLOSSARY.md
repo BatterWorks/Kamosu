@@ -76,6 +76,10 @@ _Avoid_: admin key, admin token
 An **Access Key** that can only hand something to Kamosu to be added and see how that went, chosen when it is minted. It is the key a phone's Shortcut carries, so a leaked one can add recipes and never change or delete one. It also keeps whether what it adds goes to the **Agent** every time or only when Kamosu cannot read it alone (ADR 0055).
 _Avoid_: Shortcut key, inbox key, upload token, write-only key
 
+**Calendar Link**:
+A **Secret** in an address a Person gives their phone's calendar app, which reads their **Meal Plan** at it with no sign-in and shows each **Planned Meal** as an all-day event. It reads the plan and nothing else. A Person has one at most, made in Settings and shown once; making another ends it, and so does ending it (ADR 0059).
+_Avoid_: iCal feed, calendar token, subscription URL
+
 **Runner Key**:
 A **Secret** an Operator mints for a **Runner**. It can ask for a **Job**, keep hold of it and report how it ended, and nothing else. It never acts as a Person and it cannot touch a recipe (ADR 0048). Setting a new password through a recovery link ends every Runner Key that account minted, and an Operator's also ends those minted before Kamosu recorded who mints them (#378).
 _Avoid_: Agent key, API key, token, service account, Access Key

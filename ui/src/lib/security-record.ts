@@ -91,6 +91,21 @@ export function say(event: SecurityEvent): Said {
 			};
 		case 'session_ended':
 			return { line: m.security_session_ended({ name }), under: under(), warn: false };
+		case 'calendar_link_made':
+			return {
+				line: m.security_calendar_link_made(),
+				under: under(
+					name ? m.security_on({ name }) : undefined,
+					detail.replaced ? m.security_calendar_link_replaced() : undefined,
+				),
+				warn: false,
+			};
+		case 'calendar_link_ended':
+			return {
+				line: m.security_calendar_link_ended(),
+				under: under(name ? m.security_on({ name }) : undefined),
+				warn: false,
+			};
 		case 'house_notes_changed':
 			return {
 				line: detail.taken_away

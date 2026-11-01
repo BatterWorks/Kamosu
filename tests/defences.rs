@@ -324,6 +324,16 @@ fn every_secret(app: &support::TestApp, key: &str) -> Vec<Secret> {
         table: "access_keys",
     });
 
+    // A Calendar Link, which a calendar app reads the plan with (#491), made
+    // by the Person logged in, as a key is.
+    let (status, made) = app.post_op("make_calendar_link", Some(&session), "{}");
+    assert_eq!(status, 200, "{made}");
+    secrets.push(Secret {
+        what: "a Calendar Link",
+        raw: made["result"]["secret"].as_str().expect("a Secret").into(),
+        table: "calendar_links",
+    });
+
     // A Runner Key, minted by the Operator logged in directly (ADR 0048).
     let (status, minted) = app.post_op(
         "mint_runner_key",
@@ -668,6 +678,11 @@ async fn a_secret_still_works_a_year_after_it_was_made() {
                 .0,
                 200,
                 "a Runner Key stopped working because a year passed"
+            ),
+            "a Calendar Link" => assert_eq!(
+                app.get(&format!("/calendar/{}.ics", secret.raw)).0,
+                200,
+                "a Calendar Link stopped working because a year passed"
             ),
             "a Session" | "an Access Key" => assert_eq!(
                 app.post_op("list_jobs", Some(&secret.raw), "{}").0,

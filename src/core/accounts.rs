@@ -1035,6 +1035,9 @@ impl Core {
                     .map_err(|e| OpError::internal(format!("cannot end account: {e}")))?;
                 conn.execute("UPDATE sessions SET revoked = 1 WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 conn.execute("UPDATE access_keys SET revoked = 1 WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
+                // Its Calendar Link ends with its keys, so enabling the
+                // account again brings none of them back (#491).
+                conn.execute("UPDATE calendar_links SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE person_id = ?1 AND ended_at IS NULL", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 // A deleted account's passkeys are forgotten; a disabled one
                 // keeps them, and they sign in again once it is enabled (#370).
                 if deleted {

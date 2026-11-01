@@ -2210,6 +2210,29 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 69,
+        description: "a Person's Calendar Link (#491)",
+        sql: r#"
+        -- The private address a cook gives their phone's calendar app, which
+        -- reads their Meal Plan with it and no sign-in. The Secret is kept
+        -- by its hash alone and shown once (ADR 0031). A Person has one live
+        -- link at most: making one ends the one before, and an ended row
+        -- stays, dead.
+        CREATE TABLE calendar_links (
+            id           TEXT PRIMARY KEY,
+            person_id    TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+            secret_hash  TEXT NOT NULL UNIQUE,
+            made_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            -- When a calendar app last fetched it, so the cook can see it works.
+            last_read_at TEXT,
+            ended_at     TEXT
+        );
+        CREATE UNIQUE INDEX calendar_links_one_live
+            ON calendar_links(person_id) WHERE ended_at IS NULL;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

@@ -47,6 +47,8 @@ pub const SECURITY_EVENTS: &[&str] = &[
     "access_key_minted",
     "access_key_ended",
     "session_ended",
+    "calendar_link_made",
+    "calendar_link_ended",
     // Every Operator's.
     "house_notes_changed",
     "public_address_changed",

@@ -254,10 +254,11 @@ export type ListInstanceSecurityRecordOutput = {
 			key?: string;
 			operator?: boolean;
 			read_only?: boolean;
+			replaced?: boolean;
 			runner_key?: string;
 			taken_away?: boolean;
 		};
-		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched";
+		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "calendar_link_made" | "calendar_link_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched";
 		first_at: string;
 		id: number;
 	}[];
@@ -443,10 +444,11 @@ export type ListSecurityRecordOutput = {
 			key?: string;
 			operator?: boolean;
 			read_only?: boolean;
+			replaced?: boolean;
 			runner_key?: string;
 			taken_away?: boolean;
 		};
-		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched";
+		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "calendar_link_made" | "calendar_link_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched";
 		first_at: string;
 		id: number;
 	}[];
@@ -5929,6 +5931,33 @@ export type SendToShoppingListOutput = {
 	}[];
 };
 
+/** Make the link a calendar app subscribes to for your plan. It shows each of your Planned Meals as an all-day event, from 90 days back on. Anyone holding it reads your plan and changes nothing. You have one at most: making one ends the one before. Its Secret is answered this once and kept nowhere; `url` is the whole link where the instance has a public address, and null where it has none, when the link is `path` at the address Kamosu is reached at. */
+export type MakeCalendarLinkInput = Record<string, never>;
+/** What make_calendar_link answers. */
+export type MakeCalendarLinkOutput = {
+	made_at: string;
+	path: string;
+	secret: string;
+	url: string | null;
+};
+
+/** Whether you have a live Calendar Link. It says when it was made and when a calendar app last read it, and never the link itself, which is shown once when it is made. */
+export type GetCalendarLinkInput = Record<string, never>;
+/** What get_calendar_link answers. */
+export type GetCalendarLinkOutput = {
+	calendar_link: {
+		last_read_at: string | null;
+		made_at: string;
+	} | null;
+};
+
+/** End your Calendar Link. A calendar app holding it is answered nothing from then on. Answers whether there was one to end. */
+export type EndCalendarLinkInput = Record<string, never>;
+/** What end_calendar_link answers. */
+export type EndCalendarLinkOutput = {
+	ended: boolean;
+};
+
 /** List every Food this instance knows. Each is shown in the reader's Reading Language where it has a name there. */
 export type ListFoodsInput = Record<string, never>;
 /** What list_foods answers. */
@@ -7097,6 +7126,24 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	make_calendar_link: {
+		input: MakeCalendarLinkInput;
+		output: MakeCalendarLinkOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	get_calendar_link: {
+		input: GetCalendarLinkInput;
+		output: GetCalendarLinkOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	end_calendar_link: {
+		input: EndCalendarLinkInput;
+		output: EndCalendarLinkOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	list_foods: {
 		input: ListFoodsInput;
 		output: ListFoodsOutput;
@@ -8185,6 +8232,10 @@ export const CATALOGUE = [
 									"read_only": {
 										"type": "boolean"
 									},
+									"replaced": {
+										"description": "The Calendar Link made ended a live one.",
+										"type": "boolean"
+									},
 									"runner_key": {
 										"type": "string"
 									},
@@ -8205,6 +8256,8 @@ export const CATALOGUE = [
 									"access_key_minted",
 									"access_key_ended",
 									"session_ended",
+									"calendar_link_made",
+									"calendar_link_ended",
 									"house_notes_changed",
 									"public_address_changed",
 									"operator_raised",
@@ -8975,6 +9028,10 @@ export const CATALOGUE = [
 									"read_only": {
 										"type": "boolean"
 									},
+									"replaced": {
+										"description": "The Calendar Link made ended a live one.",
+										"type": "boolean"
+									},
 									"runner_key": {
 										"type": "string"
 									},
@@ -8995,6 +9052,8 @@ export const CATALOGUE = [
 									"access_key_minted",
 									"access_key_ended",
 									"session_ended",
+									"calendar_link_made",
+									"calendar_link_ended",
 									"house_notes_changed",
 									"public_address_changed",
 									"operator_raised",
@@ -37232,6 +37291,112 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "make_calendar_link",
+		"summary": "Make the link a calendar app subscribes to for your plan. It shows each of your Planned Meals as an all-day event, from 90 days back on. Anyone holding it reads your plan and changes nothing. You have one at most: making one ends the one before. Its Secret is answered this once and kept nowhere; `url` is the whole link where the instance has a public address, and null where it has none, when the link is `path` at the address Kamosu is reached at.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"made_at": {
+					"type": "string"
+				},
+				"path": {
+					"description": "The link at the address Kamosu is reached at, such as /calendar/<secret>.ics.",
+					"type": "string"
+				},
+				"secret": {
+					"type": "string"
+				},
+				"url": {
+					"description": "The whole link at the instance's public address, or null where it has none.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"secret",
+				"path",
+				"url",
+				"made_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "get_calendar_link",
+		"summary": "Whether you have a live Calendar Link. It says when it was made and when a calendar app last read it, and never the link itself, which is shown once when it is made.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"calendar_link": {
+					"additionalProperties": false,
+					"properties": {
+						"last_read_at": {
+							"description": "When a calendar app last fetched it, or null where none has.",
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"made_at": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"made_at",
+						"last_read_at"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"calendar_link"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "end_calendar_link",
+		"summary": "End your Calendar Link. A calendar app holding it is answered nothing from then on. Answers whether there was one to end.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"ended": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"ended"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "list_foods",
 		"summary": "List every Food this instance knows. Each is shown in the reader's Reading Language where it has a name there.",
 		"permission": "person",
@@ -38489,6 +38654,7 @@ export const READS: readonly OperationName[] = [
 	'shopping_basis',
 	'shopping_list_as_text',
 	'get_meal_plan',
+	'get_calendar_link',
 	'list_foods',
 	'get_food',
 	'list_merge_suggestions',
@@ -38650,6 +38816,9 @@ export const METHOD_NAMES = {
 	move_planned_meal: 'movePlannedMeal',
 	remove_planned_meal: 'removePlannedMeal',
 	send_to_shopping_list: 'sendToShoppingList',
+	make_calendar_link: 'makeCalendarLink',
+	get_calendar_link: 'getCalendarLink',
+	end_calendar_link: 'endCalendarLink',
 	list_foods: 'listFoods',
 	get_food: 'getFood',
 	set_food_names: 'setFoodNames',
@@ -38967,6 +39136,12 @@ export interface KamosuClient {
 	removePlannedMeal(input: RemovePlannedMealInput): Promise<Answer<'remove_planned_meal'>>;
 	/** Send days and weeks of your Meal Plan to your Shopping List. A day sends its own Planned Meals; a week, named by its Monday, sends its days' and its meals with no day; `any_day_of` sends a week's meals with no day alone. One chosen twice (a day and its own week) is sent once. Each recipe goes on at its planned Yield, added to what the list already holds for that Branch, never replacing it: two meals of one recipe add up. A meal sent before sends only what its Yield has grown by since, and nothing when it was lowered: nothing is taken off. Written words and recipes that can no longer be read send nothing and are named in `skipped`. A send is one write on the Shopping List's clock: one older than the list's last write adds nothing, marks nothing and answers `refused`; one with nothing to send writes nothing and answers `sent`. Emptying the list leaves what each meal sent as it was. Answers what went, what was sent before, what was skipped, the meals as they now stand and the whole list. */
 	sendToShoppingList(input: SendToShoppingListInput): Promise<Answer<'send_to_shopping_list'>>;
+	/** Make the link a calendar app subscribes to for your plan. It shows each of your Planned Meals as an all-day event, from 90 days back on. Anyone holding it reads your plan and changes nothing. You have one at most: making one ends the one before. Its Secret is answered this once and kept nowhere; `url` is the whole link where the instance has a public address, and null where it has none, when the link is `path` at the address Kamosu is reached at. */
+	makeCalendarLink(input?: MakeCalendarLinkInput): Promise<Answer<'make_calendar_link'>>;
+	/** Whether you have a live Calendar Link. It says when it was made and when a calendar app last read it, and never the link itself, which is shown once when it is made. */
+	getCalendarLink(input?: GetCalendarLinkInput): Promise<Answer<'get_calendar_link'>>;
+	/** End your Calendar Link. A calendar app holding it is answered nothing from then on. Answers whether there was one to end. */
+	endCalendarLink(input?: EndCalendarLinkInput): Promise<Answer<'end_calendar_link'>>;
 	/** List every Food this instance knows. Each is shown in the reader's Reading Language where it has a name there. */
 	listFoods(input?: ListFoodsInput): Promise<Answer<'list_foods'>>;
 	/** Read one Food: its names and its Cup Weight. Also how many Readings currently point at it. */

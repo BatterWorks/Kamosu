@@ -62,7 +62,8 @@ export default defineConfig({
 		// matches a plain string as a prefix, so a bare `/s` would swallow
 		// `/settings`, `/shopping` and `/share` and hand three of the app's own
 		// screens to the binary. Anchoring the trailing slash keeps it to the one
-		// path the binary actually owns.
+		// path the binary actually owns. `^/calendar/` is a Calendar Link's file
+		// (#491), anchored the same way.
 		proxy: Object.fromEntries(
 			[
 				'/api',
@@ -72,6 +73,7 @@ export default defineConfig({
 				'/favicon-32.png',
 				'/apple-touch-icon.png',
 				'^/s/',
+				'^/calendar/',
 			].map((path) => [path, { target: BACKEND, changeOrigin: false }]),
 		),
 	},

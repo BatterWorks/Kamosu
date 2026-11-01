@@ -2919,6 +2919,30 @@ fn landing(input: &Value) -> Option<&str> {
     input.get("cookbook_id").and_then(Value::as_str)
 }
 
+pub fn make_calendar_link(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.make_calendar_link(caller_of(invocation)?)
+}
+
+pub fn get_calendar_link(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.get_calendar_link(&caller_of(invocation)?.person_id)
+}
+
+pub fn end_calendar_link(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.end_calendar_link(caller_of(invocation)?)
+}
+
 fn caller_of(invocation: &Invocation) -> Result<&Caller, OpError> {
     invocation.caller().ok_or_else(|| {
         OpError::unauthorized("this Operation requires a Credential naming a Person")

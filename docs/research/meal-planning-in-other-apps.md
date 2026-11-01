@@ -30,7 +30,7 @@ The second theme is that **a plan is an intention, not a record.** Mealie writes
 | Views | weeks (was N days) | week or month, 1 to 4 | list by day | timeline (mobile and desktop) | agenda week / day | calendar |
 | Calendar feed | iCal, token link | iCal, token scope | none | CalDAV push per user | iCal sharing link | iCal, no auth |
 | Records cooking | auto "made this" nightly | no | plan history only | no | "done" flag, consumes stock | no |
-| Copy / drag | drag (edit mode) | drag, Ctrl+drag copies | no | drag, duplicate | "Copy this day" | unconfirmed |
+| Copy / drag | drag (edit mode) | drag, Ctrl+drag copies | no | drag, duplicate | "Copy this day" | drag onto a day (re-dates it), clone, copy or move days |
 
 ## How a planned meal shows in a calendar
 
@@ -40,7 +40,7 @@ Read in each app's feed code on 2026-10-30.
 - **Tandoor** (`meal_plans_to_ical` in `cookbook/views/api.py`): always a timed event. An entry is stored as a start and end datetime, taking the meal type's time or noon when none is given, and an entry whose end is not after its start lasts one hour. The title reads `<meal type>: <recipe or title>`, and the entry's note is the event's description.
 - **RecipeSage** (`packages/express/src/routes/mealPlans/ical.ts`): timed when the item has a `scheduled` timestamp, otherwise all-day on its `scheduledDate`.
 - **Norish**: no feed. Each person's plan is written into their own CalDAV calendar, with a time range set per slot.
-- **Grocy**: **unconfirmed**, since whether meal plan entries reach its iCal output at all is inferred.
+- **Grocy** (`CalendarApiController::Ical` and `CalendarService::GetEvents`, checked 2026-11-01): all-day, or at its section's time where the section has one. The title reads `Meal plan recipe: <section>: <recipe>`, or `Meal plan note: …`.
 - **KitchenOwl** and **Recipya**: no calendar.
 
 ## Mealie
@@ -82,7 +82,7 @@ Read in each app's feed code on 2026-10-30.
 - A shopping tab inside the entry editor.
 - A user preference to add automatically (`UserPreference.mealplan_autoadd_shopping`, default off).
 
-A `ShoppingListRecipe` keeps a link to its `mealplan`. Editing the entry's servings rescales the shopping entries (`MealPlanSerializer.update`, `RecipeShoppingEditor.edit`). Deleting the entry cascades to that `ShoppingListRecipe` (`on_delete=CASCADE`); whether its items go too is **inferred, not traced**. Further preferences leave out foods on hand and pull in related recipes (`mealplan_autoexclude_onhand`, `mealplan_autoinclude_related`).
+A `ShoppingListRecipe` keeps a link to its `mealplan`. Editing the entry's servings rescales the shopping entries (`MealPlanSerializer.update`, `RecipeShoppingEditor.edit`). Deleting the entry cascades to that `ShoppingListRecipe` (`on_delete=CASCADE`); its items go too, since a `ShoppingListEntry`'s `list_recipe` is `on_delete=CASCADE` as well (checked 2026-11-01). Further preferences leave out foods on hand and pull in related recipes (`mealplan_autoexclude_onhand`, `mealplan_autoinclude_related`).
 
 **6. Random.** `AutoPlanViewSet` takes a start and end date (capped at 14 days), one meal type, servings, and keywords with AND or OR. It picks random internal recipes visible to the user, with no repeat until the pool runs out, and can add them to the shopping list. A request to enrich it is open: [#4419](https://github.com/TandoorRecipes/recipes/issues/4419).
 
@@ -128,7 +128,7 @@ A `ShoppingListRecipe` keeps a link to its `mealplan`. Editing the entry's servi
 
 **4. Non-recipe entries.** `item_type = note` with a `title`.
 
-**5. Shopping list.** After planning, a per-account preference applies: Nothing, Open groceries panel (the default), or Add ingredients to groceries, leaving out what is in the pantry (`apps/docs/docs/groceries/planned-recipes.md`). How servings are chosen there is **unconfirmed**.
+**5. Shopping list.** After planning, a per-account preference applies: Nothing, Open groceries panel (the default), or Add ingredients to groceries, leaving out what is in the pantry (`apps/docs/docs/groceries/planned-recipes.md`). The panel starts at the recipe's own servings, or 1 where it has none (`after-planning.tsx`, checked 2026-11-01).
 
 **6. Random.** Since v0.16.0, a random recipe from the slot's category (recipes carry the categories Breakfast, Lunch, Dinner and Snack), weighted "very minimally" toward liked and highly rated recipes ([release](https://github.com/norish-recipes/norish/releases/tag/v0.16.0-beta)). A generator over a date range is requested in [#289](https://github.com/norish-recipes/norish/issues/289).
 
@@ -150,7 +150,7 @@ A `ShoppingListRecipe` keeps a link to its `mealplan`. Editing the entry's servi
 - **Stock and shopping.** Triggers build an internal recipe for each day and each week, holding that period's planned recipes. "Put missing products on shopping list" therefore works per entry, per day and per week, and compares against stock. A week header shows the week's costs (`public/viewjs/mealplan.js`).
 - **Recording.** "Consume all ingredients" takes them out of stock and marks the entry `done`; there is also a manual done or undone toggle.
 - **Copy and views.** "Copy this day" exists. The view is a FullCalendar agenda: a week on a wide screen, a day under 768px.
-- **Feed.** Meal plan entries appear in Grocy's calendar (`CalendarService.php`), which has an iCal sharing link (`/calendar/ical/sharing-link`). That the iCal output includes meal plan entries is **inferred** from the shared `GetEvents`.
+- **Feed.** Meal plan entries appear in Grocy's calendar (`CalendarService.php`), which has an iCal sharing link (`/calendar/ical/sharing-link`). Its iCal output carries meal plan recipes and notes: `CalendarApiController::Ical` writes `GetEvents()` (checked 2026-11-01).
 
 ## RecipeSage (brief)
 
@@ -164,11 +164,25 @@ A `ShoppingListRecipe` keeps a link to its `mealplan`. Editing the entry's servi
 
 No meal planner. Open request [#178](https://github.com/reaper47/recipya/issues/178) since 2024-01-03 lists several meals per day, double portions, labels like breakfast, sending meals to the grocery list, and calendar sync later.
 
+## How a calendar app reads a feed (checked for #491)
+
+Read on 2026-11-01 in each vendor's own help pages and in RFC 5545 and RFC 7986, for Kamosu's Calendar Link. Nothing was subscribed or run, so how an app draws an event is marked where the vendor does not say.
+
+- **Google Calendar adds a feed on a computer only.** Its help page "Subscribe to someone else's calendar" ([answer 37100](https://support.google.com/calendar/answer/37100?hl=en)) says a calendar is subscribed in a computer's web browser, "You can't subscribe to a calendar in the Google Calendar app for Android, iPhone, or iPad", and a feed is added under *Other calendars*, *Add other calendars*, *From URL*. The calendar then shows in the phone app too.
+- **Google reads the feed from its own computers.** The same section asks for a "public" calendar's URL, and the phone app cannot add one, so the fetch is Google's, not the phone's (**inferred**). A Kamosu reachable only at home or over a VPN cannot be read by Google Calendar.
+- **Google names no refresh interval.** The help page carries none today. It once said "It might take up to 12 hours for changes to show in your Google Calendar", as a 2020 thread on Google's own forum quotes it ([thread 12658899](https://support.google.com/calendar/thread/12658899)), and people there report a day or more. A change can take a day to show, and there is no button to fetch again.
+- **Apple Calendar on an iPhone subscribes from the Calendar app or a link.** Apple's iPhone guide ("Use multiple calendars on iPhone", read 2026-11-01): *Calendars*, *Add Calendar*, *Add Subscription Calendar*, enter the URL of the .ics file; and "You can also subscribe to an iCalendar (.ics) calendar by tapping a link to it." Settings has the same way in under *Calendar Accounts*, *Other*, *Add Subscribed Calendar*. The phone fetches the file itself, so a Kamosu on the home network works while the phone is on it (**inferred**).
+- **Apple names no interval for the iPhone.** On a Mac each subscribed calendar has its own *Auto-refresh* menu, under *Get Info* ("Refresh calendars on Mac"). The iPhone guide gives no setting and no figure.
+- **A hint the feed may carry.** RFC 7986 §5.7 `REFRESH-INTERVAL` is "a suggested minimum interval for polling", and Apple's older `X-PUBLISHED-TTL` says the same. Whether Google or Apple obeys either is **unconfirmed**; neither vendor's help mentions them.
+- **An all-day event over seven days** is `DTSTART;VALUE=DATE` on its first day and `DTEND;VALUE=DATE` on the day after its last: RFC 5545 §3.6.1 gives exactly this for an event "from June 28th, 2007 to July 8th, 2007 inclusively", whose `DTEND` is July 9th, "the non-inclusive end of the event". With no `DTEND` a date event lasts one day. How each app draws seven days is **unconfirmed** in their help: Mealie's week entries are exactly this, as a bar across the days of a week view.
+- **A meal need not make its cook busy.** `TRANSP:TRANSPARENT` (RFC 5545 §3.8.2.7) says an event takes no time on a free/busy search; the RFC's own multi-day example carries it.
+
 ## Not confirmed
 
-- Whether Mealie's shopping-list add leaves out foods on hand.
-- How Norish picks servings when it adds a planned recipe to groceries.
-- Whether deleting a Tandoor plan entry removes its shopping items.
-- Whether Grocy's iCal output carries meal plan entries.
-- Copy and drag in RecipeSage.
+- ~~Whether Mealie's shopping-list add leaves out foods on hand.~~ It does, by default (checked 2026-11-01 at `a18e63d`): the planner opens the recipe page's own dialog (`RecipeDialogAddToShoppingList.vue`), which lists a food the household has on hand last in its section, unticked, so it is offered but not added unless ticked.
+- ~~How Norish picks servings when it adds a planned recipe to groceries.~~ At the recipe's own servings, or 1 where it has none (`after-planning.tsx` at `903a1fd`); the panel starts there.
+- ~~Whether deleting a Tandoor plan entry removes its shopping items.~~ It does (`cookbook/models.py` at `cbb96e1`): a `ShoppingListRecipe`'s `mealplan` and a `ShoppingListEntry`'s `list_recipe` are both `on_delete=CASCADE`, so the entry's rows go with it, ticked ones included.
+- ~~Whether Grocy's iCal output carries meal plan entries.~~ It does (`41206cb`): `CalendarApiController::Ical` writes `CalendarService::GetEvents()`, which adds each meal plan recipe and note when meal planning is on, all-day, or at its section's time where the section has one.
+- ~~Copy and drag in RecipeSage.~~ Both exist (`301998f`): a meal dropped on another day opens its edit sheet with the new date (`meal-calendar.component.html`, `itemMoved`), a meal's details offer Clone, and whole days are copied or moved in bulk.
 - Mobile behaviour in Mealie and Tandoor beyond what the code shows. Nothing was tested live.
+- How Google Calendar and Apple Calendar draw an all-day event over seven days, and whether either obeys `REFRESH-INTERVAL`. Kamosu's live acceptance of #491 subscribes a real calendar app.

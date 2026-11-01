@@ -5282,6 +5282,97 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             }),
             handler: crate::operations::send_to_shopping_list,
         },
+        // A Calendar Link (#491): the private address a calendar app reads
+        // the caller's Meal Plan at, with no sign-in. A key of its own kind,
+        // so making one is for a Person signed in, as minting a key is.
+        Operation {
+            name: "make_calendar_link",
+            summary: "Make the link a calendar app subscribes to for your plan. \
+                      It shows each of your Planned Meals as an all-day \
+                      event, from 90 days back on. Anyone holding it reads \
+                      your plan and changes nothing. You have one at most: \
+                      making one ends the one before. Its Secret is answered \
+                      this once and kept nowhere; `url` is the whole link \
+                      where the instance has a public address, and null \
+                      where it has none, when the link is `path` at the \
+                      address Kamosu is reached at.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: true,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::Refused,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "secret": { "type": "string" },
+                    "path": { "type": "string", "description": "The link at the address Kamosu is reached at, such as /calendar/<secret>.ics." },
+                    "url": { "type": ["string", "null"], "description": "The whole link at the instance's public address, or null where it has none." },
+                    "made_at": { "type": "string" },
+                },
+                "required": ["secret", "path", "url", "made_at"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::make_calendar_link,
+        },
+        Operation {
+            name: "get_calendar_link",
+            summary: "Whether you have a live Calendar Link. It says when \
+                      it was made and when a calendar app last read it, and \
+                      never the link itself, which is shown once when it is \
+                      made.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::GoesThrough,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "calendar_link": {
+                        "type": ["object", "null"],
+                        "properties": {
+                            "made_at": { "type": "string" },
+                            "last_read_at": { "type": ["string", "null"], "description": "When a calendar app last fetched it, or null where none has." },
+                        },
+                        "required": ["made_at", "last_read_at"],
+                        "additionalProperties": false,
+                    },
+                },
+                "required": ["calendar_link"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::get_calendar_link,
+        },
+        Operation {
+            name: "end_calendar_link",
+            summary: "End your Calendar Link. A calendar app holding it is \
+                      answered nothing from then on. Answers whether there \
+                      was one to end.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::Refused,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "ended": { "type": "boolean" } },
+                "required": ["ended"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::end_calendar_link,
+        },
         Operation {
             name: "list_foods",
             summary: "List every Food this instance knows. Each is shown in \
@@ -8969,6 +9060,10 @@ fn security_record_output() -> Value {
                                     "description": "The Operator key minted.",
                                 },
                                 "backup": { "type": "string" },
+                                "replaced": {
+                                    "type": "boolean",
+                                    "description": "The Calendar Link made ended a live one.",
+                                },
                             },
                             "additionalProperties": false,
                         },
