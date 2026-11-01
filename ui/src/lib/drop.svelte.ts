@@ -53,6 +53,14 @@ if (typeof window !== 'undefined') {
 	addEventListener('pointerdown', over, true);
 }
 
+/**
+ * No drag began here. A test file's drag may end with the file, and the next
+ * file shares the page (#507).
+ */
+export function forgetDragHere(): void {
+	startedHere = false;
+}
+
 /** What Firefox calls a file from the computer until it is let go: no type at all. */
 const UNTYPED = 'application/x-moz-file';
 

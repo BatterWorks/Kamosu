@@ -20,6 +20,7 @@ import { story } from '$lib/story/showing.svelte';
 import { demo } from '$lib/demo.svelte';
 import { signingIn } from '$lib/shell/signing-in.svelte';
 import { forgetSlash } from '$lib/shell/slash';
+import { forgetDragHere } from '$lib/drop.svelte';
 
 /**
  * One `goto` for the whole run, cleared after every test. Why it is not mocked
@@ -44,9 +45,10 @@ vi.mock('$app/navigation', async () => ({
  * the top of every file, before the file's own code, and after the last
  * `afterAll` of the one before it.
  *
- * A new module-level `$state`, or a `SvelteMap` or `SvelteSet` made at module
- * scope, belongs in this list. A leak it leaves out does not fail where it is
- * made: it fails some later file, and a different one each run.
+ * A new module-level `$state`, a `SvelteMap` or `SvelteSet` made at module
+ * scope, or a plain module variable a window listener writes, belongs in this
+ * list. A leak it leaves out does not fail where it is made: it fails some
+ * later file, and a different one each run.
  */
 function startAsIsolationWould(): void {
 	emptied(standing);
@@ -62,6 +64,7 @@ function startAsIsolationWould(): void {
 	refreshed.clear();
 	forgetArrival();
 	forgetSlash();
+	forgetDragHere();
 	// Cleared after every test below as well. This one catches a `goto` made in
 	// the last file's `afterAll`, which no `afterEach` follows.
 	went.mockClear();

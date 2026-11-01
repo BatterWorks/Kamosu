@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent } from '@testing-library/svelte';
-import { carriedBy, FilePlace, isPicture, keepDropsOut } from './drop.svelte';
+import { carriedBy, FilePlace, forgetDragHere, isPicture, keepDropsOut } from './drop.svelte';
 import { carrying } from '../testing/drops';
 
 const pdf = new File(['%PDF'], 'tarte.pdf', { type: 'application/pdf' });
@@ -63,6 +63,16 @@ describe('a drop nothing takes', () => {
 		card.remove();
 		// The next thing the pointer does on the page is press on it.
 		await fireEvent.pointerDown(document.body);
+		expect(await fireEvent.drop(document.body, { dataTransfer: carrying({ files: [pdf] }) })).toBe(
+			false,
+		);
+	});
+
+	it('turns the next drop away again once a drag begun here is forgotten (#507)', async () => {
+		const card = document.body.appendChild(document.createElement('li'));
+		// A meal pulled across the plan, and the file ends before it is let go.
+		await fireEvent.dragStart(card);
+		forgetDragHere();
 		expect(await fireEvent.drop(document.body, { dataTransfer: carrying({ files: [pdf] }) })).toBe(
 			false,
 		);
