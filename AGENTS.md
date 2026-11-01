@@ -379,8 +379,9 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   demo.rs           a Demo: the way a visitor arrives, the refusal
                     every route outside the Catalogue gives, and its
                     Sample Library poured in at startup and every day
-                    at 04:00 UTC, its dates moved forward (ADR 0052,
-                    #403, #404)
+                    at 04:00 UTC, its dates moved forward, the Meal
+                    Plan's days by a step of their own (ADR 0052,
+                    #403, #404, #490)
   kitchens.rs       Kitchens, their members, and leaving one: who sees
                     whose recipes (ADR 0041)
   cookbooks.rs      Cookbooks: who may change a recipe, joining and

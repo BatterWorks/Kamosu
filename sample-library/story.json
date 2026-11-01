@@ -7503,6 +7503,44 @@
       }
     },
     {
+      "days_ago": 12,
+      "at": "20:00",
+      "as": "Camille",
+      "op": "plan_recipe",
+      "input": {
+        "branch_id": { "$ref": "pasta.branch_id" },
+        "day": { "$day": -11 },
+        "planned_yield": { "amount": "2", "noun": "servings" }
+      }
+    },
+    {
+      "days_ago": 12,
+      "at": "20:01",
+      "as": "Camille",
+      "op": "plan_recipe",
+      "input": {
+        "branch_id": { "$ref": "shakshuka.branch_id" },
+        "day": { "$day": -10 }
+      }
+    },
+    {
+      "days_ago": 12,
+      "at": "20:02",
+      "as": "Camille",
+      "op": "plan_words",
+      "input": { "words": "Leftovers", "day": { "$day": -9 } }
+    },
+    {
+      "days_ago": 12,
+      "at": "20:03",
+      "as": "Camille",
+      "op": "plan_recipe",
+      "input": {
+        "branch_id": { "$ref": "oven_rice.branch_id" },
+        "day": { "$day": -8 }
+      }
+    },
+    {
       "days_ago": 10,
       "at": "09:30",
       "as": "Camille",
@@ -8027,10 +8065,94 @@
       }
     },
     {
+      "days_ago": 2,
+      "at": "20:30",
+      "as": "Camille",
+      "op": "plan_recipe",
+      "input": {
+        "branch_id": { "$ref": "noodles.branch_id" },
+        "day": { "$day": -1 }
+      }
+    },
+    {
+      "days_ago": 2,
+      "at": "20:31",
+      "as": "Camille",
+      "op": "plan_recipe",
+      "input": {
+        "branch_id": { "$ref": "kogel.branch_id" },
+        "day": { "$day": 0 }
+      }
+    },
+    {
+      "days_ago": 2,
+      "at": "20:32",
+      "as": "Camille",
+      "op": "plan_recipe",
+      "input": {
+        "branch_id": { "$ref": "bacon_pasta.branch_id" },
+        "day": { "$day": 1 }
+      }
+    },
+    {
+      "days_ago": 2,
+      "at": "20:33",
+      "as": "Camille",
+      "op": "plan_words",
+      "input": { "words": "Dinner at Lucía's", "day": { "$day": 2 } }
+    },
+    {
+      "days_ago": 2,
+      "at": "20:34",
+      "as": "Camille",
+      "op": "plan_recipe",
+      "input": {
+        "branch_id": { "$ref": "bourguignon.branch_id" },
+        "day": { "$day": 3 },
+        "planned_yield": { "amount": "4", "noun": "servings" }
+      }
+    },
+    {
+      "days_ago": 2,
+      "at": "20:35",
+      "as": "Camille",
+      "op": "plan_recipe",
+      "input": {
+        "branch_id": { "$ref": "lasagna.branch_id" },
+        "week": { "$week": 0 }
+      }
+    },
+    {
+      "days_ago": 2,
+      "at": "20:40",
+      "as": "Camille",
+      "op": "send_to_shopping_list",
+      "input": { "days": [{ "$day": 1 }] }
+    },
+    {
       "days_ago": 1,
       "at": "07:00",
       "as": "Camille",
       "published_key": "An agent of your own"
+    },
+    {
+      "days_ago": 1,
+      "at": "12:20",
+      "as": "Camille",
+      "op": "start_attempt",
+      "input": { "branch_id": { "$ref": "noodles.branch_id" } },
+      "keep": "c_noodles_lunch"
+    },
+    {
+      "days_ago": 1,
+      "at": "12:45",
+      "as": "Camille",
+      "op": "finish_attempt",
+      "input": {
+        "attempt_id": { "$ref": "c_noodles_lunch.id" },
+        "rating": "again",
+        "note": "Lunch, as planned. Ten minutes start to finish."
+      }
     }
   ],
   "replays": [

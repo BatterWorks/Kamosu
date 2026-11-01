@@ -838,11 +838,57 @@ enum Planned<'a> {
 /// The Monday of the week a calendar day is in.
 fn monday_of(conn: &Connection, day: &str) -> Result<String, OpError> {
     conn.query_row(
-        "SELECT date(?1, '-' || ((CAST(strftime('%w', ?1) AS INTEGER) + 6) % 7) || ' days')",
+        &format!("SELECT {}", monday_sql("?1")),
         params![day],
         |row| row.get(0),
     )
     .map_err(|e| OpError::internal(format!("cannot find a week's Monday: {e}")))
+}
+
+/// The SQL for the Monday of the week the calendar day `day` names is in,
+/// `day` being an SQL expression: a parameter or a column.
+fn monday_sql(day: &str) -> String {
+    format!("date({day}, '-' || ((CAST(strftime('%w', {day}) AS INTEGER) + 6) % 7) || ' days')")
+}
+
+/// Move a Demo's Meal Plan, just poured, from the day its Sample Library was
+/// built to `today` (#490). Its days are bare dates, which the pour's own
+/// pass, moving only full times, leaves as they were. Every day moves by the
+/// same whole days as every other date, and a dated meal stands in the week
+/// its day now falls in. A week with no day moves by whole weeks, from the
+/// week the library was built in to today's, so a week planned as the
+/// build's own is always the current one, whatever the weekday of either.
+pub(super) fn move_poured_plan(
+    conn: &Connection,
+    built_on: &str,
+    today: &str,
+) -> rusqlite::Result<usize> {
+    conn.execute(
+        &format!(
+            "UPDATE main.planned_meals SET \
+               day = date(day, ?3), \
+               week = CASE WHEN day IS NULL \
+                 THEN date(week, (julianday({}) - julianday({})) || ' days') \
+                 ELSE {} END",
+            monday_sql("?2"),
+            monday_sql("?1"),
+            monday_sql("date(day, ?3)"),
+        ),
+        params![
+            built_on,
+            today,
+            format!("{:+} days", whole_days(conn, built_on, today)?),
+        ],
+    )
+}
+
+/// The whole days from one calendar day to another.
+fn whole_days(conn: &Connection, from: &str, to: &str) -> rusqlite::Result<i64> {
+    conn.query_row(
+        "SELECT CAST(round(julianday(?2) - julianday(?1)) AS INTEGER)",
+        params![from, to],
+        |row| row.get(0),
+    )
 }
 
 /// A calendar date as the plan holds one, YYYY-MM-DD, refused unless it is a
@@ -930,4 +976,50 @@ pub(super) enum Whose<'a> {
     Everyone,
     Only(&'a str),
     AllBut(&'a str),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Where each meal stands after a Demo built on `built_on` is poured on
+    /// `today`: (its day, its week) for a meal planned on 2026-11-06, the
+    /// Friday of the build's week, and for one on that week with no day.
+    fn moved(built_on: &str, today: &str) -> Vec<(Option<String>, String)> {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE planned_meals (day TEXT, week TEXT); \
+             INSERT INTO planned_meals VALUES ('2026-11-06', '2026-11-02'), (NULL, '2026-11-02');",
+        )
+        .unwrap();
+        move_poured_plan(&conn, built_on, today).unwrap();
+        conn.prepare("SELECT day, week FROM planned_meals ORDER BY day IS NULL")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn a_demos_plan_moves_its_days_by_days_and_its_undated_weeks_by_weeks() {
+        let day = |day: &str, week: &str| (Some(day.to_string()), week.to_string());
+        let undated = |week: &str| (None, week.to_string());
+        // Built on a Thursday, poured on the Tuesday after: five days on, and
+        // the meal with no day is in the Tuesday's week, not the build's.
+        assert_eq!(
+            moved("2026-11-05", "2026-11-10"),
+            vec![day("2026-11-11", "2026-11-09"), undated("2026-11-09")]
+        );
+        // Poured the same day, nothing moves.
+        assert_eq!(
+            moved("2026-11-05", "2026-11-05"),
+            vec![day("2026-11-06", "2026-11-02"), undated("2026-11-02")]
+        );
+        // Built on a Sunday, poured on the Monday after: one day, one week.
+        assert_eq!(
+            moved("2026-11-08", "2026-11-09"),
+            vec![day("2026-11-07", "2026-11-02"), undated("2026-11-09")]
+        );
+    }
 }

@@ -241,10 +241,11 @@ fn until_the_cleaning(now: SystemTime) -> Duration {
 
 /// Pour the built library attached as `sample` into this one, inside the
 /// transaction the caller opened. Every table but the instance's own is
-/// emptied and filled again, every time in it moved forward `by`. The pour
+/// emptied and filled again, every time in it moved forward `by` days, and
+/// the Meal Plan with them from `built_on` to `today`. The pour
 /// keeps the Sessions used in the last day whose Person is still there, the
 /// public address, and, closed, any Person the instance's own state names.
-fn pour(conn: &Connection, by: &str) -> Result<(), OpError> {
+fn pour(conn: &Connection, by: i64, built_on: &str, today: &str) -> Result<(), OpError> {
     let failed =
         |e: rusqlite::Error| OpError::internal(format!("cannot put the Sample Library back: {e}"));
     let tables: Vec<String> = conn
@@ -317,10 +318,11 @@ fn pour(conn: &Connection, by: &str) -> Result<(), OpError> {
             &format!(
                 "INSERT INTO main.\"{table}\" ({names}) SELECT {moved} FROM sample.\"{table}\""
             ),
-            params![by],
+            params![format!("{by:+} days")],
         )
         .map_err(failed)?;
     }
+    meal_plan::move_poured_plan(conn, built_on, today).map_err(failed)?;
     conn.execute_batch(
         "INSERT INTO main.sessions SELECT * FROM temp.kept_sessions; \
          INSERT INTO main.people SELECT * FROM temp.kept_people; \
@@ -431,12 +433,12 @@ impl Core {
             )
             .map_err(failed)?;
             let poured = (|| {
-                let by: i64 = conn
+                let (built_on, by): (String, i64) = conn
                     .query_row(
-                        "SELECT CAST(round(julianday(?1) - julianday(value)) AS INTEGER) \
+                        "SELECT value, CAST(round(julianday(?1) - julianday(value)) AS INTEGER) \
                          FROM sample.meta WHERE key = ?2",
                         params![today, sample_library::BUILT_ON],
-                        |row| row.get(0),
+                        |row| Ok((row.get(0)?, row.get(1)?)),
                     )
                     .map_err(failed)?;
                 conn.execute_batch("BEGIN IMMEDIATE; PRAGMA defer_foreign_keys = ON;")
@@ -444,7 +446,7 @@ impl Core {
                 // A COMMIT refused, by a foreign key the pour left broken,
                 // leaves the transaction open on the one connection every
                 // request shares, so it is rolled back like any failure.
-                let committed = pour(conn, &format!("{by:+} days"))
+                let committed = pour(conn, by, &built_on, today)
                     .and_then(|()| conn.execute_batch("COMMIT").map_err(failed));
                 if committed.is_err() {
                     let _ = conn.execute_batch("ROLLBACK");

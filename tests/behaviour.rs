@@ -46114,7 +46114,9 @@ mod a_demos_sample_library {
     }
 
     /// Every row of the library, table by table and sorted, with every time
-    /// in it moved forward `days`.
+    /// in it moved forward `days`. Where a Planned Meal stands is left out:
+    /// its days and weeks move by rules of their own, which
+    /// `the_cleaning_keeps_camilles_week_the_current_one` checks.
     fn the_library(app: &support::TestApp, days: i64) -> BTreeMap<String, Vec<String>> {
         app.core
             .db()
@@ -46136,11 +46138,17 @@ mod a_demos_sample_library {
                         .prepare(&format!("SELECT * FROM \"{table}\""))
                         .map_err(failed)?;
                     let width = stmt.column_count();
+                    let placed: Vec<bool> = (0..width)
+                        .map(|i| {
+                            table == "planned_meals"
+                                && matches!(stmt.column_name(i), Ok("day" | "week"))
+                        })
+                        .collect();
                     let mut rows = Vec::new();
                     let mut found = stmt.query([]).map_err(failed)?;
                     while let Some(row) = found.next().map_err(failed)? {
                         let mut values = Vec::new();
-                        for i in 0..width {
+                        for i in (0..width).filter(|i| !placed[*i]) {
                             let value: rusqlite::types::Value = row.get(i).map_err(failed)?;
                             values.push(match value {
                                 rusqlite::types::Value::Text(text) if is_a_time(&text) => conn
@@ -46340,6 +46348,155 @@ mod a_demos_sample_library {
         // And the published key goes on working.
         let (status, _) = app.post_op("get_person", Some(kamosu::core::DEMO_ACCESS_KEY), "{}");
         assert_eq!(status, 200);
+    }
+
+    /// Camille's plan from `from` days to `to` days after `today`, as the Plan
+    /// reads it: each meal as `day title`, an undated one's day `week`, and
+    /// what is marked on it.
+    fn camilles_plan(
+        app: &support::TestApp,
+        visitor: &str,
+        today: &str,
+        from: i64,
+        to: i64,
+    ) -> Vec<String> {
+        let day =
+            |days: i64| -> String { ask(app, &format!("SELECT date('{today}', '{days:+} days')")) };
+        let plan = op(
+            app,
+            "get_meal_plan",
+            visitor,
+            json!({ "from": day(from), "to": day(to), "time_zone": "Europe/Amsterdam" }),
+        );
+        plan["planned_meals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|meal| {
+                let when = match meal["day"].as_str() {
+                    Some(day) => day.to_string(),
+                    None => format!("week of {}", meal["week"].as_str().unwrap()),
+                };
+                let what = meal["title"].as_str().or(meal["words"].as_str()).unwrap();
+                let mut marks = String::new();
+                if meal["cooked"] == json!(true) {
+                    marks.push_str(" cooked");
+                }
+                if !meal["sent_at"].is_null() {
+                    marks.push_str(" sent");
+                }
+                format!("{when} {what}{marks}")
+            })
+            .collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_cleaning_keeps_camilles_week_the_current_one() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app = support::spawn_sample_demo_in(dir.path());
+        let visitor = arrive(&app);
+        // The day the library was built, which its plan is counted from, and
+        // which the clock may have passed since: poured again on that day.
+        let today: String = rusqlite::Connection::open(
+            dir.path()
+                .join("sample-library")
+                .join(kamosu::db::DATABASE_FILE),
+        )
+        .and_then(|built| {
+            built.query_row(
+                "SELECT value FROM meta WHERE key = 'sample_library_built_on'",
+                [],
+                |row| row.get(0),
+            )
+        })
+        .unwrap();
+        app.core.put_back_sample_library_on(&today).unwrap();
+
+        // A visitor's own planning saves, until the cleaning.
+        let lasagna = op(
+            &app,
+            "search_recipes",
+            &visitor,
+            json!({ "query": "Lasagna Soup" }),
+        );
+        let planned = op(
+            &app,
+            "plan_recipe",
+            &visitor,
+            json!({
+                "branch_id": lasagna["recipes"][0]["branch_id"],
+                "day": today,
+                "planned_meal_id": "pm_0123456789abcdef",
+            }),
+        );
+        assert_eq!(planned["planned_meal"]["day"], json!(today), "{planned}");
+        let mut with_mine = camilles_plan(&app, &visitor, &today, 0, 0);
+        with_mine.retain(|meal| !meal.starts_with("week of"));
+        assert_eq!(
+            with_mine,
+            vec![
+                format!("{today} Kogelbiefstuk, pan-seared"),
+                format!("{today} Lasagna Soup"),
+            ]
+        );
+
+        // The week after a cleaning today and on each day after it, so a
+        // week with no day is seen to follow whichever weekday a visitor
+        // comes on.
+        for on in 0..=7 {
+            let cleaned_on: String = ask(&app, &format!("SELECT date('{today}', '+{on} days')"));
+            app.core.put_back_sample_library_on(&cleaned_on).unwrap();
+            let day = |days: i64| -> String {
+                ask(
+                    &app,
+                    &format!("SELECT date('{cleaned_on}', '{days:+} days')"),
+                )
+            };
+            let its_monday: String = ask(
+                &app,
+                &format!("SELECT date('{cleaned_on}', '-6 days', 'weekday 1')"),
+            );
+            let mut expected = vec![
+                format!("{} Garlic Butter Noodles cooked", day(-1)),
+                format!("{} Kogelbiefstuk, pan-seared", day(0)),
+                format!("{} Bacon, pork and broccolini pasta sent", day(1)),
+                format!("{} Dinner at Lucía's", day(2)),
+                format!("{} Beef bourguignon", day(3)),
+                format!("week of {its_monday} Lasagna Soup"),
+            ];
+            let mut read = camilles_plan(&app, &visitor, &cleaned_on, -1, 3);
+            expected.sort();
+            read.sort();
+            assert_eq!(read, expected, "cleaned on {cleaned_on}");
+
+            // A week gone by, its shakshuka cooked by the Attempt of its day.
+            let mut gone_by = camilles_plan(&app, &visitor, &cleaned_on, -11, -8);
+            gone_by.retain(|meal| !meal.starts_with("week of"));
+            assert_eq!(
+                gone_by,
+                vec![
+                    format!("{} Weeknight Tomato Pasta", day(-11)),
+                    format!("{} Sunny Side Shakshuka cooked", day(-10)),
+                    format!("{} Leftovers", day(-9)),
+                    format!("{} Crispy oven rice with beef and mushrooms", day(-8)),
+                ],
+                "cleaned on {cleaned_on}"
+            );
+        }
+
+        // What was sent is still on the list, as the story left it.
+        let shopping = op(&app, "get_shopping_list", &visitor, json!({}));
+        assert!(
+            shopping
+                .to_string()
+                .contains("Bacon, pork and broccolini pasta"),
+            "{shopping}"
+        );
+        let mine: i64 = ask(
+            &app,
+            "SELECT COUNT(*) FROM planned_meals WHERE id = 'pm_0123456789abcdef'",
+        );
+        assert_eq!(mine, 0, "the visitor's own meal went at the first cleaning");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
