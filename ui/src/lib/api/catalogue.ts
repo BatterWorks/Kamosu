@@ -5606,15 +5606,17 @@ export type RemoveLooseItemOutput = {
 	}[];
 };
 
-/** Read your Meal Plan from one day to another. It answers what you planned on each day, both days included, and on any day of each week those days touch. A week runs Monday to Sunday and is named by its Monday, and each meal says its week and its day, or no day. They come a week at a time: the week's meals with no day first, then each day's, each list in the order you put it in. A meal is a recipe or written words. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05. One read covers at most 366 days. */
+/** Read your Meal Plan from one day to another. It answers what you planned on each day, both days included, and on any day of each week those days touch. A week runs Monday to Sunday and is named by its Monday, and each meal says its week and its day, or no day. They come a week at a time: the week's meals with no day first, then each day's, each list in the order you put it in. A meal is a recipe or written words. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05. One read covers at most 366 days. Each recipe says whether it was cooked: you began cooking any Branch of that recipe on its day, or on any day of its week where it has no day, finished or not. The day is the one where you are, so send your time_zone; without one the days are UTC's. The plan never records a cooking itself. */
 export type GetMealPlanInput = {
 	from: string;
+	time_zone?: string;
 	to: string;
 };
 /** What get_meal_plan answers. */
 export type GetMealPlanOutput = {
 	planned_meals: {
 		branch_id: string | null;
+		cooked: boolean;
 		day: string | null;
 		gone: boolean;
 		main_photo: string | null;
@@ -35616,7 +35618,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_meal_plan",
-		"summary": "Read your Meal Plan from one day to another. It answers what you planned on each day, both days included, and on any day of each week those days touch. A week runs Monday to Sunday and is named by its Monday, and each meal says its week and its day, or no day. They come a week at a time: the week's meals with no day first, then each day's, each list in the order you put it in. A meal is a recipe or written words. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05. One read covers at most 366 days.",
+		"summary": "Read your Meal Plan from one day to another. It answers what you planned on each day, both days included, and on any day of each week those days touch. A week runs Monday to Sunday and is named by its Monday, and each meal says its week and its day, or no day. They come a week at a time: the week's meals with no day first, then each day's, each list in the order you put it in. A meal is a recipe or written words. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05. One read covers at most 366 days. Each recipe says whether it was cooked: you began cooking any Branch of that recipe on its day, or on any day of its week where it has no day, finished or not. The day is the one where you are, so send your time_zone; without one the days are UTC's. The plan never records a cooking itself.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -35624,6 +35626,10 @@ export const CATALOGUE = [
 			"properties": {
 				"from": {
 					"description": "The first day, such as 2026-11-02.",
+					"type": "string"
+				},
+				"time_zone": {
+					"description": "Where you are, as a time zone name such as Europe/Amsterdam, so a cooking counts on the day it was where you are. UTC when left out.",
 					"type": "string"
 				},
 				"to": {
@@ -35649,6 +35655,9 @@ export const CATALOGUE = [
 									"string",
 									"null"
 								]
+							},
+							"cooked": {
+								"type": "boolean"
 							},
 							"day": {
 								"type": [
@@ -35751,7 +35760,8 @@ export const CATALOGUE = [
 							"written_yield",
 							"main_photo",
 							"sent_factor",
-							"sent_at"
+							"sent_at",
+							"cooked"
 						],
 						"type": "object"
 					},
@@ -38941,7 +38951,7 @@ export interface KamosuClient {
 	addLooseItem(input: AddLooseItemInput): Promise<Answer<'add_loose_item'>>;
 	/** Take one typed line off your Shopping List. Answers the whole list. */
 	removeLooseItem(input: RemoveLooseItemInput): Promise<Answer<'remove_loose_item'>>;
-	/** Read your Meal Plan from one day to another. It answers what you planned on each day, both days included, and on any day of each week those days touch. A week runs Monday to Sunday and is named by its Monday, and each meal says its week and its day, or no day. They come a week at a time: the week's meals with no day first, then each day's, each list in the order you put it in. A meal is a recipe or written words. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05. One read covers at most 366 days. */
+	/** Read your Meal Plan from one day to another. It answers what you planned on each day, both days included, and on any day of each week those days touch. A week runs Monday to Sunday and is named by its Monday, and each meal says its week and its day, or no day. They come a week at a time: the week's meals with no day first, then each day's, each list in the order you put it in. A meal is a recipe or written words. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05. One read covers at most 366 days. Each recipe says whether it was cooked: you began cooking any Branch of that recipe on its day, or on any day of its week where it has no day, finished or not. The day is the one where you are, so send your time_zone; without one the days are UTC's. The plan never records a cooking itself. */
 	getMealPlan(input: GetMealPlanInput): Promise<Answer<'get_meal_plan'>>;
 	/** Plan a recipe on a day or a week of your Meal Plan. Send `day`, or `week` as its Monday for a week with no day yet. It goes after whatever that day, or that week's meals with no day, already hold. It plans one Branch, always at its newest Version: choosing between a recipe's Branches is choosing which method you will cook. Plan it at a Yield, a multiplier (a Yield with an empty noun), or as written by sending none; a recipe whose own Yield has no amount Kamosu can count from is planned by a multiplier. The same recipe may be planned on several days, or twice on one. Planning one again elsewhere is this Operation again. Answers the Planned Meal. */
 	planRecipe(input: PlanRecipeInput): Promise<Answer<'plan_recipe'>>;

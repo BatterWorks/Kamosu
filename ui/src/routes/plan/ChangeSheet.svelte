@@ -40,7 +40,7 @@
 		/** Where opening it goes: the recipe at its planned Yield. */
 		opens: string;
 		/** A write landed: the meal as it now stands, or null once it is off the plan. */
-		landed: (id: string, now: Meal | null) => void;
+		landed: (id: string, now: Omit<Meal, 'cooked'> | null) => void;
 		/** Put it at another place in its own list. */
 		onOrder: (position: number) => Promise<void>;
 		onMove: () => void;

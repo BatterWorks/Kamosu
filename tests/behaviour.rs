@@ -26604,6 +26604,7 @@ async fn a_recipe_planned_on_a_day_is_read_back_in_the_order_it_was_put_there() 
             "main_photo": Value::Null,
             "sent_factor": Value::Null,
             "sent_at": Value::Null,
+            "cooked": false,
         })
     );
     assert_eq!(week[2]["position"], json!(1));
@@ -26655,6 +26656,159 @@ async fn a_recipe_planned_on_a_day_is_read_back_in_the_order_it_was_put_there() 
         json!({ "branch_id": "b_0000000000000000", "day": "2026-11-05" }),
     );
     assert_eq!(status, 404, "{refused}");
+}
+
+/// Say when a cooking began, as a moment in UTC.
+fn cooking_began(app: &support::TestApp, attempt_id: &str, moment: &str) {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE attempts SET created_at = ?2 WHERE id = ?1",
+                rusqlite::params![attempt_id, moment],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("say when the cooking began");
+}
+
+/// **A planned recipe shows it was cooked** (#489): an Attempt of its
+/// Lineage, this Person's own, begun on its day where the cook is, or on any
+/// day of its week where it has no day. Nothing is stored for it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_planned_recipe_was_cooked_when_its_cook_began_cooking_it_that_day() {
+    let app = support::spawn_app();
+    let (_, stephane) = someone(&app, "Stéphane");
+    let (_, helene) = someone(&app, "Hélène");
+    kitchen_of(&app, &stephane, "Family", &[&helene]);
+    let soupe = written(&app, &stephane, "Soupe au pistou");
+    let tarte = written(&app, &stephane, "Tarte Tatin");
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&stephane),
+        &json!({ "branch_id": soupe, "name": "Sans basilic" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let sans_basilic = varied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let thursday = plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": soupe, "day": "2026-11-05" }),
+    );
+    let friday = plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": soupe, "day": "2026-11-06" }),
+    );
+    let any_day = plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": soupe, "week": "2026-11-02" }),
+    );
+    let tarte_thursday = plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": tarte, "day": "2026-11-05" }),
+    );
+    let next_week = plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": soupe, "week": "2026-11-09" }),
+    );
+    let (status, words) = plan_op(
+        &app,
+        &stephane,
+        "plan_words",
+        json!({ "words": "leftovers", "day": "2026-11-05" }),
+    );
+    assert_eq!(status, 200, "{words}");
+    let leftovers = words["planned_meal"]["planned_meal_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let attempts = |app: &support::TestApp| -> i64 {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.query_row("SELECT COUNT(*) FROM attempts", [], |row| row.get(0))
+                    .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+            })
+            .unwrap()
+    };
+    assert_eq!(attempts(&app), 0, "planning cooks nothing");
+
+    // Thursday noon: the other Branch of the soup, finished. Hélène cooks
+    // the tart the same day, which is hers and not Stéphane's.
+    let other_branch = cook_it(&app, &stephane, &sans_basilic, json!({}));
+    cooking_began(&app, &other_branch, "2026-11-05T12:00:00.000Z");
+    let hers = cook_it(&app, &helene, &tarte, json!({}));
+    cooking_began(&app, &hers, "2026-11-05T12:00:00.000Z");
+    // Friday at half past ten in the evening in New York, which is Saturday
+    // in UTC, begun and never finished.
+    let (status, started) = app.post_op(
+        "start_attempt",
+        Some(&stephane),
+        &json!({ "branch_id": soupe }).to_string(),
+    );
+    assert_eq!(status, 200, "{started}");
+    let late = started["result"]["id"].as_str().unwrap().to_string();
+    cooking_began(&app, &late, "2026-11-07T03:30:00.000Z");
+
+    let cooked = |input: Value| -> Vec<(String, bool)> {
+        let (status, read) = plan_op(&app, &stephane, "get_meal_plan", input);
+        assert_eq!(status, 200, "{read}");
+        read["planned_meals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|meal| {
+                (
+                    meal["planned_meal_id"].as_str().unwrap().to_string(),
+                    meal["cooked"].as_bool().unwrap(),
+                )
+            })
+            .collect()
+    };
+    let in_new_york = cooked(json!({
+        "from": "2026-11-02", "to": "2026-11-15", "time_zone": "America/New_York"
+    }));
+    assert_eq!(
+        in_new_york,
+        [
+            (any_day.clone(), true),
+            (thursday.clone(), true),
+            (tarte_thursday.clone(), false),
+            (leftovers.clone(), false),
+            (friday.clone(), true),
+            (next_week.clone(), false),
+        ]
+    );
+    // Named by no time zone, the days are UTC's: the late cooking was
+    // Saturday, and Friday's soup was not cooked.
+    let in_utc = cooked(json!({ "from": "2026-11-02", "to": "2026-11-15" }));
+    assert_eq!(
+        in_utc,
+        [
+            (any_day, true),
+            (thursday, true),
+            (tarte_thursday, false),
+            (leftovers, false),
+            (friday, false),
+            (next_week, false),
+        ]
+    );
+    assert_eq!(attempts(&app), 3, "reading the plan cooks nothing either");
+
+    let (status, refused) = app.post_op(
+        "get_meal_plan",
+        Some(&stephane),
+        &json!({ "from": "2026-11-02", "to": "2026-11-08", "time_zone": "Mars/Olympus" })
+            .to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert!(refused.to_string().contains("time_zone"), "{refused}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

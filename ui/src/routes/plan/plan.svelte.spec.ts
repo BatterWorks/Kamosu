@@ -22,7 +22,7 @@ import type {
 } from '$lib/api/catalogue';
 import { landedSend } from '$lib/offline/device.svelte';
 import { addDays, mondayOf, today } from '$lib/plan-days';
-import { aPlannedDay } from '$lib/dates';
+import { aPlannedDay, timeZoneHere } from '$lib/dates';
 
 type Meal = GetMealPlanOutput['planned_meals'][number];
 
@@ -42,8 +42,12 @@ const meal = (over: Partial<Meal> = {}): Meal => ({
 	main_photo: null,
 	sent_factor: null,
 	sent_at: null,
+	cooked: false,
 	...over,
 });
+
+/** A meal as a write answers it: a write says nothing of cooking (#489). */
+const asWritten = ({ cooked: _cooked, ...meal }: Meal) => meal;
 
 /** This week holds what a test says; every other week holds nothing. */
 const weekOf =
@@ -96,7 +100,7 @@ describe('the Plan', () => {
 		expect(screen.getAllByText('Nothing planned')).toHaveLength(5);
 		expect(kamosu.calls).toContainEqual({
 			operation: 'get_meal_plan',
-			input: { from: monday, to: addDays(monday, 6) },
+			input: { from: monday, to: addDays(monday, 6), time_zone: timeZoneHere() },
 		});
 	});
 
@@ -121,6 +125,7 @@ describe('the Plan', () => {
 		expect(kamosu.calls.at(-1)?.input).toEqual({
 			from: addDays(monday, 7),
 			to: addDays(monday, 13),
+			time_zone: timeZoneHere(),
 		});
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Back to this week' }));
@@ -132,7 +137,7 @@ describe('the Plan', () => {
 		const { kamosu } = renderScreen(Page, {
 			get_meal_plan: weekOf([meal()]),
 			set_planned_yield: ({ planned_meal_id, planned_yield }) => ({
-				planned_meal: meal({ planned_meal_id, planned_yield }),
+				planned_meal: asWritten(meal({ planned_meal_id, planned_yield })),
 			}),
 		});
 		await screen.findByRole('link', { name: /Katsu Curry/ });
@@ -235,7 +240,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 			...over,
 		});
 	const answered = ({ planned_meal_id }: { planned_meal_id: string }) => ({
-		planned_meal: meal({ planned_meal_id }),
+		planned_meal: asWritten(meal({ planned_meal_id })),
 	});
 
 	it("draws the week's meals with no day above Monday, and says so when there are none", async () => {
@@ -262,7 +267,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 		const { kamosu } = renderScreen(Page, {
 			get_meal_plan: weekOf([words()]),
 			set_planned_words: ({ planned_meal_id, words: typed }) => ({
-				planned_meal: words({ planned_meal_id, words: typed }),
+				planned_meal: asWritten(words({ planned_meal_id, words: typed })),
 			}),
 		});
 
@@ -289,7 +294,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 	it('writes words on a day from its +, and on the week from the list with no day', async () => {
 		const { kamosu } = renderScreen(Page, {
 			get_meal_plan: weekOf([meal()]),
-			plan_words: ({ words: typed }) => ({ planned_meal: words({ words: typed }) }),
+			plan_words: ({ words: typed }) => ({ planned_meal: asWritten(words({ words: typed })) }),
 		});
 		await screen.findByRole('link', { name: /Katsu Curry/ });
 		const friday = addDays(monday, 4);
@@ -357,7 +362,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 	it('plans a recipe again at its amount and leaves the first where it is', async () => {
 		const { kamosu } = renderScreen(Page, {
 			get_meal_plan: weekOf([meal()]),
-			plan_recipe: { planned_meal: meal({ planned_meal_id: 'pm_00000000000000c1' }) },
+			plan_recipe: { planned_meal: asWritten(meal({ planned_meal_id: 'pm_00000000000000c1' })) },
 		});
 		await screen.findByRole('link', { name: /Katsu Curry/ });
 
@@ -392,7 +397,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 	it('plans written words again with the same words', async () => {
 		const { kamosu } = renderScreen(Page, {
 			get_meal_plan: weekOf([words()]),
-			plan_words: ({ words: typed }) => ({ planned_meal: words({ words: typed }) }),
+			plan_words: ({ words: typed }) => ({ planned_meal: asWritten(words({ words: typed })) }),
 		});
 		await screen.findByText('Leftovers');
 
@@ -552,7 +557,9 @@ describe('the Plan when something goes wrong or nothing is there (#487)', () => 
 			Page,
 			{
 				get_meal_plan: weekOf([meal()]),
-				move_planned_meal: ({ planned_meal_id }) => ({ planned_meal: meal({ planned_meal_id }) }),
+				move_planned_meal: ({ planned_meal_id }) => ({
+					planned_meal: asWritten(meal({ planned_meal_id })),
+				}),
 			},
 			undefined,
 			'wide',

@@ -724,6 +724,8 @@ export class Outbox implements Keeping {
 					main_photo: content.main_photo ?? null,
 					sent_factor: null,
 					sent_at: null,
+					// Only the server reads the cookings (#489); the next read says.
+					cooked: false,
 				};
 				break;
 			}
@@ -742,6 +744,7 @@ export class Outbox implements Keeping {
 					main_photo: null,
 					sent_factor: null,
 					sent_at: null,
+					cooked: false,
 				};
 				break;
 			case 'set_planned_yield':

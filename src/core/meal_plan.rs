@@ -22,7 +22,25 @@ impl Core {
     /// any day of a week that overlaps them. They come a week at a time, by
     /// its Monday; in each, the week's meals with no day first, then each
     /// day's, and in each list in its order.
-    pub fn meal_plan(&self, person_id: &str, from: &str, to: &str) -> Result<Value, OpError> {
+    ///
+    /// Each recipe also says whether it was `cooked` (#489), on the calendar
+    /// of `time_zone`, the cook's own as the browser names it, or UTC where
+    /// none is sent. Nothing is stored for it: it is worked out on each read.
+    pub fn meal_plan(
+        &self,
+        person_id: &str,
+        from: &str,
+        to: &str,
+        time_zone: Option<&str>,
+    ) -> Result<Value, OpError> {
+        let time_zone = match time_zone {
+            None => jiff::tz::TimeZone::UTC,
+            Some(name) => jiff::tz::TimeZone::get(name).map_err(|_| {
+                OpError::bad_request(format!(
+                    "time_zone must name a time zone, such as Europe/Amsterdam, and {name:?} names none"
+                ))
+            })?,
+        };
         self.db().with_conn(|conn| {
             let from = calendar_day(conn, from, "from")?;
             let to = calendar_day(conn, to, "to")?;
@@ -59,11 +77,18 @@ impl Core {
                 .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?
                 .collect::<Result<_, _>>()
                 .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
-            let meals = ids
+            let mut meals = ids
                 .iter()
                 .map(|id| planned_meal(conn, person_id, id))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(json!({ "planned_meals": meals.into_iter().flatten().collect::<Vec<_>>() }))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            for meal in &mut meals {
+                let cooked = was_cooked(conn, person_id, meal, &time_zone)?;
+                meal["cooked"] = Value::Bool(cooked);
+            }
+            Ok(json!({ "planned_meals": meals }))
         })
     }
 
@@ -700,6 +725,61 @@ fn planned_meal(conn: &Connection, person_id: &str, id: &str) -> Result<Option<V
         "sent_factor": sent_factor,
         "sent_at": sent_at,
     })))
+}
+
+/// **Whether a planned recipe was cooked** (#489): this Person began an
+/// Attempt of its Lineage on its day, or on any day of its week where it has
+/// no day, In Progress included. Any Branch of the Lineage counts, since an
+/// Attempt belongs to the Lineage. The day is the cook's, in `time_zone`, as
+/// the Cooked diary shows it, so a dinner late in the evening is not
+/// tomorrow's. Written words are never cooked.
+fn was_cooked(
+    conn: &Connection,
+    person_id: &str,
+    meal: &Value,
+    time_zone: &jiff::tz::TimeZone,
+) -> Result<bool, OpError> {
+    let Some(branch_id) = meal["branch_id"].as_str() else {
+        return Ok(false);
+    };
+    let (first, last) = match (meal["day"].as_str(), meal["week"].as_str()) {
+        (Some(day), _) => (day.to_owned(), day.to_owned()),
+        (None, Some(week)) => {
+            let sunday: String = conn
+                .query_row("SELECT date(?1, '+6 days')", params![week], |row| {
+                    row.get(0)
+                })
+                .map_err(|e| OpError::internal(format!("cannot find a week's Sunday: {e}")))?;
+            (week.to_owned(), sunday)
+        }
+        (None, None) => return Ok(false),
+    };
+    // A day where the cook is lies within a day either side of the same day
+    // in UTC, since no time zone is a whole day from it. The moments read
+    // are those, and each is then put on the cook's calendar.
+    let mut statement = conn
+        .prepare(
+            "SELECT attempts.created_at FROM attempts \
+               JOIN branches ON branches.lineage_id = attempts.lineage_id \
+              WHERE branches.id = ?1 AND attempts.person_id = ?2 \
+                AND attempts.created_at >= date(?3, '-1 day') \
+                AND attempts.created_at < date(?4, '+2 days')",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read the cookings: {e}")))?;
+    let moments: Vec<String> = statement
+        .query_map(params![branch_id, person_id, first, last], |row| row.get(0))
+        .map_err(|e| OpError::internal(format!("cannot read the cookings: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read the cookings: {e}")))?;
+    Ok(moments.iter().any(|moment| {
+        moment
+            .parse::<jiff::Timestamp>()
+            .map(|moment| {
+                let day = moment.to_zoned(time_zone.clone()).date().to_string();
+                first <= day && day <= last
+            })
+            .unwrap_or(false)
+    }))
 }
 
 /// **Where a Planned Meal stands** (#487): on a day, or on any day of a week,

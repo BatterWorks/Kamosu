@@ -41,7 +41,7 @@
 	import Screen from '$lib/shell/Screen.svelte';
 	import { landedSend, rereads } from '$lib/offline/device.svelte';
 	import { useRoom } from '$lib/room.svelte';
-	import { aPlannedDay, aPlannedWeek, aPlannedWeekday } from '$lib/dates';
+	import { aPlannedDay, aPlannedWeek, aPlannedWeekday, timeZoneHere } from '$lib/dates';
 	import { isMultiplier, said, toSearch } from '$lib/how-much';
 	import {
 		addDays,
@@ -65,6 +65,8 @@
 	import WriteSheet from './WriteSheet.svelte';
 
 	type Meal = GetMealPlanOutput['planned_meals'][number];
+	/** A Planned Meal as a write answers it, which says nothing of cooking. */
+	type Written = Omit<Meal, 'cooked'>;
 
 	const kamosu = useKamosu();
 	const room = useRoom();
@@ -171,7 +173,7 @@
 		failed = false;
 		let current = true;
 		kamosu
-			.getMealPlan({ from, to: addDays(from, 6) })
+			.getMealPlan({ from, to: addDays(from, 6), time_zone: timeZoneHere() })
 			.then((answered) => {
 				if (!current) return;
 				read = { monday: from, meals: answered.planned_meals };
@@ -218,11 +220,17 @@
 	const opens = (meal: Meal) =>
 		`/recipes/${meal.branch_id}${meal.planned_yield ? toSearch(meal.planned_yield) : '?written'}`;
 
-	/** What a write answered: the meal as it now stands, or gone from the plan. */
-	function landed(id: string, now: Meal | null) {
+	/**
+	 * What a write answered: the meal as it now stands, or gone from the plan.
+	 * A write's answer says nothing of cooking, which only a read can tell
+	 * (#489), and no write here changes it, so the meal keeps what it said.
+	 */
+	function landed(id: string, now: Written | null) {
 		if (!read) return;
 		read.meals = now
-			? read.meals.map((meal) => (meal.planned_meal_id === id ? now : meal))
+			? read.meals.map((meal) =>
+					meal.planned_meal_id === id ? { ...now, cooked: meal.cooked } : meal,
+				)
 			: read.meals.filter((meal) => meal.planned_meal_id !== id);
 		if (!now && changingId === id) changingId = null;
 	}

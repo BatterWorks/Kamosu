@@ -4938,7 +4938,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       read (deleted, or no longer shared with you) keeps the \
                       name it was known by and says gone. Days are calendar \
                       dates, such as 2026-11-05. One read covers at most 366 \
-                      days.",
+                      days. Each recipe says whether it was cooked: you began \
+                      cooking any Branch of that recipe on its day, or on any \
+                      day of its week where it has no day, finished or not. \
+                      The day is the one where you are, so send your \
+                      time_zone; without one the days are UTC's. The plan \
+                      never records a cooking itself.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -4952,6 +4957,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "properties": {
                     "from": { "type": "string", "description": "The first day, such as 2026-11-02." },
                     "to": { "type": "string", "description": "The last day, such as 2026-11-08." },
+                    "time_zone": { "type": "string", "description": "Where you are, as a time zone name such as Europe/Amsterdam, so a cooking counts on the day it was where you are. UTC when left out." },
                 },
                 "required": ["from", "to"],
                 "additionalProperties": false,
@@ -4959,7 +4965,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             output_schema: json!({
                 "type": "object",
                 "properties": {
-                    "planned_meals": { "type": "array", "items": planned_meal_schema() },
+                    "planned_meals": { "type": "array", "items": read_planned_meal_schema() },
                 },
                 "required": ["planned_meals"],
                 "additionalProperties": false,
@@ -8551,6 +8557,21 @@ fn planned_meal_schema() -> Value {
         ],
         "additionalProperties": false,
     })
+}
+
+/// A Planned Meal as reading the plan answers it: as every answer does, and
+/// whether it was cooked (#489). Only a read knows the cook's time zone, so a
+/// write's answer leaves it out.
+fn read_planned_meal_schema() -> Value {
+    let mut schema = planned_meal_schema();
+    // A recipe this Person began cooking on its day, or in its week where it
+    // has no day. Always false for written words.
+    schema["properties"]["cooked"] = json!({ "type": "boolean" });
+    schema["required"]
+        .as_array_mut()
+        .expect("a Planned Meal's schema lists what it requires")
+        .push(json!("cooked"));
+    schema
 }
 
 /// A plan write's day: a calendar date.

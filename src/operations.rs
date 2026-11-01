@@ -3124,6 +3124,7 @@ pub fn get_meal_plan(core: &Core, invocation: &Invocation, input: Value) -> Resu
         &caller.person_id,
         required(&input, "from", "get_meal_plan")?,
         required(&input, "to", "get_meal_plan")?,
+        input.get("time_zone").and_then(Value::as_str),
     )
 }
 
