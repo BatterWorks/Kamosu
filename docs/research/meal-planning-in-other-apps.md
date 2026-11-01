@@ -30,7 +30,7 @@ The second theme is that **a plan is an intention, not a record.** Mealie writes
 | Views | weeks (was N days) | week or month, 1 to 4 | list by day | timeline (mobile and desktop) | agenda week / day | calendar |
 | Calendar feed | iCal, token link | iCal, token scope | none | CalDAV push per user | iCal sharing link | iCal, no auth |
 | Records cooking | auto "made this" nightly | no | plan history only | no | "done" flag, consumes stock | no |
-| Copy / drag | drag (edit mode) | drag, Ctrl+drag copies | no | drag, duplicate | "Copy this day" | unconfirmed |
+| Copy / drag | drag (edit mode) | drag, Ctrl+drag copies | no | drag, duplicate | "Copy this day" | drag onto a day (re-dates it), clone, copy or move days |
 
 ## How a planned meal shows in a calendar
 
@@ -40,7 +40,7 @@ Read in each app's feed code on 2026-10-30.
 - **Tandoor** (`meal_plans_to_ical` in `cookbook/views/api.py`): always a timed event. An entry is stored as a start and end datetime, taking the meal type's time or noon when none is given, and an entry whose end is not after its start lasts one hour. The title reads `<meal type>: <recipe or title>`, and the entry's note is the event's description.
 - **RecipeSage** (`packages/express/src/routes/mealPlans/ical.ts`): timed when the item has a `scheduled` timestamp, otherwise all-day on its `scheduledDate`.
 - **Norish**: no feed. Each person's plan is written into their own CalDAV calendar, with a time range set per slot.
-- **Grocy**: **unconfirmed**, since whether meal plan entries reach its iCal output at all is inferred.
+- **Grocy** (`CalendarApiController::Ical` and `CalendarService::GetEvents`, checked 2026-11-01): all-day, or at its section's time where the section has one. The title reads `Meal plan recipe: <section>: <recipe>`, or `Meal plan note: …`.
 - **KitchenOwl** and **Recipya**: no calendar.
 
 ## Mealie
@@ -82,7 +82,7 @@ Read in each app's feed code on 2026-10-30.
 - A shopping tab inside the entry editor.
 - A user preference to add automatically (`UserPreference.mealplan_autoadd_shopping`, default off).
 
-A `ShoppingListRecipe` keeps a link to its `mealplan`. Editing the entry's servings rescales the shopping entries (`MealPlanSerializer.update`, `RecipeShoppingEditor.edit`). Deleting the entry cascades to that `ShoppingListRecipe` (`on_delete=CASCADE`); whether its items go too is **inferred, not traced**. Further preferences leave out foods on hand and pull in related recipes (`mealplan_autoexclude_onhand`, `mealplan_autoinclude_related`).
+A `ShoppingListRecipe` keeps a link to its `mealplan`. Editing the entry's servings rescales the shopping entries (`MealPlanSerializer.update`, `RecipeShoppingEditor.edit`). Deleting the entry cascades to that `ShoppingListRecipe` (`on_delete=CASCADE`); its items go too, since a `ShoppingListEntry`'s `list_recipe` is `on_delete=CASCADE` as well (checked 2026-11-01). Further preferences leave out foods on hand and pull in related recipes (`mealplan_autoexclude_onhand`, `mealplan_autoinclude_related`).
 
 **6. Random.** `AutoPlanViewSet` takes a start and end date (capped at 14 days), one meal type, servings, and keywords with AND or OR. It picks random internal recipes visible to the user, with no repeat until the pool runs out, and can add them to the shopping list. A request to enrich it is open: [#4419](https://github.com/TandoorRecipes/recipes/issues/4419).
 
@@ -128,7 +128,7 @@ A `ShoppingListRecipe` keeps a link to its `mealplan`. Editing the entry's servi
 
 **4. Non-recipe entries.** `item_type = note` with a `title`.
 
-**5. Shopping list.** After planning, a per-account preference applies: Nothing, Open groceries panel (the default), or Add ingredients to groceries, leaving out what is in the pantry (`apps/docs/docs/groceries/planned-recipes.md`). How servings are chosen there is **unconfirmed**.
+**5. Shopping list.** After planning, a per-account preference applies: Nothing, Open groceries panel (the default), or Add ingredients to groceries, leaving out what is in the pantry (`apps/docs/docs/groceries/planned-recipes.md`). The panel starts at the recipe's own servings, or 1 where it has none (`after-planning.tsx`, checked 2026-11-01).
 
 **6. Random.** Since v0.16.0, a random recipe from the slot's category (recipes carry the categories Breakfast, Lunch, Dinner and Snack), weighted "very minimally" toward liked and highly rated recipes ([release](https://github.com/norish-recipes/norish/releases/tag/v0.16.0-beta)). A generator over a date range is requested in [#289](https://github.com/norish-recipes/norish/issues/289).
 
@@ -150,7 +150,7 @@ A `ShoppingListRecipe` keeps a link to its `mealplan`. Editing the entry's servi
 - **Stock and shopping.** Triggers build an internal recipe for each day and each week, holding that period's planned recipes. "Put missing products on shopping list" therefore works per entry, per day and per week, and compares against stock. A week header shows the week's costs (`public/viewjs/mealplan.js`).
 - **Recording.** "Consume all ingredients" takes them out of stock and marks the entry `done`; there is also a manual done or undone toggle.
 - **Copy and views.** "Copy this day" exists. The view is a FullCalendar agenda: a week on a wide screen, a day under 768px.
-- **Feed.** Meal plan entries appear in Grocy's calendar (`CalendarService.php`), which has an iCal sharing link (`/calendar/ical/sharing-link`). That the iCal output includes meal plan entries is **inferred** from the shared `GetEvents`.
+- **Feed.** Meal plan entries appear in Grocy's calendar (`CalendarService.php`), which has an iCal sharing link (`/calendar/ical/sharing-link`). Its iCal output carries meal plan recipes and notes: `CalendarApiController::Ical` writes `GetEvents()` (checked 2026-11-01).
 
 ## RecipeSage (brief)
 

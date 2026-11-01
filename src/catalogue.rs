@@ -5287,8 +5287,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         // so making one is for a Person signed in, as minting a key is.
         Operation {
             name: "make_calendar_link",
-            summary: "Make the private link a calendar app subscribes to, \
-                      which shows each of your Planned Meals as an all-day \
+            summary: "Make the link a calendar app subscribes to for your plan. \
+                      It shows each of your Planned Meals as an all-day \
                       event, from 90 days back on. Anyone holding it reads \
                       your plan and changes nothing. You have one at most: \
                       making one ends the one before. Its Secret is answered \
@@ -5320,9 +5320,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "get_calendar_link",
-            summary: "Whether you have a live Calendar Link, when it was \
-                      made and when a calendar app last read it. Never the \
-                      link itself, which is shown once when it is made.",
+            summary: "Whether you have a live Calendar Link. It says when \
+                      it was made and when a calendar app last read it, and \
+                      never the link itself, which is shown once when it is \
+                      made.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,

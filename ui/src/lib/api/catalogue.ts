@@ -5931,7 +5931,7 @@ export type SendToShoppingListOutput = {
 	}[];
 };
 
-/** Make the private link a calendar app subscribes to, which shows each of your Planned Meals as an all-day event, from 90 days back on. Anyone holding it reads your plan and changes nothing. You have one at most: making one ends the one before. Its Secret is answered this once and kept nowhere; `url` is the whole link where the instance has a public address, and null where it has none, when the link is `path` at the address Kamosu is reached at. */
+/** Make the link a calendar app subscribes to for your plan. It shows each of your Planned Meals as an all-day event, from 90 days back on. Anyone holding it reads your plan and changes nothing. You have one at most: making one ends the one before. Its Secret is answered this once and kept nowhere; `url` is the whole link where the instance has a public address, and null where it has none, when the link is `path` at the address Kamosu is reached at. */
 export type MakeCalendarLinkInput = Record<string, never>;
 /** What make_calendar_link answers. */
 export type MakeCalendarLinkOutput = {
@@ -5941,7 +5941,7 @@ export type MakeCalendarLinkOutput = {
 	url: string | null;
 };
 
-/** Whether you have a live Calendar Link, when it was made and when a calendar app last read it. Never the link itself, which is shown once when it is made. */
+/** Whether you have a live Calendar Link. It says when it was made and when a calendar app last read it, and never the link itself, which is shown once when it is made. */
 export type GetCalendarLinkInput = Record<string, never>;
 /** What get_calendar_link answers. */
 export type GetCalendarLinkOutput = {
@@ -37292,7 +37292,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "make_calendar_link",
-		"summary": "Make the private link a calendar app subscribes to, which shows each of your Planned Meals as an all-day event, from 90 days back on. Anyone holding it reads your plan and changes nothing. You have one at most: making one ends the one before. Its Secret is answered this once and kept nowhere; `url` is the whole link where the instance has a public address, and null where it has none, when the link is `path` at the address Kamosu is reached at.",
+		"summary": "Make the link a calendar app subscribes to for your plan. It shows each of your Planned Meals as an all-day event, from 90 days back on. Anyone holding it reads your plan and changes nothing. You have one at most: making one ends the one before. Its Secret is answered this once and kept nowhere; `url` is the whole link where the instance has a public address, and null where it has none, when the link is `path` at the address Kamosu is reached at.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -37332,7 +37332,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_calendar_link",
-		"summary": "Whether you have a live Calendar Link, when it was made and when a calendar app last read it. Never the link itself, which is shown once when it is made.",
+		"summary": "Whether you have a live Calendar Link. It says when it was made and when a calendar app last read it, and never the link itself, which is shown once when it is made.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -39136,9 +39136,9 @@ export interface KamosuClient {
 	removePlannedMeal(input: RemovePlannedMealInput): Promise<Answer<'remove_planned_meal'>>;
 	/** Send days and weeks of your Meal Plan to your Shopping List. A day sends its own Planned Meals; a week, named by its Monday, sends its days' and its meals with no day; `any_day_of` sends a week's meals with no day alone. One chosen twice (a day and its own week) is sent once. Each recipe goes on at its planned Yield, added to what the list already holds for that Branch, never replacing it: two meals of one recipe add up. A meal sent before sends only what its Yield has grown by since, and nothing when it was lowered: nothing is taken off. Written words and recipes that can no longer be read send nothing and are named in `skipped`. A send is one write on the Shopping List's clock: one older than the list's last write adds nothing, marks nothing and answers `refused`; one with nothing to send writes nothing and answers `sent`. Emptying the list leaves what each meal sent as it was. Answers what went, what was sent before, what was skipped, the meals as they now stand and the whole list. */
 	sendToShoppingList(input: SendToShoppingListInput): Promise<Answer<'send_to_shopping_list'>>;
-	/** Make the private link a calendar app subscribes to, which shows each of your Planned Meals as an all-day event, from 90 days back on. Anyone holding it reads your plan and changes nothing. You have one at most: making one ends the one before. Its Secret is answered this once and kept nowhere; `url` is the whole link where the instance has a public address, and null where it has none, when the link is `path` at the address Kamosu is reached at. */
+	/** Make the link a calendar app subscribes to for your plan. It shows each of your Planned Meals as an all-day event, from 90 days back on. Anyone holding it reads your plan and changes nothing. You have one at most: making one ends the one before. Its Secret is answered this once and kept nowhere; `url` is the whole link where the instance has a public address, and null where it has none, when the link is `path` at the address Kamosu is reached at. */
 	makeCalendarLink(input?: MakeCalendarLinkInput): Promise<Answer<'make_calendar_link'>>;
-	/** Whether you have a live Calendar Link, when it was made and when a calendar app last read it. Never the link itself, which is shown once when it is made. */
+	/** Whether you have a live Calendar Link. It says when it was made and when a calendar app last read it, and never the link itself, which is shown once when it is made. */
 	getCalendarLink(input?: GetCalendarLinkInput): Promise<Answer<'get_calendar_link'>>;
 	/** End your Calendar Link. A calendar app holding it is answered nothing from then on. Answers whether there was one to end. */
 	endCalendarLink(input?: EndCalendarLinkInput): Promise<Answer<'end_calendar_link'>>;

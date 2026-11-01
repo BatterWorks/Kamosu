@@ -123,6 +123,10 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// offers that address to copy, so a kept answer from before the link was
 	// ended, here or on another device, would hand out one that no longer opens.
 	get_share_link: 'server-first',
+	// Whether a Calendar Link is on and when a calendar last read it (#491).
+	// A kept answer from before a link was made on another device would offer
+	// to make one, which ends the link that device's calendar holds.
+	get_calendar_link: 'server-first',
 	list_backups: 'server-first',
 	// Whether there is a Runner and when one last asked for work, and the
 	// Runner Keys an Operator manages (#260). What a screen shows about a

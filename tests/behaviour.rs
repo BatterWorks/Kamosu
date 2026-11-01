@@ -27628,25 +27628,30 @@ async fn each_person_has_one_calendar_link_and_it_reads_their_plan_alone() {
     assert_eq!(read, json!({ "calendar_link": null }));
     let _ = person;
 
-    // A Person who can no longer sign in is answered nothing.
-    let helene_id = app
+    // A Person who can no longer sign in is answered nothing, and their link
+    // ends with their keys, so enabling them again brings it back no more.
+    let (status, disabled) = plan_op(
+        &app,
+        &stephane,
+        "disable_account",
+        json!({ "name": "Hélène" }),
+    );
+    assert_eq!(status, 200, "{disabled}");
+    assert_eq!(app.get(&hers).0, 404);
+    let live: i64 = app
         .core
         .db()
         .with_conn(|conn| {
-            conn.query_row("SELECT id FROM people WHERE name = 'Hélène'", [], |row| {
-                row.get::<_, String>(0)
-            })
+            conn.query_row(
+                "SELECT COUNT(*) FROM calendar_links JOIN people ON people.id = person_id \
+                  WHERE people.name = 'Hélène' AND ended_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
             .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
         })
         .unwrap();
-    app.core
-        .db()
-        .with_conn(|conn| {
-            conn.execute("UPDATE people SET disabled = 1 WHERE id = ?1", [&helene_id])
-                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
-        })
-        .unwrap();
-    assert_eq!(app.get(&hers).0, 404);
+    assert_eq!(live, 0);
 }
 
 // --- Sending the plan to the Shopping List (issue #488, ADR 0058) ------------
