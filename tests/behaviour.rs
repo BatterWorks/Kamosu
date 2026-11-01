@@ -14156,7 +14156,7 @@ mod web_link_importer {
             Some(&runner),
             json!({ "job_id": first_job, "outcome": "completed" }),
         );
-        assert_eq!(report["result"].is_object(), true, "{report}");
+        assert!(report["result"].is_object(), "{report}");
         let (_, second_job, _) = a_job_waiting(&app, &key);
         let handed = ask_for_work(&app, &runner);
         assert_eq!(handed["job_id"], json!(second_job));
