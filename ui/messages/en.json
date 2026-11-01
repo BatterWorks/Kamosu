@@ -1117,6 +1117,7 @@
   "plan_send_waiting_more": "This send waits on this phone and goes to your list as soon as Kamosu can be reached. Nothing is marked sent until it has.",
   "plan_send_refused": "Nothing was sent.",
   "plan_send_refused_more": "Your Shopping List changed on another device before this send reached it, and Kamosu kept the newer list. Nothing is marked sent. Send again for what is left.",
+  "plan_cooked": "Cooked",
   "plan_sent_mark": "Sent to shopping",
   "plan_sent_for": "Sent for {amount}",
   "plan_sent_for_more": "Sent for {amount} · {more} more to send",

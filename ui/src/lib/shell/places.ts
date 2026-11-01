@@ -6,6 +6,10 @@
 
 import { m } from '$lib/paraglide/messages';
 
+/** The Cooked place's steaming bowl, which the Plan's "Cooked" mark wears too (#489). */
+export const COOKED_BOWL =
+	'M4 15h16a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4ZM7 11c0-2 1.5-2 1.5-4M12 11c0-2 1.5-2 1.5-4M17 11c0-2 1.5-2 1.5-4';
+
 export interface Place {
 	href: string;
 	label: () => string;
@@ -41,7 +45,7 @@ export const places: Place[] = [
 	{
 		href: '/cooked',
 		label: () => m.nav_cooked(),
-		path: 'M4 15h16a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4ZM7 11c0-2 1.5-2 1.5-4M12 11c0-2 1.5-2 1.5-4M17 11c0-2 1.5-2 1.5-4',
+		path: COOKED_BOWL,
 	},
 ];
 

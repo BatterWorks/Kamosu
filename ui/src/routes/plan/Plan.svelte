@@ -58,6 +58,7 @@
 	} from '$lib/plan-days';
 	import { anyDayName, mealName, weekInline, whereName, whereSaid } from '$lib/plan-where';
 	import { TICK, amountOf, countOf, sentOf } from '$lib/plan-sent';
+	import { COOKED_BOWL } from '$lib/shell/places';
 	import { yieldScale } from '$lib/offline/shopping';
 	import ChangeSheet from './ChangeSheet.svelte';
 	import SendToShopping from './SendToShopping.svelte';
@@ -187,6 +188,16 @@
 			current = false;
 		};
 	});
+
+	/**
+	 * A recipe whose day, or whose week's Sunday, is behind today and that
+	 * nobody cooked (#489): it fades, and what was cooked stays as it was.
+	 */
+	const missed = (meal: Meal) =>
+		meal.branch_id !== null &&
+		!meal.gone &&
+		!meal.cooked &&
+		(meal.day ?? addDays(meal.week, 6)) < now;
 
 	/** One list of the week: a day's, or the week's with no day, in its order. */
 	const listOf = (where: Where) =>
@@ -515,6 +526,24 @@
 	</div>
 {/snippet}
 
+{#snippet cookedMark(meal: Meal)}
+	{#if meal.cooked && !meal.gone}
+		<span class="mt-[2px] flex items-center gap-1 text-read font-semibold text-ink">
+			<svg
+				viewBox="0 0 24 24"
+				class="h-[17px] w-[17px] shrink-0"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="1.8"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				aria-hidden="true"><path d={COOKED_BOWL} /></svg
+			>
+			<span>{m.plan_cooked()}</span>
+		</span>
+	{/if}
+{/snippet}
+
 {#snippet sentMark(meal: Meal)}
 	{@const state = sentOf(meal)}
 	{#if state.kind !== 'none'}
@@ -570,13 +599,19 @@
 	{#if meal.main_photo && !meal.gone}
 		<img
 			alt=""
-			class="{size} shrink-0 rounded-sm bg-ground-2 object-cover"
+			class="{size} shrink-0 rounded-sm bg-ground-2 object-cover {missed(meal)
+				? 'opacity-45 grayscale'
+				: ''}"
 			src="/api/photographs/{meal.main_photo}/card"
 		/>
 	{:else}
 		<span
 			aria-hidden="true"
-			class="{size} flex shrink-0 items-center justify-center rounded-sm border border-dashed border-rule font-display text-title text-ink-2"
+			class="{size} flex shrink-0 items-center justify-center rounded-sm border border-dashed border-rule font-display text-title text-ink-2 {missed(
+				meal,
+			)
+				? 'opacity-45'
+				: ''}"
 		>
 			{meal.gone ? '–' : (meal.title ?? '').slice(0, 1)}
 		</span>
@@ -612,8 +647,12 @@
 			<a href={opens(meal)} class="flex min-w-0 flex-1 items-center gap-3 text-ink">
 				{@render picture(meal, 'h-[52px] w-[52px]')}
 				<span class="min-w-0">
-					<span class="block font-display text-line font-semibold">{meal.title}</span>
+					<span
+						class="block font-display text-line font-semibold {missed(meal) ? 'text-ink-2' : ''}"
+						>{meal.title}</span
+					>
 					<span class="block text-read text-ink-2">{howMuch(meal)}</span>
+					{@render cookedMark(meal)}
 					{@render sentMark(meal)}
 				</span>
 			</a>
@@ -667,8 +706,12 @@
 			<a href={opens(meal)} class="block text-ink">
 				{@render picture(meal, 'block aspect-[4/3] w-full rounded-none')}
 				<span class="block px-2 pt-2">
-					<span class="block font-display text-read font-semibold">{meal.title}</span>
+					<span
+						class="block font-display text-read font-semibold {missed(meal) ? 'text-ink-2' : ''}"
+						>{meal.title}</span
+					>
 					<span class="block text-read text-ink-2">{howMuch(meal)}</span>
+					{@render cookedMark(meal)}
 					{@render sentMark(meal)}
 				</span>
 			</a>
@@ -757,7 +800,6 @@
 				{#each days as day (day)}
 					{@const list = listOf({ day })}
 					<section
-						class={day < now ? 'opacity-60' : ''}
 						role="group"
 						aria-label={aPlannedDay(day)}
 						ondragover={(event) => dragOver(event, { day })}
@@ -767,7 +809,7 @@
 						<h2
 							class="flex flex-wrap items-baseline gap-1 border-b-2 py-2 {day === now
 								? 'border-accent text-accent'
-								: 'border-rule'}"
+								: 'border-rule'} {day < now ? 'opacity-60' : ''}"
 						>
 							<span
 								aria-hidden="true"
@@ -804,12 +846,13 @@
 		{:else}
 			{@const list = listOf(anyDay)}
 			<div class="mt-2">
-				<section
-					class="my-2 flex gap-3 rounded-sm bg-ground-2 py-2 pr-2 {away < 0 ? 'opacity-60' : ''}"
-				>
+				<section class="my-2 flex gap-3 rounded-sm bg-ground-2 py-2 pr-2">
 					<div class="flex w-[52px] shrink-0 flex-col items-center">
 						<h2
-							class="pt-2 text-center text-label leading-[1.2] font-semibold text-accent uppercase"
+							class="pt-2 text-center text-label leading-[1.2] font-semibold text-accent uppercase {away <
+							0
+								? 'opacity-60'
+								: ''}"
 						>
 							{m.plan_any_day()}
 							<span class="sr-only">{anyDayName(monday)}</span>
@@ -828,9 +871,9 @@
 				</section>
 				{#each days as day (day)}
 					{@const list = listOf({ day })}
-					<section class="flex gap-3 border-b border-rule py-2 {day < now ? 'opacity-60' : ''}">
+					<section class="flex gap-3 border-b border-rule py-2">
 						<div class="flex w-[52px] shrink-0 flex-col items-center">
-							<h2 class="w-[52px] pt-1 text-center">
+							<h2 class="w-[52px] pt-1 text-center {day < now ? 'opacity-60' : ''}">
 								<span
 									aria-hidden="true"
 									class="block text-label uppercase {day === now

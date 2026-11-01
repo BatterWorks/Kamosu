@@ -1117,6 +1117,7 @@
   "plan_send_waiting_more": "Cet envoi attend sur ce téléphone et ira sur votre liste dès que Kamosu sera joignable. Rien n’est marqué envoyé avant.",
   "plan_send_refused": "Rien n’a été envoyé.",
   "plan_send_refused_more": "Votre liste de courses a changé sur un autre appareil avant que cet envoi n’arrive, et Kamosu a gardé la plus récente. Rien n’est marqué envoyé. Renvoyez pour le reste.",
+  "plan_cooked": "Cuisinée",
   "plan_sent_mark": "Envoyée aux courses",
   "plan_sent_for": "Envoyée pour {amount}",
   "plan_sent_for_more": "Envoyée pour {amount} · {more} de plus à envoyer",

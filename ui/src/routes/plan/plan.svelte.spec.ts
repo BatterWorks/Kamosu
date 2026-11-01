@@ -8,7 +8,9 @@
  * can no longer be read saying so, and an empty week saying how to plan. And
  * from #487's: the week's meals with no day above its days, written words,
  * the + on each day, moving, planning again and the order, and dragging on
- * the wide layout.
+ * the wide layout. And from #489's: "Cooked" on a recipe the server says was
+ * cooked, and a past recipe nobody cooked faded on a day that no longer
+ * fades as a whole.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -858,5 +860,83 @@ describe('sending the plan to the Shopping List (#488)', () => {
 			),
 		);
 		expect(landedSend.answer).toBeNull();
+	});
+});
+
+describe('what was cooked (#489)', () => {
+	const lastMonday = addDays(monday, -7);
+	/** Last week, as the server read it: what was cooked, and what was not. */
+	const lastWeek = [
+		meal({ planned_meal_id: 'pm_00000000000000d1', day: lastMonday, cooked: true }),
+		meal({
+			planned_meal_id: 'pm_00000000000000d2',
+			day: addDays(lastMonday, 2),
+			branch_id: 'b_ceviche',
+			title: 'Ceviche',
+			main_photo: 'p_ceviche',
+		}),
+		meal({
+			planned_meal_id: 'pm_00000000000000d3',
+			day: addDays(lastMonday, 2),
+			branch_id: null,
+			words: 'Eating out',
+			title: null,
+			planned_yield: null,
+			written_yield: null,
+		}),
+		meal({
+			planned_meal_id: 'pm_00000000000000d4',
+			day: addDays(lastMonday, 4),
+			branch_id: 'b_shakshuka',
+			title: 'Shakshuka',
+			gone: true,
+			planned_yield: null,
+			written_yield: null,
+		}),
+	];
+	const recipeRow = (name: string) => screen.getByText(name).closest('li') as HTMLElement;
+
+	it('says a recipe was cooked, and fades a past one nobody cooked', async () => {
+		renderScreen(Page, {
+			get_meal_plan: ({ from }: GetMealPlanInput): GetMealPlanOutput => ({
+				planned_meals: from === lastMonday ? lastWeek : [],
+			}),
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'The week before' }));
+		await screen.findByText('Ceviche');
+
+		const katsu = recipeRow('Katsu Curry');
+		expect(katsu).toHaveTextContent('Cooked');
+		expect(screen.getByText('Katsu Curry')).not.toHaveClass('text-ink-2');
+		const ceviche = recipeRow('Ceviche');
+		expect(ceviche).not.toHaveTextContent('Cooked');
+		expect(screen.getByText('Ceviche')).toHaveClass('text-ink-2');
+		expect(ceviche.querySelector('img')).toHaveClass('grayscale');
+		// Written words and a recipe that can no longer be read carry neither.
+		expect(recipeRow('Eating out')).not.toHaveTextContent('Cooked');
+		expect(recipeRow('Shakshuka')).not.toHaveTextContent('Cooked');
+		expect(recipeRow('Eating out').querySelector('.grayscale, .opacity-45')).toBeNull();
+		// A past day no longer fades as a whole: only its date does.
+		expect(document.querySelector('section.opacity-60')).toBeNull();
+		expect(document.querySelectorAll('h2.opacity-60').length).toBeGreaterThan(0);
+	});
+
+	it('fades nothing on a day still to come, cooked or not', async () => {
+		renderScreen(Page, {
+			get_meal_plan: weekOf([
+				meal({ day: addDays(monday, 7 - 1) }),
+				meal({
+					planned_meal_id: 'pm_0000000000000002',
+					day: addDays(monday, 7 - 1),
+					branch_id: 'b_ceviche',
+					title: 'Ceviche',
+					cooked: true,
+				}),
+			]),
+		});
+		await screen.findByText('Ceviche');
+		expect(recipeRow('Katsu Curry')).not.toHaveTextContent('Cooked');
+		expect(screen.getByText('Katsu Curry')).not.toHaveClass('text-ink-2');
+		expect(recipeRow('Ceviche')).toHaveTextContent('Cooked');
 	});
 });
