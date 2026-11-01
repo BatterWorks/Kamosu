@@ -41930,7 +41930,7 @@ mod reading_a_recipe_pdf {
         let key = a_reader(&app);
         let read = |bytes: &[u8]| {
             let upload_id = staged(&app, &key, bytes);
-            app.post_op(
+            app.post_working_op(
                 "read_recipe_pdf",
                 Some(&key),
                 &json!({ "upload_id": upload_id }).to_string(),
@@ -41973,7 +41973,7 @@ mod reading_a_recipe_pdf {
             .map(|bytes| staged(&app, &key, bytes))
             .collect();
         let read = |upload_id: &str| {
-            app.post_op(
+            app.post_working_op(
                 "read_recipe_pdf",
                 Some(&key),
                 &json!({ "upload_id": upload_id }).to_string(),
@@ -41982,7 +41982,8 @@ mod reading_a_recipe_pdf {
         std::thread::scope(|scope| {
             let first = scope.spawn(|| read(&uploads[0]));
             let second = scope.spawn(|| read(&uploads[1]));
-            // Each takes about two seconds to reach its cap.
+            // Each takes about two seconds to reach its cap on a quiet machine,
+            // and longer on a busy one, which only keeps it reading longer.
             std::thread::sleep(std::time::Duration::from_millis(500));
             let (status, busy) = read(&uploads[2]);
             assert_eq!(status, 503, "{busy}");

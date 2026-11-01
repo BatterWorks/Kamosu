@@ -167,6 +167,20 @@ impl TestApp {
         parse(response.status, &response.text())
     }
 
+    /// [`TestApp::post_op`] for an Operation that does real work before it
+    /// answers, such as reading a PDF, given as long as an upload (#510).
+    #[allow(dead_code)]
+    pub fn post_working_op(&self, name: &str, bearer: Option<&str>, body: &str) -> (u16, Value) {
+        self.wait_until_serving();
+        let path = format!("/api/op/{name}");
+        let response = expect_reply(
+            http_min::post_json_working(self.addr, &path, bearer, body),
+            "POST",
+            &path,
+        );
+        parse(response.status, &response.text())
+    }
+
     /// POST at the browser authentication boundary: credential minting precedes
     /// Operations, then its Session cookie becomes the Credential.
     #[allow(dead_code)]
