@@ -962,6 +962,7 @@ describe('the settings screen', () => {
 			'/settings/name',
 			'/settings/signing-in',
 			'/settings/keys',
+			'/settings/calendar',
 			'/settings/language',
 			'/settings/device',
 			'/settings/security',
