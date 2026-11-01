@@ -336,7 +336,7 @@ export function wordedVolume(millilitres: number, measures: Measures, language: 
 }
 
 /** `units::plain_number`: a count, or the figure before a word Kamosu does not know. */
-function plainNumber(quantity: number): string {
+export function plainNumber(quantity: number): string {
 	return asFraction(roundTo(quantity, null));
 }
 

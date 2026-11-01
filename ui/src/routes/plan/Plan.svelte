@@ -22,15 +22,24 @@
 
 	A planned recipe opens at its planned Yield. One that can no longer be read
 	keeps its name, says so, and offers only to be moved or taken off.
+
+	**#488 added sending to the Shopping List**, from its prototype on 31
+	October 2026: one button, "Send to shopping", under every week (option A),
+	opening the sheet that chooses the days; the answer under the week, naming
+	what went, what had gone before and what was left behind; and under a
+	recipe that went, "Sent to shopping", or "Sent for 4 · 2 servings more to
+	send" once planned for more, or "Sent for 4" once planned for fewer
+	(option A). It says what went, never what the list holds, so it stays true
+	once the list is emptied.
 -->
 <script lang="ts">
 	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
-	import type { GetMealPlanOutput } from '$lib/api/catalogue';
+	import type { GetMealPlanOutput, SendToShoppingListOutput } from '$lib/api/catalogue';
 	import Screen from '$lib/shell/Screen.svelte';
-	import { rereads } from '$lib/offline/device.svelte';
+	import { landedSend, rereads } from '$lib/offline/device.svelte';
 	import { useRoom } from '$lib/room.svelte';
 	import { aPlannedDay, aPlannedWeek, aPlannedWeekday } from '$lib/dates';
 	import { isMultiplier, said, toSearch } from '$lib/how-much';
@@ -48,7 +57,10 @@
 		type Where,
 	} from '$lib/plan-days';
 	import { anyDayName, mealName, weekInline, whereName, whereSaid } from '$lib/plan-where';
+	import { TICK, amountOf, countOf, sentOf } from '$lib/plan-sent';
+	import { yieldScale } from '$lib/offline/shopping';
 	import ChangeSheet from './ChangeSheet.svelte';
+	import SendToShopping from './SendToShopping.svelte';
 	import MoveSheet from './MoveSheet.svelte';
 	import WriteSheet from './WriteSheet.svelte';
 
@@ -87,9 +99,69 @@
 	let notice = $state<{ text: string; week: Day } | null>(null);
 	/** Asked again after a write that moves the order of a list. */
 	let again = $state(0);
+	/** Choosing what to send to the Shopping List. */
+	let sending = $state(false);
+	/** What the last send to the Shopping List did, said under the week; `back` once a held one landed. */
+	let sent = $state<{ answer: SendToShoppingListOutput; back: boolean } | null>(null);
 
 	/** Read again once writes made with no network have reached the server (#77). */
 	const reread = rereads('get_meal_plan');
+
+	// A send held with no network has landed: say what it did, and put it away.
+	$effect(() => {
+		const answer = landedSend.answer;
+		if (!answer) return;
+		sent = { answer, back: true };
+		landedSend.answer = null;
+		again += 1;
+	});
+
+	/** A send answered: said under the week, and the week read again for its marks. */
+	function answered(answer: SendToShoppingListOutput) {
+		sent = { answer, back: false };
+		sending = false;
+		notice = null;
+		again += 1;
+	}
+
+	type Went = SendToShoppingListOutput['sent'][number];
+
+	/**
+	 * One recipe that went: `Chili, 8 people, for 2 days · now 12 people on
+	 * the list`, or `Katsu Curry, 2 servings more` for one planned for more.
+	 */
+	function wentLine(went: Went): string {
+		const amount = amountOf(went.written_yield, went.added_factor);
+		let line: string = went.raised
+			? m.plan_sent_line_more({ title: went.title, amount })
+			: m.plan_sent_line({ title: went.title, amount });
+		if (went.planned_meals.length > 1)
+			line += m.plan_sent_days({ count: went.planned_meals.length });
+		if (went.was_on_list)
+			line += m.plan_sent_now({
+				amount: amountOf(went.written_yield, yieldScale(went.shopping_yield, went.written_yield)),
+			});
+		return line;
+	}
+
+	/**
+	 * The recipes that had gone before and sent nothing now, each named once:
+	 * not one that went now for another day, nor one named as planned for
+	 * fewer.
+	 */
+	function alreadySent(answer: SendToShoppingListOutput): string[] {
+		const went = new Set(answer.sent.map((each) => each.branch_id));
+		const fewer = new Set(
+			answer.already_sent.filter((meal) => meal.planned_fewer).map((meal) => meal.branch_id),
+		);
+		const named = answer.already_sent.filter(
+			(meal) => !went.has(meal.branch_id) && !fewer.has(meal.branch_id),
+		);
+		return [...new Map(named.map((meal) => [meal.branch_id, meal.title])).values()];
+	}
+
+	/** A list of names in a sentence. */
+	const listed = (names: string[]) => names.join(', ');
 
 	$effect(() => {
 		void reread.count;
@@ -263,6 +335,7 @@
 		dragged ? list.filter((meal) => meal.planned_meal_id !== dragged?.planned_meal_id) : list;
 
 	const arrow = (back: boolean) => (back ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7');
+	const CART = 'M3 4h2l2.2 10.2a1.5 1.5 0 0 0 1.5 1.2h8.6a1.5 1.5 0 0 0 1.5-1.1L20.5 8H6.2';
 	const PENCIL = 'M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4';
 </script>
 
@@ -278,6 +351,7 @@
 				onclick={() => {
 					monday = addDays(monday, back ? -7 : 7);
 					notice = null;
+					sent = null;
 					moveFailed = false;
 				}}
 			>
@@ -306,12 +380,40 @@
 				onclick={() => {
 					monday = thisMonday;
 					notice = null;
+					sent = null;
 					moveFailed = false;
 				}}
 			>
 				{m.plan_back_to_this_week()}
 			</button>
 		</p>
+	{/if}
+	<div class="mt-2 flex justify-end">
+		<button
+			type="button"
+			class="inline-flex min-h-12 items-center gap-2 rounded-sm border border-accent bg-card px-4 text-read font-medium text-accent"
+			onclick={() => (sending = true)}
+		>
+			<svg
+				viewBox="0 0 24 24"
+				class="h-[18px] w-[18px]"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="1.8"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				aria-hidden="true"
+				><path d={CART} /><circle cx="9.5" cy="19.5" r="1.3" /><circle
+					cx="17"
+					cy="19.5"
+					r="1.3"
+				/></svg
+			>
+			{m.plan_send()}
+		</button>
+	</div>
+	{#if sent}
+		{@render sentNote(sent.answer, sent.back)}
 	{/if}
 	{#if room.wide && meals !== undefined && !empty}
 		<p class="mt-2 text-read text-ink-2">{m.plan_drag_hint()}</p>
@@ -335,6 +437,107 @@
 				>
 			{/if}
 		</p>
+	{/if}
+{/snippet}
+
+{#snippet sentNote(answer: SendToShoppingListOutput, back: boolean)}
+	<div
+		class="mt-3 rounded-sm border-l-3 bg-ground-2 px-3 py-2 text-read text-ink {answer.outcome ===
+		'refused'
+			? 'border-support'
+			: 'border-support-2'}"
+		role="status"
+	>
+		{#if answer.outcome === 'waiting'}
+			<p><strong>{m.plan_send_waiting()}</strong> {m.plan_send_waiting_more()}</p>
+		{:else if answer.outcome === 'refused'}
+			<p><strong>{m.plan_send_refused()}</strong> {m.plan_send_refused_more()}</p>
+		{:else}
+			{#if answer.sent.length > 0}
+				<p><strong>{back ? m.plan_sent_back() : m.plan_sent_heading()}</strong></p>
+				<ul class="mt-1 list-disc ps-gutter">
+					{#each answer.sent as went (went.branch_id)}
+						<li>{wentLine(went)}</li>
+					{/each}
+				</ul>
+				{#if alreadySent(answer).length > 0}
+					<p class="mt-1">
+						{m.plan_sent_already({ titles: listed(alreadySent(answer)) })}
+					</p>
+				{/if}
+			{:else if answer.skipped.length === 0 && answer.already_sent.length === 0}
+				<p><strong>{m.plan_sent_none()}</strong></p>
+			{:else if answer.skipped.length === 0}
+				<p><strong>{m.plan_sent_nothing()}</strong> {m.plan_sent_nothing_more()}</p>
+			{:else}
+				<p><strong>{m.plan_sent_nothing()}</strong></p>
+				{#if alreadySent(answer).length > 0}
+					<p class="mt-1">
+						{m.plan_sent_already({ titles: listed(alreadySent(answer)) })}
+					</p>
+				{/if}
+			{/if}
+			{@const fewer = answer.already_sent.filter((meal) => meal.planned_fewer)}
+			{#if fewer.length > 0}
+				<p class="mt-1">
+					{m.plan_sent_fewer({
+						titles: listed([
+							...new Map(fewer.map((meal) => [meal.branch_id, meal.title])).values(),
+						]),
+					})}
+				</p>
+			{/if}
+			{#if answer.skipped.length > 0}
+				<p class="mt-1">
+					{m.plan_sent_not({
+						meals: answer.skipped
+							.map((meal) =>
+								meal.words !== null
+									? m.plan_sent_words({ words: meal.words })
+									: m.plan_sent_gone({ title: meal.title ?? '' }),
+							)
+							.join(', '),
+					})}
+				</p>
+			{/if}
+		{/if}
+		<p class="mt-2">
+			<a href="/shopping" class="text-accent underline">{m.plan_sent_see_list()}</a>
+		</p>
+	</div>
+{/snippet}
+
+{#snippet sentMark(meal: Meal)}
+	{@const state = sentOf(meal)}
+	{#if state.kind !== 'none'}
+		<span
+			class="mt-[2px] flex items-start gap-1 text-read {state.kind === 'more'
+				? 'text-accent'
+				: 'text-support-2'}"
+		>
+			<svg
+				viewBox="0 0 24 24"
+				class="mt-[3px] h-[16px] w-[16px] shrink-0"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2.2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				aria-hidden="true"><path d={TICK} /></svg
+			>
+			<span>
+				{#if state.kind === 'sent'}
+					{m.plan_sent_mark()}
+				{:else if state.kind === 'fewer'}
+					{m.plan_sent_for({ amount: countOf(meal.written_yield, state.sent) })}
+				{:else}
+					{m.plan_sent_for_more({
+						amount: countOf(meal.written_yield, state.sent),
+						more: amountOf(meal.written_yield, state.more),
+					})}
+				{/if}
+			</span>
+		</span>
 	{/if}
 {/snippet}
 
@@ -403,6 +606,7 @@
 				<span class="min-w-0">
 					<span class="block font-display text-line font-semibold">{meal.title}</span>
 					<span class="block text-read text-ink-2">{howMuch(meal)}</span>
+					{@render sentMark(meal)}
 				</span>
 			</a>
 		{/if}
@@ -457,6 +661,7 @@
 				<span class="block px-2 pt-2">
 					<span class="block font-display text-read font-semibold">{meal.title}</span>
 					<span class="block text-read text-ink-2">{howMuch(meal)}</span>
+					{@render sentMark(meal)}
 				</span>
 			</a>
 		{/if}
@@ -675,6 +880,10 @@
 		onChosen={(where) => moved(meal, where, isAgain)}
 		onClose={() => (moving = null)}
 	/>
+{/if}
+
+{#if sending}
+	<SendToShopping onSent={answered} onClose={() => (sending = false)} />
 {/if}
 
 {#if writing}

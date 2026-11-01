@@ -32,6 +32,7 @@
 
 import { CATALOGUE } from '$lib/api/catalogue';
 import type {
+	SendToShoppingListOutput,
 	GetCurrentAttemptOutput,
 	GetMealPlanOutput,
 	GetRecipeOutput,
@@ -45,7 +46,7 @@ import type {
 import { getContext, setContext } from 'svelte';
 import { OperationError, httpTransport, type Transport } from '$lib/api/client';
 import { realPhotographUpload } from '$lib/api/upload';
-import { noteReach, refreshed } from './device.svelte';
+import { landedSend, noteReach, refreshed } from './device.svelte';
 import { asText, rows, yieldScale, type List, type Row } from './shopping';
 import { mondayOf, type Day } from '$lib/plan-days';
 
@@ -85,6 +86,14 @@ const PLAN_WRITES = new Set<OperationName>([
 	'move_planned_meal',
 	'remove_planned_meal',
 ]);
+
+/**
+ * Sending days of the plan to the Shopping List (#488): one write on the
+ * list's clock that marks the plan too. With no network it is held and sent
+ * later, and answers that it waits: nothing is added or marked until Kamosu
+ * has it, because only Kamosu knows what the list holds by then.
+ */
+const SEND = 'send_to_shopping_list';
 
 type Meal = GetMealPlanOutput['planned_meals'][number];
 
@@ -225,6 +234,8 @@ export interface World {
 	lock?: (work: () => Promise<void>) => Promise<void>;
 	/** Tell the screens that these reads may now say something different. */
 	told?: (operations: OperationName[]) => void;
+	/** A send to the Shopping List held with no network has landed, and this is what Kamosu answered (#488). */
+	landed?: (answer: SendToShoppingListOutput) => void;
 }
 
 /** What a screen may ask of it: about photographs, and what is still waiting. */
@@ -290,7 +301,8 @@ export class Outbox implements Keeping {
 		if (
 			ATTEMPT_WRITES.has(operation) ||
 			SHOPPING_WRITES.has(operation) ||
-			PLAN_WRITES.has(operation)
+			PLAN_WRITES.has(operation) ||
+			operation === SEND
 		) {
 			return this.#writeOne(operation, input);
 		}
@@ -433,9 +445,11 @@ export class Outbox implements Keeping {
 			});
 		const answer = SHOPPING_WRITES.has(operation)
 			? await this.#holdShopping(kept, operation, input, cannot)
-			: PLAN_WRITES.has(operation)
-				? await this.#holdPlan(kept, operation, input, cannot)
-				: await this.#holdAttempt(kept, operation, input, written_at, cannot);
+			: operation === SEND
+				? await this.#holdSend(kept, input)
+				: PLAN_WRITES.has(operation)
+					? await this.#holdPlan(kept, operation, input, cannot)
+					: await this.#holdAttempt(kept, operation, input, written_at, cannot);
 		if (answer.send)
 			kept.queue.push({ id: this.#world.mint(), operation, input: answer.send, written_at });
 		// Whatever the sender marked meanwhile. In this tab it cannot have —
@@ -647,6 +661,27 @@ export class Outbox implements Keeping {
 	}
 
 	/**
+	 * A send to the Shopping List with no network (#488): kept, and answered
+	 * as waiting, with the list as the phone has it.
+	 */
+	async #holdSend(kept: Kept, input: Input): Promise<{ value: unknown; send?: Input }> {
+		const list: List = kept.shopping
+			? await this.#list(kept)
+			: ((await this.#world
+					.inner('get_shopping_list', {})
+					.catch(() => ({ chosen: [], rows: [] }))) as List);
+		const value: SendToShoppingListOutput = {
+			outcome: 'waiting',
+			sent: [],
+			already_sent: [],
+			skipped: [],
+			planned_meals: [],
+			shopping_list: list,
+		};
+		return { value, send: input };
+	}
+
+	/**
 	 * A change to the plan with no network (#486): kept, laid over what the
 	 * phone last read of the plan, and answered as the server would.
 	 */
@@ -687,6 +722,8 @@ export class Outbox implements Keeping {
 					planned_yield: (input.planned_yield ?? null) as Meal['planned_yield'],
 					written_yield: content.yield,
 					main_photo: content.main_photo ?? null,
+					sent_factor: null,
+					sent_at: null,
 				};
 				break;
 			}
@@ -703,6 +740,8 @@ export class Outbox implements Keeping {
 					planned_yield: null,
 					written_yield: null,
 					main_photo: null,
+					sent_factor: null,
+					sent_at: null,
 				};
 				break;
 			case 'set_planned_yield':
@@ -971,13 +1010,13 @@ export class Outbox implements Keeping {
 	 */
 	#notice(operation: OperationName, answer: unknown, input: Input = {}): void {
 		const kept = this.#read();
-		if (operation === 'get_meal_plan' || PLAN_WRITES.has(operation)) {
+		if (operation === 'get_meal_plan' || PLAN_WRITES.has(operation) || operation === SEND) {
 			// Kept so a change made with no network has the meal to change:
 			// every meal a read or a write answered with. The newest win a
 			// place, and the oldest go past a few hundred.
 			const answered =
-				operation === 'get_meal_plan'
-					? (answer as GetMealPlanOutput).planned_meals
+				operation === 'get_meal_plan' || operation === SEND
+					? (answer as { planned_meals: Meal[] }).planned_meals
 					: [(answer as { planned_meal: Meal | null }).planned_meal].filter(
 							(meal): meal is Meal => meal !== null,
 						);
@@ -997,7 +1036,7 @@ export class Outbox implements Keeping {
 				}
 			}
 			// A write that answers with no meal took it off the plan.
-			if (operation !== 'get_meal_plan' && answered.length === 0)
+			if (PLAN_WRITES.has(operation) && answered.length === 0)
 				delete seen[input.planned_meal_id as string];
 			for (const meal of answered) {
 				delete seen[meal.planned_meal_id];
@@ -1202,6 +1241,7 @@ export class Outbox implements Keeping {
 
 	/** Note that a waiting write has gone, and what the server named in answer. */
 	#sent(next: Pending, answer: unknown): void {
+		if (next.operation === SEND && answer) this.#world.landed?.(answer as SendToShoppingListOutput);
 		const after = this.#read();
 		if (next.operation === 'start_attempt' && answer) {
 			const given = next.input.attempt_id as string;
@@ -1389,6 +1429,9 @@ export function realOutbox(): Outbox {
 		told: (operations) => {
 			for (const operation of operations)
 				refreshed.set(operation, (refreshed.get(operation) ?? 0) + 1);
+		},
+		landed: (answer) => {
+			landedSend.answer = answer;
 		},
 	});
 }

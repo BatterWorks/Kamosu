@@ -13,6 +13,9 @@
 	A recipe that can no longer be read has no Yield to change, nothing to
 	open and nothing to plan again, so its sheet says why and offers to move it
 	or take it off.
+
+	Under "how much", what it sent to the Shopping List and when, and what the
+	next send would do now (#488).
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
@@ -24,6 +27,8 @@
 	import { aPlannedDay } from '$lib/dates';
 	import { said, type Wanted } from '$lib/how-much';
 	import { mealName, weekLabel } from '$lib/plan-where';
+	import { today } from '$lib/plan-days';
+	import { TICK, amountOf, sentOf } from '$lib/plan-sent';
 
 	type Meal = GetMealPlanOutput['planned_meals'][number];
 
@@ -110,6 +115,7 @@
 	}
 
 	const amount = $derived(said(meal.planned_yield ?? meal.written_yield));
+	const sent = $derived(sentOf(meal));
 	const heading = $derived(
 		meal.day ? aPlannedDay(meal.day) : m.plan_any_day_label({ week: weekLabel(meal.week) }),
 	);
@@ -144,6 +150,33 @@
 					onchoose={(wanted) => void choose(wanted)}
 				/>
 			</div>
+			<p class="mt-3 flex items-start gap-2 text-read text-ink-2">
+				{#if meal.sent_factor !== null && meal.sent_at !== null}
+					<svg
+						viewBox="0 0 24 24"
+						class="mt-[3px] h-[18px] w-[18px] shrink-0 text-support-2"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"><path d={TICK} /></svg
+					>
+					<span>
+						{m.plan_sent_on({
+							amount: amountOf(meal.written_yield, meal.sent_factor),
+							day: aPlannedDay(today(new Date(meal.sent_at))),
+						})}
+						{#if sent.kind === 'more'}
+							{m.plan_sent_raised({ amount: amountOf(meal.written_yield, sent.more) })}
+						{:else if sent.kind === 'fewer'}
+							{m.plan_sent_lowered()}
+						{/if}
+					</span>
+				{:else}
+					{m.plan_not_sent_yet()}
+				{/if}
+			</p>
 		{/if}
 		{#if failed}
 			<p class="mt-3 text-read text-support" role="alert">{m.plan_write_failed()}</p>

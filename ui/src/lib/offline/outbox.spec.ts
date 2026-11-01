@@ -104,6 +104,7 @@ function world(
 		forget: async (name) => void pictures.delete(name),
 	};
 	const told = vi.fn();
+	const landed = vi.fn();
 	const outbox = new Outbox({
 		inner,
 		storage: {
@@ -127,6 +128,7 @@ function world(
 		now: () => new Date((clock += 60_000)),
 		mint: () => (minted += 1).toString(16).padStart(16, '0'),
 		told,
+		landed,
 	});
 	return {
 		outbox,
@@ -136,6 +138,7 @@ function world(
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			outbox.transport(operation, input) as Promise<any>,
 		sent,
+		landed,
 		pictures,
 		uploaded,
 		told,
@@ -714,6 +717,42 @@ describe('the Meal Plan with no network (#486)', () => {
 		await expect(
 			at.call('plan_recipe', { branch_id: 'b_unknown', day: '2026-11-05' }),
 		).rejects.toThrow();
+	});
+
+	it('holds a send to the Shopping List, answers that it waits, and says what it did once it lands (#488)', async () => {
+		const sentAnswer = {
+			outcome: 'refused',
+			sent: [],
+			already_sent: [],
+			skipped: [],
+			planned_meals: [meal({ sent_factor: null, sent_at: null })],
+			shopping_list: { chosen: [], rows: [] },
+		};
+		const at = world({
+			get_shopping_list: () => ({ chosen: [], rows: [] }),
+			send_to_shopping_list: () => sentAnswer,
+		});
+		await at.call('get_shopping_list');
+		at.offline();
+
+		const held = await at.call('send_to_shopping_list', { weeks: ['2026-11-02'] });
+		expect(held).toMatchObject({ outcome: 'waiting', sent: [], planned_meals: [] });
+		expect(at.landed).not.toHaveBeenCalled();
+
+		at.online();
+		await at.outbox.flush();
+		expect(at.sent.at(-1)).toMatchObject({
+			operation: 'send_to_shopping_list',
+			input: { weeks: ['2026-11-02'], written_at: expect.any(String) },
+		});
+		expect(at.landed).toHaveBeenCalledWith(sentAnswer);
+		expect(at.told).toHaveBeenCalledWith(
+			expect.arrayContaining(['get_meal_plan', 'get_shopping_list']),
+		);
+
+		// Online, it goes straight through and lands nothing later.
+		await at.call('send_to_shopping_list', { days: ['2026-11-05'] });
+		expect(at.landed).toHaveBeenCalledTimes(1);
 	});
 });
 

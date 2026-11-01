@@ -11,11 +11,16 @@
  * the wide layout.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, within } from '@testing-library/svelte';
 import Page from './+page.svelte';
 import { renderScreen } from '../../testing/render';
-import type { GetMealPlanInput, GetMealPlanOutput } from '$lib/api/catalogue';
+import type {
+	GetMealPlanInput,
+	GetMealPlanOutput,
+	SendToShoppingListOutput,
+} from '$lib/api/catalogue';
+import { landedSend } from '$lib/offline/device.svelte';
 import { addDays, mondayOf, today } from '$lib/plan-days';
 import { aPlannedDay } from '$lib/dates';
 
@@ -35,6 +40,8 @@ const meal = (over: Partial<Meal> = {}): Meal => ({
 	planned_yield: { amount: '6', noun: 'servings' },
 	written_yield: { amount: '4', noun: 'servings' },
 	main_photo: null,
+	sent_factor: null,
+	sent_at: null,
 	...over,
 });
 
@@ -566,5 +573,283 @@ describe('the Plan when something goes wrong or nothing is there (#487)', () => 
 			operation: 'move_planned_meal',
 			input: { planned_meal_id: 'pm_0000000000000001', week: monday, position: 0 },
 		});
+	});
+});
+
+describe('sending the plan to the Shopping List (#488)', () => {
+	const katsu = meal();
+	const ceviche = meal({
+		planned_meal_id: 'pm_0000000000000002',
+		position: 1,
+		branch_id: 'b_ceviche',
+		title: 'Ceviche',
+		planned_yield: null,
+		written_yield: { amount: '2', noun: 'servings' },
+		sent_factor: 1,
+		sent_at: '2026-10-24T09:00:00.000Z',
+	});
+	const leftovers = meal({
+		planned_meal_id: 'pm_0000000000000003',
+		day: addDays(monday, 4),
+		branch_id: null,
+		words: 'Leftovers',
+		title: null,
+		planned_yield: null,
+		written_yield: null,
+	});
+	const list = { chosen: [], rows: [] };
+	const answer = (over: Partial<SendToShoppingListOutput> = {}): SendToShoppingListOutput => ({
+		outcome: 'sent',
+		sent: [],
+		already_sent: [],
+		skipped: [],
+		planned_meals: [],
+		shopping_list: list,
+		...over,
+	});
+
+	it('chooses a week in its sheet, says what each day would send, and says what went', async () => {
+		const { kamosu } = renderScreen(Page, {
+			get_meal_plan: weekOf([katsu, ceviche, leftovers]),
+			send_to_shopping_list: answer({
+				sent: [
+					{
+						branch_id: 'b_katsu',
+						title: 'Katsu Curry',
+						added_factor: 1.5,
+						raised: false,
+						planned_meals: [katsu.planned_meal_id],
+						was_on_list: true,
+						shopping_yield: { amount: '10', noun: 'servings' },
+						written_yield: { amount: '4', noun: 'servings' },
+					},
+				],
+				already_sent: [
+					{
+						planned_meal_id: ceviche.planned_meal_id,
+						branch_id: 'b_ceviche',
+						title: 'Ceviche',
+						planned_fewer: false,
+					},
+				],
+				skipped: [
+					{
+						planned_meal_id: leftovers.planned_meal_id,
+						title: null,
+						words: 'Leftovers',
+						reason: 'words',
+					},
+				],
+			}),
+		});
+		await screen.findByRole('link', { name: /Katsu Curry/ });
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Send to shopping' }));
+		const sheet = await screen.findByRole('dialog');
+		expect(await within(sheet).findByText(/What are you shopping for/)).toBeInTheDocument();
+		const go = within(sheet).getByRole('button', { name: 'Choose what to send' });
+		expect(go).toBeDisabled();
+		// What each day would send: a recipe at its amount, one sent, and words that stay.
+		const thursday = within(sheet).getByRole('button', {
+			name: new RegExp(aPlannedDay(addDays(monday, 3))),
+		});
+		expect(thursday).toHaveTextContent('Katsu Curry 6 servings');
+		expect(thursday).toHaveTextContent('Ceviche sent');
+		expect(
+			within(sheet).getByRole('button', { name: new RegExp(aPlannedDay(addDays(monday, 4))) }),
+		).toHaveTextContent('Leftovers stays on the plan');
+
+		await fireEvent.click(within(sheet).getByRole('button', { name: /^This week/ }));
+		expect(thursday).toBeDisabled();
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Send 1 recipe to shopping' }));
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'send_to_shopping_list',
+			input: { days: [], weeks: [monday], any_day_of: [] },
+		});
+		const said = await screen.findByRole('status');
+		expect(said).toHaveTextContent('Sent to your Shopping List:');
+		expect(said).toHaveTextContent('Katsu Curry, 6 servings · now 10 servings on the list');
+		expect(said).toHaveTextContent('Already sent before: Ceviche.');
+		expect(said).toHaveTextContent('Not sent: Leftovers (written words).');
+		expect(within(said).getByRole('link', { name: 'See the list' })).toHaveAttribute(
+			'href',
+			'/shopping',
+		);
+		expect(screen.queryByRole('dialog')).toBeNull();
+	});
+
+	it('sends a day, or a week with no day, on its own', async () => {
+		const undated = meal({
+			planned_meal_id: 'pm_0000000000000004',
+			day: null,
+			branch_id: 'b_chili',
+			title: 'Chili',
+		});
+		const { kamosu } = renderScreen(Page, {
+			get_meal_plan: weekOf([undated, katsu]),
+			send_to_shopping_list: answer(),
+		});
+		await screen.findByRole('link', { name: /Chili/ });
+		await fireEvent.click(screen.getByRole('button', { name: 'Send to shopping' }));
+		const sheet = await screen.findByRole('dialog');
+		await fireEvent.click(await within(sheet).findByRole('button', { name: /^Any day/ }));
+		await fireEvent.click(
+			within(sheet).getByRole('button', { name: new RegExp(aPlannedDay(addDays(monday, 3))) }),
+		);
+		await fireEvent.click(
+			within(sheet).getByRole('button', { name: 'Send 2 recipes to shopping' }),
+		);
+		expect(kamosu.calls).toContainEqual({
+			operation: 'send_to_shopping_list',
+			input: { days: [addDays(monday, 3)], weeks: [], any_day_of: [monday] },
+		});
+		expect(await screen.findByRole('status')).toHaveTextContent(
+			'Nothing to send: no recipe is planned on what you chose.',
+		);
+	});
+
+	it('names a recipe once: not as sent before when it went now, nor when planned for fewer', async () => {
+		renderScreen(Page, {
+			get_meal_plan: weekOf([katsu]),
+			send_to_shopping_list: answer({
+				sent: [
+					{
+						branch_id: 'b_katsu',
+						title: 'Katsu Curry',
+						added_factor: 0.5,
+						raised: true,
+						planned_meals: [katsu.planned_meal_id],
+						was_on_list: false,
+						shopping_yield: { amount: '2', noun: 'servings' },
+						written_yield: { amount: '4', noun: 'servings' },
+					},
+				],
+				already_sent: [
+					{
+						planned_meal_id: 'pm_0000000000000009',
+						branch_id: 'b_katsu',
+						title: 'Katsu Curry',
+						planned_fewer: false,
+					},
+					{
+						planned_meal_id: 'pm_0000000000000008',
+						branch_id: 'b_dandan',
+						title: 'Dan Dan',
+						planned_fewer: true,
+					},
+					{
+						planned_meal_id: 'pm_0000000000000007',
+						branch_id: 'b_ceviche',
+						title: 'Ceviche',
+						planned_fewer: false,
+					},
+				],
+			}),
+		});
+		await screen.findByRole('link', { name: /Katsu Curry/ });
+		await fireEvent.click(screen.getByRole('button', { name: 'Send to shopping' }));
+		const sheet = await screen.findByRole('dialog');
+		await fireEvent.click(await within(sheet).findByRole('button', { name: /^This week/ }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: /^Send/ }));
+		const said = await screen.findByRole('status');
+		expect(said).toHaveTextContent('Katsu Curry, 2 servings more');
+		expect(said).toHaveTextContent('Already sent before: Ceviche.');
+		expect(said).toHaveTextContent('Dan Dan: planned for fewer since it was sent');
+	});
+
+	it('says nothing is planned on what was chosen, rather than that it all went', async () => {
+		renderScreen(Page, {
+			get_meal_plan: weekOf([katsu]),
+			send_to_shopping_list: answer(),
+		});
+		await screen.findByRole('link', { name: /Katsu Curry/ });
+		await fireEvent.click(screen.getByRole('button', { name: 'Send to shopping' }));
+		const sheet = await screen.findByRole('dialog');
+		await fireEvent.click(await within(sheet).findByRole('button', { name: /^The week after/ }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Send to shopping' }));
+		const said = await screen.findByRole('status');
+		expect(said).toHaveTextContent('Nothing to send: no recipe is planned on what you chose.');
+		expect(said).not.toHaveTextContent('went to your list');
+	});
+
+	it('never says words left behind went to the list', async () => {
+		renderScreen(Page, {
+			get_meal_plan: weekOf([leftovers]),
+			send_to_shopping_list: answer({
+				skipped: [
+					{
+						planned_meal_id: leftovers.planned_meal_id,
+						title: null,
+						words: 'Leftovers',
+						reason: 'words',
+					},
+				],
+			}),
+		});
+		await screen.findByText('Leftovers');
+		await fireEvent.click(screen.getByRole('button', { name: 'Send to shopping' }));
+		const sheet = await screen.findByRole('dialog');
+		await fireEvent.click(await within(sheet).findByRole('button', { name: /^This week/ }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Send to shopping' }));
+		const said = await screen.findByRole('status');
+		expect(said).toHaveTextContent('Nothing new to send. Not sent: Leftovers (written words).');
+		expect(said).not.toHaveTextContent('went to your list');
+	});
+
+	it('marks what went, what more is to send, and what was planned for fewer', async () => {
+		renderScreen(Page, {
+			get_meal_plan: weekOf([
+				meal({ sent_factor: 1, sent_at: '2026-10-24T09:00:00.000Z' }),
+				ceviche,
+				meal({
+					planned_meal_id: 'pm_0000000000000005',
+					day: addDays(monday, 5),
+					branch_id: 'b_pie',
+					title: 'Chicken pie',
+					planned_yield: { amount: '2', noun: '' },
+					written_yield: { amount: '4 to 6', noun: 'servings' },
+					sent_factor: 3,
+					sent_at: '2026-10-24T09:00:00.000Z',
+				}),
+			]),
+		});
+		expect(await screen.findByRole('link', { name: /Katsu Curry/ })).toHaveTextContent(
+			'Sent for 4 · 2 servings more to send',
+		);
+		expect(screen.getByRole('link', { name: /Ceviche/ })).toHaveTextContent('Sent to shopping');
+		expect(screen.getByRole('link', { name: /Chicken pie/ })).toHaveTextContent('Sent for ×3');
+
+		// The meal's own sheet says when, and what the next send would do.
+		await fireEvent.click(screen.getAllByRole('button', { name: 'Change' })[0]);
+		const sheet = await screen.findByRole('dialog');
+		expect(sheet).toHaveTextContent(
+			`Sent to your Shopping List for 4 servings on ${aPlannedDay('2026-10-24')}. Planned for more since: the next send adds 2 servings.`,
+		);
+	});
+
+	it('says a send made offline waits, and what it did once it landed', async () => {
+		renderScreen(Page, {
+			get_meal_plan: weekOf([katsu]),
+			send_to_shopping_list: answer({ outcome: 'waiting' }),
+		});
+		await screen.findByRole('link', { name: /Katsu Curry/ });
+		await fireEvent.click(screen.getByRole('button', { name: 'Send to shopping' }));
+		const sheet = await screen.findByRole('dialog');
+		await fireEvent.click(await within(sheet).findByRole('button', { name: /^This week/ }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Send 1 recipe to shopping' }));
+		expect(await screen.findByRole('status')).toHaveTextContent(
+			'Waiting to send. This send waits on this phone',
+		);
+		expect(screen.getByRole('link', { name: /Katsu Curry/ })).not.toHaveTextContent('Sent');
+
+		// The list changed on another device before it arrived.
+		landedSend.answer = answer({ outcome: 'refused' });
+		await vi.waitFor(() =>
+			expect(screen.getByRole('status')).toHaveTextContent(
+				'Nothing was sent. Your Shopping List changed on another device',
+			),
+		);
+		expect(landedSend.answer).toBeNull();
 	});
 });
