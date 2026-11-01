@@ -361,15 +361,23 @@ ui-test:
 # the limit in ui/check-messages.mjs (issue #141).
 #
 # The corpus checks need naming one by one. They carry `test = false` so
-# `just test` does not link eleven binaries to run nothing (see Cargo.toml), and
-# `--all-targets` skips a `test = false` target — so without this second pass
+# `just test` does not link twelve binaries to run nothing (see Cargo.toml), and
+# `--all-targets` skips a `test = false` target — so without the third pass
 # they would quietly stop compiling and nobody would find out until someone ran
 # one by hand. Type-checking them costs about two seconds, because clippy reads
-# them without linking; it was the linking that was expensive. The same pass
-# lints the Runner's tests, which compile only in a `test-jobs` build (#274).
+# them without linking; it was the linking that was expensive. They cannot ride
+# on the second pass: cargo drops every `--test` named beside `--all-targets`.
+#
+# The second pass lints every target with `test-jobs` on, as `just test` builds
+# them: the Runner's tests compile only then (#274), and so does every
+# `#[cfg(feature = "test-jobs")]` block in the behaviour suite (#513). The first
+# pass stays all the same: it alone lints Kamosu as a release builds it, with
+# the feature off, and the `#[cfg(not(feature = "test-jobs"))]` code in the
+# tests.
 check: _check-tokens-fresh _check-client-fresh _check-cover-fresh _check-messages ui-format-check ui-lint ui-check
     cargo fmt --check && cargo clippy --all-targets -- -D warnings
-    cargo clippy --features test-jobs {{ CORPUS_TARGETS }} --test runner -- -D warnings
+    cargo clippy --features test-jobs --all-targets -- -D warnings
+    cargo clippy --features test-jobs {{ CORPUS_TARGETS }} -- -D warnings
 
 # Every tests/*_corpus.rs and the release's library check, as clippy target
 # flags. One list, used by `check`.
