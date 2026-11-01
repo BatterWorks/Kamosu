@@ -119,3 +119,11 @@ export function takePaste(branchId: string): PastedDraft | undefined {
 	held = undefined;
 	return draft;
 }
+
+/**
+ * Nothing held. A test file's paste may outlive the file, and the next file
+ * shares the page (#509).
+ */
+export function forgetPaste(): void {
+	held = undefined;
+}
