@@ -8,7 +8,9 @@
  * can no longer be read saying so, and an empty week saying how to plan. And
  * from #487's: the week's meals with no day above its days, written words,
  * the + on each day, moving, planning again and the order, and dragging on
- * the wide layout.
+ * the wide layout. And from #489's: "Cooked" on a recipe the server says was
+ * cooked, and a past recipe nobody cooked faded on a day that no longer
+ * fades as a whole.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -22,7 +24,7 @@ import type {
 } from '$lib/api/catalogue';
 import { landedSend } from '$lib/offline/device.svelte';
 import { addDays, mondayOf, today } from '$lib/plan-days';
-import { aPlannedDay } from '$lib/dates';
+import { aPlannedDay, timeZoneHere } from '$lib/dates';
 
 type Meal = GetMealPlanOutput['planned_meals'][number];
 
@@ -42,8 +44,16 @@ const meal = (over: Partial<Meal> = {}): Meal => ({
 	main_photo: null,
 	sent_factor: null,
 	sent_at: null,
+	cooked: false,
 	...over,
 });
+
+/** A meal as a write answers it: a write says nothing of cooking (#489). */
+const asWritten = (meal: Meal): Omit<Meal, 'cooked'> => {
+	const answer: Partial<Meal> = { ...meal };
+	delete answer.cooked;
+	return answer as Omit<Meal, 'cooked'>;
+};
 
 /** This week holds what a test says; every other week holds nothing. */
 const weekOf =
@@ -96,7 +106,7 @@ describe('the Plan', () => {
 		expect(screen.getAllByText('Nothing planned')).toHaveLength(5);
 		expect(kamosu.calls).toContainEqual({
 			operation: 'get_meal_plan',
-			input: { from: monday, to: addDays(monday, 6) },
+			input: { from: monday, to: addDays(monday, 6), time_zone: timeZoneHere() },
 		});
 	});
 
@@ -121,6 +131,7 @@ describe('the Plan', () => {
 		expect(kamosu.calls.at(-1)?.input).toEqual({
 			from: addDays(monday, 7),
 			to: addDays(monday, 13),
+			time_zone: timeZoneHere(),
 		});
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Back to this week' }));
@@ -132,7 +143,7 @@ describe('the Plan', () => {
 		const { kamosu } = renderScreen(Page, {
 			get_meal_plan: weekOf([meal()]),
 			set_planned_yield: ({ planned_meal_id, planned_yield }) => ({
-				planned_meal: meal({ planned_meal_id, planned_yield }),
+				planned_meal: asWritten(meal({ planned_meal_id, planned_yield })),
 			}),
 		});
 		await screen.findByRole('link', { name: /Katsu Curry/ });
@@ -235,7 +246,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 			...over,
 		});
 	const answered = ({ planned_meal_id }: { planned_meal_id: string }) => ({
-		planned_meal: meal({ planned_meal_id }),
+		planned_meal: asWritten(meal({ planned_meal_id })),
 	});
 
 	it("draws the week's meals with no day above Monday, and says so when there are none", async () => {
@@ -262,7 +273,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 		const { kamosu } = renderScreen(Page, {
 			get_meal_plan: weekOf([words()]),
 			set_planned_words: ({ planned_meal_id, words: typed }) => ({
-				planned_meal: words({ planned_meal_id, words: typed }),
+				planned_meal: asWritten(words({ planned_meal_id, words: typed })),
 			}),
 		});
 
@@ -289,7 +300,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 	it('writes words on a day from its +, and on the week from the list with no day', async () => {
 		const { kamosu } = renderScreen(Page, {
 			get_meal_plan: weekOf([meal()]),
-			plan_words: ({ words: typed }) => ({ planned_meal: words({ words: typed }) }),
+			plan_words: ({ words: typed }) => ({ planned_meal: asWritten(words({ words: typed })) }),
 		});
 		await screen.findByRole('link', { name: /Katsu Curry/ });
 		const friday = addDays(monday, 4);
@@ -357,7 +368,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 	it('plans a recipe again at its amount and leaves the first where it is', async () => {
 		const { kamosu } = renderScreen(Page, {
 			get_meal_plan: weekOf([meal()]),
-			plan_recipe: { planned_meal: meal({ planned_meal_id: 'pm_00000000000000c1' }) },
+			plan_recipe: { planned_meal: asWritten(meal({ planned_meal_id: 'pm_00000000000000c1' })) },
 		});
 		await screen.findByRole('link', { name: /Katsu Curry/ });
 
@@ -392,7 +403,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 	it('plans written words again with the same words', async () => {
 		const { kamosu } = renderScreen(Page, {
 			get_meal_plan: weekOf([words()]),
-			plan_words: ({ words: typed }) => ({ planned_meal: words({ words: typed }) }),
+			plan_words: ({ words: typed }) => ({ planned_meal: asWritten(words({ words: typed })) }),
 		});
 		await screen.findByText('Leftovers');
 
@@ -552,7 +563,9 @@ describe('the Plan when something goes wrong or nothing is there (#487)', () => 
 			Page,
 			{
 				get_meal_plan: weekOf([meal()]),
-				move_planned_meal: ({ planned_meal_id }) => ({ planned_meal: meal({ planned_meal_id }) }),
+				move_planned_meal: ({ planned_meal_id }) => ({
+					planned_meal: asWritten(meal({ planned_meal_id })),
+				}),
 			},
 			undefined,
 			'wide',
@@ -851,5 +864,86 @@ describe('sending the plan to the Shopping List (#488)', () => {
 			),
 		);
 		expect(landedSend.answer).toBeNull();
+	});
+});
+
+describe('what was cooked (#489)', () => {
+	const lastMonday = addDays(monday, -7);
+	/** Last week, as the server read it: what was cooked, and what was not. */
+	const lastWeek = [
+		meal({ planned_meal_id: 'pm_00000000000000d1', day: lastMonday, cooked: true }),
+		meal({
+			planned_meal_id: 'pm_00000000000000d2',
+			day: addDays(lastMonday, 2),
+			branch_id: 'b_ceviche',
+			title: 'Ceviche',
+			main_photo: 'p_ceviche',
+		}),
+		meal({
+			planned_meal_id: 'pm_00000000000000d3',
+			day: addDays(lastMonday, 2),
+			branch_id: null,
+			words: 'Eating out',
+			title: null,
+			planned_yield: null,
+			written_yield: null,
+		}),
+		meal({
+			planned_meal_id: 'pm_00000000000000d4',
+			day: addDays(lastMonday, 4),
+			branch_id: 'b_shakshuka',
+			title: 'Shakshuka',
+			gone: true,
+			planned_yield: null,
+			written_yield: null,
+			// Said by an older server: the screen still shows nothing.
+			cooked: true,
+		}),
+	];
+	const recipeRow = (name: string) => screen.getByText(name).closest('li') as HTMLElement;
+
+	it('says a recipe was cooked, and fades a past one nobody cooked', async () => {
+		renderScreen(Page, {
+			get_meal_plan: ({ from }: GetMealPlanInput): GetMealPlanOutput => ({
+				planned_meals: from === lastMonday ? lastWeek : [],
+			}),
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'The week before' }));
+		await screen.findByText('Ceviche');
+
+		const katsu = recipeRow('Katsu Curry');
+		expect(katsu).toHaveTextContent('Cooked');
+		expect(screen.getByText('Katsu Curry')).not.toHaveClass('text-ink-2');
+		const ceviche = recipeRow('Ceviche');
+		expect(ceviche).not.toHaveTextContent('Cooked');
+		expect(screen.getByText('Ceviche')).toHaveClass('text-ink-2');
+		expect(ceviche.querySelector('img')).toHaveClass('grayscale');
+		// Written words and a recipe that can no longer be read carry neither.
+		expect(recipeRow('Eating out')).not.toHaveTextContent('Cooked');
+		expect(recipeRow('Shakshuka')).not.toHaveTextContent('Cooked');
+		expect(recipeRow('Eating out').querySelector('.grayscale, .opacity-45')).toBeNull();
+		expect(recipeRow('Shakshuka').querySelector('.grayscale, .opacity-45')).toBeNull();
+		// A past day no longer fades as a whole: only its date does.
+		expect(document.querySelector('section.opacity-60')).toBeNull();
+		expect(document.querySelectorAll('h2.opacity-60').length).toBeGreaterThan(0);
+	});
+
+	it('fades nothing on a day still to come, cooked or not', async () => {
+		renderScreen(Page, {
+			get_meal_plan: weekOf([
+				meal({ day: addDays(monday, 7 - 1) }),
+				meal({
+					planned_meal_id: 'pm_0000000000000002',
+					day: addDays(monday, 7 - 1),
+					branch_id: 'b_ceviche',
+					title: 'Ceviche',
+					cooked: true,
+				}),
+			]),
+		});
+		await screen.findByText('Ceviche');
+		expect(recipeRow('Katsu Curry')).not.toHaveTextContent('Cooked');
+		expect(screen.getByText('Katsu Curry')).not.toHaveClass('text-ink-2');
+		expect(recipeRow('Ceviche')).toHaveTextContent('Cooked');
 	});
 });

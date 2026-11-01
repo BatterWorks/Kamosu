@@ -724,6 +724,8 @@ export class Outbox implements Keeping {
 					main_photo: content.main_photo ?? null,
 					sent_factor: null,
 					sent_at: null,
+					// Only the server reads the cookings (#489); the next read says.
+					cooked: false,
 				};
 				break;
 			}
@@ -742,6 +744,7 @@ export class Outbox implements Keeping {
 					main_photo: null,
 					sent_factor: null,
 					sent_at: null,
+					cooked: false,
 				};
 				break;
 			case 'set_planned_yield':
@@ -774,7 +777,10 @@ export class Outbox implements Keeping {
 					Math.max(0, (input.position as number | undefined) ?? list.length),
 					list.length,
 				);
-				list.splice(at, 0, { ...known, week, day });
+				// Whether it was cooked belongs to the day it stood on (#489): on
+				// another one, the next read says.
+				const stays = known.week === week && known.day === day;
+				list.splice(at, 0, { ...known, week, day, cooked: stays && known.cooked });
 				list.forEach((meal, position) => {
 					plan.changed[meal.planned_meal_id] = { ...meal, position };
 				});

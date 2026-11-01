@@ -154,3 +154,9 @@ export function byDay<T>(rows: T[], when: (row: T) => string, now: Date = new Da
 	}
 	return days;
 }
+
+/**
+ * The time zone the browser is in, by name, such as `Europe/Amsterdam`: the
+ * Plan reads with it, so a cooking counts on the day it was here (#489).
+ */
+export const timeZoneHere = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone;

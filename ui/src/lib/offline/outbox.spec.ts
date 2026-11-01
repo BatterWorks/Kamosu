@@ -583,6 +583,40 @@ describe('the Meal Plan with no network (#486)', () => {
 		expect(at.told).toHaveBeenCalledWith(expect.arrayContaining(['get_meal_plan']));
 	});
 
+	it('drops "cooked" from a meal moved to another day with no network, and keeps it on its own (#489)', async () => {
+		const at = world({
+			get_meal_plan: () => ({
+				planned_meals: [
+					meal({ cooked: true }),
+					meal({ planned_meal_id: 'pm_server0000000002', position: 1, cooked: true }),
+				],
+			}),
+			move_planned_meal: () => ({ planned_meal: null }),
+		});
+		await at.call('get_meal_plan', week);
+		at.offline();
+
+		await at.call('move_planned_meal', {
+			planned_meal_id: 'pm_server0000000001',
+			day: '2026-11-06',
+		});
+		await at.call('move_planned_meal', {
+			planned_meal_id: 'pm_server0000000002',
+			day: '2026-11-05',
+			position: 0,
+		});
+		const read = await at.call('get_meal_plan', week);
+		expect(
+			read.planned_meals.map((each: { planned_meal_id: string; cooked: boolean }) => [
+				each.planned_meal_id,
+				each.cooked,
+			]),
+		).toEqual([
+			['pm_server0000000002', true],
+			['pm_server0000000001', false],
+		]);
+	});
+
 	it('writes words, moves and reorders with no network, as the server will (#487)', async () => {
 		const at = world({
 			get_meal_plan: () => ({
