@@ -51,6 +51,33 @@ the agent:
 - `{ "$text": "originals/sunny-side-shakshuka.txt" }` is the file's words, as
   `import_by_agent` takes pasted text in `text`.
 
+## A plan step
+
+A cook's Meal Plan is planned with `plan_recipe` and `plan_words`, and sent to
+the Shopping List with `send_to_shopping_list`. A plan names its days and
+weeks as calendar dates, so a plan step names each one by its distance from
+the day the library is built, which is day 0:
+
+```json
+{ "days_ago": 2, "at": "20:31", "as": "Camille", "op": "plan_recipe", "input": { "branch_id": { "$ref": "kogel.branch_id" }, "day": { "$day": 0 } } }
+```
+
+- `{ "$day": n }` is the day n days from the build: `-1` the day before it,
+  `3` three days after. A plan may hold days after the story's last step.
+- `{ "$week": n }` is the Monday of the week that day is in, for a meal on a
+  week with no day: `{ "$week": 0 }` is the build's own week.
+- A planned recipe shows "cooked" when its cook started an Attempt of it on
+  its day, so the Attempt is a step of its own on that day. Start it near
+  noon UTC: the Plan counts the day where the visitor is, and a dinner at
+  19:00 UTC is the next morning in Tokyo.
+
+A Demo moves the plan with everything else. Every day moves by the same
+whole days as every other date, and a week with no day moves by whole weeks
+to the week of the cleaning, so `{ "$week": 0 }` is always the current week,
+whatever the weekday, as UTC counts it. An Attempt moves by days, so one in
+the build's week falls out of the current week on some days: a meal on a
+week with no day shows "cooked" only some days, and is best left uncooked.
+
 ## Time in the story
 
 Every Operation stamps the present. Once a step has run, everything it stamped
@@ -115,6 +142,9 @@ About 40 recipes, written as the Demo's cooks would have written them:
   recipe here comes from behind a paywall.
 - About a third have a Translation into French or Spanish. The wet-wet sauce is
   a Component of the garlic butter noodles and the wontons.
+- Camille's Meal Plan: the days around the build, one recipe on the week
+  with no day, written words, one recipe sent to the Shopping List, one
+  cooked the day before, and a week gone by.
 - Waiting for a visitor: a Share Link to the Tarte Tatin, a Kitchen Invite, a
   Cookbook Invite, and the pizza dough's cooking with changed lines that were
   never kept.

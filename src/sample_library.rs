@@ -177,7 +177,10 @@ pub fn build(dir: &Path) -> Result<Built, OpError> {
     })?;
     let stamped = db.with_conn(stamped_columns)?;
 
-    let mut told = Told::default();
+    let mut told = Told {
+        built_on: built_on.clone(),
+        ..Told::default()
+    };
     // What a step may name that no step kept: this Kamosu, whose version a
     // Runner in the story says it is.
     told.kept.insert(
@@ -331,11 +334,13 @@ fn story() -> Result<Story, OpError> {
     })
 }
 
-/// What the story has told so far: each cook's Secret, and the answers kept.
+/// What the story has told so far: each cook's Secret, and the answers kept,
+/// on a library built on `built_on`.
 #[derive(Default)]
 struct Told {
     cooks: HashMap<String, String>,
     kept: HashMap<String, Value>,
+    built_on: String,
 }
 
 impl Told {
@@ -511,8 +516,9 @@ impl Told {
 
     /// `input` with every `{ "$ref": "name.path" }` replaced by what it names,
     /// every `{ "$file": "path" }` by that file of `sample-library/` in
-    /// base64, as a Door that sends only JSON hands one over, and every
-    /// `{ "$text": "path" }` by that file's words.
+    /// base64, as a Door that sends only JSON hands one over, every
+    /// `{ "$text": "path" }` by that file's words, and every `{ "$day": n }`
+    /// and `{ "$week": n }` by the day or the week n days from the build.
     fn resolved(&self, input: Value) -> Result<Value, OpError> {
         match input {
             Value::Object(fields) if fields.len() == 1 && fields.contains_key("$ref") => {
@@ -534,6 +540,12 @@ impl Told {
                     .map(Value::String)
                     .map_err(|_| OpError::bad_request("a $text names a file that is not UTF-8"))
             }
+            Value::Object(fields) if fields.len() == 1 && fields.contains_key("$day") => {
+                self.day(&fields["$day"]).map(Value::String)
+            }
+            Value::Object(fields) if fields.len() == 1 && fields.contains_key("$week") => {
+                self.week(&fields["$week"]).map(Value::String)
+            }
             Value::Object(fields) => Ok(Value::Object(
                 fields
                     .into_iter()
@@ -548,6 +560,38 @@ impl Told {
             )),
             other => Ok(other),
         }
+    }
+
+    /// The calendar day `days` from the day the library is built, before it
+    /// when negative: how a plan step names the day a meal stands on (#490).
+    /// A Demo moves the plan's days forward with every other date, so a week
+    /// planned around the build stands around the day a visitor comes.
+    fn day(&self, days: &Value) -> Result<String, OpError> {
+        self.date(days).map(|day| day.to_string())
+    }
+
+    /// The Monday of the week holding the day `days` from the build: how a
+    /// plan step names a week with no day (#490).
+    fn week(&self, days: &Value) -> Result<String, OpError> {
+        let day = self.date(days)?;
+        let since_monday = i64::from(day.weekday().to_monday_zero_offset());
+        day.checked_sub(jiff::Span::new().days(since_monday))
+            .map(|monday| monday.to_string())
+            .map_err(|e| OpError::bad_request(format!("the week of {day}: {e}")))
+    }
+
+    /// The day `days` from the day the library is built.
+    fn date(&self, days: &Value) -> Result<jiff::civil::Date, OpError> {
+        let days = days
+            .as_i64()
+            .ok_or_else(|| OpError::bad_request("a $day or $week is a whole number of days"))?;
+        let built_on: jiff::civil::Date = self
+            .built_on
+            .parse()
+            .map_err(|e| OpError::internal(format!("cannot read the build's day: {e}")))?;
+        built_on
+            .checked_add(jiff::Span::new().days(days))
+            .map_err(|e| OpError::bad_request(format!("{days} days from the build: {e}")))
     }
 
     /// What `name.path.to.field` names: a kept answer, then a field or an
@@ -765,6 +809,37 @@ mod tests {
             resolved["text"],
             json!(String::from_utf8(words.to_vec()).unwrap())
         );
+    }
+
+    #[test]
+    fn a_day_in_the_story_is_counted_from_the_build_and_a_week_is_its_monday() {
+        // 2026-11-05 is a Thursday.
+        let told = Told {
+            built_on: "2026-11-05".to_string(),
+            ..Told::default()
+        };
+        let resolved = told
+            .resolved(json!({
+                "yesterday": { "$day": -1 },
+                "today": { "$day": 0 },
+                "sunday": { "$day": 3 },
+                "this_week": { "$week": 0 },
+                "next_week": { "$week": 4 },
+                "a_week_ago": { "$week": -7 },
+            }))
+            .unwrap();
+        assert_eq!(
+            resolved,
+            json!({
+                "yesterday": "2026-11-04",
+                "today": "2026-11-05",
+                "sunday": "2026-11-08",
+                "this_week": "2026-11-02",
+                "next_week": "2026-11-09",
+                "a_week_ago": "2026-10-26",
+            })
+        );
+        assert!(told.resolved(json!({ "$day": "two" })).is_err());
     }
 
     #[test]
