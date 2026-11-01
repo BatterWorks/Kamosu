@@ -12,6 +12,7 @@ pub mod backups;
 pub mod bar_assistant;
 pub mod browser_policy;
 pub mod bundles;
+pub mod calendar_file;
 pub mod catalogue;
 pub mod config;
 pub mod cookbook_migration;
@@ -90,6 +91,7 @@ pub fn app_within(core: Arc<core::Core>, limits: admission::Limits) -> axum::Rou
         .merge(mcp_door::router(core.clone()))
         .merge(design_tokens::router())
         .merge(share_page::router(core.clone()))
+        .merge(calendar_file::router(core.clone()))
         .merge(interface::router(core.clone()));
     // A stranger's body read small, the whole-request deadline and the cap on
     // requests at once (#368).

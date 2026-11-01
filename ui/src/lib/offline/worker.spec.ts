@@ -583,6 +583,15 @@ describe('a navigation', () => {
 		expect(w.server.asked).toEqual([]);
 	});
 
+	it("leaves a Calendar Link's file to the server, never the cached shell (#491)", async () => {
+		const w = await installed({
+			built: ['/_app/immutable/entry/app.js'],
+			precached: ['/_app/immutable/entry/app.js'],
+		});
+		const answer = w.worker.handle(navigationTo('/calendar/a1b2.ics'), () => undefined);
+		expect(answer).toBeUndefined();
+	});
+
 	it('leaves a precached static file to the shell cache in development too', async () => {
 		const w = await installed({ built: [], precached: ['/manifest.webmanifest'] });
 		const answer = await w.worker.handle(

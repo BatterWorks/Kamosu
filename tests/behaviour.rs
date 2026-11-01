@@ -27354,6 +27354,301 @@ async fn a_planned_meal_moves_to_another_day_a_week_or_another_place() {
     assert_eq!(order("2026-10-20").len(), 1);
 }
 
+// --- A Calendar Link (issue #491) -------------------------------------------
+
+/// A calendar date `days` from today, UTC's, as the calendar file reads it.
+fn day_from_today(days: i64) -> String {
+    let today = jiff::Timestamp::now()
+        .to_zoned(jiff::tz::TimeZone::UTC)
+        .date();
+    today
+        .checked_add(jiff::Span::new().days(days))
+        .unwrap()
+        .to_string()
+}
+
+/// A calendar date in the iCalendar form, 20261105.
+fn basic(day: &str) -> String {
+    day.replace('-', "")
+}
+
+/// The Monday of the week a calendar date is in.
+fn monday_of(day: &str) -> String {
+    let date: jiff::civil::Date = day.parse().unwrap();
+    let back = date.weekday().to_monday_zero_offset() as i64;
+    date.checked_sub(jiff::Span::new().days(back))
+        .unwrap()
+        .to_string()
+}
+
+/// The first Person, signed in: a Session, which making a key needs.
+fn signed_in_first(app: &support::TestApp, name: &str) -> String {
+    let created = app.post_auth_response(
+        "/auth/first-person",
+        &json!({ "name": name, "password": "the right password", "session_name": "laptop" })
+            .to_string(),
+    );
+    assert_eq!(created.status, 200, "{}", created.text());
+    support::session_cookie_secret(&created)
+}
+
+/// Another Person, signed in through an Invite.
+fn signed_in_by_invite(app: &support::TestApp, name: &str) -> String {
+    let link = app.core.mint_invite(false).unwrap();
+    let joined = app.post_auth_response(
+        "/auth/invite",
+        &json!({ "link": link, "name": name, "password": "their own password",
+                 "session_name": "their phone" })
+        .to_string(),
+    );
+    assert_eq!(joined.status, 200, "{}", joined.text());
+    support::session_cookie_secret(&joined)
+}
+
+/// The rows of the asker's own Security Record that name an event.
+fn recorded(app: &support::TestApp, key: &str, event: &str) -> Vec<Value> {
+    let (status, record) = app.post_op("list_security_record", Some(key), "{}");
+    assert_eq!(status, 200, "{record}");
+    record["result"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["event"] == json!(event))
+        .cloned()
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_calendar_link_answers_the_plan_as_a_calendar_file() {
+    let app = support::spawn_app();
+    let session = signed_in_first(&app, "Stéphane");
+    let (status, set) = plan_op(
+        &app,
+        &session,
+        "set_public_address",
+        json!({ "public_address": "https://recipes.kamosu.example" }),
+    );
+    assert_eq!(status, 200, "{set}");
+    let soupe = written(&app, &session, "Soupe au pistou");
+    let tarte = written(&app, &session, "Tarte Tatin");
+
+    let thursday = day_from_today(3);
+    let soon = plan(
+        &app,
+        &session,
+        json!({ "branch_id": soupe, "day": thursday }),
+    );
+    let (_, words) = plan_op(
+        &app,
+        &session,
+        "plan_words",
+        json!({ "words": "Pasta, salad; then\\cake", "day": day_from_today(4) }),
+    );
+    let words = words["planned_meal"]["planned_meal_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let week = monday_of(&day_from_today(7));
+    let undated = plan(&app, &session, json!({ "branch_id": tarte, "week": week }));
+    let lately = plan(
+        &app,
+        &session,
+        json!({ "branch_id": tarte, "day": day_from_today(-80) }),
+    );
+    let long_ago = plan(
+        &app,
+        &session,
+        json!({ "branch_id": tarte, "day": day_from_today(-100) }),
+    );
+
+    let (status, made) = plan_op(&app, &session, "make_calendar_link", json!({}));
+    assert_eq!(status, 200, "{made}");
+    let path = made["path"].as_str().unwrap().to_string();
+    let secret = made["secret"].as_str().unwrap();
+    assert_eq!(path, format!("/calendar/{secret}.ics"));
+    assert_eq!(
+        made["url"],
+        json!(format!("https://recipes.kamosu.example{path}"))
+    );
+    let (_, link) = plan_op(&app, &session, "get_calendar_link", json!({}));
+    assert_eq!(link["calendar_link"]["last_read_at"], Value::Null, "{link}");
+    assert_eq!(link["calendar_link"].get("secret"), None, "{link}");
+
+    let (status, content_type, file) = app.get(&path);
+    assert_eq!(status, 200, "{file}");
+    assert_eq!(content_type, "text/calendar; charset=utf-8");
+    assert!(file.starts_with("BEGIN:VCALENDAR\r\n"), "{file}");
+    let event = |id: &str| {
+        let start = file
+            .find(&format!("UID:{id}@kamosu\r\n"))
+            .unwrap_or_else(|| panic!("{id} is not in the file: {file}"));
+        let end = file[start..].find("END:VEVENT").unwrap();
+        file[start..start + end].to_string()
+    };
+    let soupe_event = event(&soon);
+    assert!(
+        soupe_event.contains(&format!(
+            "DTSTART;VALUE=DATE:{}\r\nDTEND;VALUE=DATE:{}\r\n",
+            basic(&thursday),
+            basic(&day_from_today(4))
+        )),
+        "{soupe_event}"
+    );
+    assert!(
+        soupe_event.contains("SUMMARY:Soupe au pistou\r\n"),
+        "{soupe_event}"
+    );
+    assert!(
+        soupe_event.contains(&format!(
+            "URL:https://recipes.kamosu.example/recipes/{soupe}\r\n"
+        )),
+        "{soupe_event}"
+    );
+    // Written words as written, escaped as the format asks.
+    let words_event = event(&words);
+    assert!(
+        words_event.contains("SUMMARY:Pasta\\, salad\\; then\\\\cake\r\n"),
+        "{words_event}"
+    );
+    assert!(!words_event.contains("URL:"), "{words_event}");
+    // A week with no day, as its week.
+    assert!(
+        event(&undated).contains(&format!("DTSTART;VALUE=DATE:{}\r\n", basic(&week))),
+        "{file}"
+    );
+    // The past 90 days and no further back.
+    event(&lately);
+    assert!(!file.contains(&long_ago), "{file}");
+
+    // A calendar app's read is noted, so the cook sees it works.
+    let (_, link) = plan_op(&app, &session, "get_calendar_link", json!({}));
+    assert!(link["calendar_link"]["last_read_at"].is_string(), "{link}");
+
+    // A meal moved keeps its event, on its new day.
+    let (status, moved) = plan_op(
+        &app,
+        &session,
+        "move_planned_meal",
+        json!({ "planned_meal_id": soon, "day": day_from_today(5) }),
+    );
+    assert_eq!(status, 200, "{moved}");
+    let (_, _, file) = app.get(&path);
+    assert_eq!(
+        file.matches(&format!("UID:{soon}@kamosu")).count(),
+        1,
+        "{file}"
+    );
+    let start = file.find(&format!("UID:{soon}@kamosu")).unwrap();
+    assert!(
+        file[start..].contains(&format!("DTSTART;VALUE=DATE:{}", basic(&day_from_today(5)))),
+        "{file}"
+    );
+
+    // Making another ends the one before.
+    let (_, again) = plan_op(&app, &session, "make_calendar_link", json!({}));
+    let second = again["path"].as_str().unwrap().to_string();
+    assert_eq!(app.get(&path).0, 404);
+    assert_eq!(app.get(&second).0, 200);
+    let made_lines = recorded(&app, &session, "calendar_link_made");
+    assert_eq!(made_lines.len(), 2, "{made_lines:?}");
+    assert_eq!(
+        made_lines[0]["detail"]["replaced"],
+        json!(true),
+        "{made_lines:?}"
+    );
+
+    // Ended, it answers nothing, as a Secret never made does.
+    let (status, ended) = plan_op(&app, &session, "end_calendar_link", json!({}));
+    assert_eq!(status, 200, "{ended}");
+    assert_eq!(ended, json!({ "ended": true }));
+    assert_eq!(app.get(&second).0, 404);
+    let (_, link) = plan_op(&app, &session, "get_calendar_link", json!({}));
+    assert_eq!(link, json!({ "calendar_link": null }));
+    assert_eq!(recorded(&app, &session, "calendar_link_ended").len(), 1);
+    let (_, ended) = plan_op(&app, &session, "end_calendar_link", json!({}));
+    assert_eq!(ended, json!({ "ended": false }));
+    assert_eq!(recorded(&app, &session, "calendar_link_ended").len(), 1);
+    assert_eq!(
+        app.get("/calendar/0000000000000000000000000000000000000000000000000000000000000000.ics")
+            .0,
+        404
+    );
+    assert_eq!(app.get(&second.replace(".ics", "")).0, 404);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn each_person_has_one_calendar_link_and_it_reads_their_plan_alone() {
+    let app = support::spawn_app();
+    let stephane = signed_in_first(&app, "Stéphane");
+    let helene = signed_in_by_invite(&app, "Hélène");
+    let soupe = written(&app, &stephane, "Soupe");
+    plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": soupe, "day": day_from_today(1) }),
+    );
+    let (_, words) = plan_op(
+        &app,
+        &helene,
+        "plan_words",
+        json!({ "words": "Eating out", "day": day_from_today(1) }),
+    );
+    assert!(words["planned_meal"].is_object(), "{words}");
+
+    let path_of = |key: &str| {
+        let (status, made) = plan_op(&app, key, "make_calendar_link", json!({}));
+        assert_eq!(status, 200, "{made}");
+        // No public address yet: the screen builds the link itself.
+        assert_eq!(made["url"], Value::Null, "{made}");
+        made["path"].as_str().unwrap().to_string()
+    };
+    let hers = path_of(&helene);
+    let his = path_of(&stephane);
+    let (status, _, her_file) = app.get(&hers);
+    assert_eq!(status, 200, "making his left hers alone");
+    assert!(her_file.contains("SUMMARY:Eating out"), "{her_file}");
+    assert!(!her_file.contains("Soupe"), "{her_file}");
+    assert!(
+        her_file.contains("X-WR-CALNAME:Kamosu · Hélène"),
+        "{her_file}"
+    );
+    let (_, _, his_file) = app.get(&his);
+    assert!(his_file.contains("SUMMARY:Soupe"), "{his_file}");
+    assert!(!his_file.contains("Eating out"), "{his_file}");
+    // A recipe with no public address to link to is named alone.
+    assert!(!his_file.contains("URL:"), "{his_file}");
+
+    // A link is a key, and an Access Key mints none. Reading and ending one
+    // are not minting.
+    let (person, key) = someone(&app, "Inès");
+    let (status, refused) = plan_op(&app, &key, "make_calendar_link", json!({}));
+    assert_eq!(status, 401, "{refused}");
+    let (status, read) = plan_op(&app, &key, "get_calendar_link", json!({}));
+    assert_eq!(status, 200, "{read}");
+    assert_eq!(read, json!({ "calendar_link": null }));
+    let _ = person;
+
+    // A Person who can no longer sign in is answered nothing.
+    let helene_id = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row("SELECT id FROM people WHERE name = 'Hélène'", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute("UPDATE people SET disabled = 1 WHERE id = ?1", [&helene_id])
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(app.get(&hers).0, 404);
+}
+
 // --- Sending the plan to the Shopping List (issue #488, ADR 0058) ------------
 
 /// A recipe with a Yield, answering its Branch.
@@ -45684,6 +45979,19 @@ mod a_demo {
     fn assert_refused_as_a_demo(status: u16, answer: &Value, what: &str) {
         assert_eq!(status, 400, "{what}: {answer}");
         assert_eq!(answer["error"]["reason"], json!("demo"), "{what}: {answer}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_demo_refuses_making_a_calendar_link() {
+        let demo = a_demo_with_camille();
+        let (_, visitor) = arrive(&demo.app);
+        let (status, answer) = op(&demo.app, "make_calendar_link", &visitor, json!({}));
+        assert_refused_as_a_demo(status, &answer, "make_calendar_link");
+        let (status, answer) = op(&demo.app, "end_calendar_link", &visitor, json!({}));
+        assert_refused_as_a_demo(status, &answer, "end_calendar_link");
+        let (status, answer) = op(&demo.app, "get_calendar_link", &visitor, json!({}));
+        assert_eq!(status, 200, "{answer}");
+        assert_eq!(answer["result"], json!({ "calendar_link": null }));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

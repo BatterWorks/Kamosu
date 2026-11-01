@@ -573,6 +573,36 @@ fn week_of(conn: &Connection, person_id: &str, week: &str) -> Result<Vec<Value>,
     Ok(meals.into_iter().flatten().collect())
 }
 
+/// Every Planned Meal of a Person's from `days_back` days ago on, the way
+/// ahead included, for their Calendar Link (#491): a day's from that day, and
+/// a week's with no day where any of its days is. In the plan's own order.
+pub(super) fn meals_since(
+    conn: &Connection,
+    person_id: &str,
+    days_back: i64,
+) -> Result<Vec<Value>, OpError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id FROM planned_meals WHERE person_id = ?1 \
+                AND (day >= date('now', ?2) \
+                     OR (day IS NULL AND week >= date('now', ?2, '-6 days'))) \
+              ORDER BY week, day IS NOT NULL, day, position, planned_at, id",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
+    let ids: Vec<String> = statement
+        .query_map(params![person_id, format!("-{days_back} days")], |row| {
+            row.get(0)
+        })
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
+    let meals = ids
+        .iter()
+        .map(|id| planned_meal(conn, person_id, id))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(meals.into_iter().flatten().collect())
+}
+
 /// The ids of one list of a Person's plan, a day's or a week's with no day,
 /// in its order.
 fn list_of(

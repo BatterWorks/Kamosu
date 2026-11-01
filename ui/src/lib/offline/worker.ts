@@ -391,6 +391,10 @@ export function createWorker(world: WorkerWorld) {
 		// The Share Link page is drawn by the server, not the app (ADR 0013).
 		// Kept once opened, like anything else a person has read.
 		if (path.startsWith('/s/')) return serverFirst(request, READS_CACHE);
+		// A Calendar Link's file (#491) is the server's alone, every time: a
+		// browser opening one gets the file, never the app, and nothing of a
+		// plan is kept under a Secret's address.
+		if (path.startsWith('/calendar/')) return undefined;
 		if (request.mode === 'navigate' && !path.startsWith('/api/') && !path.startsWith('/auth/')) {
 			return screen(request);
 		}

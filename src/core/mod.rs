@@ -52,6 +52,7 @@ use crate::shopping;
 use crate::units;
 
 mod accounts;
+mod calendar_links;
 mod carrying_bundles;
 mod cookbooks;
 mod cooking;
