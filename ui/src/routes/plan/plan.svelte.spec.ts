@@ -892,6 +892,8 @@ describe('what was cooked (#489)', () => {
 			gone: true,
 			planned_yield: null,
 			written_yield: null,
+			// Said by an older server: the screen still shows nothing.
+			cooked: true,
 		}),
 	];
 	const recipeRow = (name: string) => screen.getByText(name).closest('li') as HTMLElement;
@@ -916,6 +918,7 @@ describe('what was cooked (#489)', () => {
 		expect(recipeRow('Eating out')).not.toHaveTextContent('Cooked');
 		expect(recipeRow('Shakshuka')).not.toHaveTextContent('Cooked');
 		expect(recipeRow('Eating out').querySelector('.grayscale, .opacity-45')).toBeNull();
+		expect(recipeRow('Shakshuka').querySelector('.grayscale, .opacity-45')).toBeNull();
 		// A past day no longer fades as a whole: only its date does.
 		expect(document.querySelector('section.opacity-60')).toBeNull();
 		expect(document.querySelectorAll('h2.opacity-60').length).toBeGreaterThan(0);

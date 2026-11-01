@@ -732,14 +732,16 @@ fn planned_meal(conn: &Connection, person_id: &str, id: &str) -> Result<Option<V
 /// no day, In Progress included. Any Branch of the Lineage counts, since an
 /// Attempt belongs to the Lineage. The day is the cook's, in `time_zone`, as
 /// the Cooked diary shows it, so a dinner late in the evening is not
-/// tomorrow's. Written words are never cooked.
+/// tomorrow's. Written words are never cooked, nor is a recipe that can no
+/// longer be read.
 fn was_cooked(
     conn: &Connection,
     person_id: &str,
     meal: &Value,
     time_zone: &jiff::tz::TimeZone,
 ) -> Result<bool, OpError> {
-    let Some(branch_id) = meal["branch_id"].as_str() else {
+    // One that can no longer be read says nothing more about itself.
+    let (Some(branch_id), false) = (meal["branch_id"].as_str(), meal["gone"] == json!(true)) else {
         return Ok(false);
     };
     let (first, last) = match (meal["day"].as_str(), meal["week"].as_str()) {

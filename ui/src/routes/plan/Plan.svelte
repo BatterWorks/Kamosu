@@ -67,7 +67,7 @@
 
 	type Meal = GetMealPlanOutput['planned_meals'][number];
 	/** A Planned Meal as a write answers it, which says nothing of cooking. */
-	type Written = Omit<Meal, 'cooked'>;
+	type WriteAnswer = Omit<Meal, 'cooked'>;
 
 	const kamosu = useKamosu();
 	const room = useRoom();
@@ -234,9 +234,11 @@
 	/**
 	 * What a write answered: the meal as it now stands, or gone from the plan.
 	 * A write's answer says nothing of cooking, which only a read can tell
-	 * (#489), and no write here changes it, so the meal keeps what it said.
+	 * (#489). Only a change of Yield or of written words lands here, neither
+	 * of which changes it, so the meal keeps what it said; a move reads the
+	 * week again.
 	 */
-	function landed(id: string, now: Written | null) {
+	function landed(id: string, now: WriteAnswer | null) {
 		if (!read) return;
 		read.meals = now
 			? read.meals.map((meal) =>
@@ -610,7 +612,7 @@
 			class="{size} flex shrink-0 items-center justify-center rounded-sm border border-dashed border-rule font-display text-title text-ink-2 {missed(
 				meal,
 			)
-				? 'opacity-45'
+				? 'opacity-45 grayscale'
 				: ''}"
 		>
 			{meal.gone ? '–' : (meal.title ?? '').slice(0, 1)}

@@ -777,7 +777,10 @@ export class Outbox implements Keeping {
 					Math.max(0, (input.position as number | undefined) ?? list.length),
 					list.length,
 				);
-				list.splice(at, 0, { ...known, week, day });
+				// Whether it was cooked belongs to the day it stood on (#489): on
+				// another one, the next read says.
+				const stays = known.week === week && known.day === day;
+				list.splice(at, 0, { ...known, week, day, cooked: stays && known.cooked });
 				list.forEach((meal, position) => {
 					plan.changed[meal.planned_meal_id] = { ...meal, position };
 				});
