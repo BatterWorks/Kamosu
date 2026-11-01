@@ -14,7 +14,8 @@ use std::time::Duration;
 /// silence already means no. A Photograph upload asks the server to decode a
 /// camera-original picture and re-encode it to WebP (ADR 0017) — real work on
 /// megabytes, and slower again in an unoptimised build — where a few seconds
-/// of silence means nothing is wrong at all.
+/// of silence means nothing is wrong at all. Reading a PDF is that second kind
+/// of question too (#510).
 ///
 /// Sharing one number between them is what made `tests/photographs_corpus.rs`
 /// unpassable on any machine: the corpus holds a 7.35 MB photograph, and the
@@ -69,6 +70,26 @@ pub fn post_json(
     )
 }
 
+/// [`post_json`] to an Operation that does real work before it answers, such
+/// as reading a PDF built to keep its reader busy, which a busy machine slows
+/// past the healthcheck's wait (#510). Waits as long as an upload does.
+#[allow(dead_code)]
+pub fn post_json_working(
+    addr: SocketAddr,
+    path: &str,
+    bearer: Option<&str>,
+    body: &str,
+) -> std::io::Result<Response> {
+    request(
+        addr,
+        "POST",
+        path,
+        bearer,
+        Some(("application/json", body.as_bytes())),
+        UPLOAD_TIMEOUT,
+    )
+}
+
 /// POST raw bytes with the given Content-Type — a Photograph upload, tested
 /// exactly as the out-of-band route (ADR 0001) receives it: no JSON envelope.
 #[allow(dead_code)]
@@ -79,8 +100,7 @@ pub fn post_bytes(
     content_type: &str,
     body: &[u8],
 ) -> std::io::Result<Response> {
-    // The picture path, and the one place the server does heavy work before it
-    // can answer.
+    // The picture path, where the server does heavy work before it can answer.
     request(
         addr,
         "POST",
