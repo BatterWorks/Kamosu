@@ -49,7 +49,11 @@ const meal = (over: Partial<Meal> = {}): Meal => ({
 });
 
 /** A meal as a write answers it: a write says nothing of cooking (#489). */
-const asWritten = ({ cooked: _cooked, ...meal }: Meal) => meal;
+const asWritten = (meal: Meal): Omit<Meal, 'cooked'> => {
+	const answer: Partial<Meal> = { ...meal };
+	delete answer.cooked;
+	return answer as Omit<Meal, 'cooked'>;
+};
 
 /** This week holds what a test says; every other week holds nothing. */
 const weekOf =
