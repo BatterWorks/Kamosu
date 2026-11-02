@@ -1,5 +1,7 @@
 # AGENTS.md
 
+Tracker instructions: `docs/agents/issue-tracker.md`; coding standards: `CODING_STANDARDS.md`, read at review.
+
 Project conventions for Kamosu. Host-specific conventions live in
 `AGENTS.local.md`; vocabulary lives in `GLOSSARY.md`; decisions live in
 `docs/adr/`. **Where the spec and an ADR disagree, the ADR wins.**
