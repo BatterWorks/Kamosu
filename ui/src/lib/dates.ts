@@ -82,6 +82,18 @@ export const aPlannedDate = (day: string): string =>
 		timeZone: 'UTC',
 	});
 
+/**
+ * A planned day in a sentence that may reach back years, as an imported plan
+ * does (#492): `9 November`, and `9 November 2022` outside this year.
+ */
+export const aPlannedDateOfAnyYear = (day: string): string =>
+	at(`${day}T00:00:00Z`).toLocaleDateString(locale(), {
+		day: 'numeric',
+		month: 'long',
+		...(day.slice(0, 4) === String(new Date().getFullYear()) ? {} : { year: 'numeric' }),
+		timeZone: 'UTC',
+	});
+
 /** A planned day's weekday alone, as the Plan heads a day: `Thu`. */
 export const aPlannedWeekday = (day: string): string =>
 	at(`${day}T00:00:00Z`).toLocaleDateString(locale(), { weekday: 'short', timeZone: 'UTC' });

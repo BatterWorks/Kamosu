@@ -174,35 +174,14 @@ impl Core {
             let Some(moment) = plan_moment(conn, person_id, written_at)? else {
                 return answer(conn, person_id, &id);
             };
-            let (branch_id, words, planned_yield, known_as) = match planned {
-                Planned::Recipe {
-                    branch_id,
-                    known_as,
-                    planned_yield,
-                } => (Some(branch_id), None, planned_yield, Some(known_as)),
-                Planned::Words(words) => (None, Some(words), None, None),
-            };
-            conn.execute(
-                "INSERT INTO planned_meals \
-                     (id, person_id, branch_id, words, week, day, position, planned_yield, \
-                      known_as, planned_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, \
-                     (SELECT COALESCE(MAX(position) + 1, 0) FROM planned_meals \
-                       WHERE person_id = ?2 AND week = ?5 AND day IS ?6), \
-                     ?7, ?8, ?9)",
-                params![
-                    id,
-                    person_id,
-                    branch_id,
-                    words,
-                    week,
-                    day,
-                    planned_yield,
-                    known_as,
-                    moment
-                ],
-            )
-            .map_err(|e| OpError::internal(format!("cannot plan a meal: {e}")))?;
+            insert_planned(
+                conn,
+                person_id,
+                &id,
+                planned,
+                (&week, day.as_deref()),
+                &moment,
+            )?;
             answer(conn, person_id, &id)
         })
     }
@@ -856,11 +835,105 @@ impl<'a> Place<'a> {
 }
 
 /// What is being planned: a recipe, or written words.
-enum Planned<'a> {
+pub(super) enum Planned<'a> {
     Recipe {
         branch_id: &'a str,
         known_as: String,
         planned_yield: Option<String>,
+    },
+    Words(&'a str),
+}
+
+/// Write one Planned Meal at the end of its list: the day's, or the week's
+/// with no day.
+fn insert_planned(
+    conn: &Connection,
+    person_id: &str,
+    id: &str,
+    planned: Planned<'_>,
+    (week, day): (&str, Option<&str>),
+    moment: &str,
+) -> Result<(), OpError> {
+    let (branch_id, words, planned_yield, known_as) = match planned {
+        Planned::Recipe {
+            branch_id,
+            known_as,
+            planned_yield,
+        } => (Some(branch_id), None, planned_yield, Some(known_as)),
+        Planned::Words(words) => (None, Some(words), None, None),
+    };
+    conn.execute(
+        "INSERT INTO planned_meals \
+             (id, person_id, branch_id, words, week, day, position, planned_yield, \
+              known_as, planned_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, \
+             (SELECT COALESCE(MAX(position) + 1, 0) FROM planned_meals \
+               WHERE person_id = ?2 AND week = ?5 AND day IS ?6), \
+             ?7, ?8, ?9)",
+        params![
+            id,
+            person_id,
+            branch_id,
+            words,
+            week,
+            day,
+            planned_yield,
+            known_as,
+            moment
+        ],
+    )
+    .map_err(|e| OpError::internal(format!("cannot plan a meal: {e}")))?;
+    Ok(())
+}
+
+/// Plan one entry another app's meal plan brought in (#492), at the end of
+/// its list and unsent, as `plan_recipe` or `plan_words` would: a recipe at
+/// `times` the recipe as written, or as written where there is none. The
+/// answer is the new Planned Meal's id and the Monday of its week. The caller
+/// moves the plan's clock, once for the whole file.
+pub(super) fn plan_imported(
+    conn: &Connection,
+    person_id: &str,
+    place: Place<'_>,
+    what: ImportedMeal<'_>,
+    moment: &str,
+) -> Result<(String, String), OpError> {
+    let (week, day) = place.resolve(conn)?;
+    let id = format!("pm_{}", hex::encode(random_bytes(8)));
+    let planned = match what {
+        ImportedMeal::Recipe { branch_id, times } => {
+            let head = branch_head(conn, branch_id)?;
+            let planned_yield = times
+                .map(|times| {
+                    let amount = format!("{}", (times * 1000.0).round() / 1000.0);
+                    stored_yield(Some(&json!({ "amount": amount, "noun": "" })))
+                })
+                .transpose()?
+                .flatten();
+            Planned::Recipe {
+                branch_id,
+                known_as: branch_title(conn, &head.head_version_id)?,
+                planned_yield,
+            }
+        }
+        ImportedMeal::Words(words) => Planned::Words(words),
+    };
+    insert_planned(
+        conn,
+        person_id,
+        &id,
+        planned,
+        (&week, day.as_deref()),
+        moment,
+    )?;
+    Ok((id, week))
+}
+
+/// What an imported entry plans (#492).
+pub(super) enum ImportedMeal<'a> {
+    Recipe {
+        branch_id: &'a str,
+        times: Option<f64>,
     },
     Words(&'a str),
 }
@@ -940,7 +1013,7 @@ fn calendar_day(conn: &Connection, day: &str, field: &str) -> Result<String, OpE
 /// (`shopping_moment`, ADR 0024): the moment this write was made, or nothing
 /// where the plan has since been written later and this write, sent late by
 /// a phone that had no signal, is older. It is then dropped whole.
-fn plan_moment(
+pub(super) fn plan_moment(
     conn: &Connection,
     person_id: &str,
     written_at: Option<&str>,

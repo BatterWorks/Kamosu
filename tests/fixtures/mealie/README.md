@@ -61,6 +61,25 @@ and the files were made by Mealie's own export and backup.
 | `v3-export-pizza-changed.zip` | The export of the Family again, after the pizza's last Step was changed to bake for 7 minutes instead of 8 |
 | `v3-backup.zip` | The administrator's backup of the whole instance, both households and their cooking history included. Its passwords, tokens and secrets are those of the throwaway instance, which no longer exists |
 
+### A week in the meal plan
+
+`nightly-backup-week.zip` was made on 3 November 2026 with Mealie's nightly
+image (`ghcr.io/mealie-recipes/mealie:nightly`, commit `d4d6f71`, database
+revision `071e03b4f851`), for #492: no released Mealie yet writes a meal plan
+entry that stands on a week ([Mealie's #8836](https://github.com/mealie-recipes/mealie/pull/8836)).
+It was filled through Mealie's API and saved by its own backup, in a throwaway
+container that no longer exists. The administrator kept Mealie's default name,
+*Change Me*, and Alex Baker cooks in the same household.
+
+- Two recipes with nothing in them but a name: *Weeknight chili* and *Porridge*.
+- Tuesday 3 November: the chili for dinner at scale 2, written first, and
+  Alex's porridge for breakfast at scale 1.
+- Wednesday 4 November: a lunch note, *Leftovers*, with the text *from the
+  chili*.
+- The week from Sunday 8 to Saturday 14 November, as a Mealie whose weeks start
+  on a Sunday writes it: the chili for dinner at scale 1.5.
+- The week from Monday 9 to Sunday 15 November: Alex's note *Eating out*.
+
 The pictures are from the Sample Library (`sample-library/CREDITS.md`): the
 pizza's photo is the Weeknight Tomato Pasta (public domain), its second picture
 and the cake's photo the Orange cake (Andy Li, CC0 1.0), and the dough in the

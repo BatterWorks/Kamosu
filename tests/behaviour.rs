@@ -40681,10 +40681,9 @@ mod mealie {
             ]
         );
         assert_eq!(report["unreadable"], json!([]), "{report}");
-        assert_eq!(
-            report["left_out_of_file"],
-            json!([{ "what": "meal_plans", "count": 1 }])
-        );
+        // The Family's meal plan entry is planned, not left out (#492).
+        assert_eq!(report["left_out_of_file"], json!([]));
+        assert_eq!(report["meal_plan"]["planned"], json!(1), "{report}");
         assert_eq!(
             left_out_of(&report, "Margherita pizza"),
             [
@@ -40797,6 +40796,11 @@ mod mealie {
         let offered = row(&report, "offered", "Margherita pizza");
         assert_eq!(offered["branch_id"], json!(pizza_id));
         assert_eq!(recipes_held(&app), 3);
+        // The meal plan's pizza is the recipe it was offered on (#492).
+        let [dinner] = &planned(&app, &key, "2026-10-23", "2026-10-23")[..] else {
+            panic!("one Planned Meal");
+        };
+        assert_eq!(dinner["branch_id"], json!(pizza_id));
 
         let finished: Vec<Value> = diary(&app, &key)
             .into_iter()
@@ -40839,6 +40843,172 @@ mod mealie {
             "{back}"
         );
         assert_eq!(diary(&app, &key).len(), 5);
+    }
+
+    /// A Mealie backup's meal plan lands in the importer's own plan (#492):
+    /// each cook's entries of the household, recipes at their scale, notes
+    /// as written words, a week entry on its week, a day in Mealie's meal
+    /// order, all unsent. The same file again plans nothing twice, and a
+    /// Co-author importing it gets their own.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_backup_s_meal_plan_lands_in_the_importer_s_plan_once() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        // Something already on the Tuesday stays first.
+        let (status, written) = plan_op(
+            &app,
+            &key,
+            "plan_words",
+            json!({ "words": "Market day", "day": "2026-11-03" }),
+        );
+        assert_eq!(status, 200, "{written}");
+        let report = import(&app, &key, "nightly-backup-week.zip");
+        assert_eq!(report["unreadable"], json!([]), "{report}");
+        assert_eq!(report["left_out_of_file"], json!([]));
+        assert_eq!(
+            report["meal_plan"],
+            json!({
+                "planned": 5,
+                "already_planned": 0,
+                "as_words": [],
+                "first_week": "2026-11-02",
+                "last_week": "2026-11-09",
+                "meal_names_left_out": true,
+            })
+        );
+        let chili = row(&report, "arrived", "Weeknight chili")["branch_id"].clone();
+        let porridge = row(&report, "arrived", "Porridge")["branch_id"].clone();
+        let read = |key: &str| -> Vec<Value> {
+            planned(&app, key, "2026-11-02", "2026-11-15")
+                .iter()
+                .map(|meal| {
+                    json!([
+                        meal["day"]
+                            .as_str()
+                            .unwrap_or(meal["week"].as_str().unwrap()),
+                        meal["branch_id"],
+                        meal["title"].as_str().or(meal["words"].as_str()),
+                        meal["planned_yield"],
+                        meal["sent_factor"],
+                    ])
+                })
+                .collect()
+        };
+        let times = |amount: &str| json!({ "amount": amount, "noun": "" });
+        let expected = |mine: bool| {
+            let mut all = vec![
+                json!(["2026-11-03", porridge, "Porridge", null, null]),
+                json!(["2026-11-03", chili, "Weeknight chili", times("2"), null]),
+                json!(["2026-11-04", null, "Leftovers: from the chili", null, null]),
+                json!(["2026-11-09", chili, "Weeknight chili", times("1.5"), null]),
+                json!(["2026-11-09", null, "Eating out", null, null]),
+            ];
+            if mine {
+                all.insert(0, json!(["2026-11-03", null, "Market day", null, null]));
+            }
+            all
+        };
+        let mine = read(&key);
+        assert_eq!(mine, expected(true));
+
+        let again = import(&app, &key, "nightly-backup-week.zip");
+        assert_eq!(again["meal_plan"]["planned"], json!(0));
+        assert_eq!(again["meal_plan"]["already_planned"], json!(5));
+        assert_eq!(read(&key), mine, "nothing planned twice");
+
+        // A Co-author's own import brings their own.
+        let (_, partner, _) = person_with_kitchen(&app, "Camille");
+        write_together(&app, &key, &partner);
+        let theirs = import(&app, &partner, "nightly-backup-week.zip");
+        assert_eq!(theirs["meal_plan"]["planned"], json!(5), "{theirs}");
+        assert_eq!(read(&partner), expected(false));
+        assert_eq!(read(&key), mine);
+
+        // Leaving the Cookbook moves the recipes to one of the partner's own,
+        // under an Import of its own; the file brings no meal twice all the same.
+        let (status, left) = app.post_op("leave_cookbook", Some(&partner), "{}");
+        assert_eq!(status, 200, "{left}");
+        let after = import(&app, &partner, "nightly-backup-week.zip");
+        assert_eq!(after["meal_plan"]["planned"], json!(0), "{after}");
+        assert_eq!(after["meal_plan"]["already_planned"], json!(5));
+        assert_eq!(read(&partner).len(), 5);
+    }
+
+    /// Mealie numbers its meal plan entries from 1 in every instance, so a
+    /// backup of another Mealie whose entry carries the same number is a
+    /// meal of its own, and is planned (#492).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn another_mealie_s_entry_with_the_same_number_is_planned() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let upload_id = stage(&app, &key, &fixture("v3-backup.zip"));
+        let first = ask(&app, &key, &upload_id, Some("Family"));
+        assert_eq!(first["meal_plan"]["planned"], json!(1), "{first}");
+        let other = backup_changed(|database| {
+            let plans = database["group_meal_plans"].as_array_mut().unwrap();
+            plans[0]["group_id"] = json!("5b0f6c3e8a2d4e7f9c1b3a5d7e9f1a2b");
+            plans[0]["created_at"] = json!("2026-10-30T18:00:00.000000");
+        });
+        let upload_id = stage(&app, &key, &other);
+        let second = ask(&app, &key, &upload_id, Some("Family"));
+        assert_eq!(second["meal_plan"]["planned"], json!(1), "{second}");
+        assert_eq!(planned(&app, &key, "2026-10-23", "2026-10-23").len(), 2);
+    }
+
+    /// The real backup with its `database.json` changed by `change`.
+    fn backup_changed(change: impl FnOnce(&mut Value)) -> Vec<u8> {
+        use std::io::{Read, Write};
+        let mut original =
+            zip::ZipArchive::new(std::io::Cursor::new(fixture("v3-backup.zip"))).unwrap();
+        let mut changed = std::io::Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut changed);
+            let mut change = Some(change);
+            for index in 0..original.len() {
+                let mut entry = original.by_index(index).unwrap();
+                let name = entry.name().to_string();
+                let mut bytes = Vec::new();
+                entry.read_to_end(&mut bytes).unwrap();
+                if name == "database.json" {
+                    let mut database: Value = serde_json::from_slice(&bytes).unwrap();
+                    (change.take().unwrap())(&mut database);
+                    bytes = serde_json::to_vec(&database).unwrap();
+                }
+                writer
+                    .start_file(name, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                writer.write_all(&bytes).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+        changed.into_inner()
+    }
+
+    /// A meal plan entry whose recipe stayed in Mealie, here the Cabin's
+    /// cake planned by the Family, is planned as the recipe's name in
+    /// written words, and the Report names it (#492).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_entry_whose_recipe_did_not_arrive_is_planned_as_its_name() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let changed = backup_changed(|database| {
+            let plans = database["group_meal_plans"].as_array_mut().unwrap();
+            plans[0]["recipe_id"] = json!("ed5f3c7f3f1c4b6c9aaeddba6b39a03b");
+            plans[0]["recipe_scale"] = json!(3.0);
+        });
+        let upload_id = stage(&app, &key, &changed);
+        let report = ask(&app, &key, &upload_id, Some("Family"));
+        assert_eq!(report["meal_plan"]["planned"], json!(1), "{report}");
+        assert_eq!(
+            report["meal_plan"]["as_words"],
+            json!([{ "title": "Lemon drizzle cake", "count": 1 }])
+        );
+        let [cake] = &planned(&app, &key, "2026-10-23", "2026-10-23")[..] else {
+            panic!("one Planned Meal");
+        };
+        assert_eq!(cake["words"], json!("Lemon drizzle cake"));
+        assert_eq!(cake["branch_id"], Value::Null);
+        assert_eq!(cake["planned_yield"], Value::Null);
     }
 
     /// A backup whose recipes are all one household's is read with no
