@@ -30,6 +30,7 @@
 //!   scaling factor, and no export yet has populated a folder.
 //! - **Text is decoded** of the HTML entities Crouton scraped and kept.
 
+use std::borrow::Cow;
 use std::io::{Read, Seek};
 
 use serde_json::{Value, json};
@@ -120,7 +121,7 @@ impl Export {
                 })?;
             let mut crumbs: Vec<(String, usize)> = (0..archive.len())
                 .filter_map(|index| {
-                    let name = archive.name_for_index(index)?;
+                    let name = other_apps::name_at(&archive, index)?;
                     let lower = name.to_lowercase();
                     let file = lower.rsplit('/').next().unwrap_or(&lower);
                     // macOS zips carry `__MACOSX/._name.crumb` resource forks
@@ -308,12 +309,12 @@ fn read_up_to(reader: &mut impl Read, buffer: &mut [u8]) -> std::io::Result<usiz
 }
 
 /// The last path segment of an entry's name. A zip made on a Mac stores its
-/// names as UTF-8 without saying so, so the raw bytes are tried as UTF-8 first
-/// — otherwise `Îles Flottantes` reads back as `I╠Вles Flottantes`.
+/// names as UTF-8 without saying so, and `zip` tries a name as UTF-8 before
+/// CP437, so `Îles Flottantes` does not read back as `I╠Вles Flottantes`.
+/// Every entry read here was listed by [`other_apps::name_at`], so its name
+/// reads.
 fn file_name(entry: &zip::read::ZipFile<'_, Box<dyn ReadSeek>>) -> String {
-    let name = std::str::from_utf8(entry.name_raw())
-        .map(str::to_string)
-        .unwrap_or_else(|_| entry.name().to_string());
+    let name = entry.name().map(Cow::into_owned).unwrap_or_default();
     name.rsplit('/').next().unwrap_or(&name).to_string()
 }
 

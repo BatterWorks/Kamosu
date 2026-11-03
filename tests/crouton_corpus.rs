@@ -36,7 +36,7 @@ fn crumbs(zip_path: &std::path::Path) -> Vec<Value> {
     (0..archive.len())
         .filter_map(|i| {
             let mut entry = archive.by_index(i).ok()?;
-            if !entry.name().ends_with(".crumb") {
+            if !entry.name().unwrap().ends_with(".crumb") {
                 return None;
             }
             let mut text = String::new();

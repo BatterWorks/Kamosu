@@ -12,7 +12,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use webauthn_rs::prelude::{
-    DiscoverableAuthentication, DiscoverableKey, Passkey, PasskeyRegistration, PublicKeyCredential,
+    DiscoverableAuthentication, Passkey, PasskeyRegistration, PublicKeyCredential,
     RegisterPublicKeyCredential, Url, Uuid, Webauthn, WebauthnBuilder,
 };
 
@@ -480,11 +480,7 @@ impl Core {
         let mut passkey: Passkey = serde_json::from_str(&stored)
             .map_err(|e| OpError::internal(format!("cannot read the kept passkey: {e}")))?;
         let result = webauthn
-            .finish_discoverable_authentication(
-                &credential,
-                state,
-                &[DiscoverableKey::from(&passkey)],
-            )
+            .finish_discoverable_authentication_v2(&credential, state, &passkey)
             .map_err(|_| OpError::unauthorized(NOT_KNOWN))?;
         passkey.update_credential(&result);
         let stored = serde_json::to_string(&passkey)

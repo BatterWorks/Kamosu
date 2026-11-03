@@ -21,6 +21,7 @@
 //! to the recipe it names, and the Thread follows a rule, newest first like the
 //! Share Link page, with a branch nested under the Version it grew from.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -28,6 +29,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::core::OpError;
+use crate::other_apps;
 
 /// Where the sidecar sits inside the zip.
 pub const SIDECAR: &str = ".kamosu/bundle.json";
@@ -1101,10 +1103,9 @@ impl Opened<'_> {
 
 /// Every top-level recipe note in the zip, read back into a recipe's words.
 fn read_notes(archive: &mut Archive, left: &mut u64) -> Result<Vec<(String, Value)>, TooLarge> {
-    let mut names: Vec<String> = archive
-        .file_names()
+    let mut names: Vec<String> = other_apps::names(archive)
         .filter(|name| name.ends_with(".md") && !name.contains('/'))
-        .map(str::to_string)
+        .map(Cow::into_owned)
         .collect();
     names.sort();
     let mut notes = Vec::new();
@@ -1497,9 +1498,10 @@ mod tests {
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(written.bytes)).expect("a zip");
         let name = archive
             .file_names()
+            .map(Result::unwrap)
             .find(|name| name.ends_with(".md"))
             .expect("a note")
-            .to_string();
+            .into_owned();
         let mut text = String::new();
         std::io::Read::read_to_string(&mut archive.by_name(&name).unwrap(), &mut text).unwrap();
         assert_eq!(

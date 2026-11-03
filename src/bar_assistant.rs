@@ -62,7 +62,7 @@ impl Reader for BarAssistant {
             return Ok(None);
         };
         let paths: Vec<(usize, String)> = (0..archive.len())
-            .filter_map(|index| Some((index, archive.name_for_index(index)?.to_string())))
+            .filter_map(|index| Some((index, other_apps::name_at(&archive, index)?.to_string())))
             .collect();
         let cocktails: Vec<(usize, String, Vec<usize>)> = paths
             .iter()
@@ -518,7 +518,7 @@ mod tests {
             let mut zip = zip::ZipWriter::new(&mut out);
             for index in 0..archive.len() {
                 let mut entry = archive.by_index(index).unwrap();
-                let name = entry.name().to_string();
+                let name = entry.name().unwrap().into_owned();
                 let mut bytes = Vec::new();
                 std::io::Read::read_to_end(&mut entry, &mut bytes).unwrap();
                 if name == "_meta.json" {

@@ -217,6 +217,25 @@ impl Budget {
     }
 }
 
+/// The name of the `index`th file in a zip. A name the `zip` crate cannot
+/// read is the same as no file there: every reader skips that entry, and
+/// reads the rest of the export (#524). None is met today: a name that is
+/// not UTF-8 is read as CP437, which gives every byte a letter.
+pub fn name_at<R: Read + Seek>(
+    archive: &zip::ZipArchive<R>,
+    index: usize,
+) -> Option<std::borrow::Cow<'_, str>> {
+    archive.name_for_index(index)?.ok()
+}
+
+/// Every file's name in a zip, the one that does not read left out as
+/// [`name_at`] leaves it.
+pub fn names<R: Read + Seek>(
+    archive: &zip::ZipArchive<R>,
+) -> impl Iterator<Item = std::borrow::Cow<'_, str>> {
+    archive.file_names().filter_map(Result::ok)
+}
+
 /// One app's export reader.
 pub trait Reader: Sync {
     /// The names of the apps it reads, as a cook knows them, which the

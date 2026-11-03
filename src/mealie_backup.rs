@@ -170,7 +170,7 @@ impl Reader for MealieBackup {
 fn database_of(archive: &Archive) -> Option<(String, usize)> {
     (0..archive.len())
         .filter_map(|index| {
-            let name = archive.name_for_index(index)?;
+            let name = other_apps::name_at(archive, index)?;
             if name.starts_with("__MACOSX/") {
                 return None;
             }
@@ -186,10 +186,11 @@ fn database_of(archive: &Archive) -> Option<(String, usize)> {
 /// dashes, by version.
 fn recipe_folders(archive: &Archive, root: &str) -> HashMap<String, String> {
     let under = format!("{root}data/recipes/");
-    archive
-        .file_names()
-        .filter_map(|name| name.strip_prefix(&under)?.split_once('/'))
-        .filter_map(|(folder, _)| Some((uuid(&json!(folder))?, folder.to_string())))
+    other_apps::names(archive)
+        .filter_map(|name| {
+            let (folder, _) = name.strip_prefix(&under)?.split_once('/')?;
+            Some((uuid(&json!(folder))?, folder.to_string()))
+        })
         .collect()
 }
 
@@ -1782,7 +1783,7 @@ mod tests {
             let mut change = Some(change);
             for index in 0..original.len() {
                 let mut entry = original.by_index(index).unwrap();
-                let name = entry.name().to_string();
+                let name = entry.name().unwrap().into_owned();
                 let mut bytes = Vec::new();
                 entry.read_to_end(&mut bytes).unwrap();
                 if name == "database.json" {

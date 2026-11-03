@@ -113,7 +113,7 @@ impl Readers {
         }
         let took = self
             .reading
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |reading| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |reading| {
                 (reading < MOST_AT_ONCE).then_some(reading + 1)
             });
         if took.is_err() {

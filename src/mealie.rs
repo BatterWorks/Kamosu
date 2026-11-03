@@ -151,7 +151,7 @@ struct Folder {
 fn recipe_folders(archive: &Archive) -> Vec<Folder> {
     let mut folders: Vec<Folder> = (0..archive.len())
         .filter_map(|index| {
-            let name = archive.name_for_index(index)?;
+            let name = other_apps::name_at(archive, index)?;
             if name.starts_with("__MACOSX/") {
                 return None;
             }
@@ -286,10 +286,11 @@ fn read_folder(
     // The export carries each "I Made This" picture under `images/timeline/`,
     // without the entry it belongs to (Mealie's backup has those, #418): an
     // extra photo of the recipe, counted with the others.
-    let made_this: HashSet<&str> = archive
-        .file_names()
-        .filter_map(|name| name.strip_prefix(&format!("{}images/timeline/", folder.prefix)))
-        .filter_map(|rest| rest.split_once('/').map(|(event, _)| event))
+    let made_this: HashSet<String> = other_apps::names(archive)
+        .filter_map(|name| {
+            let rest = name.strip_prefix(&format!("{}images/timeline/", folder.prefix))?;
+            rest.split_once('/').map(|(event, _)| event.to_string())
+        })
         .collect();
     if !made_this.is_empty() {
         match recipe.left_out.iter_mut().find_map(|left| match left {

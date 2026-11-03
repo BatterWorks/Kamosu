@@ -115,11 +115,11 @@ struct Entry {
 fn recipe_entries(archive: &Archive) -> Vec<Entry> {
     let mut entries: Vec<(String, Entry)> = (0..archive.len())
         .filter_map(|index| {
-            let path = archive.name_for_index(index)?;
+            let path = other_apps::name_at(archive, index)?;
             if path.starts_with("__MACOSX/") {
                 return None;
             }
-            let file = path.rsplit('/').next().unwrap_or(path);
+            let file = path.rsplit('/').next().unwrap_or(&path);
             let stem = file
                 .len()
                 .checked_sub(".paprikarecipe".len())
@@ -619,7 +619,7 @@ mod tests {
             let mut zip = zip::ZipWriter::new(&mut out);
             for index in 0..archive.len() {
                 let mut entry = archive.by_index(index).unwrap();
-                let name = entry.name().to_string();
+                let name = entry.name().unwrap().into_owned();
                 let mut bytes = Vec::new();
                 entry.read_to_end(&mut bytes).unwrap();
                 if name.ends_with(".paprikarecipe") && !name.contains("__MACOSX") {

@@ -120,11 +120,13 @@ fn paint_photograph(pixmap: &mut Pixmap, bytes: &[u8]) -> Result<(), OpError> {
 
 /// `image` gives straight alpha; tiny-skia wants it premultiplied.
 fn premultiply(rgba: &[u8]) -> Vec<u8> {
-    rgba.chunks_exact(4)
-        .flat_map(|p| {
-            let a = u32::from(p[3]);
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|&[r, g, b, alpha]| {
+            let a = u32::from(alpha);
             let scale = |c: u8| u8::try_from(u32::from(c) * a / 255).unwrap_or(255);
-            [scale(p[0]), scale(p[1]), scale(p[2]), p[3]]
+            [scale(r), scale(g), scale(b), alpha]
         })
         .collect()
 }
@@ -536,9 +538,9 @@ fn parse_path(data: &str) -> Option<tiny_skia::Path> {
                 if !numbers.len().is_multiple_of(6) || numbers.is_empty() {
                     return None;
                 }
-                for six in numbers.chunks_exact(6) {
-                    builder.cubic_to(six[0], six[1], six[2], six[3], six[4], six[5]);
-                    *at = Point::from_xy(six[4], six[5]);
+                for &[x1, y1, x2, y2, x, y] in numbers.as_chunks::<6>().0 {
+                    builder.cubic_to(x1, y1, x2, y2, x, y);
+                    *at = Point::from_xy(x, y);
                 }
                 numbers.clear();
                 Some(())
@@ -547,9 +549,9 @@ fn parse_path(data: &str) -> Option<tiny_skia::Path> {
                 if !numbers.len().is_multiple_of(4) || numbers.is_empty() {
                     return None;
                 }
-                for four in numbers.chunks_exact(4) {
-                    builder.quad_to(four[0], four[1], four[2], four[3]);
-                    *at = Point::from_xy(four[2], four[3]);
+                for &[x1, y1, x, y] in numbers.as_chunks::<4>().0 {
+                    builder.quad_to(x1, y1, x, y);
+                    *at = Point::from_xy(x, y);
                 }
                 numbers.clear();
                 Some(())
