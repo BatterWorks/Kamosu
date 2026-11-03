@@ -216,8 +216,8 @@ fn read_zip(handed: &Handed) -> Option<other_apps::Export> {
     let mut archive = Archive::new(handed.open().ok()?).ok()?;
     let paths: Vec<(usize, String)> = (0..archive.len())
         .filter_map(|index| {
-            let path = archive.name_for_index(index)?;
-            let file = path.rsplit('/').next().unwrap_or(path);
+            let path = other_apps::name_at(&archive, index)?;
+            let file = path.rsplit('/').next().unwrap_or(&path);
             (!path.starts_with("__MACOSX/") && !file.starts_with("._") && !file.is_empty())
                 .then(|| (index, path.to_string()))
         })
@@ -1272,7 +1272,7 @@ mod tests {
                 let mut entry = archive.by_index(index).unwrap();
                 let mut bytes = Vec::new();
                 std::io::Read::read_to_end(&mut entry, &mut bytes).unwrap();
-                (entry.name().to_string(), bytes)
+                (entry.name().unwrap().into_owned(), bytes)
             })
             .collect()
     }

@@ -120,11 +120,11 @@ struct Entry {
 fn recipe_entries(archive: &Archive) -> Vec<Entry> {
     let mut entries: Vec<Entry> = (0..archive.len())
         .filter_map(|index| {
-            let path = archive.name_for_index(index)?;
+            let path = other_apps::name_at(archive, index)?;
             if path.starts_with("__MACOSX/") {
                 return None;
             }
-            let file = path.rsplit('/').next().unwrap_or(path);
+            let file = path.rsplit('/').next().unwrap_or(&path);
             let id = file
                 .len()
                 .checked_sub(".zip".len())
@@ -196,9 +196,7 @@ fn open_recipe(inner: Vec<u8>, budget: &mut Budget) -> Result<(Value, Picture), 
     })?;
     // The first file named `image…`, as Tandoor itself takes it back in.
     let image_at = (0..archive.len()).find(|&index| {
-        archive
-            .name_for_index(index)
-            .is_some_and(|name| name.starts_with("image"))
+        other_apps::name_at(&archive, index).is_some_and(|name| name.starts_with("image"))
     });
     let picture = match image_at {
         None => Picture::None,
@@ -626,7 +624,7 @@ mod tests {
             let mut zip = zip::ZipWriter::new(&mut out);
             for index in 0..outer.len() {
                 let mut entry = outer.by_index(index).unwrap();
-                let entry_name = entry.name().to_string();
+                let entry_name = entry.name().unwrap().into_owned();
                 let mut bytes = Vec::new();
                 entry.read_to_end(&mut bytes).unwrap();
                 if entry_name == format!("{id}.zip") {
@@ -649,7 +647,7 @@ mod tests {
             let mut zip = zip::ZipWriter::new(&mut out);
             for index in 0..archive.len() {
                 let mut entry = archive.by_index(index).unwrap();
-                let name = entry.name().to_string();
+                let name = entry.name().unwrap().into_owned();
                 let mut bytes = Vec::new();
                 entry.read_to_end(&mut bytes).unwrap();
                 if name == "recipe.json" {
@@ -910,7 +908,7 @@ mod tests {
             let mut zip = zip::ZipWriter::new(&mut out);
             for index in 0..outer.len() {
                 let mut entry = outer.by_index(index).unwrap();
-                let name = entry.name().to_string();
+                let name = entry.name().unwrap().into_owned();
                 let mut bytes = Vec::new();
                 entry.read_to_end(&mut bytes).unwrap();
                 for path in [

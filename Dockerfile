@@ -11,7 +11,7 @@
 # image carries nobody else's licence, and installs with no network at all.
 #
 # Every image name is written in full (docker.io/library/…): Podman refuses or
-# prompts on a short name like `rust:1.95-slim`, where Docker silently assumes
+# prompts on a short name like `rust:1.99-slim`, where Docker silently assumes
 # Docker Hub. Build with Podman as `podman build --format docker`, or the
 # HEALTHCHECK below is dropped. The OCI image format has no field for it.
 
@@ -29,7 +29,7 @@ RUN npm run build
 # The Rust version is rust-toolchain.toml's; this tag only saves rustup a
 # download. Its Debian release must match the runtime's below (both 13): a
 # binary linked against a newer glibc than the one it runs on does not start.
-FROM docker.io/library/rust:1.95-slim AS chef
+FROM docker.io/library/rust:1.99-slim AS chef
 # ONNX Runtime is C++, so linking it needs libstdc++, which the slim image
 # leaves out. The runtime image below already carries the shared library.
 RUN apt-get update && apt-get install -y --no-install-recommends g++ \

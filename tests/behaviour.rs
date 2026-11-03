@@ -1096,6 +1096,36 @@ async fn logging_in_mints_a_revocable_session_credential() {
     assert_eq!(app.post_op("list_jobs", Some(secret), "{}").0, 401);
 }
 
+/// A password hashed before `argon2` 0.6 still signs in after it (#524). The
+/// hash is fixed text written by `argon2` 0.5.3 at ADR 0031's cost, put where
+/// the Person's own hash was, so a later release of the crate that reads a
+/// stored PHC string differently locks this cook out here first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_password_hashed_by_argon2_0_5_still_signs_in() {
+    let app = support::spawn_app();
+    let create =
+        json!({ "name": "Stéphane", "password": "the first password", "session_name": "laptop" });
+    assert_eq!(
+        app.post_auth("/auth/first-person", &create.to_string()).0,
+        200
+    );
+    let written_by_0_5_3 = "$argon2id$v=19$m=20480,t=2,p=1$PPXBK7EotfItcQykIEYXGg$VyaDIaloWbOOASOZLbbATtGf9A4cvHh2qoIJpFRXTww";
+    let data_dir = app.data_dir().expect("the app's own directory");
+    rusqlite::Connection::open(data_dir.join(db::DATABASE_FILE))
+        .unwrap()
+        .execute("UPDATE people SET password_hash = ?1", [written_by_0_5_3])
+        .unwrap();
+
+    let login = |password: &str| {
+        let login = json!({ "name": "Stéphane", "password": password, "session_name": "phone" });
+        app.post_auth("/auth/login", &login.to_string())
+    };
+    let (status, signed_in) = login("a tart for the old hash");
+    assert_eq!(status, 200, "{signed_in}");
+    let (status, refused) = login("a tart for the new hash");
+    assert_eq!(status, 401, "{refused}");
+}
+
 /// Several Sessions of one Person are told apart (#114): the one asking is
 /// marked as such, and any of them can be given a name afterwards — including
 /// one minted before names were worth reading, still called "this browser".
@@ -32093,7 +32123,14 @@ fn entries_in(path: &std::path::Path) -> Vec<String> {
     let file = std::fs::File::open(path).expect("open the Backup");
     let mut archive = zip::ZipArchive::new(file).expect("a readable zip");
     (0..archive.len())
-        .map(|at| archive.by_index(at).expect("an entry").name().to_string())
+        .map(|at| {
+            archive
+                .by_index(at)
+                .expect("an entry")
+                .name()
+                .unwrap()
+                .into_owned()
+        })
         .collect()
 }
 
@@ -32293,7 +32330,7 @@ async fn a_plan_is_in_a_backup_and_in_no_bundle() {
         assert!(
             !text.contains("2026-11-05"),
             "{} holds the plan",
-            entry.name()
+            entry.name().unwrap()
         );
     }
 }
@@ -32593,7 +32630,7 @@ fn unzip(bytes: &[u8]) -> std::collections::BTreeMap<String, Vec<u8>> {
             let mut entry = archive.by_index(index).expect("an entry");
             let mut held = Vec::new();
             std::io::Read::read_to_end(&mut entry, &mut held).expect("reads");
-            (entry.name().to_string(), held)
+            (entry.name().unwrap().into_owned(), held)
         })
         .collect()
 }
@@ -40966,7 +41003,7 @@ mod mealie {
             let mut change = Some(change);
             for index in 0..original.len() {
                 let mut entry = original.by_index(index).unwrap();
-                let name = entry.name().to_string();
+                let name = entry.name().unwrap().into_owned();
                 let mut bytes = Vec::new();
                 entry.read_to_end(&mut bytes).unwrap();
                 if name == "database.json" {
@@ -41043,7 +41080,7 @@ mod mealie {
             let mut writer = zip::ZipWriter::new(&mut planted);
             for index in 0..original.len() {
                 let mut entry = original.by_index(index).unwrap();
-                let name = entry.name().to_string();
+                let name = entry.name().unwrap().into_owned();
                 let mut bytes = Vec::new();
                 entry.read_to_end(&mut bytes).unwrap();
                 if name == "database.json" {
@@ -41148,7 +41185,7 @@ mod paprika {
             let mut zip = zip::ZipWriter::new(&mut out);
             for index in 0..archive.len() {
                 let mut entry = archive.by_index(index).unwrap();
-                let name = entry.name().to_string();
+                let name = entry.name().unwrap().into_owned();
                 let mut bytes = Vec::new();
                 entry.read_to_end(&mut bytes).unwrap();
                 if name.ends_with(".paprikarecipe") && !name.contains("__MACOSX") {

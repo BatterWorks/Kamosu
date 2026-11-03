@@ -16,6 +16,7 @@
 ### Fixed
 
 - Sharing a video Kamosu already holds, or is already reading, says so instead of starting it again, whichever tracking code Instagram, YouTube or TikTok put on the link that time. A recipe added from such a link now keeps it without the code, which names who shared it. [#464]
+- The library Kamosu opens zip files with, for a Backup, a Bundle or another app's export, is past four published flaws, RUSTSEC-2026-0367 to RUSTSEC-2026-0369 and RUSTSEC-2026-0429, all in writing a zip's entries out as files, which Kamosu never does. The library passkeys are checked with is past RUSTSEC-2026-0387, a timing leak in arithmetic Kamosu only ever ran on public keys. [#524]
 
 [#464]: https://github.com/BatterWorks/Kamosu/issues/464
 [#486]: https://github.com/BatterWorks/Kamosu/issues/486
@@ -26,6 +27,7 @@
 [#491]: https://github.com/BatterWorks/Kamosu/issues/491
 [#492]: https://github.com/BatterWorks/Kamosu/issues/492
 [#495]: https://github.com/BatterWorks/Kamosu/issues/495
+[#524]: https://github.com/BatterWorks/Kamosu/issues/524
 
 ## v0.5.0 - 2026-10-29
 

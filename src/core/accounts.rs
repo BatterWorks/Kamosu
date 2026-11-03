@@ -1569,10 +1569,8 @@ fn argon2_hash(password: &str) -> Result<String, OpError> {
     let params = Params::new(20 * 1024, 2, 1, None)
         .map_err(|e| OpError::internal(format!("cannot configure password hashing: {e}")))?;
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-    let salt = SaltString::encode_b64(&random_bytes(16))
-        .map_err(|e| OpError::internal(format!("cannot generate password salt: {e}")))?;
     argon
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password_with_salt(password.as_bytes(), &random_bytes(16))
         .map(|hash| hash.to_string())
         .map_err(|e| OpError::internal(format!("cannot hash password: {e}")))
 }
