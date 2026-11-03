@@ -88,6 +88,7 @@ impl Reader for KitchenOwl {
             total,
             recipes: Box::new(recipes),
             left_out,
+            planned: Vec::new(),
         }))
     }
 }

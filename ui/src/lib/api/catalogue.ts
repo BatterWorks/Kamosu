@@ -2394,6 +2394,17 @@ export type ImportOutput = {
 		count: number;
 		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
+	meal_plan?: {
+		already_planned: number;
+		as_words: {
+			count: number;
+			title: string;
+		}[];
+		first_week: string | null;
+		last_week: string | null;
+		meal_names_left_out: boolean;
+		planned: number;
+	};
 	offered: {
 		branch_id: string;
 		candidate_version_id: string;
@@ -2473,6 +2484,17 @@ export type ImportCroutonOutput = {
 		count: number;
 		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
+	meal_plan?: {
+		already_planned: number;
+		as_words: {
+			count: number;
+			title: string;
+		}[];
+		first_week: string | null;
+		last_week: string | null;
+		meal_names_left_out: boolean;
+		planned: number;
+	};
 	offered: {
 		branch_id: string;
 		candidate_version_id: string;
@@ -2553,6 +2575,17 @@ export type ImportFromAnotherAppOutput = {
 		count: number;
 		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
+	meal_plan?: {
+		already_planned: number;
+		as_words: {
+			count: number;
+			title: string;
+		}[];
+		first_week: string | null;
+		last_week: string | null;
+		meal_names_left_out: boolean;
+		planned: number;
+	};
 	offered?: {
 		branch_id: string;
 		candidate_version_id: string;
@@ -2730,6 +2763,17 @@ export type ImportWebLinkOutput = {
 		count: number;
 		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
+	meal_plan?: {
+		already_planned: number;
+		as_words: {
+			count: number;
+			title: string;
+		}[];
+		first_week: string | null;
+		last_week: string | null;
+		meal_names_left_out: boolean;
+		planned: number;
+	};
 	offered?: {
 		branch_id: string;
 		candidate_version_id: string;
@@ -3452,6 +3496,17 @@ export type ImportBundleOutput = {
 		count: number;
 		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
+	meal_plan?: {
+		already_planned: number;
+		as_words: {
+			count: number;
+			title: string;
+		}[];
+		first_week: string | null;
+		last_week: string | null;
+		meal_names_left_out: boolean;
+		planned: number;
+	};
 	offered: {
 		branch_id: string;
 		candidate_version_id: string;
@@ -18892,7 +18947,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept (a meal plan entry is listed only where Kamosu could not read it), `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -18916,6 +18971,61 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"meal_plan": {
+					"additionalProperties": false,
+					"description": "Present when the file held a meal plan, as a Mealie backup does (#492): its entries planned in the importing Person's own Meal Plan, past and upcoming, unsent. `planned` counts the Planned Meals this import made, and `already_planned` the entries an earlier import of the same file already planned for this Person, which are never planned twice. `as_words` names each recipe whose entries were planned as its name in written words, because the recipe did not arrive, with how many. `first_week` and `last_week` are the Mondays of the earliest and latest weeks planned, null where none was. `meal_names_left_out` says the app's meal names (breakfast, dinner) were not kept; a day's Planned Meals stand in the app's meal order.",
+					"properties": {
+						"already_planned": {
+							"type": "integer"
+						},
+						"as_words": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"count": {
+										"type": "integer"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"title",
+									"count"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"first_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"last_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"meal_names_left_out": {
+							"type": "boolean"
+						},
+						"planned": {
+							"type": "integer"
+						}
+					},
+					"required": [
+						"planned",
+						"already_planned",
+						"as_words",
+						"first_week",
+						"last_week",
+						"meal_names_left_out"
+					],
+					"type": "object"
 				},
 				"offered": {
 					"items": {
@@ -19297,7 +19407,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept (a meal plan entry is listed only where Kamosu could not read it), `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -19321,6 +19431,61 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"meal_plan": {
+					"additionalProperties": false,
+					"description": "Present when the file held a meal plan, as a Mealie backup does (#492): its entries planned in the importing Person's own Meal Plan, past and upcoming, unsent. `planned` counts the Planned Meals this import made, and `already_planned` the entries an earlier import of the same file already planned for this Person, which are never planned twice. `as_words` names each recipe whose entries were planned as its name in written words, because the recipe did not arrive, with how many. `first_week` and `last_week` are the Mondays of the earliest and latest weeks planned, null where none was. `meal_names_left_out` says the app's meal names (breakfast, dinner) were not kept; a day's Planned Meals stand in the app's meal order.",
+					"properties": {
+						"already_planned": {
+							"type": "integer"
+						},
+						"as_words": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"count": {
+										"type": "integer"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"title",
+									"count"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"first_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"last_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"meal_names_left_out": {
+							"type": "boolean"
+						},
+						"planned": {
+							"type": "integer"
+						}
+					},
+					"required": [
+						"planned",
+						"already_planned",
+						"as_words",
+						"first_week",
+						"last_week",
+						"meal_names_left_out"
+					],
+					"type": "object"
 				},
 				"offered": {
 					"items": {
@@ -19706,7 +19871,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept (a meal plan entry is listed only where Kamosu could not read it), `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -19730,6 +19895,61 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"meal_plan": {
+					"additionalProperties": false,
+					"description": "Present when the file held a meal plan, as a Mealie backup does (#492): its entries planned in the importing Person's own Meal Plan, past and upcoming, unsent. `planned` counts the Planned Meals this import made, and `already_planned` the entries an earlier import of the same file already planned for this Person, which are never planned twice. `as_words` names each recipe whose entries were planned as its name in written words, because the recipe did not arrive, with how many. `first_week` and `last_week` are the Mondays of the earliest and latest weeks planned, null where none was. `meal_names_left_out` says the app's meal names (breakfast, dinner) were not kept; a day's Planned Meals stand in the app's meal order.",
+					"properties": {
+						"already_planned": {
+							"type": "integer"
+						},
+						"as_words": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"count": {
+										"type": "integer"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"title",
+									"count"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"first_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"last_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"meal_names_left_out": {
+							"type": "boolean"
+						},
+						"planned": {
+							"type": "integer"
+						}
+					},
+					"required": [
+						"planned",
+						"already_planned",
+						"as_words",
+						"first_week",
+						"last_week",
+						"meal_names_left_out"
+					],
+					"type": "object"
 				},
 				"offered": {
 					"items": {
@@ -20594,7 +20814,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept (a meal plan entry is listed only where Kamosu could not read it), `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -20618,6 +20838,61 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"meal_plan": {
+					"additionalProperties": false,
+					"description": "Present when the file held a meal plan, as a Mealie backup does (#492): its entries planned in the importing Person's own Meal Plan, past and upcoming, unsent. `planned` counts the Planned Meals this import made, and `already_planned` the entries an earlier import of the same file already planned for this Person, which are never planned twice. `as_words` names each recipe whose entries were planned as its name in written words, because the recipe did not arrive, with how many. `first_week` and `last_week` are the Mondays of the earliest and latest weeks planned, null where none was. `meal_names_left_out` says the app's meal names (breakfast, dinner) were not kept; a day's Planned Meals stand in the app's meal order.",
+					"properties": {
+						"already_planned": {
+							"type": "integer"
+						},
+						"as_words": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"count": {
+										"type": "integer"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"title",
+									"count"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"first_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"last_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"meal_names_left_out": {
+							"type": "boolean"
+						},
+						"planned": {
+							"type": "integer"
+						}
+					},
+					"required": [
+						"planned",
+						"already_planned",
+						"as_words",
+						"first_week",
+						"last_week",
+						"meal_names_left_out"
+					],
+					"type": "object"
 				},
 				"offered": {
 					"items": {
@@ -24244,7 +24519,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept (a meal plan entry is listed only where Kamosu could not read it), `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -24268,6 +24543,61 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"meal_plan": {
+					"additionalProperties": false,
+					"description": "Present when the file held a meal plan, as a Mealie backup does (#492): its entries planned in the importing Person's own Meal Plan, past and upcoming, unsent. `planned` counts the Planned Meals this import made, and `already_planned` the entries an earlier import of the same file already planned for this Person, which are never planned twice. `as_words` names each recipe whose entries were planned as its name in written words, because the recipe did not arrive, with how many. `first_week` and `last_week` are the Mondays of the earliest and latest weeks planned, null where none was. `meal_names_left_out` says the app's meal names (breakfast, dinner) were not kept; a day's Planned Meals stand in the app's meal order.",
+					"properties": {
+						"already_planned": {
+							"type": "integer"
+						},
+						"as_words": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"count": {
+										"type": "integer"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"title",
+									"count"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"first_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"last_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"meal_names_left_out": {
+							"type": "boolean"
+						},
+						"planned": {
+							"type": "integer"
+						}
+					},
+					"required": [
+						"planned",
+						"already_planned",
+						"as_words",
+						"first_week",
+						"last_week",
+						"meal_names_left_out"
+					],
+					"type": "object"
 				},
 				"offered": {
 					"items": {

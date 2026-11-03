@@ -341,6 +341,42 @@ pub struct Export {
     pub total: usize,
     pub recipes: Box<dyn Iterator<Item = Result<Recipe, Unread>> + Send>,
     pub left_out: Vec<FileLeftOut>,
+    /// The app's meal plan, in the order each list of the plan takes it
+    /// (#492). Read once every recipe has been pulled.
+    pub planned: Vec<PlannedEntry>,
+}
+
+/// One entry of the app's meal plan, which lands as a Planned Meal of the
+/// importing Person (#492).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlannedEntry {
+    /// What the app calls the entry, so a second import plans none twice.
+    pub foreign_id: String,
+    pub when: PlannedWhen,
+    pub what: PlannedWhat,
+}
+
+/// Where a Planned Meal stands, each as `YYYY-MM-DD`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlannedWhen {
+    Day(String),
+    /// A week with no day, by its Monday.
+    Week(String),
+}
+
+/// What is planned.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlannedWhat {
+    /// One of the file's recipes, by the app's id for it. `name` is what it
+    /// is planned as where the recipe did not land, and `times` how many
+    /// times the recipe, where the app planned other than once.
+    Recipe {
+        foreign_id: String,
+        name: String,
+        times: Option<f64>,
+    },
+    /// Written words, kept as written.
+    Words(String),
 }
 
 /// One recipe as a reader hands it over.
@@ -546,6 +582,7 @@ mod tests {
             total: 0,
             recipes: Box::new(std::iter::empty()),
             left_out: Vec::new(),
+            planned: Vec::new(),
         }
     }
 

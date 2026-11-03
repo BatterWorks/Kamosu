@@ -411,6 +411,105 @@ describe('the Import Report', () => {
 		for (const row of rows.slice(8)) expect(row.querySelector('details')).toBeNull();
 	});
 
+	// #492, option B: the app's meal plan, in a section of its own.
+	const mealie = (meal_plan: ImportCroutonOutput['meal_plan']) =>
+		job({
+			operation: 'import_from_another_app',
+			result: report({ source_kind: 'mealie', meal_plan }),
+		});
+
+	it('says how many meals were planned, over which weeks, and opens the Plan on them', async () => {
+		vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-12T10:00:00') });
+		try {
+			open({
+				get_job: mealie({
+					planned: 12,
+					already_planned: 0,
+					as_words: [{ title: 'Lemon drizzle cake', count: 2 }],
+					first_week: '2026-11-02',
+					last_week: '2026-11-23',
+					meal_names_left_out: true,
+				}),
+			});
+			const section = (await screen.findByRole('heading', { name: 'In your Plan' })).closest(
+				'section',
+			)!;
+			expect(section).toHaveTextContent('12 meals planned');
+			expect(section).toHaveTextContent(
+				"From the week of 2 November to the week of 23 November, each day in Mealie's order.",
+			);
+			expect(section).toHaveTextContent(
+				'Lemon drizzle cake stayed in Mealie, so its 2 meals came as just its name.',
+			);
+			expect(section).toHaveTextContent(
+				"Mealie's meal names, such as breakfast or dinner, were not kept.",
+			);
+			// It opens on this week, which the meals cover.
+			expect(within(section).getByRole('link', { name: 'Open the Plan' })).toHaveAttribute(
+				'href',
+				'/plan?week=2026-11-09',
+			);
+			// It comes before what stayed in the app.
+			const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+			expect(headings.indexOf('In your Plan')).toBeLessThan(headings.indexOf('Stayed in Mealie'));
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('says a plan imported again was already planned, and a past one opens on its last week', async () => {
+		vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-12T10:00:00') });
+		try {
+			open({
+				get_job: mealie({
+					planned: 0,
+					already_planned: 12,
+					as_words: [],
+					first_week: null,
+					last_week: null,
+					meal_names_left_out: true,
+				}),
+			});
+			const section = (await screen.findByRole('heading', { name: 'In your Plan' })).closest(
+				'section',
+			)!;
+			expect(section).toHaveTextContent('12 meals, already planned');
+			expect(section).toHaveTextContent('so none was planned twice');
+			expect(within(section).getByRole('link', { name: 'Open the Plan' })).toHaveAttribute(
+				'href',
+				'/plan',
+			);
+			cleanup();
+			open({
+				get_job: mealie({
+					planned: 1,
+					already_planned: 0,
+					as_words: [],
+					first_week: '2022-10-31',
+					last_week: '2022-10-31',
+					meal_names_left_out: true,
+				}),
+			});
+			const past = (await screen.findByRole('heading', { name: 'In your Plan' })).closest(
+				'section',
+			)!;
+			expect(past).toHaveTextContent('1 meal planned');
+			expect(past).toHaveTextContent("In the week of 31 October 2022, each day in Mealie's order.");
+			expect(within(past).getByRole('link', { name: 'Open the Plan' })).toHaveAttribute(
+				'href',
+				'/plan?week=2022-10-31',
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('draws no Plan section for a file with no meal plan', async () => {
+		open({ get_job: job({ operation: 'import_from_another_app', result: report() }) });
+		await screen.findByRole('heading', { name: 'Arrived' });
+		expect(screen.queryByRole('heading', { name: 'In your Plan' })).not.toBeInTheDocument();
+	});
+
 	it('names five recipes, then how many more', async () => {
 		const many = Array.from({ length: 12 }, (_, index) => ({
 			foreign_id: `p-${index}`,

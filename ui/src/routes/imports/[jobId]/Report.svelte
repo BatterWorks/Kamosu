@@ -52,6 +52,8 @@
 	import SendAgain from './SendAgain.svelte';
 	import { AGENTS_OWN, working } from '$lib/agent/agent';
 	import { REPLAY_EVERY, type Replaying } from '$lib/agent/replay';
+	import { aPlannedDateOfAnyYear } from '$lib/dates';
+	import { mondayOf, today } from '$lib/plan-days';
 
 	interface Props {
 		jobId: string;
@@ -308,6 +310,26 @@
 		}));
 		return [...kinds, ...file];
 	});
+	// --- The app's meal plan, in the cook's own (#492), option B -------------
+	//
+	// A section of its own between Arrived and Stayed, chosen on 3 November
+	// 2026 (`.dev/prototypes/492-plan-report/b-names-phone.html`): the meals
+	// planned and the weeks they cover, each recipe that stayed behind and
+	// came as its name in a note, the meal names said once, and the way to
+	// the Plan.
+
+	const plan = $derived(report?.meal_plan);
+	/** The week the Plan opens on: this one inside the weeks planned, else the nearest end. */
+	const planWeek = $derived.by(() => {
+		const first = plan?.first_week;
+		const last = plan?.last_week;
+		if (!first || !last) return undefined;
+		const now = mondayOf(today());
+		if (now < first) return first;
+		if (now > last) return last;
+		return now;
+	});
+
 	/** The app it all stayed in, by name. */
 	const stayedIn = $derived(appNamed(report?.source_kind) ?? report?.source_kind ?? '');
 
@@ -980,6 +1002,51 @@
 				</details>
 			{/if}
 		</Section>
+
+		{#if plan}
+			<Section heading={m.report_plan_heading()}>
+				{#if plan.planned > 0}
+					<p class="text-body">{m.report_plan_planned({ count: plan.planned })}</p>
+					{#if plan.first_week && plan.last_week}
+						<p class="mt-1 text-read text-ink-2">
+							{plan.first_week === plan.last_week
+								? m.report_plan_one_week({
+										first: aPlannedDateOfAnyYear(plan.first_week),
+										app: stayedIn,
+									})
+								: m.report_plan_weeks({
+										first: aPlannedDateOfAnyYear(plan.first_week),
+										last: aPlannedDateOfAnyYear(plan.last_week),
+										app: stayedIn,
+									})}
+						</p>
+					{/if}
+					{#if plan.already_planned > 0}
+						<p class="mt-1 text-read text-ink-2">
+							{m.report_plan_also_already({ count: plan.already_planned })}
+						</p>
+					{/if}
+				{:else}
+					<p class="text-body">{m.report_plan_already({ count: plan.already_planned })}</p>
+					<p class="mt-2 text-read text-ink-2">
+						{m.report_plan_already_why({ count: plan.already_planned })}
+					</p>
+				{/if}
+				{#each plan.as_words as named (named.title)}
+					<p class={['mt-3 border-l-3 border-rule px-3 py-2 text-read', panel]}>
+						{m.report_plan_as_words({ title: named.title, count: named.count, app: stayedIn })}
+					</p>
+				{/each}
+				{#if plan.meal_names_left_out}
+					<p class="mt-3 text-read text-ink-2">{m.report_plan_meal_names({ app: stayedIn })}</p>
+				{/if}
+				<a
+					href={planWeek ? `/plan?week=${planWeek}` : '/plan'}
+					class="mt-3 inline-flex min-h-12 items-center rounded-sm border border-rule px-4 font-medium text-accent"
+					>{m.report_plan_open()}</a
+				>
+			</Section>
+		{/if}
 
 		{#if stayed.length}
 			<Section heading={m.report_stayed_in({ app: stayedIn })}>

@@ -2233,6 +2233,30 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 70,
+        description: "which entry of another app's meal plan made which Planned Meal (#492)",
+        sql: r#"
+        -- An Import from a Mealie backup brings the household's meal plan
+        -- into the importing Person's own plan. One row per entry a Person
+        -- has had planned from an app's file, keyed on the Person as the plan
+        -- is, and on the app, never on a Cookbook's Import: the same file
+        -- imported again by the same Person plans none twice, whichever
+        -- Cookbook it lands in or has since joined or left, and a Co-author
+        -- importing it into their own plan still has theirs. `foreign_id` is
+        -- the app's own name for the entry, unique beyond one instance of
+        -- the app. A Planned Meal taken off the plan keeps its row, so
+        -- importing again never puts it back.
+        CREATE TABLE imported_planned_meals (
+            person_id       TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+            source_kind     TEXT NOT NULL,
+            foreign_id      TEXT NOT NULL,
+            planned_meal_id TEXT NOT NULL,
+            PRIMARY KEY (person_id, source_kind, foreign_id)
+        );
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

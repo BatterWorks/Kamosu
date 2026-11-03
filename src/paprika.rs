@@ -97,6 +97,7 @@ impl Reader for Paprika {
             total,
             recipes: Box::new(recipes),
             left_out: Vec::new(),
+            planned: Vec::new(),
         }))
     }
 }

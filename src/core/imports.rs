@@ -92,6 +92,7 @@ impl Core {
             app: export.app,
         };
         let mut left_out_of_file = export.left_out;
+        let planned = export.planned;
         let mut pointing = VecDeque::new();
         let mut cooked = Vec::new();
         let mut photos_not_in_export = 0;
@@ -119,6 +120,9 @@ impl Core {
             self.import_each(caller, export.app, into, export.total, incoming, progress)?;
         photos_not_in_export += self.land_components(caller, &mut report, pointing, &downloads)?;
         self.land_cookings(caller, &report, cooked)?;
+        if !planned.is_empty() {
+            report["meal_plan"] = self.land_plan(caller, &report, planned)?;
+        }
         if photos_not_in_export > 0 {
             match left_out_of_file.iter_mut().find_map(|left| match left {
                 other_apps::FileLeftOut::PhotosNotInExport(count) => Some(count),
@@ -453,6 +457,115 @@ impl Core {
             })?;
         }
         Ok(())
+    }
+
+    /// Plan each entry of the app's meal plan in the importing Person's own
+    /// plan (#492, ADR 0058), once every recipe of the file has landed. A
+    /// recipe entry plans the Branch its recipe landed as, the one offered
+    /// where it was offered; one whose recipe did not land is planned as the
+    /// recipe's name, in written words, and the answer lists those. Each
+    /// lands at the end of its list in the order the reader gives, unsent.
+    /// An entry this Person already had planned from the same app is never
+    /// planned again, even where it was taken off the plan since, or the
+    /// Cookbook the recipes landed in has since changed.
+    ///
+    /// The answer is the Report's `meal_plan`.
+    fn land_plan(
+        &self,
+        caller: &Caller,
+        report: &Value,
+        planned: Vec<other_apps::PlannedEntry>,
+    ) -> Result<Value, OpError> {
+        use super::meal_plan::{ImportedMeal, Place, plan_imported, plan_moment};
+        use other_apps::{PlannedWhat, PlannedWhen};
+        let source_kind = report["source_kind"].as_str().unwrap_or_default();
+        let person_id = caller.person_id.as_str();
+        self.db().with_conn(|conn| {
+            let failed = |e| OpError::internal(format!("cannot plan the meal plan: {e}"));
+            let tx = conn.unchecked_transaction().map_err(failed)?;
+            let mut arrived = 0;
+            let mut already = 0;
+            // Each recipe planned as its name, with how many entries were.
+            let mut as_words: Vec<(String, usize)> = Vec::new();
+            let mut weeks: Vec<String> = Vec::new();
+            let mut moment = None;
+            for entry in &planned {
+                let known = tx
+                    .query_row(
+                        "SELECT 1 FROM imported_planned_meals \
+                          WHERE person_id = ?1 AND source_kind = ?2 AND foreign_id = ?3",
+                        params![person_id, source_kind, entry.foreign_id],
+                        |_| Ok(()),
+                    )
+                    .optional()
+                    .map_err(failed)?
+                    .is_some();
+                if known {
+                    already += 1;
+                    continue;
+                }
+                // The whole file is one write on the plan's clock, made now.
+                let moment = match &moment {
+                    Some(moment) => moment,
+                    None => moment.insert(match plan_moment(&tx, person_id, None)? {
+                        Some(moment) => moment,
+                        // The plan was written after now, by a phone whose
+                        // clock runs ahead: the import is planned all the same.
+                        None => written_moment(&tx, None)?,
+                    }),
+                };
+                let landed = match &entry.what {
+                    PlannedWhat::Recipe { foreign_id, .. } => LinesOn::of(report, foreign_id),
+                    PlannedWhat::Words(_) => None,
+                };
+                let what = match (&entry.what, &landed) {
+                    (PlannedWhat::Recipe { times, .. }, Some(lines_on)) => ImportedMeal::Recipe {
+                        branch_id: &lines_on.branch_id,
+                        times: *times,
+                    },
+                    (PlannedWhat::Recipe { name, .. }, None) => {
+                        match as_words.iter_mut().find(|(said, _)| said == name) {
+                            Some((_, count)) => *count += 1,
+                            None => as_words.push((name.clone(), 1)),
+                        }
+                        ImportedMeal::Words(name)
+                    }
+                    (PlannedWhat::Words(words), _) => ImportedMeal::Words(words),
+                };
+                let place = match &entry.when {
+                    PlannedWhen::Day(day) => Place::Day(day),
+                    PlannedWhen::Week(week) => Place::Week(week),
+                };
+                let (planned_meal_id, week) = plan_imported(&tx, person_id, place, what, moment)?;
+                if !weeks.contains(&week) {
+                    weeks.push(week);
+                }
+                tx.execute(
+                    "INSERT INTO imported_planned_meals \
+                         (person_id, source_kind, foreign_id, planned_meal_id) \
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![person_id, source_kind, entry.foreign_id, planned_meal_id],
+                )
+                .map_err(failed)?;
+                arrived += 1;
+            }
+            tx.commit().map_err(failed)?;
+            weeks.sort();
+            Ok(json!({
+                "planned": arrived,
+                "already_planned": already,
+                "as_words": as_words
+                    .iter()
+                    .map(|(title, count)| json!({ "title": title, "count": count }))
+                    .collect::<Vec<_>>(),
+                "first_week": weeks.first(),
+                "last_week": weeks.last(),
+                // Mealie names each entry's meal (breakfast, dinner), and a
+                // Planned Meal has no meal: the order of a day is kept, the
+                // names are not.
+                "meal_names_left_out": true,
+            }))
+        })
     }
 
     /// How long one import may spend downloading photos (#414).
