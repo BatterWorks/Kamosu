@@ -564,7 +564,8 @@
 		return app ? m.report_title_app({ app }) : m.report_title();
 	});
 	const title = $derived(
-		notAnImport
+		// A Job that brought nothing in, or none this cook may read, names no import.
+		notAnImport || (unreachable && !job)
 			? m.imports_title()
 			: kind
 				? kind.title()

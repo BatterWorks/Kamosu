@@ -151,6 +151,8 @@ describe('the Import Report', () => {
 		open({ get_job: { refuse: 'not_found', message: 'No Job j_1 here.' } });
 
 		expect(await screen.findByRole('alert')).toHaveTextContent('No Job j_1 here.');
+		// Not titled for a Crouton library, or for any import.
+		expect(screen.getByRole('heading', { name: m.imports_title() })).toBeInTheDocument();
 	});
 
 	it('does not call one recipe file a Crouton library', async () => {
