@@ -1,12 +1,12 @@
 <!-- Backups (#103, ADR 0039, #469): a page of This instance. -->
 <script lang="ts">
-	import Refusal from '$lib/Refusal.svelte';
-	import { aDate } from '$lib/dates';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { waitForJob } from '$lib/api/job';
-	import type { ListBackupsOutput } from '$lib/api/catalogue';
+	import Refusal from '#lib/Refusal.svelte';
+	import { aDate } from '#lib/dates.js';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { waitForJob } from '#lib/api/job.js';
+	import type { ListBackupsOutput } from '#lib/api/catalogue.js';
 	import OperatorOnly from '../OperatorOnly.svelte';
 
 	const kamosu = useKamosu();

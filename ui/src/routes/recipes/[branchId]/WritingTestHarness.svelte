@@ -5,11 +5,11 @@
 	through one.
 -->
 <script lang="ts">
-	import type { KamosuClient, GetRecipeOutput } from '$lib/api/catalogue';
-	import type { WrittenLanguage } from '$lib/language';
-	import type { Whose } from '$lib/cookbook';
-	import type { Room } from '$lib/room.svelte';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { KamosuClient, GetRecipeOutput } from '#lib/api/catalogue.js';
+	import type { WrittenLanguage } from '#lib/language.js';
+	import type { Whose } from '#lib/cookbook.js';
+	import type { Room } from '#lib/room.svelte.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import Writing from './Writing.svelte';
 
 	interface Props {

@@ -31,12 +31,12 @@
 	(#105), which appear nowhere in the Thread.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { languageName, type BranchLanguage } from '$lib/language';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { languageName, type BranchLanguage } from '#lib/language.js';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
 
 	interface Props {
 		branchId: string;
@@ -47,7 +47,7 @@
 		 * would have answered null. Typed as the Catalogue's own enum rather
 		 * than as a string, so passing it back to `set_recipe_language` needs
 		 * no cast — a cast here would be a third hand-written copy of that
-		 * enum, and the whole point of `$lib/language` is that there are none.
+		 * enum, and the whole point of `#lib/language.js` is that there are none.
 		 */
 		offered: BranchLanguage;
 		/**

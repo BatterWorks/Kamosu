@@ -4,7 +4,7 @@
  * (ADR 0044, #194).
  */
 
-import { m } from '$lib/paraglide/messages';
+import { m } from '#lib/paraglide/messages.js';
 
 /** The Cooked place's steaming bowl, which the Plan's "Cooked" mark wears too (#489). */
 export const COOKED_BOWL =

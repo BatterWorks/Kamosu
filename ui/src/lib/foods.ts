@@ -7,9 +7,9 @@
  * `Permission::Person` and none of them takes a Kitchen.
  */
 
-import { m } from '$lib/paraglide/messages';
-import { WRITTEN_LANGUAGES } from '$lib/language';
-import type { GetFoodOutput, ListFoodsOutput, SetFoodNamesInput } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import { WRITTEN_LANGUAGES } from '#lib/language.js';
+import type { GetFoodOutput, ListFoodsOutput, SetFoodNamesInput } from '#lib/api/catalogue.js';
 
 /** A Food as every Operation that answers with one serves it. */
 export type FoodRow = ListFoodsOutput['foods'][number];

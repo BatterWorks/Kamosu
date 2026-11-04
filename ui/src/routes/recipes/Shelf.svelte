@@ -43,7 +43,7 @@
 	answer can say that nothing was close enough and these are the nearest.
 -->
 <script lang="ts" module>
-	import type { ListKitchensOutput, SearchRecipesInput } from '$lib/api/catalogue';
+	import type { ListKitchensOutput, SearchRecipesInput } from '#lib/api/catalogue.js';
 
 	/** One way a recipe has been cooked, as the shelf filters by it (#445). */
 	export type Cooking = NonNullable<SearchRecipesInput['cooking']>[number];
@@ -122,20 +122,20 @@
 
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { MeaningSearch } from '$lib/meaning.svelte';
-	import { RecipeSearch } from '$lib/search.svelte';
-	import { byWord, sameWord, tagWord, type Tag } from '$lib/tags';
-	import { cookbookOnChip, kitchenName } from '$lib/cookbook';
-	import { ratingLabel } from '$lib/rating';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { MeaningSearch } from '#lib/meaning.svelte.js';
+	import { RecipeSearch } from '#lib/search.svelte.js';
+	import { byWord, sameWord, tagWord, type Tag } from '#lib/tags.js';
+	import { cookbookOnChip, kitchenName } from '#lib/cookbook.js';
+	import { ratingLabel } from '#lib/rating.js';
 	import FilterList, { type Choice } from './FilterList.svelte';
-	import Screen from '$lib/shell/Screen.svelte';
-	import { recipeSearchBox } from '$lib/shell/slash';
-	import Empty from '$lib/shell/Empty.svelte';
+	import Screen from '#lib/shell/Screen.svelte';
+	import { recipeSearchBox } from '#lib/shell/slash.js';
+	import Empty from '#lib/shell/Empty.svelte';
 	import Tile from './Tile.svelte';
-	import AddOrImport from '$lib/AddOrImport.svelte';
+	import AddOrImport from '#lib/AddOrImport.svelte';
 	import Plus from './Plus.svelte';
 	import MeaningOffer from './MeaningOffer.svelte';
 

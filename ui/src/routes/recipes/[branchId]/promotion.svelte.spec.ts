@@ -9,9 +9,13 @@
 
 import { describe, expect, it } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { DeclinePromotionOutput, GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
-import type { Whose } from '$lib/cookbook';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type {
+	DeclinePromotionOutput,
+	GetRecipeOutput,
+	GetThreadOutput,
+} from '#lib/api/catalogue.js';
+import type { Whose } from '#lib/cookbook.js';
 import PromotionTestHarness from './PromotionTestHarness.svelte';
 
 type Attempt = GetThreadOutput['attempts'][number];

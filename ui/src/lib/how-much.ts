@@ -12,8 +12,9 @@
  * from it come back from the Core, scaled and converted in one line (ADR 0016,
  * #49). A screen shows what `get_recipe` answers and never works a line out.
  */
-import { parseAmount, yieldScale } from '$lib/offline/shopping';
-import type { GetRecipeOutput } from '$lib/api/catalogue';
+import type { ReadonlyURLSearchParams } from '$app/state';
+import { parseAmount, yieldScale } from '#lib/offline/shopping.js';
+import type { GetRecipeOutput } from '#lib/api/catalogue.js';
 
 export type Written = GetRecipeOutput['versions'][number]['content']['yield'];
 export type Wanted = GetRecipeOutput['versions'][number]['scaled_to'];
@@ -150,7 +151,7 @@ export function toSearch(wanted: Wanted): string {
 	return `?${params}`;
 }
 
-export function fromSearch(search: URLSearchParams): Wanted | undefined {
+export function fromSearch(search: ReadonlyURLSearchParams): Wanted | undefined {
 	const amount = search.get('amount');
 	const noun = search.get('noun');
 	if (amount === null || noun === null) return undefined;

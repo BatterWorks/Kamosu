@@ -28,7 +28,7 @@
  * position, never by Version id alone (ADR 0004).
  */
 
-import type { RenameVersionInput } from '$lib/api/catalogue';
+import type { RenameVersionInput } from '#lib/api/catalogue.js';
 import { buildGroup, chainsByBranch, type ForkGroup, type ThreadVersion } from './tree';
 
 /**

@@ -22,13 +22,13 @@
 	the card goes and `ended` is said, for the screen to read itself again.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { aTime } from '$lib/dates';
-	import { asksWhetherAdministering } from '$lib/operator/administering';
-	import type { GetJobOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { aTime } from '#lib/dates.js';
+	import { asksWhetherAdministering } from '#lib/operator/administering.js';
+	import type { GetJobOutput } from '#lib/api/catalogue.js';
 	import { EVERY_MS, RUNNER_PAGE, noAgentAnswering, working, type Saying } from './agent';
 
 	interface Props {

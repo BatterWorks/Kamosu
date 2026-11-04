@@ -12,11 +12,11 @@
 	says what a room that is not here says (ADR 0040).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { byDay, say, type SecurityEvent } from '$lib/security-record';
-	import type { ListSecurityRecordOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { byDay, say, type SecurityEvent } from '#lib/security-record.js';
+	import type { ListSecurityRecordOutput } from '#lib/api/catalogue.js';
 
 	interface Props {
 		whose: 'yours' | 'instance';

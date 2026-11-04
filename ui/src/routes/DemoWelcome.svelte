@@ -8,10 +8,10 @@
 	on this device, and the strip's "A Kamosu demo" brings it back.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { getLocale } from '$lib/paraglide/runtime';
-	import { copyText } from '$lib/clipboard';
-	import { cleaningInLocalTime, closeWelcome, demo, INSTALL_KAMOSU } from '$lib/demo.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { getLocale } from '#lib/paraglide/runtime.js';
+	import { copyText } from '#lib/clipboard.js';
+	import { cleaningInLocalTime, closeWelcome, demo, INSTALL_KAMOSU } from '#lib/demo.svelte.js';
 
 	const id = $props.id();
 

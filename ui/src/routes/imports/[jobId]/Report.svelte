@@ -29,31 +29,31 @@
 	to that list, whose row for it was read while it ran.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
 	import { untrack } from 'svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { useRoom } from '$lib/room.svelte';
-	import { OperationError } from '$lib/api/client';
-	import { waitForJob } from '$lib/api/job';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { useRoom } from '#lib/room.svelte.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { waitForJob } from '#lib/api/job.js';
 	import type {
 		GetJobOutput,
 		ImportCroutonOutput,
 		ImportFromAnotherAppOutput,
-	} from '$lib/api/catalogue';
-	import RefusedExport from '$lib/RefusedExport.svelte';
-	import WhichHousehold from '$lib/WhichHousehold.svelte';
+	} from '#lib/api/catalogue.js';
+	import RefusedExport from '#lib/RefusedExport.svelte';
+	import WhichHousehold from '#lib/WhichHousehold.svelte';
 	import { goto } from '$app/navigation';
-	import { appNamed } from '$lib/other-apps';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Section from '$lib/shell/Section.svelte';
+	import { appNamed } from '#lib/other-apps.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Section from '#lib/shell/Section.svelte';
 	import { useEnded } from '../ended.svelte';
-	import AgentWork from '$lib/agent/AgentWork.svelte';
+	import AgentWork from '#lib/agent/AgentWork.svelte';
 	import SendAgain from './SendAgain.svelte';
-	import { AGENTS_OWN, working } from '$lib/agent/agent';
-	import { REPLAY_EVERY, type Replaying } from '$lib/agent/replay';
-	import { aPlannedDateOfAnyYear } from '$lib/dates';
-	import { mondayOf, today } from '$lib/plan-days';
+	import { AGENTS_OWN, working } from '#lib/agent/agent.js';
+	import { REPLAY_EVERY, type Replaying } from '#lib/agent/replay.js';
+	import { aPlannedDateOfAnyYear } from '#lib/dates.js';
+	import { mondayOf, today } from '#lib/plan-days.js';
 
 	interface Props {
 		jobId: string;

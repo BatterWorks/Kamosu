@@ -7,11 +7,11 @@
 	`SECURITY.md`, which the README links (ADR 0034).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Screen from '$lib/shell/Screen.svelte';
-	import type { InstanceStatusOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import type { InstanceStatusOutput } from '#lib/api/catalogue.js';
 
 	const kamosu = useKamosu();
 

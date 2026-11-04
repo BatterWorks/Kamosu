@@ -13,7 +13,7 @@
 -->
 <script lang="ts">
 	import { page } from '$app/state';
-	import { replayIn } from '$lib/agent/replay';
+	import { replayIn } from '#lib/agent/replay.js';
 	import BroughtIn from './BroughtIn.svelte';
 
 	let { children } = $props();

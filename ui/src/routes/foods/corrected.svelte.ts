@@ -10,7 +10,7 @@
  */
 
 import { getContext, setContext } from 'svelte';
-import type { Food } from '$lib/foods';
+import type { Food } from '#lib/foods.js';
 
 export class Corrected {
 	/** The last Food a page corrected, as the Core answered it. */

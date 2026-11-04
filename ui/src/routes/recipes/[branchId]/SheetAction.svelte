@@ -7,8 +7,8 @@
 	tile, so a glance says the PDF is there.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
 	import type { Sheet } from './sheet.svelte';
 
 	interface Props {

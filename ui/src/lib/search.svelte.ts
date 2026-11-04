@@ -23,9 +23,9 @@
  * tests type into the real boxes for exactly that reason.
  */
 
-import { OperationError } from '$lib/api/client';
-import { refreshed } from '$lib/offline/device.svelte';
-import type { KamosuClient, SearchRecipesInput, SearchRecipesOutput } from '$lib/api/catalogue';
+import { OperationError } from '#lib/api/client.js';
+import { refreshed } from '#lib/offline/device.svelte.js';
+import type { KamosuClient, SearchRecipesInput, SearchRecipesOutput } from '#lib/api/catalogue.js';
 
 /**
  * Long enough that typing a recipe's name is one ask rather than twelve, short

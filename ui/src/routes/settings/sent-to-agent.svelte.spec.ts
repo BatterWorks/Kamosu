@@ -9,8 +9,8 @@ import Settings from './+page.svelte';
 import SentPage from './agent/+page.svelte';
 import { renderScreen } from '../../testing/render';
 import { went } from '../../testing/navigation';
-import type { Answers } from '$lib/api/stand-in';
-import type { Sent } from '$lib/sent-to-agent';
+import type { Answers } from '#lib/api/stand-in.js';
+import type { Sent } from '#lib/sent-to-agent.js';
 
 const today = (hour: number, minute = 0) => {
 	const at = new Date();

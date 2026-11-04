@@ -11,12 +11,12 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { went } from '../../testing/navigation';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { ListImportsOutput } from '$lib/api/catalogue';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { ListImportsOutput } from '#lib/api/catalogue.js';
 import ImportsTestHarness from './ImportsTestHarness.svelte';
-import type { Room } from '$lib/room.svelte';
-import { m } from '$lib/paraglide/messages';
-import { aDate } from '$lib/dates';
+import type { Room } from '#lib/room.svelte.js';
+import { m } from '#lib/paraglide/messages.js';
+import { aDate } from '#lib/dates.js';
 
 type Import = ListImportsOutput['imports'][number];
 type Arrival = Import['arrivals'][number];
@@ -253,16 +253,15 @@ describe('on the wide layout', () => {
 		await fireEvent.keyDown(document.body, { key: 'ArrowDown' });
 		// Replaced, so going back leaves the list in one step rather than walking back up it.
 		expect(went).toHaveBeenLastCalledWith('/imports/j_b1', {
-			replaceState: true,
-			keepFocus: true,
-			noScroll: true,
+			replace: true,
+			reset: false,
 		});
 
 		await drawn.rerender({ open: 'j_b1' });
 		await fireEvent.keyDown(document.body, { key: 'ArrowUp' });
 		expect(went).toHaveBeenLastCalledWith(
 			'/imports/j_c1',
-			expect.objectContaining({ replaceState: true }),
+			expect.objectContaining({ replace: true }),
 		);
 	});
 
@@ -274,7 +273,7 @@ describe('on the wide layout', () => {
 
 		expect(went).toHaveBeenLastCalledWith(
 			'/imports/j_c2',
-			expect.objectContaining({ replaceState: true }),
+			expect.objectContaining({ replace: true }),
 		);
 	});
 

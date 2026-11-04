@@ -4,8 +4,8 @@
  * (#110) is opened from the diary as well as from the recipe page.
  */
 
-import type { GetRecipeOutput, GetThreadOutput, ListKitchensOutput } from '$lib/api/catalogue';
-import { refreshed } from '$lib/offline/device.svelte';
+import type { GetRecipeOutput, GetThreadOutput, ListKitchensOutput } from '#lib/api/catalogue.js';
+import { refreshed } from '#lib/offline/device.svelte.js';
 
 type Content = GetRecipeOutput['versions'][number]['content'];
 

@@ -10,8 +10,8 @@ import Settings from './+page.svelte';
 import Security from './security/+page.svelte';
 import InstanceSecurity from './instance-security/+page.svelte';
 import { renderScreen } from '../../testing/render';
-import type { Answers } from '$lib/api/stand-in';
-import type { ListSecurityRecordOutput } from '$lib/api/catalogue';
+import type { Answers } from '#lib/api/stand-in.js';
+import type { ListSecurityRecordOutput } from '#lib/api/catalogue.js';
 
 type Event = ListSecurityRecordOutput['events'][number];
 

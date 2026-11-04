@@ -22,7 +22,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import type { Attachment } from 'svelte/attachments';
-	import { useRoom } from '$lib/room.svelte';
+	import { useRoom } from '#lib/room.svelte.js';
 
 	/** What a screen reader calls it: said outright, or the id of the heading
 	 *  inside that names it. One or the other, always. */

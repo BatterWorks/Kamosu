@@ -103,28 +103,28 @@
 -->
 <script lang="ts">
 	import { tick } from 'svelte';
-	import Refusal from '$lib/Refusal.svelte';
+	import Refusal from '#lib/Refusal.svelte';
 	import type { Attachment } from 'svelte/attachments';
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { usePhotograph } from '$lib/api/upload';
-	import type { GetRecipeOutput, ReadPastedRecipeOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { usePhotograph } from '#lib/api/upload.js';
+	import type { GetRecipeOutput, ReadPastedRecipeOutput } from '#lib/api/catalogue.js';
 	import type { Nutrition } from './divergence';
-	import { languageName, type WrittenLanguage } from '$lib/language';
-	import { hostOf } from '$lib/source';
-	import { copySaid, type Whose } from '$lib/cookbook';
-	import Cover from '$lib/cover/Cover.svelte';
-	import { FilePlace, isPicture } from '$lib/drop.svelte';
-	import { DRAWN, drawnFor } from '$lib/drop-drawings';
-	import DropCover from '$lib/DropCover.svelte';
-	import DropHere from '$lib/DropHere.svelte';
+	import { languageName, type WrittenLanguage } from '#lib/language.js';
+	import { hostOf } from '#lib/source.js';
+	import { copySaid, type Whose } from '#lib/cookbook.js';
+	import Cover from '#lib/cover/Cover.svelte';
+	import { FilePlace, isPicture } from '#lib/drop.svelte.js';
+	import { DRAWN, drawnFor } from '#lib/drop-drawings.js';
+	import DropCover from '#lib/DropCover.svelte';
+	import DropHere from '#lib/DropHere.svelte';
 	import ComponentPicker, { type NamedRecipe } from './ComponentPicker.svelte';
 	import StepUsesSheet from './StepUsesSheet.svelte';
-	import PasteCheck from '$lib/PasteCheck.svelte';
-	import { drafted as splitPaste, readPasted } from '$lib/pasted.svelte';
-	import { joined, split } from '$lib/duration';
+	import PasteCheck from '#lib/PasteCheck.svelte';
+	import { drafted as splitPaste, readPasted } from '#lib/pasted.svelte.js';
+	import { joined, split } from '#lib/duration.js';
 
 	type Content = GetRecipeOutput['versions'][number]['content'];
 	type Cooking = GetRecipeOutput['versions'][number]['cooking'];

@@ -4,7 +4,7 @@
 	that refused it, which opens the panel of examples (`Replays`) in its place.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import type { Adding } from './adding.svelte';
 
 	interface Props {

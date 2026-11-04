@@ -5,14 +5,14 @@
 -->
 <script lang="ts">
 	import { untrack, type Snippet } from 'svelte';
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import { provideKamosu } from '$lib/kamosu';
-	import { provideAuth, type AuthClient } from '$lib/auth';
-	import { providePhotograph, provideUpload, type Uploader } from '$lib/api/upload';
-	import { provideFiles, type FileFetcher } from '$lib/api/files';
-	import { Library, provideLibrary } from '$lib/offline/library.svelte';
-	import { provideKeeping, type Keeping } from '$lib/offline/outbox';
-	import { provideRoom, type Room } from '$lib/room.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import { provideKamosu } from '#lib/kamosu.js';
+	import { provideAuth, type AuthClient } from '#lib/auth.js';
+	import { providePhotograph, provideUpload, type Uploader } from '#lib/api/upload.js';
+	import { provideFiles, type FileFetcher } from '#lib/api/files.js';
+	import { Library, provideLibrary } from '#lib/offline/library.svelte.js';
+	import { provideKeeping, type Keeping } from '#lib/offline/outbox.js';
+	import { provideRoom, type Room } from '#lib/room.svelte.js';
 
 	interface Props {
 		client: KamosuClient;

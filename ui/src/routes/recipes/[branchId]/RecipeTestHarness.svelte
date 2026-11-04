@@ -4,12 +4,12 @@
 	shared prop-less `renderScreen` helper cannot do.
 -->
 <script lang="ts">
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import type { FileFetcher } from '$lib/api/files';
-	import type { Uploader } from '$lib/api/upload';
-	import type { Device } from '$lib/offline/device.svelte';
-	import type { Wanted } from '$lib/how-much';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import type { FileFetcher } from '#lib/api/files.js';
+	import type { Uploader } from '#lib/api/upload.js';
+	import type { Device } from '#lib/offline/device.svelte.js';
+	import type { Wanted } from '#lib/how-much.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import Recipe from './Recipe.svelte';
 
 	interface Props {

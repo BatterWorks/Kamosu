@@ -33,7 +33,10 @@ search `docs/svelte/llms-full.txt` for what the small file omits. This is not
 optional: Svelte was chosen over React on the argument that a model reaching for
 Svelte 4 habits is a risk closable at build time, and these files are what closes
 it (ADR 0012). Both are pinned; `docs/svelte/README.md` says to which version and
-how to refresh them.
+how to refresh them. The small file still shows SvelteKit 2's `svelte.config.js`
+and `$lib`: Kamosu is on SvelteKit 3, configured in `ui/vite.config.ts` and
+importing shared code as `#lib/<file>.js`, and that README lists what else the
+small file has wrong.
 
 **Read the library's current documentation before writing against it.** Use the
 **Context7** MCP server before writing code that calls a library API, even when

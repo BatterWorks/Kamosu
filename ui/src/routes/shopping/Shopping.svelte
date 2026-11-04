@@ -42,16 +42,16 @@
 	kept the phone's sentence. The phone's screen is what it was.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { GetShoppingListOutput } from '$lib/api/catalogue';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Section from '$lib/shell/Section.svelte';
-	import Empty from '$lib/shell/Empty.svelte';
-	import { rereads } from '$lib/offline/device.svelte';
-	import { counts, isMultiplier, said, same, stepped } from '$lib/how-much';
-	import { useRoom } from '$lib/room.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { GetShoppingListOutput } from '#lib/api/catalogue.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Section from '#lib/shell/Section.svelte';
+	import Empty from '#lib/shell/Empty.svelte';
+	import { rereads } from '#lib/offline/device.svelte.js';
+	import { counts, isMultiplier, said, same, stepped } from '#lib/how-much.js';
+	import { useRoom } from '#lib/room.svelte.js';
 
 	const kamosu = useKamosu();
 	const room = useRoom();

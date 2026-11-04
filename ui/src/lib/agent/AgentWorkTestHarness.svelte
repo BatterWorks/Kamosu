@@ -3,8 +3,8 @@
 	test wraps it the way the shell does and shortens the time between reads.
 -->
 <script lang="ts">
-	import type { GetJobOutput, KamosuClient } from '$lib/api/catalogue';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { GetJobOutput, KamosuClient } from '#lib/api/catalogue.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import AgentWork from './AgentWork.svelte';
 	import type { Saying } from './agent';
 

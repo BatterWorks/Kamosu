@@ -20,9 +20,9 @@
 	prototypes, 25 September 2026; the issue holds the record.
 -->
 <script lang="ts">
-	import { useRoom } from '$lib/room.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { getLocale, locales, setLocale, type Locale } from '$lib/paraglide/runtime';
+	import { useRoom } from '#lib/room.svelte.js';
+	import { m } from '#lib/paraglide/messages.js';
+	import { getLocale, locales, setLocale, type Locale } from '#lib/paraglide/runtime.js';
 	import { story } from './showing.svelte';
 
 	interface Props {

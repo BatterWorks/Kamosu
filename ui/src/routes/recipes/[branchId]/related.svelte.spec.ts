@@ -20,8 +20,8 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetRecipeOutput } from '$lib/api/catalogue';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { GetRecipeOutput } from '#lib/api/catalogue.js';
 import RelatedTestHarness from './RelatedTestHarness.svelte';
 import {
 	searchEntry as found,

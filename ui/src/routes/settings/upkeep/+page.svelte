@@ -5,21 +5,21 @@
 	nothing shows, and reading every Ingredient Line again.
 -->
 <script lang="ts">
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { waitForJob } from '$lib/api/job';
-	import Section from '$lib/shell/Section.svelte';
-	import Confirm from '$lib/Confirm.svelte';
-	import { Acting } from '$lib/operator/acting.svelte';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { waitForJob } from '#lib/api/job.js';
+	import Section from '#lib/shell/Section.svelte';
+	import Confirm from '#lib/Confirm.svelte';
+	import { Acting } from '#lib/operator/acting.svelte.js';
 	import type {
 		ListFoodsOutput,
 		ListMergeSuggestionsOutput,
 		PreviewFoodMergeOutput,
 		RereadIngredientLinesOutput,
 		SweepPhotographsOutput,
-	} from '$lib/api/catalogue';
+	} from '#lib/api/catalogue.js';
 	import OperatorOnly from '../OperatorOnly.svelte';
 
 	const kamosu = useKamosu();

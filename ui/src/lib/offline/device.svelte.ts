@@ -7,7 +7,7 @@
 
 import { untrack } from 'svelte';
 import { SvelteMap } from 'svelte/reactivity';
-import type { KamosuClient, SendToShoppingListOutput } from '$lib/api/catalogue';
+import type { KamosuClient, SendToShoppingListOutput } from '#lib/api/catalogue.js';
 import { putAway } from './put-away';
 import { serverAnswered } from './reads';
 import type { WorkerMessage } from './worker';

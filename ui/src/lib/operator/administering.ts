@@ -16,8 +16,8 @@
  * the fix, and it belongs in one place.
  */
 
-import { OperationError } from '$lib/api/client';
-import type { KamosuClient, ListAccountsOutput } from '$lib/api/catalogue';
+import { OperationError } from '#lib/api/client.js';
+import type { KamosuClient, ListAccountsOutput } from '#lib/api/catalogue.js';
 
 export type Administering =
 	/** They do, and here is what they administer. */

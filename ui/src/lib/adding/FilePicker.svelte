@@ -21,7 +21,7 @@
 	does reach it, and it is how a screen test grips it.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import type { Adding } from './adding.svelte';
 
 	interface Props {

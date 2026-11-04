@@ -6,7 +6,7 @@
  * fill still owes. One module, so the two can never disagree about a key.
  */
 
-import { READS, type OperationName } from '$lib/api/catalogue';
+import { READS, type OperationName } from '#lib/api/catalogue.js';
 
 /** Every Operation answer the phone keeps. Emptied whenever the Session changes. */
 export const READS_CACHE = 'kamosu-reads';

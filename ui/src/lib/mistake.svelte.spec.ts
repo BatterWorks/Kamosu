@@ -10,15 +10,15 @@
  *
  * What they cannot guard is that net catching a *rejected* promise, because
  * **jsdom never fires `unhandledrejection`** — probed directly, and the reason
- * `$lib/mistake.svelte` is verified in a real browser as well as here.
+ * `#lib/mistake.svelte.js` is verified in a real browser as well as here.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/svelte';
-import { standIn } from '$lib/api/stand-in';
-import { mistake, putMistakeAway, watchForMistakes } from '$lib/mistake.svelte';
-import WentWrong from '$lib/WentWrong.svelte';
-import MistakeTestHarness from '$lib/MistakeTestHarness.svelte';
+import { standIn } from '#lib/api/stand-in.js';
+import { mistake, putMistakeAway, watchForMistakes } from '#lib/mistake.svelte.js';
+import WentWrong from '#lib/WentWrong.svelte';
+import MistakeTestHarness from '#lib/MistakeTestHarness.svelte';
 
 /** The card, by the words a cook reads. */
 const card = () => screen.queryByRole('heading', { name: 'Kamosu went wrong' });

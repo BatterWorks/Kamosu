@@ -26,12 +26,12 @@
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { byWord, tagWord, type ReadingLanguage, type Tag } from '$lib/tags';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { byWord, tagWord, type ReadingLanguage, type Tag } from '#lib/tags.js';
 
 	interface Props {
 		branchId: string;

@@ -124,7 +124,7 @@
 </script>
 
 <script lang="ts">
-	import { aDate, aTime } from '$lib/dates';
+	import { aDate, aTime } from '#lib/dates.js';
 	// What the page is made of. The screen keeps its own state — the recipe it
 	// is reading, the Thread around it, the Divergence, how much it is read at,
 	// and what the last save did — and composes the rest. Each concern that
@@ -155,15 +155,15 @@
 
 	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { DivergenceOutput, GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { DivergenceOutput, GetRecipeOutput, GetThreadOutput } from '#lib/api/catalogue.js';
 	import Hero from './Hero.svelte';
 	import VersionStrip from './VersionStrip.svelte';
-	import { branchPlainName, yoursAmong } from '$lib/cookbook';
+	import { branchPlainName, yoursAmong } from '#lib/cookbook.js';
 	import MarkedRow from './MarkedRow.svelte';
-	import StepWords from '$lib/StepWords.svelte';
+	import StepWords from '#lib/StepWords.svelte';
 	import Correcting from './Correcting.svelte';
 	import Writing from './Writing.svelte';
 	import Promotion from './Promotion.svelte';
@@ -185,16 +185,16 @@
 	import PlanThis from './PlanThis.svelte';
 	import DeleteRecipe from './DeleteRecipe.svelte';
 	import Carrying from './Carrying.svelte';
-	import { asBranchLanguage, type WrittenLanguage } from '$lib/language';
-	import { tappableLink } from '$lib/source';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import StepPhoto from '$lib/StepPhoto.svelte';
-	import { thisDevice, type Device } from '$lib/offline/device.svelte';
-	import { useFiles } from '$lib/api/files';
-	import { said, same, toSearch, type Wanted } from '$lib/how-much';
-	import { weekOfWhere, type Where } from '$lib/plan-days';
-	import { whereName } from '$lib/plan-where';
-	import { takePaste, type PastedDraft } from '$lib/pasted.svelte';
+	import { asBranchLanguage, type WrittenLanguage } from '#lib/language.js';
+	import { tappableLink } from '#lib/source.js';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import StepPhoto from '#lib/StepPhoto.svelte';
+	import { thisDevice, type Device } from '#lib/offline/device.svelte.js';
+	import { useFiles } from '#lib/api/files.js';
+	import { said, same, toSearch, type Wanted } from '#lib/how-much.js';
+	import { weekOfWhere, type Where } from '#lib/plan-days.js';
+	import { whereName } from '#lib/plan-where.js';
+	import { takePaste, type PastedDraft } from '#lib/pasted.svelte.js';
 	import {
 		between,
 		elsewhere,
@@ -213,9 +213,9 @@
 	import { myPictures } from './my-pictures.svelte';
 	import { languageFamily } from './language-family';
 	import { sharingAChain } from './sharing-a-chain';
-	import AgentWork from '$lib/agent/AgentWork.svelte';
+	import AgentWork from '#lib/agent/AgentWork.svelte';
 	import ReadAgain from './ReadAgain.svelte';
-	import type { GetJobOutput, GetRecipeJobOutput } from '$lib/api/catalogue';
+	import type { GetJobOutput, GetRecipeJobOutput } from '#lib/api/catalogue.js';
 
 	interface Props {
 		branchId: string;

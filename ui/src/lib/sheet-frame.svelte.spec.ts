@@ -19,9 +19,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import type { ComponentProps } from 'svelte';
-import type { Room } from '$lib/room.svelte';
-import Confirm from '$lib/Confirm.svelte';
-import SheetFrameTestHarness from '$lib/SheetFrameTestHarness.svelte';
+import type { Room } from '#lib/room.svelte.js';
+import Confirm from '#lib/Confirm.svelte';
+import SheetFrameTestHarness from '#lib/SheetFrameTestHarness.svelte';
 
 type Props = ComponentProps<typeof SheetFrameTestHarness>;
 

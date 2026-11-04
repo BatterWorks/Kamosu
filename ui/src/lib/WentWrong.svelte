@@ -16,9 +16,9 @@
 	gone, because then there is no Step left to cover.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Notice from '$lib/offline/Notice.svelte';
-	import { mistake, putMistakeAway } from '$lib/mistake.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Notice from '#lib/offline/Notice.svelte';
+	import { mistake, putMistakeAway } from '#lib/mistake.svelte.js';
 </script>
 
 {#if mistake.made !== undefined}

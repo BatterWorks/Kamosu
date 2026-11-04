@@ -5,9 +5,9 @@
  * instance's every Operator reads.
  */
 
-import { m } from '$lib/paraglide/messages';
-import { aClock, aWeekday, byDay as byDayOf, type Day } from '$lib/dates';
-import type { ListSecurityRecordOutput } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import { aClock, aWeekday, byDay as byDayOf, type Day } from '#lib/dates.js';
+import type { ListSecurityRecordOutput } from '#lib/api/catalogue.js';
 
 export type SecurityEvent = ListSecurityRecordOutput['events'][number];
 

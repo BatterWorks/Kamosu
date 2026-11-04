@@ -1,7 +1,7 @@
 /**
  * What a place draws while something is held over it (#204, #205), each the
  * path of a 24 by 24 line drawing. A source of recipes has its own under the
- * + (`$lib/adding/sources`).
+ * + (`#lib/adding/sources.js`).
  */
 export const DRAWN = {
 	/** A photograph. */

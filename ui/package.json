@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "prepare": "svelte-kit sync || echo ''",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings && tsc -p ./src/service-worker",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings --watch",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -51,5 +51,8 @@
     "vite": "^8.3.5",
     "vitest": "^5.1.0"
   },
-  "description": "Kamosu's interface: one Svelte app, one generated stylesheet, one typed client."
+  "description": "Kamosu's interface: one Svelte app, one generated stylesheet, one typed client.",
+  "imports": {
+    "#lib/*": "./src/lib/*"
+  }
 }

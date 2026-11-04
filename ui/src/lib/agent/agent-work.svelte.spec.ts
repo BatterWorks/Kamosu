@@ -6,9 +6,9 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { m } from '$lib/paraglide/messages';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetJobOutput } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { GetJobOutput } from '#lib/api/catalogue.js';
 import AgentWorkTestHarness from './AgentWorkTestHarness.svelte';
 
 const job = (status: GetJobOutput['status']): GetJobOutput => ({

@@ -5,9 +5,9 @@
 	The open Report's page is stood in for by OpenReportTestStandIn.svelte.
 -->
 <script lang="ts">
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
-	import type { Room } from '$lib/room.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
+	import type { Room } from '#lib/room.svelte.js';
 	import BroughtIn from './BroughtIn.svelte';
 	import OpenReport from './OpenReportTestStandIn.svelte';
 

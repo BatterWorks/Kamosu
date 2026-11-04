@@ -13,10 +13,10 @@
  * where inventing a friendly name would not be.
  */
 
-import { m } from '$lib/paraglide/messages';
-import { aMoment } from '$lib/dates';
-import { appNamed } from '$lib/other-apps';
-import type { ListImportsOutput } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import { aMoment } from '#lib/dates.js';
+import { appNamed } from '#lib/other-apps.js';
+import type { ListImportsOutput } from '#lib/api/catalogue.js';
 
 export type Import = ListImportsOutput['imports'][number];
 export type Arrival = Import['arrivals'][number];

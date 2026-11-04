@@ -3,9 +3,9 @@
  * (#463), written apart from the screen so its tests read it without one.
  */
 
-import { m } from '$lib/paraglide/messages';
-import { byDay as byDayOf, type Day } from '$lib/dates';
-import type { ListAgentJobsOutput } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import { byDay as byDayOf, type Day } from '#lib/dates.js';
+import type { ListAgentJobsOutput } from '#lib/api/catalogue.js';
 
 export type Sent = ListAgentJobsOutput['jobs'][number];
 

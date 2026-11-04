@@ -35,9 +35,9 @@
 	unsaved tray, no *save* and no *this will make a new version*.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Cover from '$lib/cover/Cover.svelte';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Cover from '#lib/cover/Cover.svelte';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
 	import { fallbackLanguage } from '../matched';
 	import RelatedSheet, { type Related } from './RelatedSheet.svelte';
 

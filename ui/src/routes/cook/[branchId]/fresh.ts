@@ -7,7 +7,7 @@
  * the same fresh cooking on a second device asks there too, which is right:
  * nobody has answered yet.
  */
-import type { StartAttemptOutput } from '$lib/api/catalogue';
+import type { StartAttemptOutput } from '#lib/api/catalogue.js';
 
 export function fresh(cooking: StartAttemptOutput): boolean {
 	return (

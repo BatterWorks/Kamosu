@@ -7,5 +7,5 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 
-	onMount(() => void goto('/settings/about', { replaceState: true }));
+	onMount(() => void goto('/settings/about', { replace: true }));
 </script>

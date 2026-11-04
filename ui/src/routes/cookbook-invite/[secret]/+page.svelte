@@ -25,13 +25,13 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { joinedNames } from '$lib/cookbook';
-	import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
-	import type { ReadCookbookInviteOutput } from '$lib/api/catalogue';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { joinedNames } from '#lib/cookbook.js';
+	import { heardWhetherSignedIn } from '#lib/shell/signing-in.svelte.js';
+	import type { ReadCookbookInviteOutput } from '#lib/api/catalogue.js';
 	import Account from '../../Account.svelte';
 	import type { PageProps } from './$types';
 

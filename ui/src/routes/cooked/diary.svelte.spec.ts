@@ -21,7 +21,7 @@ import Cooked from './+page.svelte';
 import { keepingForTests, renderScreen } from '../../testing/render';
 import { MY_KITCHENS, PROMOTED, recipeAnswer } from '../../testing/recipes';
 import { carrying } from '../../testing/drops';
-import { m } from '$lib/paraglide/messages';
+import { m } from '#lib/paraglide/messages.js';
 
 /**
  * One Attempt as `edit_attempt` answers it — with everything the Catalogue

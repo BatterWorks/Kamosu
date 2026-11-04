@@ -6,22 +6,22 @@
 	say a Runner is there after its Key was revoked, or silent while it works.
 -->
 <script lang="ts">
-	import Refusal from '$lib/Refusal.svelte';
-	import { howLongAgo } from '$lib/dates';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Section from '$lib/shell/Section.svelte';
-	import Confirm from '$lib/Confirm.svelte';
-	import RunnerKeySecret from '$lib/operator/RunnerKeySecret.svelte';
-	import HouseNotes from '$lib/operator/HouseNotes.svelte';
-	import { firstLine, savedLine } from '$lib/operator/house-notes';
-	import { Acting } from '$lib/operator/acting.svelte';
+	import Refusal from '#lib/Refusal.svelte';
+	import { howLongAgo } from '#lib/dates.js';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Section from '#lib/shell/Section.svelte';
+	import Confirm from '#lib/Confirm.svelte';
+	import RunnerKeySecret from '#lib/operator/RunnerKeySecret.svelte';
+	import HouseNotes from '#lib/operator/HouseNotes.svelte';
+	import { firstLine, savedLine } from '#lib/operator/house-notes.js';
+	import { Acting } from '#lib/operator/acting.svelte.js';
 	import type {
 		GetHouseNotesOutput,
 		ListRunnerKeysOutput,
 		RunnerStatusOutput,
-	} from '$lib/api/catalogue';
+	} from '#lib/api/catalogue.js';
 	import OperatorOnly from '../OperatorOnly.svelte';
 
 	const kamosu = useKamosu();

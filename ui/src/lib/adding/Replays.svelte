@@ -6,7 +6,7 @@
 	handed over: the card, the magazine page, the top of the blog post, a frame
 	of the video.
 
-	Picking one opens its Import Report as a Replay (`$lib/agent/replay`):
+	Picking one opens its Import Report as a Replay (`#lib/agent/replay.js`):
 	Sent, Waiting and Reading in a few seconds, then the Report as the agent
 	left it. Nothing is written, so every visitor picks from the same four.
 
@@ -15,10 +15,10 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { replayAddress } from '$lib/agent/replay';
-	import type { ListReplaysOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { replayAddress } from '#lib/agent/replay.js';
+	import type { ListReplaysOutput } from '#lib/api/catalogue.js';
 	import type { Adding } from './adding.svelte';
 
 	interface Props {

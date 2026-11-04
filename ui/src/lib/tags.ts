@@ -16,13 +16,13 @@
  * Language and their recipes in another, and those are two separate settings.
  */
 
-import { m } from '$lib/paraglide/messages';
-import { languageName, WRITTEN_LANGUAGES } from '$lib/language';
+import { m } from '#lib/paraglide/messages.js';
+import { languageName, WRITTEN_LANGUAGES } from '#lib/language.js';
 import type {
 	GetReadingPreferencesOutput,
 	ListTagsOutput,
 	RenameTagInput,
-} from '$lib/api/catalogue';
+} from '#lib/api/catalogue.js';
 
 /** The Languages a Person reads Kamosu in, as the Catalogue declares them. */
 export type ReadingLanguage = GetReadingPreferencesOutput['reading_language'];

@@ -19,13 +19,13 @@
 	far a fill asked for there has got.
 -->
 <script lang="ts">
-	import { useRoom } from '$lib/room.svelte';
-	import { signingIn } from '$lib/shell/signing-in.svelte';
-	import { aDate } from '$lib/dates';
+	import { useRoom } from '#lib/room.svelte.js';
+	import { signingIn } from '#lib/shell/signing-in.svelte.js';
+	import { aDate } from '#lib/dates.js';
 	import { untrack } from 'svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { demo, learnWhetherADemo } from '$lib/demo.svelte';
-	import { m } from '$lib/paraglide/messages';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { demo, learnWhetherADemo } from '#lib/demo.svelte.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import Notice from './Notice.svelte';
 	import InstallSteps from './InstallSteps.svelte';
 	import { Online, install, onNetworkChange, thisDevice, type Device } from './device.svelte';

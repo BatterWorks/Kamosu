@@ -8,17 +8,17 @@
 	choice before anybody presses anything.
 -->
 <script lang="ts">
-	import { aMoment } from '$lib/dates';
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Section from '$lib/shell/Section.svelte';
-	import Confirm from '$lib/Confirm.svelte';
-	import OneTimeSecret from '$lib/OneTimeSecret.svelte';
-	import { asksWhetherAdministering } from '$lib/operator/administering';
-	import type { ListAccessKeysOutput } from '$lib/api/catalogue';
+	import { aMoment } from '#lib/dates.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Section from '#lib/shell/Section.svelte';
+	import Confirm from '#lib/Confirm.svelte';
+	import OneTimeSecret from '#lib/OneTimeSecret.svelte';
+	import { asksWhetherAdministering } from '#lib/operator/administering.js';
+	import type { ListAccessKeysOutput } from '#lib/api/catalogue.js';
 
 	const kamosu = useKamosu();
 

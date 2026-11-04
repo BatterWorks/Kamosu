@@ -35,21 +35,32 @@
 	reaches each source's heading and one row.
 -->
 <script lang="ts">
-	import { aDate } from '$lib/dates';
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
+	import { aDate } from '#lib/dates.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
 	import { untrack } from 'svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { useRoom } from '$lib/room.svelte';
-	import { openInPlace, stepInList, typingInAField } from '$lib/shell/walk';
-	import { OperationError } from '$lib/api/client';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Section from '$lib/shell/Section.svelte';
-	import Empty from '$lib/shell/Empty.svelte';
-	import { sourceName, sourceSummary, whatHappened, whenArrived, type Import } from '$lib/imports';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { useRoom } from '#lib/room.svelte.js';
+	import {
+		openClickedRowsAtTheTop,
+		openInPlace,
+		stepInList,
+		typingInAField,
+	} from '#lib/shell/walk.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Section from '#lib/shell/Section.svelte';
+	import Empty from '#lib/shell/Empty.svelte';
+	import {
+		sourceName,
+		sourceSummary,
+		whatHappened,
+		whenArrived,
+		type Import,
+	} from '#lib/imports.js';
 	import { useEnded } from './ended.svelte';
-	import AgentTag from '$lib/agent/AgentTag.svelte';
-	import { EVERY_MS, arrivalWorking } from '$lib/agent/agent';
+	import AgentTag from '#lib/agent/AgentTag.svelte';
+	import { EVERY_MS, arrivalWorking } from '#lib/agent/agent.js';
 
 	interface Props {
 		/** The import whose Report is open beside this list, on the wide layout. */
@@ -64,6 +75,7 @@
 	let { open, every = EVERY_MS }: Props = $props();
 
 	const kamosu = useKamosu();
+	openClickedRowsAtTheTop();
 	const room = useRoom();
 	const ended = useEnded();
 
@@ -209,7 +221,7 @@
 							<li>
 								<a
 									href={addressOf(arrival.job_id)}
-									data-sveltekit-keepfocus
+									data-sveltekit-reset="false"
 									aria-current={arrival.job_id === open ? 'page' : undefined}
 									tabindex={arrival.job_id === tabStop ? 0 : -1}
 									class={[

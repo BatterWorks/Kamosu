@@ -7,9 +7,9 @@
 	`OneTimeSecret`, so each new key starts at "Copy" by being a new sheet.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { copyText } from '$lib/clipboard';
-	import SheetFrame from '$lib/SheetFrame.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { copyText } from '#lib/clipboard.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
 
 	let { name, secret, ondone }: { name: string; secret: string; ondone: () => void } = $props();
 

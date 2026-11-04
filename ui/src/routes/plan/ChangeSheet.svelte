@@ -18,17 +18,17 @@
 	next send would do now (#488).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import HowMuch from '$lib/HowMuch.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { GetMealPlanOutput } from '$lib/api/catalogue';
-	import { aPlannedDay } from '$lib/dates';
-	import { said, type Wanted } from '$lib/how-much';
-	import { mealName, weekLabel } from '$lib/plan-where';
-	import { today } from '$lib/plan-days';
-	import { TICK, amountOf, sentOf } from '$lib/plan-sent';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import HowMuch from '#lib/HowMuch.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { GetMealPlanOutput } from '#lib/api/catalogue.js';
+	import { aPlannedDay } from '#lib/dates.js';
+	import { said, type Wanted } from '#lib/how-much.js';
+	import { mealName, weekLabel } from '#lib/plan-where.js';
+	import { today } from '#lib/plan-days.js';
+	import { TICK, amountOf, sentOf } from '#lib/plan-sent.js';
 
 	type Meal = GetMealPlanOutput['planned_meals'][number];
 

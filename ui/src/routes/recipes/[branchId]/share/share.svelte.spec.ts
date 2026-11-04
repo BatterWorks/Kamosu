@@ -7,8 +7,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { tick, type ComponentProps } from 'svelte';
-import { realFiles } from '$lib/api/files';
-import { standIn, type Answers } from '$lib/api/stand-in';
+import { realFiles } from '#lib/api/files.js';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
 import ShareTestHarness from './ShareTestHarness.svelte';
 
 /**
@@ -306,7 +306,7 @@ describe('the share screen', () => {
 	});
 	it('keeps the file where it is offline, saying what it waits for', async () => {
 		// `export_bundle` is answered straight through and never kept on the
-		// phone (`$lib/offline/reads`), so off the network there is nothing to
+		// phone (`#lib/offline/reads.js`), so off the network there is nothing to
 		// describe the file with. The block stays put and greys rather than
 		// vanishing from under the reader (#76, option C).
 		Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });

@@ -14,10 +14,10 @@
  * `/imports`, since each is a list with what is open beside it (#199).
  */
 
-import { m } from '$lib/paraglide/messages';
-import { KEPT_FOR_DAYS } from '$lib/security-record';
-import { appsInBrief } from '$lib/other-apps';
-import { demo } from '$lib/demo.svelte';
+import { m } from '#lib/paraglide/messages.js';
+import { KEPT_FOR_DAYS } from '#lib/security-record.js';
+import { appsInBrief } from '#lib/other-apps.js';
+import { demo } from '#lib/demo.svelte.js';
 
 export interface PageEntry {
 	href: string;

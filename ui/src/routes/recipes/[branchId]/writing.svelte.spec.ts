@@ -18,14 +18,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetRecipeOutput } from '$lib/api/catalogue';
-import type { Whose } from '$lib/cookbook';
-import type { Room } from '$lib/room.svelte';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { GetRecipeOutput } from '#lib/api/catalogue.js';
+import type { Whose } from '#lib/cookbook.js';
+import type { Room } from '#lib/room.svelte.js';
 import WritingTestHarness from './WritingTestHarness.svelte';
 import { recipeAnswer, writtenByMe } from '../../../testing/recipes';
 import { carrying } from '../../../testing/drops';
-import { m } from '$lib/paraglide/messages';
+import { m } from '#lib/paraglide/messages.js';
 
 type Content = GetRecipeOutput['versions'][number]['content'];
 

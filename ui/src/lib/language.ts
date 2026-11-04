@@ -25,8 +25,8 @@
  * Languages can neither be a Translation nor have one.
  */
 
-import { m } from '$lib/paraglide/messages';
-import type { SetRecipeLanguageInput, StartTranslationInput } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import type { SetRecipeLanguageInput, StartTranslationInput } from '#lib/api/catalogue.js';
 
 /** The Languages a recipe can be written in — what a Translation may render into. */
 export type WrittenLanguage = StartTranslationInput['language'];

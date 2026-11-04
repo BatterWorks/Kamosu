@@ -21,11 +21,11 @@
 	the count is the household's, never the reader's.
 -->
 <script lang="ts">
-	import { aDate } from '$lib/dates';
+	import { aDate } from '#lib/dates.js';
 	import type { Snippet } from 'svelte';
-	import { m } from '$lib/paraglide/messages';
-	import type { GetRecipeOutput } from '$lib/api/catalogue';
-	import { ratingLabel } from '$lib/rating';
+	import { m } from '#lib/paraglide/messages.js';
+	import type { GetRecipeOutput } from '#lib/api/catalogue.js';
+	import { ratingLabel } from '#lib/rating.js';
 
 	interface Props {
 		cooked: GetRecipeOutput['cooked'];

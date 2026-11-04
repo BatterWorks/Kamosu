@@ -41,16 +41,21 @@
 	row.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
 	import { untrack } from 'svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { useRoom } from '$lib/room.svelte';
-	import { openInPlace, stepInList, typingInAField } from '$lib/shell/walk';
-	import { OperationError } from '$lib/api/client';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Empty from '$lib/shell/Empty.svelte';
-	import { foldWord, linesPointingAt, type FoodRow } from '$lib/foods';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { useRoom } from '#lib/room.svelte.js';
+	import {
+		openClickedRowsAtTheTop,
+		openInPlace,
+		stepInList,
+		typingInAField,
+	} from '#lib/shell/walk.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Empty from '#lib/shell/Empty.svelte';
+	import { foldWord, linesPointingAt, type FoodRow } from '#lib/foods.js';
 	import { useCorrected } from './corrected.svelte';
 
 	interface Props {
@@ -63,6 +68,7 @@
 	let { q = '', open }: Props = $props();
 
 	const kamosu = useKamosu();
+	openClickedRowsAtTheTop();
 	const room = useRoom();
 	const corrected = useCorrected();
 
@@ -224,7 +230,7 @@
 					{#if room.wide}
 						<a
 							href={addressOf(food.id)}
-							data-sveltekit-keepfocus
+							data-sveltekit-reset="false"
 							aria-current={food.id === open ? 'page' : undefined}
 							tabindex={food.id === tabStop ? 0 : -1}
 							class={[

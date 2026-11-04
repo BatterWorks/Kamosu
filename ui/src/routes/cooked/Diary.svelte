@@ -15,26 +15,26 @@
 	nothing to say about whose diary it is: it is yours, and there is no other.
 -->
 <script lang="ts">
-	import { aMonth } from '$lib/dates';
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { ratingLabel } from '$lib/rating';
-	import type { ListAttemptsOutput, PromoteAsCookedOutput } from '$lib/api/catalogue';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Empty from '$lib/shell/Empty.svelte';
-	import { rereads } from '$lib/offline/device.svelte';
-	import { useKeeping } from '$lib/offline/outbox';
-	import { photographCooking, pickedFile } from '$lib/offline/photograph';
-	import { FilePlace, isPicture } from '$lib/drop.svelte';
-	import { DRAWN } from '$lib/drop-drawings';
-	import DropHere from '$lib/DropHere.svelte';
-	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
-	import { said } from '$lib/how-much';
-	import { cookingDay } from '$lib/cooking-day';
-	import { onlyOnThisPhone } from '$lib/offline/outbox';
-	import PhotoToRecipe from '$lib/PhotoToRecipe.svelte';
+	import { aMonth } from '#lib/dates.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { ratingLabel } from '#lib/rating.js';
+	import type { ListAttemptsOutput, PromoteAsCookedOutput } from '#lib/api/catalogue.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Empty from '#lib/shell/Empty.svelte';
+	import { rereads } from '#lib/offline/device.svelte.js';
+	import { useKeeping } from '#lib/offline/outbox.js';
+	import { photographCooking, pickedFile } from '#lib/offline/photograph.js';
+	import { FilePlace, isPicture } from '#lib/drop.svelte.js';
+	import { DRAWN } from '#lib/drop-drawings.js';
+	import DropHere from '#lib/DropHere.svelte';
+	import AttemptPhoto from '#lib/offline/AttemptPhoto.svelte';
+	import { said } from '#lib/how-much.js';
+	import { cookingDay } from '#lib/cooking-day.js';
+	import { onlyOnThisPhone } from '#lib/offline/outbox.js';
+	import PhotoToRecipe from '#lib/PhotoToRecipe.svelte';
 	import KeepCooking from './KeepCooking.svelte';
 
 	const kamosu = useKamosu();

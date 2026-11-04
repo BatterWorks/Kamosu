@@ -6,9 +6,9 @@
 -->
 <script lang="ts">
 	import type { Component } from 'svelte';
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import type { AuthClient } from '$lib/auth';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import type { AuthClient } from '#lib/auth.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	// Either route's: the two are handed the same thing.
 	import type { PageProps } from './invite/[secret]/$types';
 

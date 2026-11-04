@@ -12,9 +12,9 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import { m } from '$lib/paraglide/messages';
-import type { ListImportsOutput } from '$lib/api/catalogue';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import { m } from '#lib/paraglide/messages.js';
+import type { ListImportsOutput } from '#lib/api/catalogue.js';
 import SourceTestHarness from './SourceTestHarness.svelte';
 
 type Import = ListImportsOutput['imports'][number];

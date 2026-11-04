@@ -6,7 +6,7 @@
 	Square, at `--photo-thumb`, which says why it is the size it is.
 -->
 <script lang="ts">
-	import { useKeeping } from '$lib/offline/outbox';
+	import { useKeeping } from '#lib/offline/outbox.js';
 
 	interface Props {
 		id: string;

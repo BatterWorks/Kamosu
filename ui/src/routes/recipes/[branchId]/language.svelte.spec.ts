@@ -23,9 +23,9 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetRecipeOutput } from '$lib/api/catalogue';
-import type { BranchLanguage, WrittenLanguage } from '$lib/language';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { GetRecipeOutput } from '#lib/api/catalogue.js';
+import type { BranchLanguage, WrittenLanguage } from '#lib/language.js';
 import LanguageTestHarness from './LanguageTestHarness.svelte';
 
 type Translation = GetRecipeOutput['translation'];

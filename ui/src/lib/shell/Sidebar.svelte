@@ -25,7 +25,7 @@
 	and the current place stays as it is.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import PlaceLink from './PlaceLink.svelte';
 	import { isCurrent, places, settings } from './places';
 

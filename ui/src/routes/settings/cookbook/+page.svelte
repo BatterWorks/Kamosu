@@ -4,16 +4,16 @@
 	see the recipes, are a page of their own beside this.
 -->
 <script lang="ts">
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Confirm from '$lib/Confirm.svelte';
-	import CookbookJoins from '$lib/CookbookJoins.svelte';
-	import { copyText } from '$lib/clipboard';
-	import { cookbookPlainName, cookbookWhose } from '$lib/cookbook';
-	import type { GetCookbookOutput, GetPersonOutput } from '$lib/api/catalogue';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Confirm from '#lib/Confirm.svelte';
+	import CookbookJoins from '#lib/CookbookJoins.svelte';
+	import { copyText } from '#lib/clipboard.js';
+	import { cookbookPlainName, cookbookWhose } from '#lib/cookbook.js';
+	import type { GetCookbookOutput, GetPersonOutput } from '#lib/api/catalogue.js';
 
 	const kamosu = useKamosu();
 

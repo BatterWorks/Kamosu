@@ -15,10 +15,10 @@
 	of a Job that ended asking opens it too, for a cook who went there.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { ICON } from '$lib/adding/sources';
-	import type { ImportFromAnotherAppOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { ICON } from '#lib/adding/sources.js';
+	import type { ImportFromAnotherAppOutput } from '#lib/api/catalogue.js';
 
 	type Households = NonNullable<ImportFromAnotherAppOutput['which_household']>['households'];
 

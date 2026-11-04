@@ -11,22 +11,22 @@
  * wrong.
  */
 
-import { aDate } from '$lib/dates';
-import { addDays, mondayOf, today } from '$lib/plan-days';
-import { m } from '$lib/paraglide/messages';
+import { aDate } from '#lib/dates.js';
+import { addDays, mondayOf, today } from '#lib/plan-days.js';
+import { m } from '#lib/paraglide/messages.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import { tick, type ComponentProps } from 'svelte';
 import userEvent from '@testing-library/user-event';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import { realFiles } from '$lib/api/files';
-import { OperationError } from '$lib/api/client';
-import type { DivergenceOutput, GetRecipeOutput } from '$lib/api/catalogue';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import { realFiles } from '#lib/api/files.js';
+import { OperationError } from '#lib/api/client.js';
+import type { DivergenceOutput, GetRecipeOutput } from '#lib/api/catalogue.js';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
 import { went } from '../../../testing/navigation';
 import { outlivingTheWait, withTheClockFaked } from '../../../testing/jobs';
 import { cookbookLabel, threadBranch, writtenByMe } from '../../../testing/recipes';
-import { holdPaste, takePaste } from '$lib/pasted.svelte';
+import { holdPaste, takePaste } from '#lib/pasted.svelte.js';
 
 // Deleting ends by going back to the shelf, because there is nothing left to
 // stand on. Where that goes is the router's business, not this screen's, so
@@ -3037,7 +3037,7 @@ describe('deleting a recipe', () => {
 
 		const asked = kamosu.calls.find((call) => call.operation === 'delete_recipe');
 		expect(asked?.input).toEqual({ branch_id: 'mine' });
-		expect(went).toHaveBeenCalledWith('/recipes', { replaceState: true });
+		expect(went).toHaveBeenCalledWith('/recipes', { replace: true });
 	});
 
 	it('says what came back when Kamosu refuses, and stays where it is', async () => {
@@ -3055,7 +3055,7 @@ describe('deleting a recipe', () => {
 
 		expect(await screen.findByRole('alert')).toHaveTextContent('no such Branch');
 		expect(screen.getByRole('dialog')).toBeInTheDocument();
-		expect(went).not.toHaveBeenCalledWith('/recipes', { replaceState: true });
+		expect(went).not.toHaveBeenCalledWith('/recipes', { replace: true });
 		expect(kamosu.calls.some((call) => call.operation === 'delete_recipe')).toBe(true);
 	});
 });

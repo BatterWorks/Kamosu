@@ -31,11 +31,11 @@
 	English name.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Confirm from '$lib/Confirm.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Confirm from '#lib/Confirm.svelte';
 	import {
 		byWord,
 		tagLanguage,
@@ -43,8 +43,8 @@
 		type ReadingLanguage,
 		type Tag,
 		type TagLanguage,
-	} from '$lib/tags';
-	import { languageName } from '$lib/language';
+	} from '#lib/tags.js';
+	import { languageName } from '#lib/language.js';
 
 	interface Props {
 		/** Your Cookbook, named as Settings names it: the card's heading. */

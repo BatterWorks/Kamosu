@@ -52,15 +52,15 @@
 	names.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { useRoom } from '$lib/room.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { useRoom } from '#lib/room.svelte.js';
 	import { useCorrected } from '../corrected.svelte';
-	import { OperationError } from '$lib/api/client';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Section from '$lib/shell/Section.svelte';
-	import { languageName } from '$lib/language';
+	import { OperationError } from '#lib/api/client.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Section from '#lib/shell/Section.svelte';
+	import { languageName } from '#lib/language.js';
 	import {
 		cupWeightBox,
 		linesPointingAt,
@@ -68,7 +68,7 @@
 		namesIn,
 		type Food,
 		type NameLanguage,
-	} from '$lib/foods';
+	} from '#lib/foods.js';
 
 	interface Props {
 		foodId: string;

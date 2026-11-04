@@ -7,18 +7,18 @@
 	the menu at `/settings`.
 -->
 <script lang="ts">
-	import { aDate, aMoment } from '$lib/dates';
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Section from '$lib/shell/Section.svelte';
-	import { Online } from '$lib/offline/device.svelte';
+	import { aDate, aMoment } from '#lib/dates.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Section from '#lib/shell/Section.svelte';
+	import { Online } from '#lib/offline/device.svelte.js';
 	import Passkeys from './Passkeys.svelte';
 	import ChangePassword from './ChangePassword.svelte';
 	import SignOut from './SignOut.svelte';
-	import type { ChangePasswordOutput, ListSessionsOutput } from '$lib/api/catalogue';
+	import type { ChangePasswordOutput, ListSessionsOutput } from '#lib/api/catalogue.js';
 
 	const kamosu = useKamosu();
 

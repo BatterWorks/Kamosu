@@ -11,10 +11,10 @@
 	second screen — and offers to carry the line across into your recipe.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import StepPhoto from '$lib/StepPhoto.svelte';
-	import StepWords from '$lib/StepWords.svelte';
-	import type { StepConversions } from '$lib/step-conversions';
+	import { m } from '#lib/paraglide/messages.js';
+	import StepPhoto from '#lib/StepPhoto.svelte';
+	import StepWords from '#lib/StepWords.svelte';
+	import type { StepConversions } from '#lib/step-conversions.js';
 	import {
 		see,
 		between,

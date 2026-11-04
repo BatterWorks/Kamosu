@@ -15,6 +15,8 @@
  * anything else is text: `add_this` decides what each is and what to say.
  */
 
+import type { ReadonlyURLSearchParams } from '$app/state';
+
 /** Where Android sends a share, and where the page that answers it is. */
 export const SHARED_PATH = '/shared';
 
@@ -47,7 +49,7 @@ export async function keepAnswer(caches: CacheStorage, answer: SharedAnswer): Pr
 /** The answer the page's address names, or none where it names none still kept. */
 export async function readAnswer(
 	caches: CacheStorage,
-	search: URLSearchParams,
+	search: ReadonlyURLSearchParams,
 ): Promise<SharedAnswer | undefined> {
 	const id = search.get('answer');
 	if (!id) return undefined;

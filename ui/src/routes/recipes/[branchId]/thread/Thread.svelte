@@ -12,17 +12,17 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { aDate } from '$lib/dates';
+	import { aDate } from '#lib/dates.js';
 	import type { Snippet } from 'svelte';
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { ratingLabel } from '$lib/rating';
-	import { OperationError } from '$lib/api/client';
-	import Screen from '$lib/shell/Screen.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { ratingLabel } from '#lib/rating.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Screen from '#lib/shell/Screen.svelte';
 	import ThreadGraph from './ThreadGraph.svelte';
 	import { languageSaidAt, type ThreadVersion } from './tree';
-	import type { GetThreadOutput } from '$lib/api/catalogue';
+	import type { GetThreadOutput } from '#lib/api/catalogue.js';
 
 	type Attempt = GetThreadOutput['attempts'][number];
 

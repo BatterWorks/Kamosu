@@ -4,7 +4,7 @@
 	this address opens the first page there (#469), as the prototype showed.
 -->
 <script lang="ts">
-	import { useRoom } from '$lib/room.svelte';
+	import { useRoom } from '#lib/room.svelte.js';
 	import SettingsMenu from './SettingsMenu.svelte';
 	import SigningIn from './SigningIn.svelte';
 

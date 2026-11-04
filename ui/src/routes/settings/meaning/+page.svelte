@@ -7,10 +7,10 @@
 	nothing itself.
 -->
 <script lang="ts">
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { MeaningSearch } from '$lib/meaning.svelte';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { MeaningSearch } from '#lib/meaning.svelte.js';
 	import OperatorOnly from '../OperatorOnly.svelte';
 
 	const kamosu = useKamosu();

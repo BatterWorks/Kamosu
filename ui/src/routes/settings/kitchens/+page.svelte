@@ -10,16 +10,16 @@
 	person pasted into a field here.
 -->
 <script lang="ts">
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Section from '$lib/shell/Section.svelte';
-	import Confirm from '$lib/Confirm.svelte';
-	import { copyText } from '$lib/clipboard';
-	import { cookbookCalled, joinedNames, kitchenName } from '$lib/cookbook';
-	import type { GetPersonOutput, ListKitchensOutput } from '$lib/api/catalogue';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Section from '#lib/shell/Section.svelte';
+	import Confirm from '#lib/Confirm.svelte';
+	import { copyText } from '#lib/clipboard.js';
+	import { cookbookCalled, joinedNames, kitchenName } from '#lib/cookbook.js';
+	import type { GetPersonOutput, ListKitchensOutput } from '#lib/api/catalogue.js';
 
 	const kamosu = useKamosu();
 

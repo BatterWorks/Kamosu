@@ -4,7 +4,7 @@
  * second (#200).
  */
 
-import { goto } from '$app/navigation';
+import { afterNavigate, goto, type AfterNavigate } from '$app/navigation';
 
 /**
  * Whether a key was pressed with the caret somewhere that uses it: a field,
@@ -47,8 +47,26 @@ export function stepInList(
  */
 export async function openInPlace(address: string): Promise<void> {
 	try {
-		await goto(address, { replaceState: true, keepFocus: true, noScroll: true });
+		await goto(address, { replace: true, reset: false });
 	} catch {
 		// Overtaken by the next arrow.
 	}
+}
+
+/**
+ * A row of such a list, clicked, keeps the caret on itself so the arrows walk
+ * on from it, and opens what it leads to at the top of the page. A row's link
+ * says `data-sveltekit-reset="false"` for the first half, which in SvelteKit 3
+ * also keeps the scroll, so this puts the top back after a click, as SvelteKit
+ * 2's `data-sveltekit-keepfocus` did (#525). An arrow, which keeps the scroll
+ * on purpose, is a `goto` and is left alone. Called once by each such list
+ * while it is drawn.
+ */
+export function openClickedRowsAtTheTop(): void {
+	afterNavigate(toTheTopAfterAClick);
+}
+
+/** What `openClickedRowsAtTheTop` does after each navigation. */
+export function toTheTopAfterAClick({ type }: Pick<AfterNavigate, 'type'>): void {
+	if (type === 'link') window.scrollTo(0, 0);
 }

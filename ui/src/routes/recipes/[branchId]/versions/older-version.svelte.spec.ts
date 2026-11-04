@@ -6,8 +6,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { ChangedSinceOutput } from '$lib/api/catalogue';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { ChangedSinceOutput } from '#lib/api/catalogue.js';
 import OlderVersionTestHarness from './OlderVersionTestHarness.svelte';
 import { cookbookLabel, recipeAnswer } from '../../../../testing/recipes';
 

@@ -4,8 +4,8 @@
 	drives it directly rather than through a whole recipe page it is not testing.
 -->
 <script lang="ts">
-	import type { GetRecipeOutput, KamosuClient } from '$lib/api/catalogue';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { GetRecipeOutput, KamosuClient } from '#lib/api/catalogue.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import RelatedRecipes from './RelatedRecipes.svelte';
 
 	interface Props {

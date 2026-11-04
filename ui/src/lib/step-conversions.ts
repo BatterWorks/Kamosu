@@ -14,7 +14,7 @@
  * The text itself is never changed: joining each piece's `text` and `written`
  * gives it back.
  */
-import type { GetRecipeOutput } from '$lib/api/catalogue';
+import type { GetRecipeOutput } from '#lib/api/catalogue.js';
 
 /**
  * A Step's conversions as the Catalogue declares them — its oven and its

@@ -34,15 +34,15 @@
 -->
 <script lang="ts">
 	import { page } from '$app/state';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { GetMealPlanOutput, SendToShoppingListOutput } from '$lib/api/catalogue';
-	import Screen from '$lib/shell/Screen.svelte';
-	import { landedSend, rereads } from '$lib/offline/device.svelte';
-	import { useRoom } from '$lib/room.svelte';
-	import { aPlannedDay, aPlannedWeek, aPlannedWeekday, timeZoneHere } from '$lib/dates';
-	import { isMultiplier, said, toSearch } from '$lib/how-much';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { GetMealPlanOutput, SendToShoppingListOutput } from '#lib/api/catalogue.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import { landedSend, rereads } from '#lib/offline/device.svelte.js';
+	import { useRoom } from '#lib/room.svelte.js';
+	import { aPlannedDay, aPlannedWeek, aPlannedWeekday, timeZoneHere } from '#lib/dates.js';
+	import { isMultiplier, said, toSearch } from '#lib/how-much.js';
 	import {
 		addDays,
 		isDay,
@@ -55,11 +55,11 @@
 		whereOf,
 		type Day,
 		type Where,
-	} from '$lib/plan-days';
-	import { anyDayName, mealName, weekInline, whereName, whereSaid } from '$lib/plan-where';
-	import { TICK, amountOf, countOf, sentOf } from '$lib/plan-sent';
-	import { COOKED_BOWL } from '$lib/shell/places';
-	import { yieldScale } from '$lib/offline/shopping';
+	} from '#lib/plan-days.js';
+	import { anyDayName, mealName, weekInline, whereName, whereSaid } from '#lib/plan-where.js';
+	import { TICK, amountOf, countOf, sentOf } from '#lib/plan-sent.js';
+	import { COOKED_BOWL } from '#lib/shell/places.js';
+	import { yieldScale } from '#lib/offline/shopping.js';
 	import ChangeSheet from './ChangeSheet.svelte';
 	import SendToShopping from './SendToShopping.svelte';
 	import MoveSheet from './MoveSheet.svelte';

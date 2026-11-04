@@ -9,11 +9,11 @@
  * Held beside the recipe screen rather than in the row that shows them, so
  * that writing on the recipe and coming back does not read the diary again.
  */
-import type { KamosuClient } from '$lib/api/catalogue';
-import { OperationError } from '$lib/api/client';
-import { cookingDay } from '$lib/cooking-day';
-import { onlyOnThisPhone } from '$lib/offline/outbox';
-import type { Offered } from '$lib/PhotoToRecipe.svelte';
+import type { KamosuClient } from '#lib/api/catalogue.js';
+import { OperationError } from '#lib/api/client.js';
+import { cookingDay } from '#lib/cooking-day.js';
+import { onlyOnThisPhone } from '#lib/offline/outbox.js';
+import type { Offered } from '#lib/PhotoToRecipe.svelte';
 
 export interface MyPictures {
 	readonly list: Offered[];

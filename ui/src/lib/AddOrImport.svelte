@@ -19,7 +19,7 @@
 	into the search box — it passes it and the field disappears: asking for a
 	word somebody has just finished typing is asking them to type it twice.
 
-	**The acts themselves live in `$lib/adding`**, shared with the + beside the
+	**The acts themselves live in `#lib/adding`**, shared with the + beside the
 	search box (#174), which offers the same three every day. This is only how
 	the dead ends draw them: full-width buttons, since an empty screen should
 	say what to do rather than point at a small button.
@@ -27,14 +27,14 @@
 	Cookbook, always (ADR 0041), so the tap writes it.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import { useAdding } from '$lib/adding/adding.svelte';
-	import AddressForm from '$lib/adding/AddressForm.svelte';
-	import TitleForm from '$lib/adding/TitleForm.svelte';
-	import FilePicker from '$lib/adding/FilePicker.svelte';
-	import Said from '$lib/adding/Said.svelte';
-	import ToCheck from '$lib/adding/ToCheck.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import { useAdding } from '#lib/adding/adding.svelte.js';
+	import AddressForm from '#lib/adding/AddressForm.svelte';
+	import TitleForm from '#lib/adding/TitleForm.svelte';
+	import FilePicker from '#lib/adding/FilePicker.svelte';
+	import Said from '#lib/adding/Said.svelte';
+	import ToCheck from '#lib/adding/ToCheck.svelte';
 
 	interface Props {
 		/**

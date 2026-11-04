@@ -5,8 +5,8 @@
 	left out reads as the recipe has it, struck, because that is what would go.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import type { ChangedLine } from '$lib/as-cooked';
+	import { m } from '#lib/paraglide/messages.js';
+	import type { ChangedLine } from '#lib/as-cooked.js';
 
 	let { lines }: { lines: ChangedLine[] } = $props();
 </script>

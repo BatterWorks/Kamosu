@@ -29,6 +29,13 @@ export default defineConfig({
 			// adapter-static with a fallback: SvelteKit's server half is unused
 			// (ADR 0012). The Rust binary serves `build/` — one artefact, one version.
 			adapter: adapter({ fallback: 'index.html', strict: false }),
+
+			// SvelteKit 3 would ask the server for a new version every hour and
+			// set `updated.current`. Kamosu reads `updated` nowhere: the service
+			// worker already takes up a new build, and the page reloads on its
+			// `controllerchange`. Off, so the interface makes no request it did
+			// not make before (#525).
+			version: { pollInterval: 0 },
 		}),
 
 		// Paraglide compiles every phrase into a function, so a misspelt key is a

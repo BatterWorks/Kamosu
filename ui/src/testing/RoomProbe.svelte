@@ -3,7 +3,7 @@
 	Room's own tests can check what a screen is handed (#193).
 -->
 <script lang="ts">
-	import { useRoom } from '$lib/room.svelte';
+	import { useRoom } from '#lib/room.svelte.js';
 
 	const room = useRoom();
 </script>

@@ -5,8 +5,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { standIn } from '$lib/api/stand-in';
-import type { GetJobOutput, ListImportsOutput } from '$lib/api/catalogue';
+import { standIn } from '#lib/api/stand-in.js';
+import type { GetJobOutput, ListImportsOutput } from '#lib/api/catalogue.js';
 import {
 	READY_MS,
 	WAITING_MS,

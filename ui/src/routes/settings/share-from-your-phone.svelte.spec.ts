@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, screen, within } from '@testing-library/svelte';
 import Share from './ShareFromYourPhone.svelte';
 import { renderScreen } from '../../testing/render';
-import type { Answers } from '$lib/api/stand-in';
+import type { Answers } from '#lib/api/stand-in.js';
 
 /**
  * The page's own component, not the Settings screen around it: the screen is

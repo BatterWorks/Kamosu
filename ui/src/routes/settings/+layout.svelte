@@ -9,7 +9,7 @@
 -->
 <script lang="ts">
 	import { page } from '$app/state';
-	import { useRoom } from '$lib/room.svelte';
+	import { useRoom } from '#lib/room.svelte.js';
 	import SettingsMenu from './SettingsMenu.svelte';
 	import { FIRST_PAGE } from './pages';
 

@@ -23,10 +23,10 @@
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useRoom } from '$lib/room.svelte';
-	import { provideKamosu, useKamosu } from '$lib/kamosu';
-	import { REPLAY_EVERY, replayingClient, type Replaying } from '$lib/agent/replay';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useRoom } from '#lib/room.svelte.js';
+	import { provideKamosu, useKamosu } from '#lib/kamosu.js';
+	import { REPLAY_EVERY, replayingClient, type Replaying } from '#lib/agent/replay.js';
 	import { provideEnded } from './ended.svelte';
 	import Imports from './Imports.svelte';
 

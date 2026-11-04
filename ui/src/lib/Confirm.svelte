@@ -26,9 +26,9 @@
 	and the sentence above it is doing the real work.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import SheetFrame from '$lib/SheetFrame.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import SheetFrame from '#lib/SheetFrame.svelte';
 	import type { Snippet } from 'svelte';
 
 	interface Props {

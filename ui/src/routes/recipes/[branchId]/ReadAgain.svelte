@@ -22,16 +22,16 @@
 	Offline, every button says what it waits for, as the other acts do.
 -->
 <script lang="ts">
-	import { MOST_PAGES } from '$lib/adding/adding.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { useUpload } from '$lib/api/upload';
-	import { OperationError } from '$lib/api/client';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import { Online } from '$lib/offline/device.svelte';
-	import { ICON } from '$lib/adding/sources';
-	import type { CanReadRecipeAgainOutput } from '$lib/api/catalogue';
+	import { MOST_PAGES } from '#lib/adding/adding.svelte.js';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { useUpload } from '#lib/api/upload.js';
+	import { OperationError } from '#lib/api/client.js';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import { Online } from '#lib/offline/device.svelte.js';
+	import { ICON } from '#lib/adding/sources.js';
+	import type { CanReadRecipeAgainOutput } from '#lib/api/catalogue.js';
 
 	interface Props {
 		branchId: string;

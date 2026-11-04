@@ -41,9 +41,9 @@
 	things that change the recipe. This is a line of the recipe's own facts.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { isUnknown, languageName } from '$lib/language';
-	import type { GetRecipeOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import { isUnknown, languageName } from '#lib/language.js';
+	import type { GetRecipeOutput } from '#lib/api/catalogue.js';
 
 	/** One other Branch of this Lineage, as the Thread lists it. */
 	export interface OtherBranch {

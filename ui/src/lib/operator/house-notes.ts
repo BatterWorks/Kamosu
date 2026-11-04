@@ -3,9 +3,9 @@
  * say them (#344).
  */
 
-import type { GetHouseNotesOutput } from '$lib/api/catalogue';
-import { howLongAgo } from '$lib/dates';
-import { m } from '$lib/paraglide/messages';
+import type { GetHouseNotesOutput } from '#lib/api/catalogue.js';
+import { howLongAgo } from '#lib/dates.js';
+import { m } from '#lib/paraglide/messages.js';
 
 /** Who saved the notes last and when, or the empty string if nobody has. */
 export function savedLine(notes: GetHouseNotesOutput): string {

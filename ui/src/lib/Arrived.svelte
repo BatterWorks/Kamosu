@@ -26,9 +26,9 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { m } from '$lib/paraglide/messages';
-	import Notice from '$lib/offline/Notice.svelte';
-	import { forgetArrival, theArrival } from '$lib/arrival.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Notice from '#lib/offline/Notice.svelte';
+	import { forgetArrival, theArrival } from '#lib/arrival.svelte.js';
 
 	interface Props {
 		/**
