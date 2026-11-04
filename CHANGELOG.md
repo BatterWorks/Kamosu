@@ -21,6 +21,7 @@
 - A library of one recipe is "1 recipe", not "1 recipes", in all three languages, and so are the few other lines that counted one in the plural. [#533]
 - Opening the report of something that brought nothing in, such as a Backup, says so instead of showing a bare error page. [#533]
 - A cook's Settings no longer asks the instance anything only an Operator may ask, so it is never refused. [#533]
+- At the MCP Door, a key that acts as no Operator is no longer offered the Operator's tools it would only be refused, a wrong or revoked key is refused when its client first lists the tools instead of at its first call, and a request that is not JSON is answered as a JSON-RPC parse error instead of plain text. [#534]
 
 [#464]: https://github.com/BatterWorks/Kamosu/issues/464
 [#486]: https://github.com/BatterWorks/Kamosu/issues/486
@@ -33,6 +34,7 @@
 [#495]: https://github.com/BatterWorks/Kamosu/issues/495
 [#524]: https://github.com/BatterWorks/Kamosu/issues/524
 [#533]: https://github.com/BatterWorks/Kamosu/issues/533
+[#534]: https://github.com/BatterWorks/Kamosu/issues/534
 
 ## v0.5.0 - 2026-10-29
 

@@ -24,6 +24,7 @@
 
 use std::sync::Arc;
 
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::{self, Next};
@@ -83,14 +84,22 @@ async fn refuse_any_origin(request: Request, next: Next) -> Response {
 async fn handle(
     State(core): State<Arc<Core>>,
     headers: HeaderMap,
-    body: Option<Json<Value>>,
+    body: Result<Json<Value>, JsonRejection>,
 ) -> Response {
+    // A body that is not JSON is a JSON-RPC parse error, never the extractor's
+    // own plain-text refusal (#534). Nothing was read, so it names no id.
     let request = match body {
-        Some(Json(value)) => value,
-        None => {
+        Ok(Json(value)) => value,
+        Err(JsonRejection::MissingJsonContentType(_)) => {
             return json_rpc_error_response(
                 None,
                 json_rpc_error(-32700, "Parse error: a JSON-RPC request body is required"),
+            );
+        }
+        Err(rejection) => {
+            return json_rpc_error_response(
+                None,
+                json_rpc_error(-32700, format!("Parse error: {}", rejection.body_text())),
             );
         }
     };
@@ -137,7 +146,13 @@ async fn handle(
     let result = match method.as_str() {
         // Needs no Credential: nothing it says depends on who is asking.
         "server/discover" => Ok(server_discover()),
-        "tools/list" => Ok(tools_list(&core, &headers)),
+        "tools/list" => match tools_list(&core, &headers) {
+            Ok(listing) => Ok(listing),
+            // The one refusal answered with HTTP's own status: a Secret that
+            // names nobody, so a client shows the key is wrong as it connects
+            // rather than at its first call (#534).
+            Err(refused) => return send_error(StatusCode::UNAUTHORIZED, id, refused),
+        },
         "tools/call" => tools_call(&core, &headers, request.get("params")),
         "tasks/get" => tasks_get(&core, &headers, request.get("params")),
         "tasks/update" => tasks_update(&core, &headers, request.get("params")),
@@ -469,12 +484,20 @@ fn left_out_line(count: usize) -> String {
 /// a read-only Access Key's writes are still absent from it (ADR 0031), and a
 /// Runner Key is shown the Runner's own Operations and no other (ADR 0048),
 /// as a Job Key is shown the ones marked for it.
+/// A Credential naming no Operator is shown none of an Operator's (#534).
 /// The Core says which, from the same declarations `Core::execute` refuses
 /// by, so the two can never disagree about which Operations those are.
-fn tools_list(core: &Core, headers: &HeaderMap) -> Value {
+///
+/// No Secret is listed as a full Credential is. A Secret that names nobody is
+/// refused, `-32600` with the Core's sentence; the caller answers it 401.
+fn tools_list(core: &Core, headers: &HeaderMap) -> Result<Value, Value> {
     let secret = web_door::bearer_from_headers(headers);
-    let tools: Vec<Value> = core
+    let listed = core
         .operations_listed_to(secret.as_deref())
+        .map_err(|refused| {
+            json_rpc_error(-32600, format!("Invalid Request: {}", refused.to_sentence()))
+        })?;
+    let tools: Vec<Value> = listed
         .into_iter()
         .map(|op| {
             // A Job's description says what to call after asking. The answer's
@@ -488,14 +511,14 @@ fn tools_list(core: &Core, headers: &HeaderMap) -> Value {
             })
         })
         .collect();
-    json!({
+    Ok(json!({
         "resultType": "complete",
         "tools": tools,
         "ttlMs": LISTING_TTL_MS,
         // What a read-only Access Key, a Runner Key or a Job Key is shown
         // differs from the rest.
         "cacheScope": "private",
-    })
+    }))
 }
 
 fn tools_call(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Result<Value, Value> {
