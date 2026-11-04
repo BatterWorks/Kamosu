@@ -30268,6 +30268,112 @@ async fn a_component_travels_as_a_passenger_without_its_own_visibility_changing(
     );
 }
 
+/// The Share Link page keeps level with the recipe page (#521): a shared
+/// variation carries its name at both Doors and on the page, and a Step's
+/// photograph, the recipe's own or a Component's in the annexe, is a square
+/// whose picture the token serves.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shared_variation_carries_its_name_and_its_steps_photographs() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let kneaded = upload_a_picture(&app, &key, 31);
+    let stretched = upload_a_picture(&app, &key, 32);
+    let floured = upload_a_picture(&app, &key, 33);
+    let (dough, dough_lineage) = recipe_with(
+        &app,
+        &key,
+        "Neapolitan Pizza Dough",
+        Some(("1", "kg")),
+        json!([{ "kind": "ingredient", "text": "600 g tipo 00 flour" }]),
+        json!([{ "kind": "step", "text": "Knead for ten minutes.", "photo": kneaded }]),
+    );
+    let (pizza, _) = recipe_with(
+        &app,
+        &key,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([{ "kind": "ingredient", "text": "Dough for 2 pizzas" }]),
+        json!([
+            { "kind": "step", "text": "Stretch the dough.", "photo": stretched },
+            { "kind": "step", "text": "Top and bake.", "photo": null },
+        ]),
+    );
+    // The dough's own Main Photo is drawn nowhere on the pizza's page.
+    let (status, photographed) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": dough, "main_photo": floured }).to_string(),
+    );
+    assert_eq!(status, 200, "{photographed}");
+    make_component(
+        &app,
+        &key,
+        &pizza,
+        0,
+        Some("500"),
+        Some("g"),
+        &dough_lineage,
+    );
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": pizza, "name": "Bianca" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let bianca = varied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // An unnamed Branch's share answers no name, and its page sets none.
+    let (plain_token, _url) = share(&app, &key, &pizza);
+    let (status, plain) = app.post_op(
+        "read_shared_recipe",
+        None,
+        &json!({ "token": plain_token }).to_string(),
+    );
+    assert_eq!(status, 200, "{plain}");
+    assert_eq!(plain["result"]["recipe"]["name"], Value::Null, "{plain}");
+    let (_status, _type, plain_page) = app.get(&format!("/s/{plain_token}"));
+    assert!(!plain_page.contains("Bianca"));
+
+    // The variation's share names it, at the MCP Door too.
+    let (token, _url) = share(&app, &key, &bianca);
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "read_shared_recipe", "arguments": { "token": token } },
+    });
+    let (status, answered) = app.post_mcp(&call.to_string(), None);
+    assert_eq!(status, 200, "{answered}");
+    assert_eq!(
+        answered["result"]["structuredContent"]["recipe"]["name"],
+        json!("Bianca"),
+        "{answered}"
+    );
+
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(page.contains("Bianca"), "the name is set under the title");
+    for (hash, whose) in [
+        (&stretched, "the recipe's Step"),
+        (&kneaded, "the Component's Step"),
+    ] {
+        assert!(
+            page.contains(&format!(r#"href="/s/{token}/photo/{hash}""#)),
+            "{whose} ends in a square linking to its photograph"
+        );
+        let (status, kind, _body) = app.get(&format!("/s/{token}/photo/{hash}"));
+        assert_eq!(status, 200, "the token serves {whose}'s photograph");
+        assert_eq!(kind, "image/webp");
+    }
+    // A Component's Step photographs are let through for the annexe, and
+    // nothing else of it: its Main Photo is not on this page.
+    let (status, _type, _body) = app.get(&format!("/s/{token}/photo/{floured}"));
+    assert_eq!(
+        status, 404,
+        "a Component's Main Photo stays behind the token"
+    );
+}
+
 /// **Scaling the outer recipe rescales the Reading, and the factor follows for
 /// free** (ADR 0008).
 ///
