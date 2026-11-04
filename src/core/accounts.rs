@@ -417,16 +417,20 @@ impl Core {
     /// Who this Credential names: the Person's permanent id, which is also
     /// their Hand, and the name they currently go by. What lets a screen say
     /// *you* without matching names, since a name is a reminder (ADR 0015).
+    /// `is_operator` is the Person's, not the Credential's: an Operator's
+    /// ordinary key still names an Operator, so the interface can tell from
+    /// this alone whether to offer the Operator's screens, without asking one
+    /// of them and being refused (#533).
     pub fn person(&self, person_id: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
-            let name: String = conn
+            let (name, is_operator): (String, bool) = conn
                 .query_row(
-                    "SELECT name FROM people WHERE id = ?1",
+                    "SELECT name, is_operator FROM people WHERE id = ?1",
                     params![person_id],
-                    |row| row.get(0),
+                    |row| Ok((row.get(0)?, row.get::<_, i64>(1)? != 0)),
                 )
                 .map_err(|e| OpError::internal(format!("cannot read this Person: {e}")))?;
-            Ok(json!({ "person_id": person_id, "name": name }))
+            Ok(json!({ "person_id": person_id, "name": name, "is_operator": is_operator }))
         })
     }
 

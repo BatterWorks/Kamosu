@@ -127,6 +127,34 @@ describe('the Import Report', () => {
 		expect(screen.queryByRole('link', { name: /‹/ })).toBeNull();
 	});
 
+	it.each([
+		['completed', { backups: [], taken: ['daily'] }, null],
+		['running', null, null],
+		['failed', null, 'the disk is full'],
+	] as const)(
+		'says a Job that is no import, here %s, brought nothing in (#533)',
+		async (status, result, error) => {
+			const kamosu = open({
+				get_job: job({ operation: 'take_backup', status, result, error }),
+			});
+
+			expect(await screen.findByText(m.report_not_an_import())).toBeInTheDocument();
+			expect(screen.getByRole('heading', { name: m.imports_title() })).toBeInTheDocument();
+			expect(screen.queryByRole('alert')).toBeNull();
+			// Read once: a Backup still running is not waited on here.
+			await new Promise((settle) => setTimeout(settle, 50));
+			expect(kamosu.calls.filter((call) => call.operation === 'get_job')).toHaveLength(1);
+		},
+	);
+
+	it("says a Job that is not the cook's, or not there, is not found (#533)", async () => {
+		open({ get_job: { refuse: 'not_found', message: 'No Job j_1 here.' } });
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('No Job j_1 here.');
+		// Not titled for a Crouton library, or for any import.
+		expect(screen.getByRole('heading', { name: m.imports_title() })).toBeInTheDocument();
+	});
+
 	it('does not call one recipe file a Crouton library', async () => {
 		// A recipe file reaches this page too, since #93 — it is where *How it
 		// went* leads. Before that this heading was a fixed string, so a friend's
@@ -241,7 +269,7 @@ describe('the Import Report', () => {
 		expect(within(card).getByText(/same name · same page/)).toBeInTheDocument();
 		expect(within(card).getByText(/11 and 16 ingredients/)).toBeInTheDocument();
 		await fireEvent.click(boxes[1]);
-		await fireEvent.click(within(card).getByRole('button', { name: 'Relate 1 pairs' }));
+		await fireEvent.click(within(card).getByRole('button', { name: 'Relate 1 pair' }));
 
 		expect(
 			await screen.findByText(/Linked: Korean Fried Chicken. The other 1 kept apart./),

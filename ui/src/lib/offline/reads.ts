@@ -106,9 +106,10 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// Where what this phone shares goes (#452). Shown beside the choice that
 	// changes it, so a kept answer would put back the old choice on sight.
 	get_agent_choice: 'server-first',
-	// Who you are called (#113). Settings shows it beside the button that
-	// changes it, and a kept answer from before a rename on another device
-	// would offer to change a name you no longer have.
+	// Who you are called (#113), and whether you are an Operator (#533).
+	// Settings shows the name beside the button that changes it, and a kept
+	// answer from before a rename on another device would offer to change a
+	// name you no longer have.
 	get_person: 'server-first',
 	// Whether this is a Demo, and the Umami it counts with (#408). A kept
 	// answer from before the instance stopped counting, or stopped being a

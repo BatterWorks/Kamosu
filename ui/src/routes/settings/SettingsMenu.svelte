@@ -26,7 +26,6 @@
 	import { useKamosu } from '#lib/kamosu.js';
 	import { useRoom } from '#lib/room.svelte.js';
 	import { Online } from '#lib/offline/device.svelte.js';
-	import { asksWhetherAdministering } from '#lib/operator/administering.js';
 	import { ABOUT, GROUPS, NAME_PAGE, type PageEntry } from './pages';
 	import SignOut from './SignOut.svelte';
 
@@ -51,20 +50,21 @@
 	$effect(() => {
 		void current;
 		let live = true;
+		// One question says both who this is and whether they administer the
+		// instance (#533). Only a plain yes shows the instance's group: a
+		// Kamosu that could not answer is not one this Person may administer
+		// *yet*.
 		kamosu
 			.getPerson()
 			.then((person) => {
-				if (live) name = person.name;
+				if (!live) return;
+				name = person.name;
+				operator = person.is_operator === true;
 			})
 			.catch((error: unknown) => {
 				// Not known, then no card: the rest of the menu stands either way.
 				if (!(error instanceof OperationError)) throw error;
 			});
-		// Only a plain yes shows the instance's group. A Kamosu that could not
-		// answer is not one this Person may administer *yet*.
-		asksWhetherAdministering(kamosu).then((answer) => {
-			if (live) operator = answer.may === true;
-		});
 		return () => {
 			live = false;
 		};

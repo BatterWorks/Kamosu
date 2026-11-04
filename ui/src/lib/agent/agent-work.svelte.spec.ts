@@ -110,7 +110,7 @@ describe("an agent's Job on the tracking line", () => {
 		draw({
 			get_job: job('queued'),
 			runner_status: SILENT,
-			list_accounts: { refuse: 'unauthorized' },
+			get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: false },
 		});
 
 		await screen.findByText(new RegExp(m.agent_no_answer_cook()));
@@ -119,7 +119,11 @@ describe("an agent's Job on the tracking line", () => {
 	});
 
 	it('points the Operator at the Runner Keys', async () => {
-		draw({ get_job: job('queued'), runner_status: SILENT, list_accounts: { accounts: [] } });
+		draw({
+			get_job: job('queued'),
+			runner_status: SILENT,
+			get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: true },
+		});
 
 		const keys = await screen.findByRole('link', { name: m.agent_runner_keys() });
 		expect(keys).toHaveAttribute('href', '/settings/runner');

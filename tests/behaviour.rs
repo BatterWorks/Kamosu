@@ -721,6 +721,54 @@ async fn an_operators_invite_can_bring_a_newcomer_into_a_kitchen() {
     assert_eq!(status, 404, "{refused}");
 }
 
+/// `get_person` says whether the Person a Credential names is an Operator, so
+/// the interface never has to ask an Operator's Operation to find out (#533).
+/// It is the Person's answer, not the Credential's: an Operator's ordinary key
+/// says yes too, and both Doors say the same.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_person_says_whether_the_person_is_an_operator() {
+    let app = support::spawn_app();
+    let create =
+        json!({ "name": "Stéphane", "password": "the right password", "session_name": "operator" });
+    let operator = app.post_auth_response("/auth/first-person", &create.to_string());
+    let operator = support::session_cookie_secret(&operator);
+    let (status, me) = app.post_op("get_person", Some(&operator), "{}");
+    assert_eq!(status, 200, "{me}");
+    assert_eq!(me["result"]["is_operator"], json!(true), "{me}");
+    let operator_id = me["result"]["person_id"].as_str().unwrap();
+
+    let ordinary_key = app
+        .core
+        .mint_access_key(operator_id, "browser", false)
+        .unwrap()
+        .secret;
+    let (_, by_key) = app.post_op("get_person", Some(&ordinary_key), "{}");
+    assert_eq!(by_key["result"]["is_operator"], json!(true), "{by_key}");
+
+    let cook = app.core.create_person("Camille Martin").expect("a cook");
+    let cook_key = app
+        .core
+        .mint_access_key(&cook, "browser", false)
+        .unwrap()
+        .secret;
+    let (status, cooks) = app.post_op("get_person", Some(&cook_key), "{}");
+    assert_eq!(status, 200, "{cooks}");
+    assert_eq!(cooks["result"]["is_operator"], json!(false), "{cooks}");
+
+    for (key, expected) in [(&ordinary_key, true), (&cook_key, false)] {
+        let call = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": "get_person", "arguments": {} },
+        });
+        let (_, answer) = app.post_mcp(&call.to_string(), Some(key));
+        assert_eq!(
+            answer["result"]["structuredContent"]["is_operator"],
+            json!(expected),
+            "{answer}"
+        );
+    }
+}
+
 /// A Kitchen an Invite names can still be deleted once nobody is in it, and
 /// the Invite then brings its newcomer into no Kitchen (#469).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

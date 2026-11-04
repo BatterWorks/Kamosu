@@ -122,7 +122,6 @@ const EVERY = [READING, PHOTOS, REEL, MADE, JUMBLE, BARE, STOPPED, GONE];
 
 const signedIn: Answers = {
 	list_sessions: { sessions: [] },
-	list_accounts: { refuse: 'unauthorized' },
 	meaning_search_status: { refuse: 'unauthorized' },
 	runner_status: { has_runner: true, last_asked_at: today(10, 40) },
 };
@@ -138,7 +137,7 @@ describe('the list of everything sent to the AI agent (#463)', () => {
 	it('is a row of Add recipes on the Settings menu, under Brought in', async () => {
 		renderScreen(Settings, {
 			...signedIn,
-			get_person: { person_id: 'p_1', name: 'Stéphane' },
+			get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: false },
 		});
 		const row = await screen.findByRole('link', { name: /Sent to the AI agent/ });
 		expect(row).toHaveAttribute('href', '/settings/agent');

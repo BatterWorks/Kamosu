@@ -356,7 +356,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Read who this Credential names. The answer is the \
                       Person's permanent id, which is also their Hand, and the \
                       name they currently go by — the name every Version they \
-                      wrote shows here, and the one they sign in with.",
+                      wrote shows here, and the one they sign in with. \
+                      `is_operator` says whether that Person administers this \
+                      instance, whichever of their Credentials asks. An \
+                      Operator's ordinary key still cannot do an Operator's \
+                      work: that takes their Operator key.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -366,7 +370,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             in_demo: InDemo::GoesThrough,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
-            output_schema: json!({ "type": "object", "properties": { "person_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["person_id", "name"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "person_id": { "type": "string" }, "name": { "type": "string" }, "is_operator": { "type": "boolean" } }, "required": ["person_id", "name", "is_operator"], "additionalProperties": false }),
             handler: crate::operations::get_person,
         },
         Operation {

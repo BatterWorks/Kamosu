@@ -87,9 +87,12 @@ const INSTANCE: Event[] = [
 
 const record = (events: Event[]): ListSecurityRecordOutput => ({ events, kept_for_days: 90 });
 
+const COOK = { person_id: 'p_1', name: 'Stéphane', is_operator: false };
+const OPERATOR = { ...COOK, is_operator: true };
+
 const signedIn: Answers = {
 	list_sessions: { sessions: [] },
-	list_accounts: { refuse: 'unauthorized' },
+	get_person: COOK,
 	meaning_search_status: { refuse: 'unauthorized' },
 };
 
@@ -97,8 +100,9 @@ function security(more: Answers) {
 	return renderScreen(Security, { ...signedIn, ...more });
 }
 
+/** The instance's record, opened by an Operator unless a test says otherwise. */
 function instanceSecurity(more: Answers) {
-	return renderScreen(InstanceSecurity, { ...signedIn, ...more });
+	return renderScreen(InstanceSecurity, { ...signedIn, get_person: OPERATOR, ...more });
 }
 
 /** A row's two lines, read as one. */
@@ -108,8 +112,7 @@ describe('the Security Record (#371)', () => {
 	it('is a row of You on the Settings menu, and of This instance for an Operator (#469)', async () => {
 		renderScreen(Settings, {
 			...signedIn,
-			get_person: { person_id: 'p_1', name: 'Stéphane' },
-			list_accounts: { accounts: [] },
+			get_person: OPERATOR,
 		});
 		const row = await screen.findByRole('link', { name: /Your security record/ });
 		expect(row).toHaveAttribute('href', '/settings/security');
@@ -135,10 +138,12 @@ describe('the Security Record (#371)', () => {
 	});
 
 	it('shows a cook who opens the instance record nothing at all (ADR 0040)', async () => {
-		instanceSecurity({ list_instance_security_record: { refuse: 'unauthorized' } });
+		// Never asked for, so never refused (#533).
+		const { kamosu } = instanceSecurity({ get_person: COOK });
 
 		expect(await screen.findByText('There is nothing here for you.')).toBeInTheDocument();
 		expect(screen.queryByRole('listitem')).not.toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).toEqual(['get_person']);
 	});
 
 	it('shows an Operator the instance record, saying who did what and through what', async () => {
