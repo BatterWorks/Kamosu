@@ -108,8 +108,7 @@ function account(more: Answers) {
 		},
 		list_access_keys: { access_keys: [] },
 		get_reading_preferences: { reading_language: 'en', reading_measures: 'us' },
-		get_person: { person_id: 'p_1', name: 'Stéphane' },
-		list_accounts: { refuse: 'unauthorized' },
+		get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: false },
 		list_kitchens: { kitchens: [] },
 		...more,
 	});

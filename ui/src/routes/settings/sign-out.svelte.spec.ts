@@ -28,9 +28,8 @@ const session = (id: string, current = false) => ({
 });
 
 const signedIn = (over: Answers = {}): Answers => ({
-	get_person: { person_id: 'p_1', name: 'Stéphane' },
 	// A cook, so the menu draws no group of the instance's (#469).
-	list_accounts: { refuse: 'unauthorized' },
+	get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: false },
 	list_sessions: { sessions: [session('s_laptop'), session('s_phone', true)] },
 	revoke_session: { revoked: true, current: true },
 	...over,

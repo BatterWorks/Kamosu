@@ -57,10 +57,6 @@ const NO_PASSKEYS = {
  * visitor would be refused — the same shape a stranger meets at either Door. */
 const anonymous: Answers = {
 	list_sessions: { refuse: 'unauthorized' },
-	// Whether this Person administers the instance is learnt by asking
-	// something only an Operator may ask (#103). A stranger is refused, and the
-	// way into the Operator's screen is simply not there.
-	list_accounts: { refuse: 'unauthorized' },
 	list_passkeys: { refuse: 'unauthorized' },
 	list_access_keys: { refuse: 'unauthorized' },
 	get_reading_preferences: { refuse: 'unauthorized' },
@@ -112,9 +108,8 @@ function cookbookOf(over: Partial<GetCookbookOutput> = {}): GetCookbookOutput {
 const readsInAmerican: Answers = {
 	get_reading_preferences: { reading_language: 'en', reading_measures: 'us' },
 	// Who is signed in, and what they are called (#113).
-	get_person: { person_id: 'p_1', name: 'Stéphane' },
-	// A signed-in Person who does not administer the instance (#103).
-	list_accounts: { refuse: 'unauthorized' },
+	// A signed-in Person who does not administer the instance (#103, #533).
+	get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: false },
 	// Meaning Search as most instances have it: nobody has been asked, so this
 	// screen shows nothing about it at all. It is not where the feature is
 	// discovered — that is inside *nothing found* (ADR 0029) — so its absence
@@ -187,17 +182,7 @@ describe('the settings screen', () => {
 	it("shows an Operator the instance's group, People first (#469)", async () => {
 		renderScreen(Settings, {
 			...readsInAmerican,
-			list_accounts: {
-				accounts: [
-					{
-						name: 'Stéphane',
-						is_operator: true,
-						disabled: false,
-						is_you: true,
-						created_at: '2026-01-04T10:00:00Z',
-					},
-				],
-			},
+			get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: true },
 		});
 
 		expect(await screen.findByRole('link', { name: /People/ })).toHaveAttribute(
@@ -265,7 +250,6 @@ describe('the settings screen', () => {
 				passkey_origin: null,
 				demo: false,
 			},
-			list_accounts: { refuse: 'unauthorized' },
 			list_sessions: { sessions: [] },
 			...readsInAmerican,
 			list_passkeys: NO_PASSKEYS,
@@ -297,7 +281,6 @@ describe('the settings screen', () => {
 				passkey_origin: null,
 				demo: false,
 			},
-			list_accounts: { refuse: 'unauthorized' },
 			list_sessions: {
 				sessions: [
 					{
@@ -435,17 +418,7 @@ describe('the settings screen', () => {
 			},
 			list_sessions: { sessions: [] },
 			...readsInAmerican,
-			list_accounts: {
-				accounts: [
-					{
-						name: 'Stéphane',
-						is_operator: true,
-						disabled: false,
-						is_you: true,
-						created_at: '2026-01-04T10:00:00Z',
-					},
-				],
-			},
+			get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: true },
 			list_passkeys: NO_PASSKEYS,
 			list_access_keys: {
 				access_keys: [
@@ -508,7 +481,6 @@ describe('the settings screen', () => {
 			},
 			list_sessions: { sessions: [] },
 			...readsInAmerican,
-			list_accounts: { refuse: 'unauthorized' },
 			list_passkeys: NO_PASSKEYS,
 			list_access_keys: { access_keys: [] },
 			mint_access_key: {
@@ -936,18 +908,7 @@ describe('the settings screen', () => {
 
 	it('groups its pages by whose they are, each row saying what is inside (#469)', async () => {
 		const { kamosu } = renderScreen(Settings, {
-			get_person: { person_id: 'p_1', name: 'Stéphane' },
-			list_accounts: {
-				accounts: [
-					{
-						name: 'Stéphane',
-						is_operator: true,
-						disabled: false,
-						is_you: true,
-						created_at: '2026-01-04T10:00:00Z',
-					},
-				],
-			},
+			get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: true },
 		});
 
 		await screen.findByRole('heading', { name: 'This instance' });
@@ -995,12 +956,9 @@ describe('the settings screen', () => {
 		// Foods is for every Person: all five of its Operations are
 		// Permission::Person, so it is no Operator's power (#107).
 		expect(row('/foods')).toHaveTextContent('Foods');
-		// The menu reads who is signed in, and whether they administer the
-		// instance, and nothing else: every page reads what it needs.
-		expect(kamosu.calls.map((call) => call.operation).sort()).toEqual([
-			'get_person',
-			'list_accounts',
-		]);
+		// The menu reads who is signed in, which says whether they administer
+		// the instance, and nothing else: every page reads what it needs.
+		expect(kamosu.calls.map((call) => call.operation)).toEqual(['get_person']);
 		expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
 	});
 

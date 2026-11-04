@@ -12,7 +12,7 @@ import ThreadTestHarness from './ThreadTestHarness.svelte';
 import { cookbookLabel, threadBranch } from '../../../../testing/recipes';
 
 /** Who is reading. Nobody in these fixtures unless a test says otherwise. */
-const NOBODY = { person_id: 'p_nobody', name: 'Nobody' };
+const NOBODY = { person_id: 'p_nobody', name: 'Nobody', is_operator: false };
 
 function renderThread(branchId: string, answers: Answers) {
 	const kamosu = standIn({ get_person: NOBODY, ...answers });
@@ -869,7 +869,7 @@ describe('who wrote each Version, in the Thread (#113)', () => {
 });
 
 describe('naming a Version from the Thread (#115)', () => {
-	const ME = { person_id: 'p_stephane', name: 'Stéphane' };
+	const ME = { person_id: 'p_stephane', name: 'Stéphane', is_operator: false };
 	const branch = (branch_id: string, hand_name: string) =>
 		threadBranch(branch_id, {
 			cookbook: cookbookLabel(`c_${branch_id}`, ['Stéphane', 'Camille'], hand_name),

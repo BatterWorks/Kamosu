@@ -42,6 +42,7 @@ const farine = food({ id: 'f_farine', name: 'farine', language: 'fr', reading_co
  * an empty worklist, and every Food in use.
  */
 const quiet: Answers = {
+	get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: true },
 	list_accounts: {
 		accounts: [
 			{
@@ -123,16 +124,16 @@ describe("This instance's pages", () => {
 		'%s shows nothing at all to a Person who is not an Operator',
 		async (_, page, asks) => {
 			const { kamosu } = renderScreen(page, {
-				list_accounts: {
-					refuse: 'unauthorized',
-					message: 'requires a Credential naming an Operator',
-				},
+				get_person: { person_id: 'p_2', name: 'Camille', is_operator: false },
 			});
 
 			expect(await screen.findByText(/nothing here for you/i)).toBeInTheDocument();
 			// Not merely hidden: the page is never asked about. One that listed
 			// Backups and then declined to show them would still have asked.
+			// Nor is the cook sent to ask anything an Operator alone may ask,
+			// to be refused (#533).
 			expect(kamosu.calls.map((call) => call.operation)).not.toContain(asks);
+			expect(kamosu.calls.map((call) => call.operation)).toEqual(['get_person']);
 		},
 	);
 
@@ -571,7 +572,7 @@ describe("This instance's pages", () => {
 	it('does not mistake a broken Kamosu for a page that is not yours', async () => {
 		renderScreen(People, {
 			...quiet,
-			list_accounts: { refuse: 'internal', message: 'the database is unreadable' },
+			get_person: { refuse: 'internal', message: 'the database is unreadable' },
 		});
 
 		// An Operator whose instance is failing is owed the reason, not an

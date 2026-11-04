@@ -43,10 +43,11 @@ export type GetReadingPreferencesOutput = {
 	reading_measures: "us" | "metric" | "as_written";
 };
 
-/** Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. */
+/** Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. `is_operator` says whether that Person administers this instance, whichever of their Credentials asks. */
 export type GetPersonInput = Record<string, never>;
 /** What get_person answers. */
 export type GetPersonOutput = {
+	is_operator: boolean;
 	name: string;
 	person_id: string;
 };
@@ -7455,7 +7456,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_person",
-		"summary": "Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with.",
+		"summary": "Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. `is_operator` says whether that Person administers this instance, whichever of their Credentials asks.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -7466,6 +7467,9 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"is_operator": {
+					"type": "boolean"
+				},
 				"name": {
 					"type": "string"
 				},
@@ -7475,7 +7479,8 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"person_id",
-				"name"
+				"name",
+				"is_operator"
 			],
 			"type": "object"
 		}
@@ -39174,7 +39179,7 @@ export interface KamosuClient {
 	setReadingPreferences(input: SetReadingPreferencesInput): Promise<Answer<'set_reading_preferences'>>;
 	/** The Language and measures this Person reads in. Reading Measures live on the account rather than in a browser, so every Door and every device reads the same recipe the same way; the default is American, a stated convention rather than a guess about anybody. */
 	getReadingPreferences(input?: GetReadingPreferencesInput): Promise<Answer<'get_reading_preferences'>>;
-	/** Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. */
+	/** Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. `is_operator` says whether that Person administers this instance, whichever of their Credentials asks. */
 	getPerson(input?: GetPersonInput): Promise<Answer<'get_person'>>;
 	/** Change this Person's current reminder name. Every Version they ever wrote shows the new one on this instance, since a Hand is named live and nothing is keyed on the name; no id or fingerprint moves. It is also the name they sign in with, so a name somebody else here signs in with is refused. A Bundle already sent keeps the name it left with. */
 	renamePerson(input: RenamePersonInput): Promise<Answer<'rename_person'>>;

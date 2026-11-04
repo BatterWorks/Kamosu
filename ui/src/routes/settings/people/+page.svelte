@@ -18,7 +18,6 @@
 	import Section from '#lib/shell/Section.svelte';
 	import Confirm from '#lib/Confirm.svelte';
 	import { Acting } from '#lib/operator/acting.svelte.js';
-	import { asksWhetherAdministering } from '#lib/operator/administering.js';
 	import { kitchenName } from '#lib/cookbook.js';
 	import type { ListAccountsOutput, ListKitchensOutput } from '#lib/api/catalogue.js';
 	import OperatorOnly from '../OperatorOnly.svelte';
@@ -32,9 +31,13 @@
 	let accounts = $state<Account[]>([]);
 	let kitchens = $state<Kitchen[]>([]);
 
+	/** Asked only once OperatorOnly has agreed this Person is an Operator (#533). */
 	async function loadAccounts() {
-		const answer = await asksWhetherAdministering(kamosu);
-		if (answer.may === true) accounts = answer.accounts;
+		try {
+			accounts = (await kamosu.listAccounts({})).accounts;
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+		}
 	}
 
 	async function load() {
