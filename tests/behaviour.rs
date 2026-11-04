@@ -46456,8 +46456,13 @@ mod a_demo {
         "start_attempt",
     ];
 
-    /// What writes nothing and is refused all the same: the start of importing.
-    const A_DEMOS_REFUSED_READS: [&str; 2] = ["read_pasted_recipe", "read_recipe_pdf"];
+    /// What writes nothing and is refused all the same: the start of importing,
+    /// and the Invites and recovery links not yet used (#535).
+    const A_DEMOS_REFUSED_READS: [&str; 3] = [
+        "list_account_links",
+        "read_pasted_recipe",
+        "read_recipe_pdf",
+    ];
 
     #[test]
     fn a_demo_lets_through_these_writes() {
