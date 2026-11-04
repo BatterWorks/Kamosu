@@ -6,7 +6,6 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { loadEnv, type Plugin } from 'vite';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 /// The backend, in development: two processes side by side (ADR 0028). Vite
 /// serves the interface and proxies everything the binary owns to it, so a
@@ -40,8 +39,10 @@ function inlangPluginsLoad(): Plugin {
 				}
 				let key;
 				try {
+					// As the inlang SDK loads it: the file's text, imported whole.
+					const text = await readFile(resolve(import.meta.dirname, module), 'utf8');
 					({ key } =
-						(await import(pathToFileURL(resolve(import.meta.dirname, module)).href)).default ?? {});
+						(await import(`data:text/javascript,${encodeURIComponent(text)}`)).default ?? {});
 				} catch (error) {
 					throw new Error(`Paraglide's plugin ${module} did not load: run npm ci in ui/.`, {
 						cause: error,
