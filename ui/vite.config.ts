@@ -3,7 +3,9 @@ import { defineConfig } from 'vitest/config';
 import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
-import { loadEnv } from 'vite';
+import { loadEnv, type Plugin } from 'vite';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 
 /// The backend, in development: two processes side by side (ADR 0028). Vite
 /// serves the interface and proxies everything the binary owns to it, so a
@@ -15,6 +17,44 @@ const BACKEND = 'http://127.0.0.1:5266';
 /// no machine's own address is written into the repository. Unset, vite
 /// accepts only its defaults, localhost and IP addresses.
 const DEV_HOST = loadEnv('development', '..', 'KAMOSU_DEV_HOST').KAMOSU_DEV_HOST;
+
+/// Every plugin project.inlang/settings.json names, loaded before Paraglide
+/// compiles, and a stop if one does not load. Paraglide only warns when a
+/// plugin fails: without the one that reads messages/, every phrase is
+/// undefined, and a build would ship an interface with no words in it (#532).
+/// A plugin is a file in node_modules, so a lockfile version `just audit`
+/// reads. A URL is refused, since that would be whatever a CDN serves.
+function inlangPluginsLoad(): Plugin {
+	return {
+		name: 'kamosu:inlang-plugins-load',
+		async buildStart() {
+			const settings = JSON.parse(
+				await readFile(resolve(import.meta.dirname, 'project.inlang/settings.json'), 'utf8'),
+			);
+			for (const module of settings.modules ?? []) {
+				if (/^https?:/.test(module)) {
+					throw new Error(
+						`project.inlang/settings.json names a plugin by URL, ${module}. Add it with npm install and name its file in node_modules.`,
+					);
+				}
+				let key;
+				try {
+					// As the inlang SDK loads it: the file's text, imported whole.
+					const text = await readFile(resolve(import.meta.dirname, module), 'utf8');
+					({ key } =
+						(await import(`data:text/javascript,${encodeURIComponent(text)}`)).default ?? {});
+				} catch (error) {
+					throw new Error(`Paraglide's plugin ${module} did not load: run npm ci in ui/.`, {
+						cause: error,
+					});
+				}
+				if (typeof key !== 'string') {
+					throw new Error(`Paraglide's plugin ${module} is not an inlang plugin.`);
+				}
+			}
+		},
+	};
+}
 
 export default defineConfig(({ command }) => ({
 	plugins: [
@@ -42,11 +82,12 @@ export default defineConfig(({ command }) => ({
 		// build error rather than a blank button in a kitchen (ADR 0012). The
 		// locale is a setting, not a URL segment: no `/fr/…` routes exist, which
 		// is what lets the whole app be one prerendered shell.
+		//
+		// What it compiles is in project.inlang/paraglide.config.js, which
+		// `npm run check` reads too. Its plugins come from node_modules (#532).
+		inlangPluginsLoad(),
 		paraglideVitePlugin({
 			project: './project.inlang',
-			outdir: './src/lib/paraglide',
-			strategy: ['localStorage', 'preferredLanguage', 'baseLocale'],
-			emitTsDeclarations: true,
 			// Served (the dev server and the screen tests), one module per
 			// language rather than one per phrase. Paraglide 3 serves every
 			// phrase as a module of its own, near 300 requests a screen, and the
@@ -92,6 +133,24 @@ export default defineConfig(({ command }) => ({
 				'^/calendar/',
 			].map((path) => [path, { target: BACKEND, changeOrigin: false }]),
 		),
+	},
+
+	build: {
+		rolldownOptions: {
+			// A phrase imported from Paraglide's messages that will always be
+			// undefined is one Paraglide did not compile, for whatever reason:
+			// Paraglide only warns, and the build would ship an interface
+			// with no words in it, so here the first one stops the build (#532).
+			// Vite logs an error handed to it and carries on, so this throws.
+			onLog(level, log, handler) {
+				if (log.code === 'IMPORT_IS_UNDEFINED' && log.message.includes('virtual:paraglide/')) {
+					throw new Error(
+						`${log.message}\nA phrase that does not compile leaves the interface without words. Paraglide's warnings are above.`,
+					);
+				}
+				handler(level, log);
+			},
+		},
 	},
 
 	test: {

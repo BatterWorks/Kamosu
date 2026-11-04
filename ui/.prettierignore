@@ -35,9 +35,11 @@ package.json
 package-lock.json
 
 # The translation catalogues and inlang's own settings. These are data, sorted
-# and written by the inlang tooling — not source to be laid out.
+# and written by the inlang tooling — not source to be laid out. Paraglide's
+# config beside them is hand-written source, and formatted like any other.
 messages/
-project.inlang/
+project.inlang/*
+!project.inlang/paraglide.config.js
 
 # Build output — none of it is committed.
 build/

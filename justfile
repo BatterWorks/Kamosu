@@ -385,6 +385,9 @@ CORPUS_TARGETS := "--test cooking_corpus --test crouton_corpus --test home_corpu
 
 # svelte-check in strict mode, with Svelte's accessibility warnings treated as
 # failures (ADR 0012): the compiler is the reviewer this frontend does not have.
+# Paraglide's output is compiled first, by the `check` script in
+# ui/package.json, so a checkout that has never built has what svelte-check
+# reads (#532).
 ui-check:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -484,7 +487,9 @@ audit:
 _npm-deps:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ ! -d ui/node_modules ]]; then
+    # Again when the lockfile is newer than the last install, so a pull that
+    # adds a package installs it (#532).
+    if [[ ! -d ui/node_modules || ui/package-lock.json -nt ui/node_modules/.package-lock.json ]]; then
         echo "installing ui dependencies (npm ci)"
         ( cd ui && npm ci --no-audit --no-fund >/dev/null )
     fi
