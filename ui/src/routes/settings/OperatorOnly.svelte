@@ -1,10 +1,10 @@
 <!--
 	A page of This instance (#469), for an Operator alone. It asks
 	`get_person` whether this Person is one (#533) and, told no, shows what a
-	room that is not here shows (ADR 0040). It does not explain what it would have held. A Kamosu that
-	could not answer is no refusal: its words are shown instead, since an
-	empty room would lie to an Operator about why they cannot see their own
-	instance.
+	room that is not here shows (ADR 0040). It does not explain what it would
+	have held. A Kamosu that could not answer is no refusal: its words are
+	shown instead, since an empty room would lie to an Operator about why they
+	cannot see their own instance.
 
 	**ADR 0007 draws the line these pages must not cross.** The Operator
 	administers and does not read: no view-as-user, no window onto another

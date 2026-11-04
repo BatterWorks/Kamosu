@@ -147,6 +147,12 @@ describe('the Import Report', () => {
 		},
 	);
 
+	it("says a Job that is not the cook's, or not there, is not found (#533)", async () => {
+		open({ get_job: { refuse: 'not_found', message: 'No Job j_1 here.' } });
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('No Job j_1 here.');
+	});
+
 	it('does not call one recipe file a Crouton library', async () => {
 		// A recipe file reaches this page too, since #93 — it is where *How it
 		// went* leads. Before that this heading was a fixed string, so a friend's

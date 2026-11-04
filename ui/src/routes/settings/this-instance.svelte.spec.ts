@@ -569,6 +569,16 @@ describe("This instance's pages", () => {
 		expect(screen.queryByText(/nothing pointing at them/)).not.toBeInTheDocument();
 	});
 
+	it('says why the accounts cannot be listed, rather than listing none (#533)', async () => {
+		renderScreen(People, {
+			...quiet,
+			list_accounts: { refuse: 'internal', message: 'the database is unreadable' },
+		});
+
+		expect(await screen.findByText('the database is unreadable')).toBeInTheDocument();
+		expect(screen.queryByText(/nothing here for you/i)).not.toBeInTheDocument();
+	});
+
 	it('does not mistake a broken Kamosu for a page that is not yours', async () => {
 		renderScreen(People, {
 			...quiet,

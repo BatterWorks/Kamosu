@@ -31,12 +31,17 @@
 	let accounts = $state<Account[]>([]);
 	let kitchens = $state<Kitchen[]>([]);
 
-	/** Asked only once OperatorOnly has agreed this Person is an Operator (#533). */
+	/**
+	 * Asked only once OperatorOnly has agreed this Person is an Operator
+	 * (#533). A Kamosu that cannot list them says why, rather than showing an
+	 * Operator an empty list as though nobody held an account.
+	 */
 	async function loadAccounts() {
 		try {
 			accounts = (await kamosu.listAccounts({})).accounts;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
+			acting.said = error.message;
 		}
 	}
 

@@ -923,7 +923,7 @@
   "report_settled_change": "Cambiar",
   "report_settled_none": "Ninguna relacionada: las {count} siguen separadas.",
   "report_show_all": [{"declarations": ["input count", "local countPlural = count: plural"], "selectors": ["countPlural"], "match": {"countPlural=one": "Mostrarla", "countPlural=other": "Mostrar las {count}"}}],
-  "report_site_icons": "Dejados fuera: {count} iconos de sitios web, el logo del sitio y no el plato.",
+  "report_site_icons": [{"declarations": ["input count", "local countPlural = count: plural"], "selectors": ["countPlural"], "match": {"countPlural=one": "Dejado fuera: {count} icono de sitio web, el logo del sitio y no el plato.", "countPlural=other": "Dejados fuera: {count} iconos de sitios web, el logo del sitio y no el plato."}}],
   "report_stopped": "La importación se detuvo: {reason}",
   "report_not_an_import": "Aquí no ha llegado nada: esto no es una importación.",
   "report_title": "Tu biblioteca de Crouton",
