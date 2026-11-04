@@ -59,7 +59,7 @@
 			.then((person) => {
 				if (!live) return;
 				name = person.name;
-				operator = person.is_operator;
+				operator = person.is_operator === true;
 			})
 			.catch((error: unknown) => {
 				// Not known, then no card: the rest of the menu stands either way.

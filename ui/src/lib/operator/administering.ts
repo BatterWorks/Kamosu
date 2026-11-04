@@ -28,7 +28,9 @@ export type Administering =
 
 export async function asksWhetherAdministering(kamosu: KamosuClient): Promise<Administering> {
 	try {
-		return { may: (await kamosu.getPerson()).is_operator };
+		// Only a plain yes: a phone may hand back an answer it kept from before
+		// Kamosu said `is_operator` at all, and that is no yes.
+		return { may: (await kamosu.getPerson()).is_operator === true };
 	} catch (error) {
 		if (!(error instanceof OperationError)) throw error;
 		if (error.kind === 'unauthorized') return { may: false };

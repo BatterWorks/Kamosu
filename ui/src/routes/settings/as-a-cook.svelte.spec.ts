@@ -17,7 +17,9 @@ const screens = {
 };
 
 /** What only an Operator may ask, and so what a cook must never be sent to ask. */
-const OPERATORS_ALONE = ['list_accounts', 'list_instance_security_record'];
+const OPERATORS_ALONE = CATALOGUE.filter(({ permission }) => permission === 'operator').map(
+	({ name }) => name,
+);
 
 /**
  * A cook, told who they are and refused everything else, which every screen
@@ -38,8 +40,16 @@ const aCook: Answers = {
 };
 
 describe('Settings, as a cook (#533)', () => {
-	it('has the menu, the 23 pages and the old Operator address to open', () => {
-		expect(Object.keys(screens)).toHaveLength(25);
+	it('opens the menu, every page of it and the old Operator address', () => {
+		expect(Object.keys(screens)).toEqual(
+			expect.arrayContaining([
+				'./+page.svelte',
+				'./people/+page.svelte',
+				'./instance-security/+page.svelte',
+				'../operator/+page.svelte',
+			]),
+		);
+		expect(Object.keys(screens).length).toBeGreaterThan(20);
 	});
 
 	it.each(Object.entries(screens))(

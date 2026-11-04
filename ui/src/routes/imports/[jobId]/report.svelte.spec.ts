@@ -267,7 +267,7 @@ describe('the Import Report', () => {
 		expect(within(card).getByText(/same name · same page/)).toBeInTheDocument();
 		expect(within(card).getByText(/11 and 16 ingredients/)).toBeInTheDocument();
 		await fireEvent.click(boxes[1]);
-		await fireEvent.click(within(card).getByRole('button', { name: 'Relate 1 pairs' }));
+		await fireEvent.click(within(card).getByRole('button', { name: 'Relate 1 pair' }));
 
 		expect(
 			await screen.findByText(/Linked: Korean Fried Chicken. The other 1 kept apart./),

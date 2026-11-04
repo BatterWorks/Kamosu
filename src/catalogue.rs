@@ -358,7 +358,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       name they currently go by — the name every Version they \
                       wrote shows here, and the one they sign in with. \
                       `is_operator` says whether that Person administers this \
-                      instance, whichever of their Credentials asks.",
+                      instance, whichever of their Credentials asks. An \
+                      Operator's ordinary key still cannot do an Operator's \
+                      work: that takes their Operator key.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
