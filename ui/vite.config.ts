@@ -42,11 +42,14 @@ export default defineConfig(({ command }) => ({
 		// build error rather than a blank button in a kitchen (ADR 0012). The
 		// locale is a setting, not a URL segment: no `/fr/…` routes exist, which
 		// is what lets the whole app be one prerendered shell.
+		//
+		// What it compiles is in project.inlang/paraglide.config.js, which
+		// `npm run check` reads too. Its two plugins are loaded from
+		// node_modules, named by path in project.inlang/settings.json, so they
+		// are versions in the lockfile that `just audit` reads rather than
+		// whatever a CDN serves on the day (#532).
 		paraglideVitePlugin({
 			project: './project.inlang',
-			outdir: './src/lib/paraglide',
-			strategy: ['localStorage', 'preferredLanguage', 'baseLocale'],
-			emitTsDeclarations: true,
 			// Served (the dev server and the screen tests), one module per
 			// language rather than one per phrase. Paraglide 3 serves every
 			// phrase as a module of its own, near 300 requests a screen, and the
@@ -92,6 +95,25 @@ export default defineConfig(({ command }) => ({
 				'^/calendar/',
 			].map((path) => [path, { target: BACKEND, changeOrigin: false }]),
 		),
+	},
+
+	build: {
+		rolldownOptions: {
+			// A phrase imported from Paraglide's messages that will always be
+			// undefined is one Paraglide did not compile, most often because a
+			// plugin named in project.inlang/settings.json did not load.
+			// Paraglide only warns then, and the build would ship an interface
+			// with no words in it, so here the first one stops the build (#532).
+			// Vite logs an error handed to it and carries on, so this throws.
+			onLog(level, log, handler) {
+				if (log.code === 'IMPORT_IS_UNDEFINED' && log.message.includes('virtual:paraglide/')) {
+					throw new Error(
+						`${log.message}\nA phrase that does not compile leaves the interface without words. Did Paraglide load the plugins in project.inlang/settings.json? Its warnings are above.`,
+					);
+				}
+				handler(level, log);
+			},
+		},
 	},
 
 	test: {

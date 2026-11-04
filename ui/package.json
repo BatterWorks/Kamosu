@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "prepare": "svelte-kit sync || echo ''",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings && tsc -p ./src/service-worker",
+    "check": "svelte-kit sync && paraglide-js compile --project ./project.inlang --output-structure locale-modules --silent && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings && tsc -p ./src/service-worker",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings --watch",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -24,6 +24,8 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@inlang/paraglide-js": "^3.1.0",
+    "@inlang/plugin-m-function-matcher": "^2.4.3",
+    "@inlang/plugin-message-format": "^4.6.0",
     "@resvg/resvg-js": "^2.6.2",
     "@sveltejs/adapter-static": "^4.0.1",
     "@sveltejs/kit": "^3.1.1",

@@ -385,6 +385,8 @@ CORPUS_TARGETS := "--test cooking_corpus --test crouton_corpus --test home_corpu
 
 # svelte-check in strict mode, with Svelte's accessibility warnings treated as
 # failures (ADR 0012): the compiler is the reviewer this frontend does not have.
+# Paraglide's output is compiled first, in the layout the dev server writes, so
+# a checkout that has never built has what svelte-check reads (#532).
 ui-check:
     #!/usr/bin/env bash
     set -euo pipefail
