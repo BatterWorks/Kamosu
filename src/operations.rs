@@ -205,6 +205,27 @@ pub fn mint_recovery_link(
     Ok(json!({ "link": core.mint_recovery_link(name)? }))
 }
 
+pub fn list_account_links(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.list_account_links()
+}
+
+pub fn revoke_account_link(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let id = input
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("revoke_account_link takes { id }"))?;
+    core.revoke_account_link(caller_of(invocation)?, id)?;
+    Ok(json!({ "revoked": true }))
+}
+
 pub fn list_sessions(
     core: &Core,
     invocation: &Invocation,

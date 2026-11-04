@@ -563,3 +563,62 @@ async fn changing_your_password_ends_what_you_choose_and_keeps_this_device() {
     );
     assert_ne!(status, 200, "{refused}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recovery_ends_every_passkey_whoever_added_it() {
+    let app = support::spawn_app();
+    let operator = an_instance(&app);
+    let (_, minted) = app.post_op("mint_invite", Some(&operator), "{}");
+    let joined = app.post_auth_response(
+        "/auth/invite",
+        &json!({ "link": minted["result"]["link"], "name": "Camille",
+                 "password": PASSWORD, "session_name": "their phone" })
+        .to_string(),
+    );
+    // Whoever learned Camille's password signs in and adds a passkey of
+    // their own, which ending a Session would not reach (ADR 0051).
+    let login = json!({ "name": "Camille", "password": PASSWORD, "session_name": "not theirs" });
+    let intruder =
+        support::session_cookie_secret(&app.post_auth_response("/auth/login", &login.to_string()));
+    let mut device = a_device();
+    add_a_passkey(&app, &intruder, &mut device);
+    drop(joined);
+
+    let (_, recovery) = app.post_op(
+        "mint_recovery_link",
+        Some(&operator),
+        &json!({ "name": "Camille" }).to_string(),
+    );
+    let recovered = app.post_auth_response(
+        "/auth/recover",
+        &json!({ "link": recovery["result"]["link"], "password": "a password nobody else has",
+                 "session_name": "replacement phone" })
+        .to_string(),
+    );
+    assert_eq!(recovered.status, 200, "{}", recovered.text());
+    let answer: Value = serde_json::from_str(&recovered.text()).unwrap();
+    assert_eq!(answer["result"]["ended_passkeys"], 1, "{answer}");
+    let camille = support::session_cookie_secret(&recovered);
+
+    let (status, body) = sign_in(&app, &mut device, ADDRESS);
+    assert_eq!(
+        status, 401,
+        "the intruder's passkey signs in no more: {body}"
+    );
+    let (_, listed) = app.post_op("list_passkeys", Some(&camille), "{}");
+    assert_eq!(listed["result"]["passkeys"], json!([]), "{listed}");
+
+    // Camille's own record counts it beside what else the recovery ended.
+    let (_, record) = app.post_op("list_security_record", Some(&camille), "{}");
+    let recovery_line = record["result"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["event"] == "signed_in" && row["detail"]["how"] == "recovery_link")
+        .cloned()
+        .expect("the recovery's line");
+    assert_eq!(
+        recovery_line["detail"]["ended_passkeys"], 1,
+        "{recovery_line}"
+    );
+}

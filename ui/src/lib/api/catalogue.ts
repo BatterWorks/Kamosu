@@ -102,13 +102,35 @@ export type DeleteAccountOutput = {
 	deleted: boolean;
 };
 
-/** Mint a recovery link for a Person who forgot their password. The link is spent on its one use. */
+/** Mint a recovery link for a Person who forgot their password. The link is spent on its one use, and ends any earlier one of theirs still unspent. Setting a password with it signs out everything the old one reached: Sessions, Access Keys, Runner Keys minted with it, and passkeys. */
 export type MintRecoveryLinkInput = {
 	name: string;
 };
 /** What mint_recovery_link answers. */
 export type MintRecoveryLinkOutput = {
 	link: string;
+};
+
+/** List the live Invites and recovery links. Live is not yet spent, not revoked, and for a recovery link, its Person's account still open. Each by its id and when it was made, never its Secret. An Invite says whether it makes an Operator; a recovery link names whose account it opens. Kitchen and Cookbook Invites are not among them. */
+export type ListAccountLinksInput = Record<string, never>;
+/** What list_account_links answers. */
+export type ListAccountLinksOutput = {
+	links: {
+		created_at: string;
+		id: string;
+		kind: "invite" | "recovery";
+		operator: boolean;
+		person: string | null;
+	}[];
+};
+
+/** Revoke a live Invite or recovery link. Name it by the id list_account_links gives it. Nobody can spend it after. */
+export type RevokeAccountLinkInput = {
+	id: string;
+};
+/** What revoke_account_link answers. */
+export type RevokeAccountLinkOutput = {
+	revoked: boolean;
 };
 
 /** Make a Person an Operator, or stop them being one. The last Operator cannot be demoted (ADR 0007): an instance with nobody to administer it can never get one back, so the refusal is the point rather than a nicety. */
@@ -249,6 +271,7 @@ export type ListInstanceSecurityRecordOutput = {
 			address?: string;
 			backup?: string;
 			ended_access_keys?: number;
+			ended_passkeys?: number;
 			ended_runner_keys?: number;
 			ended_sessions?: number;
 			how?: "password" | "passkey" | "invite" | "recovery_link" | "setup" | "demo";
@@ -259,7 +282,7 @@ export type ListInstanceSecurityRecordOutput = {
 			runner_key?: string;
 			taken_away?: boolean;
 		};
-		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "calendar_link_made" | "calendar_link_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched";
+		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "calendar_link_made" | "calendar_link_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched" | "invite_revoked" | "recovery_link_revoked";
 		first_at: string;
 		id: number;
 	}[];
@@ -439,6 +462,7 @@ export type ListSecurityRecordOutput = {
 			address?: string;
 			backup?: string;
 			ended_access_keys?: number;
+			ended_passkeys?: number;
 			ended_runner_keys?: number;
 			ended_sessions?: number;
 			how?: "password" | "passkey" | "invite" | "recovery_link" | "setup" | "demo";
@@ -449,7 +473,7 @@ export type ListSecurityRecordOutput = {
 			runner_key?: string;
 			taken_away?: boolean;
 		};
-		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "calendar_link_made" | "calendar_link_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched";
+		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "calendar_link_made" | "calendar_link_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched" | "invite_revoked" | "recovery_link_revoked";
 		first_at: string;
 		id: number;
 	}[];
@@ -519,7 +543,7 @@ export type FinishAddingPasskeyOutput = {
 	works_here: boolean;
 };
 
-/** Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working. */
+/** Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working. A recovery link of yours not yet used ends. */
 export type ChangePasswordInput = {
 	current_password: string;
 	end_access_keys: boolean;
@@ -6348,6 +6372,18 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'operator';
 	};
+	list_account_links: {
+		input: ListAccountLinksInput;
+		output: ListAccountLinksOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	revoke_account_link: {
+		input: RevokeAccountLinkInput;
+		output: RevokeAccountLinkOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
 	set_operator: {
 		input: SetOperatorInput;
 		output: SetOperatorOutput;
@@ -7660,7 +7696,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "mint_recovery_link",
-		"summary": "Mint a recovery link for a Person who forgot their password. The link is spent on its one use.",
+		"summary": "Mint a recovery link for a Person who forgot their password. The link is spent on its one use, and ends any earlier one of theirs still unspent. Setting a password with it signs out everything the old one reached: Sessions, Access Keys, Runner Keys minted with it, and passkeys.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -7684,6 +7720,95 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"link"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_account_links",
+		"summary": "List the live Invites and recovery links. Live is not yet spent, not revoked, and for a recovery link, its Person's account still open. Each by its id and when it was made, never its Secret. An Invite says whether it makes an Operator; a recovery link names whose account it opens. Kitchen and Cookbook Invites are not among them.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"links": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"kind": {
+								"enum": [
+									"invite",
+									"recovery"
+								]
+							},
+							"operator": {
+								"description": "An Invite that makes an Operator.",
+								"type": "boolean"
+							},
+							"person": {
+								"description": "Whose account a recovery link opens; null for an Invite.",
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"id",
+							"kind",
+							"operator",
+							"person",
+							"created_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"links"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "revoke_account_link",
+		"summary": "Revoke a live Invite or recovery link. Name it by the id list_account_links gives it. Nobody can spend it after.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"revoked": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"revoked"
 			],
 			"type": "object"
 		}
@@ -8264,6 +8389,10 @@ export const CATALOGUE = [
 									"ended_access_keys": {
 										"type": "integer"
 									},
+									"ended_passkeys": {
+										"description": "Passkeys a recovery link ended.",
+										"type": "integer"
+									},
 									"ended_runner_keys": {
 										"description": "Runner Keys a recovery link ended.",
 										"type": "integer"
@@ -8328,7 +8457,9 @@ export const CATALOGUE = [
 									"sign_in_crowd",
 									"runner_key_minted",
 									"runner_key_revoked",
-									"backup_fetched"
+									"backup_fetched",
+									"invite_revoked",
+									"recovery_link_revoked"
 								]
 							},
 							"first_at": {
@@ -9060,6 +9191,10 @@ export const CATALOGUE = [
 									"ended_access_keys": {
 										"type": "integer"
 									},
+									"ended_passkeys": {
+										"description": "Passkeys a recovery link ended.",
+										"type": "integer"
+									},
 									"ended_runner_keys": {
 										"description": "Runner Keys a recovery link ended.",
 										"type": "integer"
@@ -9124,7 +9259,9 @@ export const CATALOGUE = [
 									"sign_in_crowd",
 									"runner_key_minted",
 									"runner_key_revoked",
-									"backup_fetched"
+									"backup_fetched",
+									"invite_revoked",
+									"recovery_link_revoked"
 								]
 							},
 							"first_at": {
@@ -9407,7 +9544,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "change_password",
-		"summary": "Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working.",
+		"summary": "Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working. A recovery link of yours not yet used ends.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -38949,6 +39086,7 @@ export const READS: readonly OperationName[] = [
 	'get_reading_preferences',
 	'get_person',
 	'list_accounts',
+	'list_account_links',
 	'list_backups',
 	'list_runner_keys',
 	'runner_status',
@@ -39012,6 +39150,8 @@ export const METHOD_NAMES = {
 	disable_account: 'disableAccount',
 	delete_account: 'deleteAccount',
 	mint_recovery_link: 'mintRecoveryLink',
+	list_account_links: 'listAccountLinks',
+	revoke_account_link: 'revokeAccountLink',
 	set_operator: 'setOperator',
 	sweep_photographs: 'sweepPhotographs',
 	take_backup: 'takeBackup',
@@ -39191,8 +39331,12 @@ export interface KamosuClient {
 	disableAccount(input: DisableAccountInput): Promise<Answer<'disable_account'>>;
 	/** Delete an account while preserving its Hand in history. The Person's name is freed for somebody new to sign in with; what they wrote keeps their Hand and the name they had. Disabling an account keeps the name. */
 	deleteAccount(input: DeleteAccountInput): Promise<Answer<'delete_account'>>;
-	/** Mint a recovery link for a Person who forgot their password. The link is spent on its one use. */
+	/** Mint a recovery link for a Person who forgot their password. The link is spent on its one use, and ends any earlier one of theirs still unspent. Setting a password with it signs out everything the old one reached: Sessions, Access Keys, Runner Keys minted with it, and passkeys. */
 	mintRecoveryLink(input: MintRecoveryLinkInput): Promise<Answer<'mint_recovery_link'>>;
+	/** List the live Invites and recovery links. Live is not yet spent, not revoked, and for a recovery link, its Person's account still open. Each by its id and when it was made, never its Secret. An Invite says whether it makes an Operator; a recovery link names whose account it opens. Kitchen and Cookbook Invites are not among them. */
+	listAccountLinks(input?: ListAccountLinksInput): Promise<Answer<'list_account_links'>>;
+	/** Revoke a live Invite or recovery link. Name it by the id list_account_links gives it. Nobody can spend it after. */
+	revokeAccountLink(input: RevokeAccountLinkInput): Promise<Answer<'revoke_account_link'>>;
 	/** Make a Person an Operator, or stop them being one. The last Operator cannot be demoted (ADR 0007): an instance with nobody to administer it can never get one back, so the refusal is the point rather than a nicety. */
 	setOperator(input: SetOperatorInput): Promise<Answer<'set_operator'>>;
 	/** Take away Photographs nothing has pointed at for a week. Their Display Copies go with them. Runs daily on its own; this asks for it now. */
@@ -39253,7 +39397,7 @@ export interface KamosuClient {
 	startAddingPasskey(input: StartAddingPasskeyInput): Promise<Answer<'start_adding_passkey'>>;
 	/** Finish adding a passkey the device made. The credential is the JSON text a browser writes of it, and the name is the one it is listed under. */
 	finishAddingPasskey(input: FinishAddingPasskeyInput): Promise<Answer<'finish_adding_passkey'>>;
-	/** Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working. */
+	/** Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working. A recovery link of yours not yet used ends. */
 	changePassword(input: ChangePasswordInput): Promise<Answer<'change_password'>>;
 	/** Create a Kitchen, with its creator as its first member. A Kitchen is a group of People who see and cook from each other's Cookbooks. */
 	createKitchen(input: CreateKitchenInput): Promise<Answer<'create_kitchen'>>;

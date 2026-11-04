@@ -1956,5 +1956,22 @@
   "sent_choose_photo": "Choisir une autre photo",
   "sent_choose_pdf": "Choisir un autre PDF",
   "sent_paste_for": "La recette de {link}, collée ici :",
-  "sent_gone_photos": "Des photos. Kamosu ne les garde que 30 jours."
+  "sent_gone_photos": "Des photos. Kamosu ne les garde que 30 jours.",
+  "operator_links_heading": "Liens pas encore utilisés",
+  "operator_links_said": "Une invitation ou un lien de récupération fonctionne jusqu’à ce qu’on s’en serve ou qu’il soit révoqué. Révoquez celui que vous avez envoyé au mauvais endroit, ou dont vous n’avez plus besoin.",
+  "operator_links_empty": "Aucune invitation ni lien de récupération n’attend.",
+  "operator_links_invite": "Invitation",
+  "operator_links_operator_invite": "Invitation d’Opérateur",
+  "operator_links_recovery": "Lien de récupération pour {who}",
+  "operator_links_invite_made": "Créée {when}",
+  "operator_links_recovery_made": "Créé {when}",
+  "operator_links_revoke": "Révoquer",
+  "operator_links_revoke_invite_title": "Révoquer cette invitation ?",
+  "operator_links_revoke_recovery_title": "Révoquer le lien de récupération de {who} ?",
+  "operator_links_revoke_consequence": "Le lien ne fonctionne plus pour personne. Vous pouvez en créer un nouveau à tout moment.",
+  "security_invite_revoked": "Invitation révoquée",
+  "security_operator_invite_revoked": "Invitation d’Opérateur révoquée",
+  "security_recovery_revoked": "Lien de récupération de {name} révoqué",
+  "security_passkeys_ended_one": "1 clé d’identification retirée",
+  "security_passkeys_ended": "{count} clés d’identification retirées"
 }

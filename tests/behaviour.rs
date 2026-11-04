@@ -7192,6 +7192,208 @@ async fn a_recovery_link_ends_every_session_and_access_key_the_account_held() {
     );
 }
 
+/// A recovery link minted for `name` at the web door, as its path.
+fn recovery_link(app: &support::TestApp, operator: &str, name: &str) -> String {
+    let (status, minted) = app.post_op(
+        "mint_recovery_link",
+        Some(operator),
+        &json!({ "name": name }).to_string(),
+    );
+    assert_eq!(status, 200, "{minted}");
+    minted["result"]["link"].as_str().unwrap().to_string()
+}
+
+/// A recovery link spent with a new password: the status it answered.
+fn recover_with(app: &support::TestApp, link: &str, password: &str) -> u16 {
+    app.post_auth(
+        "/auth/recover",
+        &json!({ "link": link, "password": password, "session_name": "whoever" }).to_string(),
+    )
+    .0
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_newer_recovery_link_ends_the_one_before() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    invited(&app, &session, "Marie");
+    let first = recovery_link(&app, &session, "Marie");
+    let second = recovery_link(&app, &session, "Marie");
+    assert_eq!(
+        recover_with(&app, &first, "a password from the first link"),
+        401
+    );
+    assert_eq!(recover_with(&app, &second, "her own new password"), 200);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn recovering_ends_every_other_recovery_link_of_the_account() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    invited(&app, &session, "Marie");
+    let older = recovery_link(&app, &session, "Marie");
+    let newer = recovery_link(&app, &session, "Marie");
+    // Two live at once, as a library from before #535 may hold.
+    rusqlite::Connection::open(app.data_dir().unwrap().join(db::DATABASE_FILE))
+        .unwrap()
+        .execute("UPDATE account_links SET revoked = 0", [])
+        .unwrap();
+    assert_eq!(recover_with(&app, &newer, "her own new password"), 200);
+    assert_eq!(
+        recover_with(&app, &older, "the intruder's password"),
+        401,
+        "an older link takes the recovered account over no more"
+    );
+    let login = json!({ "name": "Marie", "password": "her own new password", "session_name": "x" });
+    assert_eq!(app.post_auth("/auth/login", &login.to_string()).0, 200);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn changing_a_password_ends_the_accounts_recovery_links() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let marie = invited(&app, &session, "Marie");
+    let link = recovery_link(&app, &session, "Marie");
+    let (status, changed) = app.post_op(
+        "change_password",
+        Some(&marie),
+        &json!({ "current_password": "the password someone took",
+                 "new_password": "a password nobody else has",
+                 "sign_out_other_devices": true, "end_access_keys": false })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{changed}");
+    assert_eq!(recover_with(&app, &link, "the intruder's password"), 401);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_operator_lists_the_live_invites_and_recovery_links_and_revokes_each() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let marie = invited(&app, &session, "Marie");
+    let (_, invite) = app.post_op("mint_invite", Some(&session), r#"{"is_operator":true}"#);
+    let invite = invite["result"]["link"].as_str().unwrap().to_string();
+    let recovery = recovery_link(&app, &session, "Marie");
+
+    let (status, listed) = app.post_op("list_account_links", Some(&session), "{}");
+    assert_eq!(status, 200, "{listed}");
+    let links = listed["result"]["links"].as_array().unwrap().clone();
+    // Marie's spent Invite is no longer live, so it is not listed.
+    assert_eq!(links.len(), 2, "{listed}");
+    let of = |kind: &str| {
+        links
+            .iter()
+            .find(|link| link["kind"] == kind)
+            .cloned()
+            .unwrap_or_else(|| panic!("no {kind} in {listed}"))
+    };
+    let (listed_invite, listed_recovery) = (of("invite"), of("recovery"));
+    assert_eq!(listed_invite["operator"], true, "{listed_invite}");
+    assert_eq!(listed_invite["person"], Value::Null, "{listed_invite}");
+    assert_eq!(listed_recovery["person"], "Marie", "{listed_recovery}");
+    assert_eq!(listed_recovery["operator"], false, "{listed_recovery}");
+    assert!(listed_invite["created_at"].is_string(), "{listed_invite}");
+    // Never the Secret, which is kept by its hash alone (ADR 0031).
+    for link in [&invite, &recovery] {
+        let secret = link.rsplit('/').next().unwrap();
+        assert!(!listed.to_string().contains(secret), "{listed}");
+    }
+
+    // A cook may not list them, nor any key, an Operator's own included.
+    let (status, refused) = app.post_op("list_account_links", Some(&marie), "{}");
+    assert_eq!(status, 401, "{refused}");
+    let (_, key) = app.post_op(
+        "mint_access_key",
+        Some(&session),
+        r#"{"name":"house agent","operator":true}"#,
+    );
+    let key = key["result"]["secret"].as_str().unwrap().to_string();
+    for (operation, input) in [
+        ("list_account_links", json!({})),
+        ("revoke_account_link", json!({ "id": listed_invite["id"] })),
+    ] {
+        let (status, refused) = app.post_op(operation, Some(&key), &input.to_string());
+        assert_eq!(status, 401, "{operation} at a key: {refused}");
+        let (status, refused) = app.post_op(operation, Some(&marie), &input.to_string());
+        assert_eq!(status, 401, "{operation} at a cook: {refused}");
+    }
+
+    for listed in [&listed_invite, &listed_recovery] {
+        let (status, revoked) = app.post_op(
+            "revoke_account_link",
+            Some(&session),
+            &json!({ "id": listed["id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{revoked}");
+    }
+    let (status, again) = app.post_op(
+        "revoke_account_link",
+        Some(&session),
+        &json!({ "id": listed_invite["id"] }).to_string(),
+    );
+    assert_eq!(status, 404, "a revoked link is no longer live: {again}");
+    let (_, listed) = app.post_op("list_account_links", Some(&session), "{}");
+    assert_eq!(listed["result"]["links"], json!([]), "{listed}");
+
+    let joined = app.post_auth(
+        "/auth/invite",
+        &json!({ "link": invite, "name": "Somebody", "password": "a password of their own",
+                 "session_name": "x" })
+        .to_string(),
+    );
+    assert_eq!(joined.0, 401, "{}", joined.1);
+    assert_eq!(
+        recover_with(&app, &recovery, "the intruder's password"),
+        401
+    );
+
+    // Every Operator reads which went, by whom and through what.
+    let (_, record) = app.post_op("list_instance_security_record", Some(&session), "{}");
+    let seen: Vec<(Value, Value, Value, Value)> = record["result"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["event"] == "invite_revoked" || row["event"] == "recovery_link_revoked")
+        .map(|row| {
+            (
+                row["event"].clone(),
+                row["about"].clone(),
+                row["credential"]["name"].clone(),
+                row["detail"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        vec![
+            (
+                json!("recovery_link_revoked"),
+                json!("Marie"),
+                json!("test browser"),
+                json!({})
+            ),
+            (
+                json!("invite_revoked"),
+                Value::Null,
+                json!("test browser"),
+                json!({ "operator": true })
+            ),
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recovery_link_of_an_ended_account_is_not_listed() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    invited(&app, &session, "Marie");
+    recovery_link(&app, &session, "Marie");
+    let (status, _) = app.post_op("disable_account", Some(&session), r#"{"name":"Marie"}"#);
+    assert_eq!(status, 200);
+    let (_, listed) = app.post_op("list_account_links", Some(&session), "{}");
+    assert_eq!(listed["result"]["links"], json!([]), "{listed}");
+}
+
 /// A Person invited and signed in at the web door: their Session's Secret.
 fn invited(app: &support::TestApp, operator: &str, name: &str) -> String {
     let (_, invite) = app.post_op("mint_invite", Some(operator), "{}");
@@ -45949,7 +46151,7 @@ async fn a_recovery_link_says_what_it_ended_with_the_old_password() {
     );
     assert_eq!(
         record["events"][0]["detail"],
-        json!({ "how": "recovery_link", "ended_sessions": 1, "ended_access_keys": 1, "ended_runner_keys": 0 })
+        json!({ "how": "recovery_link", "ended_sessions": 1, "ended_access_keys": 1, "ended_runner_keys": 0, "ended_passkeys": 0 })
     );
     assert_eq!(
         record["events"].as_array().unwrap().last().unwrap()["detail"],
@@ -46254,8 +46456,13 @@ mod a_demo {
         "start_attempt",
     ];
 
-    /// What writes nothing and is refused all the same: the start of importing.
-    const A_DEMOS_REFUSED_READS: [&str; 2] = ["read_pasted_recipe", "read_recipe_pdf"];
+    /// What writes nothing and is refused all the same: the start of importing,
+    /// and the Invites and recovery links not yet used (#535).
+    const A_DEMOS_REFUSED_READS: [&str; 3] = [
+        "list_account_links",
+        "read_pasted_recipe",
+        "read_recipe_pdf",
+    ];
 
     #[test]
     fn a_demo_lets_through_these_writes() {

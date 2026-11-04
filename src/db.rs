@@ -2257,6 +2257,20 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 71,
+        description: "an id for each Invite and recovery link, to revoke it by (#535)",
+        sql: r#"
+        -- An Operator sees the live Invites and recovery links and revokes
+        -- each one (ADR 0031). A link is kept by its Secret's hash, which is
+        -- never shown, so each gets an id of its own to be named by. Every
+        -- row written from here on is given one by Kamosu.
+        ALTER TABLE account_links ADD COLUMN id TEXT;
+        UPDATE account_links SET id = 'al_' || lower(hex(randomblob(8)));
+        CREATE UNIQUE INDEX account_links_id ON account_links(id);
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

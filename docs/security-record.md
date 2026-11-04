@@ -26,7 +26,7 @@ always in this order:
 | `event` | What happened, one of the names below. |
 | `at` | When, in UTC, as `YYYY-MM-DDTHH:MM:SS.mmmZ`. |
 | `person` | The id of the Person whose account it happened to, or of the Person who changed the instance. `-` when there is none, as for a crowd at the sign-in. |
-| `subject` | The id of the Person acted on: made an Operator, stood down, disabled or deleted. `-` otherwise. |
+| `subject` | The id of the Person acted on: made an Operator, stood down, disabled or deleted, or whose recovery link was revoked. `-` otherwise. |
 | `credential` | The kind of Credential the event names: `session`, `access_key`, `operator_key`, `job_key` or `passkey`. `-` when it names none. |
 | `credential_name` | That Credential's name, as a JSON string, so a quote or a line break in a name cannot split the line or fake a field. `-` when there is none. |
 | `count` | How many times so far. Above 1 only on `sign_in_failed` and `sign_in_crowd`. |
@@ -42,7 +42,7 @@ A Person's own record:
 
 | Event | When |
 | --- | --- |
-| `signed_in` | A Session was made: by password, passkey, Invite, recovery link or at setup. `credential_name` is the new Session's. A recovery link's says how many Sessions, Access Keys and Runner Keys it ended. |
+| `signed_in` | A Session was made: by password, passkey, Invite, recovery link or at setup. `credential_name` is the new Session's. A recovery link's says how many Sessions, Access Keys, Runner Keys and passkeys it ended. |
 | `sign_in_failed` | A wrong password at this Person's name, at the sign-in or where their own password is asked again. One run of them is one row, ended by the Person's next sign-in of any kind or an hour with none; each wrong password writes a line with the run's `count` so far. A name nobody holds writes nothing. |
 | `passkey_added`, `passkey_removed` | |
 | `password_changed` | `credential_name` is the Session that changed it. |
@@ -61,6 +61,8 @@ Every Operator's record:
 | `sign_in_crowd` | Sign-ins refused because too many passwords were waiting to be checked at once: most likely a crowd of guesses at made-up names. One row while it lasts, ended by an hour with none. A line is written when it starts, then once a minute with the count so far while refusals keep coming, the last within a minute of the final refusal. A restart loses the refusals of its last minute. |
 | `runner_key_minted`, `runner_key_revoked` | A Runner Key a recovery link ended is `runner_key_revoked` by the recovered Person, through the Session the link opened (#378). |
 | `backup_fetched` | A Backup's archive was downloaded. It holds every password hash on the instance. |
+| `invite_revoked` | An Invite that makes an account was revoked before it was used. It says whether it would have made an Operator. |
+| `recovery_link_revoked` | A recovery link was revoked before it was used. `subject` is the Person whose account it opened. A link a newer one, a recovery or a password change ended is not noted. |
 
 For the Operators' events, `person` and `credential` say who made the change
 and through what. A change made through an Operator key that nobody remembers

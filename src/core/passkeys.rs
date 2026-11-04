@@ -485,7 +485,7 @@ impl Core {
         passkey.update_credential(&result);
         let stored = serde_json::to_string(&passkey)
             .map_err(|e| OpError::internal(format!("cannot keep the passkey: {e}")))?;
-        self.db().with_conn(|conn| {
+        let still_kept = self.db().with_conn(|conn| {
             conn.execute(
                 "UPDATE passkeys SET passkey = ?1, \
                         last_used_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?2",
@@ -493,6 +493,10 @@ impl Core {
             )
             .map_err(|e| OpError::internal(format!("cannot note the passkey's use: {e}")))
         })?;
+        // A recovery that removed it while it was being checked wins (#535).
+        if still_kept == 0 {
+            return Err(OpError::unauthorized(NOT_KNOWN));
+        }
         let session = self.mint_session(&person_id, session_name, "passkey")?;
         Ok(json!({ "session_id": session.id, "_session_secret": session.secret }))
     }
