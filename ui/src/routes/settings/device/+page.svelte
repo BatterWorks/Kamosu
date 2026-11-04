@@ -8,14 +8,14 @@
 	the account to every device rather than staying on this one.
 -->
 <script lang="ts">
-	import { aDate } from '$lib/dates';
-	import { m } from '$lib/paraglide/messages';
-	import { useRoom } from '$lib/room.svelte';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Section from '$lib/shell/Section.svelte';
-	import InstallSteps from '$lib/offline/InstallSteps.svelte';
-	import { thisDevice } from '$lib/offline/device.svelte';
-	import { readableSize, useLibrary } from '$lib/offline/library.svelte';
+	import { aDate } from '#lib/dates.js';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useRoom } from '#lib/room.svelte.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Section from '#lib/shell/Section.svelte';
+	import InstallSteps from '#lib/offline/InstallSteps.svelte';
+	import { thisDevice } from '#lib/offline/device.svelte.js';
+	import { readableSize, useLibrary } from '#lib/offline/library.svelte.js';
 
 	const room = useRoom();
 	const device = thisDevice();

@@ -7,8 +7,8 @@
  * (`yieldScale`). The mark, the meal's sheet and the answer to a send are
  * all said from those two numbers, so they never disagree.
  */
-import { plainNumber, yieldScale } from '$lib/offline/shopping';
-import { writtenCount, type Wanted, type Written } from '$lib/how-much';
+import { plainNumber, yieldScale } from '#lib/offline/shopping.js';
+import { writtenCount, type Wanted, type Written } from '#lib/how-much.js';
 
 /** The tick a sent meal is marked with, as an SVG path. */
 export const TICK = 'M5 12.5l4.2 4.2L19 7';

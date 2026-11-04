@@ -3,10 +3,10 @@
 	it directly, the way Thread.svelte does.
 -->
 <script lang="ts">
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import type { FileFetcher } from '$lib/api/files';
-	import type { Device } from '$lib/offline/device.svelte';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import type { FileFetcher } from '#lib/api/files.js';
+	import type { Device } from '#lib/offline/device.svelte.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import Share from './Share.svelte';
 
 	interface Props {

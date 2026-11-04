@@ -11,12 +11,12 @@
 	passkeys are left alone.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { ChangePasswordOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { ChangePasswordOutput } from '#lib/api/catalogue.js';
 
 	interface Props {
 		/** How many of this Person's Sessions are signed in elsewhere. */

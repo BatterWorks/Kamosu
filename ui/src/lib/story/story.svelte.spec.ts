@@ -3,8 +3,8 @@ import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import Story from './Story.svelte';
 import { story } from './showing.svelte';
-import { m } from '$lib/paraglide/messages';
-import { getLocale, locales } from '$lib/paraglide/runtime';
+import { m } from '#lib/paraglide/messages.js';
+import { getLocale, locales } from '#lib/paraglide/runtime.js';
 
 /** Which stage is on screen, as the story says it to a screen reader. */
 function stageShown(): string {

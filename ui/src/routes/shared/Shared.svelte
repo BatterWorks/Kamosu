@@ -5,13 +5,13 @@
 	Most people press Back to where they were; the button is for the rest.
 
 	The service worker caught the share and handed it to `add_this`
-	(`$lib/offline/shared.ts`), keeps the answer, and brings the page here
+	(`#lib/offline/shared.ts`), keeps the answer, and brings the page here
 	with its address naming it. Nothing is asked of the server from here, and
 	nothing the address says is shown.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import type { SharedAnswer } from '$lib/offline/shared';
+	import { m } from '#lib/paraglide/messages.js';
+	import type { SharedAnswer } from '#lib/offline/shared.js';
 
 	interface Props {
 		/** What the worker kept for this page, or none where nothing is kept. */

@@ -10,7 +10,7 @@
  * Computed here rather than inside `Language.svelte` so that the component
  * takes plain facts and can be rendered in a test without a Thread.
  */
-import type { GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
+import type { GetRecipeOutput, GetThreadOutput } from '#lib/api/catalogue.js';
 
 type Branch = GetThreadOutput['branches'][number];
 

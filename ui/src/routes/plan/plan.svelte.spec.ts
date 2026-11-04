@@ -21,10 +21,10 @@ import type {
 	GetMealPlanInput,
 	GetMealPlanOutput,
 	SendToShoppingListOutput,
-} from '$lib/api/catalogue';
-import { landedSend } from '$lib/offline/device.svelte';
-import { addDays, mondayOf, today } from '$lib/plan-days';
-import { aPlannedDay, timeZoneHere } from '$lib/dates';
+} from '#lib/api/catalogue.js';
+import { landedSend } from '#lib/offline/device.svelte.js';
+import { addDays, mondayOf, today } from '#lib/plan-days.js';
+import { aPlannedDay, timeZoneHere } from '#lib/dates.js';
 
 type Meal = GetMealPlanOutput['planned_meals'][number];
 

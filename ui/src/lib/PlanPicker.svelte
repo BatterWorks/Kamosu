@@ -10,11 +10,11 @@
 	further ahead than the three weeks shown first.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import type { GetMealPlanOutput } from '$lib/api/catalogue';
-	import { aPlannedDay, aPlannedWeek } from '$lib/dates';
-	import { anyDayName, mealName } from '$lib/plan-where';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import type { GetMealPlanOutput } from '#lib/api/catalogue.js';
+	import { aPlannedDay, aPlannedWeek } from '#lib/dates.js';
+	import { anyDayName, mealName } from '#lib/plan-where.js';
 	import {
 		addDays,
 		mondayOf,
@@ -24,7 +24,7 @@
 		whereOf,
 		type Day,
 		type Where,
-	} from '$lib/plan-days';
+	} from '#lib/plan-days.js';
 
 	interface Props {
 		/** What is chosen, or null until something is. */

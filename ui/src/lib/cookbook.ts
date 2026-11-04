@@ -9,9 +9,9 @@
  * same Cookbook three different ways.
  */
 
-import { m } from '$lib/paraglide/messages';
-import { getLocale } from '$lib/paraglide/runtime';
-import type { GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import { getLocale } from '#lib/paraglide/runtime.js';
+import type { GetRecipeOutput, GetThreadOutput } from '#lib/api/catalogue.js';
 
 export type CookbookLabel = GetRecipeOutput['cookbook'];
 /** What labelling a Branch needs, which a Thread's Branch and each side of a Divergence both carry. */

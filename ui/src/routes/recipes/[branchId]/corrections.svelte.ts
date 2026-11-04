@@ -13,7 +13,7 @@
  * Divergence, putting the marks away — forgets what is here (`forget`,
  * `close`).
  */
-import type { GetRecipeOutput } from '$lib/api/catalogue';
+import type { GetRecipeOutput } from '#lib/api/catalogue.js';
 import { reading } from './divergence';
 
 type Version = GetRecipeOutput['versions'][number];

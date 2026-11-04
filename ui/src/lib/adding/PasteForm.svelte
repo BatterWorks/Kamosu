@@ -15,12 +15,12 @@
 	Runner is read again when the button is pressed.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
 	import WatchExamples from './WatchExamples.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import type { ReadPastedRecipeOutput } from '$lib/api/catalogue';
-	import { readPasted } from '$lib/pasted.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import type { ReadPastedRecipeOutput } from '#lib/api/catalogue.js';
+	import { readPasted } from '#lib/pasted.svelte.js';
 	import type { Adding } from './adding.svelte';
 	import PasteSheet from './PasteSheet.svelte';
 

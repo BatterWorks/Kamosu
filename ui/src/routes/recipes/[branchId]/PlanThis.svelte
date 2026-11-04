@@ -14,15 +14,15 @@
 	versions plans the one they are reading.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import HowMuch from '$lib/HowMuch.svelte';
-	import PlanPicker from '$lib/PlanPicker.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { whereTarget } from '$lib/plan-where';
-	import type { Wanted, Written } from '$lib/how-much';
-	import type { Where } from '$lib/plan-days';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import HowMuch from '#lib/HowMuch.svelte';
+	import PlanPicker from '#lib/PlanPicker.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { whereTarget } from '#lib/plan-where.js';
+	import type { Wanted, Written } from '#lib/how-much.js';
+	import type { Where } from '#lib/plan-days.js';
 
 	interface Props {
 		branchId: string;

@@ -31,16 +31,16 @@
 	none either, and the screen says the address is not set (#468).
 -->
 <script lang="ts">
-	import { aDate } from '$lib/dates';
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Screen from '$lib/shell/Screen.svelte';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import { Online, thisDevice, type Device } from '$lib/offline/device.svelte';
-	import { BUNDLE, shareFile, sharesFiles, useFiles } from '$lib/api/files';
-	import type { ExportBundleOutput, GetShareLinkOutput } from '$lib/api/catalogue';
+	import { aDate } from '#lib/dates.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import { Online, thisDevice, type Device } from '#lib/offline/device.svelte.js';
+	import { BUNDLE, shareFile, sharesFiles, useFiles } from '#lib/api/files.js';
+	import type { ExportBundleOutput, GetShareLinkOutput } from '#lib/api/catalogue.js';
 
 	interface Props {
 		branchId: string;
@@ -131,7 +131,7 @@
 	 * nothing to do with the link, so a failure here must not say "the link
 	 * could not be changed" — and this read is the one that is *expected* to
 	 * fail, because `export_bundle` is answered straight through and never kept
-	 * on the phone (`$lib/offline/reads`). Off the network it simply does not
+	 * on the phone (`#lib/offline/reads.js`). Off the network it simply does not
 	 * arrive, and the block below says so rather than disappearing.
 	 */
 	$effect(() => {

@@ -30,7 +30,7 @@
  * the phone keeps (#76): a new Session begins with nothing held.
  */
 
-import { CATALOGUE } from '$lib/api/catalogue';
+import { CATALOGUE } from '#lib/api/catalogue.js';
 import type {
 	SendToShoppingListOutput,
 	GetCurrentAttemptOutput,
@@ -42,13 +42,13 @@ import type {
 	OperationName,
 	ShoppingBasisOutput,
 	StartAttemptOutput,
-} from '$lib/api/catalogue';
+} from '#lib/api/catalogue.js';
 import { getContext, setContext } from 'svelte';
-import { OperationError, httpTransport, type Transport } from '$lib/api/client';
-import { realPhotographUpload } from '$lib/api/upload';
+import { OperationError, httpTransport, type Transport } from '#lib/api/client.js';
+import { realPhotographUpload } from '#lib/api/upload.js';
 import { landedSend, noteReach, refreshed } from './device.svelte';
 import { asText, rows, yieldScale, type List, type Row } from './shopping';
-import { mondayOf, type Day } from '$lib/plan-days';
+import { mondayOf, type Day } from '#lib/plan-days.js';
 
 type Attempt = StartAttemptOutput;
 type DiaryEntry = ListAttemptsOutput['attempts'][number];

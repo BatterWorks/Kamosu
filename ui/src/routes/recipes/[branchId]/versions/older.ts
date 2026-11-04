@@ -8,8 +8,8 @@
  *
  * Nothing here names a Kitchen. Both recipes are one Branch, at two moments.
  */
-import { m } from '$lib/paraglide/messages';
-import type { DivergenceOutput } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import type { DivergenceOutput } from '#lib/api/catalogue.js';
 import { proseOf, type Elsewhere, type Taken, type Words } from '../divergence';
 
 /** Where the recipe now has a line this Version has elsewhere (#337). */

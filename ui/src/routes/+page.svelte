@@ -12,15 +12,15 @@
 	An Invite or a recovery link opens a route of its own, not this one (#126).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { GetCookbookOutput, HomeShelvesOutput } from '$lib/api/catalogue';
-	import { refreshed } from '$lib/offline/device.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { GetCookbookOutput, HomeShelvesOutput } from '#lib/api/catalogue.js';
+	import { refreshed } from '#lib/offline/device.svelte.js';
 	import Account from './Account.svelte';
 	import Home from './Home.svelte';
-	import CookbookJoins from '$lib/CookbookJoins.svelte';
-	import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
+	import CookbookJoins from '#lib/CookbookJoins.svelte';
+	import { heardWhetherSignedIn } from '#lib/shell/signing-in.svelte.js';
 
 	const kamosu = useKamosu();
 

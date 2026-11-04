@@ -13,12 +13,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { m } from '$lib/paraglide/messages';
-import type { Room } from '$lib/room.svelte';
+import { m } from '#lib/paraglide/messages.js';
+import type { Room } from '#lib/room.svelte.js';
 import { went } from '../../testing/navigation';
 import { render, screen, fireEvent } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { ListFoodsOutput } from '$lib/api/catalogue';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { ListFoodsOutput } from '#lib/api/catalogue.js';
 import FoodsTestHarness from './FoodsTestHarness.svelte';
 
 type FoodRow = ListFoodsOutput['foods'][number];
@@ -253,16 +253,15 @@ describe('on the wide layout', () => {
 		await fireEvent.keyDown(document.body, { key: 'ArrowDown' });
 		// Replaced, so going back leaves the list in one step rather than walking back up it.
 		expect(went).toHaveBeenLastCalledWith('/foods/f_sel', {
-			replaceState: true,
-			keepFocus: true,
-			noScroll: true,
+			replace: true,
+			reset: false,
 		});
 
 		await drawn.rerender({ open: 'f_sel' });
 		await fireEvent.keyDown(document.body, { key: 'ArrowUp' });
 		expect(went).toHaveBeenLastCalledWith(
 			'/foods/f_brown',
-			expect.objectContaining({ replaceState: true }),
+			expect.objectContaining({ replace: true }),
 		);
 	});
 
@@ -274,7 +273,7 @@ describe('on the wide layout', () => {
 
 		expect(went).toHaveBeenLastCalledWith(
 			'/foods/f_salt',
-			expect.objectContaining({ replaceState: true }),
+			expect.objectContaining({ replace: true }),
 		);
 	});
 

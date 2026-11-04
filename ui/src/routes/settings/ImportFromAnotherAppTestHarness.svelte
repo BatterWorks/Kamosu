@@ -4,9 +4,9 @@
 	network.
 -->
 <script lang="ts">
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import type { Uploader } from '$lib/api/upload';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import type { Uploader } from '#lib/api/upload.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import ImportFromAnotherApp from './ImportFromAnotherApp.svelte';
 
 	interface Props {

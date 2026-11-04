@@ -9,14 +9,14 @@
 	original where it is, and the copy keeps its amount.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import PlanPicker from '$lib/PlanPicker.svelte';
-	import { OperationError } from '$lib/api/client';
-	import type { GetMealPlanOutput } from '$lib/api/catalogue';
-	import { said } from '$lib/how-much';
-	import { whereOf, type Where } from '$lib/plan-days';
-	import { mealName, whereSaid, whereTarget } from '$lib/plan-where';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import PlanPicker from '#lib/PlanPicker.svelte';
+	import { OperationError } from '#lib/api/client.js';
+	import type { GetMealPlanOutput } from '#lib/api/catalogue.js';
+	import { said } from '#lib/how-much.js';
+	import { whereOf, type Where } from '#lib/plan-days.js';
+	import { mealName, whereSaid, whereTarget } from '#lib/plan-where.js';
 
 	type Meal = GetMealPlanOutput['planned_meals'][number];
 

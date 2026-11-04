@@ -9,9 +9,9 @@ import { fireEvent, screen, within } from '@testing-library/svelte';
 import Settings from './+page.svelte';
 import SigningIn from './signing-in/+page.svelte';
 import { keepingForTests, renderScreen } from '../../testing/render';
-import type { Answers } from '$lib/api/stand-in';
+import type { Answers } from '#lib/api/stand-in.js';
 import { went } from '../../testing/navigation';
-import { signingIn } from '$lib/shell/signing-in.svelte';
+import { signingIn } from '#lib/shell/signing-in.svelte.js';
 
 afterEach(() => {
 	Reflect.deleteProperty(navigator, 'onLine');

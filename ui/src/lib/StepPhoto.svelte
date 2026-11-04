@@ -12,8 +12,8 @@
 	which is why it is drawn from `/api/photographs` directly, as the hero is.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
 
 	interface Props {
 		photograph: string;

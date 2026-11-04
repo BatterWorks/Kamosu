@@ -4,9 +4,9 @@
  * One place says each, so "Plan this", Move, Plan again, writing on the plan
  * and the note that answers each name a week the same way.
  */
-import { m } from '$lib/paraglide/messages';
-import { aPlannedDate, aPlannedDay } from '$lib/dates';
-import { mondayOf, today, weeksFrom, type Day, type Where } from '$lib/plan-days';
+import { m } from '#lib/paraglide/messages.js';
+import { aPlannedDate, aPlannedDay } from '#lib/dates.js';
+import { mondayOf, today, weeksFrom, type Day, type Where } from '#lib/plan-days.js';
 
 const away = (monday: Day): number => weeksFrom(mondayOf(today()), monday);
 

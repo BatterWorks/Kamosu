@@ -23,11 +23,11 @@
 	always did, with a way under it to add a second page.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import { Online } from '$lib/offline/device.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import { Online } from '#lib/offline/device.svelte.js';
 	import { MOST_PAGES, type Adding, type ToSend } from './adding.svelte';
 	import FilePicker from './FilePicker.svelte';
 	import { ICON, waitsForServer } from './sources';

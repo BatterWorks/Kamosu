@@ -8,10 +8,10 @@
  * across `/recipes/A` → `/recipes/B` rather than remade.
  */
 import { untrack } from 'svelte';
-import { Online, refreshed } from '$lib/offline/device.svelte';
-import { useLibrary } from '$lib/offline/library.svelte';
-import { keptAt } from '$lib/offline/reads';
-import { standing } from '$lib/offline/standing.svelte';
+import { Online, refreshed } from '#lib/offline/device.svelte.js';
+import { useLibrary } from '#lib/offline/library.svelte.js';
+import { keptAt } from '#lib/offline/reads.js';
+import { standing } from '#lib/offline/standing.svelte.js';
 
 export interface OnThePhone {
 	/**

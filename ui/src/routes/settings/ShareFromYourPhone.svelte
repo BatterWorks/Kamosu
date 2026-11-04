@@ -21,14 +21,14 @@
 -->
 <script lang="ts">
 	import { onMount, type Snippet } from 'svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Refusal from '$lib/Refusal.svelte';
-	import OneTimeSecret from '$lib/OneTimeSecret.svelte';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import { thisDevice } from '$lib/offline/device.svelte';
-	import { SHORTCUT_URL, phoneName, setupCode, whichPhone } from '$lib/sharing';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import OneTimeSecret from '#lib/OneTimeSecret.svelte';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import { thisDevice } from '#lib/offline/device.svelte.js';
+	import { SHORTCUT_URL, phoneName, setupCode, whichPhone } from '#lib/sharing.js';
 
 	const kamosu = useKamosu();
 	const uid = $props.id();

@@ -14,7 +14,7 @@
 -->
 <script lang="ts">
 	import type { Attachment } from 'svelte/attachments';
-	import { copyText } from '$lib/clipboard';
+	import { copyText } from '#lib/clipboard.js';
 
 	let {
 		secret,

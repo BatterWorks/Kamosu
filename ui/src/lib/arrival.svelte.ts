@@ -13,7 +13,7 @@
  * (ADR 0032), and the line links to it for what a line cannot hold.
  */
 
-import type { ImportBundleOutput } from '$lib/api/catalogue';
+import type { ImportBundleOutput } from '#lib/api/catalogue.js';
 
 /** A recipe as it landed, and what landing meant for it. */
 export interface Landed {

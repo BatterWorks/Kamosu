@@ -26,7 +26,7 @@ import type {
 	GetShoppingListOutput,
 	GetReadingPreferencesOutput,
 	ShoppingBasisOutput,
-} from '$lib/api/catalogue';
+} from '#lib/api/catalogue.js';
 
 export type Measures = GetReadingPreferencesOutput['reading_measures'];
 export type List = GetShoppingListOutput;

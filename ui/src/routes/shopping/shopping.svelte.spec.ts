@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest';
 import { screen, within, fireEvent } from '@testing-library/svelte';
 import Page from './+page.svelte';
 import { renderScreen } from '../../testing/render';
-import type { GetShoppingListOutput } from '$lib/api/catalogue';
+import type { GetShoppingListOutput } from '#lib/api/catalogue.js';
 
 type Row = GetShoppingListOutput['rows'][number];
 type Chosen = GetShoppingListOutput['chosen'][number];

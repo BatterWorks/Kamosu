@@ -5,9 +5,9 @@
 	about. A test of the + can hand it an uploader, for the Kamosu zip file.
 -->
 <script lang="ts">
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import type { Uploader } from '$lib/api/upload';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import type { Uploader } from '#lib/api/upload.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import Shelf from './Shelf.svelte';
 
 	interface Props {

@@ -8,11 +8,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
-import { aDate } from '$lib/dates';
+import { heardWhetherSignedIn } from '#lib/shell/signing-in.svelte.js';
+import { aDate } from '#lib/dates.js';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetRecipeOutput } from '$lib/api/catalogue';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { GetRecipeOutput } from '#lib/api/catalogue.js';
 import {
 	cookbookLabel,
 	kitchenAnswer,
@@ -26,7 +26,7 @@ import type { Device } from './device.svelte';
 import { sessionBegan } from './library.svelte';
 import { holdTheInstallOffer, reached } from './device.svelte';
 import { standing } from './standing.svelte';
-import { demo } from '$lib/demo.svelte';
+import { demo } from '#lib/demo.svelte.js';
 import { anInstallOffer, offerToInstall } from '../../testing/install';
 
 const entry = (branch_id: string, main_photo: string | null = null) => ({

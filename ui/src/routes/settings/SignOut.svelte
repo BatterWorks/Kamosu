@@ -13,14 +13,14 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import Refusal from '$lib/Refusal.svelte';
+	import Refusal from '#lib/Refusal.svelte';
 	import { onMount } from 'svelte';
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { OperationError } from '$lib/api/client';
-	import { useKamosu } from '$lib/kamosu';
-	import { useKeeping } from '$lib/offline/outbox';
-	import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { OperationError } from '#lib/api/client.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { useKeeping } from '#lib/offline/outbox.js';
+	import { heardWhetherSignedIn } from '#lib/shell/signing-in.svelte.js';
 
 	interface Props {
 		/** The Session in your hand, where the screen already knows it. */

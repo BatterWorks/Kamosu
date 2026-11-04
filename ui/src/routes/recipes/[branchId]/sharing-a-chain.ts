@@ -16,7 +16,7 @@
  * have a Version id in common — which two Translations of one recipe never do,
  * and a Branch and its Copy always do.
  */
-import type { GetThreadOutput } from '$lib/api/catalogue';
+import type { GetThreadOutput } from '#lib/api/catalogue.js';
 
 export function sharingAChain(
 	thread: Pick<GetThreadOutput, 'branches' | 'versions'>,

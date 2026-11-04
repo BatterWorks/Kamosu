@@ -8,7 +8,7 @@
  * wrong exactly where a cook dropped a line or added one, which they may.
  */
 
-import type { ListAttemptsOutput } from '$lib/api/catalogue';
+import type { ListAttemptsOutput } from '#lib/api/catalogue.js';
 
 type Against = NonNullable<ListAttemptsOutput['attempts'][number]['as_cooked']>['against'];
 

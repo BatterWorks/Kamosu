@@ -26,8 +26,8 @@
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useRoom } from '$lib/room.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useRoom } from '#lib/room.svelte.js';
 	import { provideCorrected } from './corrected.svelte';
 	import FoodList from './FoodList.svelte';
 

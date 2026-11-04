@@ -14,11 +14,11 @@
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import Screen from '$lib/shell/Screen.svelte';
-	import { asksWhetherAdministering, type Administering } from '$lib/operator/administering';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import { asksWhetherAdministering, type Administering } from '#lib/operator/administering.js';
 
 	interface Props {
 		title: string;

@@ -24,7 +24,7 @@
  * two Branches are laid over each other with, served on the Attempt. A frontend
  * matching lines by position would be wrong exactly when it matters.
  */
-import type { GetRecipeOutput, StartAttemptOutput } from '$lib/api/catalogue';
+import type { GetRecipeOutput, StartAttemptOutput } from '#lib/api/catalogue.js';
 
 type Version = GetRecipeOutput['versions'][number];
 type Content = Version['content'];

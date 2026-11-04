@@ -8,9 +8,9 @@
 	shows it. In the app the layout draws `Arrived` above every screen (#93).
 -->
 <script lang="ts">
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import type { Uploader } from '$lib/api/upload';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import type { Uploader } from '#lib/api/upload.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import AddOrImport from './AddOrImport.svelte';
 	import Arrived from './Arrived.svelte';
 

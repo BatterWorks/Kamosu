@@ -31,11 +31,11 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Confirm from '$lib/Confirm.svelte';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Confirm from '#lib/Confirm.svelte';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
 
 	interface Props {
 		branchId: string;
@@ -95,7 +95,7 @@
 	 * ever made from it.
 	 *
 	 * Back to the shelf afterwards, because there is nothing left to stand on.
-	 * `replaceState` so the back button does not walk into a recipe that is
+	 * `replace`, so the back button does not walk into a recipe that is
 	 * gone — the page it would land on answers *no such Branch*, which is a
 	 * true sentence and a baffling one to be shown for pressing back.
 	 */
@@ -104,7 +104,7 @@
 		failed = undefined;
 		try {
 			await kamosu.deleteRecipe({ branch_id: branchId });
-			await goto('/recipes', { replaceState: true });
+			await goto('/recipes', { replace: true });
 		} catch (error: unknown) {
 			if (!(error instanceof OperationError)) throw error;
 			failed = error.message;

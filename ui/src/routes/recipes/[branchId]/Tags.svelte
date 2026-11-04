@@ -27,9 +27,9 @@
 	merge.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import { byWord, tagWord, type Tag } from '$lib/tags';
+	import { m } from '#lib/paraglide/messages.js';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import { byWord, tagWord, type Tag } from '#lib/tags.js';
 	import TagSheet from './TagSheet.svelte';
 
 	interface Props {

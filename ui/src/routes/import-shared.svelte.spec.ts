@@ -10,14 +10,14 @@
  * shape.
  */
 
-import { aDate } from '$lib/dates';
+import { aDate } from '#lib/dates.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { standIn, type Answers, type StandIn } from '$lib/api/stand-in';
-import type { AuthClient } from '$lib/auth';
-import type { PreviewSharedRecipeOutput } from '$lib/api/catalogue';
-import { forgetArrival, noteArrival, theArrival } from '$lib/arrival.svelte';
-import { signingIn } from '$lib/shell/signing-in.svelte';
+import { standIn, type Answers, type StandIn } from '#lib/api/stand-in.js';
+import type { AuthClient } from '#lib/auth.js';
+import type { PreviewSharedRecipeOutput } from '#lib/api/catalogue.js';
+import { forgetArrival, noteArrival, theArrival } from '#lib/arrival.svelte.js';
+import { signingIn } from '#lib/shell/signing-in.svelte.js';
 import { outlivingTheWait, withTheClockFaked } from '../testing/jobs';
 import { went } from '../testing/navigation';
 import ImportSharedTestHarness from './import/ImportSharedTestHarness.svelte';

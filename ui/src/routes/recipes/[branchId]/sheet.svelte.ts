@@ -26,11 +26,11 @@
  * makes one of these as it opens, tells it when the recipe changes
  * (`leave`), and it stops waiting on its own when the screen closes.
  */
-import type { KamosuClient, MakeSheetOutput } from '$lib/api/catalogue';
-import { StillRunning, waitForJob } from '$lib/api/job';
-import { SHEET, shareFile, sharesFiles, type FileFetcher } from '$lib/api/files';
-import type { Device } from '$lib/offline/device.svelte';
-import type { Wanted } from '$lib/how-much';
+import type { KamosuClient, MakeSheetOutput } from '#lib/api/catalogue.js';
+import { StillRunning, waitForJob } from '#lib/api/job.js';
+import { SHEET, shareFile, sharesFiles, type FileFetcher } from '#lib/api/files.js';
+import type { Device } from '#lib/offline/device.svelte.js';
+import type { Wanted } from '#lib/how-much.js';
 
 export type Printing = 'idle' | 'setting' | 'stillSetting' | 'ready' | 'failed';
 

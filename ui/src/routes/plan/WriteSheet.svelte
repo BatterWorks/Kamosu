@@ -8,12 +8,12 @@
 	<day>", which waits until something is written.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { Where } from '$lib/plan-days';
-	import { whereHeading, whereName } from '$lib/plan-where';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { Where } from '#lib/plan-days.js';
+	import { whereHeading, whereName } from '#lib/plan-where.js';
 
 	interface Props {
 		where: Where;

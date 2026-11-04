@@ -2,9 +2,9 @@
 	The meta: one full-bleed strip, three cells, hairlines between (#81).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import type { GetRecipeOutput } from '$lib/api/catalogue';
-	import { figureOf, unitWord } from '$lib/duration';
+	import { m } from '#lib/paraglide/messages.js';
+	import type { GetRecipeOutput } from '#lib/api/catalogue.js';
+	import { figureOf, unitWord } from '#lib/duration.js';
 
 	type Content = GetRecipeOutput['versions'][number]['content'];
 

@@ -4,7 +4,7 @@
 	a button that says the Food was corrected, as its page does after an act.
 -->
 <script lang="ts">
-	import type { Food } from '$lib/foods';
+	import type { Food } from '#lib/foods.js';
 	import { useCorrected } from './corrected.svelte';
 
 	interface Props {

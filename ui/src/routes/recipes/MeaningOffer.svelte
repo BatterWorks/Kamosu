@@ -16,9 +16,9 @@
 	library's worth of inference are exactly what a Job is for (ADR 0032).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import type { MeaningSearch } from '$lib/meaning.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import type { MeaningSearch } from '#lib/meaning.svelte.js';
 
 	interface Props {
 		meaning: MeaningSearch;

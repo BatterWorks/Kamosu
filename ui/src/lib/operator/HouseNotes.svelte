@@ -15,12 +15,12 @@
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { GetHouseNotesOutput } from '$lib/api/catalogue';
-	import SheetFrame from '$lib/SheetFrame.svelte';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { GetHouseNotesOutput } from '#lib/api/catalogue.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
 	import { savedLine } from './house-notes';
 
 	let {

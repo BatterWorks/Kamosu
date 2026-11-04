@@ -10,7 +10,7 @@
 	Recipes + and one read where a search found nothing open the same sheet.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import type { Adding } from './adding.svelte';
 	import PasteSheet from './PasteSheet.svelte';
 	import SendSheet from './SendSheet.svelte';

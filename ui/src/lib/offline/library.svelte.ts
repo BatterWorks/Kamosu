@@ -14,11 +14,11 @@
 
 import { getContext, setContext } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
-import type { KamosuClient } from '$lib/api/catalogue';
-import { OperationError } from '$lib/api/client';
+import type { KamosuClient } from '#lib/api/catalogue.js';
+import { OperationError } from '#lib/api/client.js';
 import { PHOTOGRAPHS_CACHE, keptAt } from './reads';
 import { forgetEverythingHeld } from './outbox';
-import { yoursAmong } from '$lib/cookbook';
+import { yoursAmong } from '#lib/cookbook.js';
 
 /**
  * What one recipe costs the phone, measured on the dev library (2026-09-19,

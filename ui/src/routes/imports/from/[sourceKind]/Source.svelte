@@ -28,16 +28,16 @@
 	unreachability this ticket closes.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Section from '$lib/shell/Section.svelte';
-	import Empty from '$lib/shell/Empty.svelte';
-	import Confirm from '$lib/Confirm.svelte';
-	import AgentTag from '$lib/agent/AgentTag.svelte';
-	import { EVERY_MS, arrivalWorking } from '$lib/agent/agent';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Section from '#lib/shell/Section.svelte';
+	import Empty from '#lib/shell/Empty.svelte';
+	import Confirm from '#lib/Confirm.svelte';
+	import AgentTag from '#lib/agent/AgentTag.svelte';
+	import { EVERY_MS, arrivalWorking } from '#lib/agent/agent.js';
 	import {
 		canForget,
 		forgetAsk,
@@ -47,7 +47,7 @@
 		whatHappened,
 		whenArrived,
 		type Import,
-	} from '$lib/imports';
+	} from '#lib/imports.js';
 
 	interface Props {
 		/** The source kind this screen is about, read off the URL by the route. */

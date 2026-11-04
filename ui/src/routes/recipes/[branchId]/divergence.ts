@@ -13,9 +13,13 @@
  * steps.
  */
 
-import { m } from '$lib/paraglide/messages';
-import { branchPlainName } from '$lib/cookbook';
-import type { DivergenceOutput, GetRecipeOutput, SaveRecipeVersionInput } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import { branchPlainName } from '#lib/cookbook.js';
+import type {
+	DivergenceOutput,
+	GetRecipeOutput,
+	SaveRecipeVersionInput,
+} from '#lib/api/catalogue.js';
 
 /**
  * A recipe's Nutrition figure, taken from the Catalogue rather than written

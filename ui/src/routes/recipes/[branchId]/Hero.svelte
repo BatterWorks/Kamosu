@@ -18,7 +18,7 @@
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import Cover from '$lib/cover/Cover.svelte';
+	import Cover from '#lib/cover/Cover.svelte';
 
 	interface Props {
 		lineageId: string;

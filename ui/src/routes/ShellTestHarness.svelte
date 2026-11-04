@@ -5,12 +5,12 @@
 	when asked to.
 -->
 <script lang="ts">
-	import { standIn } from '$lib/api/stand-in';
-	import type { Room } from '$lib/room.svelte';
+	import { standIn } from '#lib/api/stand-in.js';
+	import type { Room } from '#lib/room.svelte.js';
 	import Account from './Account.svelte';
-	import Story from '$lib/story/Story.svelte';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
-	import Shell from '$lib/shell/Shell.svelte';
+	import Story from '#lib/story/Story.svelte';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
+	import Shell from '#lib/shell/Shell.svelte';
 	import Shelf from './recipes/Shelf.svelte';
 
 	interface Props {

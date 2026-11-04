@@ -24,22 +24,22 @@ import Cookbook from './cookbook/+page.svelte';
 import Tags from './tags/+page.svelte';
 import About from './about/+page.svelte';
 import { renderScreen, type ScreenComponent } from '../../testing/render';
-import type { Answers } from '$lib/api/stand-in';
+import type { Answers } from '#lib/api/stand-in.js';
 import { went } from '../../testing/navigation';
-import type { GetCookbookOutput, MeaningSearchStatusOutput } from '$lib/api/catalogue';
+import type { GetCookbookOutput, MeaningSearchStatusOutput } from '#lib/api/catalogue.js';
 import { cookbookLabel, kitchenAnswer } from '../../testing/recipes';
-import { holdTheInstallOffer } from '$lib/offline/device.svelte';
-import { signingIn } from '$lib/shell/signing-in.svelte';
+import { holdTheInstallOffer } from '#lib/offline/device.svelte.js';
+import { signingIn } from '#lib/shell/signing-in.svelte.js';
 import { offerToInstall } from '../../testing/install';
-import { demo } from '$lib/demo.svelte';
+import { demo } from '#lib/demo.svelte.js';
 
 /**
  * Paraglide's `setLocale` reloads the page, which jsdom cannot do. What a test
  * wants to know is whether the interface was asked to change, and to what.
  */
 const { setLocale } = vi.hoisted(() => ({ setLocale: vi.fn() }));
-vi.mock('$lib/paraglide/runtime', async (original) => ({
-	...(await original<typeof import('$lib/paraglide/runtime')>()),
+vi.mock('#lib/paraglide/runtime.js', async (original) => ({
+	...(await original<typeof import('#lib/paraglide/runtime.js')>()),
 	setLocale,
 }));
 

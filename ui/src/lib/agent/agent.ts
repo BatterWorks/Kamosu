@@ -9,8 +9,8 @@
  * a Job.
  */
 
-import type { GetJobOutput, RunnerStatusOutput } from '$lib/api/catalogue';
-import type { Arrival } from '$lib/imports';
+import type { GetJobOutput, RunnerStatusOutput } from '#lib/api/catalogue.js';
+import type { Arrival } from '#lib/imports.js';
 
 /** Where an agent's Job stands while it has not ended. */
 export type Working = 'waiting' | 'reading';

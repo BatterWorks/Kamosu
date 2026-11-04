@@ -6,10 +6,10 @@
 	OpenFoodTestStandIn.svelte.
 -->
 <script lang="ts">
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import type { Food } from '$lib/foods';
-	import type { Room } from '$lib/room.svelte';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import type { Food } from '#lib/foods.js';
+	import type { Room } from '#lib/room.svelte.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import Foods from './Foods.svelte';
 	import OpenFood from './OpenFoodTestStandIn.svelte';
 

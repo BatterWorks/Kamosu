@@ -15,10 +15,10 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
-import { m } from '$lib/paraglide/messages';
+import { m } from '#lib/paraglide/messages.js';
 import ReportTestHarness from './ReportTestHarness.svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetJobOutput, ImportCroutonOutput } from '$lib/api/catalogue';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { GetJobOutput, ImportCroutonOutput } from '#lib/api/catalogue.js';
 import { recipeAnswer } from '../../../testing/recipes';
 import { went } from '../../../testing/navigation';
 

@@ -10,7 +10,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
 import ComponentPickerTestHarness from './ComponentPickerTestHarness.svelte';
 import {
 	searchEntry as found,

@@ -9,8 +9,8 @@
  * whose point is how recent it is (#275).
  */
 
-import { getLocale } from '$lib/paraglide/runtime';
-import { m } from '$lib/paraglide/messages';
+import { getLocale } from '#lib/paraglide/runtime.js';
+import { m } from '#lib/paraglide/messages.js';
 
 /**
  * Kamosu's English is the day-first kind, `25 Sept 2026`. Intl reads a bare

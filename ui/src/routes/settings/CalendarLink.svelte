@@ -12,14 +12,14 @@
 -->
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { aMoment } from '$lib/dates';
-	import { copyText } from '$lib/clipboard';
-	import Refusal from '$lib/Refusal.svelte';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import type { GetCalendarLinkOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { aMoment } from '#lib/dates.js';
+	import { copyText } from '#lib/clipboard.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import type { GetCalendarLinkOutput } from '#lib/api/catalogue.js';
 
 	const kamosu = useKamosu();
 

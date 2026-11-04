@@ -20,15 +20,15 @@
 	stores nothing on any recipe and makes no Version.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { getLocale, locales, setLocale, type Locale } from '$lib/paraglide/runtime';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Section from '$lib/shell/Section.svelte';
-	import { languageName } from '$lib/language';
-	import type { ReadingLanguage } from '$lib/tags';
-	import type { GetReadingPreferencesOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import { getLocale, locales, setLocale, type Locale } from '#lib/paraglide/runtime.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Section from '#lib/shell/Section.svelte';
+	import { languageName } from '#lib/language.js';
+	import type { ReadingLanguage } from '#lib/tags.js';
+	import type { GetReadingPreferencesOutput } from '#lib/api/catalogue.js';
 
 	const kamosu = useKamosu();
 

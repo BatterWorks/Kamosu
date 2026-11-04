@@ -3,6 +3,6 @@
  * everywhere a cooking is named by when it was, so a picture on the recipe
  * page is dated exactly as it is in the diary (#110).
  */
-import { aDay } from '$lib/dates';
+import { aDay } from '#lib/dates.js';
 
 export const cookingDay = (when: string): string => aDay(when);

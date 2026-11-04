@@ -17,7 +17,8 @@
  * tracker says so while it plays.
  */
 
-import type { GetJobOutput, KamosuClient, ListImportsOutput } from '$lib/api/catalogue';
+import type { ReadonlyURL } from '$app/state';
+import type { GetJobOutput, KamosuClient, ListImportsOutput } from '#lib/api/catalogue.js';
 
 /** How long a Replay waits for an agent before it is read. */
 export const WAITING_MS = 1500;
@@ -41,7 +42,7 @@ export const replayAddress = (jobId: string, now: number = Date.now()): string =
 	`/imports/${jobId}?${REPLAY_PARAM}=${now}`;
 
 /** The Replay an address asks for, or none. */
-export function replayIn(url: URL, jobId: string | undefined): Replaying | null {
+export function replayIn(url: ReadonlyURL, jobId: string | undefined): Replaying | null {
 	const startedAt = Number(url.searchParams.get(REPLAY_PARAM));
 	if (jobId === undefined || !Number.isSafeInteger(startedAt) || startedAt <= 0) return null;
 	return { jobId, startedAt };

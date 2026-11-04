@@ -9,9 +9,13 @@
  * live here.
  */
 
-import { m } from '$lib/paraglide/messages';
-import { OperationError } from '$lib/api/client';
-import type { ImportWebLinkOutput, KamosuClient, ReadPastedRecipeOutput } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import { OperationError } from '#lib/api/client.js';
+import type {
+	ImportWebLinkOutput,
+	KamosuClient,
+	ReadPastedRecipeOutput,
+} from '#lib/api/catalogue.js';
 
 /**
  * A web page with no recipe data, read from its own text the way a paste is

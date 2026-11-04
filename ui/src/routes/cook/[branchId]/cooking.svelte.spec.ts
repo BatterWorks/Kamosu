@@ -12,13 +12,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetRecipeOutput, StartAttemptOutput } from '$lib/api/catalogue';
-import type { Room } from '$lib/room.svelte';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { GetRecipeOutput, StartAttemptOutput } from '#lib/api/catalogue.js';
+import type { Room } from '#lib/room.svelte.js';
 import CookingTestHarness from './CookingTestHarness.svelte';
 import { fresh } from './fresh';
 import { keepingForTests } from '../../../testing/render';
-import { putMistakeAway } from '$lib/mistake.svelte';
+import { putMistakeAway } from '#lib/mistake.svelte.js';
 
 const INGREDIENTS = [
 	{ kind: 'section' as const, text: 'For the cutlets' },

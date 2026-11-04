@@ -15,9 +15,9 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetFoodOutput } from '$lib/api/catalogue';
-import { m } from '$lib/paraglide/messages';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { GetFoodOutput } from '#lib/api/catalogue.js';
+import { m } from '#lib/paraglide/messages.js';
 import FoodTestHarness from './FoodTestHarness.svelte';
 
 type Name = GetFoodOutput['names'][number];

@@ -8,8 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import SigningIn from './signing-in/+page.svelte';
 import { renderScreen } from '../../testing/render';
-import type { Answers } from '$lib/api/stand-in';
-import type { ListPasskeysOutput } from '$lib/api/catalogue';
+import type { Answers } from '#lib/api/stand-in.js';
+import type { ListPasskeysOutput } from '#lib/api/catalogue.js';
 
 /**
  * What the device does when asked for a passkey: makes one whose browser JSON

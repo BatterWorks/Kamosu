@@ -4,9 +4,9 @@
 	it directly rather than through a whole recipe page it is not testing.
 -->
 <script lang="ts">
-	import type { GetRecipeOutput, GetThreadOutput, KamosuClient } from '$lib/api/catalogue';
-	import type { Whose } from '$lib/cookbook';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { GetRecipeOutput, GetThreadOutput, KamosuClient } from '#lib/api/catalogue.js';
+	import type { Whose } from '#lib/cookbook.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import Promotion from './Promotion.svelte';
 
 	interface Props {

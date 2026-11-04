@@ -2,24 +2,24 @@
 	import { afterNavigate, onNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import '../app.css';
-	import { getLocale } from '$lib/paraglide/runtime';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
-	import Shell from '$lib/shell/Shell.svelte';
-	import { realKamosu } from '$lib/kamosu';
-	import { realAuth } from '$lib/auth';
-	import { realPhotographUpload, realUpload } from '$lib/api/upload';
-	import { realFiles } from '$lib/api/files';
-	import { readToken } from '$lib/tokens';
-	import Notices from '$lib/offline/Notices.svelte';
-	import WentWrong from '$lib/WentWrong.svelte';
-	import { watchForMistakes, wentWrong } from '$lib/mistake.svelte';
-	import Arrived from '$lib/Arrived.svelte';
-	import { listenToTheWorker, reach, retryWhileUnreachable } from '$lib/offline/device.svelte';
-	import { realOutbox } from '$lib/offline/outbox';
-	import { m } from '$lib/paraglide/messages';
-	import { WindowRoom } from '$lib/room.svelte';
-	import { keepDropsOut } from '$lib/drop.svelte';
-	import { noteArrival } from '$lib/shell/way-back';
+	import { getLocale } from '#lib/paraglide/runtime.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
+	import Shell from '#lib/shell/Shell.svelte';
+	import { realKamosu } from '#lib/kamosu.js';
+	import { realAuth } from '#lib/auth.js';
+	import { realPhotographUpload, realUpload } from '#lib/api/upload.js';
+	import { realFiles } from '#lib/api/files.js';
+	import { readToken } from '#lib/tokens.js';
+	import Notices from '#lib/offline/Notices.svelte';
+	import WentWrong from '#lib/WentWrong.svelte';
+	import { watchForMistakes, wentWrong } from '#lib/mistake.svelte.js';
+	import Arrived from '#lib/Arrived.svelte';
+	import { listenToTheWorker, reach, retryWhileUnreachable } from '#lib/offline/device.svelte.js';
+	import { realOutbox } from '#lib/offline/outbox.js';
+	import { m } from '#lib/paraglide/messages.js';
+	import { WindowRoom } from '#lib/room.svelte.js';
+	import { keepDropsOut } from '#lib/drop.svelte.js';
+	import { noteArrival } from '#lib/shell/way-back.js';
 
 	let { children } = $props();
 
@@ -57,6 +57,8 @@
 	// in app.css; this is the one line of script the API needs, and a browser
 	// without it simply navigates.
 	onNavigate((navigation) => {
+		// A shallow `goto` only tidies the address, and draws no new page (#525).
+		if (navigation.shallow && navigation.type === 'goto') return;
 		if (!document.startViewTransition) return;
 		return new Promise((resolve) => {
 			const transition = document.startViewTransition(async () => {
@@ -122,7 +124,11 @@
 		redrawScreen = reset;
 		wentWrong(error);
 	}
-	afterNavigate(() => {
+
+	afterNavigate(({ shallow, type }) => {
+		// As in onNavigate above: no new page to redraw (#525).
+		if (shallow && type === 'goto') return;
+
 		const redraw = redrawScreen;
 		redrawScreen = undefined;
 		redraw?.();

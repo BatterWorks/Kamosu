@@ -11,13 +11,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import ShellTestHarness from './ShellTestHarness.svelte';
-import { heardWhetherSignedIn, signingIn } from '$lib/shell/signing-in.svelte';
-import { closeWelcome, demo, INSTALL_KAMOSU, openWelcomeAgain } from '$lib/demo.svelte';
-import { HISTORY_INDEX, VISITS, noteArrival } from '$lib/shell/way-back';
-import { m } from '$lib/paraglide/messages';
+import { heardWhetherSignedIn, signingIn } from '#lib/shell/signing-in.svelte.js';
+import { closeWelcome, demo, INSTALL_KAMOSU, openWelcomeAgain } from '#lib/demo.svelte.js';
+import { HISTORY_METADATA, VISITS, noteArrival } from '#lib/shell/way-back.js';
+import { m } from '#lib/paraglide/messages.js';
 import { went } from '../testing/navigation';
-import { forgetSlash } from '$lib/shell/slash';
-import type { Room } from '$lib/room.svelte';
+import { forgetSlash } from '#lib/shell/slash.js';
+import type { Room } from '#lib/room.svelte.js';
 
 function shell(pathname: string, room: Room, holds?: 'account' | 'story' | 'shelf') {
 	render(ShellTestHarness, { props: { pathname, room, holds } });
@@ -361,8 +361,9 @@ describe('on the phone layout', () => {
 describe('the back arrow', () => {
 	const arrow = () => screen.queryByRole('link', { name: m.shell_back() });
 
-	/** Put this tab on the history entry SvelteKit numbered `number`. */
-	const onEntry = (number: number) => history.replaceState({ [HISTORY_INDEX]: number }, '');
+	/** Put this tab on the history entry SvelteKit numbered `number`, as SvelteKit writes it. */
+	const onEntry = (number: number) =>
+		history.replaceState({ [HISTORY_METADATA]: { historyIndex: number } }, '');
 
 	/**
 	 * Tap the arrow, and say whether it took the tap over rather than leaving

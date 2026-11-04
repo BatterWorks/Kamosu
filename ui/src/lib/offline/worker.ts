@@ -1,7 +1,7 @@
 /**
  * What the service worker does with each request (#76, ADR 0013).
  *
- * Kept apart from `src/service-worker.ts` so it can be exercised in a test
+ * Kept apart from `src/service-worker/index.ts` so it can be exercised in a test
  * with a cache and a network of the test's own: the worker file only hands
  * browser events to this.
  *

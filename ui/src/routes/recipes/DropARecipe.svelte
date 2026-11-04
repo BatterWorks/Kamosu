@@ -11,13 +11,13 @@
 
 	**While something is held over it the page is covered** by a sheet of the
 	paper with a dashed frame, and words in the middle say what letting go
-	will do (`$lib/DropCover`). This was chosen on 7 October 2026 from two options drawn over
+	will do (`#lib/DropCover`). This was chosen on 7 October 2026 from two options drawn over
 	the real Recipes screen (option 1, recorded on #204), over a bar across
 	the top that left the recipes in view. Something Recipes cannot take turns
 	it the alert colour and says so before it is let go.
 
 	A browser says what kind of file is carried and keeps its name until the
-	drop (`$lib/drop`), so the words name a PDF where the type says PDF and
+	drop (`#lib/drop`), so the words name a PDF where the type says PDF and
 	ask only for "a recipe" where the type is empty. What was dropped is
 	judged again by its name once it is here.
 
@@ -37,14 +37,14 @@
 	like one on any other screen.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { DropZone, type Carried, type Dropped } from '$lib/drop.svelte';
-	import { DRAWN } from '$lib/drop-drawings';
-	import DropCover from '$lib/DropCover.svelte';
-	import { underASheet } from '$lib/page';
-	import type { Act, Adding } from '$lib/adding/adding.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { DropZone, type Carried, type Dropped } from '#lib/drop.svelte.js';
+	import { DRAWN } from '#lib/drop-drawings.js';
+	import DropCover from '#lib/DropCover.svelte';
+	import { underASheet } from '#lib/page.js';
+	import type { Act, Adding } from '#lib/adding/adding.svelte.js';
 	import { untrack } from 'svelte';
-	import { ICON, waitsForServer } from '$lib/adding/sources';
+	import { ICON, waitsForServer } from '#lib/adding/sources.js';
 
 	/** The four acts a drop can be. A photo only where there is a Runner (#278). */
 	type DropAct = Extract<Act, 'pdf' | 'file' | 'link' | 'picture'>;

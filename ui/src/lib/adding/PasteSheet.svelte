@@ -14,13 +14,13 @@
 	one here, before the recipe exists.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import type { ReadPastedRecipeOutput } from '$lib/api/catalogue';
-	import type { PageReading } from '$lib/pasted.svelte';
-	import PasteCheck from '$lib/PasteCheck.svelte';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { drafted } from '$lib/pasted.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import type { ReadPastedRecipeOutput } from '#lib/api/catalogue.js';
+	import type { PageReading } from '#lib/pasted.svelte.js';
+	import PasteCheck from '#lib/PasteCheck.svelte';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { drafted } from '#lib/pasted.svelte.js';
 	import type { Adding } from './adding.svelte';
 
 	interface Props {

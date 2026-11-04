@@ -4,11 +4,11 @@
 -->
 <script lang="ts">
 	import type { Component } from 'svelte';
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import type { Keeping } from '$lib/offline/outbox';
-	import type { AuthClient } from '$lib/auth';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
-	import type { Room } from '$lib/room.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import type { Keeping } from '#lib/offline/outbox.js';
+	import type { AuthClient } from '#lib/auth.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
+	import type { Room } from '#lib/room.svelte.js';
 
 	interface Props {
 		component: Component<Record<string, never>>;

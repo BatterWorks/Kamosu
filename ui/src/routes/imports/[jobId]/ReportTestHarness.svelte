@@ -6,10 +6,10 @@
 	in that frame too, which plays the Replay (#406).
 -->
 <script lang="ts">
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import type { Replaying } from '$lib/agent/replay';
-	import type { Room } from '$lib/room.svelte';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import type { Replaying } from '#lib/agent/replay.js';
+	import type { Room } from '#lib/room.svelte.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import BroughtIn from '../BroughtIn.svelte';
 	import Report from './Report.svelte';
 

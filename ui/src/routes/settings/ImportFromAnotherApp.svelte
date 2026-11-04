@@ -26,21 +26,21 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { StillRunning, waitForJob } from '$lib/api/job';
-	import { useUpload } from '$lib/api/upload';
-	import Section from '$lib/shell/Section.svelte';
-	import { FilePlace, type FileKind } from '$lib/drop.svelte';
-	import { drawnFor } from '$lib/drop-drawings';
-	import { ICON } from '$lib/adding/sources';
-	import DropCover from '$lib/DropCover.svelte';
-	import RefusedExport from '$lib/RefusedExport.svelte';
-	import WhichHousehold from '$lib/WhichHousehold.svelte';
-	import { ASK_FOR_AN_APP, OTHER_APPS } from '$lib/other-apps';
-	import type { ImportFromAnotherAppOutput } from '$lib/api/catalogue';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { StillRunning, waitForJob } from '#lib/api/job.js';
+	import { useUpload } from '#lib/api/upload.js';
+	import Section from '#lib/shell/Section.svelte';
+	import { FilePlace, type FileKind } from '#lib/drop.svelte.js';
+	import { drawnFor } from '#lib/drop-drawings.js';
+	import { ICON } from '#lib/adding/sources.js';
+	import DropCover from '#lib/DropCover.svelte';
+	import RefusedExport from '#lib/RefusedExport.svelte';
+	import WhichHousehold from '#lib/WhichHousehold.svelte';
+	import { ASK_FOR_AN_APP, OTHER_APPS } from '#lib/other-apps.js';
+	import type { ImportFromAnotherAppOutput } from '#lib/api/catalogue.js';
 
 	interface Props {
 		/** How long to wait between reads of the Job. Tests shorten it. */

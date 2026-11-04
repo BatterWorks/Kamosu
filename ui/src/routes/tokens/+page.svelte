@@ -9,10 +9,16 @@
 	same way.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Section from '$lib/shell/Section.svelte';
-	import { COLOUR_ORDER, RADIUS_ORDER, readToken, readTypeScale, readSpacing } from '$lib/tokens';
+	import { m } from '#lib/paraglide/messages.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Section from '#lib/shell/Section.svelte';
+	import {
+		COLOUR_ORDER,
+		RADIUS_ORDER,
+		readToken,
+		readTypeScale,
+		readSpacing,
+	} from '#lib/tokens.js';
 
 	// Read once the document exists: this is what the browser resolved, fonts,
 	// cascade and all.

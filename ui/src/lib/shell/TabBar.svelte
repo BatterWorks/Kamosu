@@ -16,7 +16,7 @@
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import PlaceLink from './PlaceLink.svelte';
 	import { isCurrent, places } from './places';
 

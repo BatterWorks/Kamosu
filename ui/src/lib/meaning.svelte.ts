@@ -8,10 +8,10 @@
  * written twice it would be two subtly different askings.
  */
 
-import { OperationError } from '$lib/api/client';
-import { m } from '$lib/paraglide/messages';
-import { waitForJob } from '$lib/api/job';
-import type { KamosuClient, MeaningSearchStatusOutput } from '$lib/api/catalogue';
+import { OperationError } from '#lib/api/client.js';
+import { m } from '#lib/paraglide/messages.js';
+import { waitForJob } from '#lib/api/job.js';
+import type { KamosuClient, MeaningSearchStatusOutput } from '#lib/api/catalogue.js';
 
 /**
  * A model download is minutes on a slow line, and reading a library is minutes

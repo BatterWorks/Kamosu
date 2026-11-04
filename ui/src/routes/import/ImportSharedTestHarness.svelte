@@ -5,10 +5,10 @@
 	app's layout draws it, since importing ends on that line.
 -->
 <script lang="ts">
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import type { AuthClient } from '$lib/auth';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
-	import Arrived from '$lib/Arrived.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import type { AuthClient } from '#lib/auth.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
+	import Arrived from '#lib/Arrived.svelte';
 	import ImportShared from './ImportShared.svelte';
 
 	interface Props {

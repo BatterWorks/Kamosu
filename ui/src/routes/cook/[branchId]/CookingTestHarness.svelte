@@ -4,10 +4,10 @@
 	directly, which the shared prop-less `renderScreen` helper cannot do.
 -->
 <script lang="ts">
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import type { Keeping } from '$lib/offline/outbox';
-	import type { Room } from '$lib/room.svelte';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import type { Keeping } from '#lib/offline/outbox.js';
+	import type { Room } from '#lib/room.svelte.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import Cooking from './Cooking.svelte';
 
 	interface Props {

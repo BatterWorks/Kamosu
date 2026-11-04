@@ -60,13 +60,13 @@
 -->
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
-	import { demo } from '$lib/demo.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { useRoom } from '$lib/room.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { GetRecipeOutput, StartAttemptOutput } from '$lib/api/catalogue';
+	import { demo } from '#lib/demo.svelte.js';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { useRoom } from '#lib/room.svelte.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { GetRecipeOutput, StartAttemptOutput } from '#lib/api/catalogue.js';
 	import { timer, clock } from './timer.svelte';
 	import { wakeLock } from './wake-lock.svelte';
 	import {
@@ -79,17 +79,17 @@
 		type AsCooked,
 		type Line,
 	} from './as-cooked.svelte';
-	import { useKeeping } from '$lib/offline/outbox';
-	import { photographCooking, pickedFile } from '$lib/offline/photograph';
-	import { rereads } from '$lib/offline/device.svelte';
-	import { page } from '$app/state';
-	import { replaceState } from '$app/navigation';
-	import HowMuch from '$lib/HowMuch.svelte';
-	import StepPhoto from '$lib/StepPhoto.svelte';
-	import StepWords from '$lib/StepWords.svelte';
+	import { useKeeping } from '#lib/offline/outbox.js';
+	import { photographCooking, pickedFile } from '#lib/offline/photograph.js';
+	import { rereads } from '#lib/offline/device.svelte.js';
+	import { navigating, page } from '$app/state';
+	import { goto } from '$app/navigation';
+	import HowMuch from '#lib/HowMuch.svelte';
+	import StepPhoto from '#lib/StepPhoto.svelte';
+	import StepWords from '#lib/StepWords.svelte';
 	import { fresh } from './fresh';
-	import { mistake, putMistakeAway } from '$lib/mistake.svelte';
-	import { caughtUp, fromSearch, said, same, type Wanted } from '$lib/how-much';
+	import { mistake, putMistakeAway } from '#lib/mistake.svelte.js';
+	import { caughtUp, fromSearch, said, same, type Wanted } from '#lib/how-much.js';
 
 	interface Props {
 		branchId: string;
@@ -209,8 +209,11 @@
 				// the cooking would offer the recipe page's amount again over the
 				// one the cook has since chosen (found in live acceptance, #109).
 				// Shallow: a navigation here would run this start a second time,
-				// racing the amount just sent.
-				if (carried !== undefined) replaceState(`/cook/${branchId}`, page.state);
+				// racing the amount just sent. Not once the cook has gone on: in
+				// SvelteKit 3 a shallow `goto` cancels a navigation under way, and
+				// the address it would tidy is no longer this screen's (#525).
+				if (carried !== undefined && current && navigating.type === null)
+					void goto(`/cook/${branchId}`, { shallow: true, replace: true, state: page.state });
 			} catch (error) {
 				if (!(error instanceof OperationError)) throw error;
 				if (current) failed = true;

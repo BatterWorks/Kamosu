@@ -16,7 +16,7 @@ import path from 'node:path';
 import { chromium, type Browser } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
-import { standIn } from '$lib/api/stand-in';
+import { standIn } from '#lib/api/stand-in.js';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
 import { MY_KITCHENS, recipeAnswer, threadBranch } from '../../../testing/recipes';
 import { chromePath, devEnv, ROOT } from '../../../../tools/dev.mjs';

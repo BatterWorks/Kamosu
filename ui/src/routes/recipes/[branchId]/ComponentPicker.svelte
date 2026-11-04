@@ -41,10 +41,10 @@
 </script>
 
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { RecipeSearch } from '$lib/search.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { RecipeSearch } from '#lib/search.svelte.js';
 
 	interface Props {
 		/** The line this picker was opened for, said at the top so a sheet

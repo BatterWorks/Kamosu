@@ -6,12 +6,12 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { AuthClient } from '$lib/auth';
-import type { ReadKitchenInviteOutput } from '$lib/api/catalogue';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { AuthClient } from '#lib/auth.js';
+import type { ReadKitchenInviteOutput } from '#lib/api/catalogue.js';
 import { went } from '../testing/navigation';
 import LinkTestHarness from './LinkTestHarness.svelte';
-import { signingIn } from '$lib/shell/signing-in.svelte';
+import { signingIn } from '#lib/shell/signing-in.svelte.js';
 import KitchenInviteRoute from './kitchen-invite/[secret]/+page.svelte';
 
 /** Marie's Kitchen, which she shares with Nadia. */

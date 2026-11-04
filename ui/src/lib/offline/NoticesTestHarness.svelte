@@ -3,11 +3,11 @@
 	device of the test's choosing.
 -->
 <script lang="ts">
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import Notices from './Notices.svelte';
 	import type { Device } from './device.svelte';
-	import type { Room } from '$lib/room.svelte';
+	import type { Room } from '#lib/room.svelte.js';
 
 	interface Props {
 		client: KamosuClient;

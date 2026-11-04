@@ -9,7 +9,7 @@
 -->
 <script lang="ts">
 	import { page } from '$app/state';
-	import { replayIn } from '$lib/agent/replay';
+	import { replayIn } from '#lib/agent/replay.js';
 	import Report from './Report.svelte';
 
 	/** A Replay picked again is a Report of its own, played from Sent (#406). */

@@ -20,13 +20,13 @@
 	screen swapping (ADR 0012). The wide layout has no gear to start from.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Screen from '$lib/shell/Screen.svelte';
-	import { OperationError } from '$lib/api/client';
-	import { useKamosu } from '$lib/kamosu';
-	import { useRoom } from '$lib/room.svelte';
-	import { Online } from '$lib/offline/device.svelte';
-	import { asksWhetherAdministering } from '$lib/operator/administering';
+	import { m } from '#lib/paraglide/messages.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import { OperationError } from '#lib/api/client.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { useRoom } from '#lib/room.svelte.js';
+	import { Online } from '#lib/offline/device.svelte.js';
+	import { asksWhetherAdministering } from '#lib/operator/administering.js';
 	import { ABOUT, GROUPS, NAME_PAGE, type PageEntry } from './pages';
 	import SignOut from './SignOut.svelte';
 

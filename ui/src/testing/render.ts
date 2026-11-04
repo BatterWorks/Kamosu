@@ -8,9 +8,9 @@
 import { render } from '@testing-library/svelte';
 import type { Component } from 'svelte';
 import Harness from './Harness.svelte';
-import { standIn, type Answers, type StandIn } from '$lib/api/stand-in';
-import type { Keeping } from '$lib/offline/outbox';
-import type { Room } from '$lib/room.svelte';
+import { standIn, type Answers, type StandIn } from '#lib/api/stand-in.js';
+import type { Keeping } from '#lib/offline/outbox.js';
+import type { Room } from '#lib/room.svelte.js';
 
 /** A screen: a route component, which takes no props — its client arrives by context. */
 export type ScreenComponent = Component<Record<string, never>>;

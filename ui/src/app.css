@@ -303,7 +303,7 @@
    least 1000 wide is also `roomy`, which is room for two columns.
 
    Both the stylesheet (`wide:` and `roomy:` in a class, `@variant wide` in
-   CSS) and the Room the app reads (`$lib/room.svelte`, through `--room`
+   CSS) and the Room the app reads (`#lib/room.svelte.ts`, through `--room`
    below) come from these two lines, so a style rule and the Room cannot
    disagree about which layout is showing. Tailwind's own `sm`/`md`/`lg`
    stay unused.
@@ -327,7 +327,7 @@
   }
 }
 
-/* The Room, as the stylesheet decided it. `$lib/room.svelte` reads this back
+/* The Room, as the stylesheet decided it. `#lib/room.svelte.ts` reads this back
    rather than holding a copy of the thresholds above. */
 @layer base {
   :root {
@@ -710,7 +710,7 @@
    window while the column it belongs to centres beside the sidebar, half a
    rail apart. The dimmed backdrops are `inset-0`, not `inset-x-0`, and still
    cover the sidebar. Since #196 every sheet is drawn by one frame,
-   `$lib/SheetFrame.svelte`, and it is held here like the tray rather than by a
+   `#lib/SheetFrame.svelte`, and it is held here like the tray rather than by a
    rule of its own: the frame is drawn on the cooking screen too, which has
    no rail, and only this element knows a rail is there. */
 @utility beside-rail {
@@ -736,7 +736,7 @@
    readable behind it, and its hairline alone would be lost against the
    recipe's own rules.
 
-   `$lib/SheetFrame.svelte` puts this on the frame when the Room is wide, in place
+   `#lib/SheetFrame.svelte` puts this on the frame when the Room is wide, in place
    of the bottom sheet's classes, so no `wide` variant is needed here. */
 @utility sheet-window {
   top: 50%;

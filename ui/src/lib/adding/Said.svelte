@@ -3,8 +3,8 @@
 	what a dropped file that started none says (#204).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
 	import type { Adding } from './adding.svelte';
 
 	interface Props {

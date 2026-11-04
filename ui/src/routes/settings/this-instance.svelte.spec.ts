@@ -19,8 +19,8 @@ import Address from './address/+page.svelte';
 import Meaning from './meaning/+page.svelte';
 import Upkeep from './upkeep/+page.svelte';
 import { renderScreen, type ScreenComponent } from '../../testing/render';
-import type { Answers } from '$lib/api/stand-in';
-import type { ListFoodsOutput, RereadIngredientLinesOutput } from '$lib/api/catalogue';
+import type { Answers } from '#lib/api/stand-in.js';
+import type { ListFoodsOutput, RereadIngredientLinesOutput } from '#lib/api/catalogue.js';
 
 type Food = ListFoodsOutput['foods'][number];
 

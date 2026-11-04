@@ -33,11 +33,11 @@
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { m } from '$lib/paraglide/messages';
-	import type { HomeShelvesOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import type { HomeShelvesOutput } from '#lib/api/catalogue.js';
 	import Tile from './recipes/Tile.svelte';
-	import AddOrImport from '$lib/AddOrImport.svelte';
-	import { demo } from '$lib/demo.svelte';
+	import AddOrImport from '#lib/AddOrImport.svelte';
+	import { demo } from '#lib/demo.svelte.js';
 	import DemoWelcome from './DemoWelcome.svelte';
 
 	interface Props {

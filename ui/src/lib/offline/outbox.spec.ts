@@ -10,8 +10,8 @@ import type {
 	OperationName,
 	ShoppingBasisOutput,
 	StartAttemptOutput,
-} from '$lib/api/catalogue';
-import { OperationError } from '$lib/api/client';
+} from '#lib/api/catalogue.js';
+import { OperationError } from '#lib/api/client.js';
 import { Outbox, type Kept, type Pictures } from './outbox';
 
 const attempt = (over: Partial<StartAttemptOutput> = {}): StartAttemptOutput => ({

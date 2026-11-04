@@ -1,6 +1,6 @@
 /**
  * Bringing a recipe in at the dead ends `AddOrImport` draws, at the screen
- * seam (#93, #174). The acts are `$lib/adding`'s, shared with the + beside the
+ * seam (#93, #174). The acts are `#lib/adding`'s, shared with the + beside the
  * search box, so these hold for both.
  *
  * The file itself travels out of band (ADR 0001), so the test stands in for
@@ -17,8 +17,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import AddOrImportTestHarness from './AddOrImportTestHarness.svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import { OperationError } from '$lib/api/client';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import { OperationError } from '#lib/api/client.js';
 import { forgetArrival, noteArrival } from './arrival.svelte';
 import { went } from '../testing/navigation';
 import { outlivingTheWait, withTheClockFaked } from '../testing/jobs';

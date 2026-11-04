@@ -8,8 +8,8 @@
  * a rule somebody has to remember.
  */
 
-import { m } from '$lib/paraglide/messages';
-import type { GetRecipeOutput } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import type { GetRecipeOutput } from '#lib/api/catalogue.js';
 
 /**
  * The three verdicts — read off the generated client rather than written out

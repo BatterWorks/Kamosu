@@ -21,20 +21,20 @@
  */
 
 import { goto } from '$app/navigation';
-import { m } from '$lib/paraglide/messages';
-import { useKamosu } from '$lib/kamosu';
-import { useUpload, type Uploader } from '$lib/api/upload';
-import { OperationError } from '$lib/api/client';
-import { StillRunning, waitForJob } from '$lib/api/job';
-import { receiveStaged } from '$lib/receive';
+import { m } from '#lib/paraglide/messages.js';
+import { useKamosu } from '#lib/kamosu.js';
+import { useUpload, type Uploader } from '#lib/api/upload.js';
+import { OperationError } from '#lib/api/client.js';
+import { StillRunning, waitForJob } from '#lib/api/job.js';
+import { receiveStaged } from '#lib/receive.js';
 import type {
 	ImportWebLinkOutput,
 	KamosuClient,
 	ListReplaysOutput,
 	ReadPastedRecipeOutput,
-} from '$lib/api/catalogue';
-import { holdPaste, readPdf, type PageReading, type PastedDraft } from '$lib/pasted.svelte';
-import { noteArrival } from '$lib/arrival.svelte';
+} from '#lib/api/catalogue.js';
+import { holdPaste, readPdf, type PageReading, type PastedDraft } from '#lib/pasted.svelte.js';
+import { noteArrival } from '#lib/arrival.svelte.js';
 
 /**
  * `send` is handing a photo, a PDF, pasted text or a video's link to Kamosu's

@@ -39,15 +39,15 @@
 
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { GetRecipeOutput, PromoteAttemptPhotographOutput } from '$lib/api/catalogue';
-	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { copySaid } from '$lib/cookbook';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { GetRecipeOutput, PromoteAttemptPhotographOutput } from '#lib/api/catalogue.js';
+	import AttemptPhoto from '#lib/offline/AttemptPhoto.svelte';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { copySaid } from '#lib/cookbook.js';
 
 	interface Props {
 		/** The recipe to put it on: any Branch of the Lineage that was cooked. */

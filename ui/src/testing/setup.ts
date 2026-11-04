@@ -11,27 +11,26 @@ import '@testing-library/jest-dom/vitest';
 import { afterAll, afterEach, beforeAll, vi } from 'vitest';
 import { cleanup } from '@testing-library/svelte';
 import { went } from './navigation';
-import { forgetArrival } from '$lib/arrival.svelte';
-import { mistake } from '$lib/mistake.svelte';
-import { reach, refreshed } from '$lib/offline/device.svelte';
-import { sessions } from '$lib/offline/library.svelte';
-import { standing } from '$lib/offline/standing.svelte';
-import { story } from '$lib/story/showing.svelte';
-import { demo } from '$lib/demo.svelte';
-import { signingIn } from '$lib/shell/signing-in.svelte';
-import { forgetSlash } from '$lib/shell/slash';
-import { forgetDragHere } from '$lib/drop.svelte';
-import { forgetPaste } from '$lib/pasted.svelte';
+import { forgetArrival } from '#lib/arrival.svelte.js';
+import { mistake } from '#lib/mistake.svelte.js';
+import { reach, refreshed } from '#lib/offline/device.svelte.js';
+import { sessions } from '#lib/offline/library.svelte.js';
+import { standing } from '#lib/offline/standing.svelte.js';
+import { story } from '#lib/story/showing.svelte.js';
+import { demo } from '#lib/demo.svelte.js';
+import { signingIn } from '#lib/shell/signing-in.svelte.js';
+import { forgetSlash } from '#lib/shell/slash.js';
+import { forgetDragHere } from '#lib/drop.svelte.js';
+import { forgetPaste } from '#lib/pasted.svelte.js';
 
 /**
  * One `goto` for the whole run, cleared after every test. Why it is not mocked
- * per file is in `./navigation`. `replaceState` only tidies the address (the
- * cooking screen lets go of an amount it was sent, #109), which a test has no
- * address to show, so it does nothing here.
+ * per file is in `./navigation`.
  */
 vi.mock('$app/navigation', async () => ({
 	goto: (await import('./navigation')).went,
-	replaceState: () => {},
+	// jsdom navigates nowhere, so nothing is ever after a navigation.
+	afterNavigate: () => {},
 }));
 
 /**
@@ -114,7 +113,7 @@ startAsIsolationWould();
  *
  * `process` rather than `window`, because **jsdom never fires
  * `unhandledrejection`** — which is also why the browser-side net in
- * `$lib/mistake.svelte` cannot be tested here at all.
+ * `#lib/mistake.svelte.js` cannot be tested here at all.
  */
 const strays: { how: string; what: unknown }[] = [];
 

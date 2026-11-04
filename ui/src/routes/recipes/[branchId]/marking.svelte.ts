@@ -11,10 +11,10 @@
  * Point by the `divergence` Operation, which the recipe screen reads and
  * hands in.
  */
-import { m } from '$lib/paraglide/messages';
-import { OperationError } from '$lib/api/client';
-import type { DivergenceOutput, KamosuClient } from '$lib/api/catalogue';
-import { timeText } from '$lib/duration';
+import { m } from '#lib/paraglide/messages.js';
+import { OperationError } from '#lib/api/client.js';
+import type { DivergenceOutput, KamosuClient } from '#lib/api/catalogue.js';
+import { timeText } from '#lib/duration.js';
 import { draftVersion, fieldText, prose, type Side, type Taken } from './divergence';
 
 type Field = keyof DivergenceOutput['fields'];

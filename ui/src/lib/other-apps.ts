@@ -5,7 +5,7 @@
  * holds on the server. Each later ticket of #411 adds its app to both.
  */
 
-import { m } from '$lib/paraglide/messages';
+import { m } from '#lib/paraglide/messages.js';
 
 export interface OtherApp {
 	/** The source kind its Imports are kept under. */

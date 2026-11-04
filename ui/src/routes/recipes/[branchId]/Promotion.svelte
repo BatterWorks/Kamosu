@@ -49,19 +49,19 @@
 	would say it had.
 -->
 <script lang="ts">
-	import { aDay } from '$lib/dates';
-	import Refusal from '$lib/Refusal.svelte';
-	import { demoRefusalOr } from '$lib/demo.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
+	import { aDay } from '#lib/dates.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { demoRefusalOr } from '#lib/demo.svelte.js';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
 	import { goto } from '$app/navigation';
-	import type { GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import { Online } from '$lib/offline/device.svelte';
-	import { copySaid, type Whose } from '$lib/cookbook';
-	import { changedLines } from '$lib/as-cooked';
-	import ChangedLines from '$lib/ChangedLines.svelte';
+	import type { GetRecipeOutput, GetThreadOutput } from '#lib/api/catalogue.js';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import { Online } from '#lib/offline/device.svelte.js';
+	import { copySaid, type Whose } from '#lib/cookbook.js';
+	import { changedLines } from '#lib/as-cooked.js';
+	import ChangedLines from '#lib/ChangedLines.svelte';
 
 	type Attempt = GetThreadOutput['attempts'][number];
 

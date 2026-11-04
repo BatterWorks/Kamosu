@@ -7,9 +7,9 @@
 	another amount.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import HowMuch from '$lib/HowMuch.svelte';
-	import { said, type Wanted, type Written } from '$lib/how-much';
+	import { m } from '#lib/paraglide/messages.js';
+	import HowMuch from '#lib/HowMuch.svelte';
+	import { said, type Wanted, type Written } from '#lib/how-much.js';
 
 	interface Props {
 		written: Written;

@@ -12,9 +12,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import ImportTestHarness from './ImportFromAnotherAppTestHarness.svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import { OperationError } from '$lib/api/client';
-import type { GetJobOutput, ImportFromAnotherAppOutput } from '$lib/api/catalogue';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import { OperationError } from '#lib/api/client.js';
+import type { GetJobOutput, ImportFromAnotherAppOutput } from '#lib/api/catalogue.js';
 import { went } from '../../testing/navigation';
 import { carrying } from '../../testing/drops';
 

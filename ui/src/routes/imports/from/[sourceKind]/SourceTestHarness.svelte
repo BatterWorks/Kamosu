@@ -4,8 +4,8 @@
 	through SvelteKit's router, which it is not testing.
 -->
 <script lang="ts">
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import Source from './Source.svelte';
 
 	interface Props {

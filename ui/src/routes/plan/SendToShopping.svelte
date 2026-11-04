@@ -12,15 +12,15 @@
 	The button counts the recipes that would go.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { GetMealPlanOutput, SendToShoppingListOutput } from '$lib/api/catalogue';
-	import { aPlannedDay, aPlannedWeek } from '$lib/dates';
-	import { addDays, mondayOf, today, weekOf, weeksFrom, type Day } from '$lib/plan-days';
-	import { weekInline } from '$lib/plan-where';
-	import { TICK, amountOf, factorOf, sentOf } from '$lib/plan-sent';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { GetMealPlanOutput, SendToShoppingListOutput } from '#lib/api/catalogue.js';
+	import { aPlannedDay, aPlannedWeek } from '#lib/dates.js';
+	import { addDays, mondayOf, today, weekOf, weeksFrom, type Day } from '#lib/plan-days.js';
+	import { weekInline } from '#lib/plan-where.js';
+	import { TICK, amountOf, factorOf, sentOf } from '#lib/plan-sent.js';
 
 	type Meal = GetMealPlanOutput['planned_meals'][number];
 

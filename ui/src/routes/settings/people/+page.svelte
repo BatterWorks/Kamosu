@@ -11,16 +11,16 @@
 	buttons with the names lost among them.
 -->
 <script lang="ts">
-	import Refusal from '$lib/Refusal.svelte';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Section from '$lib/shell/Section.svelte';
-	import Confirm from '$lib/Confirm.svelte';
-	import { Acting } from '$lib/operator/acting.svelte';
-	import { asksWhetherAdministering } from '$lib/operator/administering';
-	import { kitchenName } from '$lib/cookbook';
-	import type { ListAccountsOutput, ListKitchensOutput } from '$lib/api/catalogue';
+	import Refusal from '#lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Section from '#lib/shell/Section.svelte';
+	import Confirm from '#lib/Confirm.svelte';
+	import { Acting } from '#lib/operator/acting.svelte.js';
+	import { asksWhetherAdministering } from '#lib/operator/administering.js';
+	import { kitchenName } from '#lib/cookbook.js';
+	import type { ListAccountsOutput, ListKitchensOutput } from '#lib/api/catalogue.js';
 	import OperatorOnly from '../OperatorOnly.svelte';
 
 	const kamosu = useKamosu();

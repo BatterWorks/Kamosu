@@ -9,7 +9,7 @@
 
 import type { Attachment } from 'svelte/attachments';
 import { goto } from '$app/navigation';
-import { typedInto, underASheet } from '$lib/page';
+import { typedInto, underASheet } from '#lib/page.js';
 
 /** The search box on Recipes, while Recipes is on screen. */
 let box: HTMLInputElement | undefined;

@@ -6,8 +6,8 @@
 	`restore`.
 -->
 <script lang="ts">
-	import type { KamosuClient } from '$lib/api/catalogue';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { KamosuClient } from '#lib/api/catalogue.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import Recipes from './+page.svelte';
 
 	interface Props {
