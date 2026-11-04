@@ -1956,5 +1956,22 @@
   "sent_choose_photo": "Elegir otra foto",
   "sent_choose_pdf": "Elegir otro PDF",
   "sent_paste_for": "La receta de {link}, pegada aquí:",
-  "sent_gone_photos": "Fotos. Kamosu solo las guarda 30 días."
+  "sent_gone_photos": "Fotos. Kamosu solo las guarda 30 días.",
+  "operator_links_heading": "Enlaces aún sin usar",
+  "operator_links_said": "Una invitación o un enlace de recuperación funciona hasta que se usa o se revoca. Revoca el que enviaste a un sitio equivocado o que ya no necesitas.",
+  "operator_links_empty": "No hay ninguna invitación ni enlace de recuperación pendiente.",
+  "operator_links_invite": "Invitación",
+  "operator_links_operator_invite": "Invitación de Operador",
+  "operator_links_recovery": "Enlace de recuperación para {who}",
+  "operator_links_invite_made": "Creada {when}",
+  "operator_links_recovery_made": "Creado {when}",
+  "operator_links_revoke": "Revocar",
+  "operator_links_revoke_invite_title": "¿Revocar esta invitación?",
+  "operator_links_revoke_recovery_title": "¿Revocar el enlace de recuperación de {who}?",
+  "operator_links_revoke_consequence": "El enlace deja de funcionar para todos. Se puede crear uno nuevo en cualquier momento.",
+  "security_invite_revoked": "Invitación revocada",
+  "security_operator_invite_revoked": "Invitación de Operador revocada",
+  "security_recovery_revoked": "Enlace de recuperación de {name} revocado",
+  "security_passkeys_ended_one": "1 llave de acceso quitada",
+  "security_passkeys_ended": "{count} llaves de acceso quitadas"
 }

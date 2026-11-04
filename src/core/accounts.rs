@@ -510,20 +510,20 @@ impl Core {
     }
 
     /// Note a sign-in in its Person's record: the Session it made, and how
-    /// it was made. `ended` says what a recovery link ended with it: Sessions,
-    /// Access Keys and Runner Keys.
+    /// it was made. `ended` says what a recovery link ended with it.
     fn note_signed_in(
         &self,
         person_id: &str,
         session_name: &str,
         how: &str,
-        ended: Option<(usize, usize, usize)>,
+        ended: Option<&Ended>,
     ) {
         let mut detail = json!({ "how": how });
-        if let Some((sessions, access_keys, runner_keys)) = ended {
-            detail["ended_sessions"] = json!(sessions);
-            detail["ended_access_keys"] = json!(access_keys);
-            detail["ended_runner_keys"] = json!(runner_keys);
+        if let Some(ended) = ended {
+            detail["ended_sessions"] = json!(ended.sessions);
+            detail["ended_access_keys"] = json!(ended.access_keys);
+            detail["ended_runner_keys"] = json!(ended.runner_keys);
+            detail["ended_passkeys"] = json!(ended.passkeys);
         }
         self.note(
             Event::theirs("signed_in", person_id)
@@ -599,7 +599,8 @@ impl Core {
     /// A signed-in Person changes their own password (#370), under the rules
     /// of a new one. They choose whether their other Sessions end with it, and
     /// whether their Access Keys do; the Session asking stays signed in, and
-    /// their passkeys are left alone.
+    /// their passkeys are left alone. Any recovery link of theirs still
+    /// unspent ends (#535).
     pub fn change_password(
         &self,
         caller: &Caller,
@@ -640,6 +641,9 @@ impl Core {
                 } else {
                     0
                 };
+                // A recovery link sent for the old password opens the account
+                // no more (#535).
+                end_recovery_links_of(conn, &caller.person_id)?;
                 Ok((ended_sessions, ended_access_keys))
             })();
             match result {
@@ -741,7 +745,7 @@ impl Core {
     ) -> Result<String, OpError> {
         let secret = generate_secret();
         self.db().with_conn(|conn| {
-            conn.execute("INSERT INTO account_links (secret_hash, kind, is_operator, kitchen_id) VALUES (?1, 'invite', ?2, ?3)", params![hash_secret(&secret), is_operator as i64, kitchen_id])
+            conn.execute("INSERT INTO account_links (id, secret_hash, kind, is_operator, kitchen_id) VALUES (?1, ?2, 'invite', ?3, ?4)", params![account_link_id(), hash_secret(&secret), is_operator as i64, kitchen_id])
                 .map_err(|e| OpError::internal(format!("cannot mint Invite: {e}")))?;
             Ok(())
         })?;
@@ -826,17 +830,90 @@ impl Core {
         })
     }
 
+    /// A recovery link for an active Person. It ends any of theirs still
+    /// unspent, as a Calendar Link ends the one before (#535): only the
+    /// newest link an Operator sent can take the account.
     pub fn mint_recovery_link(&self, name: &str) -> Result<String, OpError> {
         let secret = generate_secret();
+        let name = required_text(name, "name")?;
         self.db().with_conn(|conn| {
-            let person_id: Option<String> = conn.query_row("SELECT id FROM people WHERE name = ?1 AND disabled = 0 AND deleted = 0", params![required_text(name, "name")?], |r| r.get(0)).optional()
+            let tx = conn
+                .unchecked_transaction()
+                .map_err(|e| OpError::internal(e.to_string()))?;
+            let person_id: Option<String> = tx.query_row("SELECT id FROM people WHERE name = ?1 AND disabled = 0 AND deleted = 0", params![name], |r| r.get(0)).optional()
                 .map_err(|e| OpError::internal(format!("cannot read Person for recovery: {e}")))?;
             let person_id = person_id.ok_or_else(|| OpError::not_found(format!("no active Person '{name}'")))?;
-            conn.execute("INSERT INTO account_links (secret_hash, kind, person_id) VALUES (?1, 'recovery', ?2)", params![hash_secret(&secret), person_id])
+            end_recovery_links_of(&tx, &person_id)?;
+            tx.execute("INSERT INTO account_links (id, secret_hash, kind, person_id) VALUES (?1, ?2, 'recovery', ?3)", params![account_link_id(), hash_secret(&secret), person_id])
                 .map_err(|e| OpError::internal(format!("cannot mint recovery link: {e}")))?;
-            Ok(())
+            tx.commit().map_err(|e| OpError::internal(e.to_string()))
         })?;
         Ok(format!("/recover/{secret}"))
+    }
+
+    /// The Invites and recovery links still live (#535): unspent, unrevoked,
+    /// and for a recovery link, its Person still active. Each by its id and
+    /// when it was made, never its Secret, which is kept by its hash alone
+    /// (ADR 0031). An Invite says whether it makes an Operator; a recovery
+    /// link says whose account it opens. Nothing says which Kitchen an
+    /// Invite brings its newcomer into, since that Kitchen is its minting
+    /// Operator's and no other's to see (ADR 0007).
+    pub fn list_account_links(&self) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let fail =
+                |e: rusqlite::Error| OpError::internal(format!("cannot list the links: {e}"));
+            let mut statement = conn
+                .prepare(
+                    "SELECT account_links.id, kind, account_links.is_operator, people.name, \
+                            account_links.created_at \
+                       FROM account_links LEFT JOIN people ON people.id = account_links.person_id \
+                      WHERE spent = 0 AND revoked = 0 \
+                        AND (kind = 'invite' OR (people.disabled = 0 AND people.deleted = 0)) \
+                      ORDER BY account_links.created_at DESC, account_links.rowid DESC",
+                )
+                .map_err(fail)?;
+            let links = statement
+                .query_map([], |row| {
+                    Ok(json!({
+                        "id": row.get::<_, String>(0)?,
+                        "kind": row.get::<_, String>(1)?,
+                        "operator": row.get::<_, i64>(2)? != 0,
+                        "person": row.get::<_, Option<String>>(3)?,
+                        "created_at": row.get::<_, String>(4)?,
+                    }))
+                })
+                .map_err(fail)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(fail)?;
+            Ok(json!({ "links": links }))
+        })
+    }
+
+    /// Revoke one live Invite or recovery link by its id (#535), noted in
+    /// every Operator's Security Record.
+    pub fn revoke_account_link(&self, by: &Caller, id: &str) -> Result<(), OpError> {
+        let revoked: Option<(String, i64, Option<String>)> = self.db().with_conn(|conn| {
+            conn.query_row(
+                "UPDATE account_links SET revoked = 1 \
+                  WHERE id = ?1 AND spent = 0 AND revoked = 0 \
+                 RETURNING kind, is_operator, person_id",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(|e| OpError::internal(format!("cannot revoke the link: {e}")))
+        })?;
+        let (kind, operator, person_id) = revoked
+            .ok_or_else(|| OpError::not_found("no live Invite or recovery link has that id"))?;
+        let event = match person_id {
+            Some(person_id) if kind == "recovery" => {
+                Event::instance("recovery_link_revoked", Some(by)).about(&person_id)
+            }
+            _ => Event::instance("invite_revoked", Some(by))
+                .saying(json!({ "operator": operator != 0 })),
+        };
+        self.note(event.naming(self.named_credential(by)));
+        Ok(())
     }
 
     pub fn redeem_recovery(
@@ -864,12 +941,14 @@ impl Core {
             id: format!("s_{}", hex::encode(random_bytes(8))),
             secret: generate_secret(),
         };
-        let (person_id, ended_sessions, ended_access_keys, ended_runner_keys) = self.db().with_conn(|conn| {
+        let (person_id, ended, ended_runner_keys) = self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| OpError::internal(e.to_string()))?;
-            let result = (|| -> Result<(String, usize, usize, Vec<String>), OpError> {
+            let result = (|| -> Result<(String, Ended, Vec<String>), OpError> {
                 let person_id: Option<String> = conn.query_row("SELECT people.id FROM account_links JOIN people ON people.id=account_links.person_id WHERE secret_hash=?1 AND kind='recovery' AND spent=0 AND revoked=0 AND disabled=0 AND deleted=0", params![hash_secret(secret)], |r| r.get(0)).optional().map_err(|e| OpError::internal(e.to_string()))?;
                 let person_id=person_id.ok_or_else(|| OpError::unauthorized("this recovery link has already been spent or revoked"))?;
                 conn.execute("UPDATE account_links SET spent=1 WHERE secret_hash=?1 AND spent=0",params![hash_secret(secret)]).map_err(|e| OpError::internal(e.to_string()))?;
+                // Nor can an older link take the account back over (#535).
+                end_recovery_links_of(conn, &person_id)?;
                 conn.execute("UPDATE people SET password_hash=?1 WHERE id=?2",params![password_hash,person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 // Whoever took the old password stays signed in no longer, in a
                 // browser or through a key (#369).
@@ -877,20 +956,20 @@ impl Core {
                 let ended_access_keys = conn.execute("UPDATE access_keys SET revoked=1 WHERE person_id=?1 AND revoked=0",params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 // Nor through a Runner Key minted with it (#378).
                 let ended_runner_keys = Core::end_runner_keys_of_recovered(conn, &person_id)?;
+                // Nor with a passkey added by whoever held it, which ending
+                // a Session does not reach (ADR 0051, #535). The Person adds
+                // their own again once signed in.
+                let ended_passkeys = conn.execute("DELETE FROM passkeys WHERE person_id=?1",params![person_id]).map_err(|e| OpError::internal(format!("cannot end the passkeys: {e}")))?;
                 conn.execute("INSERT INTO sessions (id,secret_hash,person_id,name) VALUES (?1,?2,?3,?4)",params![session.id,hash_secret(&session.secret),person_id,session_name]).map_err(|e| OpError::internal(e.to_string()))?;
-                Ok((person_id, ended_sessions, ended_access_keys, ended_runner_keys))
+                let ended = Ended { sessions: ended_sessions, access_keys: ended_access_keys, runner_keys: ended_runner_keys.len(), passkeys: ended_passkeys };
+                Ok((person_id, ended, ended_runner_keys))
             })();
             match result { Ok(ended) => { conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string()))?; Ok(ended) }, Err(e) => { let _=conn.execute_batch("ROLLBACK"); Err(e) } }
         })?;
-        self.note_signed_in(
-            &person_id,
-            session_name,
-            "recovery_link",
-            Some((ended_sessions, ended_access_keys, ended_runner_keys.len())),
-        );
+        self.note_signed_in(&person_id, session_name, "recovery_link", Some(&ended));
         self.note_runner_keys_recovery_ended(&person_id, session_name, &ended_runner_keys);
         Ok(
-            json!({"session_id":session.id,"_session_secret":session.secret,"ended_sessions":ended_sessions,"ended_access_keys":ended_access_keys,"ended_runner_keys":ended_runner_keys.len()}),
+            json!({"session_id":session.id,"_session_secret":session.secret,"ended_sessions":ended.sessions,"ended_access_keys":ended.access_keys,"ended_runner_keys":ended.runner_keys,"ended_passkeys":ended.passkeys}),
         )
     }
 
@@ -1300,6 +1379,31 @@ fn forget_cookbook_of(conn: &Connection, person_id: &str) -> Result<(), OpError>
     // (#135).
     settle_joins_of(conn, &cookbook_id)?;
     Ok(())
+}
+
+/// What a recovery link ended with the old password, counted for its answer
+/// and its line in the Security Record.
+struct Ended {
+    sessions: usize,
+    access_keys: usize,
+    runner_keys: usize,
+    passkeys: usize,
+}
+
+/// A new id for an Invite or a recovery link, which an Operator names it by
+/// to revoke it (#535).
+fn account_link_id() -> String {
+    format!("al_{}", hex::encode(random_bytes(8)))
+}
+
+/// Revoke every recovery link of this Person still unspent (#535).
+fn end_recovery_links_of(conn: &Connection, person_id: &str) -> Result<usize, OpError> {
+    conn.execute(
+        "UPDATE account_links SET revoked = 1 \
+          WHERE person_id = ?1 AND kind = 'recovery' AND spent = 0 AND revoked = 0",
+        params![person_id],
+    )
+    .map_err(|e| OpError::internal(format!("cannot end the recovery links: {e}")))
 }
 
 pub fn hash_secret(secret: &str) -> String {

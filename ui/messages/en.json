@@ -1956,5 +1956,22 @@
   "sent_choose_photo": "Choose another photo",
   "sent_choose_pdf": "Choose another PDF",
   "sent_paste_for": "The recipe from {link}, pasted here:",
-  "sent_gone_photos": "Photos. Kamosu keeps them for 30 days only."
+  "sent_gone_photos": "Photos. Kamosu keeps them for 30 days only.",
+  "operator_links_heading": "Links not yet used",
+  "operator_links_said": "An Invite or a recovery link works until it is used or revoked. Revoke one you sent to the wrong place, or no longer need.",
+  "operator_links_empty": "No Invite or recovery link is waiting.",
+  "operator_links_invite": "Invite",
+  "operator_links_operator_invite": "Operator Invite",
+  "operator_links_recovery": "Recovery link for {who}",
+  "operator_links_invite_made": "Made {when}",
+  "operator_links_recovery_made": "Made {when}",
+  "operator_links_revoke": "Revoke",
+  "operator_links_revoke_invite_title": "Revoke this Invite?",
+  "operator_links_revoke_recovery_title": "Revoke {who}’s recovery link?",
+  "operator_links_revoke_consequence": "The link stops working for everyone. You can make a new one at any time.",
+  "security_invite_revoked": "Invite revoked",
+  "security_operator_invite_revoked": "Operator Invite revoked",
+  "security_recovery_revoked": "{name}’s recovery link revoked",
+  "security_passkeys_ended_one": "1 passkey removed",
+  "security_passkeys_ended": "{count} passkeys removed"
 }

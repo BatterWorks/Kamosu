@@ -4,8 +4,8 @@
 //! A Person reads their own: signing in, wrong passwords at their name, their
 //! passkeys, password, Access Keys and Sessions. Every Operator reads the
 //! instance's: the House Notes and the public address, who administers and
-//! whose account ended, Runner Keys, Backups fetched, and a crowd at the
-//! sign-in.
+//! whose account ended, Runner Keys, Backups fetched, Invites and recovery
+//! links revoked, and a crowd at the sign-in.
 //!
 //! Each event is also one line on standard output, in the fixed format
 //! `docs/security-record.md` describes. Kamosu sends it nowhere: what to do
@@ -61,6 +61,8 @@ pub const SECURITY_EVENTS: &[&str] = &[
     "runner_key_minted",
     "runner_key_revoked",
     "backup_fetched",
+    "invite_revoked",
+    "recovery_link_revoked",
 ];
 
 /// Who reads an event.

@@ -66,6 +66,7 @@ fn arguments_for(name: &str) -> Value {
         "keep_version_as_copy" => json!({ "branch_id": "b_parity", "version_id": "v_parity" }),
         "rename_branch" => json!({ "branch_id": "b_parity", "name": "Parity" }),
         "disable_account" | "delete_account" | "mint_recovery_link" => json!({ "name": "Parity" }),
+        "revoke_account_link" => json!({ "id": "al_parity" }),
         "set_operator" => json!({ "name": "Parity", "is_operator": true }),
         "create_recipe" => json!({ "title": "Parity Recipe" }),
         "save_recipe_version" => json!({ "branch_id": "b_parity", "title": "Parity Recipe" }),
@@ -181,6 +182,8 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "disable_account"
             | "delete_account"
             | "mint_recovery_link"
+            | "list_account_links"
+            | "revoke_account_link"
             | "sweep_photographs"
             | "take_backup"
             | "list_backups"
@@ -429,6 +432,8 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "disable_account"
                 | "delete_account"
                 | "mint_recovery_link"
+                | "list_account_links"
+                | "revoke_account_link"
                 | "sweep_photographs"
                 | "take_backup"
                 | "list_backups"

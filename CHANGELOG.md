@@ -13,6 +13,7 @@
 - A Plan, the fifth place between Recipes and Shopping, holds the days ahead and what you will cook on each, a week at a time from Monday to Sunday. *Plan this* beside *Cook this* on a recipe puts it on a day, or on any day of a week when the day is not decided yet, at as many servings as you will cook, and a planned recipe opens at that amount. A week's meals with no day wait above its days. The + on a day writes a few words there instead, such as "leftovers" or "eating out", kept as written. Any meal moves to another day or week, earlier or later in its day, or is planned again elsewhere, from this week or one gone by, and on a wide screen it is dragged. *Send to shopping* puts chosen days, or a whole week, onto your Shopping List, each recipe at the amount planned and added to what the list already holds, so two chili nights shop for both. A planned recipe says *Cooked* once you begin cooking it on its day, or any day of its week when it has none, counting the day where you are, and a past one nobody cooked fades, while the plan itself records no cooking. A meal sent says so and is not sent twice: one planned for more since sends only the difference, one planned for less takes nothing off, and emptying the list after the shop leaves the marks. Written words stay behind, and the answer names them. Your plan is yours alone. A planned recipe follows its recipe's corrections, and one deleted or no longer shared stays on the day by name. Planning and sending work offline like the shopping list, and save in a demo, where Camille's week is already planned around the day you visit. A Mealie backup brings its household's meal plan into the plan of whoever imports it, past weeks and upcoming ones, whoever in Mealie planned each meal: a recipe at the scale Mealie planned it, a note as its words, a meal planned for a week on that week with no day, and a day's meals in Mealie's order from breakfast to dessert, though not their names. A meal whose recipe stayed behind in Mealie comes as the recipe's name, and the Import Report counts the meals planned and names those. Importing the same backup again plans nothing twice. Agents read and write it with `get_meal_plan`, `plan_recipe`, `plan_words`, `set_planned_words`, `move_planned_meal`, `set_planned_yield`, `remove_planned_meal` and `send_to_shopping_list`. [#486] [#487] [#488] [#489] [#490] [#492]
 - Your plan can show in your phone's calendar. *Settings › Your plan in your calendar* makes a private link, shown once, that Apple Calendar or Google Calendar subscribes to: each planned meal is then an all-day entry beside your appointments that opens its recipe, and a meal for a week with no day stretches across that week. The page says when a calendar last read the link, and a new link or *Stop the link* ends it. Anyone holding the link sees your plan and can change nothing, and making and ending one is in your Security Record. Agents use `make_calendar_link`, `get_calendar_link` and `end_calendar_link`. [#491]
 - `get_person` says whether the Person a Credential names is an Operator, as `is_operator`, whichever of their keys asks. [#533]
+- Settings › People lists the Invites and recovery links not yet used, each with what it does and when it was made, and *Revoke* ends one. Before, an Invite or a recovery link sent to the wrong place worked until somebody used it. Revoking one is in the instance's Security Record. Agents use `list_account_links` and `revoke_account_link`. [#535]
 
 ### Fixed
 
@@ -24,6 +25,8 @@
 - The MCP Door no longer shows the Operator's tools to a key or Session that cannot use them, such as an Operator's Access Key that is not an Operator key. [#534]
 - A wrong or revoked key at the MCP Door is refused as soon as its client lists the tools, instead of looking connected until its first call. [#534]
 - A request to the MCP Door that is not JSON is answered as a JSON-RPC parse error instead of plain text. [#534]
+- Recovering an account with a recovery link now removes its passkeys too, so a passkey added by whoever had the password no longer signs them back in. The recovered Person adds their own again from Settings, and the recovery's line in their Security Record counts the passkeys removed. [#535]
+- A new recovery link ends any earlier one for the same Person still unused, and so do recovering the account and changing the password. Before, an older link could still set a new password after the account was recovered. [#535]
 
 [#464]: https://github.com/BatterWorks/Kamosu/issues/464
 [#486]: https://github.com/BatterWorks/Kamosu/issues/486
@@ -37,6 +40,7 @@
 [#524]: https://github.com/BatterWorks/Kamosu/issues/524
 [#533]: https://github.com/BatterWorks/Kamosu/issues/533
 [#534]: https://github.com/BatterWorks/Kamosu/issues/534
+[#535]: https://github.com/BatterWorks/Kamosu/issues/535
 
 ## v0.5.0 - 2026-10-29
 

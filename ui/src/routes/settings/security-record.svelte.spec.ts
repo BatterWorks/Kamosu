@@ -199,14 +199,38 @@ describe('how a row is said (#371)', () => {
 						ended_sessions: 1,
 						ended_access_keys: 2,
 						ended_runner_keys: 1,
+						ended_passkeys: 2,
 					},
 				}),
 			]),
 		});
 		const row = (await screen.findByText('Signed in on replacement browser')).closest('li')!;
 		expect(row).toHaveTextContent(
-			/1 other device signed out · 2 Access Keys ended · 1 Runner Key ended · 11:00$/,
+			/1 other device signed out · 2 Access Keys ended · 1 Runner Key ended · 2 passkeys removed · 11:00$/,
 		);
+	});
+
+	it('says which Invite or recovery link an Operator revoked, and through what (#535)', async () => {
+		instanceSecurity({
+			list_instance_security_record: record([
+				event({
+					event: 'recovery_link_revoked',
+					at: today(11, 5),
+					about: 'Marc',
+					credential: { kind: 'session', name: 'kitchen laptop' },
+				}),
+				event({
+					event: 'invite_revoked',
+					at: today(11, 0),
+					credential: { kind: 'session', name: 'kitchen laptop' },
+					detail: { operator: true },
+				}),
+			]),
+		});
+		const recovery = (await screen.findByText('Marc’s recovery link revoked')).closest('li')!;
+		expect(recovery).toHaveTextContent(/on kitchen laptop · 11:05$/);
+		const invite = screen.getByText('Operator Invite revoked').closest('li')!;
+		expect(invite).toHaveTextContent(/on kitchen laptop · 11:00$/);
 	});
 
 	it('says a new Operator arrived through an Operator Invite', async () => {

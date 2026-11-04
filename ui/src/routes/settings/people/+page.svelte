@@ -9,6 +9,12 @@
 	Each Person's acts are their own row's business, and one row is open at a
 	time: four buttons under every Person at once made this list a wall of
 	buttons with the names lost among them.
+
+	**The Invites and recovery links not yet used are listed between the two**
+	(#535), each with Revoke. A link sent to the wrong place, or forgotten,
+	works until it is used or revoked (ADR 0031), so the Operator has to see
+	it to end it. A row says what the link does and when it was made, never
+	the link itself, which Kamosu keeps by its hash alone.
 -->
 <script lang="ts">
 	import Refusal from '#lib/Refusal.svelte';
@@ -19,7 +25,12 @@
 	import Confirm from '#lib/Confirm.svelte';
 	import { Acting } from '#lib/operator/acting.svelte.js';
 	import { kitchenName } from '#lib/cookbook.js';
-	import type { ListAccountsOutput, ListKitchensOutput } from '#lib/api/catalogue.js';
+	import { howLongAgo } from '#lib/dates.js';
+	import type {
+		ListAccountLinksOutput,
+		ListAccountsOutput,
+		ListKitchensOutput,
+	} from '#lib/api/catalogue.js';
 	import OperatorOnly from '../OperatorOnly.svelte';
 
 	const kamosu = useKamosu();
@@ -27,11 +38,13 @@
 
 	type Account = ListAccountsOutput['accounts'][number];
 	type Kitchen = ListKitchensOutput['kitchens'][number];
+	type Link = ListAccountLinksOutput['links'][number];
 
 	let accounts = $state<Account[]>([]);
 	/** Why the accounts could not be listed, kept apart from what an act says. */
 	let unlisted = $state<string | undefined>(undefined);
 	let kitchens = $state<Kitchen[]>([]);
+	let links = $state<Link[]>([]);
 
 	/**
 	 * Asked only once OperatorOnly has agreed this Person is an Operator
@@ -48,8 +61,17 @@
 		}
 	}
 
+	/** The Invites and recovery links still live (#535). */
+	async function loadLinks() {
+		try {
+			links = (await kamosu.listAccountLinks({})).links;
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+		}
+	}
+
 	async function load() {
-		await loadAccounts();
+		await Promise.all([loadAccounts(), loadLinks()]);
 		try {
 			kitchens = (await kamosu.listKitchens()).kitchens;
 			// The Operator's own Kitchen is where a housemate usually goes, as
@@ -101,13 +123,13 @@
 			invite = { link: minted.link, kitchen: kitchen ? kitchenName(kitchen) : undefined };
 			inviteAsOperator = false;
 			copied = undefined;
-		});
+		}, loadLinks);
 
 	const mintRecovery = (who: string) =>
 		acting.act(async () => {
 			recovery = { who, link: (await kamosu.mintRecoveryLink({ name: who })).link };
 			copied = undefined;
-		});
+		}, loadLinks);
 
 	const setOperator = (who: string, is_operator: boolean) =>
 		acting.act(async () => {
@@ -116,7 +138,9 @@
 
 	// ── Ending an account ─────────────────────────────────────────────────────
 
-	let asking = $state<{ kind: 'delete' | 'disable'; who: string } | undefined>(undefined);
+	let asking = $state<
+		{ kind: 'delete' | 'disable'; who: string } | { kind: 'revoke'; link: Link } | undefined
+	>(undefined);
 
 	function close() {
 		asking = undefined;
@@ -130,8 +154,30 @@
 				else await kamosu.disableAccount({ name: who });
 			},
 			async () => {
-				await loadAccounts();
+				// A disabled or deleted Person's recovery link is no longer live.
+				await Promise.all([loadAccounts(), loadLinks()]);
 				close();
+			},
+		);
+
+	/** What a live link does, as its row and its sheet say it. */
+	const whatLink = (link: Link) =>
+		link.kind === 'recovery'
+			? m.operator_links_recovery({ who: link.person ?? '' })
+			: link.operator
+				? m.operator_links_operator_invite()
+				: m.operator_links_invite();
+
+	const revoke = (link: Link) =>
+		acting.act(
+			async () => {
+				await kamosu.revokeAccountLink({ id: link.id });
+			},
+			// Closed first: the link is revoked even if the list then fails to
+			// come back, and the sheet must not offer to revoke it twice.
+			async () => {
+				close();
+				await loadLinks();
 			},
 		);
 </script>
@@ -218,6 +264,35 @@
 				</button>
 			</div>
 		{/if}
+	</Section>
+
+	<Section heading={m.operator_links_heading()}>
+		<p class="mb-3 text-read text-ink-2">{m.operator_links_said()}</p>
+		<ul class="overflow-hidden rounded-sm border border-rule bg-card">
+			{#each links as link (link.id)}
+				<li class="flex items-center gap-3 border-b border-rule p-3 last:border-b-0">
+					<span class="min-w-0 flex-1">
+						<span class="block text-body break-words text-ink">{whatLink(link)}</span>
+						<span class="block text-read text-ink-2">
+							{link.kind === 'recovery'
+								? m.operator_links_recovery_made({ when: howLongAgo(link.created_at) })
+								: m.operator_links_invite_made({ when: howLongAgo(link.created_at) })}
+						</span>
+					</span>
+					<button
+						type="button"
+						disabled={acting.working}
+						onclick={() => (asking = { kind: 'revoke', link })}
+						class="min-h-12 shrink-0 rounded-sm border border-support px-3 text-read
+						font-medium text-support disabled:opacity-60"
+					>
+						{m.operator_links_revoke()}
+					</button>
+				</li>
+			{:else}
+				<li class="p-3 text-body text-ink-2">{m.operator_links_empty()}</li>
+			{/each}
+		</ul>
 	</Section>
 
 	<Section heading={m.operator_everyone_heading()}>
@@ -321,7 +396,20 @@
 	</Section>
 </OperatorOnly>
 
-{#if asking?.kind === 'delete'}
+{#if asking?.kind === 'revoke'}
+	{@const link = asking.link}
+	<Confirm
+		title={link.kind === 'recovery'
+			? m.operator_links_revoke_recovery_title({ who: link.person ?? '' })
+			: m.operator_links_revoke_invite_title()}
+		consequence={m.operator_links_revoke_consequence()}
+		act={m.operator_links_revoke()}
+		busy={acting.working}
+		failed={acting.said}
+		run={() => revoke(link)}
+		cancel={close}
+	/>
+{:else if asking?.kind === 'delete'}
 	{@const who = asking.who}
 	<Confirm
 		title={m.operator_account_delete_title({ who })}

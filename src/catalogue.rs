@@ -491,7 +491,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "mint_recovery_link",
             summary: "Mint a recovery link for a Person who forgot their \
-                      password. The link is spent on its one use.",
+                      password. The link is spent on its one use, and ends \
+                      any earlier one of theirs still unspent. Setting a \
+                      password with it signs out everything the old one \
+                      reached: Sessions, Access Keys, Runner Keys minted \
+                      with it, and passkeys.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: true,
@@ -503,6 +507,69 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "link": { "type": "string"} }, "required": ["link"], "additionalProperties": false }),
             handler: crate::operations::mint_recovery_link,
+        },
+        Operation {
+            name: "list_account_links",
+            summary: "List the live Invites and recovery links. Live is not \
+                      yet spent, not revoked, and for a recovery link, its \
+                      Person's account still open. Each by its id and when it \
+                      was made, never its Secret. An Invite says whether it makes an \
+                      Operator; a recovery link names whose account it opens. \
+                      Kitchen and Cookbook Invites are not among them.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: true,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::Refused,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "links": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string" },
+                                "kind": { "enum": ["invite", "recovery"] },
+                                "operator": {
+                                    "type": "boolean",
+                                    "description": "An Invite that makes an Operator.",
+                                },
+                                "person": {
+                                    "type": ["string", "null"],
+                                    "description": "Whose account a recovery link opens; null for an Invite.",
+                                },
+                                "created_at": { "type": "string" },
+                            },
+                            "required": ["id", "kind", "operator", "person", "created_at"],
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "required": ["links"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_account_links,
+        },
+        Operation {
+            name: "revoke_account_link",
+            summary: "Revoke a live Invite or recovery link. Name it by the \
+                      id list_account_links gives it. Nobody can spend it after.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: true,
+            job_key: JobKey::Never,
+            add_only_key: false,
+            in_demo: InDemo::Refused,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" } }, "required": ["revoked"], "additionalProperties": false }),
+            handler: crate::operations::revoke_account_link,
         },
         Operation {
             name: "set_operator",
@@ -1379,7 +1446,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             name: "change_password",
             summary: "Change your password, with the current one. You choose \
                       whether your other Sessions end with it, and whether \
-                      your Access Keys do. Your passkeys keep working.",
+                      your Access Keys do. Your passkeys keep working. A \
+                      recovery link of yours not yet used ends.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -9088,6 +9156,10 @@ fn security_record_output() -> Value {
                                 "ended_runner_keys": {
                                     "type": "integer",
                                     "description": "Runner Keys a recovery link ended.",
+                                },
+                                "ended_passkeys": {
+                                    "type": "integer",
+                                    "description": "Passkeys a recovery link ended.",
                                 },
                                 "read_only": { "type": "boolean" },
                                 "operator": { "type": "boolean" },

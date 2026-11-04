@@ -489,9 +489,10 @@ docker exec kamosu /app/kamosu recover "Your Name"
 
 It prints a path starting `/recover/`. Open it after your Kamosu's address
 (`https://your-kamosu/recover/...`) and choose a new password. Setting it signs
-out every device and ends every Access Key and Runner Key you held, so a
-Runner needs a new key afterwards. Another
-Operator can also send you one from **Settings › People**.
+out every device, ends every Access Key and Runner Key you held and removes
+your passkeys, so a Runner needs a new key afterwards and you add your
+passkeys again. Only the newest link works. Another Operator can also send you
+one from **Settings › People**, which lists the links not yet used.
 
 **Podman shows no health status.** The `podman-*` images are built in
 Podman's own format, which has no field for a health check. The

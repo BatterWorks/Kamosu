@@ -79,6 +79,23 @@ const quiet: Answers = {
 	get_house_notes: { notes: null, saved_by: null, saved_at: null },
 	// An Operator in no Kitchen yet, so an Invite offers none to arrive in.
 	list_kitchens: { kitchens: [] },
+	list_account_links: { links: [] },
+};
+
+/** An Invite that makes an Operator, and a recovery link for Camille, both unused (#535). */
+const operatorInvite = {
+	id: 'al_invite',
+	kind: 'invite' as const,
+	operator: true,
+	person: null,
+	created_at: '2026-09-20T10:00:00Z',
+};
+const camillesRecovery = {
+	id: 'al_recovery',
+	kind: 'recovery' as const,
+	operator: false,
+	person: 'Camille',
+	created_at: '2026-09-21T10:00:00Z',
 };
 
 /** The same instance, with one pair of Foods waiting to be looked at. */
@@ -369,6 +386,72 @@ describe("This instance's pages", () => {
 			await within(camille).findByText(`${window.location.origin}/recover/3b71d0ae5c92`),
 		).toBeInTheDocument();
 		expect(within(camille).getByText(/recovery link for Camille/i)).toBeInTheDocument();
+	});
+
+	it('lists the Invites and recovery links not yet used, and says what each does (#535)', async () => {
+		renderScreen(People, {
+			...quiet,
+			list_account_links: { links: [operatorInvite, camillesRecovery] },
+		});
+
+		const section = (await screen.findByRole('heading', { name: 'Links not yet used' })).closest(
+			'section',
+		) as HTMLElement;
+		expect(await within(section).findByText('Operator Invite')).toBeInTheDocument();
+		expect(within(section).getByText('Recovery link for Camille')).toBeInTheDocument();
+		expect(within(section).getAllByText(/^Made /)).toHaveLength(2);
+		expect(within(section).getAllByRole('button', { name: 'Revoke' })).toHaveLength(2);
+	});
+
+	it('says when no link is waiting', async () => {
+		renderScreen(People, quiet);
+		expect(await screen.findByText('No Invite or recovery link is waiting.')).toBeInTheDocument();
+	});
+
+	it('asks before revoking a link, and revokes that one alone (#535)', async () => {
+		const { kamosu } = renderScreen(People, {
+			...quiet,
+			list_account_links: { links: [operatorInvite, camillesRecovery] },
+			revoke_account_link: { revoked: true },
+		});
+
+		const row = (await screen.findByText('Recovery link for Camille')).closest('li') as HTMLElement;
+		await fireEvent.click(within(row).getByRole('button', { name: 'Revoke' }));
+		const sheet = await screen.findByRole('dialog', {
+			name: 'Revoke Camille’s recovery link?',
+		});
+		expect(within(sheet).getByText(/stops working for everyone/)).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('revoke_account_link');
+
+		kamosu.answer('list_account_links', { links: [operatorInvite] });
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Revoke' }));
+
+		expect(kamosu.calls.find((call) => call.operation === 'revoke_account_link')?.input).toEqual({
+			id: 'al_recovery',
+		});
+		await vi.waitFor(() =>
+			expect(screen.queryByText('Recovery link for Camille')).not.toBeInTheDocument(),
+		);
+		expect(screen.getByText('Operator Invite')).toBeInTheDocument();
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+	});
+
+	it('lists an Invite as soon as it is made (#535)', async () => {
+		const { kamosu } = renderScreen(People, {
+			...quiet,
+			mint_invite: { link: '/invite/8f2c1a94e07b' },
+		});
+		await screen.findByText('No Invite or recovery link is waiting.');
+
+		kamosu.answer('list_account_links', {
+			links: [{ ...operatorInvite, operator: false }],
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'Make the invite link' }));
+
+		const section = screen
+			.getByRole('heading', { name: 'Links not yet used' })
+			.closest('section') as HTMLElement;
+		expect(await within(section).findByText('Invite')).toBeInTheDocument();
 	});
 
 	it('raises a Person to Operator and stands one down, by name', async () => {
