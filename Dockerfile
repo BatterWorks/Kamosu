@@ -98,6 +98,8 @@ RUN printf '%s\n%s\n' "$VERSION" "$GIT_SHA" > /stamp
 # as uid 65532 rather than root, so an escape from the process lands in an
 # account that owns nothing but /data.
 FROM gcr.io/distroless/cc-debian13:nonroot@sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e
+# Keep Microsoft ONNX Runtime telemetry disabled if a future runtime includes it.
+ENV ORT_DISABLE_TELEMETRY=1
 COPY --from=build /kamosu /app/kamosu
 # /data exists in the image, owned by the user who writes it, so a fresh named
 # volume mounted there starts out writable. A bind-mounted host folder brings
