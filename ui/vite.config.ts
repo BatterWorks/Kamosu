@@ -16,7 +16,7 @@ const BACKEND = 'http://127.0.0.1:5266';
 /// accepts only its defaults, localhost and IP addresses.
 const DEV_HOST = loadEnv('development', '..', 'KAMOSU_DEV_HOST').KAMOSU_DEV_HOST;
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
 	plugins: [
 		tailwindcss(),
 		sveltekit({
@@ -47,6 +47,15 @@ export default defineConfig({
 			outdir: './src/lib/paraglide',
 			strategy: ['localStorage', 'preferredLanguage', 'baseLocale'],
 			emitTsDeclarations: true,
+			// Served (the dev server and the screen tests), one module per
+			// language rather than one per phrase. Paraglide 3 serves every
+			// phrase as a module of its own, near 300 requests a screen, and the
+			// dev instance's TLS proxy dropped some of them, which broke `just
+			// screens` (#525). Paraglide 2 did the same, and so does what came
+			// with it: a build writes the other layout into the same folder, so
+			// a running dev server needs `just dev-start` again after one. A
+			// build keeps Paraglide 3's own default.
+			...(command === 'serve' && { outputStructure: 'locale-modules' }),
 		}),
 	],
 
@@ -100,4 +109,4 @@ export default defineConfig({
 	// Screens are exercised as a browser would run them, so the browser build of
 	// Svelte is what the tests resolve — the server build cannot mount anything.
 	resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
-});
+}));
