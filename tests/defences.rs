@@ -3065,6 +3065,22 @@ async fn a_strangers_body_is_small_and_a_members_is_not() {
     );
     assert_eq!(refused.status, 413, "{}", refused.body);
     assert_eq!(refused.envelope()["error"]["code"], json!(-32600));
+
+    // A member's body past the door's own limit was never parsed, so it keeps
+    // its status, said in JSON-RPC rather than as a parse error (#534).
+    let past_the_limit = vec![b'a'; 2 * 1024 * 1024 + 1024];
+    let refused = send_raw(
+        &app,
+        &format!(
+            "POST /mcp HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n\
+             Authorization: Bearer {key}\r\nContent-Length: {}",
+            past_the_limit.len()
+        ),
+        &past_the_limit,
+    );
+    assert_eq!(refused.status, 413, "{}", refused.body);
+    assert_eq!(refused.envelope()["error"]["code"], json!(-32600));
+    assert_eq!(refused.envelope()["jsonrpc"], json!("2.0"));
 }
 
 /// A Secret that names nobody is answered at once, whatever body it declares,

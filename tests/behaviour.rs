@@ -7379,6 +7379,133 @@ async fn an_access_key_is_not_listed_the_tools_it_is_always_refused() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_credential_naming_no_operator_is_not_listed_an_operators_tools() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let minted = |input: &str| {
+        let (status, key) = app.post_op("mint_access_key", Some(&session), input);
+        assert_eq!(status, 200, "{key}");
+        key["result"]["secret"].as_str().unwrap().to_string()
+    };
+    let ordinary = minted(r#"{"name":"recipe agent"}"#);
+    let operator_key = minted(r#"{"name":"house agent","operator":true}"#);
+    let operators: Vec<&str> = kamosu::catalogue::OPERATIONS
+        .iter()
+        .filter(|op| op.permission == kamosu::catalogue::Permission::Operator)
+        .map(|op| op.name)
+        .collect();
+    assert!(operators.contains(&"set_house_notes"), "{operators:?}");
+
+    // An Operator's ordinary key is a Person's, and is listed none of them.
+    let to_the_ordinary_key = mcp_tool_names(&app, &ordinary);
+    assert!(
+        to_the_ordinary_key.iter().any(|tool| tool == "get_recipe"),
+        "the key lost its ordinary tools: {to_the_ordinary_key:?}"
+    );
+    for name in &operators {
+        assert!(
+            !to_the_ordinary_key.iter().any(|tool| tool == name),
+            "a key naming no Operator was listed {name}, which it is always refused"
+        );
+    }
+    // The Operator key and the Operator's Session are listed every one of
+    // them, but a Session-only one for the key.
+    let to_the_operator_key = mcp_tool_names(&app, &operator_key);
+    let to_the_session = mcp_tool_names(&app, &session);
+    for name in &operators {
+        let session_only = kamosu::catalogue::find(name).unwrap().session_only;
+        assert_eq!(
+            to_the_operator_key.iter().any(|tool| tool == name),
+            !session_only,
+            "the Operator key and {name}"
+        );
+        assert!(
+            to_the_session.iter().any(|tool| tool == name),
+            "the Operator's Session was not listed {name}"
+        );
+    }
+
+    // Called anyway, one answers with the refusal it always gave.
+    let call = json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": { "name": "set_house_notes", "arguments": { "notes": "Salt to taste." } },
+    });
+    let (_, refused) = app.post_mcp(&call.to_string(), Some(&ordinary));
+    assert_eq!(refused["result"]["isError"], json!(true), "{refused}");
+    assert!(
+        refused
+            .to_string()
+            .contains("Operation 'set_house_notes' requires a Credential naming an Operator"),
+        "{refused}"
+    );
+}
+
+/// A mistyped key shows when its client first lists, not at its first call:
+/// a Secret that names nobody is refused at `tools/list`, while no Secret at
+/// all is listed as before (#534).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_secret_naming_nobody_is_refused_the_tool_listing() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let (status, revoked) =
+        app.post_op("mint_access_key", Some(&session), r#"{"name":"old agent"}"#);
+    assert_eq!(status, 200, "{revoked}");
+    let revoked_id = revoked["result"]["id"].as_str().unwrap().to_string();
+    let revoked = revoked["result"]["secret"].as_str().unwrap().to_string();
+    let (status, _) = app.post_op(
+        "revoke_access_key",
+        Some(&session),
+        &json!({ "access_key_id": revoked_id }).to_string(),
+    );
+    assert_eq!(status, 200);
+
+    let listing = r#"{"jsonrpc":"2.0","id":7,"method":"tools/list"}"#;
+    for wrong in ["not-a-key-anyone-holds", revoked.as_str()] {
+        let (status, refused) = app.post_mcp(listing, Some(wrong));
+        assert_eq!(status, 401, "{refused}");
+        assert_eq!(refused["jsonrpc"], json!("2.0"), "{refused}");
+        assert_eq!(refused["id"], json!(7), "{refused}");
+        assert_eq!(refused["error"]["code"], json!(-32600), "{refused}");
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("does not name anyone")),
+            "{refused}"
+        );
+    }
+
+    let (status, listed) = app.post_mcp(listing, None);
+    assert_eq!(status, 200, "{listed}");
+    assert!(
+        listed["result"]["tools"]
+            .as_array()
+            .is_some_and(|tools| !tools.is_empty()),
+        "{listed}"
+    );
+}
+
+/// A body that is not JSON is answered as JSON-RPC answers a parse failure,
+/// never with the extractor's plain text (#534).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unparseable_mcp_body_is_a_json_rpc_parse_error() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    for secret in [None, Some(session.as_str())] {
+        let (status, refused) = app.post_mcp(r#"{"jsonrpc":"2.0","id":1,"meth"#, secret);
+        assert_eq!(status, 200, "{refused}");
+        assert_eq!(refused["jsonrpc"], json!("2.0"), "{refused}");
+        assert_eq!(refused["id"], Value::Null, "{refused}");
+        assert_eq!(refused["error"]["code"], json!(-32700), "{refused}");
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .is_some_and(|m| m.starts_with("Parse error")),
+            "{refused}"
+        );
+    }
+}
+
 // --- Runner Keys (issue #260) -------------------------------------------------
 
 /// The first Person of a fresh instance, who is its Operator: their Session's
@@ -15212,18 +15339,18 @@ mod web_link_importer {
         let held = a_job_held(&app);
         assert_eq!(tools_listed_to(&app, &held.job_key), THE_JOB_KEYS_LIST);
 
-        // Once the Job has ended the Job Key is nobody's, and is listed as
-        // nobody is.
+        // Once the Job has ended the Job Key is nobody's, and is refused the
+        // listing as a Secret naming nobody is (#534).
         let (status, reported) = report_on_job(
             &app,
             Some(&held.runner),
             json!({ "job_id": held.job_id, "outcome": "completed" }),
         );
         assert_eq!(status, 200, "{reported}");
-        assert_eq!(
-            tools_listed_to(&app, &held.job_key),
-            tools_listed_to(&app, &"f".repeat(64))
-        );
+        let listing = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
+        let ended = app.post_mcp(listing, Some(&held.job_key));
+        assert_eq!(ended.0, 401, "{}", ended.1);
+        assert_eq!(ended, app.post_mcp(listing, Some(&"f".repeat(64))));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
