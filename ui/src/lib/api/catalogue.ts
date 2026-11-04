@@ -3648,6 +3648,7 @@ export type ReadSharedRecipeOutput = {
 		};
 		language: string;
 		lineage_id: string;
+		name: string | null;
 		readings: ({
 			amount: string | null;
 			lineage_id: string | null;
@@ -3742,6 +3743,7 @@ export type ReadSharedRecipeOutput = {
 		};
 		language: string;
 		lineage_id: string;
+		name: string | null;
 		readings: ({
 			amount: string | null;
 			lineage_id: string | null;
@@ -25379,6 +25381,13 @@ export const CATALOGUE = [
 							"description": "What a Cover is drawn from, for a recipe with no photograph — the Lineage id and nothing else (#46).",
 							"type": "string"
 						},
+						"name": {
+							"description": "The Branch's name where it has one: a variation, or a Branch named when two Cookbooks joined. Null on an unnamed Branch.",
+							"type": [
+								"string",
+								"null"
+							]
+						},
 						"readings": {
 							"items": {
 								"additionalProperties": false,
@@ -25429,6 +25438,7 @@ export const CATALOGUE = [
 					"required": [
 						"branch_id",
 						"lineage_id",
+						"name",
 						"version_id",
 						"language",
 						"content",
@@ -25940,6 +25950,13 @@ export const CATALOGUE = [
 								"description": "What a Cover is drawn from, for a recipe with no photograph — the Lineage id and nothing else (#46).",
 								"type": "string"
 							},
+							"name": {
+								"description": "The Branch's name where it has one: a variation, or a Branch named when two Cookbooks joined. Null on an unnamed Branch.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
 							"readings": {
 								"items": {
 									"additionalProperties": false,
@@ -25990,6 +26007,7 @@ export const CATALOGUE = [
 						"required": [
 							"branch_id",
 							"lineage_id",
+							"name",
 							"version_id",
 							"language",
 							"content",

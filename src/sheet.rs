@@ -444,13 +444,30 @@ fn long_date(stored: &str, words: &Words) -> String {
         .replace("{year}", year)
 }
 
-/// `20 min`, `1 h 30`, `2 h` — the way a time is written on a card.
-fn duration(minutes: i64) -> String {
+/// `20 min`, `1 h 30`, `2 h` — the way a time is written on a card, and on
+/// the Share Link page (#521).
+pub(crate) fn duration(minutes: i64) -> String {
+    duration_parts(minutes)
+        .into_iter()
+        .map(|(figure, unit)| match unit {
+            Some(unit) => format!("{figure} {unit}"),
+            None => figure,
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The same time in its parts, each figure with the unit it carries, for a
+/// page that sets the unit smaller than the figure: the interface's
+/// `figureOf` (#175), written once on the server for the Sheet and the Share
+/// Link page alike. Under an hour, minutes; whole hours, hours; otherwise
+/// hours and then the minutes in two digits with no unit.
+pub(crate) fn duration_parts(minutes: i64) -> Vec<(String, Option<&'static str>)> {
     let (hours, rest) = (minutes / 60, minutes % 60);
     match (hours, rest) {
-        (0, m) => format!("{m} min"),
-        (h, 0) => format!("{h} h"),
-        (h, m) => format!("{h} h {m:02}"),
+        (0, m) => vec![(m.to_string(), Some("min"))],
+        (h, 0) => vec![(h.to_string(), Some("h"))],
+        (h, m) => vec![(h.to_string(), Some("h")), (format!("{m:02}"), None)],
     }
 }
 
@@ -950,6 +967,8 @@ mod tests {
         assert_eq!(duration(20), "20 min");
         assert_eq!(duration(90), "1 h 30");
         assert_eq!(duration(120), "2 h");
+        assert_eq!(duration(65), "1 h 05");
+        assert_eq!(duration(540), "9 h");
     }
 
     /// A Component nobody here holds has no block, and its line reads as

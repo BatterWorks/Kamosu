@@ -475,9 +475,18 @@ fn share_link_summary(conn: &Connection, live: Option<LiveShare>) -> Result<Valu
 type ThreadRow = (i64, Option<String>, Option<String>, String, String);
 
 /// Whether one shared Version actually shows this Photograph — its Main Photo,
-/// or the picture on one of its Steps.
+/// the picture on one of its Steps, or the picture on a Step of a Component it
+/// carries, which the page sets in the annexe (#521). A Component's Main Photo
+/// is not drawn there, so it is not let through.
 fn version_shows_photograph(version: &Value, hash: &str) -> bool {
     content_shows_photograph(&version["content"], hash)
+        || version["components"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|component| component["content"]["steps"].as_array())
+            .flatten()
+            .any(|step| step["photo"].as_str() == Some(hash))
 }
 
 /// Everything the public page draws: the shared Branch, its Translations and
@@ -596,11 +605,13 @@ fn shared_version(
 ) -> Result<Value, OpError> {
     // A Cover is derived from the Lineage id and nothing else (#46), so a page
     // drawing one for a recipe with no photograph needs it here.
-    let lineage_id: String = conn
+    // And the Branch's name, which a variation carries (#131): the page sets
+    // it under the title, so a stranger sent one can tell it is one (#521).
+    let (lineage_id, name): (String, Option<String>) = conn
         .query_row(
-            "SELECT lineage_id FROM branches WHERE id = ?1",
+            "SELECT lineage_id, name FROM branches WHERE id = ?1",
             params![branch_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
@@ -647,6 +658,7 @@ fn shared_version(
     Ok(json!({
         "branch_id": branch_id,
         "lineage_id": lineage_id,
+        "name": name,
         "version_id": version_id,
         "language": language,
         "content": content,

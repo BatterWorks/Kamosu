@@ -8011,6 +8011,12 @@ fn shared_version_schema_of(type_: Value) -> Value {
                 "description": "What a Cover is drawn from, for a recipe with no \
                                  photograph — the Lineage id and nothing else (#46).",
             },
+            "name": {
+                "type": ["string", "null"],
+                "description": "The Branch's name where it has one: a variation, or a \
+                                 Branch named when two Cookbooks joined. Null on an \
+                                 unnamed Branch.",
+            },
             "version_id": { "type": "string" },
             "language": { "type": "string" },
             "content": recipe_content_schema(),
@@ -8030,7 +8036,7 @@ fn shared_version_schema_of(type_: Value) -> Value {
             },
         },
         "required": [
-            "branch_id", "lineage_id", "version_id", "language",
+            "branch_id", "lineage_id", "name", "version_id", "language",
             "content", "readings", "components",
         ],
         "additionalProperties": false,

@@ -383,6 +383,7 @@ describe('importing a shared recipe, signed out', () => {
 			},
 			language: 'en',
 			lineage_id: 'l_flatbread',
+			name: null,
 			readings: [],
 			version_id: 'v_1',
 		},
