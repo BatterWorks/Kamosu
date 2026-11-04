@@ -96,10 +96,22 @@ async fn handle(
                 json_rpc_error(-32700, "Parse error: a JSON-RPC request body is required"),
             );
         }
-        Err(rejection) => {
+        Err(rejection @ (JsonRejection::JsonSyntaxError(_) | JsonRejection::JsonDataError(_))) => {
             return json_rpc_error_response(
                 None,
                 json_rpc_error(-32700, format!("Parse error: {}", rejection.body_text())),
+            );
+        }
+        // A body that could not be read, too large for one, was never parsed:
+        // it keeps the extractor's own status, said in JSON-RPC.
+        Err(rejection) => {
+            return send_error(
+                rejection.status(),
+                None,
+                json_rpc_error(
+                    -32600,
+                    format!("Invalid Request: {}", rejection.body_text()),
+                ),
             );
         }
     };
@@ -151,7 +163,17 @@ async fn handle(
             // The one refusal answered with HTTP's own status: a Secret that
             // names nobody, so a client shows the key is wrong as it connects
             // rather than at its first call (#534).
-            Err(refused) => return send_error(StatusCode::UNAUTHORIZED, id, refused),
+            Err(refused) if refused.credential_names_nobody => {
+                return send_error(
+                    StatusCode::UNAUTHORIZED,
+                    id,
+                    json_rpc_error(
+                        -32600,
+                        format!("Invalid Request: {}", refused.to_sentence()),
+                    ),
+                );
+            }
+            Err(failed) => Err(json_rpc_error(-32603, failed.to_sentence())),
         },
         "tools/call" => tools_call(&core, &headers, request.get("params")),
         "tasks/get" => tasks_get(&core, &headers, request.get("params")),
@@ -489,14 +511,10 @@ fn left_out_line(count: usize) -> String {
 /// by, so the two can never disagree about which Operations those are.
 ///
 /// No Secret is listed as a full Credential is. A Secret that names nobody is
-/// refused, `-32600` with the Core's sentence; the caller answers it 401.
-fn tools_list(core: &Core, headers: &HeaderMap) -> Result<Value, Value> {
+/// refused by the Core, and the caller answers that refusal 401.
+fn tools_list(core: &Core, headers: &HeaderMap) -> Result<Value, crate::core::OpError> {
     let secret = web_door::bearer_from_headers(headers);
-    let listed = core
-        .operations_listed_to(secret.as_deref())
-        .map_err(|refused| {
-            json_rpc_error(-32600, format!("Invalid Request: {}", refused.to_sentence()))
-        })?;
+    let listed = core.operations_listed_to(secret.as_deref())?;
     let tools: Vec<Value> = listed
         .into_iter()
         .map(|op| {

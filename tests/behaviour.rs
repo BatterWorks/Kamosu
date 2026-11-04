@@ -7448,11 +7448,8 @@ async fn a_credential_naming_no_operator_is_not_listed_an_operators_tools() {
 async fn a_secret_naming_nobody_is_refused_the_tool_listing() {
     let app = support::spawn_app();
     let (session, _) = operator_signed_in(&app);
-    let (status, revoked) = app.post_op(
-        "mint_access_key",
-        Some(&session),
-        r#"{"name":"old agent"}"#,
-    );
+    let (status, revoked) =
+        app.post_op("mint_access_key", Some(&session), r#"{"name":"old agent"}"#);
     assert_eq!(status, 200, "{revoked}");
     let revoked_id = revoked["result"]["id"].as_str().unwrap().to_string();
     let revoked = revoked["result"]["secret"].as_str().unwrap().to_string();
@@ -15342,18 +15339,18 @@ mod web_link_importer {
         let held = a_job_held(&app);
         assert_eq!(tools_listed_to(&app, &held.job_key), THE_JOB_KEYS_LIST);
 
-        // Once the Job has ended the Job Key is nobody's, and is listed as
-        // nobody is.
+        // Once the Job has ended the Job Key is nobody's, and is refused the
+        // listing as a Secret naming nobody is (#534).
         let (status, reported) = report_on_job(
             &app,
             Some(&held.runner),
             json!({ "job_id": held.job_id, "outcome": "completed" }),
         );
         assert_eq!(status, 200, "{reported}");
-        assert_eq!(
-            tools_listed_to(&app, &held.job_key),
-            tools_listed_to(&app, &"f".repeat(64))
-        );
+        let listing = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
+        let ended = app.post_mcp(listing, Some(&held.job_key));
+        assert_eq!(ended.0, 401, "{}", ended.1);
+        assert_eq!(ended, app.post_mcp(listing, Some(&"f".repeat(64))));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
