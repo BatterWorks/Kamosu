@@ -29,6 +29,8 @@
 	type Kitchen = ListKitchensOutput['kitchens'][number];
 
 	let accounts = $state<Account[]>([]);
+	/** Why the accounts could not be listed, kept apart from what an act says. */
+	let unlisted = $state<string | undefined>(undefined);
 	let kitchens = $state<Kitchen[]>([]);
 
 	/**
@@ -39,9 +41,10 @@
 	async function loadAccounts() {
 		try {
 			accounts = (await kamosu.listAccounts({})).accounts;
+			unlisted = undefined;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
-			acting.said = error.message;
+			unlisted = error.message;
 		}
 	}
 
@@ -168,6 +171,9 @@
 {/snippet}
 
 <OperatorOnly title={m.settings_people()} onallowed={load}>
+	{#if unlisted}
+		<p class="mt-4 text-body text-support" role="alert"><Refusal words={unlisted} /></p>
+	{/if}
 	{#if acting.said && !asking}
 		<p class="mt-4 text-body text-support" role="alert"><Refusal words={acting.said} /></p>
 	{/if}

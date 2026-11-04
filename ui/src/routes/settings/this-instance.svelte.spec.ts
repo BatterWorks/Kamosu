@@ -573,10 +573,15 @@ describe("This instance's pages", () => {
 		renderScreen(People, {
 			...quiet,
 			list_accounts: { refuse: 'internal', message: 'the database is unreadable' },
+			mint_invite: { link: '/invite/8f2c1a94e07b' },
 		});
 
 		expect(await screen.findByText('the database is unreadable')).toBeInTheDocument();
 		expect(screen.queryByText(/nothing here for you/i)).not.toBeInTheDocument();
+		// An act that follows does not wipe why the list is empty.
+		await fireEvent.click(screen.getByRole('button', { name: 'Make the invite link' }));
+		await screen.findByText(`${window.location.origin}/invite/8f2c1a94e07b`);
+		expect(screen.getByText('the database is unreadable')).toBeInTheDocument();
 	});
 
 	it('does not mistake a broken Kamosu for a page that is not yours', async () => {
