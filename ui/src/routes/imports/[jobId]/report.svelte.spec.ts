@@ -127,6 +127,26 @@ describe('the Import Report', () => {
 		expect(screen.queryByRole('link', { name: /‹/ })).toBeNull();
 	});
 
+	it.each([
+		['completed', { backups: [], taken: ['daily'] }, null],
+		['running', null, null],
+		['failed', null, 'the disk is full'],
+	] as const)(
+		'says a Job that is no import, here %s, brought nothing in (#533)',
+		async (status, result, error) => {
+			const kamosu = open({
+				get_job: job({ operation: 'take_backup', status, result, error }),
+			});
+
+			expect(await screen.findByText(m.report_not_an_import())).toBeInTheDocument();
+			expect(screen.getByRole('heading', { name: m.imports_title() })).toBeInTheDocument();
+			expect(screen.queryByRole('alert')).toBeNull();
+			// Read once: a Backup still running is not waited on here.
+			await new Promise((settle) => setTimeout(settle, 50));
+			expect(kamosu.calls.filter((call) => call.operation === 'get_job')).toHaveLength(1);
+		},
+	);
+
 	it('does not call one recipe file a Crouton library', async () => {
 		// A recipe file reaches this page too, since #93 — it is where *How it
 		// went* leads. Before that this heading was a fixed string, so a friend's

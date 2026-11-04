@@ -51,6 +51,7 @@
 	import AgentWork from '#lib/agent/AgentWork.svelte';
 	import SendAgain from './SendAgain.svelte';
 	import { AGENTS_OWN, working } from '#lib/agent/agent.js';
+	import { isAnImport } from '#lib/imports.js';
 	import { REPLAY_EVERY, type Replaying } from '#lib/agent/replay.js';
 	import { aPlannedDateOfAnyYear } from '#lib/dates.js';
 	import { mondayOf, today } from '#lib/plan-days.js';
@@ -100,9 +101,10 @@
 				waited = true;
 				if (current) job = read;
 			},
-			stopped: () => !current,
-			answersWhenFailed: holdsAReport,
-			answersWhenCancelled: (read) => read.operation === AGENTS_OWN,
+			// A Job that is no import is read once and said so, however it ended.
+			stopped: () => !current || !isAnImport(job?.operation ?? AGENTS_OWN),
+			answersWhenFailed: (read) => !isAnImport(read.operation) || holdsAReport(read),
+			answersWhenCancelled: (read) => !isAnImport(read.operation) || read.operation === AGENTS_OWN,
 		})
 			.then((read) => {
 				if (!current) return;
@@ -122,6 +124,12 @@
 		};
 	});
 
+	/**
+	 * One of the cook's Jobs that brought nothing in, such as a Backup, at an
+	 * address typed or kept (#533). Its result is no Report, so none is drawn.
+	 */
+	const notAnImport = $derived(job !== undefined && !isAnImport(job.operation));
+
 	/** A failed Job that is an agent's own Import still holds its Report (#269). */
 	function holdsAReport(read: GetJobOutput) {
 		return Boolean((read.result as Report | null)?.agent_jobs?.length);
@@ -133,6 +141,7 @@
 	 * what could not be read; that is drawn as a Report, not as a stop.
 	 */
 	const report = $derived.by(() => {
+		if (notAnImport) return undefined;
 		const result = job?.result as Report | undefined;
 		if (job?.status === 'completed') return refused || asking ? undefined : result;
 		if (job?.status === 'failed' && holdsAReport(job)) return result;
@@ -555,11 +564,13 @@
 		return app ? m.report_title_app({ app }) : m.report_title();
 	});
 	const title = $derived(
-		kind
-			? kind.title()
-			: unnamedExport
-				? m.report_title_refused()
-				: ((source && TITLED[source]?.()) ?? library),
+		notAnImport
+			? m.imports_title()
+			: kind
+				? kind.title()
+				: unnamedExport
+					? m.report_title_refused()
+					: ((source && TITLED[source]?.()) ?? library),
 	);
 
 	/** A recipe read again whose agent failed is left as it was before. */
@@ -705,6 +716,11 @@
 	{#if unreachable}
 		<p class={['mt-4 border-l-3 border-support px-3 py-2 text-body', panel]} role="alert">
 			<Refusal words={unreachable} />
+		</p>
+	{:else if notAnImport}
+		<!-- The way back is the shell's arrow, as for any Report (#219). -->
+		<p class={['mt-4 border-l-3 border-rule px-3 py-2 text-body', panel]}>
+			{m.report_not_an_import()}
 		</p>
 	{:else if agentsOwn && (running || job?.status === 'cancelled')}
 		{#if running}

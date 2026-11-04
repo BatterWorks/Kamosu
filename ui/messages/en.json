@@ -925,6 +925,7 @@
   "report_show_all": [{"declarations": ["input count", "local countPlural = count: plural"], "selectors": ["countPlural"], "match": {"countPlural=one": "Show it", "countPlural=other": "Show all {count}"}}],
   "report_site_icons": "Left out: {count} website icons, the site's logo rather than the dish.",
   "report_stopped": "The import stopped: {reason}",
+  "report_not_an_import": "Nothing was brought in here: this is not an import.",
   "report_title": "Your Crouton library",
   "report_title_again": "Reading {title} again",
   "report_title_file": "The recipe file you brought in",

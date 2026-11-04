@@ -16,7 +16,8 @@
 import { m } from '#lib/paraglide/messages.js';
 import { aMoment } from '#lib/dates.js';
 import { appNamed } from '#lib/other-apps.js';
-import type { ListImportsOutput } from '#lib/api/catalogue.js';
+import { CATALOGUE, type ListImportsOutput } from '#lib/api/catalogue.js';
+import { AGENTS_OWN } from '#lib/agent/agent.js';
 
 export type Import = ListImportsOutput['imports'][number];
 export type Arrival = Import['arrivals'][number];
@@ -189,3 +190,19 @@ export function whatHappened(arrival: Arrival): { said: string; loss: boolean } 
 	// A run that brought nothing at all is the one an eye should catch.
 	return { said: parts.join(' · '), loss: arrival.arrived === 0 };
 }
+
+/**
+ * The Operations whose Job brings recipes in, read off the Catalogue: those
+ * whose result says what arrived. A Job of any other, a Backup or a Sheet, has
+ * no Report to draw (#533).
+ */
+const IMPORTING = new Set<string>([
+	AGENTS_OWN,
+	...CATALOGUE.filter(
+		(declaration) =>
+			declaration.kind === 'job' && 'arrived' in (declaration.output_schema.properties ?? {}),
+	).map((declaration) => declaration.name),
+]);
+
+/** Whether a Job, by its Operation, is an Import with a Report to read. */
+export const isAnImport = (operation: string) => IMPORTING.has(operation);

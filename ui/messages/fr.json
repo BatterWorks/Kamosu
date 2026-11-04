@@ -925,6 +925,7 @@
   "report_show_all": [{"declarations": ["input count", "local countPlural = count: plural"], "selectors": ["countPlural"], "match": {"countPlural=one": "L'afficher", "countPlural=other": "Tout afficher ({count})"}}],
   "report_site_icons": "Laissées de côté : {count} icônes de sites, le logo du site plutôt que le plat.",
   "report_stopped": "L'import s'est arrêté : {reason}",
+  "report_not_an_import": "Rien n'est arrivé ici : ce n'est pas un import.",
   "report_title": "Votre bibliothèque Crouton",
   "report_title_again": "Nouvelle lecture de {title}",
   "report_title_file": "Le fichier de recette importé",
