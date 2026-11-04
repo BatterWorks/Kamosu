@@ -516,13 +516,13 @@ impl Core {
         person_id: &str,
         session_name: &str,
         how: &str,
-        ended: Option<&Ended>,
+        ended: Option<&RecoveryEnded>,
     ) {
         let mut detail = json!({ "how": how });
         if let Some(ended) = ended {
             detail["ended_sessions"] = json!(ended.sessions);
             detail["ended_access_keys"] = json!(ended.access_keys);
-            detail["ended_runner_keys"] = json!(ended.runner_keys);
+            detail["ended_runner_keys"] = json!(ended.runner_keys.len());
             detail["ended_passkeys"] = json!(ended.passkeys);
         }
         self.note(
@@ -837,8 +837,10 @@ impl Core {
         let secret = generate_secret();
         let name = required_text(name, "name")?;
         self.db().with_conn(|conn| {
-            let tx = conn
-                .unchecked_transaction()
+            // Immediate, as every write here that reads first: `kamosu
+            // recover` runs beside a serving instance, and a deferred one
+            // would fail rather than wait if the server wrote between.
+            let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)
                 .map_err(|e| OpError::internal(e.to_string()))?;
             let person_id: Option<String> = tx.query_row("SELECT id FROM people WHERE name = ?1 AND disabled = 0 AND deleted = 0", params![name], |r| r.get(0)).optional()
                 .map_err(|e| OpError::internal(format!("cannot read Person for recovery: {e}")))?;
@@ -941,9 +943,9 @@ impl Core {
             id: format!("s_{}", hex::encode(random_bytes(8))),
             secret: generate_secret(),
         };
-        let (person_id, ended, ended_runner_keys) = self.db().with_conn(|conn| {
+        let (person_id, ended) = self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| OpError::internal(e.to_string()))?;
-            let result = (|| -> Result<(String, Ended, Vec<String>), OpError> {
+            let result = (|| -> Result<(String, RecoveryEnded), OpError> {
                 let person_id: Option<String> = conn.query_row("SELECT people.id FROM account_links JOIN people ON people.id=account_links.person_id WHERE secret_hash=?1 AND kind='recovery' AND spent=0 AND revoked=0 AND disabled=0 AND deleted=0", params![hash_secret(secret)], |r| r.get(0)).optional().map_err(|e| OpError::internal(e.to_string()))?;
                 let person_id=person_id.ok_or_else(|| OpError::unauthorized("this recovery link has already been spent or revoked"))?;
                 conn.execute("UPDATE account_links SET spent=1 WHERE secret_hash=?1 AND spent=0",params![hash_secret(secret)]).map_err(|e| OpError::internal(e.to_string()))?;
@@ -961,15 +963,15 @@ impl Core {
                 // their own again once signed in.
                 let ended_passkeys = conn.execute("DELETE FROM passkeys WHERE person_id=?1",params![person_id]).map_err(|e| OpError::internal(format!("cannot end the passkeys: {e}")))?;
                 conn.execute("INSERT INTO sessions (id,secret_hash,person_id,name) VALUES (?1,?2,?3,?4)",params![session.id,hash_secret(&session.secret),person_id,session_name]).map_err(|e| OpError::internal(e.to_string()))?;
-                let ended = Ended { sessions: ended_sessions, access_keys: ended_access_keys, runner_keys: ended_runner_keys.len(), passkeys: ended_passkeys };
-                Ok((person_id, ended, ended_runner_keys))
+                let ended = RecoveryEnded { sessions: ended_sessions, access_keys: ended_access_keys, runner_keys: ended_runner_keys, passkeys: ended_passkeys };
+                Ok((person_id, ended))
             })();
             match result { Ok(ended) => { conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string()))?; Ok(ended) }, Err(e) => { let _=conn.execute_batch("ROLLBACK"); Err(e) } }
         })?;
         self.note_signed_in(&person_id, session_name, "recovery_link", Some(&ended));
-        self.note_runner_keys_recovery_ended(&person_id, session_name, &ended_runner_keys);
+        self.note_runner_keys_recovery_ended(&person_id, session_name, &ended.runner_keys);
         Ok(
-            json!({"session_id":session.id,"_session_secret":session.secret,"ended_sessions":ended.sessions,"ended_access_keys":ended.access_keys,"ended_runner_keys":ended.runner_keys,"ended_passkeys":ended.passkeys}),
+            json!({"session_id":session.id,"_session_secret":session.secret,"ended_sessions":ended.sessions,"ended_access_keys":ended.access_keys,"ended_runner_keys":ended.runner_keys.len(),"ended_passkeys":ended.passkeys}),
         )
     }
 
@@ -1383,10 +1385,11 @@ fn forget_cookbook_of(conn: &Connection, person_id: &str) -> Result<(), OpError>
 
 /// What a recovery link ended with the old password, counted for its answer
 /// and its line in the Security Record.
-struct Ended {
+struct RecoveryEnded {
     sessions: usize,
     access_keys: usize,
-    runner_keys: usize,
+    /// The Runner Keys by name, each noted in every Operator's record.
+    runner_keys: Vec<String>,
     passkeys: usize,
 }
 
@@ -1397,12 +1400,13 @@ fn account_link_id() -> String {
 }
 
 /// Revoke every recovery link of this Person still unspent (#535).
-fn end_recovery_links_of(conn: &Connection, person_id: &str) -> Result<usize, OpError> {
+fn end_recovery_links_of(conn: &Connection, person_id: &str) -> Result<(), OpError> {
     conn.execute(
         "UPDATE account_links SET revoked = 1 \
           WHERE person_id = ?1 AND kind = 'recovery' AND spent = 0 AND revoked = 0",
         params![person_id],
     )
+    .map(|_| ())
     .map_err(|e| OpError::internal(format!("cannot end the recovery links: {e}")))
 }
 

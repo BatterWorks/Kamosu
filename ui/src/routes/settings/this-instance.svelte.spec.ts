@@ -408,6 +408,15 @@ describe("This instance's pages", () => {
 		expect(await screen.findByText('No Invite or recovery link is waiting.')).toBeInTheDocument();
 	});
 
+	it('says why the links cannot be listed, rather than that none is waiting (#535)', async () => {
+		renderScreen(People, {
+			...quiet,
+			list_account_links: { refuse: 'internal', message: 'the database is unreadable' },
+		});
+		expect(await screen.findByText(/the database is unreadable/)).toBeInTheDocument();
+		expect(screen.queryByText('No Invite or recovery link is waiting.')).not.toBeInTheDocument();
+	});
+
 	it('asks before revoking a link, and revokes that one alone (#535)', async () => {
 		const { kamosu } = renderScreen(People, {
 			...quiet,
@@ -434,6 +443,27 @@ describe("This instance's pages", () => {
 		);
 		expect(screen.getByText('Operator Invite')).toBeInTheDocument();
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+	});
+
+	it('takes a link off the list when revoking it is refused because it is gone (#535)', async () => {
+		const { kamosu } = renderScreen(People, {
+			...quiet,
+			list_account_links: { links: [camillesRecovery] },
+			revoke_account_link: {
+				refuse: 'not_found',
+				message: 'no live Invite or recovery link has that id',
+			},
+		});
+		const row = (await screen.findByText('Recovery link for Camille')).closest('li') as HTMLElement;
+		await fireEvent.click(within(row).getByRole('button', { name: 'Revoke' }));
+		const sheet = await screen.findByRole('dialog');
+		kamosu.answer('list_account_links', { links: [] });
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Revoke' }));
+
+		expect(await within(sheet).findByText(/no live Invite/)).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(screen.getByText('No Invite or recovery link is waiting.')).toBeInTheDocument(),
+		);
 	});
 
 	it('lists an Invite as soon as it is made (#535)', async () => {

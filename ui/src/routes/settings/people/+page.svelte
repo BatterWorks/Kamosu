@@ -45,6 +45,8 @@
 	let unlisted = $state<string | undefined>(undefined);
 	let kitchens = $state<Kitchen[]>([]);
 	let links = $state<Link[]>([]);
+	/** Why the links could not be listed: never shown as none waiting. */
+	let linksUnlisted = $state<string | undefined>(undefined);
 
 	/**
 	 * Asked only once OperatorOnly has agreed this Person is an Operator
@@ -65,8 +67,10 @@
 	async function loadLinks() {
 		try {
 			links = (await kamosu.listAccountLinks({})).links;
+			linksUnlisted = undefined;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
+			linksUnlisted = error.message;
 		}
 	}
 
@@ -160,25 +164,38 @@
 			},
 		);
 
-	/** What a live link does, as its row and its sheet say it. */
-	const whatLink = (link: Link) =>
-		link.kind === 'recovery'
-			? m.operator_links_recovery({ who: link.person ?? '' })
-			: link.operator
-				? m.operator_links_operator_invite()
-				: m.operator_links_invite();
+	/** A live link in words: what it does, when it was made, and the sheet's question. */
+	function said(link: Link) {
+		const when = howLongAgo(link.created_at);
+		if (link.kind === 'recovery') {
+			const who = link.person ?? '';
+			return {
+				what: m.operator_links_recovery({ who }),
+				made: m.operator_links_recovery_made({ when }),
+				ask: m.operator_links_revoke_recovery_title({ who }),
+			};
+		}
+		return {
+			what: link.operator ? m.operator_links_operator_invite() : m.operator_links_invite(),
+			made: m.operator_links_invite_made({ when }),
+			ask: m.operator_links_revoke_invite_title(),
+		};
+	}
 
 	const revoke = (link: Link) =>
 		acting.act(
 			async () => {
-				await kamosu.revokeAccountLink({ id: link.id });
+				try {
+					await kamosu.revokeAccountLink({ id: link.id });
+				} finally {
+					// Refused too, the list is asked again: a link somebody used
+					// or revoked meanwhile is refused, and must leave the list.
+					await loadLinks();
+				}
 			},
 			// Closed first: the link is revoked even if the list then fails to
 			// come back, and the sheet must not offer to revoke it twice.
-			async () => {
-				close();
-				await loadLinks();
-			},
+			async () => close(),
 		);
 </script>
 
@@ -268,16 +285,15 @@
 
 	<Section heading={m.operator_links_heading()}>
 		<p class="mb-3 text-read text-ink-2">{m.operator_links_said()}</p>
+		{#if linksUnlisted}
+			<p class="mb-3 text-body text-support" role="alert"><Refusal words={linksUnlisted} /></p>
+		{/if}
 		<ul class="overflow-hidden rounded-sm border border-rule bg-card">
 			{#each links as link (link.id)}
 				<li class="flex items-center gap-3 border-b border-rule p-3 last:border-b-0">
 					<span class="min-w-0 flex-1">
-						<span class="block text-body break-words text-ink">{whatLink(link)}</span>
-						<span class="block text-read text-ink-2">
-							{link.kind === 'recovery'
-								? m.operator_links_recovery_made({ when: howLongAgo(link.created_at) })
-								: m.operator_links_invite_made({ when: howLongAgo(link.created_at) })}
-						</span>
+						<span class="block text-body break-words text-ink">{said(link).what}</span>
+						<span class="block text-read text-ink-2">{said(link).made}</span>
 					</span>
 					<button
 						type="button"
@@ -290,7 +306,9 @@
 					</button>
 				</li>
 			{:else}
-				<li class="p-3 text-body text-ink-2">{m.operator_links_empty()}</li>
+				{#if !linksUnlisted}
+					<li class="p-3 text-body text-ink-2">{m.operator_links_empty()}</li>
+				{/if}
 			{/each}
 		</ul>
 	</Section>
@@ -399,9 +417,7 @@
 {#if asking?.kind === 'revoke'}
 	{@const link = asking.link}
 	<Confirm
-		title={link.kind === 'recovery'
-			? m.operator_links_revoke_recovery_title({ who: link.person ?? '' })
-			: m.operator_links_revoke_invite_title()}
+		title={said(link).ask}
 		consequence={m.operator_links_revoke_consequence()}
 		act={m.operator_links_revoke()}
 		busy={acting.working}
