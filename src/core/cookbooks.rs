@@ -1647,6 +1647,7 @@ pub(super) fn delete_branch_rows(conn: &Connection, branch_id: &str) -> Result<(
     jobs::end_for_deleted_recipe(conn, branch_id)?;
     for statement in [
         "DELETE FROM branch_versions WHERE branch_id = ?1",
+        "DELETE FROM folded_versions WHERE branch_id = ?1",
         "DELETE FROM branch_tags WHERE branch_id = ?1",
         "DELETE FROM share_links WHERE branch_id = ?1",
         // The ledger belongs to the Import, not to the recipe (ADR 0025), so
