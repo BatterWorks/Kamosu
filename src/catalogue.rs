@@ -7884,7 +7884,10 @@ fn import_report_schema() -> Value {
                 "description": "Pairs of recipes this Import landed that share a name or a \
                                  web page, offered as Related Recipes to tick with \
                                  `set_related_recipe` — never joined into one Lineage \
-                                 (ADR 0025). A pair already related is not offered.",
+                                 (ADR 0025). A pair already related is not offered. \
+                                 More than five recipes of one name, or of one page, \
+                                 offer no pair among them, and a Report offers at most \
+                                 200 pairs.",
                 "items": {
                     "type": "object",
                     "properties": {
