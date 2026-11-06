@@ -1112,6 +1112,12 @@ pub const WOULD_START_A_COPY: &str = "the person who asked cannot change this re
 pub const CHANGED_WHILE_IT_WORKED: &str = "the recipe was changed while the agent worked on it, \
      so the agent stopped rather than write over that change. What it had saved before is kept";
 
+/// The reason an agent's Job ends with when somebody cooked the Version it was
+/// still shaping (#536): the cooking names that Version, so the Job may
+/// neither replace it nor leave a second one.
+pub const COOKED_WHILE_IT_WORKED: &str = "somebody cooked what the agent had saved, or kept a \
+     cooking as it, so the agent stopped rather than change the recipe under them. What it had saved before is kept";
+
 /// The reason an agent's Job ends with when another Branch or a Translation
 /// holds the Version it was still shaping (#265): a Copy or a variation made
 /// since, a Translation of it, or a Branch that already read the same. A

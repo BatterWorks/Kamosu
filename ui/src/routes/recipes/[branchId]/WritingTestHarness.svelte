@@ -15,6 +15,8 @@
 	interface Props {
 		client: KamosuClient;
 		content: GetRecipeOutput['versions'][number]['content'];
+		/** The Version the recipe stood on when it was opened (#536). */
+		baseVersionId?: string;
 		/** Whether the reader writes this recipe's Cookbook; a Copy is saved where not. */
 		writes?: boolean;
 		/** Why a save makes a Copy where it does: Hélène's Cookbook, unless a test says otherwise (#132). */
@@ -43,6 +45,7 @@
 	let {
 		client,
 		content,
+		baseVersionId = 'v_opened',
 		writes = true,
 		whose = {
 			mine: false,
@@ -65,6 +68,7 @@
 		lineageId="l_1"
 		whose={{ ...whose, writes }}
 		{content}
+		{baseVersionId}
 		{components}
 		{cooking}
 		{translatingInto}

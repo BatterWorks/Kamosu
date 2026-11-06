@@ -878,6 +878,7 @@
 		{branchId}
 		lineageId={recipe.lineage_id}
 		whose={recipe}
+		baseVersionId={recipe.head_version_id}
 		content={pastedDraft
 			? {
 					...content,

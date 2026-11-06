@@ -102,7 +102,7 @@
 	recipe?". Those are not questions to answer in the same glance.
 -->
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import Refusal from '#lib/Refusal.svelte';
 	import type { Attachment } from 'svelte/attachments';
 	import { m } from '#lib/paraglide/messages.js';
@@ -141,6 +141,13 @@
 		whose: Whose;
 		/** The recipe as it stands, which is what the draft below starts from. */
 		content: Content;
+		/**
+		 * The Version the Branch stands on, read once when this screen opens and sent
+		 * with the save (#536). Where somebody saved since, from another tab
+		 * or device too, the Core makes this save a Version of its own rather
+		 * than folding it into theirs.
+		 */
+		baseVersionId: string;
 		/**
 		 * The Components of the recipe as it stands, so a line that already
 		 * names a Recipe opens saying so rather than looking like an ordinary
@@ -216,12 +223,20 @@
 		lineageId,
 		whose,
 		content,
+		baseVersionId,
 		components = [],
 		cooking,
 		translatingInto,
 		onCancel,
 		onSaved,
 	}: Props = $props();
+
+	/**
+	 * The base, read once when the screen opens, as the draft is (#536). The
+	 * page re-reads the recipe behind an open editor, and a base that followed
+	 * it would say a draft written from the old Version came from the new one.
+	 */
+	const openedFrom = untrack(() => baseVersionId);
 
 	/** Whether this screen is rendering the recipe into another Language rather than editing it. */
 	const translating = $derived(translatingInto !== undefined);
@@ -1201,7 +1216,7 @@
 						copied: false,
 						language_offer: null,
 					}
-				: await kamosu.saveRecipeVersion(common);
+				: await kamosu.saveRecipeVersion({ ...common, base_version_id: openedFrom });
 			// The Version has landed. Whatever happens to the pointers now, it
 			// has landed — so a failure here is reported beside the save rather
 			// than as one, and never as an error that hides what did work.

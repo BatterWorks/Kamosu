@@ -17703,6 +17703,34 @@ mod web_link_importer {
         }
     }
 
+    /// A cooking holds the Version it started from as firmly as a Copy does
+    /// (#536): the Job's next save may neither replace it nor leave a second
+    /// Version, so it is refused, with a reason that says it was a cooking.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_cooking_of_a_jobs_version_has_the_next_save_refused() {
+        let reason = kamosu::jobs::COOKED_WHILE_IT_WORKED;
+        let app = support::spawn_app();
+        let held = a_job_held(&app);
+        saved_by_the_job(
+            &app,
+            &held,
+            "save_recipe_version",
+            the_recipe_an_agent_read(&held.branch_id),
+        );
+        let asking = json!({ "branch_id": held.branch_id });
+        let (status, started) = app.post_op("start_attempt", Some(&held.cook), &asking.to_string());
+        assert_eq!(status, 200, "{started}");
+        let before = read_recipe(&app, &held.cook, &held.branch_id);
+
+        let asking = json!({ "branch_id": held.branch_id, "note": "Better the next day." });
+        let (status, refused) =
+            app.post_op("edit_recipe", Some(&held.job_key), &asking.to_string());
+        assert_eq!(status, 400, "{refused}");
+        assert_eq!(refused["error"]["message"], json!(reason));
+        the_job_failed_saying(&app, &held, reason);
+        assert_eq!(read_recipe(&app, &held.cook, &held.branch_id), before);
+    }
+
     // --- A Co-author asks for a recipe to be read again (#272) -----------
 
     const A_SOURCE_LINK: &str = "https://a.example/soupe-au-pistou";
@@ -22117,8 +22145,11 @@ async fn a_collapsing_edit_never_makes_a_recipe_forget_it_was_cooked() {
     };
     assert_eq!(cooked_before["count"], json!(2));
 
-    // An ordinary edit, inside the collapse window, so it folds into the very
-    // Version both cookings are pinned to.
+    // An ordinary edit, inside the collapse window. Since #536 it no longer
+    // folds into a Version somebody cooked, so the state this test is about
+    // only exists in a library written before then. The edit is made, and
+    // its rows are then rewritten the way that older collapse left them: the
+    // first row repointed at the edit's Version, and no second row.
     let (status, saved) = app.post_op(
         "save_recipe_version",
         Some(&key),
@@ -22131,11 +22162,19 @@ async fn a_collapsing_edit_never_makes_a_recipe_forget_it_was_cooked() {
         .to_string(),
     );
     assert_eq!(status, 200, "{saved}");
-    assert_eq!(
-        saved["result"]["collapsed"],
-        json!(true),
-        "this test needs the collapse it is about: {saved}"
-    );
+    assert_eq!(saved["result"]["collapsed"], json!(false), "{saved}");
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute_batch(&format!(
+                "UPDATE branch_versions SET version_id = '{edit}' \
+                  WHERE branch_id = '{branch_id}' AND sequence = 1; \
+                 DELETE FROM branch_versions WHERE branch_id = '{branch_id}' AND sequence = 2;",
+                edit = saved["result"]["version_id"].as_str().unwrap(),
+            ))
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("fold the edit away as a collapse before #536 did");
 
     // The state this test exists for, asserted rather than assumed: the
     // Version both cookings are pinned to is no longer carried by the Branch
@@ -22425,20 +22464,30 @@ async fn a_version_carries_nothing_of_a_cooking() {
 /// Promoting is an ordinary save, so it inherits the collapse window — and a
 /// save that names nothing writes a Version's name away. Promoting a picture
 /// into a Version somebody had named must not quietly un-name it.
+///
+/// The cook writes a Version after cooking, so the one being shaped is not the
+/// one cooked: a Version somebody cooked never collapses (#536).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn promoting_a_picture_keeps_the_version_its_name() {
     let app = support::spawn_app();
     let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Stéphane");
 
+    let picture = upload_a_picture(&app, &key, 123);
+    let attempt_id = cook_it(&app, &key, &branch_id, json!({ "photographs": [picture] }));
+
+    let mut rewritten = katsu_as_written();
+    rewritten["branch_id"] = json!(branch_id);
+    rewritten["steps"][2]["text"] = json!("Servir avec le riz et du chou");
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &rewritten.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["collapsed"], json!(false), "{saved}");
+
     let (_, named) = app.post_op(
         "rename_version",
         Some(&key),
-        &json!({ "branch_id": branch_id, "sequence": 1, "name": "Sunday version" }).to_string(),
+        &json!({ "branch_id": branch_id, "sequence": 2, "name": "Sunday version" }).to_string(),
     );
     assert_eq!(named["result"]["name"], json!("Sunday version"));
-
-    let picture = upload_a_picture(&app, &key, 123);
-    let attempt_id = cook_it(&app, &key, &branch_id, json!({ "photographs": [picture] }));
 
     let (status, promoted) = app.post_op(
         "promote_attempt_photograph",
@@ -32353,6 +32402,164 @@ async fn a_cooking_kept_by_a_collapsing_save_stays_on_the_thread() {
         .expect("the cooking is still on the Thread");
     assert_eq!(seen["eaten_version_id"], as_cooked_version_id);
     assert_eq!(seen["version_id"], started_from);
+}
+
+/// **A save never folds away a Version somebody cooked** (#536). Bob cooks
+/// Ann's stew; Ann re-saves inside the collapse window. Her save is a Version
+/// of its own, so his cooking stays on the Thread, counts in what he keeps on
+/// leaving, and a start his phone held offline, pinned to the Version he
+/// cooked, still lands.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_save_inside_the_window_keeps_the_version_somebody_cooked() {
+    let app = support::spawn_app();
+    let (_, ann) = someone(&app, "Ann");
+    let (bob_id, bob) = someone(&app, "Bob");
+    let family = kitchen_of(&app, &ann, "Family", &[&bob]);
+    let stew = written(&app, &ann, "Stew");
+    let (_, read) = read_as(&app, &ann, &stew);
+    let cooked = read["head_version_id"].as_str().unwrap().to_string();
+    let first = cook_it(&app, &bob, &stew, json!({ "rating": "again" }));
+
+    // No ageing: twenty minutes later, well inside the hour.
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&ann),
+        &json!({ "branch_id": stew, "title": "Beef stew" }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["collapsed"], json!(false), "{saved}");
+    assert_eq!(saved["result"]["parent_version_id"], json!(cooked));
+
+    // A start Bob's phone held while offline, pinned to the Version it had.
+    let (status, offline) = app.post_op(
+        "start_attempt",
+        Some(&bob),
+        &json!({
+            "branch_id": stew,
+            "version_id": cooked,
+            "attempt_id": "at_0123456789abcdef",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{offline}");
+    assert_eq!(offline["result"]["version_id"], json!(cooked));
+
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&ann),
+        &json!({ "branch_id": stew }).to_string(),
+    );
+    let attempts = thread["result"]["attempts"].as_array().unwrap();
+    for attempt_id in [first.as_str(), "at_0123456789abcdef"] {
+        let seen = attempts
+            .iter()
+            .find(|attempt| attempt["id"] == json!(attempt_id))
+            .unwrap_or_else(|| panic!("{attempt_id} is on the Thread: {thread}"));
+        assert_eq!(seen["eaten_version_id"], json!(cooked));
+    }
+
+    let (status, preview) = app.post_op(
+        "preview_leaving_kitchen",
+        Some(&bob),
+        &json!({ "kitchen_id": family }).to_string(),
+    );
+    assert_eq!(status, 200, "{preview}");
+    assert_eq!(preview["result"], json!({ "they_keep": 0, "you_keep": 1 }));
+    let (status, removed) = app.post_op(
+        "remove_kitchen_member",
+        Some(&ann),
+        &json!({ "kitchen_id": family, "person_id": bob_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{removed}");
+    assert_eq!(
+        shelf_titles(&app, &bob),
+        ["Beef stew"],
+        "he keeps a Branch of what he cooked, whole chain and all"
+    );
+}
+
+/// **A save made from an older Version than the newest is a Version of its
+/// own** (#536). The same cook saves from two devices that both opened the
+/// soup: the second save names the Version it was written from, which is no
+/// longer the newest, so it does not fold the first device's edit away. A
+/// save naming no base collapses as it always did.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_save_from_a_stale_base_keeps_the_other_devices_save() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Ann");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Soup",
+            "ingredients": [{ "kind": "ingredient", "text": "1 onion" }],
+        })
+        .to_string(),
+    );
+    let soup = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let base = created["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    age_branch_head(&app, &soup);
+
+    let save = |line: &str, note: Option<&str>, base: Option<&str>| {
+        let mut body = json!({
+            "branch_id": soup,
+            "title": "Soup",
+            "ingredients": [
+                { "kind": "ingredient", "text": "1 onion" },
+                { "kind": "ingredient", "text": line },
+            ],
+        });
+        if let Some(note) = note {
+            body["change_note"] = json!(note);
+        }
+        if let Some(base) = base {
+            body["base_version_id"] = json!(base);
+        }
+        let (status, saved) = app.post_op("save_recipe_version", Some(&key), &body.to_string());
+        assert_eq!(status, 200, "{saved}");
+        saved["result"].clone()
+    };
+
+    let stock = save("2 litres stock", Some("added stock"), Some(&base));
+    assert_eq!(stock["collapsed"], json!(false), "{stock}");
+    let salt = save("1 tsp salt", Some("added salt"), Some(&base));
+    assert_eq!(
+        salt["collapsed"],
+        json!(false),
+        "written from the Version before the stock, so it folds nothing away: {salt}"
+    );
+    assert_eq!(salt["parent_version_id"], stock["version_id"]);
+
+    // From the newest Version, and with no base at all, the window works as
+    // it always did.
+    let pepper = save("1 tsp pepper", None, salt["version_id"].as_str());
+    assert_eq!(pepper["collapsed"], json!(true), "{pepper}");
+    let bay = save("1 bay leaf", None, None);
+    assert_eq!(bay["collapsed"], json!(true), "{bay}");
+
+    let (_, read) = read_as(&app, &key, &soup);
+    let versions = read["versions"].as_array().unwrap();
+    let kept: Vec<(Value, Value)> = versions
+        .iter()
+        .map(|v| {
+            (
+                v["content"]["ingredients"][1]["text"].clone(),
+                v["change_note"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        kept,
+        vec![
+            (json!(null), json!(null)),
+            (json!("2 litres stock"), json!("added stock")),
+            (json!("1 bay leaf"), json!("added salt")),
+        ],
+        "each device's edit is a Version with its own note"
+    );
 }
 
 /// The History says whose cooking each one is (#249): everyone else's sit

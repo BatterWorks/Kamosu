@@ -1965,6 +1965,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         assert_eq!(behind_now(&core), 1, "its head Version moved");

@@ -470,6 +470,7 @@ impl Core {
             head_name.as_deref(),
             change_note,
             None,
+            None,
         )
         .map(promotion_answer)
     }
@@ -724,6 +725,7 @@ impl Core {
             &content,
             name.or(head_name.as_deref()),
             change_note,
+            None,
             None,
         )
         .map(promotion_answer)
