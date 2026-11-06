@@ -228,19 +228,20 @@ impl Core {
     /// The tick that keeps the index level with the library. Answers how many
     /// recipes it had to read, which is nearly always none.
     pub(crate) fn catch_the_index_up(&self) -> Result<usize, OpError> {
-        let Some(embedder) = self.meaning.embedder() else {
-            return Ok(0);
-        };
-        if !self.db().with_conn(crate::meaning::state)?.is_on() {
-            return Ok(0);
-        }
         // Somebody asked for an index build by name and it is still running.
         // The work is being done; doing it again beside them would only put
         // every recipe in the index twice.
         let Some(_building) = self.meaning.building_now() else {
             return Ok(0);
         };
-        crate::meaning::build(&self.db(), &embedder, &|_, _| {})
+        // The model and the state are asked only now, under the build lock
+        // `turn_off_meaning_search` waits on. Asked before it, a turning off
+        // that ran whole in between was followed by a build of the entire
+        // index on an instance that says Meaning Search is off (#541).
+        let Some(embedder) = self.meaning.embedder() else {
+            return Ok(0);
+        };
+        crate::meaning::catch_up(&self.db(), &|texts| embedder.embed_documents(texts))
     }
 
     /// The shelf, and searching it — one Operation either way (ADR 0027).

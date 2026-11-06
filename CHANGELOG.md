@@ -36,6 +36,9 @@
 - A recipe whose time is negative or impossibly long, such as `PT-5M`, now arrives with no time instead of stopping the import, from a link or another app's file. Before, an import from a file ended at that recipe and brought in none after it. [#540]
 - A page or a file holding a long run of `&` signs, or thousands of recipes of one name, is read in moments. Before, either could hold the import queue for many minutes, Share Link visitors' Sheets and Bundles waiting behind it. [#540]
 - Two Mealie instances from before Mealie 1 no longer have their recipes mistaken for each other's. Before, recipe 3 of a second instance was offered as a change to recipe 3 of the first and never arrived. Recipes already brought in still match their own. [#540]
+- An import cancelled the moment it was about to start stays cancelled. Before, Kamosu could answer that it was cancelled and then bring in every recipe in the file anyway. [#541]
+- A picture added again after a week on no recipe keeps its file. Before, the daily clean-up could still remove it, and the recipe it then went on kept a missing picture for good. [#541]
+- Turning Meaning Search off at the moment its regular catch-up started no longer has that catch-up read the whole library into an index that is off. [#541]
 
 [#464]: https://github.com/BatterWorks/Kamosu/issues/464
 [#486]: https://github.com/BatterWorks/Kamosu/issues/486
@@ -54,6 +57,7 @@
 [#536]: https://github.com/BatterWorks/Kamosu/issues/536
 [#538]: https://github.com/BatterWorks/Kamosu/issues/538
 [#540]: https://github.com/BatterWorks/Kamosu/issues/540
+[#541]: https://github.com/BatterWorks/Kamosu/issues/541
 
 ## v0.5.0 - 2026-10-29
 

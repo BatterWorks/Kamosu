@@ -9155,6 +9155,77 @@ async fn cancelling_a_task_is_acknowledged_and_honoured_while_it_waits_in_line()
     panic!("the running task never completed");
 }
 
+/// A worker reads a Job queued under one lock and moves it to running under
+/// another, and a cancel can land between the two (#541). It used to answer
+/// yes, and the worker then ran the Job anyway: a cancelled import landed every
+/// recipe in its file. The cancel is put in that window by a hook, not by luck.
+#[cfg(feature = "test-jobs")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_job_cancelled_after_a_worker_picked_it_is_not_run() {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc;
+
+    let app = support::spawn_app();
+    let person = app.core.create_person("Stéphane").expect("person");
+    let key = app
+        .core
+        .mint_access_key(&person, "browser session", false)
+        .unwrap()
+        .secret;
+
+    // The first Job a worker picks waits there until the test says go.
+    let (picked, was_picked) = mpsc::channel::<String>();
+    let (go, wait_for_go) = mpsc::channel::<()>();
+    let wait_for_go = Mutex::new(wait_for_go);
+    let paused_once = AtomicBool::new(false);
+    app.core.before_a_job_runs(move |job_id| {
+        if paused_once.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        picked.send(job_id.to_string()).expect("the test listens");
+        let _ = wait_for_go
+            .lock()
+            .expect("one worker waits")
+            .recv_timeout(Duration::from_secs(10));
+    });
+
+    let (status, ask) = app.post_op(
+        "probe_job",
+        Some(&key),
+        &json!({ "steps": 1, "delay_ms": 1 }).to_string(),
+    );
+    assert_eq!(status, 200, "{ask}");
+    let job_id = ask["result"]["job_id"]
+        .as_str()
+        .expect("a job id")
+        .to_string();
+    let in_the_window = was_picked
+        .recv_timeout(Duration::from_secs(10))
+        .expect("a worker picks the Job");
+    assert_eq!(in_the_window, job_id);
+
+    // Cancelled while the worker holds it, read as queued, in its hand.
+    let (status, cancelled) = app.post_op(
+        "cancel_job",
+        Some(&key),
+        &json!({ "job_id": job_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{cancelled}");
+    assert_eq!(cancelled["result"]["cancelled"], json!(true), "{cancelled}");
+    go.send(()).expect("the worker waits");
+
+    // Run, the Job would be running in a millisecond and completed in two.
+    // It stays as the cancel left it.
+    let get = json!({ "job_id": job_id }).to_string();
+    for _ in 0..40 {
+        let (_, job) = app.post_op("get_job", Some(&key), &get);
+        assert_eq!(job["result"]["status"], json!("cancelled"), "{job}");
+        assert_eq!(job["result"]["progress"]["done"], json!(null), "{job}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
 #[cfg(feature = "test-jobs")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn work_accepted_before_a_restart_never_strands() {
