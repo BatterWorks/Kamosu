@@ -33,9 +33,10 @@
 - A phone's Shortcut key sends files of at most 25 MB and holds at most ten waiting to be added, which is what adding a recipe takes. Before, it could send any number of files up to 2 GB each. [#538]
 - Receiving a Bundle refuses a file that is no zip, or larger than a Bundle can be, without reading it into memory first. [#538]
 - A line on the Shopping List and the words on a day of the plan are at most 2,000 characters, and a cooking's note 10,000. Before, one very long line could hold up everyone's requests for seconds, a Demo visitor's included. [#538]
-- A recipe whose time is negative or impossibly long, such as `PT-5M`, now arrives with no time instead of stopping the import, from a link or another app's file. Before, an import from a file ended at that recipe and brought in none after it. [#540]
+- A recipe whose time is negative or impossibly long, such as `PT-5M`, now arrives with no time instead of stopping the import, from a link or another app's file. Before, an import from a file ended at that recipe and brought in none after it. [#540] [#553]
 - A page or a file holding a long run of `&` signs, or thousands of recipes of one name, is read in moments. Before, either could hold the import queue for many minutes, Share Link visitors' Sheets and Bundles waiting behind it. [#540] [#552]
 - An Import Report offers at most 200 pairs of Related Recipes to tick, and none among more than five recipes of one name or one page. Before, it offered every pair, thousands of them from a file of many recipes of one name. [#552]
+- A recipe's prep or cook time is at most about 4,000 years, and a longer one is refused when it is saved. Before, a time near the largest number Kamosu holds put the recipe on *Quick tonight* and left its time off its Share Link page. [#553]
 - Two Mealie instances from before Mealie 1 no longer have their recipes mistaken for each other's. Before, recipe 3 of a second instance was offered as a change to recipe 3 of the first and never arrived. Recipes already brought in still match their own. [#540]
 - An import cancelled the moment it was about to start stays cancelled. Before, Kamosu could answer that it was cancelled and then bring in every recipe in the file anyway. [#541]
 - A picture added again after a week on no recipe keeps its file. Before, the daily clean-up could still remove it, and the recipe it then went on kept a missing picture for good. [#541]
@@ -64,6 +65,7 @@
 [#548]: https://github.com/BatterWorks/Kamosu/issues/548
 [#549]: https://github.com/BatterWorks/Kamosu/issues/549
 [#552]: https://github.com/BatterWorks/Kamosu/issues/552
+[#553]: https://github.com/BatterWorks/Kamosu/issues/553
 
 ## v0.5.0 - 2026-10-29
 

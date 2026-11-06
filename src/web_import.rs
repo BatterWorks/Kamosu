@@ -380,8 +380,18 @@ fn duration_field(node: &Value, field: &str) -> Option<i64> {
 
 /// The longest time a recipe is read as having, in minutes: about 4,000
 /// years, far past any real one, and small enough that a recipe's times add
-/// up without overflowing (#540).
+/// up without overflowing (#540). A save refuses more, and every importer
+/// reads more as no time (#553).
 pub(crate) const MAX_RECIPE_MINUTES: i64 = i32::MAX as i64;
+
+/// Whole minutes an importer read, where they are more than none and no more
+/// than [`MAX_RECIPE_MINUTES`]. A file can hold any number, and a save would
+/// refuse the whole recipe over a time past the bound (#553).
+pub(crate) fn recipe_minutes(minutes: f64) -> Option<i64> {
+    let minutes = minutes.round();
+    (minutes.is_finite() && (1.0..=MAX_RECIPE_MINUTES as f64).contains(&minutes))
+        .then_some(minutes as i64)
+}
 
 /// An ISO 8601 duration in whole minutes, or `None` where it has no fixed
 /// length (years, months), is negative, or is longer than

@@ -25594,6 +25594,81 @@ async fn a_recipe_kamosu_knows_no_time_for_is_never_called_quick() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_time_past_four_thousand_years_is_refused() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let longest = i64::from(i32::MAX);
+
+    // The bound itself is a time a recipe may hold, one minute past it is not
+    // (#553). Past it, the home shelves added two times into an overflow.
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "title": "Forever stew", "prep_time_minutes": longest }).to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    for field in ["prep_time_minutes", "cook_time_minutes"] {
+        let (status, refused) = app.post_op(
+            "create_recipe",
+            Some(&key),
+            &json!({ "title": "Longer stew", field: i64::MAX }).to_string(),
+        );
+        assert_eq!(status, 400, "{refused}");
+        assert!(
+            refused.to_string().contains(field),
+            "the refusal names the time: {refused}"
+        );
+
+        let (status, refused) = app.post_op(
+            "edit_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id, field: longest + 1 }).to_string(),
+        );
+        assert_eq!(status, 400, "{refused}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_time_stored_past_the_bound_still_reads_on_the_shelves_and_the_share_link_page() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let branch_id = timed_recipe_in(&app, &key, "Forever stew", Some(1), Some(1));
+
+    // Saved before #553 bounded the times: nothing refused it then.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE versions SET content = json_set(content, \
+                 '$.prep_time_minutes', 9223372036854775807) \
+                 WHERE id IN (SELECT version_id FROM branch_versions WHERE branch_id = ?1)",
+                rusqlite::params![branch_id],
+            )
+            .unwrap();
+            Ok(())
+        })
+        .expect("stored the time");
+
+    let shelves = home_titles(&app, &key);
+    assert_eq!(
+        shelves.get("quick_tonight"),
+        None,
+        "the longest time there is is not quick: {shelves:?}"
+    );
+
+    let (token, _url) = share(&app, &key, &branch_id);
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(page.contains("Forever stew"), "the recipe is there");
+
+    // Neither answer took the database down with it.
+    let (status, home) = app.post_op("home_shelves", Some(&key), "{}");
+    assert_eq!(status, 200, "{home}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_empty_shelf_is_left_out_and_an_empty_library_answers_with_no_shelves_at_all() {
     let app = support::spawn_app();
     let (_person, key, _) = person_with_kitchen(&app, "Stéphane");

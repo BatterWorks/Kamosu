@@ -792,8 +792,12 @@ fn open_graph(token: &str, shared: &Value, title: &str, sharer: &str, language: 
             facts.push(format!("{amount} {noun}").trim().to_string());
         }
     }
-    let minutes = content["prep_time_minutes"].as_i64().unwrap_or(0)
-        + content["cook_time_minutes"].as_i64().unwrap_or(0);
+    // Saturating: a time saved before #553 bounded them can be as long as an
+    // i64 holds.
+    let minutes = content["prep_time_minutes"]
+        .as_i64()
+        .unwrap_or(0)
+        .saturating_add(content["cook_time_minutes"].as_i64().unwrap_or(0));
     if minutes > 0 {
         facts.push(crate::sheet::duration(minutes));
     }
