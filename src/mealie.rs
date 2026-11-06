@@ -345,13 +345,30 @@ pub(crate) fn with_photos(
     Ok(recipe)
 }
 
-/// Mealie's id for a recipe: a UUID, or before Mealie 1 a number.
+/// What Kamosu knows a Mealie recipe by: its UUID, or before Mealie 1 its
+/// number and its name, `3 Old-Fashioned Beef Stew`. Every Mealie of then
+/// numbered its recipes from 1, so the number alone would take recipe 3 of a
+/// second instance for recipe 3 of the first, as Tandoor's would (#540).
 fn id_of(recipe: &Value) -> Option<String> {
     match recipe.get("id")? {
         Value::String(id) => Some(id.trim().to_string()).filter(|id| !id.is_empty()),
-        Value::Number(id) => Some(id.to_string()),
+        Value::Number(id) => Some(
+            match text(recipe, "name").or_else(|| text(recipe, "slug")) {
+                Some(name) => format!("{id} {name}"),
+                None => id.to_string(),
+            },
+        ),
         _ => None,
     }
+}
+
+/// The bare number a recipe from before Mealie 1 was known by until #540,
+/// which the ledger may still hold for it: `3` of `3 Old-Fashioned Beef
+/// Stew`. A UUID has no space, so it has none.
+pub(crate) fn number_before_v1(foreign_id: &str) -> Option<&str> {
+    let (number, name) = foreign_id.split_once(' ')?;
+    (!number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()) && !name.is_empty())
+        .then_some(number)
 }
 
 /// A recipe read from its JSON, before any file of its folder is opened.
@@ -1167,7 +1184,12 @@ mod tests {
         let recipes = read_all("pre-v1-export.zip");
         assert_eq!(recipes.len(), 3);
         let stew = titled(&recipes, "Old-Fashioned Beef Stew");
-        assert_eq!(stew.foreign_id, "3");
+        assert_eq!(stew.foreign_id, "3 Old-Fashioned Beef Stew");
+        assert_eq!(number_before_v1(&stew.foreign_id), Some("3"));
+        assert_eq!(
+            number_before_v1("c1acc761-fb3d-4735-b53b-b61059d5716a"),
+            None
+        );
         // Its total time is its only time, and its six figures have no
         // calories among them (#434).
         let stew_note = stew.candidate["note"].as_str().unwrap();

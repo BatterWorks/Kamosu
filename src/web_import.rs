@@ -375,9 +375,25 @@ fn extract_yield(value: Option<&Value>) -> Option<(String, String)> {
 /// guessed at — never invented, matching how nutrition is handled.
 fn duration_field(node: &Value, field: &str) -> Option<i64> {
     let text = text_field(node, field)?;
-    let duration: iso8601_duration::Duration = text.parse().ok()?;
-    let std_duration = duration.to_std()?;
-    Some((std_duration.as_secs() / 60) as i64)
+    duration_minutes(&text.parse().ok()?)
+}
+
+/// The longest time a recipe is read as having, in minutes: about 4,000
+/// years, far past any real one, and small enough that a recipe's times add
+/// up without overflowing (#540).
+pub(crate) const MAX_RECIPE_MINUTES: i64 = i32::MAX as i64;
+
+/// An ISO 8601 duration in whole minutes, or `None` where it has no fixed
+/// length (years, months), is negative, or is longer than
+/// [`MAX_RECIPE_MINUTES`]. The crate's own `to_std` panics on a negative or
+/// huge one (`PT-5M`), and a page or a file can hold either (#540).
+pub(crate) fn duration_minutes(duration: &iso8601_duration::Duration) -> Option<i64> {
+    if duration.year != 0.0 || duration.month != 0.0 {
+        return None;
+    }
+    let minutes = (f64::from(duration.num_seconds()?) / 60.0).floor();
+    (minutes.is_finite() && (0.0..=MAX_RECIPE_MINUTES as f64).contains(&minutes))
+        .then_some(minutes as i64)
 }
 
 /// `nutrition.calories` arrives as a string with the unit fused in
@@ -1244,6 +1260,21 @@ mod tests {
             "not a url",
         ] {
             assert_eq!(on(not_one), None, "{not_one}");
+        }
+    }
+
+    // #540: a time the duration crate would panic on, or one too long to
+    // add up, is no time, and the recipe still reads.
+    #[test]
+    fn an_impossible_time_is_no_time() {
+        for written in ["PT-5M", "PT99999999999999999999H", "PT1e30M", "1e30"] {
+            let html = ld(&format!(
+                r#"{{"@type":"Recipe","name":"T","prepTime":"{written}","cookTime":"PT12M"}}"#
+            ));
+            let parsed = extract_recipe(&html, "https://example.com/r");
+            assert_eq!(parsed.title, "T", "{written}");
+            assert_eq!(parsed.prep_time_minutes, None, "{written}");
+            assert_eq!(parsed.cook_time_minutes, Some(12), "{written}");
         }
     }
 }

@@ -40932,8 +40932,11 @@ mod mealie {
     }
 
     fn import(app: &support::TestApp, key: &str, name: &str) -> Value {
-        let (status, staged) =
-            app.post_bytes("/api/uploads", Some(key), "application/zip", &fixture(name));
+        import_file(app, key, &fixture(name))
+    }
+
+    fn import_file(app: &support::TestApp, key: &str, file: &[u8]) -> Value {
+        let (status, staged) = app.post_bytes("/api/uploads", Some(key), "application/zip", file);
         assert_eq!(status, 200, "{staged}");
         let (status, ask) = app.post_op(
             "import_from_another_app",
@@ -41286,6 +41289,145 @@ mod mealie {
         );
         assert!(held.2, "the Component counts as set by hand");
         assert_eq!(recipes_held(&app), 3);
+    }
+
+    /// `pre-v1-export.zip` with its recipes 3 and 4 named as another
+    /// instance's are, and its recipe 5 left out: what a second Mealie of
+    /// before version 1 exports, numbering its own recipes from 1 too.
+    fn another_instance_before_v1() -> Vec<u8> {
+        let mut archive =
+            zip::ZipArchive::new(std::io::Cursor::new(fixture("pre-v1-export.zip"))).unwrap();
+        let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).unwrap();
+            let name = entry.name().unwrap().into_owned();
+            if name.contains("pizza-dough") {
+                continue;
+            }
+            let mut bytes = Vec::new();
+            std::io::Read::read_to_end(&mut entry, &mut bytes).unwrap();
+            if name.ends_with(".json") && !name.starts_with("__MACOSX") {
+                let mut recipe: Value = serde_json::from_slice(&bytes).unwrap();
+                recipe["name"] = json!(match recipe["id"].as_i64() {
+                    Some(3) => "Lemon tart",
+                    Some(4) => "Miso soup",
+                    other => panic!("recipe {other:?}"),
+                });
+                bytes = serde_json::to_vec(&recipe).unwrap();
+            }
+            out.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            std::io::Write::write_all(&mut out, &bytes).unwrap();
+        }
+        out.finish().unwrap().into_inner()
+    }
+
+    /// Before Mealie 1 every instance numbered its recipes from 1, so recipe
+    /// 3 of a second instance is a recipe of its own, never a change to
+    /// recipe 3 of the first (#540).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn two_mealies_before_v1_are_told_apart_by_name() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        import(&app, &key, "pre-v1-export.zip");
+        let second = import_file(&app, &key, &another_instance_before_v1());
+        assert_eq!(
+            statuses(&second),
+            ["Lemon tart created", "Miso soup created"],
+            "{second}"
+        );
+        assert_eq!(second["offered"], json!([]), "{second}");
+        assert_eq!(recipes_held(&app), 5);
+
+        let again = import(&app, &key, "pre-v1-export.zip");
+        assert_eq!(
+            statuses(&again),
+            [
+                "Levain Chocolate Chip Cookies unchanged",
+                "Old-Fashioned Beef Stew unchanged",
+                "PIZZA DOUGH — Basics With Babish unchanged",
+            ],
+            "{again}"
+        );
+        assert_eq!(recipes_held(&app), 5);
+    }
+
+    /// A ledger written before #540 holds each recipe by its bare number.
+    /// The first instance's recipes still match it where their titles agree,
+    /// and the row is left as it was; another instance's land as new.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_ledger_from_before_names_were_added_still_matches() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let first = import(&app, &key, "pre-v1-export.zip");
+        let ledger = |app: &support::TestApp| -> Vec<String> {
+            app.core
+                .db()
+                .with_conn(|conn| {
+                    let mut query = conn
+                        .prepare("SELECT foreign_id FROM import_ledger ORDER BY foreign_id")
+                        .unwrap();
+                    Ok(query
+                        .query_map([], |row| row.get(0))
+                        .unwrap()
+                        .map(Result::unwrap)
+                        .collect())
+                })
+                .unwrap()
+        };
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.execute(
+                    "UPDATE import_ledger SET foreign_id = substr(foreign_id, 1, 1)",
+                    [],
+                )
+                .unwrap();
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(ledger(&app), ["3", "4", "5"]);
+        // A cook cooked one and renamed it since, a Version of its own: it
+        // is still the same recipe.
+        let stew = row(&first, "arrived", "Old-Fashioned Beef Stew")["branch_id"].clone();
+        let (status, cooked) = app.post_op(
+            "start_attempt",
+            Some(&key),
+            &json!({ "branch_id": stew }).to_string(),
+        );
+        assert_eq!(status, 200, "{cooked}");
+        let (status, renamed) = app.post_op(
+            "edit_recipe",
+            Some(&key),
+            &json!({ "branch_id": stew, "title": "Grandma's stew" }).to_string(),
+        );
+        assert_eq!(status, 200, "{renamed}");
+
+        let again = import(&app, &key, "pre-v1-export.zip");
+        assert_eq!(
+            statuses(&again),
+            [
+                "Levain Chocolate Chip Cookies unchanged",
+                "PIZZA DOUGH — Basics With Babish unchanged",
+            ],
+            "{again}"
+        );
+        assert_eq!(
+            row(&again, "offered", "Old-Fashioned Beef Stew")["branch_id"],
+            stew,
+            "{again}"
+        );
+        assert_eq!(recipes_held(&app), 3);
+        assert_eq!(ledger(&app), ["3", "4", "5"], "no row was rewritten");
+
+        let second = import_file(&app, &key, &another_instance_before_v1());
+        assert_eq!(
+            statuses(&second),
+            ["Lemon tart created", "Miso soup created"],
+            "{second}"
+        );
+        assert_eq!(second["offered"], json!([]), "{second}");
+        assert_eq!(recipes_held(&app), 5);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

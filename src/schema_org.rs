@@ -50,6 +50,7 @@ use serde_json::{Value, json};
 
 use crate::entities::decode_entities;
 use crate::other_apps::{self, Budget, Handed, LeftOut, Reader, Refusal};
+use crate::web_import::{MAX_RECIPE_MINUTES, duration_minutes};
 
 /// Recipe files among the readers of another app's export.
 pub struct SchemaOrg;
@@ -790,19 +791,22 @@ fn time(node: &Value, field: &str, read: Option<i64>, language: &str) -> Time {
         return Time::None;
     }
     if let Ok(minutes) = written.parse::<f64>() {
-        return if minutes >= 1.0 {
+        // `1e30` and `inf` parse too, and are no time (#540).
+        return if (1.0..=MAX_RECIPE_MINUTES as f64).contains(&minutes) {
             Time::Minutes(minutes.round() as i64)
         } else {
             Time::None
         };
     }
     if let Ok(duration) = written.parse::<iso8601_duration::Duration>() {
-        return match duration.to_std() {
-            Some(duration) if duration.as_secs() >= 60 => {
-                Time::Minutes((duration.as_secs() / 60) as i64)
-            }
-            Some(_) => Time::None,
-            None => Time::Unread(written),
+        // Years and months have no fixed length and are kept as written; a
+        // negative one is no time, as any negative time is.
+        if duration.year > 0.0 || duration.month > 0.0 {
+            return Time::Unread(written);
+        }
+        return match duration_minutes(&duration) {
+            Some(minutes) if minutes >= 1 => Time::Minutes(minutes),
+            _ => Time::None,
         };
     }
     match crate::units::step_duration(&written, language) {
@@ -916,9 +920,12 @@ fn content(
             paragraphs.push(format!("{lead} {written}"));
         }
     }
-    let landed = prep.minutes().unwrap_or(0) + cook.minutes().unwrap_or(0);
+    let landed = prep
+        .minutes()
+        .unwrap_or(0)
+        .checked_add(cook.minutes().unwrap_or(0));
     match &total {
-        Time::Minutes(total) if *total != landed => {
+        Time::Minutes(total) if Some(*total) != landed => {
             paragraphs.push(format!("{} {}", words.total, spoken(*total, &words)));
         }
         Time::Unread(written) => paragraphs.push(format!("{} {written}", words.total)),
@@ -1608,5 +1615,45 @@ mod tests {
         let unread: Vec<&Unread> = recipes.iter().filter_map(|r| r.as_ref().err()).collect();
         assert_eq!(unread.len(), 1);
         assert_eq!(unread[0].name.as_deref(), Some("Chicken Parmigiana"));
+    }
+
+    // #540: a negative, huge or overflowing time is read as no time, and the
+    // recipes after it in the file still land.
+    #[test]
+    fn an_impossible_time_is_no_time_and_every_recipe_lands() {
+        for written in [
+            json!("PT-5M"),
+            json!("PT99999999999999999999H"),
+            json!("1e30"),
+            json!(1e30),
+        ] {
+            let mut file: Value =
+                serde_json::from_slice(&fixture("schema-org/recipesage-4.0.13.json")).unwrap();
+            file["recipes"][0]["prepTime"] = written.clone();
+            file["recipes"][0]["cookTime"] = written.clone();
+            file["recipes"][1]["prepTime"] = written.clone();
+            let export = export_of(serde_json::to_vec(&file).unwrap());
+            let recipes: Vec<_> = export.recipes.collect();
+            assert_eq!(recipes.len(), 2, "{written}");
+            for recipe in &recipes {
+                let recipe = recipe.as_ref().unwrap_or_else(|_| panic!("{written}"));
+                assert_eq!(
+                    recipe.candidate["prep_time_minutes"],
+                    Value::Null,
+                    "{written}"
+                );
+                assert!(
+                    paragraphs(recipe).iter().all(|p| !p.contains("1e30")
+                        && !p.contains("PT-5M")
+                        && !p.contains("9999")),
+                    "{written}"
+                );
+            }
+            assert_eq!(
+                recipes[0].as_ref().ok().unwrap().candidate["cook_time_minutes"],
+                Value::Null,
+                "{written}"
+            );
+        }
     }
 }
