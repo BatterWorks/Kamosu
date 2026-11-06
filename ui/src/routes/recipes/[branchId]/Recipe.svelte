@@ -239,6 +239,14 @@
 	const files = useFiles();
 
 	let recipe = $state<GetRecipeOutput | undefined>(undefined);
+	/**
+	 * Which Branch `recipe` was read for. This screen is reused across
+	 * `/recipes/A` → `/recipes/B`, and A stays on it until B's read answers, so
+	 * anything that writes onto `branchId` waits until the two agree (#549).
+	 */
+	let readFor = $state<string | undefined>(undefined);
+	/** Whether what is on screen is the recipe `branchId` names, not the last one. */
+	const readHere = $derived(recipe !== undefined && readFor === branchId);
 	let divergence = $state<DivergenceOutput | undefined>(undefined);
 	/**
 	 * Every version of this recipe the reader may see, for the switch (#131):
@@ -336,8 +344,15 @@
 	 * for Save, the way a paste made on that screen does (#83).
 	 */
 	let pastedDraft = $state<PastedDraft | undefined>(undefined);
+	/** Close the writing screen and drop its draft: Cancel, and leaving the recipe (#549). */
+	function closeWriting() {
+		writing = false;
+		pastedDraft = undefined;
+		translatingInto = undefined;
+	}
 	$effect(() => {
-		if (!recipe || !content || writing) return;
+		// Taken once this recipe is read, so it is never laid over the last one's.
+		if (!readHere || !content || writing) return;
 		const draft = takePaste(branchId);
 		if (!draft) return;
 		pastedDraft = draft;
@@ -552,6 +567,10 @@
 			untrack(() => {
 				wrote = undefined;
 				named = undefined;
+				// A draft belongs to the recipe it was opened on (#549). The
+				// browser's Back button lands here too, and a writing screen
+				// left open would save A's words as a Version of B.
+				closeWriting();
 				// The comparison was the last version's. Walking along the strip
 				// to your own must not carry its marks, or anything taken from
 				// it, onto a page that has nothing to compare (#131).
@@ -572,6 +591,7 @@
 		// Read again when a Promotion has just put a Version on this Branch, so
 		// the recipe below the band becomes the recipe that was cooked (#58).
 		void reread;
+		const asked = branchId;
 		let current = true;
 		void (async () => {
 			try {
@@ -594,6 +614,7 @@
 					});
 				if (!current) return;
 				recipe = read;
+				readFor = asked;
 				if (at !== undefined && untrack(() => named) === undefined) named = at;
 
 				// Home's *recently opened* shelf, and the whole of what feeds it
@@ -873,7 +894,7 @@
 	the rejected option wearing the chosen one's name. `Writing.svelte` holds
 	why the shape is what it is.
 -->
-{#if writing && recipe && content}
+{#if writing && readHere && recipe && content}
 	<Writing
 		{branchId}
 		lineageId={recipe.lineage_id}
@@ -894,16 +915,10 @@
 			? undefined
 			: recipe.versions.at(-1)?.cooking}
 		{translatingInto}
-		onCancel={() => {
-			writing = false;
-			pastedDraft = undefined;
-			translatingInto = undefined;
-		}}
+		onCancel={closeWriting}
 		onSaved={(landed) => {
-			writing = false;
-			pastedDraft = undefined;
 			const wasTranslating = translatingInto !== undefined;
-			translatingInto = undefined;
+			closeWriting();
 			// A Translation is a Branch of its own, and the cook has just
 			// written it — so the page goes there, the way it follows a Copy.
 			// Staying here would leave them reading the recipe they translated

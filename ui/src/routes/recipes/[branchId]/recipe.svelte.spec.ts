@@ -2018,6 +2018,36 @@ describe('the recipe screen', () => {
 		expect(screen.queryByText('Saved.')).not.toBeInTheDocument();
 	});
 
+	it('closes the writing screen when you walk to another recipe, and saves nothing onto it (#549)', async () => {
+		// The browser's Back button moves this same screen to the recipe you
+		// came from. A draft left open would be one recipe's words, saved as a
+		// Version of the other.
+		const { kamosu, goTo } = renderRecipe({
+			...solo(),
+			divergence: { refuse: 'not_found' },
+		} as Answers);
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		expect(await screen.findAllByRole('button', { name: /Save onto mine/ })).not.toHaveLength(0);
+
+		// The recipe walked to has not answered yet, so the last one is still
+		// on screen. Its Edit button must not open the last recipe's words
+		// under the new recipe's name.
+		const read = kamosu.client.getRecipe.bind(kamosu.client);
+		kamosu.client.getRecipe = ((input) =>
+			input.branch_id === 'another'
+				? new Promise(() => {})
+				: read(input)) as typeof kamosu.client.getRecipe;
+		await goTo('another');
+		await tick();
+		expect(screen.queryByRole('button', { name: /Save onto/ })).toBeNull();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Edit this recipe' }));
+		await tick();
+		expect(screen.queryByRole('button', { name: /Save onto/ })).toBeNull();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('save_recipe_version');
+	});
+
 	it('does not re-read the recipe for a correction that touches no Component', async () => {
 		// The ordinary correction, which is nearly every correction. Everything
 		// it changes is laid over the Readings on this page already, so a
@@ -2073,6 +2103,28 @@ describe('the recipe screen', () => {
 		expect(kamosu.calls.some((call) => call.operation === 'save_recipe_version')).toBe(false);
 		// Held once: nothing is waiting for this recipe any more.
 		expect(takePaste('mine')).toBeUndefined();
+	});
+
+	it('still opens on the paste when the page walks to that recipe rather than opening on it (#549)', async () => {
+		// Walking to another recipe closes the writing screen. A paste waiting
+		// for the recipe walked to must open it after that, not be closed by it.
+		const { goTo } = renderRecipe({
+			...solo({ ingredients: [], steps: [] }),
+			divergence: { refuse: 'not_found' },
+		} as Answers);
+		await screen.findByRole('button', { name: 'Edit this recipe' });
+
+		holdPaste('another', {
+			title: 'Korean Fried Chicken',
+			note: null,
+			source: null,
+			ingredients: [{ kind: 'ingredient', text: '1 lemon' }],
+			steps: [{ kind: 'step', text: 'Squeeze it over.' }],
+		});
+		await goTo('another');
+
+		expect(await screen.findByDisplayValue('1 lemon')).toBeInTheDocument();
+		expect(takePaste('another')).toBeUndefined();
 	});
 
 	// #301: a page with no recipe data, read from its own text, brings its
