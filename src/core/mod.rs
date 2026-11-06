@@ -429,6 +429,10 @@ pub struct Core {
     /// seed each time Home is asked for, and carries nothing to pin it with.
     #[cfg(feature = "test-jobs")]
     shelf_seed: std::sync::Mutex<Option<u64>>,
+    /// What a test asked to happen after a worker found a Job queued and
+    /// before it moves it to running (#541). Compiled only under `test-jobs`.
+    #[cfg(feature = "test-jobs")]
+    pub(crate) hook_before_a_job_runs: jobs::BeforeAJobRuns,
 }
 
 impl Core {
@@ -460,6 +464,8 @@ impl Core {
             public_address: Default::default(),
             #[cfg(feature = "test-jobs")]
             shelf_seed: Default::default(),
+            #[cfg(feature = "test-jobs")]
+            hook_before_a_job_runs: Default::default(),
         }
     }
 
@@ -504,6 +510,8 @@ impl Core {
             public_address: Default::default(),
             #[cfg(feature = "test-jobs")]
             shelf_seed: Default::default(),
+            #[cfg(feature = "test-jobs")]
+            hook_before_a_job_runs: Default::default(),
         };
         core.passwords.prepare();
         let core = Arc::new(core);

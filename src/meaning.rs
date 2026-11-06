@@ -1197,6 +1197,17 @@ pub fn build(
     build_with(db, &|texts| embedder.embed_documents(texts), progress)
 }
 
+/// The tick's build, by a caller holding the build lock: nothing at all
+/// unless Meaning Search is on as the lock is held, since
+/// `turn_off_meaning_search` may have run whole just before it was taken
+/// (#541).
+pub(crate) fn catch_up(db: &crate::db::Db, embed: Embed<'_>) -> Result<usize, OpError> {
+    if !db.with_conn(state)?.is_on() {
+        return Ok(0);
+    }
+    build_with(db, embed, &|_, _| {})
+}
+
 /// [`build`], with what turns text into vectors handed in, so a test can build
 /// an index without the model.
 fn build_with(
@@ -1875,6 +1886,24 @@ mod tests {
             "{log}"
         );
         assert!(!log.contains("trying it again"), "{log}");
+    }
+
+    /// The tick takes the build lock, and only then asks whether Meaning
+    /// Search is on (#541). A turning off that ran whole before the lock was
+    /// taken leaves it off, and the catch-up reads not one recipe.
+    #[test]
+    fn a_catch_up_that_finds_meaning_search_off_under_the_lock_builds_nothing() {
+        let (_dir, core) = one_recipe_owed();
+        let db = core.db();
+        db.with_conn(turn_on).unwrap();
+        db.with_conn(turn_off).unwrap();
+
+        let built = catch_up(&db, &|_| panic!("a recipe was embedded while off"));
+        assert_eq!(built.unwrap(), 0);
+        assert_eq!(behind_now(&core), 1, "the recipe is still owed");
+
+        db.with_conn(turn_on).unwrap();
+        assert_eq!(catch_up(&db, &fake_vectors).unwrap(), 1, "on, it builds");
     }
 
     #[test]

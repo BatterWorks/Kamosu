@@ -307,7 +307,36 @@ pub fn recover_at_startup(db: &Arc<Db>, lanes: &Lanes) {
     }
 }
 
+/// What a test runs between a worker finding a Job queued and moving it to
+/// running, the window a cancel can land in (#541).
+#[cfg(feature = "test-jobs")]
+pub(crate) type BeforeAJobRuns = std::sync::Mutex<Option<Box<dyn Fn(&str) + Send + Sync>>>;
+
 impl crate::core::Core {
+    /// Test-only, compiled only under the `test-jobs` feature: run `hook` with
+    /// the Job's id each time a worker has found a Job queued, before it moves
+    /// it to running, so a test can land a cancel in that window by design
+    /// rather than by timing (#541).
+    #[cfg(feature = "test-jobs")]
+    pub fn before_a_job_runs(&self, hook: impl Fn(&str) + Send + Sync + 'static) {
+        *self
+            .hook_before_a_job_runs
+            .lock()
+            .expect("the hook before a Job runs is poisoned") = Some(Box::new(hook));
+    }
+
+    #[cfg(feature = "test-jobs")]
+    fn run_the_hook_before_a_job_runs(&self, job_id: &str) {
+        if let Some(hook) = self
+            .hook_before_a_job_runs
+            .lock()
+            .expect("the hook before a Job runs is poisoned")
+            .as_ref()
+        {
+            hook(job_id);
+        }
+    }
+
     /// Carry one Job from its row to its end state. Runs on the blocking pool.
     pub(crate) fn run_job(&self, job_id: &str) {
         let record = match self.job(job_id) {
@@ -322,7 +351,15 @@ impl crate::core::Core {
             return;
         }
 
-        set_running(self, job_id);
+        #[cfg(feature = "test-jobs")]
+        self.run_the_hook_before_a_job_runs(job_id);
+
+        // The row was read under one lock and is moved under another, so a
+        // cancel can land in between and answer yes. Only a row still queued
+        // moves to running, and one that no longer was is not run (#541).
+        if !set_running(self, job_id) {
+            return;
+        }
 
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             match catalogue::find(&record.operation) {
@@ -1798,24 +1835,37 @@ pub fn no_such_job(job_id: &str) -> OpError {
     OpError::not_found(format!("no Job with id '{job_id}'"))
 }
 
-fn set_running(core: &crate::core::Core, job_id: &str) {
-    let _ = core.db().with_conn(|conn| {
+/// Move a Job from queued to running, and answer whether it moved. A Job
+/// cancelled since it was picked stays cancelled and answers no (#541).
+///
+/// So does one whose row could not be written, since its end could not be
+/// written either. It is said in the log, and stays queued for the next
+/// start to pick up again (`recover_at_startup`).
+fn set_running(core: &crate::core::Core, job_id: &str) -> bool {
+    let moved = core.db().with_conn(|conn| {
         conn.execute(
             "UPDATE jobs SET status = 'running',
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-             WHERE id = ?1",
+             WHERE id = ?1 AND status = 'queued'",
             params![job_id],
         )
-        .map_err(|e| OpError::internal(format!("cannot start Job: {e}")))?;
-        Ok(())
+        .map_err(|e| OpError::internal(format!("cannot start Job: {e}")))
     });
+    match moved {
+        Ok(moved) => moved > 0,
+        Err(err) => {
+            tracing::warn!("Job {job_id} was not started: {err}");
+            false
+        }
+    }
 }
 
 /// End a Job. A completed Job that declared a total reads all of it done,
 /// so no work has to remember to say so itself: a Backup did forget, and read
 /// `0 of 1` for ever after (#155). A failed Job keeps its count, since how far
 /// it got is worth knowing, and a Job that never knew its total is not handed
-/// one.
+/// one. Only a running Job is ended here, so an end some other path wrote
+/// first is never overwritten (#541).
 fn finish(
     core: &crate::core::Core,
     job_id: &str,
@@ -1836,7 +1886,7 @@ fn finish(
              progress_message = CASE WHEN ?6 AND progress_total IS NOT NULL
                                 THEN 'finished' ELSE progress_message END,
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-             WHERE id = ?1",
+             WHERE id = ?1 AND status = 'running'",
             params![
                 job_id,
                 status.as_str(),
