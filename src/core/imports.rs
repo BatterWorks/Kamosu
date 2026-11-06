@@ -2,7 +2,7 @@
 //! and the ledger that finds every Import again (#108).
 
 use super::*;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use crate::other_apps::{self, LeftOut, Unread};
 
@@ -1825,44 +1825,97 @@ fn relating_name(title: &str) -> String {
     folded
 }
 
+/// The most recipes of one name, or of one page, that are offered to each
+/// other as Related Recipes. Five recipes are ten pairs to tick. More than that
+/// sharing a name is a pile of unrelated "Lemonade"s, or one recipe copied, and
+/// every pair of a hundred is five thousand rows nobody reads (#552).
+const RELATED_GROUP_LIMIT: usize = 5;
+
+/// The most Related Recipe candidates one Import Report offers, whatever the
+/// file holds (#552).
+const RELATED_CANDIDATES_LIMIT: usize = 200;
+
+/// Which recipes among those one Import landed share a name or a web page, as
+/// pairs of their places in `landed`, in that order, each with what it shares:
+/// `name`, then `page`. Recipes are grouped by what they share, so this costs
+/// the recipes and the pairs, never every recipe against every other, and a
+/// group larger than `RELATED_GROUP_LIMIT` offers none of its pairs (#552).
+fn relating_pairs(landed: &[Relatable]) -> BTreeMap<(usize, usize), Vec<&'static str>> {
+    relating_pairs_counted(landed, &mut 0)
+}
+
+/// `relating_pairs`, adding to `steps` each recipe placed in a group and each
+/// pair looked at, so a test can count the work rather than time it (#552).
+fn relating_pairs_counted(
+    landed: &[Relatable],
+    steps: &mut usize,
+) -> BTreeMap<(usize, usize), Vec<&'static str>> {
+    let names: Vec<String> = landed.iter().map(|r| relating_name(&r.title)).collect();
+    let mut grouped = |keys: Vec<Option<&String>>| {
+        let mut groups: HashMap<&String, Vec<usize>> = HashMap::new();
+        for (at, key) in keys.into_iter().enumerate() {
+            if let Some(key) = key {
+                *steps += 1;
+                groups.entry(key).or_default().push(at);
+            }
+        }
+        groups.into_values().collect::<Vec<_>>()
+    };
+    let by_name = grouped(names.iter().map(Some).collect());
+    let by_page = grouped(landed.iter().map(|r| r.shape.link.as_ref()).collect());
+
+    let mut pairs: BTreeMap<(usize, usize), Vec<&'static str>> = BTreeMap::new();
+    for (groups, shared) in [(by_name, "name"), (by_page, "page")] {
+        for group in groups {
+            // Counted in Lineages: a recipe a file holds twice is one recipe,
+            // offered by the first place it landed.
+            let mut seen: HashSet<&str> = HashSet::new();
+            let mut firsts: Vec<usize> = Vec::new();
+            for &at in &group {
+                *steps += 1;
+                if seen.insert(landed[at].lineage_id.as_str()) {
+                    firsts.push(at);
+                    if firsts.len() > RELATED_GROUP_LIMIT {
+                        break;
+                    }
+                }
+            }
+            if firsts.len() > RELATED_GROUP_LIMIT {
+                continue;
+            }
+            for (i, &a) in firsts.iter().enumerate() {
+                for &b in &firsts[i + 1..] {
+                    *steps += 1;
+                    let why = pairs.entry((a, b)).or_default();
+                    // A pair found by its page in a crowd of one name still
+                    // says it shares the name, as it did before the limit.
+                    if shared == "page" && why.is_empty() && names[a] == names[b] {
+                        why.push("name");
+                    }
+                    why.push(shared);
+                }
+            }
+        }
+    }
+    pairs
+}
+
 /// Pairs among the recipes one Import landed that share a name or a web page,
 /// offered as Related Recipe candidates (GLOSSARY.md, "Related Recipe"). A
 /// site's name alone is not enough: nine Instagram recipes share one and have
-/// nothing to do with each other. A pair already related is not offered again.
+/// nothing to do with each other. A pair already related is not offered again,
+/// and no more than `RELATED_CANDIDATES_LIMIT` are offered (#552).
 fn related_candidates(
     conn: &Connection,
     cookbook_id: &str,
     landed: &[Relatable],
 ) -> Result<Vec<Value>, OpError> {
-    let mut pairs: Vec<((usize, usize), Vec<&'static str>)> = Vec::new();
-    let mut offer = |a: usize, b: usize, shared: &'static str| match pairs
-        .iter_mut()
-        .find(|(pair, _)| *pair == (a, b))
-    {
-        Some((_, why)) => {
-            if !why.contains(&shared) {
-                why.push(shared);
-            }
-        }
-        None => pairs.push(((a, b), vec![shared])),
-    };
-    let names: Vec<String> = landed.iter().map(|r| relating_name(&r.title)).collect();
-    for a in 0..landed.len() {
-        for b in a + 1..landed.len() {
-            if landed[a].lineage_id == landed[b].lineage_id {
-                continue;
-            }
-            if names[a] == names[b] {
-                offer(a, b, "name");
-            }
-            if landed[a].shape.link.is_some() && landed[a].shape.link == landed[b].shape.link {
-                offer(a, b, "page");
-            }
-        }
-    }
-
+    let pairs = relating_pairs(landed);
     let mut offered = Vec::new();
     for ((a, b), shared) in pairs {
+        if offered.len() == RELATED_CANDIDATES_LIMIT {
+            break;
+        }
         let (first, second) = (&landed[a], &landed[b]);
         let (low, high) = if first.lineage_id < second.lineage_id {
             (&first.lineage_id, &second.lineage_id)
@@ -2229,4 +2282,138 @@ pub(super) fn arrival_as_it_reads(
 /// Cookbook the caller may not see.
 fn no_such_import() -> OpError {
     OpError::not_found("no such Import")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn recipe(at: usize, title: &str, link: Option<&str>) -> Relatable {
+        Relatable {
+            lineage_id: format!("lineage-{at}"),
+            branch_id: format!("branch-{at}"),
+            title: title.to_string(),
+            shape: LandedShape {
+                main_photo: None,
+                bare: false,
+                ingredients: 1,
+                link: link.map(str::to_string),
+            },
+        }
+    }
+
+    /// `count` recipes, two of each name.
+    fn named_in_twos(count: usize) -> Vec<Relatable> {
+        (0..count)
+            .map(|at| recipe(at, &format!("Lemonade {}", at / 2), None))
+            .collect()
+    }
+
+    #[test]
+    fn thousands_of_recipes_of_one_name_offer_no_pair() {
+        let landed: Vec<Relatable> = (0..3000).map(|at| recipe(at, "Lemonade", None)).collect();
+        assert!(relating_pairs(&landed).is_empty());
+    }
+
+    #[test]
+    fn the_work_on_recipes_of_one_name_grows_with_the_recipes_not_their_square() {
+        let steps_for = |count: usize| {
+            let landed: Vec<Relatable> = (0..count)
+                .map(|at| recipe(at, "Lemonade", Some("example.com/lemonade")))
+                .collect();
+            let mut steps = 0;
+            assert!(relating_pairs_counted(&landed, &mut steps).is_empty());
+            steps
+        };
+        // Each recipe is placed once by its name and once by its page, and
+        // each crowd is looked into only until it holds one recipe too many.
+        let (smaller, larger) = (steps_for(1500), steps_for(3000));
+        assert_eq!(larger - smaller, 3000, "{smaller} {larger}");
+    }
+
+    #[test]
+    fn a_pair_in_a_crowd_of_one_name_sharing_a_page_says_both() {
+        let mut landed: Vec<Relatable> = (0..=RELATED_GROUP_LIMIT)
+            .map(|at| recipe(at, "Lemonade", None))
+            .collect();
+        landed[0].shape.link = Some("example.com/lemonade".to_string());
+        landed[3].shape.link = Some("example.com/lemonade".to_string());
+        let pairs: Vec<_> = relating_pairs(&landed).into_iter().collect();
+        assert_eq!(pairs, vec![((0, 3), vec!["name", "page"])]);
+    }
+
+    #[test]
+    fn the_pairs_offered_grow_with_the_recipes_not_their_square() {
+        // Twice the recipes in twos, twice the pairs: every pair is a query
+        // and a row a Report could carry. The work itself is counted above.
+        let smaller = relating_pairs(&named_in_twos(1500)).len();
+        let larger = relating_pairs(&named_in_twos(3000)).len();
+        assert_eq!((smaller, larger), (750, 1500));
+    }
+
+    #[test]
+    fn a_group_of_the_limit_offers_every_pair_and_one_more_offers_none() {
+        let mut landed: Vec<Relatable> = (0..RELATED_GROUP_LIMIT)
+            .map(|at| recipe(at, "Tart", None))
+            .collect();
+        landed.extend(
+            (RELATED_GROUP_LIMIT..2 * RELATED_GROUP_LIMIT + 1).map(|at| recipe(at, "Pie", None)),
+        );
+        let pairs = relating_pairs(&landed);
+        assert_eq!(
+            pairs.len(),
+            RELATED_GROUP_LIMIT * (RELATED_GROUP_LIMIT - 1) / 2
+        );
+        assert!(pairs.keys().all(|&(a, b)| a < b && b < RELATED_GROUP_LIMIT));
+    }
+
+    #[test]
+    fn a_pair_sharing_a_name_and_a_page_says_both_in_that_order() {
+        let landed = vec![
+            recipe(0, "Pandebonos", Some("example.com/pan")),
+            recipe(1, "Soup", Some("example.com/soup")),
+            recipe(2, "Pandebonos (Version 2)", Some("example.com/pan")),
+            recipe(3, "soup", None),
+        ];
+        let pairs: Vec<_> = relating_pairs(&landed).into_iter().collect();
+        assert_eq!(
+            pairs,
+            vec![((0, 2), vec!["name", "page"]), ((1, 3), vec!["name"])]
+        );
+    }
+
+    #[test]
+    fn a_crowd_of_one_recipe_held_many_times_still_offers_its_one_pair() {
+        let mut landed: Vec<Relatable> = (0..3000).map(|at| recipe(at, "Soup", None)).collect();
+        for twin in &mut landed[1..] {
+            twin.lineage_id = "lineage-0".to_string();
+        }
+        landed.push(recipe(3000, "soup", None));
+        let mut steps = 0;
+        let pairs: Vec<_> = relating_pairs_counted(&landed, &mut steps)
+            .into_iter()
+            .collect();
+        assert_eq!(pairs, vec![((0, 3000), vec!["name"])]);
+        // Placed once, looked over once: linear, however many times it repeats.
+        assert_eq!(steps, 2 * landed.len() + 1);
+    }
+
+    #[test]
+    fn one_lineage_landed_twice_is_no_pair() {
+        let mut landed = vec![recipe(0, "Soup", None), recipe(1, "Soup", None)];
+        landed[1].lineage_id = landed[0].lineage_id.clone();
+        assert!(relating_pairs(&landed).is_empty());
+    }
+
+    #[test]
+    fn a_report_offers_at_most_the_limit_whatever_the_file_holds() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::db::Db::open(dir.path()).unwrap();
+        let offered = db
+            .with_conn(|conn| related_candidates(conn, "a-cookbook", &named_in_twos(3000)))
+            .unwrap();
+        assert_eq!(offered.len(), RELATED_CANDIDATES_LIMIT);
+        assert_eq!(offered[0]["recipes"][0]["lineage_id"], json!("lineage-0"));
+        assert_eq!(offered[0]["recipes"][1]["lineage_id"], json!("lineage-1"));
+    }
 }

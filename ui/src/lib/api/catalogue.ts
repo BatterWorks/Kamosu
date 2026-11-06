@@ -19214,7 +19214,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"related_candidates": {
-					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered. More than five recipes of one name, or of one page, offer no pair among them, and a Report offers at most 200 pairs.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -19674,7 +19674,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"related_candidates": {
-					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered. More than five recipes of one name, or of one page, offer no pair among them, and a Report offers at most 200 pairs.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -20163,7 +20163,7 @@ export const CATALOGUE = [
 					"type": "object"
 				},
 				"related_candidates": {
-					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered. More than five recipes of one name, or of one page, offer no pair among them, and a Report offers at most 200 pairs.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -21081,7 +21081,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"related_candidates": {
-					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered. More than five recipes of one name, or of one page, offer no pair among them, and a Report offers at most 200 pairs.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -24786,7 +24786,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"related_candidates": {
-					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered. More than five recipes of one name, or of one page, offer no pair among them, and a Report offers at most 200 pairs.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
