@@ -579,8 +579,8 @@ fn minutes(value: &Value) -> Value {
 }
 
 fn whole_minutes(value: &Value) -> Option<i64> {
-    let minutes = number(value)?;
-    (minutes.is_finite() && minutes >= 1.0).then(|| minutes.round() as i64)
+    let minutes = number(value).filter(|minutes| *minutes >= 1.0)?;
+    crate::web_import::recipe_minutes(minutes)
 }
 
 /// A number, which Tandoor writes as a number and a decimal field may write

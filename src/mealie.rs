@@ -722,15 +722,17 @@ fn as_sentence(heading: &str) -> String {
 /// One of Mealie's free-text times in whole minutes, or the seconds Mealie 3
 /// keeps beside it where it has them.
 fn minutes(recipe: &Value, field: &str, language: &str) -> Option<i64> {
-    let seconds = recipe[format!("{field}_seconds")]
+    // Seconds past the longest time a recipe holds are passed over for the
+    // written time (#553).
+    let longest = crate::web_import::MAX_RECIPE_MINUTES as f64 * 60.0;
+    let seconds = match recipe[format!("{field}_seconds")]
         .as_f64()
-        .filter(|seconds| *seconds > 0.0)
-        .or_else(|| {
-            let written = text(recipe, field)?;
-            crate::units::step_duration(&written, language).map(|seconds| seconds as f64)
-        })?;
-    let minutes = (seconds / 60.0).round() as i64;
-    (minutes > 0).then_some(minutes)
+        .filter(|seconds| *seconds > 0.0 && *seconds <= longest)
+    {
+        Some(seconds) => seconds,
+        None => crate::units::step_duration(&text(recipe, field)?, language)? as f64,
+    };
+    crate::web_import::recipe_minutes(seconds / 60.0)
 }
 
 /// The Yield: what the recipe makes where Mealie says (`2 balls`), and its
@@ -1317,6 +1319,22 @@ mod tests {
         assert_eq!(calories("850")["calories"], json!(850.0));
         assert_eq!(calories("1,5"), Value::Null);
         assert_eq!(calories("about 300"), Value::Null);
+    }
+
+    #[test]
+    fn a_time_past_four_thousand_years_is_no_time() {
+        // `as i64` saturated a huge one at the largest number there is, which
+        // overflowed where two times were added up (#553).
+        let huge = json!({ "prep_time_seconds": 1e30, "cook_time_seconds": 9.3e18 });
+        assert_eq!(minutes(&huge, "prep_time", "en"), None);
+        assert_eq!(minutes(&huge, "cook_time", "en"), None);
+        let written = json!({ "prep_time_seconds": 1e30, "prep_time": "15 minutes" });
+        assert_eq!(minutes(&written, "prep_time", "en"), Some(15));
+        let longest = json!({ "prep_time_seconds": f64::from(i32::MAX) * 60.0 });
+        assert_eq!(
+            minutes(&longest, "prep_time", "en"),
+            Some(i64::from(i32::MAX))
+        );
     }
 
     #[test]

@@ -348,7 +348,7 @@ fn lines<'a>(recipe: &'a Value, field: &str) -> impl Iterator<Item = String> + '
 fn minutes(recipe: &Value, field: &str) -> Option<i64> {
     let written = text(recipe, field)?;
     let minutes = if written.bytes().all(|b| b.is_ascii_digit()) {
-        written.parse::<i64>().ok()?
+        written.parse::<f64>().ok()?
     } else {
         let lines = [
             text(recipe, "name"),
@@ -358,9 +358,9 @@ fn minutes(recipe: &Value, field: &str) -> Option<i64> {
         let language =
             crate::language::detect(&lines.into_iter().flatten().collect::<Vec<_>>().join("\n"))
                 .unwrap_or(crate::language::UNKNOWN);
-        (crate::units::step_duration(&written, language)? as f64 / 60.0).round() as i64
+        crate::units::step_duration(&written, language)? as f64 / 60.0
     };
-    (minutes > 0).then_some(minutes)
+    crate::web_import::recipe_minutes(minutes)
 }
 
 /// The Yield from Paprika's free-text servings: the first count, the lower
@@ -863,6 +863,23 @@ mod tests {
         // Nothing of the nutrition stays in Paprika, so the Report counts none.
         assert!(left_out(puffer).is_empty());
         assert_eq!(puffer.candidate["nutrition"], Value::Null);
+    }
+
+    #[test]
+    fn a_time_past_four_thousand_years_is_no_time() {
+        // A bare number is minutes, and one past the longest a recipe holds
+        // is no time, kept as typed in the note instead (#553).
+        let recipes = read_all(sample_with("Zucchinipuffer", |recipe| {
+            recipe["prep_time"] = json!("9223372036854775807");
+            recipe["cook_time"] = json!("99999999999999999999");
+        }));
+        let puffer = titled(&recipes, "Zucchinipuffer");
+        assert_eq!(puffer.candidate["prep_time_minutes"], Value::Null);
+        assert_eq!(puffer.candidate["cook_time_minutes"], Value::Null);
+        assert_eq!(
+            puffer.candidate["note"],
+            json!("Prep time: 9223372036854775807\n\nCook time: 99999999999999999999")
+        );
     }
 
     #[test]

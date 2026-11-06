@@ -3,6 +3,7 @@
 //! `parse_recipe_content`, the one reading of what a recipe holds.
 
 use super::*;
+use crate::web_import::MAX_RECIPE_MINUTES;
 
 impl Core {
     /// Create a Recipe: a Lineage, a Branch of it in the writer's own
@@ -2430,22 +2431,22 @@ pub(super) fn parse_named_yield(value: &Value) -> Result<Value, OpError> {
 /// Prep Time and Cook Time are whole minutes; Cook Time includes resting,
 /// proving, marinating and chilling — one field for however the dish spends
 /// unattended time, documented at the Catalogue level for any Door reading
-/// it (GLOSSARY.md, "Cook Time").
+/// it (GLOSSARY.md, "Cook Time"). At most about 4,000 years, so that the two
+/// add up without overflowing (#553).
 fn parse_optional_minutes(value: Option<&Value>, field: &str) -> Result<Option<i64>, OpError> {
+    let refused = || {
+        OpError::bad_request(format!(
+            "{field} must be a whole number of minutes, from zero to {MAX_RECIPE_MINUTES}"
+        ))
+    };
     match value {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Number(number)) => number
             .as_i64()
-            .filter(|minutes| *minutes >= 0)
+            .filter(|minutes| (0..=MAX_RECIPE_MINUTES).contains(minutes))
             .map(Some)
-            .ok_or_else(|| {
-                OpError::bad_request(format!(
-                    "{field} must be a whole number of minutes, zero or more"
-                ))
-            }),
-        Some(_) => Err(OpError::bad_request(format!(
-            "{field} must be a whole number of minutes, zero or more"
-        ))),
+            .ok_or_else(refused),
+        Some(_) => Err(refused()),
     }
 }
 

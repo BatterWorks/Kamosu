@@ -187,8 +187,13 @@ fn read_recipe(recipe: &Value, foreign_id: String) -> other_apps::Recipe {
         ingredients.extend(optional);
     }
 
-    // A whole number, none where it is zero.
-    let whole = |field: &str| recipe[field].as_i64().filter(|whole| *whole > 0);
+    // A whole number, none where it is zero or past the longest time a
+    // recipe holds (#553).
+    let whole = |field: &str| {
+        recipe[field]
+            .as_i64()
+            .and_then(|whole| crate::web_import::recipe_minutes(whole as f64))
+    };
     let (prep, cook) = (whole("prep_time"), whole("cook_time"));
     let mut paragraphs = written.note;
     if let Some(total) = whole("time")

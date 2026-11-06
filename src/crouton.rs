@@ -441,9 +441,12 @@ fn text(value: &Value, field: &str) -> Option<String> {
 /// stores a time nobody filled in, so it is no time at all rather than a claim
 /// the dish takes none.
 fn minutes(value: Option<&Value>) -> Value {
-    match value.and_then(Value::as_u64) {
-        Some(minutes) if minutes > 0 => json!(minutes),
-        _ => Value::Null,
+    match value
+        .and_then(Value::as_u64)
+        .and_then(|minutes| crate::web_import::recipe_minutes(minutes as f64))
+    {
+        Some(minutes) => json!(minutes),
+        None => Value::Null,
     }
 }
 
