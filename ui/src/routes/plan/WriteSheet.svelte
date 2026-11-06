@@ -9,6 +9,7 @@
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import { longest } from '#lib/longest.js';
 	import SheetFrame from '#lib/SheetFrame.svelte';
 	import { useKamosu } from '#lib/kamosu.js';
 	import { OperationError } from '#lib/api/client.js';
@@ -63,6 +64,7 @@
 			class="mt-2 block min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body text-ink"
 			placeholder={m.plan_words_placeholder()}
 			bind:value={words}
+			maxlength={longest('plan_words', 'words')}
 			data-sheet-focus
 		/>
 		<p class="mt-2 text-read text-ink-2">{m.plan_words_kept_short()}</p>

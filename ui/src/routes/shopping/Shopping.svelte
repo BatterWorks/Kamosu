@@ -43,6 +43,7 @@
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import { longest } from '#lib/longest.js';
 	import { useKamosu } from '#lib/kamosu.js';
 	import { OperationError } from '#lib/api/client.js';
 	import type { GetShoppingListOutput } from '#lib/api/catalogue.js';
@@ -575,6 +576,7 @@
 										id="loose-item"
 										class="min-w-0 flex-1 rounded-sm border border-rule bg-card px-3 py-2 text-line"
 										bind:value={typed}
+										maxlength={longest('add_loose_item', 'text')}
 										placeholder={m.shopping_loose_placeholder()}
 										autocomplete="off"
 										autofocus

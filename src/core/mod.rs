@@ -401,6 +401,8 @@ pub struct Core {
     security: security_record::Watch,
     /// The PDFs being read now, each in a program of its own (#373).
     pdf_readers: crate::pdf::Readers,
+    /// The pictures being remade now, two at most (#538).
+    pictures: crate::photographs::Remaking,
     /// How long a Runner's hold on a Job lasts unless renewed, in
     /// milliseconds: `jobs::HOLD`, until a test shortens it (#266).
     hold_millis: AtomicU64,
@@ -450,6 +452,7 @@ impl Core {
             ceremonies: Default::default(),
             security: Default::default(),
             pdf_readers: Default::default(),
+            pictures: Default::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             photo_download_millis: AtomicU64::new(imports::PHOTO_DOWNLOAD_TIME.as_millis() as u64),
             job_key_creates: Default::default(),
@@ -493,6 +496,7 @@ impl Core {
             ceremonies: Default::default(),
             security: Default::default(),
             pdf_readers: Default::default(),
+            pictures: Default::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             photo_download_millis: AtomicU64::new(imports::PHOTO_DOWNLOAD_TIME.as_millis() as u64),
             job_key_creates: Default::default(),

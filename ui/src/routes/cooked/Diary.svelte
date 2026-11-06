@@ -21,6 +21,7 @@
 	import { useKamosu } from '#lib/kamosu.js';
 	import { OperationError } from '#lib/api/client.js';
 	import { ratingLabel } from '#lib/rating.js';
+	import { longest } from '#lib/longest.js';
 	import type { ListAttemptsOutput, PromoteAsCookedOutput } from '#lib/api/catalogue.js';
 	import Screen from '#lib/shell/Screen.svelte';
 	import Empty from '#lib/shell/Empty.svelte';
@@ -492,6 +493,7 @@
 										{m.cooked_note()}
 										<textarea
 											bind:value={draftNote}
+											maxlength={longest('edit_attempt', 'note')}
 											rows="3"
 											placeholder={m.cooked_no_note()}
 											class="w-full rounded-sm border border-rule bg-card p-2 text-body text-ink"

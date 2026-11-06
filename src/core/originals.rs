@@ -105,7 +105,7 @@ impl Core {
         self.ensure_has_runner()?;
         // As handed over, since a picture is remade before it is kept.
         let digest = digest_of(&handed);
-        let (kind, pages) = kept_as(handed)?;
+        let (kind, pages) = kept_as(&self.pictures, handed)?;
         // Made before the database is held: a picture made smaller and a PDF
         // read are slow beside a write.
         let glimpse = self.glimpse_of(kind, &pages);
@@ -641,11 +641,16 @@ pub fn originals_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
 /// What is kept of what was handed over, and as what kind. Each kind is held
 /// to the limit Kamosu already sets for it, and a file that is neither a PDF
 /// nor a picture is refused.
-pub(super) fn kept_as(handed: Handed) -> Result<(OriginalKind, Vec<Vec<u8>>), OpError> {
+pub(super) fn kept_as(
+    pictures: &photographs::Remaking,
+    handed: Handed,
+) -> Result<(OriginalKind, Vec<Vec<u8>>), OpError> {
     let (kind, bytes) = match handed {
-        Handed::Pages(mut pages) if pages.len() == 1 => kept_one(Handed::File(pages.remove(0)))?,
-        Handed::Pages(pages) => return kept_pages(pages),
-        one => kept_one(one)?,
+        Handed::Pages(mut pages) if pages.len() == 1 => {
+            kept_one(pictures, Handed::File(pages.remove(0)))?
+        }
+        Handed::Pages(pages) => return kept_pages(pictures, pages),
+        one => kept_one(pictures, one)?,
     };
     Ok((kind, vec![bytes]))
 }
@@ -653,7 +658,10 @@ pub(super) fn kept_as(handed: Handed) -> Result<(OriginalKind, Vec<Vec<u8>>), Op
 /// Several pictures, kept as the pages of one recipe in order (ADR 0055).
 /// Each is held to what one picture is held to, and nothing but pictures
 /// goes together: a PDF has pages of its own.
-fn kept_pages(pages: Vec<Vec<u8>>) -> Result<(OriginalKind, Vec<Vec<u8>>), OpError> {
+fn kept_pages(
+    pictures: &photographs::Remaking,
+    pages: Vec<Vec<u8>>,
+) -> Result<(OriginalKind, Vec<Vec<u8>>), OpError> {
     if pages.is_empty() {
         return Err(OpError::bad_request("pictures holds no picture"));
     }
@@ -674,13 +682,16 @@ fn kept_pages(pages: Vec<Vec<u8>>) -> Result<(OriginalKind, Vec<Vec<u8>>), OpErr
                     at + 1
                 )));
             }
-            photographs::remake_original(&bytes)
+            pictures.remake_original(&bytes)
         })
         .collect::<Result<Vec<_>, _>>()
         .map(|kept| (OriginalKind::Picture, kept))
 }
 
-fn kept_one(handed: Handed) -> Result<(OriginalKind, Vec<u8>), OpError> {
+fn kept_one(
+    pictures: &photographs::Remaking,
+    handed: Handed,
+) -> Result<(OriginalKind, Vec<u8>), OpError> {
     match handed {
         Handed::Text(text) => {
             if text.trim().is_empty() {
@@ -710,7 +721,7 @@ fn kept_one(handed: Handed) -> Result<(OriginalKind, Vec<u8>), OpError> {
         }
         Handed::File(bytes) if photographs::looks_like_a_picture(&bytes) => {
             // Remade, which strips where it was taken, as a Photograph's is.
-            Ok((OriginalKind::Picture, photographs::remake_original(&bytes)?))
+            Ok((OriginalKind::Picture, pictures.remake_original(&bytes)?))
         }
         Handed::File(_) => Err(OpError::bad_request(
             "an agent is handed pasted text, a PDF or a picture, and this file is none of \

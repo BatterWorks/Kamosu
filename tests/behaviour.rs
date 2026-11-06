@@ -49948,3 +49948,304 @@ async fn a_dutch_recipes_sheet_and_share_link_page_are_in_dutch() {
     assert!(page.contains("Dit recept importeren"), "{page}");
     assert!(!page.contains(">Ingredients<"), "{page}");
 }
+
+/// What one request may make an instance spend: memory decoding a picture,
+/// disk on staged uploads, memory reading a Bundle, and the database lock on
+/// a long line of text (#538).
+mod what_one_request_may_cost {
+    use super::*;
+
+    fn picture(width: u32, height: u32) -> Vec<u8> {
+        let image = image::RgbImage::from_fn(width, height, |x, y| {
+            image::Rgb([(x % 251) as u8, (y % 241) as u8, ((x + y) % 239) as u8])
+        });
+        let mut jpeg = Vec::new();
+        image::DynamicImage::ImageRgb8(image)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .expect("encodes");
+        jpeg
+    }
+
+    /// CRC-32 as PNG defines it, for a header rewritten below.
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for byte in bytes {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    (crc >> 1) ^ 0xEDB8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+
+    /// A PNG of 16 bits a colour with transparency whose header says it is
+    /// 10,000 × 10,000: 100 megapixels, within the count Kamosu opens, and
+    /// 800 MB unpacked. What follows the header is never reached.
+    fn deep_100_megapixels() -> Vec<u8> {
+        let small = image::DynamicImage::ImageRgba16(image::ImageBuffer::new(4, 4));
+        let mut png = Vec::new();
+        small
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("encodes");
+        png[16..20].copy_from_slice(&10_000u32.to_be_bytes());
+        png[20..24].copy_from_slice(&10_000u32.to_be_bytes());
+        let crc = crc32(&png[12..29]);
+        png[29..33].copy_from_slice(&crc.to_be_bytes());
+        png
+    }
+
+    fn upload_photograph(app: &support::TestApp, key: &str, bytes: &[u8]) -> (u16, Value) {
+        app.post_bytes("/api/photographs", Some(key), "image/png", bytes)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_picture_that_unpacks_past_the_limit_is_refused_and_a_photograph_is_not() {
+        let app = support::spawn_app();
+        let (_, key) = someone(&app, "Stéphane");
+
+        let (status, refused) = upload_photograph(&app, &key, &deep_100_megapixels());
+        assert_eq!(status, 400, "{refused}");
+        assert!(
+            refused
+                .to_string()
+                .contains("which unpacks to more than the 200 MB"),
+            "{refused}"
+        );
+
+        // A 24-megapixel photograph, as a camera saves one.
+        let (status, stored) = upload_photograph(&app, &key, &picture(6000, 4000));
+        assert_eq!(status, 200, "{stored}");
+    }
+
+    #[cfg(feature = "test-jobs")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_third_picture_while_two_are_remade_is_busy() {
+        let app = support::spawn_app();
+        let (_, key) = someone(&app, "Stéphane");
+        let first = app.core.hold_a_picture_place().expect("a place");
+        let second = app.core.hold_a_picture_place().expect("a place");
+
+        let (status, busy) = upload_photograph(&app, &key, &picture(64, 48));
+        assert_eq!(status, 503, "{busy}");
+        assert_eq!(busy["error"]["kind"], json!("busy"));
+
+        drop(first);
+        let (status, stored) = upload_photograph(&app, &key, &picture(64, 48));
+        assert_eq!(status, 200, "{stored}");
+        drop(second);
+    }
+
+    fn add_only_key(app: &support::TestApp, session: &str) -> String {
+        let (status, minted) = app.post_op(
+            "mint_access_key",
+            Some(session),
+            &json!({ "name": "iPhone", "add_only": true }).to_string(),
+        );
+        assert_eq!(status, 200, "{minted}");
+        minted["result"]["secret"].as_str().unwrap().to_string()
+    }
+
+    fn stage(app: &support::TestApp, key: &str, bytes: &[u8]) -> (u16, Value) {
+        app.post_bytes("/api/uploads", Some(key), "application/octet-stream", bytes)
+    }
+
+    fn staged_files(app: &support::TestApp, person_id: &str) -> usize {
+        std::fs::read_dir(app.core.data_dir().join("uploads").join(person_id))
+            .map(|files| files.count())
+            .unwrap_or(0)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_add_only_key_stages_only_what_add_this_takes() {
+        let app = support::spawn_app();
+        let (session, person_id) = super::operator_signed_in(&app);
+        let key = add_only_key(&app, &session);
+
+        let larger = vec![7u8; kamosu::core::LARGEST_HANDED_FILE as usize + 1];
+        let (status, refused) = stage(&app, &key, &larger);
+        assert_eq!(status, 400, "{refused}");
+        assert!(
+            refused.to_string().contains("larger than 25 MB"),
+            "{refused}"
+        );
+        assert_eq!(staged_files(&app, &person_id), 0, "nothing of it is kept");
+
+        for _ in 0..kamosu::core::MOST_PAGES {
+            let (status, staged) = stage(&app, &key, b"a page");
+            assert_eq!(status, 200, "{staged}");
+        }
+        let (status, refused) = stage(&app, &key, b"an eleventh");
+        assert_eq!(status, 400, "{refused}");
+        assert!(
+            refused.to_string().contains("waiting to be added"),
+            "{refused}"
+        );
+        assert_eq!(staged_files(&app, &person_id), kamosu::core::MOST_PAGES);
+
+        // A send that failed halfway leaves its files behind. Once one has
+        // waited unused for a while, the next file takes its place, so the
+        // phone is not kept out for the day it would take to clear.
+        let uploads = app.core.data_dir().join("uploads").join(&person_id);
+        let oldest = std::fs::read_dir(&uploads)
+            .unwrap()
+            .flatten()
+            .next()
+            .unwrap()
+            .path();
+        std::fs::File::options()
+            .write(true)
+            .open(&oldest)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600))
+            .unwrap();
+        let (status, staged) = stage(&app, &key, b"sent again");
+        assert_eq!(status, 200, "{staged}");
+        assert!(!oldest.exists(), "the abandoned file made way");
+        assert_eq!(staged_files(&app, &person_id), kamosu::core::MOST_PAGES);
+
+        // The cook's own Session still stages a library's worth, and past
+        // the ten the key holds.
+        let (status, staged) = stage(&app, &session, &larger);
+        assert_eq!(status, 200, "{staged}");
+    }
+
+    /// A staged file grown in place to a size no test could hold in memory,
+    /// costing no disk: if anything read it whole, the test would not end.
+    fn staged_and_grown(app: &support::TestApp, key: &str, head: &[u8], to: u64) -> String {
+        let (status, staged) = stage(app, key, head);
+        assert_eq!(status, 200, "{staged}");
+        let upload_id = staged["result"]["upload_id"].as_str().unwrap().to_string();
+        let uploads = app.core.data_dir().join("uploads");
+        let path = std::fs::read_dir(&uploads)
+            .unwrap()
+            .flatten()
+            .map(|person| person.path().join(&upload_id))
+            .find(|path| path.is_file())
+            .expect("the staged file");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(to)
+            .unwrap();
+        upload_id
+    }
+
+    /// The Job `import_bundle` starts, once it has ended.
+    fn import_bundle(app: &support::TestApp, key: &str, upload_id: &str) -> Value {
+        super::importing(app, key, json!({ "upload_id": upload_id }))
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_bundle_that_is_no_zip_or_too_large_is_refused_without_being_read() {
+        let app = support::spawn_app();
+        let (_, key) = someone(&app, "Stéphane");
+        let hundred_gigabytes = 100 * 1000 * 1000 * 1000;
+
+        let not_a_zip = staged_and_grown(&app, &key, b"zeros", hundred_gigabytes);
+        let ended = import_bundle(&app, &key, &not_a_zip);
+        assert_eq!(ended["status"], json!("completed"), "{ended}");
+        assert!(ended.to_string().contains("it is not a zip"), "{ended}");
+
+        let too_large = staged_and_grown(&app, &key, b"PK\x03\x04", hundred_gigabytes);
+        let ended = import_bundle(&app, &key, &too_large);
+        assert_eq!(ended["status"], json!("failed"), "{ended}");
+        assert!(
+            ended.to_string().contains("at most 256000000 bytes"),
+            "{ended}"
+        );
+        assert_eq!(
+            std::fs::read_dir(app.core.data_dir().join("uploads"))
+                .unwrap()
+                .flatten()
+                .map(|person| std::fs::read_dir(person.path()).unwrap().count())
+                .sum::<usize>(),
+            0,
+            "each staged file is used up"
+        );
+    }
+
+    /// The refusal at each Door for one over-long field, and that one
+    /// character fewer goes through.
+    fn refused_at_both_doors(
+        app: &support::TestApp,
+        key: &str,
+        operation: &str,
+        input: impl Fn(&str) -> Value,
+        field: &str,
+        most: usize,
+    ) {
+        let over = "é".repeat(most + 1);
+        let said = format!("'{field}' must be at most {most} characters");
+        let (status, refused) = app.post_op(operation, Some(key), &input(&over).to_string());
+        assert_eq!(status, 400, "{refused}");
+        assert!(refused.to_string().contains(&said), "{refused}");
+
+        let call = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": operation, "arguments": input(&over) },
+        });
+        let (_, refused) = app.post_mcp(&call.to_string(), Some(key));
+        assert_eq!(refused["result"]["isError"], json!(true), "{refused}");
+        assert!(refused.to_string().contains(&said), "{refused}");
+
+        let (status, taken) =
+            app.post_op(operation, Some(key), &input(&"é".repeat(most)).to_string());
+        assert_eq!(status, 200, "{taken}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_over_long_line_plan_or_note_is_refused_at_both_doors() {
+        let app = support::spawn_app();
+        let (_, key) = someone(&app, "Stéphane");
+
+        refused_at_both_doors(
+            &app,
+            &key,
+            "add_loose_item",
+            |text| json!({ "text": text }),
+            "text",
+            2_000,
+        );
+        refused_at_both_doors(
+            &app,
+            &key,
+            "plan_words",
+            |words| json!({ "words": words, "day": "2026-11-02" }),
+            "words",
+            2_000,
+        );
+
+        let tart = written(&app, &key, "Tarte aux pommes");
+        let (status, started) = app.post_op(
+            "start_attempt",
+            Some(&key),
+            &json!({ "branch_id": tart }).to_string(),
+        );
+        assert_eq!(status, 200, "{started}");
+        let attempt = started["result"]["id"].as_str().unwrap().to_string();
+        refused_at_both_doors(
+            &app,
+            &key,
+            "edit_attempt",
+            |note| json!({ "attempt_id": attempt, "note": note }),
+            "note",
+            10_000,
+        );
+        refused_at_both_doors(
+            &app,
+            &key,
+            "finish_attempt",
+            |note| json!({ "attempt_id": attempt, "note": note }),
+            "note",
+            10_000,
+        );
+    }
+}

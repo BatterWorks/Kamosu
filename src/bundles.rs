@@ -938,7 +938,19 @@ const MOST_READ: u64 = 64 * 1024 * 1024;
 /// Kamosu made. Photographs are read one at a time whatever this says, so it
 /// limits the work of unpacking, and the memory only of the notes read back
 /// from a file with no sidecar.
-const MOST_IN_ALL: u64 = 256 * 1000 * 1000;
+///
+/// A Bundle's own file is held to this too, and `import_bundle` refuses a
+/// larger one before reading it (#538). What a Bundle holds barely
+/// compresses, so its file is about what it unpacks to, a little more for
+/// the zip's own headers: only a Bundle within those headers of this limit
+/// is refused that would have opened.
+pub const MOST_IN_ALL: u64 = 256 * 1000 * 1000;
+
+/// Whether these bytes start as a zip does, a Bundle with no files in it
+/// included. Says nothing about whether the rest of it opens.
+pub fn looks_like_a_zip(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"PK\x03\x04") || bytes.starts_with(b"PK\x05\x06")
+}
 
 /// A Bundle opened: its sidecar, and the zip still open behind it, so each
 /// Photograph the sidecar names is read when it is wanted and never all at

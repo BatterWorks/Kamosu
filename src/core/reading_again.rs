@@ -182,7 +182,9 @@ impl Core {
     ) -> Result<Value, OpError> {
         let has_runner = self.has_runner()?;
         let data_dir = self.data_dir();
-        let handed = handed.map(kept_as).transpose()?;
+        let handed = handed
+            .map(|handed| kept_as(&self.pictures, handed))
+            .transpose()?;
         let dir = originals_dir(&data_dir);
         let failed = |e| OpError::internal(format!("cannot record the agent's Job: {e}"));
         self.db().with_conn(|conn| {
