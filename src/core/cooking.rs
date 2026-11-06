@@ -56,22 +56,9 @@ impl Core {
 
             let pinned_version_id = match version_id {
                 None => head_version_id,
-                Some(requested) => {
-                    let on_this_branch: i64 = conn
-                        .query_row(
-                            "SELECT COUNT(*) FROM branch_versions \
-                              WHERE branch_id = ?1 AND version_id = ?2",
-                            params![branch_id, requested],
-                            |row| row.get(0),
-                        )
-                        .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?;
-                    if on_this_branch == 0 {
-                        return Err(OpError::bad_request(
-                            "version_id is not a Version of this Branch",
-                        ));
-                    }
-                    requested.to_string()
-                }
+                Some(requested) => version_standing_for(conn, branch_id, requested)?.ok_or_else(|| {
+                    OpError::bad_request("version_id is not a Version of this Branch")
+                })?,
             };
 
             let moment = written_moment(conn, started_at)?;
@@ -1382,6 +1369,32 @@ pub(super) fn record_finished_attempt(
     )
     .map_err(|e| OpError::internal(format!("cannot write the cooking: {e}")))?;
     Ok(id)
+}
+
+/// The Version a cooking pinned to `version_id` counts for on this Branch:
+/// that Version while the chain holds it, the one that now stands in its
+/// place where a collapse replaced it (#548), and none where the Branch never
+/// held it. A start held on a phone offline names what the phone had, which
+/// a re-save inside the collapse window may have folded away since. Pinned to
+/// the Version on the chain, the cooking is found wherever a cooking is
+/// looked for: the Thread, what a cook keeps on leaving, the next collapse.
+fn version_standing_for(
+    conn: &Connection,
+    branch_id: &str,
+    version_id: &str,
+) -> Result<Option<String>, OpError> {
+    conn.query_row(
+        "SELECT COALESCE( \
+             (SELECT version_id FROM branch_versions \
+               WHERE branch_id = ?1 AND version_id = ?2 LIMIT 1), \
+             (SELECT held.version_id FROM folded_versions AS folded \
+                JOIN branch_versions AS held \
+                  ON held.branch_id = folded.branch_id AND held.sequence = folded.sequence \
+               WHERE folded.branch_id = ?1 AND folded.version_id = ?2))",
+        params![branch_id, version_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))
 }
 
 /// Whether an Attempt id is one a phone may mint: the very shape the server

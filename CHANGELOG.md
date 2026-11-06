@@ -39,6 +39,7 @@
 - An import cancelled the moment it was about to start stays cancelled. Before, Kamosu could answer that it was cancelled and then bring in every recipe in the file anyway. [#541]
 - A picture added again after a week on no recipe keeps its file. Before, the daily clean-up could still remove it, and the recipe it then went on kept a missing picture for good. [#541]
 - Turning Meaning Search off at the moment its regular catch-up started no longer has that catch-up read the whole library into an index that is off. [#541]
+- A cooking started on a phone with no network is kept when the recipe's writer saved it again within the hour before the phone came back online. Before, the save replaced the Version the phone had, and the cooking, with its rating, note and photographs, was refused and lost. It now counts as a cooking of the Version that replaced it. [#548]
 
 [#464]: https://github.com/BatterWorks/Kamosu/issues/464
 [#486]: https://github.com/BatterWorks/Kamosu/issues/486
@@ -58,6 +59,7 @@
 [#538]: https://github.com/BatterWorks/Kamosu/issues/538
 [#540]: https://github.com/BatterWorks/Kamosu/issues/540
 [#541]: https://github.com/BatterWorks/Kamosu/issues/541
+[#548]: https://github.com/BatterWorks/Kamosu/issues/548
 
 ## v0.5.0 - 2026-10-29
 

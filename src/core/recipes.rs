@@ -553,6 +553,14 @@ impl Core {
                     ],
                 )
                 .map_err(|e| OpError::internal(format!("cannot collapse Version: {e}")))?;
+                // A phone may still hold the Version just replaced, and send
+                // a start pinned to it once it is back online (#548).
+                conn.execute(
+                    "INSERT OR REPLACE INTO folded_versions (branch_id, version_id, sequence) \
+                     VALUES (?1, ?2, ?3)",
+                    params![branch_id, head_version_id, head_sequence],
+                )
+                .map_err(|e| OpError::internal(format!("cannot record the folded Version: {e}")))?;
             } else {
                 // Which Job wrote it is kept beside which Access Key did, and
                 // is as local (#265).

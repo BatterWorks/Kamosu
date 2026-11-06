@@ -2271,6 +2271,25 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 72,
+        description: "the Versions a collapse replaced, for a start held offline (#548)",
+        sql: r#"
+        -- A collapse rewrites the head row in place, so the Version it
+        -- replaced leaves no trace on the chain. A phone that cached it can
+        -- still send a start pinned to it. Each row says which place on the
+        -- Branch's chain the folded Version held, and whatever holds that
+        -- place now is the Version the cooking counts for. Local
+        -- bookkeeping: no Version's content, so no fingerprint, moves.
+        CREATE TABLE folded_versions (
+            branch_id  TEXT NOT NULL REFERENCES branches(id),
+            version_id TEXT NOT NULL,
+            sequence   INTEGER NOT NULL,
+            PRIMARY KEY (branch_id, version_id)
+        );
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

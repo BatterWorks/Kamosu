@@ -695,8 +695,8 @@ predates it.**
   moves, no migration, no Bundle already written is orphaned.
 - **Anything else** — `0`, `"metric"`, `false` — **re-fingerprints the entire
   library.** Every Version id changes, and every row naming one has to change
-  with it: `branches`, `branch_versions`, `readings`, `attempts`,
-  `meaning_vectors`. Migration 29 is the worked example and the only time
+  with it: `branches`, `branch_versions`, `folded_versions`, `readings`,
+  `attempts`, `meaning_vectors`. Migration 29 is the worked example and the only time
   Kamosu has done it. Either give the field an empty default instead, or write
   that migration deliberately and say so in an ADR.
 

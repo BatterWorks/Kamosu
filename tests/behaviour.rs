@@ -32549,6 +32549,149 @@ async fn a_save_inside_the_window_keeps_the_version_somebody_cooked() {
     );
 }
 
+/// **A start held offline lands when the Version it names was folded away
+/// before anyone cooked it** (#548). Bob's phone has Ann's pie; Ann re-saves
+/// straight away, and the collapse replaces the Version his phone holds. His
+/// start, replayed later, is a cooking of the Version that took its place:
+/// on Ann's Thread, and counted in what he keeps on leaving the Kitchen. A
+/// Version of another recipe is still refused.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_start_held_offline_lands_on_a_version_a_collapse_replaced() {
+    let app = support::spawn_app();
+    let (_, ann) = someone(&app, "Ann");
+    let (bob_id, bob) = someone(&app, "Bob");
+    let family = kitchen_of(&app, &ann, "Family", &[&bob]);
+    let pie = written(&app, &ann, "Pie");
+    let (_, read) = read_as(&app, &bob, &pie);
+    let held = read["head_version_id"].as_str().unwrap().to_string();
+
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&ann),
+        &json!({ "branch_id": pie, "title": "Apple pie" }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["collapsed"], json!(true), "{saved}");
+    assert_eq!(saved["result"]["sequence"], json!(1), "{saved}");
+    let replaced_by = saved["result"]["version_id"].as_str().unwrap().to_string();
+
+    let (status, started) = app.post_op(
+        "start_attempt",
+        Some(&bob),
+        &json!({
+            "branch_id": pie,
+            "version_id": held,
+            "attempt_id": "at_0123456789abcdef",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{started}");
+    assert_eq!(
+        started["result"]["version_id"],
+        json!(replaced_by),
+        "a cooking of the Version that stands in the folded one's place"
+    );
+
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&ann),
+        &json!({ "branch_id": pie }).to_string(),
+    );
+    let seen = thread["result"]["attempts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|attempt| attempt["id"] == json!("at_0123456789abcdef"))
+        .unwrap_or_else(|| panic!("the cooking is on Ann's Thread: {thread}"))
+        .clone();
+    assert_eq!(seen["eaten_version_id"], json!(replaced_by));
+
+    // A Version of another recipe is no Version this Branch ever held.
+    let tart = written(&app, &ann, "Tart");
+    let (_, tart_read) = read_as(&app, &ann, &tart);
+    let (status, refused) = app.post_op(
+        "start_attempt",
+        Some(&bob),
+        &json!({
+            "branch_id": pie,
+            "version_id": tart_read["head_version_id"],
+            "attempt_id": "at_fedcba9876543210",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert_eq!(
+        refused["error"]["message"],
+        json!("version_id is not a Version of this Branch"),
+        "{refused}"
+    );
+
+    let (status, preview) = app.post_op(
+        "preview_leaving_kitchen",
+        Some(&bob),
+        &json!({ "kitchen_id": family }).to_string(),
+    );
+    assert_eq!(status, 200, "{preview}");
+    assert_eq!(preview["result"], json!({ "they_keep": 0, "you_keep": 1 }));
+    let (status, removed) = app.post_op(
+        "remove_kitchen_member",
+        Some(&ann),
+        &json!({ "kitchen_id": family, "person_id": bob_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{removed}");
+    assert_eq!(
+        shelf_titles(&app, &bob),
+        ["Apple pie"],
+        "he keeps a Branch of what he cooked"
+    );
+
+    // Nor is a Version another Branch of the same recipe folded away: Ann's
+    // variation, started from the Version Bob cooked, re-saves straight away
+    // and its first change is folded at a place Pie's own chain also has.
+    let (status, appended) = app.post_op(
+        "save_recipe_version",
+        Some(&ann),
+        &json!({ "branch_id": pie, "title": "Apple pie with cream" }).to_string(),
+    );
+    assert_eq!(status, 200, "{appended}");
+    assert_eq!(appended["result"]["sequence"], json!(2), "{appended}");
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&ann),
+        &json!({ "branch_id": pie, "name": "Cold", "version_id": replaced_by }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let variation = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    let save = |title: &str| {
+        let (status, saved) = app.post_op(
+            "save_recipe_version",
+            Some(&ann),
+            &json!({ "branch_id": variation, "title": title }).to_string(),
+        );
+        assert_eq!(status, 200, "{saved}");
+        saved["result"].clone()
+    };
+    let folded_there = save("Cold apple pie")["version_id"].clone();
+    let chilled = save("Chilled apple pie");
+    assert_eq!(chilled["collapsed"], json!(true), "{chilled}");
+    assert_eq!(chilled["sequence"], json!(2), "{chilled}");
+    let (status, refused) = app.post_op(
+        "start_attempt",
+        Some(&ann),
+        &json!({ "branch_id": pie, "version_id": folded_there }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    let (status, landed) = app.post_op(
+        "start_attempt",
+        Some(&ann),
+        &json!({ "branch_id": variation, "version_id": folded_there }).to_string(),
+    );
+    assert_eq!(
+        status, 200,
+        "on the Branch that folded it, it lands: {landed}"
+    );
+}
+
 /// **A save made from an older Version than the newest is a Version of its
 /// own** (#536). The same cook saves from two devices that both opened the
 /// soup: the second save names the Version it was written from, which is no
