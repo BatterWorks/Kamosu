@@ -77,16 +77,34 @@ async function drawnPage(): Promise<string> {
 	return document.body.innerHTML;
 }
 
+/**
+ * How long Chrome gets to start. Alone it starts in a second or two, but
+ * under a full `just test`, beside the Rust build, it once missed vitest's
+ * default 10 s for a hook (#554).
+ */
+const CHROME_START_MS = 60_000;
+
+/**
+ * How long each hook waits: ten seconds more than Chrome's start, so a Chrome
+ * that cannot start fails with the error below, not with the hook's.
+ */
+const HOOK_MS = CHROME_START_MS + 10_000;
+
 let browser: Browser;
 beforeAll(async () => {
 	// The Chrome `.env` names, else the first on the path: a machine with no
 	// dev instance to name still runs the tests.
 	const env = fs.existsSync(path.join(ROOT, '.env')) ? devEnv() : {};
-	browser = await chromium.launch({ executablePath: chromePath(env) });
-});
+	const executablePath = chromePath(env);
+	try {
+		browser = await chromium.launch({ executablePath, timeout: CHROME_START_MS });
+	} catch (error) {
+		throw new Error(`Chrome did not start from ${executablePath}`, { cause: error });
+	}
+}, HOOK_MS);
 afterAll(async () => {
 	await browser?.close();
-});
+}, HOOK_MS);
 
 /**
  * How far each box's text runs past the right edge of its box, or of the
