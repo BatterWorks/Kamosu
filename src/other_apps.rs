@@ -467,17 +467,26 @@ pub enum Photo {
 /// What each recipe is known by, given `ids` in the file's order: each as it
 /// is, and one already given numbered, `Lemonade (2)`, never as another of
 /// `ids` is already known.
+///
+/// Each name remembers the number it reached, so the thousandth repeat costs
+/// what the second did (#540).
 pub fn numbered(ids: Vec<String>) -> Vec<String> {
     let mut taken: std::collections::HashSet<String> = ids.iter().cloned().collect();
     let mut given = std::collections::HashSet::new();
+    let mut reached: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
     ids.into_iter()
         .map(|id| {
             if given.insert(id.clone()) {
                 return id;
             }
-            let numbered = (2..)
-                .map(|n| format!("{id} ({n})"))
-                .find(|numbered| !taken.contains(numbered))
+            let next = reached.entry(id.clone()).or_insert(2);
+            let numbered = (*next..)
+                .map(|n| (n, format!("{id} ({n})")))
+                .find(|(_, numbered)| !taken.contains(numbered))
+                .map(|(n, numbered)| {
+                    *next = n + 1;
+                    numbered
+                })
                 .unwrap_or_default();
             taken.insert(numbered.clone());
             given.insert(numbered.clone());
@@ -733,5 +742,39 @@ mod tests {
         assert!(handed.is_zip());
         assert!(handed.is_zip());
         assert!(!Handed::bytes(b"PK".to_vec()).is_zip());
+    }
+
+    // #540: the k-th recipe of one name is numbered as cheaply as the
+    // second, and a number another recipe already holds is still passed by.
+    #[test]
+    fn many_recipes_of_one_name_number_in_linear_time() {
+        assert_eq!(
+            numbered(
+                ["Tart", "Tart (2)", "Tart", "Tart", "Soup", "Tart"]
+                    .map(String::from)
+                    .to_vec()
+            ),
+            [
+                "Tart", "Tart (2)", "Tart (3)", "Tart (4)", "Soup", "Tart (5)"
+            ]
+        );
+        let least_time = |count: usize| {
+            (0..3)
+                .map(|_| {
+                    let ids = vec!["Lemonade".to_string(); count];
+                    let started = std::time::Instant::now();
+                    let given = numbered(ids);
+                    let took = started.elapsed();
+                    assert_eq!(given[count - 1], format!("Lemonade ({count})"));
+                    took
+                })
+                .min()
+                .unwrap()
+        };
+        let ratio = least_time(80_000).as_secs_f64() / least_time(20_000).as_secs_f64();
+        assert!(
+            ratio < 9.0,
+            "four times the recipes took {ratio:.1} times as long"
+        );
     }
 }

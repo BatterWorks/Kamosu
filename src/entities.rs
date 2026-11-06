@@ -38,8 +38,17 @@ pub fn decode_entities(text: &str) -> String {
 /// `text` starts with `&`. Decodes one entity and reports how many bytes of
 /// `text` it consumed, or `None` if `text` doesn't start with a recognised
 /// one — in which case the `&` is kept literally rather than guessed at.
+///
+/// The `;` is looked for only as far as the longest entity decoded, so a long
+/// run of `&` with no `;` costs a few bytes for each, not the rest of the text
+/// (#540). A `;` is one byte in UTF-8 and never inside another character, so
+/// where it is found is a char boundary.
 fn decode_one_entity(text: &str) -> Option<(char, usize)> {
-    let end = text.find(';').filter(|&end| end <= 10)?;
+    const LONGEST: usize = 10;
+    let end = text
+        .bytes()
+        .take(LONGEST + 1)
+        .position(|byte| byte == b';')?;
     let body = &text[1..end];
     let decoded = match body {
         "amp" => '&',
@@ -78,5 +87,33 @@ mod tests {
         assert_eq!(decode_entities("salt & pepper"), "salt & pepper");
         assert_eq!(decode_entities("Truffle&Egg"), "Truffle&Egg");
         assert_eq!(decode_entities("&nbsp;"), "&nbsp;");
+    }
+
+    /// The least time of three, to keep a busy machine's noise out.
+    fn least_time(text: &str) -> std::time::Duration {
+        (0..3)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                assert_eq!(decode_entities(text).len(), text.len());
+                started.elapsed()
+            })
+            .min()
+            .unwrap()
+    }
+
+    // #540: four times the text takes about four times as long, where the
+    // old scan to the next `;` took sixteen. A ratio, not a time, so a slow
+    // machine does not fail it.
+    #[test]
+    fn a_long_run_of_ampersands_decodes_in_linear_time() {
+        let short = "&".repeat(500_000);
+        let long = "&".repeat(2_000_000);
+        let ratio = least_time(&long).as_secs_f64() / least_time(&short).as_secs_f64();
+        assert!(
+            ratio < 9.0,
+            "four times the text took {ratio:.1} times as long"
+        );
+        assert_eq!(decode_entities("&&&amp;&#38;&"), "&&&&&");
+        assert_eq!(decode_entities("&#x1F600;é&amp;"), "😀é&");
     }
 }

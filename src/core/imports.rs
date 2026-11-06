@@ -1298,16 +1298,10 @@ impl Core {
         let (version_id, content_text) = stored_version(&content);
 
         self.db().with_conn(|conn| {
-            let existing: Option<(String, String, String)> = conn
-                .query_row(
-                    "SELECT import_ledger.lineage_id, import_ledger.branch_id, branches.head_version_id \
-                       FROM import_ledger JOIN branches ON branches.id = import_ledger.branch_id \
-                      WHERE import_ledger.import_id = ?1 AND import_ledger.foreign_id = ?2",
-                    params![import_id, foreign_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                )
-                .optional()
-                .map_err(|e| OpError::internal(format!("cannot read Import ledger: {e}")))?;
+            let existing = match ledger_row(conn, import_id, foreign_id)? {
+                None => mealie_row_by_bare_number(conn, import_id, foreign_id, &title)?,
+                found => found,
+            };
 
             let outcome = match existing {
                 None => {
@@ -1371,7 +1365,9 @@ impl Core {
                                 |row| row.get::<_, String>(0),
                             )
                             .map(|content| serde_json::from_str(&content).unwrap_or_default())
-                            .map_err(|e| OpError::internal(format!("cannot read the recipe: {e}")))?;
+                            .map_err(|e| {
+                                OpError::internal(format!("cannot read the recipe: {e}"))
+                            })?;
                         Ok(ImportOutcome::Landed {
                             lineage_id,
                             branch_id,
@@ -1597,6 +1593,55 @@ impl LinesOn {
             offered: None,
         })
     }
+}
+
+/// The Lineage, Branch and head Version the ledger holds for `foreign_id`.
+fn ledger_row(
+    conn: &Connection,
+    import_id: &str,
+    foreign_id: &str,
+) -> Result<Option<(String, String, String)>, OpError> {
+    conn.query_row(
+        "SELECT import_ledger.lineage_id, import_ledger.branch_id, branches.head_version_id \
+           FROM import_ledger JOIN branches ON branches.id = import_ledger.branch_id \
+          WHERE import_ledger.import_id = ?1 AND import_ledger.foreign_id = ?2",
+        params![import_id, foreign_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read Import ledger: {e}")))
+}
+
+/// A recipe from before Mealie 1 that the ledger still holds by its bare
+/// number, as every import did before #540: the same recipe where some
+/// Version of the recipe it landed as bears the title arriving, so a cook's
+/// own renaming since keeps the match, and none otherwise, so recipe 3 of
+/// another instance lands as a recipe of its own. The row stays as written.
+fn mealie_row_by_bare_number(
+    conn: &Connection,
+    import_id: &str,
+    foreign_id: &str,
+    title: &str,
+) -> Result<Option<(String, String, String)>, OpError> {
+    let Some(number) = crate::mealie::number_before_v1(foreign_id) else {
+        return Ok(None);
+    };
+    conn.query_row(
+        "SELECT import_ledger.lineage_id, import_ledger.branch_id, branches.head_version_id \
+           FROM import_ledger \
+           JOIN imports ON imports.id = import_ledger.import_id \
+           JOIN branches ON branches.id = import_ledger.branch_id \
+          WHERE import_ledger.import_id = ?1 AND import_ledger.foreign_id = ?2 \
+            AND imports.source_kind = 'mealie' \
+            AND EXISTS (SELECT 1 FROM branch_versions \
+                          JOIN versions ON versions.id = branch_versions.version_id \
+                         WHERE branch_versions.branch_id = import_ledger.branch_id \
+                           AND json_extract(versions.content, '$.title') = ?3)",
+        params![import_id, number, title],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read Import ledger: {e}")))
 }
 
 /// The Lineage an Import's ledger knows a foreign id as.

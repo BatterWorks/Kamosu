@@ -33,6 +33,9 @@
 - A phone's Shortcut key sends files of at most 25 MB and holds at most ten waiting to be added, which is what adding a recipe takes. Before, it could send any number of files up to 2 GB each. [#538]
 - Receiving a Bundle refuses a file that is no zip, or larger than a Bundle can be, without reading it into memory first. [#538]
 - A line on the Shopping List and the words on a day of the plan are at most 2,000 characters, and a cooking's note 10,000. Before, one very long line could hold up everyone's requests for seconds, a Demo visitor's included. [#538]
+- A recipe whose time is negative or impossibly long, such as `PT-5M`, now arrives with no time instead of stopping the import, from a link or another app's file. Before, an import from a file ended at that recipe and brought in none after it. [#540]
+- A page or a file holding a long run of `&` signs, or thousands of recipes of one name, is read in moments. Before, either could hold the import queue for many minutes, Share Link visitors' Sheets and Bundles waiting behind it. [#540]
+- Two Mealie instances from before Mealie 1 no longer have their recipes mistaken for each other's. Before, recipe 3 of a second instance was offered as a change to recipe 3 of the first and never arrived. Recipes already brought in still match their own. [#540]
 
 [#464]: https://github.com/BatterWorks/Kamosu/issues/464
 [#486]: https://github.com/BatterWorks/Kamosu/issues/486
@@ -50,6 +53,7 @@
 [#535]: https://github.com/BatterWorks/Kamosu/issues/535
 [#536]: https://github.com/BatterWorks/Kamosu/issues/536
 [#538]: https://github.com/BatterWorks/Kamosu/issues/538
+[#540]: https://github.com/BatterWorks/Kamosu/issues/540
 
 ## v0.5.0 - 2026-10-29
 
