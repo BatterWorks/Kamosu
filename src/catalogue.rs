@@ -118,6 +118,17 @@ pub enum JobKey {
     CreatesItsRecipe,
 }
 
+/// The most characters a line on the Shopping List, or the words planned on
+/// a day, may hold (#538). A line is "bin bags" or "pizza night", far short
+/// of this. Every line is stored as typed and the whole list
+/// rebuilt on each change, so without a limit one write of the 40 MB a
+/// request may carry held the database for seconds, from a Demo visitor too.
+const LONGEST_LINE: usize = 2_000;
+
+/// The most characters a cooking's note may hold (#538): a few pages of
+/// writing about one dinner, for the same reason as [`LONGEST_LINE`].
+const LONGEST_NOTE: usize = 10_000;
+
 /// What a Demo does with an Operation (ADR 0052). A Demo is open to anyone,
 /// who arrives as the Sample Library's Camille, so everything a stranger
 /// could misuse is refused, with reason `demo`, the moment it is asked.
@@ -4447,7 +4458,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "type": "object",
                 "properties": {
                     "attempt_id": { "type": "string" },
-                    "note": { "type": ["string", "null"] },
+                    "note": { "type": ["string", "null"], "maxLength": LONGEST_NOTE },
                     "rating": rating_schema(),
                     "photographs": {
                         "type": ["array", "null"],
@@ -4484,7 +4495,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "type": "object",
                 "properties": {
                     "attempt_id": { "type": "string" },
-                    "note": { "type": ["string", "null"] },
+                    "note": { "type": ["string", "null"], "maxLength": LONGEST_NOTE },
                     "rating": rating_schema(),
                     "photographs": {
                         "type": ["array", "null"],
@@ -4951,7 +4962,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "text": { "type": "string" },
+                    "text": { "type": "string", "maxLength": LONGEST_LINE },
                     "item_id": {
                         "type": "string",
                         "description": "The id to give this line, for one typed with no network (#77): i_ and sixteen lower-case hex digits. Sending the same line twice adds it once.",
@@ -5130,7 +5141,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "words": { "type": "string" },
+                    "words": { "type": "string", "maxLength": LONGEST_LINE },
                     "day": day_schema(),
                     "week": week_schema(),
                     "planned_meal_id": planned_meal_id_schema(),
@@ -5160,7 +5171,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "type": "object",
                 "properties": {
                     "planned_meal_id": { "type": "string" },
-                    "words": { "type": "string" },
+                    "words": { "type": "string", "maxLength": LONGEST_LINE },
                     "written_at": written_at_schema(),
                 },
                 "required": ["planned_meal_id", "words"],

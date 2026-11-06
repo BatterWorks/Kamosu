@@ -155,7 +155,7 @@ impl Core {
         let mut unreadable = 0;
         let mut stored = |bytes: &[u8]| {
             let stored = self
-                .store_photograph(bytes)
+                .store_photograph_in_turn(bytes)
                 .ok()
                 .and_then(|stored| stored["photograph_id"].as_str().map(str::to_string));
             if stored.is_none() {
@@ -176,7 +176,7 @@ impl Core {
                     .photo_already_landed(downloads, &recipe.foreign_id)
                     .or_else(|| {
                         let bytes = downloads.fetch(&address)?;
-                        let stored = self.store_photograph(&bytes).ok()?;
+                        let stored = self.store_photograph_in_turn(&bytes).ok()?;
                         stored["photograph_id"].as_str().map(str::to_string)
                     });
                 if stored.is_none() {
@@ -807,6 +807,76 @@ impl Core {
         })
     }
 
+    /// Stage a file sent to `POST /api/uploads`: where to write it, and the
+    /// most bytes it may be. That is [`Self::LARGEST_UPLOAD`], except for an
+    /// Add-only key, held to what `add_this` takes (ADR 0055, #538): files
+    /// of at most [`LARGEST_HANDED_FILE`], as many unused at once as
+    /// `add_this` reads in one call. A leaked key in plain view otherwise
+    /// fills `/data` 2 GB at a time.
+    ///
+    /// At that count, a file the key could have sent and nobody has used
+    /// for [`Self::ABANDONED_AFTER`] makes way for the new one: a send that
+    /// failed halfway would otherwise keep the phone out for a day. A file
+    /// sent more recently is refused, so one being added is never taken.
+    pub fn begin_staged_upload(&self, caller: &Caller) -> Result<Staging, OpError> {
+        if caller.add_only {
+            self.make_way_for_one_more(&caller.person_id)?;
+        }
+        let (upload_id, path) = self.begin_upload(&caller.person_id)?;
+        let largest = if caller.add_only {
+            LARGEST_HANDED_FILE
+        } else {
+            Self::LARGEST_UPLOAD
+        };
+        Ok(Staging {
+            upload_id,
+            path,
+            largest,
+        })
+    }
+
+    /// How long a file an Add-only key could have sent waits unused before
+    /// a new one from the key may take its place.
+    const ABANDONED_AFTER: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+    /// Below [`MOST_PAGES`] unused files, or brought back below it by
+    /// removing the oldest abandoned one, or refused.
+    fn make_way_for_one_more(&self, person_id: &str) -> Result<(), OpError> {
+        let Ok(files) = std::fs::read_dir(self.uploads_dir(person_id)?) else {
+            return Ok(());
+        };
+        let held: Vec<(std::path::PathBuf, std::fs::Metadata)> = files
+            .flatten()
+            .filter_map(|file| Some((file.path(), file.metadata().ok()?)))
+            .collect();
+        if held.len() < MOST_PAGES {
+            return Ok(());
+        }
+        let abandoned = held
+            .iter()
+            .filter(|(_, metadata)| {
+                metadata.len() <= LARGEST_HANDED_FILE
+                    && metadata
+                        .modified()
+                        .ok()
+                        .and_then(|modified| modified.elapsed().ok())
+                        .is_some_and(|age| age > Self::ABANDONED_AFTER)
+            })
+            .min_by_key(|(_, metadata)| metadata.modified().ok());
+        match abandoned {
+            Some((path, _)) if std::fs::remove_file(path).is_ok() => Ok(()),
+            _ => Err(OpError::bad_request(format!(
+                "{MOST_PAGES} files sent are waiting to be added already. Add them, or send \
+                 again in a few minutes"
+            ))),
+        }
+    }
+
+    /// The largest file `POST /api/uploads` stages. A real 86-recipe library
+    /// is 114 MB, almost all of it photographs; this leaves room for a library
+    /// many times that size without letting one request fill the disk.
+    pub const LARGEST_UPLOAD: u64 = 2 * 1024 * 1024 * 1024;
+
     /// A file too large for an Operation's JSON envelope, staged on disk under
     /// the Person who sent it until an Operation names it by its id (ADR 0001:
     /// non-JSON payloads travel out of band under the same Credential). A
@@ -823,6 +893,30 @@ impl Core {
         let upload_id = format!("u_{}", hex::encode(random_bytes(16)));
         let path = dir.join(&upload_id);
         Ok((upload_id, path))
+    }
+
+    /// The first `count` bytes of the Person's own staged upload, or fewer
+    /// where it is shorter, without reading the rest (#538).
+    pub fn staged_upload_head(
+        &self,
+        person_id: &str,
+        upload_id: &str,
+        count: u64,
+    ) -> Result<Vec<u8>, OpError> {
+        use std::io::Read;
+        let path = self.staged_upload(person_id, upload_id)?;
+        let mut head = Vec::new();
+        std::fs::File::open(&path)
+            .and_then(|file| file.take(count).read_to_end(&mut head))
+            .map_err(|e| OpError::internal(format!("cannot open the upload: {e}")))?;
+        Ok(head)
+    }
+
+    /// Remove the Person's own staged upload, used up without being read.
+    pub fn forget_staged_upload(&self, person_id: &str, upload_id: &str) {
+        if let Ok(path) = self.staged_upload(person_id, upload_id) {
+            let _ = std::fs::remove_file(path);
+        }
     }
 
     /// Where the Person's own staged upload sits. Another Person's upload is
@@ -1313,6 +1407,16 @@ impl Core {
             Ok(outcome)
         })
     }
+}
+
+/// A file about to be staged at `POST /api/uploads` (#538).
+pub struct Staging {
+    /// What the Operation that reads it next names it by.
+    pub upload_id: String,
+    /// Where to write it.
+    pub path: std::path::PathBuf,
+    /// The most bytes this sender's file may be.
+    pub largest: u64,
 }
 
 /// One recipe as an importer hands it to [`Core::import_each`]: the candidate,

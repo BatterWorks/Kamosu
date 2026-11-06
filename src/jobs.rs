@@ -784,7 +784,7 @@ impl OriginalKind {
         match self {
             OriginalKind::PastedText => "text/plain; charset=utf-8",
             OriginalKind::Pdf => "application/pdf",
-            // Remade as a Photograph is (`photographs::remake_original`).
+            // Remade as a Photograph is (`photographs::Remaking::remake_original`).
             OriginalKind::Picture => "image/webp",
         }
     }

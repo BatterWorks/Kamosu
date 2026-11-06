@@ -30960,6 +30960,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"note": {
+					"maxLength": 10000,
 					"type": [
 						"string",
 						"null"
@@ -31511,6 +31512,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"note": {
+					"maxLength": 10000,
 					"type": [
 						"string",
 						"null"
@@ -35798,6 +35800,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"text": {
+					"maxLength": 2000,
 					"type": "string"
 				},
 				"written_at": {
@@ -36703,6 +36706,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"words": {
+					"maxLength": 2000,
 					"type": "string"
 				},
 				"written_at": {
@@ -36854,6 +36858,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"words": {
+					"maxLength": 2000,
 					"type": "string"
 				},
 				"written_at": {

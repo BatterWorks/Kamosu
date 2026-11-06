@@ -1703,7 +1703,7 @@ pub fn import_web_link(
             progress.report(0, None, "fetching the photo".to_string());
         }
         let bytes = crate::web_import::fetch_photo(image_url).ok()?;
-        let stored = core.store_photograph(&bytes).ok()?;
+        let stored = core.store_photograph_in_turn(&bytes).ok()?;
         stored
             .get("photograph_id")
             .and_then(Value::as_str)
@@ -2001,7 +2001,27 @@ pub fn import_bundle(core: &Core, invocation: &Invocation, input: Value) -> Resu
                        sent to POST /api/uploads, or base64-encoded";
     let caller = caller_of(invocation)?;
     let progress = invocation.job.as_ref();
-    let bytes = sent_file(core, caller, &input, USAGE, None)?;
+    // Neither of these is read into memory (#538): a staged file that does
+    // not start as a zip does is answered as any unreadable Bundle is, from
+    // its first bytes alone, and one larger than a Bundle may unpack to is
+    // refused by `sent_file` from its size.
+    if let (Some(upload_id), None) = (
+        input.get("upload_id").and_then(Value::as_str),
+        input.get("data"),
+    ) {
+        let head = core.staged_upload_head(&caller.person_id, upload_id, 4)?;
+        if !crate::bundles::looks_like_a_zip(&head) {
+            core.forget_staged_upload(&caller.person_id, upload_id);
+            return core.import_bundle(caller, &head, landing(&input), progress);
+        }
+    }
+    let bytes = sent_file(
+        core,
+        caller,
+        &input,
+        USAGE,
+        Some(crate::bundles::MOST_IN_ALL),
+    )?;
     core.import_bundle(caller, &bytes, landing(&input), progress)
 }
 

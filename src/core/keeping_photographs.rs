@@ -13,10 +13,30 @@ impl Core {
     /// Remake an uploaded picture and give it its identity (ADR 0017). Two
     /// uploads of the same picture — including this one, again — answer the
     /// same id: the write is `INSERT OR IGNORE`, never a duplicate.
+    /// Busy while two pictures are being remade (#538).
     pub fn store_photograph(&self, bytes: &[u8]) -> Result<Value, OpError> {
-        let remade = photographs::remake(bytes)?;
-        let hash = photographs::hash_bytes(&remade);
-        self.record_photograph(&hash, &remade)?;
+        let remade = self.pictures.remake(bytes)?;
+        self.store_remade(&remade)
+    }
+
+    /// [`Core::store_photograph`] for a picture an import brings, which waits
+    /// its turn rather than being answered busy: busy, it would be left out
+    /// of what landed (#538).
+    pub fn store_photograph_in_turn(&self, bytes: &[u8]) -> Result<Value, OpError> {
+        let remade = self.pictures.remake_in_turn(bytes)?;
+        self.store_remade(&remade)
+    }
+
+    /// Test-only, compiled only under the `test-jobs` feature: hold one of
+    /// the places a picture is remade in until the answer is dropped (#538).
+    #[cfg(feature = "test-jobs")]
+    pub fn hold_a_picture_place(&self) -> Result<photographs::Place<'_>, OpError> {
+        self.pictures.hold_a_place()
+    }
+
+    fn store_remade(&self, remade: &[u8]) -> Result<Value, OpError> {
+        let hash = photographs::hash_bytes(remade);
+        self.record_photograph(&hash, remade)?;
         Ok(json!({ "photograph_id": hash }))
     }
 

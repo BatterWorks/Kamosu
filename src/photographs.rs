@@ -6,8 +6,10 @@
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
+use std::sync::{Condvar, Mutex};
+
 use image::metadata::Orientation;
-use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, imageops::FilterType};
+use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits, imageops::FilterType};
 use sha2::{Digest, Sha256};
 
 use crate::core::OpError;
@@ -53,9 +55,31 @@ pub const MAX_PICTURE_BYTES: usize = 25 * 1024 * 1024;
 /// paying that cost, so it is what Kamosu decides on.
 ///
 /// 100 megapixels is far above any camera a household owns (a 2560-pixel long
-/// edge is what a Photograph is stored at in any case) and far below the size
-/// at which decoding hurts.
+/// edge is what a Photograph is stored at in any case). It is not enough on
+/// its own: what decoding costs is the pixels times the bytes each takes,
+/// which [`MOST_UNPACKED`] holds.
 const MAX_MEGAPIXELS: u64 = 100;
+
+/// The most bytes a picture may unpack to, read off its header as width ×
+/// height × the bytes its colours take per pixel, before anything is decoded
+/// (#538). A 778 KB PNG of 100 megapixels at 16 bits a colour with
+/// transparency unpacks to 800 MB, and remaking it took Kamosu to 1.3 GB.
+///
+/// 200 MB is a 50-megapixel picture at 8 bits a colour with transparency, so
+/// every camera photograph passes: a 50-megapixel JPEG unpacks to 150 MB, and
+/// a phone's 48-megapixel one is usually saved at 12. This bounds the decode,
+/// not the whole remake: turning the picture upright copies it, and the
+/// resize holds a working copy of its own. Measured on 6 November 2026, two
+/// of the largest pictures let in, remade at once, took the instance to
+/// 1.6 GB at its peak; four 16-bit pictures had taken it to 5 GB before.
+const MOST_UNPACKED: u64 = 50 * 1_000_000 * 4;
+
+/// Pictures one instance remakes at once, so a run of large ones costs at
+/// most this many cores and this many times what one costs in memory (#538).
+/// One more asked for by a person is answered busy, as a third PDF is (#373).
+/// One in an import waits its turn, and takes a place only while that leaves
+/// one free, so imports running never keep a person's picture out.
+const MOST_AT_ONCE: usize = 2;
 
 /// A Display Copy's own long edge — worked out from the Photograph, kept only
 /// for convenience, and rebuildable, so these numbers are free to change
@@ -140,41 +164,127 @@ impl HashingBytes {
     }
 }
 
-/// Remake whatever arrived into the one agreed form: WebP, quality 80, at
-/// most 2560 pixels on the long edge, camera metadata stripped (ADR 0017).
-/// Checks the picture's own header before decoding anything, and refuses SVG
-/// outright — decoding is the one place an untrusted upload gets to run
-/// arbitrary-looking code, so nothing here decodes bytes it hasn't first
-/// recognised as a real picture.
-pub fn remake(bytes: &[u8]) -> Result<Vec<u8>, OpError> {
-    remake_at(bytes, MAX_LONG_EDGE, WEBP_QUALITY)
+/// The pictures an instance is remaking now, of the [`MOST_AT_ONCE`] it may
+/// (#538). Every picture handed to Kamosu is remade through one of these, and
+/// the Core holds the one there is.
+#[derive(Default)]
+pub struct Remaking {
+    at_once: Mutex<usize>,
+    freed: Condvar,
 }
 
-/// Remake at a given long edge and quality: the one path every picture
-/// handed to Kamosu is decoded through. Decoding, resizing and encoding a
-/// camera's picture holds a thread far longer than a request should, so it is
-/// done off the request workers whichever Door it came through (#373).
-fn remake_at(bytes: &[u8], long_edge: u32, quality: f32) -> Result<Vec<u8>, OpError> {
-    off_the_request_workers(|| {
-        let mut decoder = checked_decoder(bytes)?;
-        // Cameras stamp rotation into Exif rather than the pixels (eight of
-        // the sixty in the real export do). Reading it now and baking it in
-        // before the metadata is stripped below is the only chance to keep
-        // it upright.
-        let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
-        let mut image = DynamicImage::from_decoder(decoder)
-            .map_err(|e| OpError::bad_request(format!("cannot read this picture: {e}")))?;
-        image.apply_orientation(orientation);
-        encode_at(&downscale(image, long_edge), quality)
-    })
+/// Whether a picture asked for while every place is taken waits for one.
+#[derive(Clone, Copy)]
+enum Turn {
+    /// Answered busy at once: a person is waiting on the answer, and can
+    /// send it again in a moment.
+    Now,
+    /// Waits until a place is free with another left beside it: an
+    /// import's picture, which nobody is waiting on and which would
+    /// otherwise be left out of what landed.
+    Waiting,
 }
 
-/// Remake a picture handed to an agent as its Original (#269): checked and
-/// stripped as a Photograph is, the place it was taken above all, but kept
-/// larger and sharper so print on it stays legible. It is no Photograph and
-/// is stored as none.
-pub fn remake_original(bytes: &[u8]) -> Result<Vec<u8>, OpError> {
-    remake_at(bytes, ORIGINAL_LONG_EDGE, ORIGINAL_WEBP_QUALITY)
+impl Remaking {
+    /// Remake whatever arrived into the one agreed form: WebP, quality 80, at
+    /// most 2560 pixels on the long edge, camera metadata stripped (ADR
+    /// 0017). Checks the picture's own header before decoding anything, and
+    /// refuses SVG outright — decoding is the one place an untrusted upload
+    /// gets to run arbitrary-looking code, so nothing here decodes bytes it
+    /// hasn't first recognised as a real picture. Busy when
+    /// [`MOST_AT_ONCE`] are being remade.
+    pub fn remake(&self, bytes: &[u8]) -> Result<Vec<u8>, OpError> {
+        self.remake_at(bytes, MAX_LONG_EDGE, WEBP_QUALITY, Turn::Now)
+    }
+
+    /// [`Remaking::remake`] for a picture an import brings, which waits for
+    /// a place rather than being answered busy.
+    pub fn remake_in_turn(&self, bytes: &[u8]) -> Result<Vec<u8>, OpError> {
+        self.remake_at(bytes, MAX_LONG_EDGE, WEBP_QUALITY, Turn::Waiting)
+    }
+
+    /// Remake a picture handed to an agent as its Original (#269): checked
+    /// and stripped as a Photograph is, the place it was taken above all, but
+    /// kept larger and sharper so print on it stays legible. It is no
+    /// Photograph and is stored as none.
+    pub fn remake_original(&self, bytes: &[u8]) -> Result<Vec<u8>, OpError> {
+        self.remake_at(bytes, ORIGINAL_LONG_EDGE, ORIGINAL_WEBP_QUALITY, Turn::Now)
+    }
+
+    /// Remake at a given long edge and quality: the one path every picture
+    /// handed to Kamosu is decoded through. Decoding, resizing and encoding
+    /// a camera's picture holds a thread far longer than a request should,
+    /// so it is done off the request workers whichever Door it came through
+    /// (#373), and waiting for a place with it.
+    fn remake_at(
+        &self,
+        bytes: &[u8],
+        long_edge: u32,
+        quality: f32,
+        turn: Turn,
+    ) -> Result<Vec<u8>, OpError> {
+        off_the_request_workers(|| {
+            // Refused before it takes a place: a picture that will not be
+            // decoded should not make another wait. Reading a header can
+            // itself unpack a little, so it is off the request workers too.
+            checked_decoder(bytes)?;
+            let _place = self.take_place(turn)?;
+            remade(bytes, long_edge, quality)
+        })
+    }
+
+    /// Test-only, compiled only under the `test-jobs` feature: take one
+    /// place as a remake would and hold it until the answer is dropped, so a
+    /// test can say what a picture meets while every place is taken.
+    #[cfg(feature = "test-jobs")]
+    pub fn hold_a_place(&self) -> Result<Place<'_>, OpError> {
+        self.take_place(Turn::Now)
+    }
+
+    /// One of the [`MOST_AT_ONCE`] places, or busy.
+    fn take_place(&self, turn: Turn) -> Result<Place<'_>, OpError> {
+        let mut at_once = self.at_once.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            match turn {
+                Turn::Now if *at_once < MOST_AT_ONCE => break,
+                Turn::Now => return Err(OpError::busy()),
+                Turn::Waiting if *at_once + 1 < MOST_AT_ONCE => break,
+                Turn::Waiting => {
+                    at_once = self.freed.wait(at_once).unwrap_or_else(|e| e.into_inner());
+                }
+            }
+        }
+        *at_once += 1;
+        Ok(Place(self))
+    }
+}
+
+/// One of the [`MOST_AT_ONCE`] places, given back however the remake ends.
+pub struct Place<'a>(&'a Remaking);
+
+impl Drop for Place<'_> {
+    fn drop(&mut self) {
+        let mut at_once = self.0.at_once.lock().unwrap_or_else(|e| e.into_inner());
+        *at_once -= 1;
+        // Every import waiting looks again: which of them may go depends on
+        // how many places are taken, not only on this one coming free.
+        self.0.freed.notify_all();
+    }
+}
+
+/// The remaking itself, on a picture [`checked_decoder`] passes. Its header
+/// is read a second time here, which costs nothing beside the decode.
+fn remade(bytes: &[u8], long_edge: u32, quality: f32) -> Result<Vec<u8>, OpError> {
+    let mut decoder = checked_decoder(bytes)?;
+    // Cameras stamp rotation into Exif rather than the pixels (eight of
+    // the sixty in the real export do). Reading it now and baking it in
+    // before the metadata is stripped below is the only chance to keep
+    // it upright.
+    let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+    let mut image = DynamicImage::from_decoder(decoder)
+        .map_err(|e| OpError::bad_request(format!("cannot read this picture: {e}")))?;
+    image.apply_orientation(orientation);
+    encode_at(&downscale(image, long_edge), quality)
 }
 
 /// Whether these bytes start the way a picture Kamosu reads does. Says
@@ -267,7 +377,15 @@ fn checked_decoder(bytes: &[u8]) -> Result<impl ImageDecoder + '_, OpError> {
         )));
     }
     let format = sniff(bytes)?;
-    let decoder = ImageReader::with_format(Cursor::new(bytes), format)
+    let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
+    // The crate's own limits, a second guard behind the checks below. They
+    // reach only what a decoder chooses to count: the PNG decoder counts the
+    // chunks it unpacks while reading the header, the JPEG decoder nothing.
+    // The checks below, on what the header claims, are the real limit.
+    let mut limits = Limits::default();
+    limits.max_alloc = Some(MOST_UNPACKED);
+    reader.limits(limits);
+    let decoder = reader
         .into_decoder()
         .map_err(|e| OpError::bad_request(format!("cannot read this picture: {e}")))?;
     // Reading the header is all this has cost: `into_decoder` parsed the
@@ -277,6 +395,13 @@ fn checked_decoder(bytes: &[u8]) -> Result<impl ImageDecoder + '_, OpError> {
     if claimed > MAX_MEGAPIXELS * 1_000_000 {
         return Err(OpError::bad_request(format!(
             "this picture says it is {width} × {height}, which is more than the {MAX_MEGAPIXELS} megapixels Kamosu will open"
+        )));
+    }
+    if decoder.total_bytes() > MOST_UNPACKED {
+        return Err(OpError::bad_request(format!(
+            "this picture says it is {width} × {height} in {} bytes a pixel, which unpacks to more than the {} MB Kamosu will open",
+            decoder.color_type().bytes_per_pixel(),
+            MOST_UNPACKED / 1_000_000
         )));
     }
     Ok(decoder)
@@ -301,6 +426,10 @@ fn sniff(bytes: &[u8]) -> Result<ImageFormat, OpError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn remake(bytes: &[u8]) -> Result<Vec<u8>, OpError> {
+        Remaking::default().remake(bytes)
+    }
 
     /// A real, freshly encoded PNG of the given size — generated rather than
     /// hand-typed, so the fixture itself cannot be wrong the way a hand-typed
@@ -434,6 +563,65 @@ mod tests {
             "the refusal should say what the picture claimed, got: {}",
             err.message
         );
+    }
+
+    /// A PNG of 16 bits a colour with transparency, which unpacks to eight
+    /// bytes a pixel, claiming the given size by its header.
+    fn deep_png_claiming_to_be(width: u32, height: u32) -> Vec<u8> {
+        let small = DynamicImage::ImageRgba16(image::ImageBuffer::new(4, 4));
+        let mut png = Vec::new();
+        small
+            .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+            .expect("encodes");
+        png[16..20].copy_from_slice(&width.to_be_bytes());
+        png[20..24].copy_from_slice(&height.to_be_bytes());
+        let crc = crc32(&png[12..29]);
+        png[29..33].copy_from_slice(&crc.to_be_bytes());
+        png
+    }
+
+    #[test]
+    fn a_picture_that_unpacks_past_the_limit_is_refused_by_its_header() {
+        // 100 megapixels is within the count, and eight bytes each is 800 MB.
+        let err = check(&deep_png_claiming_to_be(10_000, 10_000))
+            .expect_err("a picture unpacking to 800 MB must be refused");
+        assert!(
+            err.message.contains("8 bytes a pixel") && err.message.contains("200 MB"),
+            "the refusal should say why, got: {}",
+            err.message
+        );
+        // A 50-megapixel camera photograph, three bytes a pixel, still passes.
+        check(&claiming_to_be(8_660, 5_773)).expect("a camera's photograph passes");
+    }
+
+    #[test]
+    fn a_third_picture_while_two_are_remade_is_busy_and_an_import_waits() {
+        let remaking = Remaking::default();
+        let first = remaking.take_place(Turn::Now).expect("a place");
+        let second = remaking.take_place(Turn::Now).expect("a place");
+        let busy = remaking
+            .remake(&make_png(40, 30))
+            .expect_err("both places are taken");
+        assert_eq!(busy.kind, crate::core::ErrorKind::Busy);
+        std::thread::scope(|scope| {
+            let waiting = scope.spawn(|| remaking.remake_in_turn(&make_png(40, 30)));
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            assert!(!waiting.is_finished(), "an import's picture waits its turn");
+            drop(first);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            assert!(
+                !waiting.is_finished(),
+                "with one place taken, an import leaves the other for a person"
+            );
+            drop(second);
+            waiting
+                .join()
+                .unwrap()
+                .expect("remade once both places are free");
+        });
+        remaking
+            .remake(&make_png(40, 30))
+            .expect("each place is given back");
     }
 
     #[test]

@@ -31,7 +31,7 @@
 //! [`INPUT_SCHEMAS`] compiles all of them at startup. A misspelt keyword, an
 //! unknown type name or an `additionalProperties` that is not `false` is a
 //! failed build (`tests/parity.rs`), not a check that quietly stopped running.
-//! The whole of the Catalogue's input surface is the nine keywords
+//! The whole of the Catalogue's input surface is the ten keywords
 //! [`IMPLEMENTED`] names, plus the two that only annotate.
 //!
 //! The full argument, the crates weighed against it and what the measurement
@@ -132,6 +132,9 @@ pub struct Schema {
     minimum: Option<f64>,
     maximum: Option<f64>,
     exclusive_minimum: Option<f64>,
+    /// The most characters a string may hold, counted as JSON Schema counts
+    /// them: one per Unicode character, whatever its bytes (#538).
+    max_length: Option<usize>,
 }
 
 /// The keywords this module implements, plus the two that only annotate.
@@ -141,7 +144,7 @@ pub struct Schema {
 /// agrees they do not. Every other keyword is a compile error until it is
 /// implemented here — which is the point.
 const ANNOTATIONS: [&str; 2] = ["description", "default"];
-const IMPLEMENTED: [&str; 9] = [
+const IMPLEMENTED: [&str; 10] = [
     "type",
     "enum",
     "properties",
@@ -151,6 +154,7 @@ const IMPLEMENTED: [&str; 9] = [
     "minimum",
     "maximum",
     "exclusiveMinimum",
+    "maxLength",
 ];
 
 /// Compile one declaration, refusing anything this module does not implement.
@@ -268,6 +272,15 @@ pub fn compile(schema: &Value, path: &str) -> Result<Schema, String> {
     let maximum = number_keyword(object.get("maximum"), "maximum", path)?;
     let exclusive_minimum =
         number_keyword(object.get("exclusiveMinimum"), "exclusiveMinimum", path)?;
+    let max_length = match object.get("maxLength") {
+        None => None,
+        Some(value) => Some(
+            value
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+                .ok_or_else(|| format!("{path}: 'maxLength' must be a whole number"))?,
+        ),
+    };
 
     Ok(Schema {
         types,
@@ -279,6 +292,7 @@ pub fn compile(schema: &Value, path: &str) -> Result<Schema, String> {
         minimum,
         maximum,
         exclusive_minimum,
+        max_length,
     })
 }
 
@@ -385,6 +399,15 @@ impl Schema {
                     at(path)
                 ));
             }
+        }
+
+        if let (Some(most), Some(text)) = (self.max_length, value.as_str())
+            && text.chars().count() > most
+        {
+            return Err(format!(
+                "{operation}: {} must be at most {most} characters",
+                at(path)
+            ));
         }
 
         Ok(())
@@ -604,6 +627,22 @@ mod tests {
             .is_ok()
         );
         assert!(check(schema, json!({ "shopping_yield": { "amount": 8 } })).is_err());
+    }
+
+    #[test]
+    fn a_string_longer_than_its_limit_is_refused_by_characters() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "text": { "type": "string", "maxLength": 3 } },
+            "additionalProperties": false,
+        });
+        // Three characters of two bytes each: the limit counts characters.
+        assert!(check(schema.clone(), json!({ "text": "été" })).is_ok());
+        let refusal = check(schema, json!({ "text": "étés" })).expect_err("four characters");
+        assert!(
+            refusal.contains("'text' must be at most 3 characters"),
+            "{refusal}"
+        );
     }
 
     #[test]
