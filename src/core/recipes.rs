@@ -95,6 +95,7 @@ impl Core {
         name: Option<&str>,
         change_note: Option<&str>,
         translates_version_id: Option<&str>,
+        base_version_id: Option<&str>,
     ) -> Result<Value, OpError> {
         let content = parse_recipe_content(input)?;
         self.save_onto_branch(
@@ -104,6 +105,7 @@ impl Core {
             name,
             change_note,
             translates_version_id,
+            base_version_id,
         )
     }
 
@@ -123,6 +125,7 @@ impl Core {
         name: Option<&str>,
         change_note: Option<&str>,
         translates_version_id: Option<&str>,
+        base_version_id: Option<&str>,
     ) -> Result<Value, OpError> {
         self.save_onto_branch(
             caller,
@@ -131,6 +134,7 @@ impl Core {
             name,
             change_note,
             translates_version_id,
+            base_version_id,
         )
     }
 
@@ -145,6 +149,7 @@ impl Core {
         name: Option<&str>,
         change_note: Option<&str>,
         translates_version_id: Option<&str>,
+        base_version_id: Option<&str>,
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             // Before anything else reads the Branch, the identical-content
@@ -256,10 +261,22 @@ impl Core {
             // long ago, and never one that was there before it. Nobody else's
             // save folds into a Job's Version, the asker's own included,
             // though the Job saved it under their Hand (ADR 0048, #265).
+            //
+            // A person shapes it only from where it stands (#536): a save
+            // that says it started from another Version was written on a
+            // stale tab or a second device, and folding it in would put the
+            // other device's edit out of every chain. A save that says
+            // nothing, an agent's or an older screen's, is taken as made from
+            // the head, as before.
+            let from_the_head =
+                base_version_id.is_none_or(|base| base == head_version_id.as_str());
             let head_is_callers_to_shape = match &caller.job_id {
                 Some(job_id) => head_job_id.as_deref() == Some(job_id.as_str()),
                 None => {
-                    head_job_id.is_none() && within_window && head_hand_id == caller.person_id
+                    head_job_id.is_none()
+                        && within_window
+                        && head_hand_id == caller.person_id
+                        && from_the_head
                 }
             };
 
@@ -274,8 +291,15 @@ impl Core {
             // is told the same thing whatever it sent.
             if let Some(job_id) = &caller.job_id {
                 let refused = if head_is_callers_to_shape {
-                    version_has_left(conn, &lineage_id, branch_id, &head_version_id)?
-                        .then_some(crate::jobs::HELD_ELSEWHERE)
+                    if version_has_left(conn, &lineage_id, branch_id, &head_version_id)? {
+                        Some(crate::jobs::HELD_ELSEWHERE)
+                    } else {
+                        // Every cooking counts here: a Job promotes nothing,
+                        // and asking without the save's own Version tells it
+                        // the same thing whatever it sent.
+                        head_was_cooked(conn, &lineage_id, &head_version_id, None)?
+                            .then_some(crate::jobs::COOKED_WHILE_IT_WORKED)
+                    }
                 } else {
                     job_has_saved_onto(conn, job_id, branch_id)?
                         .then_some(crate::jobs::CHANGED_WHILE_IT_WORKED)
@@ -494,13 +518,18 @@ impl Core {
             // shaped and become a shared fact. Appending costs one extra
             // Version, which is honest, because somebody else really is
             // holding the old one.
+            //
+            // A cooking closes it too (#536). An Attempt names the Version it
+            // started from, and the Thread, what a cook keeps on leaving a
+            // Kitchen and a start replayed from a phone all find it there, so
+            // folding that Version away would take the cooking with it.
             let collapse = version_being_shaped(
                 conn,
                 &lineage_id,
                 branch_id,
                 &head_version_id,
                 head_is_callers_to_shape,
-            )?;
+            )? && !head_was_cooked(conn, &lineage_id, &head_version_id, Some(&version_id))?;
             if collapse {
                 // A name or change note the call leaves out is the one the
                 // Version already carries, not an erasure (#165).
@@ -3130,6 +3159,36 @@ fn version_has_left(
             || version_is_held_by_another_branch(conn, lineage_id, branch_id, version_id)?
             || head_was_bundled(conn, branch_id)?,
     )
+}
+
+/// Whether somebody cooked this Branch's head, or kept a cooking as it (#536):
+/// an Attempt that started from it, or whose As Cooked it is. Either way the
+/// cooking is found through that Version being on the chain, so replacing it
+/// would lose the cooking from the Thread and from what its cook keeps.
+///
+/// Given the Version this save writes, one cooking does not count: the one
+/// whose As Cooked is that Version. That is a Promotion inside the window, and the Thread finds
+/// the cooking by what was eaten (#209), which the collapse leaves at the
+/// head. What its cook keeps on leaving a Kitchen (`cooked_from`) still asks
+/// only the Version it started from, as it did before #536. Anybody else's
+/// cooking of the same head still closes the window.
+fn head_was_cooked(
+    conn: &Connection,
+    lineage_id: &str,
+    head_version_id: &str,
+    new_version_id: Option<&str>,
+) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS ( \
+            SELECT 1 FROM attempts \
+             WHERE lineage_id = ?1 \
+               AND (version_id = ?2 OR as_cooked_version_id = ?2) \
+               AND (?3 IS NULL OR as_cooked_version_id IS NULL \
+                    OR as_cooked_version_id <> ?3) )",
+        params![lineage_id, head_version_id, new_version_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot ask whether this Version was cooked: {e}")))
 }
 
 /// Whether a Bundle carried this Branch's head away, through the app or a

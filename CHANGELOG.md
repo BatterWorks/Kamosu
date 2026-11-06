@@ -28,6 +28,7 @@
 - Recovering an account with a recovery link now removes its passkeys too, so a passkey added by whoever had the password no longer signs them back in. The recovered Person adds their own again from Settings, and the recovery's line in their Security Record counts the passkeys removed. [#535]
 - A new recovery link ends any earlier one for the same Person still unused, and so do recovering the account and changing the password. Before, an older link could still set a new password after the account was recovered. [#535]
 - A recipe's Share Link page writes its times as the app does, `9 h` or `1 h 30` instead of `540` or `90` minutes, in the page and in the card a messaging app shows. A Step's photograph is a small square at the end of its row that opens the picture, a Component's Steps included, and a shared variation shows its name under the title. `read_shared_recipe` answers the Branch's `name`. [#521]
+- Saving a recipe again within the hour no longer replaces a Version somebody has cooked. Before, the cooking left the recipe's History, and a Kitchen-mate leaving the Kitchen kept nothing of it. A save from a second device or an old tab, made from an earlier Version, is now a Version of its own instead of replacing the other device's save. `save_recipe_version` and `edit_recipe` take the Version the save was written from as `base_version_id`. [#536]
 
 [#464]: https://github.com/BatterWorks/Kamosu/issues/464
 [#486]: https://github.com/BatterWorks/Kamosu/issues/486
@@ -43,6 +44,7 @@
 [#533]: https://github.com/BatterWorks/Kamosu/issues/533
 [#534]: https://github.com/BatterWorks/Kamosu/issues/534
 [#535]: https://github.com/BatterWorks/Kamosu/issues/535
+[#536]: https://github.com/BatterWorks/Kamosu/issues/536
 
 ## v0.5.0 - 2026-10-29
 

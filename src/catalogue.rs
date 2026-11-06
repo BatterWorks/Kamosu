@@ -2114,9 +2114,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       edit_recipe instead. A re-save by the same Hand within \
                       60 minutes of the last one collapses into the Version \
                       already being shaped, \
-                      unless another Branch, a Translation or a Bundle \
-                      already holds that Version, or an agent's Job saved \
-                      it. A save \
+                      unless another Branch, a Translation, a Bundle or a \
+                      cooking already holds that Version, or an agent's Job \
+                      saved it. A save \
                       with a Job Key collapses into the one Version its Job \
                       started. Once that Job has saved, \
                       its next save is refused, failing the Job, if anyone \
@@ -2160,8 +2160,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       exactly save_recipe_version: the result is saved as the \
                       recipe's new state, a re-edit by the same Hand within 60 \
                       minutes collapses into the Version being shaped (unless \
-                      another Branch, a Translation or a Bundle already holds \
-                      it, or an agent's Job saved it), an edit with a Job Key \
+                      another Branch, a Translation, a Bundle or a cooking \
+                      already holds it, or an agent's Job saved it), an edit \
+                      with a Job Key \
                       collapses \
                       and is refused as its save is, and \
                       changing a recipe your Cookbook did not write is a Copy. \
@@ -7239,6 +7240,18 @@ fn save_recipe_version_input_schema() -> Value {
                              said. Left out, whatever the Version being replaced \
                              pointed at is carried forward, so editing a \
                              Translation's wording never claims it has caught up.",
+        }),
+    );
+    map.insert(
+        "base_version_id".to_string(),
+        json!({
+            "type": "string",
+            "description": "The Version this save was written from: the newest one \
+                             when the recipe was opened. Where it is no longer the \
+                             newest, somebody saved since, from another tab or \
+                             device too, and this save starts a Version of its own \
+                             rather than collapsing into theirs. Left out, the save \
+                             is taken as written from the newest Version.",
         }),
     );
     json!({

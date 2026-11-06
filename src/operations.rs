@@ -1137,6 +1137,7 @@ pub fn save_recipe_version(
     let name = input.get("name").and_then(Value::as_str);
     let change_note = input.get("change_note").and_then(Value::as_str);
     let translates_version_id = input.get("translates_version_id").and_then(Value::as_str);
+    let base_version_id = input.get("base_version_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     core.save_recipe_version(
         caller,
@@ -1145,6 +1146,7 @@ pub fn save_recipe_version(
         name,
         change_note,
         translates_version_id,
+        base_version_id,
     )
 }
 
@@ -1161,6 +1163,7 @@ pub fn edit_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result
     let name = input.get("name").and_then(Value::as_str);
     let change_note = input.get("change_note").and_then(Value::as_str);
     let translates_version_id = input.get("translates_version_id").and_then(Value::as_str);
+    let base_version_id = input.get("base_version_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     core.edit_recipe(
         caller,
@@ -1169,6 +1172,7 @@ pub fn edit_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result
         name,
         change_note,
         translates_version_id,
+        base_version_id,
     )
 }
 
