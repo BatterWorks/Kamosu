@@ -206,8 +206,11 @@ export async function signedInArgs(args, usage) {
 export async function atEverySize(browser, origin, secret, visit) {
 	for (const [size, dimensions] of Object.entries(SIZES)) {
 		const context = await signedInContext(browser, origin, secret, dimensions);
-		await visit(size, await context.newPage(), context);
-		await context.close();
+		try {
+			await visit(size, await context.newPage(), context);
+		} finally {
+			await context.close();
+		}
 	}
 }
 

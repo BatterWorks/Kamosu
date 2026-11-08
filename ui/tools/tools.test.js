@@ -12,7 +12,7 @@ import { ToolError, chromePath, readEnv, sessionFile, signedInArgs, slugOf } fro
 import { secretFrom } from './dev-session.mjs';
 import { fileFor, folderOf, server } from './proto-serve.mjs';
 import { indexOf, pageOf, photoName } from './proto-new.mjs';
-import { pictureName } from './screens.mjs';
+import { PICTURE_LIMIT, pictureName, piecesOf } from './screens.mjs';
 import { compare } from './screens-same.mjs';
 import { SIZES } from './sizes.mjs';
 
@@ -91,6 +91,36 @@ describe('a picture', () => {
 		);
 	});
 
+	it('of a page too tall for one is named piece by piece', () => {
+		expect(pictureName('/recipes', 'phone-sideways', 1)).toBe('recipes.phone-sideways-1.png');
+		expect(pictureName('/recipes', 'phone-sideways', 2)).toBe('recipes.phone-sideways-2.png');
+	});
+
+	it('is one piece while the page fits, the limit itself included', () => {
+		expect(piecesOf(844, PICTURE_LIMIT)).toEqual([{ y: 0, height: 844 }]);
+		expect(piecesOf(PICTURE_LIMIT, PICTURE_LIMIT)).toEqual([{ y: 0, height: PICTURE_LIMIT }]);
+	});
+
+	it('of a taller page is pieces that stack to its whole height, none past the limit', () => {
+		// The recipe list sideways on the phone, measured on #522.
+		const pieces = piecesOf(40811, PICTURE_LIMIT);
+		expect(pieces).toEqual([
+			{ y: 0, height: 32767 },
+			{ y: 32767, height: 8044 },
+		]);
+		for (const height of [32768, 65534, 65535, 100000]) {
+			const each = piecesOf(height, PICTURE_LIMIT);
+			let top = 0;
+			for (const piece of each) {
+				expect(piece.y).toBe(top);
+				expect(piece.height).toBeGreaterThan(0);
+				expect(piece.height).toBeLessThanOrEqual(PICTURE_LIMIT);
+				top += piece.height;
+			}
+			expect(top).toBe(height);
+		}
+	});
+
 	it('is taken at the phone and at every size #192 names', () => {
 		expect(SIZES.phone).toEqual([390, 844]);
 		expect(SIZES.macbook).toEqual([1512, 982]);
@@ -136,6 +166,35 @@ describe('comparing two sets of pictures', () => {
 		expect(differences).toHaveLength(2);
 		expect(differences[0]).toMatch(/^gone\.phone\.png: only in .*before$/);
 		expect(differences[1]).toMatch(/^new\.phone\.png: only in .*after$/);
+	});
+
+	it('pairs the pieces of a tall page by name', () => {
+		const pieces = { 'r.phone-sideways-1.png': 'top', 'r.phone-sideways-2.png': 'foot' };
+		expect(compare(fill('before', pieces), fill('after', pieces))).toEqual({
+			compared: 2,
+			differences: [],
+		});
+	});
+
+	it('counts a page that became pieces, or took more of them, as differing', () => {
+		const whole = fill('before', { 'r.phone-sideways.png': 'all' });
+		const two = fill('after', {
+			'r.phone-sideways-1.png': 'top',
+			'r.phone-sideways-2.png': 'foot',
+		});
+		expect(compare(whole, two).differences).toEqual([
+			expect.stringMatching(/^r\.phone-sideways-1\.png: only in .*after$/),
+			expect.stringMatching(/^r\.phone-sideways-2\.png: only in .*after$/),
+			expect.stringMatching(/^r\.phone-sideways\.png: only in .*before$/),
+		]);
+		const three = fill('third', {
+			'r.phone-sideways-1.png': 'top',
+			'r.phone-sideways-2.png': 'foot',
+			'r.phone-sideways-3.png': 'more',
+		});
+		expect(compare(two, three).differences).toEqual([
+			expect.stringMatching(/^r\.phone-sideways-3\.png: only in .*third$/),
+		]);
 	});
 
 	it('refuses two empty folders, which would pass by holding nothing', () => {
