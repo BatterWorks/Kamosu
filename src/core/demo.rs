@@ -354,11 +354,14 @@ enum Unnamed {
     },
 }
 
-/// Every file in `dir` whose name `kept` says no to, as `unnamed` makes it.
+/// Every file in `dir` whose row is not among `named`, each as `make`
+/// writes it from that row's key. `key_of` reads the key out of a file's
+/// name; a name it reads none from is no file of Kamosu's, and goes too.
 fn unnamed_in(
     dir: &std::path::Path,
-    kept: impl Fn(&str) -> bool,
-    unnamed: impl Fn(&str, std::path::PathBuf) -> Unnamed,
+    key_of: impl Fn(&str) -> Option<&str>,
+    named: &HashSet<String>,
+    make: impl Fn(String, std::path::PathBuf) -> Unnamed,
     into: &mut Vec<Unnamed>,
 ) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -366,8 +369,9 @@ fn unnamed_in(
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !kept(&name) {
-            into.push(unnamed(&name, entry.path()));
+        let key = key_of(&name);
+        if !key.is_some_and(|key| named.contains(key)) {
+            into.push(make(key.unwrap_or(&name).to_owned(), entry.path()));
         }
     }
 }
@@ -504,40 +508,28 @@ impl Core {
         })?;
         let data_dir = self.data_dir();
         let mut unnamed = Vec::new();
-        let photograph = |hash: &str, path| Unnamed::Photograph {
-            hash: hash.to_owned(),
-            path,
-        };
+        let photograph = |hash, path| Unnamed::Photograph { hash, path };
         unnamed_in(
             &photographs::photographs_dir(&data_dir),
-            |file| {
-                file.strip_suffix(".webp")
-                    .is_some_and(|hash| photographs.contains(hash))
-            },
-            |file, path| photograph(file.strip_suffix(".webp").unwrap_or(file), path),
+            |file| file.strip_suffix(".webp"),
+            &photographs,
+            photograph,
             &mut unnamed,
         );
         unnamed_in(
             &photographs::display_dir(&data_dir),
-            |file| {
-                file.split_once('-')
-                    .is_some_and(|(hash, _)| photographs.contains(hash))
-            },
-            |file, path| photograph(file.split_once('-').map_or(file, |(hash, _)| hash), path),
+            |file| file.split_once('-').map(|(hash, _)| hash),
+            &photographs,
+            photograph,
             &mut unnamed,
         );
         // A Job's later pages and what Settings shows of it are named after
         // the Job too, before a dot (#463).
-        fn job_of(file: &str) -> &str {
-            file.split_once('.').map_or(file, |(job_id, _)| job_id)
-        }
         unnamed_in(
             &originals_dir(&data_dir),
-            |file| originals.contains(job_of(file)),
-            |file, path| Unnamed::Original {
-                job_id: job_of(file).to_owned(),
-                path,
-            },
+            |file| Some(file.split_once('.').map_or(file, |(job_id, _)| job_id)),
+            &originals,
+            |job_id, path| Unnamed::Original { job_id, path },
             &mut unnamed,
         );
         Ok(unnamed)
