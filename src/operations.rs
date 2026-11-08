@@ -1312,6 +1312,8 @@ pub fn import_by_agent(
                  of at most {LONGEST_LINK} bytes, to no address on the local network"
             )));
         }
+        // A short link is handed on as the post it leads to (#497).
+        let link = &crate::web_import::followed_if_short(link, LONGEST_LINK);
         return core.import_link_by_agent(caller, link, landing(&input));
     }
     let given = ["text", "upload_id", "data", "pictures"]

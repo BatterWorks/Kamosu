@@ -6,7 +6,9 @@
 //!
 //! [`link_identity`] is what two links are compared by, and [`without_tracking`]
 //! is what a recipe's Source keeps. Every other link is compared and kept as
-//! it is. The real shapes are in `tests/fixtures/shared-links.json`.
+//! it is. A short link names no post at all until it is followed, so
+//! [`is_short_form`] tells one apart and `web_import` follows it (#497). The
+//! real shapes are in `tests/fixtures/shared-links.json`.
 
 use rusqlite::Connection;
 use rusqlite::functions::FunctionFlags;
@@ -43,6 +45,39 @@ pub fn without_tracking(link: &str) -> String {
         url.query_pairs_mut().extend_pairs(kept);
     }
     url.into()
+}
+
+/// Whether `link` is an address the matcher knows the post of.
+pub fn names_a_post(link: &str) -> bool {
+    video(link).is_some()
+}
+
+/// Whether `link` is a short form, which names no post until its redirect is
+/// followed (#497): TikTok's `vm.tiktok.com/<code>/`, `vt.tiktok.com/<code>/`
+/// and `tiktok.com/t/<code>/`, and Instagram's `/share/...` addresses.
+pub fn is_short_form(link: &str) -> bool {
+    let Ok(url) = Url::parse(link) else {
+        return false;
+    };
+    if !matches!(url.scheme(), "http" | "https") {
+        return false;
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let host = host.strip_prefix("www.").unwrap_or(host);
+    let path: Vec<&str> = url
+        .path_segments()
+        .map(|segments| segments.filter(|s| !s.is_empty()).collect())
+        .unwrap_or_default();
+    match host {
+        "vm.tiktok.com" | "vt.tiktok.com" => matches!(path.as_slice(), [code, ..] if is_id(code)),
+        "tiktok.com" | "m.tiktok.com" => matches!(path.as_slice(), ["t", code, ..] if is_id(code)),
+        "instagram.com" | "m.instagram.com" => {
+            matches!(path.as_slice(), ["share", .., token] if is_id(token))
+        }
+        _ => false,
+    }
 }
 
 fn video(link: &str) -> Option<Video> {
@@ -215,6 +250,51 @@ mod tests {
             without_tracking("https://www.tiktok.com/@somecook/video/7000?t=CODE"),
             "https://www.tiktok.com/@somecook/video/7000"
         );
+    }
+
+    #[test]
+    fn a_short_form_is_known_by_its_shape() {
+        let fixture = fixture();
+        for link in fixture["short_forms"].as_array().unwrap() {
+            let link = link.as_str().unwrap();
+            assert!(is_short_form(link), "{link}");
+            assert!(!names_a_post(link), "{link}");
+        }
+        for row in fixture["links"].as_array().unwrap() {
+            let link = row["link"].as_str().unwrap();
+            assert!(!is_short_form(link), "{link}");
+        }
+        for link in [
+            "https://vm.tiktok.com/",
+            "https://www.tiktok.com/t/",
+            "https://www.instagram.com/share/",
+            "https://www.tiktok.com/@somecook",
+            "https://www.seriouseats.com/share/reel/TOKEN/",
+        ] {
+            assert!(!is_short_form(link), "{link}");
+        }
+    }
+
+    /// Where a short link really led, a video with no author's name included.
+    #[test]
+    fn where_a_short_link_led_names_its_post() {
+        for (led_to, identity) in [
+            (
+                "https://www.tiktok.com/@somecook/video/7000000000000000000?_r=1&_t=CODE",
+                "https://www.tiktok.com/video/7000000000000000000",
+            ),
+            (
+                "https://www.tiktok.com/@/video/7000000000000000000?_r=1&_d=CODE",
+                "https://www.tiktok.com/video/7000000000000000000",
+            ),
+            (
+                "https://www.instagram.com/reel/POSTID/?igsh=CODE",
+                "https://www.instagram.com/p/POSTID/",
+            ),
+        ] {
+            assert!(names_a_post(led_to), "{led_to}");
+            assert_eq!(link_identity(led_to), identity);
+        }
     }
 
     #[test]

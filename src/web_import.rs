@@ -461,6 +461,20 @@ fn guarded_acl() -> Acl {
     acl
 }
 
+/// Test-only, under the same feature as [`allow_loopback_fetches_for_tests`]:
+/// where the short-link hosts are dialled, so a behaviour test's own server
+/// can answer `vm.tiktok.com` and `www.instagram.com` (#497). Only the
+/// client that follows a short link reads it.
+#[cfg(feature = "test-jobs")]
+static TEST_SHORT_LINK_HOSTS: std::sync::OnceLock<std::net::SocketAddr> =
+    std::sync::OnceLock::new();
+
+#[cfg(feature = "test-jobs")]
+pub fn answer_short_link_hosts_for_tests(at: std::net::SocketAddr) {
+    allow_loopback_fetches_for_tests();
+    let _ = TEST_SHORT_LINK_HOSTS.set(at);
+}
+
 fn guarded_client(acl: &Acl) -> Result<reqwest::Client, OpError> {
     let for_redirects = acl.clone();
     let redirect_policy = reqwest::redirect::Policy::custom(move |attempt| {
@@ -483,6 +497,79 @@ fn guarded_client(acl: &Acl) -> Result<reqwest::Client, OpError> {
         .user_agent(USER_AGENT)
         .build()
         .map_err(|e| OpError::internal(format!("cannot build the guarded HTTP client: {e}")))
+}
+
+/// How long following a short link may take, every hop together (#497). A
+/// phone is waiting for its answer, and a lookup that runs out changes
+/// nothing but what the link is compared by.
+const SHORT_LINK_TIME: Duration = Duration::from_secs(3);
+
+/// Where a short link to a video leads (#497): TikTok's `vm.tiktok.com/<code>/`
+/// or Instagram's `/share/reel/<token>/`, which name no post until they are
+/// followed. Its redirects are followed one at a time under the guarded
+/// fetch's rules, no hop to the local network and at most `MAX_REDIRECTS`,
+/// reading no body, and the first address that names a post is the answer,
+/// without asking for it. `None` for any other link, and wherever following
+/// fails or runs out of time: the short link then goes on as it is.
+///
+/// Needs a multi-threaded runtime, which every Door and Job runs on, and
+/// holds no request worker while it waits.
+fn where_short_link_leads(link: &str) -> Option<String> {
+    if !crate::video_link::is_short_form(link) {
+        return None;
+    }
+    let handle = tokio::runtime::Handle::try_current().ok()?;
+    if handle.runtime_flavor() != tokio::runtime::RuntimeFlavor::MultiThread {
+        return None;
+    }
+    crate::slow_work::off_the_request_workers(|| {
+        handle.block_on(async {
+            tokio::time::timeout(SHORT_LINK_TIME, follow_to_a_post(link, guarded_acl()))
+                .await
+                .ok()
+                .flatten()
+        })
+    })
+}
+
+async fn follow_to_a_post(link: &str, acl: Acl) -> Option<String> {
+    let builder = acl
+        .configure(reqwest::Client::builder())
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(SHORT_LINK_TIME)
+        .user_agent(USER_AGENT);
+    #[cfg(feature = "test-jobs")]
+    let builder = match TEST_SHORT_LINK_HOSTS.get() {
+        Some(at) => ["vm.tiktok.com", "www.instagram.com"]
+            .iter()
+            .fold(builder, |builder, host| builder.resolve(host, *at)),
+        None => builder,
+    };
+    let client = builder.build().ok()?;
+    let mut at = parse_fetchable_url(link).ok()?;
+    for _ in 0..MAX_REDIRECTS {
+        acl.validate_url(&at).ok()?;
+        let response = client.get(at.clone()).send().await.ok()?;
+        if !response.status().is_redirection() {
+            return None;
+        }
+        let location = response.headers().get(reqwest::header::LOCATION)?;
+        let next = at.join(location.to_str().ok()?).ok()?;
+        if crate::video_link::names_a_post(next.as_str()) {
+            return Some(next.into());
+        }
+        at = next;
+    }
+    None
+}
+
+/// `link` as it is matched and handed on: where it leads, for a short link
+/// that can be followed to its post, or `link` itself (#497). An address no
+/// longer than `longest` alone replaces it.
+pub fn followed_if_short(link: &str, longest: usize) -> String {
+    where_short_link_leads(link)
+        .filter(|led_to| led_to.len() <= longest)
+        .unwrap_or_else(|| link.to_string())
 }
 
 /// Whether `link` is one this guarded fetch would set out to read: http or
@@ -1230,6 +1317,130 @@ mod tests {
 
         let six = client.get(chain_of(6).await).send().await;
         assert!(six.is_err(), "a 6th redirect must be refused");
+    }
+
+    /// A loopback server answering `routes`, on `ip`. Its address and how
+    /// many requests reached it.
+    async fn counting_server(
+        ip: &str,
+        routes: axum::Router,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = hits.clone();
+        let routes = routes.layer(axum::middleware::from_fn(
+            move |request: axum::extract::Request, next: axum::middleware::Next| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                next.run(request)
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind(format!("{ip}:0"))
+            .await
+            .unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, routes).await.unwrap() });
+        (base, hits)
+    }
+
+    /// The guard, letting through 127.0.0.1 alone, so a test server can be
+    /// dialled there and 127.0.0.2 stands for the local network.
+    fn guard_but_for_one_loopback() -> Acl {
+        Acl::new()
+            .deny_local_network()
+            .allow_ip_when(|ip| ip == std::net::IpAddr::from([127, 0, 0, 1]))
+    }
+
+    /// A short link is followed hop by hop to the first address that names a
+    /// post, which is never asked for itself: here it is TikTok's, and no
+    /// test reaches TikTok (#497).
+    #[tokio::test]
+    async fn a_short_link_is_followed_to_its_post_and_no_further() {
+        let (base, hits) = counting_server(
+            "127.0.0.1",
+            axum::Router::new()
+                .route(
+                    "/SHORTCODE/",
+                    axum::routing::get(|| async { axum::response::Redirect::permanent("/t/HOP/") }),
+                )
+                .route(
+                    "/t/HOP/",
+                    axum::routing::get(|| async {
+                        axum::response::Redirect::temporary(
+                            "https://www.tiktok.com/@somecook/video/7000000000000000000?_r=1&_t=CODE",
+                        )
+                    }),
+                ),
+        )
+        .await;
+        let led_to =
+            follow_to_a_post(&format!("{base}/SHORTCODE/"), guard_but_for_one_loopback()).await;
+        assert_eq!(
+            led_to.as_deref(),
+            Some("https://www.tiktok.com/@somecook/video/7000000000000000000?_r=1&_t=CODE")
+        );
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    /// A hop to the local network is refused before it is dialled, and the
+    /// short link then leads nowhere.
+    #[tokio::test]
+    async fn a_short_link_is_not_followed_onto_the_local_network() {
+        let (inside, inside_hits) = counting_server(
+            "127.0.0.2",
+            axum::Router::new().route(
+                "/{*rest}",
+                axum::routing::get(|| async {
+                    axum::response::Redirect::temporary("https://www.instagram.com/reel/POSTID/")
+                }),
+            ),
+        )
+        .await;
+        let (base, _) = counting_server(
+            "127.0.0.1",
+            axum::Router::new().route(
+                "/share/reel/TOKEN/",
+                axum::routing::get(move || {
+                    let inside = inside.clone();
+                    async move { axum::response::Redirect::temporary(&format!("{inside}/hop")) }
+                }),
+            ),
+        )
+        .await;
+        let led_to = follow_to_a_post(
+            &format!("{base}/share/reel/TOKEN/"),
+            guard_but_for_one_loopback(),
+        )
+        .await;
+        assert_eq!(led_to, None);
+        assert_eq!(inside_hits.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    /// A link that answers with no redirect, or with one that never names a
+    /// post, leads nowhere Kamosu knows.
+    #[tokio::test]
+    async fn a_short_link_that_leads_to_no_post_leads_nowhere() {
+        let (base, _) = counting_server(
+            "127.0.0.1",
+            axum::Router::new()
+                .route(
+                    "/gone/",
+                    axum::routing::get(|| async { axum::http::StatusCode::NOT_FOUND }),
+                )
+                .route(
+                    "/home/",
+                    axum::routing::get(|| async { axum::response::Redirect::temporary("/?_r=1") }),
+                )
+                .route("/", axum::routing::get(|| async { "Home" }))
+                .route(
+                    "/loop/",
+                    axum::routing::get(|| async { axum::response::Redirect::temporary("/loop/") }),
+                ),
+        )
+        .await;
+        for path in ["gone", "home", "loop"] {
+            let led_to =
+                follow_to_a_post(&format!("{base}/{path}/"), guard_but_for_one_loopback()).await;
+            assert_eq!(led_to, None, "{path}");
+        }
     }
 
     #[test]

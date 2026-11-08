@@ -1,5 +1,5 @@
 {
-  "about": "Links as phones really shared them to Kamosu, with each id and code replaced. `link` is what arrived, `source` is what a recipe's Source keeps, `identity` is what two links are matched by. A link the three sites serve in a new shape goes here (#464).",
+  "about": "Links as phones really shared them to Kamosu, with each id and code replaced. `link` is what arrived, `source` is what a recipe's Source keeps, `identity` is what two links are matched by. A link the three sites serve in a new shape goes here (#464). `short_forms` name no post until their redirect is followed, and are matched by where it leads (#497).",
   "links": [
     {
       "link": "https://www.instagram.com/reel/POSTID/",
@@ -126,6 +126,14 @@
       "source": "https://www.tiktok.com/@somecook/video/7000000000000000000",
       "identity": "https://www.tiktok.com/video/7000000000000000000"
     }
+  ],
+  "short_forms": [
+    "https://vm.tiktok.com/SHORTCODE/",
+    "https://vt.tiktok.com/SHORTCODE/",
+    "https://www.tiktok.com/t/SHORTCODE/",
+    "https://www.instagram.com/share/reel/TOKEN/",
+    "https://www.instagram.com/share/p/TOKEN/",
+    "https://www.instagram.com/share/TOKEN/"
   ],
   "left_as_they_are": [
     "https://www.seriouseats.com/lemon-tart-recipe?utm_source=share",

@@ -226,6 +226,9 @@ impl Core {
                 crate::operations::LONGEST_LINK
             )));
         }
+        // A short link is the post it leads to, where that can be found
+        // (#497): compared, handed on and kept as that.
+        let link = &crate::web_import::followed_if_short(link, crate::operations::LONGEST_LINK);
         let link = &crate::video_link::without_tracking(link);
         if let Some((branch_id, title)) = self.on_a_shelf(caller, link)? {
             return Ok(
