@@ -126,6 +126,8 @@ No environment variable is required.
 | `KAMOSU_DEMO_UMAMI_SCRIPT` | unset | In a demo only, the address of an Umami script to count visits with, such as `https://umami.example.com/script.js`. The demo's pages load it and let its address through their security policy. It must send its counts to its own address, as a self-hosted Umami does. Without demo mode, Kamosu ignores it and sends nothing anywhere. |
 | `KAMOSU_DEMO_UMAMI_WEBSITE_ID` | unset | The website id Umami gave the demo. Needed with `KAMOSU_DEMO_UMAMI_SCRIPT`; one without the other counts nothing. |
 
+Kamosu fetches a link's page and pictures itself, from public internet addresses only, and ignores `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY`. Through a proxy, Kamosu could not tell whether a link leads into your own network.
+
 The [GitHub README](https://github.com/BatterWorks/Kamosu#readme) covers Meaning Search, running a demo of your own, troubleshooting and security.
 
 ## License
