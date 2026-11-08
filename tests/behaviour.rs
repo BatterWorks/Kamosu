@@ -49702,6 +49702,133 @@ mod sharing_from_a_phone {
         assert_eq!(recipes_held(&app), 1);
     }
 
+    /// `vm.tiktok.com` and `www.instagram.com` as this test binary dials them
+    /// (#497): one server for every test, on a thread of its own, since the
+    /// hosts are sent to it once. Each short link redirects as the real ones
+    /// do, in one hop to the post, and `GONE` is a code that is not there.
+    fn serve_short_links() {
+        static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        STARTED.get_or_init(|| {
+            let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+            std_listener.set_nonblocking(true).unwrap();
+            let at = std_listener.local_addr().unwrap();
+            std::thread::spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                runtime.block_on(async move {
+                    let listener = tokio::net::TcpListener::from_std(std_listener).unwrap();
+                    let router = axum::Router::new()
+                        .route(
+                            "/SHORTCODE/",
+                            axum::routing::get(|| async {
+                                axum::response::Redirect::permanent(
+                                    "https://www.tiktok.com/@somecook/video/7000000000000000497?_r=1&_t=CODE",
+                                )
+                            }),
+                        )
+                        .route(
+                            "/share/reel/TOKEN/",
+                            axum::routing::get(|| async {
+                                axum::response::Redirect::temporary(
+                                    "https://www.instagram.com/reel/POSTID/?igsh=CODE",
+                                )
+                            }),
+                        );
+                    axum::serve(listener, router).await.unwrap();
+                });
+            });
+            kamosu::web_import::answer_short_link_hosts_for_tests(at);
+        });
+    }
+
+    /// A short link is the video it leads to (#497): known while that video
+    /// is being added under its full address, and once it is on a shelf, and
+    /// handed to the agent as the video's own address.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_short_link_is_known_as_the_video_it_leads_to() {
+        serve_short_links();
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        ask_for_work(&app, &runner);
+        let (key, _) = add_only_key(&app, &session, true);
+        let video = "https://www.tiktok.com/@somecook/video/7000000000000000497";
+
+        let sent = add(
+            &app,
+            &key,
+            json!({ "link": "http://vm.tiktok.com/SHORTCODE/" }),
+        );
+        assert_eq!(sent["outcome"], json!("sent"), "{sent}");
+        let full = add(&app, &key, json!({ "link": video }));
+        assert_eq!(full["outcome"], json!("already"), "{full}");
+        assert_eq!(full["job_id"], sent["job_id"]);
+
+        // The reel is being added under its own address, and its short link
+        // is that reel.
+        let reel = add(
+            &app,
+            &key,
+            json!({ "link": "https://www.instagram.com/reel/POSTID/" }),
+        );
+        assert_eq!(reel["outcome"], json!("sent"), "{reel}");
+        let shared = add(
+            &app,
+            &key,
+            json!({ "link": "http://www.instagram.com/share/reel/TOKEN/" }),
+        );
+        assert_eq!(shared["outcome"], json!("already"), "{shared}");
+        assert_eq!(shared["job_id"], reel["job_id"]);
+
+        let work = ask_for_work(&app, &runner);
+        assert_eq!(work["job_id"], sent["job_id"], "{work}");
+        assert_eq!(work["link"], json!(video), "{work}");
+        let (status, created) = app.post_op(
+            "create_recipe",
+            work["job_key"].as_str(),
+            &json!({
+                "title": "Tarte au citron",
+                "source": { "text": "TikTok", "link": work["link"] },
+                "ingredients": [{ "kind": "ingredient", "text": "4 eggs" }],
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{created}");
+        app.post_op(
+            "report_on_job",
+            Some(&runner),
+            &json!({ "job_id": work["job_id"], "outcome": "completed" }).to_string(),
+        );
+
+        let held = add(
+            &app,
+            &key,
+            json!({ "link": "http://vm.tiktok.com/SHORTCODE/" }),
+        );
+        assert_eq!(held["outcome"], json!("already"), "{held}");
+        assert_eq!(held["branch_id"], created["result"]["branch_id"]);
+    }
+
+    /// A short link that leads nowhere goes on as it is, and the add does not
+    /// fail for it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_short_link_that_cannot_be_followed_is_added_as_it_is() {
+        serve_short_links();
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        ask_for_work(&app, &runner);
+        let (key, _) = add_only_key(&app, &session, true);
+        let gone = "http://vm.tiktok.com/GONE/";
+
+        let sent = add(&app, &key, json!({ "link": gone }));
+        assert_eq!(sent["outcome"], json!("sent"), "{sent}");
+        let work = ask_for_work(&app, &runner);
+        assert_eq!(work["link"], json!(gone), "{work}");
+    }
+
     /// A Source written before #464 keeps its code, because it is part of its
     /// Version's id, and is still found under any other.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

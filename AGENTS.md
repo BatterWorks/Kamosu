@@ -556,8 +556,14 @@ src/step_uses.rs    which Ingredient Lines a Step uses, by the short names
 src/video_link.rs   a link to an Instagram, YouTube or TikTok post told
                     apart from the code each share adds: what two links are
                     matched by, also as `link_identity` in SQL, and what a
-                    recipe's Source keeps. Its real shapes are in
-                    tests/fixtures/shared-links.json (#464)
+                    recipe's Source keeps, and a short link told by its
+                    shape, which web_import.rs follows to its post. Its
+                    real shapes are in tests/fixtures/shared-links.json
+                    (#464, #497)
+src/web_import.rs   the web link importer: a page's schema.org recipe
+                    data, and the guarded fetch every outbound byte for
+                    it passes through (ADR 0033), a short video link
+                    followed to its post among them (#497)
 src/page_text.rs    the text of a page's own article, found as a reader
                     would and written out as a browser copies it, for a
                     link with no recipe data on an instance with no
