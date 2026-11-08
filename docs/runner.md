@@ -823,9 +823,11 @@ It can:
   Job that has no recipe yet.
 - **Correct that recipe's Readings** with `set_reading`.
 - **Put a Tag the Cookbook already has** on that recipe, with `set_recipe_tag`.
+  Several Tags go on in one call, named in `tag_ids`, and the call goes
+  through whole or not at all: when it is refused, none of them went on.
   The published agent's instructions have it file every recipe it reads
-  under each of the Cookbook's Tags that plainly fits, and leave the Tags a
-  person put on where they are.
+  under each of the Cookbook's Tags that plainly fits, all in that one call,
+  and leave the Tags a person put on where they are.
 - **Store a Photograph** with `upload_photograph`, or by sending the picture's
   bytes as the whole body of `POST <kamosu>api/photographs`.
 

@@ -15,6 +15,10 @@
 - `get_person` says whether the Person a Credential names is an Operator, as `is_operator`, whichever of their keys asks. [#533]
 - Settings › People lists the Invites and recovery links not yet used, each with what it does and when it was made, and *Revoke* ends one. Before, an Invite or a recovery link sent to the wrong place worked until somebody used it. Revoking one is in the instance's Security Record. [#535]
 
+### Changed
+
+- The published agent image beside a Runner files a recipe under all its Tags in one `set_recipe_tag` call. Before, it put them on one call at a time, so a network error partway left the recipe with some of its Tags. [#477]
+
 ### Fixed
 
 - Sharing a video Kamosu already holds, or is already reading, says so instead of starting it again, whichever tracking code Instagram, YouTube or TikTok put on the link that time. A recipe added from such a link now keeps it without the code, which names who shared it. [#464]
@@ -45,6 +49,7 @@
 - Pressing the browser's Back button while writing a recipe closes the writing screen and drops the draft, as Cancel does. Before, when Back led to another recipe, the screen stayed open on it, and Save made the draft a Version of that recipe. [#549]
 
 [#464]: https://github.com/BatterWorks/Kamosu/issues/464
+[#477]: https://github.com/BatterWorks/Kamosu/issues/477
 [#486]: https://github.com/BatterWorks/Kamosu/issues/486
 [#487]: https://github.com/BatterWorks/Kamosu/issues/487
 [#488]: https://github.com/BatterWorks/Kamosu/issues/488
