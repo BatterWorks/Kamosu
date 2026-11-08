@@ -21264,6 +21264,204 @@ async fn a_first_fill_too_short_to_read_ends_the_guess() {
     assert_eq!(saved["result"]["language_offer"], json!("fr"));
 }
 
+/// One more step on a Branch, saved as a new Version of it.
+fn add_a_step(app: &support::TestApp, key: &str, branch_id: &str, mut recipe: Value, step: &str) {
+    backdate_branch_head(app, branch_id);
+    recipe["branch_id"] = json!(branch_id);
+    recipe["steps"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "kind": "step", "text": step }));
+    let (status, saved) = app.post_op("save_recipe_version", Some(key), &recipe.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["collapsed"], json!(false), "{saved}");
+}
+
+/// A Branch as `get_recipe` answers it.
+fn read_branch(app: &support::TestApp, key: &str, branch_id: &str) -> Value {
+    let (status, read) = app.post_op(
+        "get_recipe",
+        Some(key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    read["result"].clone()
+}
+
+/// A Variation shares its head Version with the Branch it was started from,
+/// so the Version alone cannot say which was translated. The Translation
+/// remembers the Branch it was started from and is measured against it
+/// (#517).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translation_of_a_variation_is_measured_against_that_variation() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": english, "name": "Vegan" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let vegan = varied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // The unnamed Branch moves on; the Variation stays where it started.
+    add_a_step(
+        &app,
+        &key,
+        &english,
+        english_mousse(),
+        "Rest the mousse overnight.",
+    );
+
+    let french = translate(&app, &key, &vegan, "fr", french_mousse());
+    let translation = read_branch(&app, &key, &french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(vegan),
+        "{translation}"
+    );
+    assert_eq!(translation["versions_behind"], json!(0), "{translation}");
+
+    // The Variation moves on, and the Translation is one behind it.
+    add_a_step(
+        &app,
+        &key,
+        &vegan,
+        english_mousse(),
+        "Serve with oat cream.",
+    );
+    let translation = read_branch(&app, &key, &french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(vegan),
+        "{translation}"
+    );
+    assert_eq!(translation["versions_behind"], json!(1), "{translation}");
+
+    // Naming the Version the two Branches still share keeps the Variation
+    // as the source, which the Version alone cannot say.
+    let shared = translation["translates_version_id"].clone();
+    let mut reworded = french_mousse();
+    reworded["translates_version_id"] = shared;
+    add_a_step(
+        &app,
+        &key,
+        &french,
+        reworded,
+        "Réservez au frais deux heures.",
+    );
+    let translation = read_branch(&app, &key, &french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(vegan),
+        "{translation}"
+    );
+    assert_eq!(translation["versions_behind"], json!(1), "{translation}");
+
+    // Catching up keeps the Variation as the source.
+    let vegan_head = read_branch(&app, &key, &vegan)["head_version_id"].clone();
+    let mut caught_up = french_mousse();
+    caught_up["translates_version_id"] = vegan_head;
+    add_a_step(
+        &app,
+        &key,
+        &french,
+        caught_up,
+        "Servez avec une crème d'avoine.",
+    );
+    let translation = read_branch(&app, &key, &french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(vegan),
+        "{translation}"
+    );
+    assert_eq!(translation["versions_behind"], json!(0), "{translation}");
+}
+
+/// A Translation of the unnamed Branch answers as it always has: that Branch
+/// is its source, it needs no name, and it falls behind as the Branch moves
+/// (#517).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translation_of_the_unnamed_branch_answers_as_before() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": english, "name": "Vegan" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+
+    let french = translate(&app, &key, &english, "fr", french_mousse());
+    let read = read_branch(&app, &key, &french);
+    assert_eq!(read["name"], json!(null), "{read}");
+    assert_eq!(read["translation"]["source_branch_id"], json!(english));
+    assert_eq!(read["translation"]["versions_behind"], json!(0));
+
+    add_a_step(
+        &app,
+        &key,
+        &english,
+        english_mousse(),
+        "Rest the mousse overnight.",
+    );
+    let read = read_branch(&app, &key, &french);
+    assert_eq!(read["translation"]["source_branch_id"], json!(english));
+    assert_eq!(read["translation"]["versions_behind"], json!(1));
+}
+
+/// A second Branch in a Language the Cookbook already holds needs a name. It
+/// is the one sent as `branch_name`, else the translated Branch's own, and
+/// only for an unnamed source whose the source is (#517). `name` still names
+/// the first Version.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_translation_into_a_language_is_named_after_its_source() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": english, "name": "Vegan" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let vegan = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    let first = translate(&app, &key, &english, "fr", french_mousse());
+    assert_eq!(read_branch(&app, &key, &first)["name"], json!(null));
+
+    let after_source = translate(&app, &key, &vegan, "fr", french_mousse());
+    assert_eq!(
+        read_branch(&app, &key, &after_source)["name"],
+        json!("Vegan")
+    );
+
+    let mut named = french_mousse();
+    named["branch_name"] = json!("Végane");
+    named["name"] = json!("Première version");
+    let given = translate(&app, &key, &vegan, "fr", named);
+    let read = read_branch(&app, &key, &given);
+    assert_eq!(read["name"], json!("Végane"), "{read}");
+    assert_eq!(read["translation"]["source_branch_id"], json!(vegan));
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&key),
+        &json!({ "branch_id": given }).to_string(),
+    );
+    assert!(
+        thread.to_string().contains("Première version"),
+        "the first Version keeps its own name: {thread}"
+    );
+
+    let unnamed_again = translate(&app, &key, &english, "fr", french_mousse());
+    let name = read_branch(&app, &key, &unnamed_again)["name"].clone();
+    assert!(
+        name.is_string() && name != json!("Vegan"),
+        "an unnamed source is named as a Copy is: {name}"
+    );
+}
+
 /// A Translation renders its source in another Language, so a guess on a
 /// source that already has one stays, and the text is only offered (#321,
 /// ADR 0006).
@@ -40110,6 +40308,85 @@ async fn joining_again_folds_the_copies_leaving_took() {
         2,
         "no copy of his own recipes handed back to him"
     );
+}
+
+/// **A Translation keeps its source across a leave** (#517). She started the
+/// Vegan Variation and it goes with her; the Copy he keeps of it is what his
+/// Translation renders from then on, not her Branch, which moves with her
+/// saves.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn leaving_points_a_translation_at_the_copy_of_its_source_that_stays() {
+    let app = support::spawn_app();
+    let (_, stephane) = someone(&app, "Stéphane");
+    let (_, camille) = someone(&app, "Camille");
+    let english = shelve_recipe(&app, &stephane, english_mousse());
+    write_together(&app, &stephane, &camille);
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&camille),
+        &json!({ "branch_id": english, "name": "Vegan" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let hers = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    let french = translate(&app, &stephane, &hers, "fr", french_mousse());
+
+    let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
+    assert_eq!(status, 200, "{left}");
+    let source = read_branch(&app, &stephane, &french)["translation"].clone();
+    let his_copy: String = scalar(
+        &app,
+        &format!("SELECT id FROM branches WHERE copied_from = '{hers}'"),
+    );
+    assert_eq!(source["source_branch_id"], json!(his_copy), "{source}");
+    assert_eq!(source["versions_behind"], json!(0), "{source}");
+
+    // Her Vegan moving on is nothing to his Translation.
+    add_a_step(
+        &app,
+        &camille,
+        &hers,
+        english_mousse(),
+        "Serve with oat cream.",
+    );
+    let source = read_branch(&app, &stephane, &french)["translation"].clone();
+    assert_eq!(source["source_branch_id"], json!(his_copy), "{source}");
+    assert_eq!(source["versions_behind"], json!(0), "{source}");
+}
+
+/// **A Translation keeps its source across a join** (#517). Her Translation
+/// renders her copy of his Vegan; joining again folds that copy into his
+/// Vegan, and the Translation renders his Vegan, not the older unnamed Branch
+/// that shares its Version.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn joining_points_a_translation_at_the_branch_its_source_folds_into() {
+    let app = support::spawn_app();
+    let (_, stephane) = someone(&app, "Stéphane");
+    let (_, camille) = someone(&app, "Camille");
+    let english = shelve_recipe(&app, &stephane, english_mousse());
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&stephane),
+        &json!({ "branch_id": english, "name": "Vegan" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let vegan = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    write_together(&app, &stephane, &camille);
+    let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
+    assert_eq!(status, 200, "{left}");
+    let her_vegan: String = scalar(
+        &app,
+        &format!("SELECT id FROM branches WHERE copied_from = '{vegan}'"),
+    );
+    let french = translate(&app, &camille, &her_vegan, "fr", french_mousse());
+    assert_eq!(
+        read_branch(&app, &camille, &french)["translation"]["source_branch_id"],
+        json!(her_vegan)
+    );
+
+    write_together(&app, &stephane, &camille);
+    let source = read_branch(&app, &camille, &french)["translation"].clone();
+    assert_eq!(source["source_branch_id"], json!(vegan), "{source}");
+    assert_eq!(source["versions_behind"], json!(0), "{source}");
 }
 
 /// **Leaving and joining again, over and over, holds steady.** Her own changed

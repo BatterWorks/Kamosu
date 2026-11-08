@@ -2290,6 +2290,23 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 73,
+        description: "the Branch a Translation was started from (#517)",
+        sql: r#"
+        -- A Translation names the Version it renders, and a Variation shares
+        -- its head Version with the Branch it grew from until either moves,
+        -- so the Version alone cannot say which of the two was translated.
+        -- `start_translation` writes the Branch it was called on here. Empty
+        -- on every Translation made before, and on one that arrived alone in
+        -- a Bundle: those keep the old lookup, the oldest Branch holding the
+        -- Version. No reference constraint, so a deleted source leaves a
+        -- dangling id that the lookup passes over. A row about a Branch, not
+        -- a Version's content, so no fingerprint moves.
+        ALTER TABLE branches ADD COLUMN translated_from_branch_id TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

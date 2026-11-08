@@ -1523,7 +1523,7 @@ pub fn start_translation(
     input: Value,
 ) -> Result<Value, OpError> {
     let takes = "start_translation takes { branch_id, language, title, \
-                 translates_version_id?, name?, change_note?, yield?, \
+                 translates_version_id?, name?, branch_name?, change_note?, yield?, \
                  prep_time_minutes?, cook_time_minutes?, note?, source?, ingredients?, steps? }";
     let branch_id = input
         .get("branch_id")
@@ -1536,6 +1536,7 @@ pub fn start_translation(
     let name = input.get("name").and_then(Value::as_str);
     let change_note = input.get("change_note").and_then(Value::as_str);
     let translates_version_id = input.get("translates_version_id").and_then(Value::as_str);
+    let branch_name = input.get("branch_name").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     core.start_translation(
         caller,
@@ -1545,6 +1546,7 @@ pub fn start_translation(
         name,
         change_note,
         translates_version_id,
+        branch_name,
     )
 }
 
