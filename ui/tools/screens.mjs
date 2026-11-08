@@ -18,7 +18,13 @@
  *
  * Two runs over an unchanged screen write the same bytes, which is what lets
  * `just screens-same` answer "is the phone unchanged?" with no image library:
- * movement is switched off and the caret is hidden.
+ * movement is switched off and the caret is hidden, each screen is taken only
+ * once it has stopped changing, the page is not told of the resize Chrome
+ * takes a full-page picture with nor of code the dev server changed, Chrome
+ * paints whole tiles, and what the tools themselves do is kept off the
+ * screens (`openSettled`, `holdWindowStill`, `holdCodeStill`, `openBrowser`
+ * and `leaveNoTrace` in `dev.mjs`, #529). A screen that never stops changing
+ * is a fault.
  */
 
 import fs from 'node:fs';
@@ -183,7 +189,10 @@ async function main() {
 					// Before anything can fail, so a failed run leaves no earlier
 					// run's pictures to be compared as if they were this one's.
 					clearPictures(out, route, size);
-					await openSettled(page, origin + route);
+					// A screen still changing would differ from one run to the next,
+					// so it is a fault, though it is still photographed.
+					const unsettled = await openSettled(page, origin + route);
+					if (unsettled) faults.push(`${route} at ${size}: ${unsettled}`);
 					const spill = await page.evaluate(
 						() => document.documentElement.scrollWidth - document.documentElement.clientWidth,
 					);

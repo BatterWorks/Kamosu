@@ -244,7 +244,14 @@ export function chromePath(env, searchPath = process.env.PATH ?? '') {
 export async function openBrowser({ webkit = false } = {}) {
 	const playwright = await import('playwright');
 	if (!webkit) {
-		return playwright.chromium.launch({ executablePath: chromePath(devEnv()) });
+		return playwright.chromium.launch({
+			executablePath: chromePath(devEnv()),
+			// Chrome paints part of a tile again where it can, and the edges it
+			// smooths came out a shade apart from one run to the next: 117 pixels
+			// at the corners of buttons on Settings (#529). Painting whole tiles
+			// gave the same picture 8 times in 8 where three versions came before.
+			args: ['--disable-partial-raster'],
+		});
 	}
 	try {
 		return await playwright.webkit.launch();
@@ -272,6 +279,9 @@ export async function signedInContext(browser, origin, secret, [width, height]) 
 		reducedMotion: 'reduce',
 	});
 	await context.addInitScript(() => localStorage.setItem('PARAGLIDE_LOCALE', 'en'));
+	await holdWindowStill(context);
+	await holdCodeStill(context);
+	await leaveNoTrace(context);
 	await context.addCookies([
 		{
 			// `__Host-` takes a cookie for this host alone, with no Domain, so it
@@ -288,24 +298,266 @@ export async function signedInContext(browser, origin, secret, [width, height]) 
 }
 
 /**
- * Open a path and wait until the screen has stopped changing: the network is
- * quiet, the fonts are in, and every picture further down has been asked for.
+ * Chrome takes a full-page picture by shrinking the window to 1×1 and back
+ * (#529). Told of that, the app switched to the phone layout and back, built
+ * every screen again and read its data again while the picture was being
+ * taken, so a picture caught a pane empty or at "No tags yet", or the
+ * Settings menu scrolled. The tools' window is never resized by anyone, so a
+ * resize to any other size than it opened at is the picture's, and the page
+ * is not told.
+ * @param {import('playwright').BrowserContext} context
+ */
+export async function holdWindowStill(context) {
+	await context.addInitScript(() => {
+		const opened = [innerWidth, innerHeight];
+		addEventListener(
+			'resize',
+			(event) => {
+				if (innerWidth !== opened[0] || innerHeight !== opened[1]) {
+					event.stopImmediatePropagation();
+				}
+			},
+			true,
+		);
+	});
+}
+
+/**
+ * The dev server tells every page it serves when code changes, over a
+ * WebSocket: an "update" swaps the changed modules in place, a "full-reload"
+ * loads the page again, an "error" covers it with the dev server's own
+ * notice until the next update. `just check` and `just test` write the
+ * translations again, which sent the first two to a run that followed them,
+ * and the pictures it took then were of a page half swapped or loading
+ * again, waiting on module requests Chrome never sent (#529). Each path is
+ * opened fresh, so the tools' window already shows the code on disk, and
+ * code that does not build fails there on its own: it is told of none of
+ * the three, and hears the rest of what the server says.
+ * @param {import('playwright').BrowserContext} context
+ */
+export async function holdCodeStill(context) {
+	/** @param {string | Buffer} message */
+	const messageType = (message) => {
+		try {
+			return JSON.parse(String(message))?.type;
+		} catch {
+			return undefined;
+		}
+	};
+	await context.routeWebSocket(
+		() => true,
+		(socket) => {
+			const server = socket.connectToServer();
+			socket.onMessage((message) => server.send(message));
+			server.onMessage((message) => {
+				if (!['update', 'full-reload', 'error'].includes(messageType(message)))
+					socket.send(message);
+			});
+		},
+	);
+}
+
+/**
+ * Keep what the tools themselves do off the screens they photograph (#529),
+ * so two runs over unchanged code draw the same thing.
+ *
+ * - **The tools' own Session's "Last used".** Every request a run makes moves
+ *   it to the minute, and Signing in shows it. It is shown as when that
+ *   Session began, which holds while `just dev-session tools` keeps reusing
+ *   it. Every other Session is shown as the instance says.
+ * - **The recipes a run opens.** Opening a recipe tells the instance, which
+ *   moves it up Home's "recently opened" shelf, so photographing a recipe
+ *   reorders Home for the next run. The tools' browser does not tell it:
+ *   the shelf follows only what a person opened. A person opening a recipe
+ *   between two runs is a real change, and the pictures say so.
+ *
+ * The routes see every request because `signedInContext` keeps the service
+ * worker out: a worker's own requests would pass them by.
+ * @param {import('playwright').BrowserContext} context
+ */
+export async function leaveNoTrace(context) {
+	await context.route('**/api/op/list_sessions', async (route) => {
+		const response = await route.fetch();
+		const answer = await response.json().catch(() => undefined);
+		if (!answer?.ok) return route.fulfill({ response });
+		for (const session of answer.result.sessions) {
+			if (session.current) session.last_used_at = session.created_at;
+		}
+		await route.fulfill({ response, json: answer });
+	});
+	await context.route('**/api/op/note_recipe_opened', (route) =>
+		route.fulfill({
+			json: { ok: true, result: { lineage_id: '', opened_at: new Date(0).toISOString() } },
+		}),
+	);
+}
+
+/**
+ * How long a screen must go with no request open and nothing in it changing
+ * before it counts as settled (#529). Long enough to see across the gap
+ * between one answer arriving and the request it sets off.
+ */
+const QUIET_MS = 1000;
+
+/** How long a screen is given to settle before it is photographed anyway. */
+const SETTLE_LIMIT_MS = 30_000;
+
+/** How long one look at the page waits for its fonts and pictures. */
+const PASS_LIMIT_MS = 5000;
+
+/**
+ * Whether Playwright said the page loaded again while it waited on it.
+ * @param {unknown} error
+ */
+function navigated(error) {
+	return /interrupted by another navigation|Execution context was destroyed/.test(String(error));
+}
+
+/**
+ * Go to a path, again if the page loads something else on its own first.
  * @param {import('playwright').Page} page
  * @param {string} url
+ * @param {number} deadline
+ * @returns {Promise<boolean>} whether it arrived before the deadline
  */
-export async function openSettled(page, url) {
-	await page.goto(url);
-	await page.waitForLoadState('networkidle');
-	await page.evaluate(async () => {
-		for (const img of document.querySelectorAll('img[loading=lazy]')) {
-			/** @type {HTMLImageElement} */ (img).loading = 'eager';
+async function arrive(page, url, deadline) {
+	for (;;) {
+		try {
+			await page.goto(url);
+			return true;
+		} catch (error) {
+			if (!navigated(error)) throw error;
+			if (Date.now() > deadline) return false;
 		}
-		await document.fonts.ready;
-	});
-	await page.waitForLoadState('networkidle');
-	await page.evaluate(() =>
-		Promise.all([...document.images].map((img) => img.decode().catch(() => {}))),
-	);
+	}
+}
+
+/** The pages already watching their own document for changes. */
+const watching = new WeakSet();
+
+/**
+ * Open a path and wait until the screen has stopped changing, or say why it
+ * did not within `SETTLE_LIMIT_MS`.
+ *
+ * Settled is: no request open and none finished for `QUIET_MS`, nothing in
+ * the document changed for as long, every font in, and every picture asked
+ * for and drawn (#529). Playwright's own "network idle" is not enough: it is
+ * reached once, early, and a request the app starts later, such as a list
+ * read only once the instance has said who is signed in, is not waited for.
+ * Two runs then caught a pane at "Loading…", a card that waits on the
+ * offline library and on the Person, or a heading in the fallback font,
+ * depending on which was quicker that time.
+ * @param {import('playwright').Page} page
+ * @param {string} url
+ * @param {{ limit?: number }} [options] how long to wait, in ms; a test waits less
+ * @returns {Promise<string | undefined>} what was still changing, or nothing once settled
+ */
+export async function openSettled(page, url, { limit = SETTLE_LIMIT_MS } = {}) {
+	if (!watching.has(page)) {
+		watching.add(page);
+		// Before the page's own scripts, so the first change they make counts.
+		await page.addInitScript(() => {
+			const mark = () => {
+				/** @type {any} */ (window).__lastChange = performance.now();
+			};
+			mark();
+			new MutationObserver(mark).observe(document, {
+				subtree: true,
+				childList: true,
+				attributes: true,
+				characterData: true,
+			});
+		});
+	}
+	const open = new Set();
+	let lastRequest = Date.now();
+	/** @param {import('playwright').Request} request */
+	const began = (request) => {
+		// Playwright never says how a request the page left behind ended:
+		// once the page loads anew, what the old one asked for is forgotten.
+		if (request.isNavigationRequest() && request.frame() === page.mainFrame()) open.clear();
+		open.add(request);
+		lastRequest = Date.now();
+	};
+	/** @param {import('playwright').Request} request */
+	const ended = (request) => {
+		open.delete(request);
+		lastRequest = Date.now();
+	};
+	page.on('request', began);
+	page.on('requestfinished', ended);
+	page.on('requestfailed', ended);
+	try {
+		const deadline = Date.now() + limit;
+		const { origin } = new URL(url);
+		const before = page.url();
+		const stopped = `still changing after ${limit / 1000}s`;
+		if (!(await arrive(page, url, deadline))) return `${stopped}: the page kept loading again`;
+		for (;;) {
+			const look = await page
+				.evaluate(async (most) => {
+					for (const img of document.querySelectorAll('img[loading=lazy]')) {
+						/** @type {HTMLImageElement} */ (img).loading = 'eager';
+					}
+					// A font or a picture that never arrives would hold its promise
+					// forever, and with it the limit this loop promises.
+					await Promise.race([
+						Promise.all([
+							document.fonts.ready,
+							...[...document.images].map((img) => img.decode().catch(() => {})),
+						]),
+						new Promise((done) => setTimeout(done, most)),
+					]);
+					const [load] = /** @type {PerformanceNavigationTiming[]} */ (
+						performance.getEntriesByType('navigation')
+					);
+					return {
+						sinceChange: performance.now() - /** @type {any} */ (window).__lastChange,
+						fonts: document.fonts.status,
+						drawn: [...document.images].every((img) => img.complete),
+						reloaded: load?.type === 'reload',
+					};
+				}, PASS_LIMIT_MS)
+				.catch((error) => {
+					if (navigated(error)) return undefined;
+					throw error;
+				});
+			// A page can still load again without the tools asking: a screen's
+			// own reload, or the dev server started again, which its client
+			// answers with one (#529; the dev server's own reloads are kept out
+			// by `holdCodeStill`). A reload is waited out like any other change.
+			// One that brought back the path shown before this one is sent on
+			// to this one again. A screen that sends itself to that
+			// path keeps its own page rather than loading it again, and is left
+			// there, as /settings/account sends itself to Signing in.
+			const sentBack =
+				look?.reloaded && before !== 'about:blank' && before !== url && page.url() === before;
+			if (look === undefined || sentBack) {
+				if (sentBack && !(await arrive(page, url, deadline))) {
+					return `${stopped}: the page kept loading again`;
+				}
+				if (Date.now() > deadline) return `${stopped}: the page loaded again`;
+				lastRequest = Date.now();
+				continue;
+			}
+			const sinceRequest = Date.now() - lastRequest;
+			const reasons = [
+				open.size > 0 &&
+					`waiting on ${[...new Set([...open].map((request) => request.url().slice(origin.length)))].join(', ')}`,
+				open.size === 0 && sinceRequest < QUIET_MS && 'a request just ended',
+				look.sinceChange < QUIET_MS && 'the page just changed',
+				look.fonts !== 'loaded' && 'a font is loading',
+				!look.drawn && 'a picture is loading',
+			].filter(Boolean);
+			if (reasons.length === 0) return undefined;
+			if (Date.now() > deadline) return `${stopped}: ${reasons.join(', ')}`;
+			await page.waitForTimeout(100);
+		}
+	} finally {
+		page.off('request', began);
+		page.off('requestfinished', ended);
+		page.off('requestfailed', ended);
+	}
 }
 
 /**
