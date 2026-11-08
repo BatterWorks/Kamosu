@@ -10,7 +10,7 @@
 import '@testing-library/jest-dom/vitest';
 import { afterAll, afterEach, beforeAll, vi } from 'vitest';
 import { cleanup } from '@testing-library/svelte';
-import { went } from './navigation';
+import { kept, went } from './navigation';
 import { forgetArrival } from '#lib/arrival.svelte.js';
 import { mistake } from '#lib/mistake.svelte.js';
 import { reach, refreshed } from '#lib/offline/device.svelte.js';
@@ -24,11 +24,13 @@ import { forgetDragHere } from '#lib/drop.svelte.js';
 import { forgetPaste } from '#lib/pasted.svelte.js';
 
 /**
- * One `goto` for the whole run, cleared after every test. Why it is not mocked
- * per file is in `./navigation`.
+ * One `goto` for the whole run, cleared after every test, and one `snapshot`
+ * that keeps what screens register. Why they are not mocked per file is in
+ * `./navigation`.
  */
 vi.mock('$app/navigation', async () => ({
 	goto: (await import('./navigation')).went,
+	snapshot: (await import('./navigation')).snapshot,
 	// jsdom navigates nowhere, so nothing is ever after a navigation.
 	afterNavigate: () => {},
 }));
@@ -69,6 +71,7 @@ function startAsIsolationWould(): void {
 	// Cleared after every test below as well. This one catches a `goto` made in
 	// the last file's `afterAll`, which no `afterEach` follows.
 	went.mockClear();
+	kept.clear();
 
 	localStorage.clear();
 	sessionStorage.clear();

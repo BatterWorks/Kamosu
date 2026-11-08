@@ -11,20 +11,25 @@
 	browser's history, and calls `restore` only when the reader returns to that
 	same entry: back, forward, or a reload of it. Arriving by the tab bar or a
 	Tag chip is a new entry, so it restores nothing and the shelf starts whole.
-	Only a route can export one, which is why it lives here and hands on to the
-	screen.
+	It is registered here, beside the router, so the screen stays free of it.
+	The id is written out rather than made from the call site, so a release
+	that moves this line still restores a shelf kept by the one before (#530).
+	A shelf kept through the old `export const snapshot` is stored elsewhere by
+	SvelteKit, so a tab open across the release that brought this starts whole
+	once.
 -->
 <script lang="ts">
+	import { snapshot } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { Snapshot } from './$types';
 	import Shelf from './Shelf.svelte';
 
 	let shelf = $state<ReturnType<typeof Shelf>>();
 
-	export const snapshot: Snapshot<unknown> = {
+	snapshot<unknown>({
+		id: 'recipes-shelf',
 		capture: () => shelf?.capture(),
 		restore: (left) => shelf?.restore(left),
-	};
+	});
 </script>
 
 <Shelf bind:this={shelf} tag={page.url.searchParams.get('tag')} />
