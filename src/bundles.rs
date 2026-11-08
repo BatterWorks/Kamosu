@@ -452,8 +452,8 @@ struct Words {
     from_source: &'static str,
     history: &'static str,
     written_down: &'static str,
-    min_prep: &'static str,
-    min_cook: &'static str,
+    prep: &'static str,
+    cook: &'static str,
     see: &'static str,
     branched_here: &'static str,
     translated_from: &'static str,
@@ -467,8 +467,8 @@ const EN: Words = Words {
     from_source: "From",
     history: "History",
     written_down: "Written down",
-    min_prep: "min prep",
-    min_cook: "min cook",
+    prep: "prep",
+    cook: "cook",
     see: "see",
     branched_here: "Branched here",
     translated_from: "Translated from",
@@ -482,8 +482,8 @@ const FR: Words = Words {
     from_source: "D'après",
     history: "Historique",
     written_down: "Écrite",
-    min_prep: "min prép.",
-    min_cook: "min cuisson",
+    prep: "prépa",
+    cook: "cuisson",
     see: "voir",
     branched_here: "Partie d'ici",
     translated_from: "Traduite de",
@@ -497,8 +497,8 @@ const ES: Words = Words {
     from_source: "De",
     history: "Historial",
     written_down: "Escrita",
-    min_prep: "min prep.",
-    min_cook: "min cocción",
+    prep: "prep",
+    cook: "cocción",
     see: "ver",
     branched_here: "Partió de aquí",
     translated_from: "Traducida de",
@@ -512,8 +512,8 @@ const NL: Words = Words {
     from_source: "Van",
     history: "Geschiedenis",
     written_down: "Geschreven",
-    min_prep: "min voorbereiden",
-    min_cook: "min koken",
+    prep: "voorbereidingstijd",
+    cook: "kooktijd",
     see: "zie",
     branched_here: "Hier afgetakt",
     translated_from: "Vertaald uit",
@@ -561,11 +561,15 @@ fn note(
     if !recipe_yield.trim().is_empty() {
         meta.push(inline(recipe_yield.trim()));
     }
+    // A time is written as the app, the Sheet and the Share Link page write
+    // it, `9 h prep` and never `540 min prep` (#546).
     if let Some(minutes) = content["prep_time_minutes"].as_i64() {
-        meta.push(format!("{minutes} {}", words.min_prep));
+        let time = crate::sheet::duration(minutes);
+        meta.push(format!("{time} {}", words.prep));
     }
     if let Some(minutes) = content["cook_time_minutes"].as_i64() {
-        meta.push(format!("{minutes} {}", words.min_cook));
+        let time = crate::sheet::duration(minutes);
+        meta.push(format!("{time} {}", words.cook));
     }
     if !meta.is_empty() {
         out.push_str(&meta.join(" · "));
@@ -1622,12 +1626,45 @@ mod tests {
         );
     }
 
+    /// A time on the note reads as the app, the Sheet and the Share Link page
+    /// write it, never as the stored minutes: a 9-hour prove read `540 min
+    /// prep` before (#546).
+    #[test]
+    fn a_notes_times_read_in_hours_and_minutes() {
+        for (minutes, prep, cook) in [
+            (540, "9 h prep", "9 h cook"),
+            (90, "1 h 30 prep", "1 h 30 cook"),
+            (15, "15 min prep", "15 min cook"),
+        ] {
+            let mut written = contents();
+            written.branches[0].record["language"] = json!("en");
+            written.branches[0].record["versions"][1]["content"] = json!({
+                "title": "Bœuf bourguignon",
+                "prep_time_minutes": minutes,
+                "cook_time_minutes": minutes,
+            });
+            let written = write(&written).expect("writes");
+            let mut archive =
+                zip::ZipArchive::new(std::io::Cursor::new(written.bytes)).expect("a zip");
+            let mut text = String::new();
+            std::io::Read::read_to_string(
+                &mut archive.by_name("Bœuf bourguignon.md").expect("the note"),
+                &mut text,
+            )
+            .expect("reads");
+            let meta = format!("\n{prep} · {cook}\n");
+            assert!(text.contains(&meta), "{minutes} minutes:\n{text}");
+        }
+    }
+
     #[test]
     fn a_dutch_recipes_note_is_in_dutch() {
         assert_eq!(words("nl").ingredients, "Ingrediënten");
         assert_eq!(words("nl").method, "Bereiding");
         assert_eq!(words("nl").history, "Geschiedenis");
         assert_eq!(words("nl").tags, "Labels");
+        assert_eq!(words("nl").prep, "voorbereidingstijd");
+        assert_eq!(words("nl").cook, "kooktijd");
         assert_eq!(language_name("nl"), "Nederlands");
     }
 }
