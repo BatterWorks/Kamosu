@@ -69,7 +69,7 @@ impl Core {
     /// find the file still there, skip writing it, and put its row back for
     /// the sweep to take the file from under: a row that is never swept
     /// again, naming bytes that are gone.
-    fn record_photograph(&self, hash: &str, bytes: &[u8]) -> Result<(), OpError> {
+    pub(super) fn record_photograph(&self, hash: &str, bytes: &[u8]) -> Result<(), OpError> {
         let path = photographs::photograph_path(&self.data_dir(), hash);
         self.db().with_conn(|conn| {
             if !path.exists() {
