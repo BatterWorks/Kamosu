@@ -475,6 +475,14 @@ pub fn answer_short_link_hosts_for_tests(at: std::net::SocketAddr) {
     let _ = TEST_SHORT_LINK_HOSTS.set(at);
 }
 
+/// Every guarded client starts here: the guard's resolver and redirect
+/// check, and no proxy (#526). A proxy named in the environment
+/// (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) would look up the host's name
+/// itself, so the guard would never see the address a link leads to.
+fn guarded_builder(acl: &Acl) -> reqwest::ClientBuilder {
+    acl.configure(reqwest::Client::builder()).no_proxy()
+}
+
 fn guarded_client(acl: &Acl) -> Result<reqwest::Client, OpError> {
     let for_redirects = acl.clone();
     let redirect_policy = reqwest::redirect::Policy::custom(move |attempt| {
@@ -491,7 +499,7 @@ fn guarded_client(acl: &Acl) -> Result<reqwest::Client, OpError> {
             Err(err) => attempt.error(err.to_string()),
         }
     });
-    acl.configure(reqwest::Client::builder())
+    guarded_builder(acl)
         .redirect(redirect_policy)
         .timeout(Duration::from_secs(FETCH_TIMEOUT_SECS))
         .user_agent(USER_AGENT)
@@ -533,8 +541,7 @@ fn where_short_link_leads(link: &str) -> Option<String> {
 }
 
 async fn follow_to_a_post(link: &str, acl: Acl) -> Option<String> {
-    let builder = acl
-        .configure(reqwest::Client::builder())
+    let builder = guarded_builder(&acl)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(SHORT_LINK_TIME)
         .user_agent(USER_AGENT);
@@ -1497,5 +1504,84 @@ mod tests {
             assert_eq!(parsed.prep_time_minutes, None, "{written}");
             assert_eq!(parsed.cook_time_minutes, Some(12), "{written}");
         }
+    }
+
+    /// Set in the copy of this test binary that
+    /// [`a_proxy_variable_routes_no_guarded_fetch`] starts with proxy
+    /// variables in its environment.
+    const IN_THE_PROXIED_COPY: &str = "KAMOSU_TEST_IN_THE_PROXIED_COPY";
+
+    /// A proxy named in Kamosu's environment is never used by a guarded
+    /// fetch (#526). Through a proxy, the proxy looks up the host's name, so
+    /// the guard never sees the address a link leads to. The variables are
+    /// set on a second copy of this test binary, never on this process, so
+    /// no other test running beside it builds a client that reads them.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_proxy_variable_routes_no_guarded_fetch() {
+        if std::env::var_os(IN_THE_PROXIED_COPY).is_some() {
+            return fetch_through_the_named_proxy().await;
+        }
+        let proxy = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_url = format!("http://{}", proxy.local_addr().unwrap());
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = hits.clone();
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            while let Ok((mut stream, _)) = proxy.accept().await {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let _ = stream
+                    .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 7\r\n\r\nproxied")
+                    .await;
+            }
+        });
+
+        let name = format!(
+            "{}::a_proxy_variable_routes_no_guarded_fetch",
+            module_path!().split_once("::").unwrap().1
+        );
+        let mut copy = std::process::Command::new(std::env::current_exe().unwrap());
+        copy.args([name.as_str(), "--exact", "--nocapture", "--test-threads=1"])
+            .env(IN_THE_PROXIED_COPY, "1")
+            .env_remove("NO_PROXY")
+            .env_remove("no_proxy");
+        for variable in [
+            "HTTP_PROXY",
+            "http_proxy",
+            "HTTPS_PROXY",
+            "https_proxy",
+            "ALL_PROXY",
+            "all_proxy",
+        ] {
+            copy.env(variable, &proxy_url);
+        }
+        let ran = tokio::task::spawn_blocking(move || copy.output().unwrap())
+            .await
+            .unwrap();
+        let printed = String::from_utf8_lossy(&ran.stdout);
+        assert!(ran.status.success(), "the proxied copy failed:\n{printed}");
+        assert!(
+            printed.contains("1 passed"),
+            "the proxied copy ran no test:\n{printed}"
+        );
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "a guarded fetch went through the proxy"
+        );
+    }
+
+    /// The proxied copy's half: every guarded client asked for `localhost`
+    /// at the port the counting proxy listens on. The name resolves to this
+    /// machine, so the guard refuses it. Through the proxy, or past a guard
+    /// that let it through, the parent counts a hit.
+    async fn fetch_through_the_named_proxy() {
+        let proxy = std::env::var("HTTP_PROXY").unwrap();
+        let port = proxy.rsplit_once(':').unwrap().1;
+        let client = guarded_client(&guarded_acl()).unwrap();
+        let link = format!("http://localhost:{port}/tart");
+        let answer = client.get(&link).send().await;
+        assert!(answer.is_err(), "{link} answered: {answer:?}");
+        let short = format!("http://localhost:{port}/SHORTCODE/");
+        assert_eq!(follow_to_a_post(&short, guarded_acl()).await, None);
     }
 }

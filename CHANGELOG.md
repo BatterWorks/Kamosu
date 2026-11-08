@@ -5,6 +5,7 @@
 ### After upgrading
 
 - If you hold Dutch recipes, set each one to Dutch, then run *Read every line again* so they are read with Dutch words from then on. [#495]
+- Kamosu now fetches a link, its pictures and a Share Link from another Kamosu directly, never through a proxy named in `HTTP_PROXY`, `HTTPS_PROXY` or `ALL_PROXY`. Before, with one set, a link whose name led into your own network was fetched through the proxy instead of refused. If your Kamosu reaches the internet only through a proxy, give it a direct route out, or adding from a link stops working. [#526]
 
 ### Added
 
@@ -68,6 +69,7 @@
 [#517]: https://github.com/BatterWorks/Kamosu/issues/517
 [#521]: https://github.com/BatterWorks/Kamosu/issues/521
 [#524]: https://github.com/BatterWorks/Kamosu/issues/524
+[#526]: https://github.com/BatterWorks/Kamosu/issues/526
 [#533]: https://github.com/BatterWorks/Kamosu/issues/533
 [#534]: https://github.com/BatterWorks/Kamosu/issues/534
 [#535]: https://github.com/BatterWorks/Kamosu/issues/535
