@@ -65,7 +65,8 @@
 
 	/**
 	 * The shelf as it was left, for going back to it (#191). SvelteKit keeps it
-	 * in `sessionStorage`, so it is plain JSON and deliberately small: what the
+	 * in `sessionStorage` as text, so it holds plain values only and is
+	 * deliberately small: what the
 	 * reader chose and where they had scrolled, never the answer. The answer is
 	 * asked again, from the phone's copy first, so it is as current as any.
 	 */
@@ -83,12 +84,6 @@
 	}
 
 	/**
-	 * Whether a kept shelf has the shape this screen restores. A snapshot lives
-	 * in `sessionStorage` for as long as the tab does, so one written by an
-	 * older Kamosu can be handed back after an update; one that no longer fits
-	 * is dropped, and the shelf starts whole instead of holding nonsense.
-	 */
-	/**
 	 * Every Cookbook some Kitchens see, once each however many of them see it,
 	 * the reader's own first: `list_kitchens` answers each Kitchen's Cookbooks
 	 * with the reader's own at the head.
@@ -100,6 +95,12 @@
 		return [...seen.values()];
 	}
 
+	/**
+	 * Whether a kept shelf has the shape this screen restores. A snapshot lives
+	 * in `sessionStorage` for as long as the tab does, so one written by an
+	 * older Kamosu can be handed back after an update; one that no longer fits
+	 * is dropped, and the shelf starts whole instead of holding nonsense.
+	 */
 	function isLeftShelf(held: unknown): held is LeftShelf {
 		if (typeof held !== 'object' || held === null) return false;
 		const { typed, filter, cookedOrWritten, cooking, tag, scrolled } = held as Record<
