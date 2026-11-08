@@ -19,9 +19,9 @@ services:
     # KAMOSU_DEMO_PUBLIC_ADDRESS, KAMOSU_DEMO_UMAMI_SCRIPT and
     # KAMOSU_DEMO_UMAMI_WEBSITE_ID.
     restart: unless-stopped
-    # Declared here as well as in the image, because a Podman-built image
-    # (the podman-* tags) carries no HEALTHCHECK. The distroless runtime has
-    # no shell or curl, so the binary checks its own health.
+    # Declared here as well as in the image, because Podman on amd64 reads no
+    # HEALTHCHECK from the published image. The distroless runtime has no
+    # shell or curl, so the binary checks its own health.
     healthcheck:
       test: ["CMD", "/app/kamosu", "health-check"]
       interval: 30s

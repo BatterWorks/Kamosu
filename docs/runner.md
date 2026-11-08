@@ -138,7 +138,7 @@ docker rm kamosu-copy
 ```
 
 With Podman, the same three commands start with `podman`, and the image is
-`docker.io/battermanz/kamosu:podman-<version>`.
+`docker.io/battermanz/kamosu:<version>`.
 
 **In an image with your agent**, copy it in from Kamosu's image as one stage of
 the build. The Runner and the agent then run in one container, which you start
@@ -278,10 +278,10 @@ Every release of Kamosu publishes an agent's image that does steps 2 to 4 for
 you: an agent, its tools and its instructions, ready to start beside a Runner.
 It is `docker.io/battermanz/kamosu-agent`, built from `agent-image/` in
 Kamosu's repository, with the same tags as Kamosu's own image: `<version>` and
-`latest` for Docker, `podman-<version>` and `podman-latest` for Podman, each
-for amd64 and arm64. **Take the tag of the version your Kamosu runs.** A
-release that did not change the agent gives its new tag to the image already
-published, so a new version of Kamosu may bring nothing new to download here.
+`latest`, each for amd64 and arm64, which Docker and Podman both run. **Take
+the tag of the version your Kamosu runs.** A release that did not change the
+agent gives its new tag to the image already published, so a new version of
+Kamosu may bring nothing new to download here.
 
 - **The agent is [opencode](https://opencode.ai) 2**, which speaks to any of
   several dozen model providers, or to any that offers an OpenAI-compatible
@@ -475,9 +475,9 @@ volumes:
 
 - **Both images are of the version your Kamosu runs.** The Runner's is Kamosu's
   own, since a Kamosu refuses a Runner of any other, and the agent is made for
-  the Runner of its own version. With Podman, use the `podman-<version>` tag of
-  each. The Runner's health check asks for a Kamosu server, which a Runner is
-  not, so it is turned off.
+  the Runner of its own version. With Podman, write each image name in full,
+  starting `docker.io/`. The Runner's health check asks for a Kamosu server,
+  which a Runner is not, so it is turned off.
 - **The agent's socket volume is in memory and belongs to the agent's user**,
   uid 1000, which the Runner's user may call but not write in. The agent clears
   it each time it starts, before anything else, so nothing a Job leaves there
@@ -507,17 +507,17 @@ agent, beside a Kamosu reached at `192.0.2.10:5266`:
 podman run -d --name kamosu-agent-fence --restart always --user 0:0 \
   --read-only --cap-drop all --cap-add NET_ADMIN,SETUID,SETGID \
   --security-opt no-new-privileges -e KAMOSU_AGENT_FENCE_ALLOW=192.0.2.10:5266 \
-  --entrypoint /opt/kamosu-agent/fence docker.io/battermanz/kamosu-agent:podman-<version>
+  --entrypoint /opt/kamosu-agent/fence docker.io/battermanz/kamosu-agent:<version>
 podman run -d --name kamosu-agent --restart always \
   --network container:kamosu-agent-fence \
   --read-only --tmpfs /tmp:rw,exec,mode=1777,size=4g \
   --cap-drop all --security-opt no-new-privileges \
   --env-file ~/.config/kamosu-agent.env \
   -v kamosu-agent-socket:/run/kamosu-agent -v kamosu-relay-socket:/run/kamosu-relay \
-  docker.io/battermanz/kamosu-agent:podman-<version>
+  docker.io/battermanz/kamosu-agent:<version>
 ```
 
-With `docker run`, the same two commands work as written, on the Docker tags.
+With `docker run`, the same two commands work as written.
 Rootless Podman and Docker need no flag beyond these.
 
 An agent's container started without `KAMOSU_AGENT_MODEL`, or given
