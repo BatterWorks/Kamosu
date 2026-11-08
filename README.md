@@ -494,9 +494,10 @@ your passkeys, so a Runner needs a new key afterwards and you add your
 passkeys again. Only the newest link works. Another Operator can also send you
 one from **Settings › People**, which lists the links not yet used.
 
-**Podman shows no health status.** The `podman-*` images are built in
-Podman's own format, which has no field for a health check. The
-[`docker-compose.yml`](docker-compose.yml) declares one, so use it, or add
+**Podman shows no health status.** On amd64, Podman reads no health check
+from the published image, though Docker does, and so does Podman on arm64. The
+[`docker-compose.yml`](docker-compose.yml) declares one, so use it with the
+image written as `docker.io/battermanz/kamosu:latest`, or add
 `--health-cmd '["/app/kamosu", "health-check"]' --health-interval 30s` to
 `podman run`.
 

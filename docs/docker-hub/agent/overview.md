@@ -18,8 +18,9 @@ It runs as its own user, never as root, in a read-only container that takes one 
 
 ## Tags
 
-- `latest` and `<version>`: images for Docker
-- `podman-latest` and `podman-<version>`: images for Podman
+- `latest` and `<version>`, for Docker and Podman alike
+
+Releases up to 0.5.0 also published `podman-latest` and `podman-<version>`. Those tags are no longer published and no longer move.
 
 **Use the same version as your Kamosu.** A Kamosu refuses a Runner of any other version, and the agent is made for the Runner of its own. A release that did not change the agent gives its new tag to the image already published, so nothing new is downloaded. Every tag is built for amd64 and arm64.
 
@@ -83,7 +84,7 @@ volumes:
       o: size=1m,uid=65532,gid=65532,mode=0755
 ```
 
-With Podman, use the `podman-<version>` tags of both images.
+With Podman, write both image names in full, as `docker.io/battermanz/kamosu:<version>` and `docker.io/battermanz/kamosu-agent:<version>`.
 
 The Runner's settings file holds its key, Kamosu's address, the agent's socket, and the model provider's key and address with the relay's socket:
 

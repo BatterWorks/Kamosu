@@ -17,6 +17,7 @@
 
 ### Changed
 
+- A release publishes one pair of tags for each image, `<version>` and `latest`, which Docker and Podman both run. The `podman-<version>` and `podman-latest` tags are no longer published, and those already on Docker Hub stay where they are. [#483]
 - The published agent image beside a Runner files a recipe under all its Tags in one `set_recipe_tag` call. Before, it put them on one call at a time, so a network error partway left the recipe with some of its Tags. [#477]
 
 ### Fixed
@@ -50,6 +51,7 @@
 
 [#464]: https://github.com/BatterWorks/Kamosu/issues/464
 [#477]: https://github.com/BatterWorks/Kamosu/issues/477
+[#483]: https://github.com/BatterWorks/Kamosu/issues/483
 [#486]: https://github.com/BatterWorks/Kamosu/issues/486
 [#487]: https://github.com/BatterWorks/Kamosu/issues/487
 [#488]: https://github.com/BatterWorks/Kamosu/issues/488

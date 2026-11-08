@@ -49,8 +49,9 @@ It is not a hosted service, a nutrition tracker or a public recipe site. Every a
 
 ## Tags
 
-- `latest` and `<version>`: images for Docker
-- `podman-latest` and `podman-<version>`: images for Podman
+- `latest` and `<version>`, for Docker and Podman alike
+
+Releases up to 0.5.0 also published `podman-latest` and `podman-<version>`. Those tags are no longer published and no longer move.
 
 Every tag is built for amd64 and arm64. The image is distroless and rootless: it has no shell and runs as the unprivileged user `65532`.
 
