@@ -1401,7 +1401,15 @@ async fn an_agent_at_a_socket_reaches_its_model_through_the_runners_socket() {
 
     // The key went where the agent put the stand-in, and nowhere else.
     let sent = provider.seen();
-    assert_eq!(sent.len(), 1, "{sent:?}");
+    // Said whole when it fails, so a failure tells a Job handed over twice
+    // from a request sent twice (#503).
+    let said = runner.said();
+    assert_eq!(
+        sent.len(),
+        1,
+        "{sent:?}\nThe Runner worked the Job {} times. The Job: {finished}\nThe Runner said:\n{said}",
+        said.matches(&format!("Working Job {job_id}")).count(),
+    );
     assert_eq!(sent[0].0, "/v1/messages");
     assert_eq!(header(&sent[0].1, "x-api-key"), Some(MODEL_KEY));
     assert_eq!(header(&sent[0].1, "authorization"), None);

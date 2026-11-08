@@ -284,11 +284,14 @@ where
 async fn forward(State(shared): State<Arc<RelayState>>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
     let Some(carrier) = carrier(&parts.headers, &shared.stand_in) else {
-        return refused(
+        return refused_once_read(
+            &parts.headers,
+            body,
             StatusCode::UNAUTHORIZED,
             "This relay answers the agent of the Job it was opened for, with the key it was \
              handed in job.json.",
-        );
+        )
+        .await;
     };
     let path = parts
         .uri
@@ -296,10 +299,13 @@ async fn forward(State(shared): State<Arc<RelayState>>, request: Request) -> Res
         .map(|p| p.as_str())
         .unwrap_or("/");
     let Some(target) = shared.provider.target(path) else {
-        return refused(
+        return refused_once_read(
+            &parts.headers,
+            body,
             StatusCode::BAD_REQUEST,
             "This relay sends requests under the provider's address alone.",
-        );
+        )
+        .await;
     };
     let Ok(body) = axum::body::to_bytes(body, REQUEST_MOST_BYTES).await else {
         return refused(
@@ -391,6 +397,40 @@ fn passed_on(headers: &HeaderMap) -> HeaderMap {
     kept
 }
 
+/// How long a refused request has to finish arriving before it is answered.
+const REFUSED_BODY_DEADLINE: Duration = Duration::from_secs(20);
+
+/// A refusal, answered once the request it refuses has arrived. Answered
+/// first, the call closes while the agent may still be sending its body,
+/// which then meets a closed socket, and the agent never reads why it was
+/// refused (#503). What arrives is let go as it comes, so a caller without
+/// the stand-in costs the relay no memory, and stops being read past the
+/// size of a request or the deadline. A caller waiting to be told to send
+/// its body (`Expect: 100-continue`) is answered at once, and sends none.
+async fn refused_once_read(
+    headers: &HeaderMap,
+    body: Body,
+    status: StatusCode,
+    message: &str,
+) -> Response {
+    use futures_util::StreamExt;
+    if headers.contains_key(header::EXPECT) {
+        return refused(status, message);
+    }
+    let mut arriving = body.into_data_stream();
+    let _ = tokio::time::timeout(REFUSED_BODY_DEADLINE, async {
+        let mut read = 0;
+        while let Some(Ok(piece)) = arriving.next().await {
+            read += piece.len();
+            if read > REQUEST_MOST_BYTES {
+                break;
+            }
+        }
+    })
+    .await;
+    refused(status, message)
+}
+
 /// The relay's own refusal, in the shape providers answer one, so that the
 /// agent shows it.
 fn refused(status: StatusCode, message: &str) -> Response {
@@ -452,6 +492,42 @@ mod tests {
                 .as_str(),
             "http://192.0.2.10:11434/v1/"
         );
+    }
+
+    /// An agent sends a request's headers and its body apart, and under load
+    /// a while apart. A refusal answered before the body arrived closed the
+    /// call, so the agent's body met a closed socket and it never read why
+    /// it was refused (#503).
+    #[tokio::test]
+    async fn a_refusal_waits_for_the_whole_request_however_slowly_it_is_sent() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let place = tempfile::tempdir().unwrap();
+        let socket = place.path().join("model.sock");
+        let provider = Arc::new(provider("http://127.0.0.1:9/v1"));
+        let relay = Relay::open(provider, &Place::Socket(socket.clone()))
+            .await
+            .unwrap();
+        let stand_in = relay.handed()["key"].as_str().unwrap().to_string();
+        let refusals = [
+            ("/messages", "kamosu-relay-of-another-job", "HTTP/1.1 401"),
+            ("/../v2/messages", stand_in.as_str(), "HTTP/1.1 400"),
+        ];
+        for (path, key, status) in refusals {
+            let mut call = tokio::net::UnixStream::connect(&socket).await.unwrap();
+            let head = format!(
+                "POST {path} HTTP/1.1\r\nhost: relay\r\nconnection: close\r\n\
+                 x-api-key: {key}\r\ncontent-length: 2\r\n\r\n"
+            );
+            call.write_all(head.as_bytes()).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            call.write_all(b"{}")
+                .await
+                .unwrap_or_else(|e| panic!("{path}: the relay hung up early: {e}"));
+            let mut answer = String::new();
+            call.read_to_string(&mut answer).await.unwrap();
+            assert!(answer.starts_with(status), "{path}: {answer}");
+            assert!(answer.contains("kamosu_relay"), "{path}: {answer}");
+        }
     }
 
     #[test]

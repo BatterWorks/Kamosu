@@ -48,6 +48,7 @@
 - Turning Meaning Search off at the moment its regular catch-up started no longer has that catch-up read the whole library into an index that is off. [#541]
 - A cooking started on a phone with no network is kept when the recipe's writer saved it again within the hour before the phone came back online. Before, the save replaced the Version the phone had, and the cooking, with its rating, note and photographs, was refused and lost. It now counts as a cooking of the Version that replaced it. [#548]
 - Pressing the browser's Back button while writing a recipe closes the writing screen and drops the draft, as Cancel does. Before, when Back led to another recipe, the screen stayed open on it, and Save made the draft a Version of that recipe. [#549]
+- The agent beside a Runner reads why the model relay refused one of its requests, such as one with the wrong key. Before, an agent slow to send its request could find the relay had hung up instead, and its Job was tried again. [#503]
 
 [#464]: https://github.com/BatterWorks/Kamosu/issues/464
 [#477]: https://github.com/BatterWorks/Kamosu/issues/477
@@ -61,6 +62,7 @@
 [#492]: https://github.com/BatterWorks/Kamosu/issues/492
 [#495]: https://github.com/BatterWorks/Kamosu/issues/495
 [#497]: https://github.com/BatterWorks/Kamosu/issues/497
+[#503]: https://github.com/BatterWorks/Kamosu/issues/503
 [#521]: https://github.com/BatterWorks/Kamosu/issues/521
 [#524]: https://github.com/BatterWorks/Kamosu/issues/524
 [#533]: https://github.com/BatterWorks/Kamosu/issues/533
