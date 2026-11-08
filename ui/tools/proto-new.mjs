@@ -182,7 +182,8 @@ async function main() {
 		await atEverySize(browser, origin, secret, async (size, page, context) => {
 			page.on('pageerror', (error) => errors.push(`${page.url()} at ${size}: ${error}`));
 			for (const route of routes) {
-				await openSettled(page, origin + route);
+				const unsettled = await openSettled(page, origin + route);
+				if (unsettled) console.warn(`${route} at ${size}: captured while ${unsettled}`);
 				const got = await page.evaluate(capture, cardTitles);
 				for (const src of got.photos) {
 					const file = path.join(photos, photoName(src));

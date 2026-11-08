@@ -206,7 +206,7 @@ is a dev dependency of `ui/`: never load it from anywhere else.
 ```sh
 just dev-session <label>          # sign in as the account in .env; prints the cookie file's path, nothing else
 just dev-session-end <label>      # end that one Session
-just screens <folder> <path>…     # a whole-page picture of each path at every size, in pieces past 32,767px; fails on a console error, a sideways scroll or a size not photographed
+just screens <folder> <path>…     # a whole-page picture of each path at every size, in pieces past 32,767px; fails on a console error, a sideways scroll, a size not photographed or a screen still changing after 30s
 just screens-same <before> <after>   # names the pictures that differ, and fails if any do
 just proto-new <issue>-<slug> <path>…   # .dev/prototypes/<issue>-<slug>/: the real screens as static pages
 just proto-serve <name> <port>    # serve .dev/prototypes/<name>/ to the LAN, caching off
