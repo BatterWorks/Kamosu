@@ -3295,9 +3295,11 @@ pub(super) fn start_copy(
     )?;
     conn.execute(
         // A guessed Language is the Copy's guess too (#321). A save that
-        // settles it says so on the Copy after.
-        "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, name, started_by, language_guessed) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, (SELECT language_guessed FROM branches WHERE id = ?9))",
+        // settles it says so on the Copy after. A Translation's Copy renders
+        // the same source Branch (#517).
+        "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, name, started_by, language_guessed, translated_from_branch_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, (SELECT language_guessed FROM branches WHERE id = ?9), \
+                 (SELECT translated_from_branch_id FROM branches WHERE id = ?9))",
         params![
             new_branch_id,
             lineage_id,

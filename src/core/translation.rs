@@ -36,6 +36,15 @@ impl Core {
     /// once. From then on each Branch is filed on its own. In the caller's
     /// own Cookbook, apart from the source's, it starts with none: those Tags
     /// are another Cookbook's words.
+    ///
+    /// It records the Branch it was called on as its source (#517), so a
+    /// Translation of a Variation is measured against that Variation and not
+    /// against the older Branch it shares a Version with. Where the caller's
+    /// Cookbook already holds a Branch of the recipe in that Language, the
+    /// new one needs a name: `branch_name` when given, else the source's own
+    /// name ("Vegan"), else whose the source is, as a Copy is named.
+    /// `branch_name` names the Branch even where none is needed; `name`
+    /// names the first Version, as it does on every save.
     #[allow(clippy::too_many_arguments)]
     pub fn start_translation(
         &self,
@@ -46,7 +55,10 @@ impl Core {
         name: Option<&str>,
         change_note: Option<&str>,
         translates_version_id: Option<&str>,
+        branch_name: Option<&str>,
     ) -> Result<Value, OpError> {
+        // A blank name is no name, here where one may be left out.
+        let given_branch_name = branch_name.map(str::trim).filter(|name| !name.is_empty());
         let language = supported_branch_language(required_text(language, "language")?)?.to_string();
         let content = parse_recipe_content(input)?;
         let (version_id, content_text) = stored_version(&content);
@@ -54,11 +66,16 @@ impl Core {
 
         let foods_created = self.db().with_conn(|conn| {
             let source_cookbook_id = ensure_sees_branch(conn, source_branch_id, &caller.person_id)?;
-            let (lineage_id, source_language, source_head): (String, String, String) = conn
+            let (lineage_id, source_language, source_head, source_name): (
+                String,
+                String,
+                String,
+                Option<String>,
+            ) = conn
                 .query_row(
-                    "SELECT lineage_id, language, head_version_id FROM branches WHERE id = ?1",
+                    "SELECT lineage_id, language, head_version_id, name FROM branches WHERE id = ?1",
                     params![source_branch_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
 
@@ -85,13 +102,16 @@ impl Core {
 
             // Always the caller's own Cookbook, the same rule a save follows.
             let own_cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
-            let branch_name = name_on_arrival(
-                conn,
-                &own_cookbook_id,
-                &lineage_id,
-                &language,
-                &whose_branch(conn, source_branch_id)?,
-            )?;
+            let branch_name = match given_branch_name {
+                Some(given) => Some(given.to_string()),
+                None => {
+                    let fallback = match source_name {
+                        Some(source_name) => source_name,
+                        None => whose_branch(conn, source_branch_id)?,
+                    };
+                    name_on_arrival(conn, &own_cookbook_id, &lineage_id, &language, &fallback)?
+                }
+            };
 
             // `branch_id` names a Branch that does not exist yet, so the
             // "on some Branch other than this one" half of the check is
@@ -117,8 +137,8 @@ impl Core {
             )
             .map_err(|e| OpError::internal(format!("cannot record Version: {e}")))?;
             conn.execute(
-                "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, name, started_by) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, name, started_by, translated_from_branch_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     branch_id,
                     lineage_id,
@@ -127,7 +147,8 @@ impl Core {
                     language,
                     version_id,
                     branch_name,
-                    caller.person_id
+                    caller.person_id,
+                    source_branch_id
                 ],
             )
             .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
@@ -471,6 +492,14 @@ pub(super) fn translation_of_branch(
     // the old occurrence again. Counting from the newest asks the only
     // question worth asking: since this text was last what the recipe said,
     // how much has been written?
+    //
+    // **The Branch it was started from comes first** (#517). A Variation
+    // shares its head Version with the older Branch it grew from, so the
+    // oldest holder of a Version is the wrong answer for a Translation of the
+    // Variation. `start_translation` records the Branch it was called on, and
+    // while that Branch still holds the translated Version it is the source.
+    // A Translation with nothing recorded, or whose recorded Branch no longer
+    // holds that Version, is measured as before.
     let found: Option<(String, i64)> = conn
         .query_row(
             "SELECT branch_versions.branch_id, branch_versions.sequence \
@@ -479,7 +508,9 @@ pub(super) fn translation_of_branch(
               WHERE branch_versions.version_id = ?1 \
                 AND branches.lineage_id = ?2 \
                 AND branch_versions.branch_id <> ?3 \
-              ORDER BY branches.created_at ASC, branch_versions.sequence DESC LIMIT 1",
+              ORDER BY branch_versions.branch_id = \
+                       (SELECT translated_from_branch_id FROM branches WHERE id = ?3) DESC, \
+                       branches.created_at ASC, branch_versions.sequence DESC LIMIT 1",
             params![translates_version_id, lineage_id, branch_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )

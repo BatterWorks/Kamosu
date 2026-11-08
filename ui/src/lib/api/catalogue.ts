@@ -2120,6 +2120,7 @@ export type ImportByAgentOutput = {
 /** Translate a recipe into another Language. It is an ordinary Branch of its Lineage. Its first Version records which Version of the source it renders, and its chain starts fresh, unlike a Copy's. An agent translating calls this under the Person's Credential. Keep each Ingredient Line and section heading in the source's place, with its amount and unit: such a line takes the source line's Food, here and on a save naming a newer translates_version_id. */
 export type StartTranslationInput = {
 	branch_id: string;
+	branch_name?: string;
 	change_note?: string;
 	cook_time_minutes?: number | null;
 	ingredients?: {
@@ -17428,6 +17429,10 @@ export const CATALOGUE = [
 			"properties": {
 				"branch_id": {
 					"description": "The recipe being translated.",
+					"type": "string"
+				},
+				"branch_name": {
+					"description": "What to call the new Branch. Left out, it is named only where the Cookbook already has a Branch of the recipe in this Language: after the translated Branch's own name, or whose that Branch is. `name` names the first Version.",
 					"type": "string"
 				},
 				"change_note": {

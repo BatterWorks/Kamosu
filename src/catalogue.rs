@@ -7331,6 +7331,17 @@ fn start_translation_input_schema() -> Value {
         }),
     );
     map.insert("name".to_string(), json!({ "type": "string" }));
+    map.insert(
+        "branch_name".to_string(),
+        json!({
+            "type": "string",
+            "description": "What to call the new Branch. Left out, it is named only \
+                             where the Cookbook already has a Branch of the recipe \
+                             in this Language: after the translated Branch's own \
+                             name, or whose that Branch is. `name` names the first \
+                             Version.",
+        }),
+    );
     map.insert("change_note".to_string(), json!({ "type": "string" }));
     json!({
         "type": "object",
