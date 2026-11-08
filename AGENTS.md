@@ -206,7 +206,7 @@ is a dev dependency of `ui/`: never load it from anywhere else.
 ```sh
 just dev-session <label>          # sign in as the account in .env; prints the cookie file's path, nothing else
 just dev-session-end <label>      # end that one Session
-just screens <folder> <path>…     # a whole-page picture of each path at every size; fails on a console error or a sideways scroll
+just screens <folder> <path>…     # a whole-page picture of each path at every size, in pieces past 32,767px; fails on a console error, a sideways scroll or a size not photographed
 just screens-same <before> <after>   # names the pictures that differ, and fails if any do
 just proto-new <issue>-<slug> <path>…   # .dev/prototypes/<issue>-<slug>/: the real screens as static pages
 just proto-serve <name> <port>    # serve .dev/prototypes/<name>/ to the LAN, caching off
@@ -224,6 +224,11 @@ just proto-serve <name> <port>    # serve .dev/prototypes/<name>/ to the LAN, ca
   on their own as a Session named `tools`.
 - **`just screens … --webkit` runs in Safari's engine**, which has shown a fault
   Chrome did not (#198). Fetch it once with `cd ui && npx playwright install webkit`.
+- **A page taller than 32,767 pixels is photographed in pieces**, top to bottom
+  with no gap and no overlap, as `<path>.<size>-1.png`, `-2.png` and on (#522).
+  WebKit refuses one picture past that height. Chrome takes it, but `just
+  screens` holds both engines to the limit, so they write the same files. `just screens-same` pairs pieces by name, so
+  a page that went from one picture to pieces, or to a different count, differs.
 - **`.env` at the repo root says where and as whom.** `KAMOSU_DEV_HOST` is the
   dev instance's address, reached over HTTPS because a Session cookie is Secure.
   `KAMOSU_DEV_ADMIN_NAME` and `KAMOSU_DEV_ADMIN_PASSWORD` are the account. The

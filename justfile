@@ -252,8 +252,10 @@ dev-session-end label:
     @node ui/tools/dev-session.mjs end "{{label}}"
 
 # Photograph each path on the dev instance at every size, whole page, into
-# <folder> as <path>.<size>.png. Fails when a page logged a console error or
-# scrolls sideways. Take the "before" set when a ticket is claimed, while the
+# <folder> as <path>.<size>.png, or in pieces <path>.<size>-1.png, -2.png...
+# when the page is taller than one picture may be (#522). Fails when a page
+# logged a console error, scrolls sideways or could not be photographed, after
+# taking every other size. Take the "before" set when a ticket is claimed, while the
 # worktree is still clean, and the "after" set once it is built. Add --webkit
 # to run it in Safari's engine, fetched once with
 # `cd ui && npx playwright install webkit`.
