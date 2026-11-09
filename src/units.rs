@@ -1049,28 +1049,29 @@ fn word_it(measured: Measured, language: &str) -> String {
 }
 
 /// A written number with the decimal mark its reader writes: `1,5` in Dutch
-/// (#496), `1.5` in the other three, which have always been written so. The
+/// (#496), French and Spanish (#599), `1.5` in English. The
 /// phone's offline copy is `withDecimalMark` in `ui/src/lib/offline/shopping.ts`,
 /// and `shopping_parity` holds the two to [`DECIMAL_MARKS`].
 fn with_decimal_mark(number: String, language: &str) -> String {
     match language {
-        "nl" => number.replace('.', ","),
+        "fr" | "es" | "nl" => number.replace('.', ","),
         _ => number,
     }
 }
 
 /// How much of a Component's recipe a line takes, as its reader writes it:
-/// `½`, or `0,3` in Dutch where the share has no glyph (#496).
+/// `½`, or `0,3` in French, Spanish and Dutch where the share has no glyph (#496, #599).
 pub fn share_written(share: f64, language: &str) -> String {
     with_decimal_mark(as_fraction(share), language)
 }
 
 /// The cases the decimal mark is held to: millilitres, worded for a metric
-/// reader in each Language (#496). `shopping_parity` writes them out for the phone's copy too.
+/// reader in each Language (#496, #599). `shopping_parity` writes them out for the phone's copy too.
 #[cfg(test)]
 pub(crate) const DECIMAL_MARKS: &[(f64, &str, &str)] = &[
     (1500.0, "en", "about 1.5 l"),
-    (1500.0, "fr", "environ 1.5 l"),
+    (1500.0, "fr", "environ 1,5 l"),
+    (1500.0, "es", "aprox. 1,5 l"),
     (1500.0, "nl", "ongeveer 1,5 l"),
     (2000.0, "nl", "ongeveer 2 l"),
 ];
@@ -2134,7 +2135,7 @@ mod tests {
     }
 
     /// A Component's share with no glyph is written with the reader's
-    /// decimal mark (#496), and a half stays a half.
+    /// decimal mark (#496, #599), and a half stays a half.
     #[test]
     fn a_components_share_takes_the_readers_decimal_mark() {
         assert_eq!(
@@ -2145,6 +2146,8 @@ mod tests {
             component_line(true, false, Some("Deeg"), Some(0.5), "nl"),
             "Deeg · ½ van het recept"
         );
+        assert!(component_line(true, false, Some("Pâte"), Some(0.3), "fr").contains("0,3"));
+        assert!(component_line(true, false, Some("Masa"), Some(0.3), "es").contains("0,3"));
         assert!(component_line(true, false, Some("Dough"), Some(0.3), "en").contains("0.3"));
     }
 }
