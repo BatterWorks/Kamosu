@@ -50,6 +50,7 @@
 - Turning Meaning Search off at the moment its regular catch-up started no longer has that catch-up read the whole library into an index that is off. [#541]
 - A cooking started on a phone with no network is kept when the recipe's writer saved it again within the hour before the phone came back online. Before, the save replaced the Version the phone had, and the cooking, with its rating, note and photographs, was refused and lost. It now counts as a cooking of the Version that replaced it. [#548]
 - Pressing the browser's Back button while writing a recipe closes the writing screen and drops the draft, as Cancel does. Before, when Back led to another recipe, the screen stayed open on it, and Save made the draft a Version of that recipe. [#549]
+- A Reading corrected on one recipe no longer shows on the next recipe you open from it, and a correction left open there closes. Before, the line at the same place on the next recipe showed the correction, and saving the open one wrote it onto that line. [#559]
 - The agent beside a Runner reads why the model relay refused one of its requests, such as one with the wrong key. Before, an agent slow to send its request could find the relay had hung up instead, and its Job was tried again. [#503]
 - A translation of a named variation, such as "Vegan", now counts how far behind it is against that variation, also after a Co-author leaves or joins again. Before, it was measured against the recipe's unnamed version and said it was behind as soon as that one changed. A second translation into a language you already have is named after the variation it translates, "Vegan" here, instead of after the Cookbook's authors. Translations made before this change are measured as they were. [#517]
 - A Bundle's notes write a recipe's times as the app does, `9 h prep` or `1 h 30 cook` instead of `540 min prep` or `90 min cook`. [#546]
@@ -83,6 +84,7 @@
 [#549]: https://github.com/BatterWorks/Kamosu/issues/549
 [#552]: https://github.com/BatterWorks/Kamosu/issues/552
 [#553]: https://github.com/BatterWorks/Kamosu/issues/553
+[#559]: https://github.com/BatterWorks/Kamosu/issues/559
 
 ## v0.5.0 - 2026-10-29
 

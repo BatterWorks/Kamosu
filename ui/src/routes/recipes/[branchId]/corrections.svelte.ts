@@ -10,8 +10,8 @@
  *
  * Everything is keyed by a line's index into the list on screen, so anything
  * that moves those indexes — a save, crossing to the other side of a
- * Divergence, putting the marks away — forgets what is here (`forget`,
- * `close`).
+ * Divergence, putting the marks away, walking to another recipe (#559) —
+ * forgets what is here (`forget`, `close`).
  */
 import type { GetRecipeOutput } from '#lib/api/catalogue.js';
 import { reading } from './divergence';

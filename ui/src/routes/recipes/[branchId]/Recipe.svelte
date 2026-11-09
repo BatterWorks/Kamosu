@@ -571,6 +571,11 @@
 				// browser's Back button lands here too, and a writing screen
 				// left open would save A's words as a Version of B.
 				closeWriting();
+				// A correction is laid over a line by its index, and the same
+				// index on this recipe is another ingredient. A corrector left
+				// open holds the last recipe's Reading, and would write it onto
+				// this one's line (#559).
+				fixes.forget();
 				// The comparison was the last version's. Walking along the strip
 				// to your own must not carry its marks, or anything taken from
 				// it, onto a page that has nothing to compare (#131).

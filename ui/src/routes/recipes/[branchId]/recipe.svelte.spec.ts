@@ -2048,6 +2048,50 @@ describe('the recipe screen', () => {
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('save_recipe_version');
 	});
 
+	it('leaves a corrected Reading behind when you walk to another recipe (#559)', async () => {
+		// A correction is laid over the line by its index, and the next recipe
+		// has a line at the same index that is another ingredient entirely.
+		const { goTo } = renderRecipe({
+			...solo(),
+			divergence: { refuse: 'not_found' },
+			set_reading: {
+				line_index: 2,
+				reading: { amount: '500', unit: 'ml', target: 'frying oil', lineage_id: null },
+				measured: null,
+			},
+		} as Answers);
+		await fireEvent.click(await screen.findByText('Some cooking oil (for deep frying)'));
+		await fireEvent.input(screen.getByLabelText(/What it is/i), {
+			target: { value: 'frying oil' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: /Save the Reading/i }));
+		await screen.findByText('500 ml frying oil');
+
+		await goTo('another');
+		await tick();
+		expect(screen.queryByText('500 ml frying oil')).not.toBeInTheDocument();
+		expect(await screen.findByText('Some cooking oil (for deep frying)')).toBeInTheDocument();
+		expect(screen.queryByText('500 ml frying oil')).not.toBeInTheDocument();
+	});
+
+	it('closes a corrector left open when you walk to another recipe (#559)', async () => {
+		// Its fields hold the last recipe's Reading, and saving them would write
+		// that Reading onto the new recipe's line.
+		const { kamosu, goTo } = renderRecipe({
+			...solo(),
+			divergence: { refuse: 'not_found' },
+		} as Answers);
+		await fireEvent.click(await screen.findByText('Some cooking oil (for deep frying)'));
+		expect(screen.getByLabelText(/What it is/i)).toBeInTheDocument();
+
+		await goTo('another');
+		await tick();
+		expect(screen.queryByLabelText(/What it is/i)).toBeNull();
+		await screen.findByText('Some cooking oil (for deep frying)');
+		expect(screen.queryByLabelText(/What it is/i)).toBeNull();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('set_reading');
+	});
+
 	it('does not re-read the recipe for a correction that touches no Component', async () => {
 		// The ordinary correction, which is nearly every correction. Everything
 		// it changes is laid over the Readings on this page already, so a
