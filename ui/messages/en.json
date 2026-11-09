@@ -95,7 +95,6 @@
   "component_pick_closest": "Nothing matched closely. These are the nearest.",
   "component_pick_failed": "Your recipes could not be searched just now.",
   "component_pick_for": "For the line: {line}",
-  "component_pick_language": "In {language}",
   "component_pick_nothing": "No recipe matched. Search for the one this line means.",
   "component_pick_search": "Search your recipes",
   "component_pick_title": "Which recipe is this?",

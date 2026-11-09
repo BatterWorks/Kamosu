@@ -45,6 +45,7 @@
 	import SheetFrame from '#lib/SheetFrame.svelte';
 	import { useKamosu } from '#lib/kamosu.js';
 	import { RecipeSearch } from '#lib/search.svelte.js';
+	import { fallbackLanguage } from '../matched';
 
 	interface Props {
 		/** The line this picker was opened for, said at the top so a sheet
@@ -117,6 +118,7 @@
 			{/if}
 			<ul>
 				{#each entries as entry (entry.lineage_id)}
+					{@const mark = fallbackLanguage(entry)}
 					<li>
 						<button
 							type="button"
@@ -126,13 +128,12 @@
 							<span class="block text-line">{entry.title}</span>
 							<!--
 								A recipe shown in a Language the reader did not ask for says
-								so, here as on the shelf: a preference may never hide a
-								recipe from its owner (ADR 0006).
+								so, in the shelf's own words: a preference may never hide a
+								recipe from its owner (ADR 0006). A phrase of its own here
+								was handed the bare code and printed "In fr" (#598).
 							-->
-							{#if entry.language_fallback}
-								<span class="block text-read text-ink-2">
-									{m.component_pick_language({ language: entry.language })}
-								</span>
+							{#if mark !== null}
+								<span class="block text-read text-ink-2">{mark}</span>
 							{/if}
 						</button>
 					</li>

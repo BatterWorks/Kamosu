@@ -95,7 +95,6 @@
   "component_pick_closest": "Niets kwam echt overeen. Dit zijn de dichtstbijzijnde.",
   "component_pick_failed": "Je recepten konden net niet worden doorzocht.",
   "component_pick_for": "Voor de regel: {line}",
-  "component_pick_language": "In het {language}",
   "component_pick_nothing": "Geen recept kwam overeen. Zoek het recept dat deze regel bedoelt.",
   "component_pick_search": "Zoek in je recepten",
   "component_pick_title": "Welk recept is dit?",

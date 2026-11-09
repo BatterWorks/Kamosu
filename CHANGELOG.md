@@ -57,6 +57,7 @@
 - A recipe someone else on the same Kamosu translated from their own copy can still be marked as written in no single language, and a language Kamosu guessed for it is still corrected from its text. Before, their translation counted as this recipe's own: marking it was refused and the guess stayed. [#586]
 - A Bundle's notes write a recipe's times as the app does, `9 h prep` or `1 h 30 cook` instead of `540 min prep` or `90 min cook`. [#546]
 - A recipe file that lost its `.kamosu/` folder keeps a line of the recipe's note that starts `Tags:`, `Étiquettes:` or `Etiquetas:` when more of the note follows it. Before, such a line was dropped wherever it stood. [#577]
+- Choosing which recipe an ingredient line names marks a recipe shown in another language by the language's name, "In French", as the recipe shelf does. Before, it showed the language's code, "In fr". [#598]
 
 [#464]: https://github.com/BatterWorks/Kamosu/issues/464
 [#477]: https://github.com/BatterWorks/Kamosu/issues/477
@@ -93,6 +94,7 @@
 [#577]: https://github.com/BatterWorks/Kamosu/issues/577
 [#582]: https://github.com/BatterWorks/Kamosu/issues/582
 [#586]: https://github.com/BatterWorks/Kamosu/issues/586
+[#598]: https://github.com/BatterWorks/Kamosu/issues/598
 
 ## v0.5.0 - 2026-10-29
 

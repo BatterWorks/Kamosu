@@ -95,7 +95,6 @@
   "component_pick_closest": "Rien ne correspond vraiment. Voici les plus proches.",
   "component_pick_failed": "Impossible de rechercher vos recettes pour le moment.",
   "component_pick_for": "Pour la ligne : {line}",
-  "component_pick_language": "En {language}",
   "component_pick_nothing": "Aucune recette ne correspond. Cherchez celle que cette ligne désigne.",
   "component_pick_search": "Rechercher dans vos recettes",
   "component_pick_title": "De quelle recette s’agit-il ?",
