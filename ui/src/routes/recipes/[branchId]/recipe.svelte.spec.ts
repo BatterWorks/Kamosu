@@ -384,7 +384,11 @@ function readOf(kamosu: ReturnType<typeof standIn>, branchId: string): Promise<u
 	return new Promise((resolve) => {
 		kamosu.client.getRecipe = ((input) => {
 			const answer = read(input);
-			if (input.branch_id === branchId) void answer.finally(() => resolve(undefined));
+			if (input.branch_id === branchId)
+				answer.then(
+					() => resolve(undefined),
+					() => resolve(undefined),
+				);
 			return answer;
 		}) as typeof kamosu.client.getRecipe;
 	});
@@ -2108,6 +2112,9 @@ describe('the recipe screen', () => {
 		await answered;
 		await tick();
 		expect(screen.queryByLabelText(/What it is/i)).toBeNull();
+		// Once the recipe walked to has answered, its own lines correct.
+		await fireEvent.click(screen.getByText('Some cooking oil (for deep frying)'));
+		expect(screen.getByLabelText(/What it is/i)).toBeInTheDocument();
 	});
 
 	it('opens no corrector on the last recipe while the next one is still being read (#559)', async () => {
