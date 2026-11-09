@@ -6,6 +6,7 @@
 
 - If you hold Dutch recipes, set each one to Dutch, then run *Read every line again* so they are read with Dutch words from then on. [#495]
 - Kamosu now fetches a link, its pictures and a Share Link from another Kamosu directly, never through a proxy named in `HTTP_PROXY`, `HTTPS_PROXY` or `ALL_PROXY`. Before, with one set, a link whose name led into your own network was fetched through the proxy instead of refused. If your Kamosu reaches the internet only through a proxy, give it a direct route out, or adding from a link stops working. [#526]
+- The published agent image beside a Runner now waits for its fence and refuses to start without one: update the fence and the agent to the same version together, and start the agent in the fence's network, as the Compose file in `docs/runner.md` does. Before, an agent whose fence failed to set its rules ran on an open network. [#539]
 
 ### Added
 
@@ -38,6 +39,9 @@
 - A recipe's Share Link page writes its times as the app does, `9 h` or `1 h 30` instead of `540` or `90` minutes, in the page and in the card a messaging app shows. A Step's photograph is a small square at the end of its row that opens the picture, a Component's Steps included, and a shared variation shows its name under the title. `read_shared_recipe` answers the Branch's `name`. [#521]
 - Saving a recipe again within the hour no longer replaces a Version somebody has cooked. Before, the cooking left the recipe's History, and a Kitchen-mate leaving the Kitchen kept nothing of it. A save from a second device or an old tab, made from an earlier Version, is now a Version of its own instead of replacing the other device's save. `save_recipe_version` and `edit_recipe` take the Version the save was written from as `base_version_id`. [#536]
 - A cook's phone keeps its offline library when Kamosu refuses something only an Operator, or a recipe's own Cookbook, may do. Before, any such refusal emptied it, so with no network every recipe said it could not be read. Only a Session that has ended empties it now. [#537]
+- Revoking an Add-only key cancels the agent's Jobs it started, waiting or under way. Before, they ran on to the end, spending on the model after the key was revoked. [#539]
+- The Runner's model relay sends on only a request for a model's answer and the list of models. Before, it sent any request to the provider with the provider's key, so an agent a web page tricked could start batches or fine-tuning billed after its Job, or read the files stored in that account. [#539]
+- The agent's fence refuses every IPv6 address. Before, a device on a home network with IPv6 from its provider, such as a printer or a router, could be reached from the agent at its public IPv6 address. The agent now reaches the internet over IPv4 alone. [#539]
 - Changes made with no network are sent when the same person signs back in after their Session was ended on another device, by a password change or by a recovery. Before, any sign-in threw them away without a word. Someone else signing in on the phone still never sends them. [#537]
 - A recipe deleted, or no longer shared with you, no longer opens from the phone's copy, and the count of recipes on the phone drops it. Before, the phone went on showing it whole, online too. [#537]
 - A cooking recorded with no network lands in your diary even when its recipe was deleted, or stopped being shared with you, before the phone reconnected. Before, it was lost with its note, rating and photos. [#537]
@@ -90,6 +94,7 @@
 [#536]: https://github.com/BatterWorks/Kamosu/issues/536
 [#537]: https://github.com/BatterWorks/Kamosu/issues/537
 [#538]: https://github.com/BatterWorks/Kamosu/issues/538
+[#539]: https://github.com/BatterWorks/Kamosu/issues/539
 [#540]: https://github.com/BatterWorks/Kamosu/issues/540
 [#541]: https://github.com/BatterWorks/Kamosu/issues/541
 [#546]: https://github.com/BatterWorks/Kamosu/issues/546

@@ -91,6 +91,35 @@ if "KAMOSU_RUNNER_KEY" in os.environ:
         "Runner's container alone. Take it out of the agent's settings.",
     )
 
+# The fence beside this container says in the network it shares that its
+# rules are in place (#539). Until it has, this network may reach the host
+# and the LAN, so no Job starts. A fence started a moment before is waited
+# for.
+FENCE_UP = "\0kamosu-agent-fence-up"
+FENCE_WAIT_SECONDS = 60
+
+
+def fence_is_up():
+    asking = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        asking.connect(FENCE_UP)
+        return True
+    except OSError:
+        return False
+    finally:
+        asking.close()
+
+
+waited_since = time.monotonic()
+while not fence_is_up():
+    if time.monotonic() - waited_since > FENCE_WAIT_SECONDS:
+        refuse(
+            "The agent's network is not fenced: no fence has said its rules are in",
+            "place. Start the fence first and the agent in its network, as",
+            "docs/runner.md's Compose file does, and read the fence's log.",
+        )
+    time.sleep(1)
+
 # A Job's programs run as this program's user. Marked not dumpable, it cannot
 # be traced or read by them, so a Job cannot keep it alive past its Job to
 # hand it the next one.

@@ -2324,6 +2324,18 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 75,
+        description: "which Access Key asked for a Job (#539)",
+        sql: r#"
+        -- Revoking an Add-only key cancels the Jobs it started, waiting or
+        -- held by a Runner, so a key taken from a phone stops spending the
+        -- moment it is revoked. NULL on every Job already written, and on
+        -- one asked for with a Session, a Job Key or by nobody.
+        ALTER TABLE jobs ADD COLUMN access_key_id TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

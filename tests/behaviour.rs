@@ -50400,6 +50400,148 @@ mod sharing_from_a_phone {
         }
     }
 
+    /// A key taken from a phone stops spending once it is revoked: the Jobs
+    /// it started end, the one a Runner holds as well as the one waiting,
+    /// and nobody else's do (#539).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn revoking_an_add_only_key_cancels_the_jobs_it_started_and_no_others() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        let (key, key_id) = add_only_key(&app, &session, false);
+        let (other_key, _) = add_only_key(&app, &session, false);
+        let job_of = |answered: &Value| answered["job_id"].as_str().unwrap().to_string();
+
+        let held = job_of(&add(
+            &app,
+            &key,
+            json!({ "text": "Lemon tart\n200 g flour" }),
+        ));
+        let work = ask_for_work(&app, &runner);
+        assert_eq!(work["job_id"], json!(held), "{work}");
+        let job_key = work["job_key"].as_str().unwrap().to_string();
+        let waiting = job_of(&add(&app, &key, json!({ "text": "Plum cake\n3 eggs" })));
+        let others = job_of(&add(
+            &app,
+            &other_key,
+            json!({ "text": "Pear tart\n2 pears" }),
+        ));
+        let (_, asked) = app.post_op(
+            "import_by_agent",
+            Some(&session),
+            &json!({ "text": "Fig tart\n4 figs" }).to_string(),
+        );
+        let the_cooks = asked["result"]["job_id"].as_str().unwrap().to_string();
+
+        let (status, revoked) = app.post_op(
+            "revoke_access_key",
+            Some(&session),
+            &json!({ "access_key_id": key_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{revoked}");
+
+        let status_of = |job_id: &str| {
+            let (code, job) = app.post_op(
+                "get_job",
+                Some(&session),
+                &json!({ "job_id": job_id }).to_string(),
+            );
+            assert_eq!(code, 200, "{job}");
+            job["result"]["status"].as_str().unwrap().to_string()
+        };
+        assert_eq!(status_of(&held), "cancelled");
+        assert_eq!(status_of(&waiting), "cancelled");
+        assert_eq!(status_of(&others), "queued");
+        assert_eq!(status_of(&the_cooks), "queued");
+        // The agent holding the key's Job reads nothing more with its Job Key.
+        let (status, refused) = app.post_op(
+            "search_recipes",
+            Some(&job_key),
+            &json!({ "query": "tart" }).to_string(),
+        );
+        assert_eq!(status, 401, "{refused}");
+        // And the Runner is told so at its next renewal.
+        let (_, renewed) = app.post_op(
+            "renew_hold",
+            Some(&runner),
+            &json!({ "job_id": held }).to_string(),
+        );
+        assert!(renewed.get("error").is_some(), "{renewed}");
+    }
+
+    /// Every key ended with a new password ends the Add-only key's Jobs as
+    /// revoking it alone does, since a taken phone is why a cook does it
+    /// (#539). A recovery ends them through the same call.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_new_password_that_ends_every_key_cancels_the_add_only_keys_jobs() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        let (key, _) = add_only_key(&app, &session, false);
+        let job_of = |answered: &Value| answered["job_id"].as_str().unwrap().to_string();
+        let held = job_of(&add(
+            &app,
+            &key,
+            json!({ "text": "Lemon tart\n200 g flour" }),
+        ));
+        ask_for_work(&app, &runner);
+        let waiting = job_of(&add(&app, &key, json!({ "text": "Plum cake\n3 eggs" })));
+
+        let (status, changed) = app.post_op(
+            "change_password",
+            Some(&session),
+            &json!({ "current_password": "a password only its person knows",
+                     "new_password": "a password nobody else has",
+                     "sign_out_other_devices": false, "end_access_keys": true })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{changed}");
+        for job_id in [held, waiting] {
+            let (_, job) = app.post_op(
+                "get_job",
+                Some(&session),
+                &json!({ "job_id": job_id }).to_string(),
+            );
+            assert_eq!(job["result"]["status"], json!("cancelled"), "{job}");
+        }
+    }
+
+    /// A recovery and an Operator disabling the account end every key, and
+    /// the Add-only key's Jobs with them, so enabling the account again
+    /// puts none back in line (#539).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_recovery_or_a_disabled_account_cancels_the_add_only_keys_jobs() {
+        let app = support::spawn_app();
+        let (operator, _) = a_cook(&app);
+        a_runner(&app);
+        let status_of = |job_id: &str| -> String {
+            app.core
+                .db()
+                .with_conn(|conn| {
+                    conn.query_row("SELECT status FROM jobs WHERE id = ?1", [job_id], |row| {
+                        row.get(0)
+                    })
+                    .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+                })
+                .unwrap()
+        };
+        let mut started = Vec::new();
+        for name in ["Marie", "Camille"] {
+            let session = super::invited(&app, &operator, name);
+            let (key, _) = add_only_key(&app, &session, false);
+            let sent = add(&app, &key, json!({ "text": "Lemon tart\n200 g flour" }));
+            started.push(sent["job_id"].as_str().unwrap().to_string());
+        }
+        assert_eq!(status_of(&started[0]), "queued");
+        super::recovered(&app, &operator, "Marie");
+        let (status, disabled) =
+            app.post_op("disable_account", Some(&operator), r#"{"name":"Camille"}"#);
+        assert_eq!(status, 200, "{disabled}");
+        for job_id in &started {
+            assert_eq!(status_of(job_id), "cancelled", "{job_id}");
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn with_an_agent_text_pictures_and_a_pdf_are_sent_and_said_so() {
         let app = support::spawn_app();

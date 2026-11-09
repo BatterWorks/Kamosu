@@ -14,9 +14,17 @@
 //! the stand-in's place. Providers differ in where that is: `Authorization:
 //! Bearer` for OpenAI, OpenRouter and every OpenAI-compatible service,
 //! `x-api-key` for Anthropic, `x-goog-api-key` for Google. The relay reads
-//! all three and fills in whichever the agent used, so it needs no list of
-//! providers. Any other request is refused. When the Job ends the relay
-//! closes, with every request still open, and its stand-in is worth nothing.
+//! all three and fills in whichever the agent used. Any other request is
+//! refused. When the Job ends the relay closes, with every request still
+//! open, and its stand-in is worth nothing.
+//!
+//! The relay sends on only what asks a model for an answer, and reading the
+//! list of models (#539). The provider's key reaches far more than that:
+//! batches and fine-tuning that go on billing after the Job, the account's
+//! stored files, pictures and speech. A request for any of those is refused
+//! before it leaves. Which requests ask for an answer is told by the path
+//! alone (`INFERENCE`): providers share a few dialects, so the relay still
+//! needs no list of providers.
 //!
 //! The relay is the Runner's, so its client is its own too, kept apart from
 //! the guarded client every other fetch in Kamosu uses (ADR 0033) as the
@@ -54,6 +62,59 @@ pub const MODEL_SOCKET_VAR: &str = "KAMOSU_RUNNER_MODEL_SOCKET";
 
 /// The headers a provider reads its key from, lowercase as `http` holds them.
 const KEY_HEADERS: [&str; 3] = ["authorization", "x-api-key", "x-goog-api-key"];
+
+/// The requests the relay sends on besides reading the list of models: a
+/// `POST` to one of these paths under the provider's address, as the
+/// provider packages opencode uses write them (models.dev's catalogue and
+/// the AI SDK, checked on 9 November 2026, #539):
+///
+/// - `chat/completions`: every OpenAI-compatible service, OpenRouter, Groq,
+///   Mistral, xAI and the like.
+/// - `responses`: OpenAI and xAI.
+/// - `messages` and `messages/count_tokens`: Anthropic and the services that
+///   speak its dialect.
+/// - `chat`: Cohere.
+///
+/// Google's two, `models/<model>:generateContent` and
+/// `:streamGenerateContent`, name the model inside the path and are matched
+/// apart, in `asks_a_model`.
+const INFERENCE: [&[&str]; 5] = [
+    &["chat", "completions"],
+    &["responses"],
+    &["messages"],
+    &["messages", "count_tokens"],
+    &["chat"],
+];
+
+/// Whether a request the agent sent, as its method and its path under the
+/// provider's address, asks a model for an answer or reads the list of
+/// models: the only requests the relay sends on (#539). The path is taken
+/// whole, with at most a version such as `v1` before it, for an address
+/// given without one.
+fn asks_a_model(method: &axum::http::Method, under: &str) -> bool {
+    let mut segments: Vec<&str> = under.split('/').collect();
+    if segments.last() == Some(&"") {
+        segments.pop();
+    }
+    let is_version = |segment: &str| {
+        segment.len() > 1
+            && segment.starts_with('v')
+            && segment[1..2].chars().all(|c| c.is_ascii_digit())
+            && segment.chars().all(|c| c.is_ascii_alphanumeric())
+    };
+    if segments.len() > 1 && is_version(segments[0]) {
+        segments.remove(0);
+    }
+    match (method.as_str(), segments.as_slice()) {
+        // The list of models, and one model of it.
+        ("GET", ["models"] | ["models", _]) => true,
+        ("POST", ["models", model]) => {
+            model.ends_with(":generateContent") || model.ends_with(":streamGenerateContent")
+        }
+        ("POST", path) => INFERENCE.contains(&path),
+        _ => false,
+    }
+}
 
 /// Headers that describe one connection and are never passed on, with `host`,
 /// which names the relay, and `content-length`, which hyper writes again.
@@ -147,6 +208,11 @@ impl Provider {
         let target = Url::parse(&format!("{base}{path_and_query}")).ok()?;
         (target.origin() == self.address.origin() && target.path().starts_with(self.address.path()))
             .then_some(target)
+    }
+
+    /// The part of a target's path under the provider's address.
+    fn under<'a>(&self, target: &'a Url) -> &'a str {
+        &target.path()[self.address.path().len()..]
     }
 }
 
@@ -307,6 +373,15 @@ async fn forward(State(shared): State<Arc<RelayState>>, request: Request) -> Res
         )
         .await;
     };
+    let under = shared.provider.under(&target);
+    if !asks_a_model(&parts.method, under) {
+        let message = format!(
+            "This relay sends on only a request for a model's answer and the list of \
+             models, and {} /{under} is neither.",
+            parts.method
+        );
+        return refused_once_read(&parts.headers, body, StatusCode::FORBIDDEN, &message).await;
+    }
     let Ok(body) = axum::body::to_bytes(body, REQUEST_MOST_BYTES).await else {
         return refused(
             StatusCode::BAD_REQUEST,
@@ -528,6 +603,155 @@ mod tests {
             assert!(answer.starts_with(status), "{path}: {answer}");
             assert!(answer.contains("kamosu_relay"), "{path}: {answer}");
         }
+    }
+
+    #[test]
+    fn only_a_request_for_a_models_answer_or_the_model_list_is_sent_on() {
+        use axum::http::Method;
+        let sent_on = [
+            (Method::POST, "chat/completions"),
+            (Method::POST, "responses"),
+            (Method::POST, "messages"),
+            (Method::POST, "messages/count_tokens"),
+            (Method::POST, "chat"),
+            (Method::POST, "models/gemini-2.5-flash:generateContent"),
+            (
+                Method::POST,
+                "models/gemini-2.5-flash:streamGenerateContent",
+            ),
+            (Method::GET, "models"),
+            (Method::GET, "models/"),
+            (Method::GET, "models/gpt-5"),
+            // An address given without its version.
+            (Method::POST, "v1/chat/completions"),
+            (Method::POST, "v1beta/models/gemini:generateContent"),
+        ];
+        for (method, path) in sent_on {
+            assert!(asks_a_model(&method, path), "{method} {path} was refused");
+        }
+        let refused = [
+            (Method::POST, "batches"),
+            (Method::GET, "files"),
+            (Method::GET, "files/file-abc/content"),
+            (Method::POST, "files"),
+            (Method::POST, "fine_tuning/jobs"),
+            (Method::POST, "messages/batches"),
+            (Method::GET, "messages/batches"),
+            (Method::POST, "batches/chat/completions"),
+            (Method::POST, "files/abc/chat/completions"),
+            (Method::POST, "embeddings"),
+            (Method::POST, "images/generations"),
+            (Method::POST, "audio/speech"),
+            (Method::GET, "chat/completions"),
+            (Method::DELETE, "models/ft:gpt-4o:mine"),
+            (Method::DELETE, "files/file-abc"),
+            (Method::POST, "models/gemini:batchGenerateContent"),
+            (Method::POST, "models/gemini:embedContent"),
+            (Method::POST, "v1/v1/chat/completions"),
+            (Method::POST, ""),
+        ];
+        for (method, path) in refused {
+            assert!(!asks_a_model(&method, path), "{method} {path} was sent on");
+        }
+    }
+
+    /// A provider that writes down each request it is sent, as its method,
+    /// its path and the key it carried, and answers every one.
+    async fn fake_provider() -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let writes = seen.clone();
+        let app = Router::new().fallback(move |request: Request| {
+            let writes = writes.clone();
+            async move {
+                let key = KEY_HEADERS
+                    .iter()
+                    .find_map(|name| request.headers().get(*name))
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("")
+                    .to_string();
+                writes.lock().unwrap().push(format!(
+                    "{} {} {key}",
+                    request.method(),
+                    request.uri()
+                ));
+                "{}"
+            }
+        });
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (address, seen)
+    }
+
+    /// The relay was found sending a batch, the account's files and a
+    /// fine-tuning job on with the real key (#539).
+    #[tokio::test]
+    async fn the_relay_refuses_what_is_not_a_models_answer_before_it_reaches_the_provider() {
+        let (address, seen) = fake_provider().await;
+        let provider = Arc::new(provider(&format!("{address}/v1")));
+        let relay = Relay::open(provider, &Place::Loopback).await.unwrap();
+        let relay_at = relay.handed()["address"].as_str().unwrap().to_string();
+        let stand_in = relay.handed()["key"].as_str().unwrap().to_string();
+        let client = reqwest::Client::new();
+        let call = |method: reqwest::Method, path: &str, header: &'static str| {
+            let value = if header == "authorization" {
+                format!("Bearer {stand_in}")
+            } else {
+                stand_in.clone()
+            };
+            client
+                .request(method, format!("{relay_at}{path}"))
+                .header(header, value)
+                .body("{}")
+                .send()
+        };
+
+        for (method, path) in [
+            (reqwest::Method::POST, "batches"),
+            (reqwest::Method::GET, "files"),
+            (reqwest::Method::POST, "fine_tuning/jobs"),
+            (reqwest::Method::POST, "messages/batches"),
+        ] {
+            let answer = call(method.clone(), path, "authorization").await.unwrap();
+            assert_eq!(answer.status(), 403, "{method} {path}");
+            let said = answer.text().await.unwrap();
+            assert!(said.contains("kamosu_relay"), "{said}");
+            assert!(said.contains(path), "{said}");
+        }
+        assert!(
+            seen.lock().unwrap().is_empty(),
+            "reached the provider: {:?}",
+            seen.lock().unwrap()
+        );
+
+        // A request for an answer still goes through, in each dialect, with
+        // the real key where the stand-in was.
+        let dialects = [
+            ("chat/completions", "authorization", "Bearer sk-real"),
+            ("responses", "authorization", "Bearer sk-real"),
+            ("messages", "x-api-key", "sk-real"),
+            ("chat", "authorization", "Bearer sk-real"),
+            (
+                "models/gemini:streamGenerateContent?alt=sse",
+                "x-goog-api-key",
+                "sk-real",
+            ),
+        ];
+        for (path, header, _) in dialects {
+            let answer = call(reqwest::Method::POST, path, header).await.unwrap();
+            assert_eq!(answer.status(), 200, "{path}");
+        }
+        let answer = call(reqwest::Method::GET, "models", "authorization")
+            .await
+            .unwrap();
+        assert_eq!(answer.status(), 200);
+        let seen = seen.lock().unwrap().clone();
+        let mut expected: Vec<String> = dialects
+            .iter()
+            .map(|(path, _, key)| format!("POST /v1/{path} {key}"))
+            .collect();
+        expected.push("GET /v1/models Bearer sk-real".to_string());
+        assert_eq!(seen, expected);
     }
 
     #[test]
