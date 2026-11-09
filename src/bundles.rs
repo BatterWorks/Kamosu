@@ -428,14 +428,11 @@ fn photograph_names(contents: &Contents) -> HashMap<String, String> {
     names
 }
 
+/// The name of a Language, written in itself. It is read off `NOTE_WORDS`, so
+/// every Language a note is written in has one (#592). A code no note is
+/// written in is shown as it stands.
 fn language_name(language: &str) -> &str {
-    match language {
-        "en" => "English",
-        "fr" => "Français",
-        "es" => "Español",
-        "nl" => "Nederlands",
-        other => other,
-    }
+    note_words(language).map_or(language, |words| words.name)
 }
 
 // ── The note ─────────────────────────────────────────────────────────────────
@@ -445,6 +442,9 @@ fn language_name(language: &str) -> &str {
 /// ADR 0020 puts the Thread in the note "in the same words the Share Link page
 /// uses".
 struct Words {
+    /// The Language's own name for itself, which names a Translation in a
+    /// note's file name and its Thread.
+    name: &'static str,
     ingredients: &'static str,
     method: &'static str,
     note: &'static str,
@@ -460,6 +460,7 @@ struct Words {
 }
 
 const EN: Words = Words {
+    name: "English",
     ingredients: "Ingredients",
     method: "Method",
     note: "Note",
@@ -475,6 +476,7 @@ const EN: Words = Words {
 };
 
 const FR: Words = Words {
+    name: "Français",
     ingredients: "Ingrédients",
     method: "Préparation",
     note: "Note",
@@ -490,6 +492,7 @@ const FR: Words = Words {
 };
 
 const ES: Words = Words {
+    name: "Español",
     ingredients: "Ingredientes",
     method: "Preparación",
     note: "Nota",
@@ -505,6 +508,7 @@ const ES: Words = Words {
 };
 
 const NL: Words = Words {
+    name: "Nederlands",
     ingredients: "Ingrediënten",
     method: "Bereiding",
     note: "Notitie",
@@ -524,11 +528,16 @@ const NL: Words = Words {
 /// as well as written (#577).
 const NOTE_WORDS: [(&str, &Words); 4] = [("en", &EN), ("fr", &FR), ("es", &ES), ("nl", &NL)];
 
-fn words(language: &str) -> &'static Words {
+/// A note's words in a Language, if a note is written in it.
+fn note_words(language: &str) -> Option<&'static Words> {
     NOTE_WORDS
         .iter()
         .find(|(code, _)| *code == language)
-        .map_or(&EN, |(_, words)| words)
+        .map(|(_, words)| *words)
+}
+
+fn words(language: &str) -> &'static Words {
+    note_words(language).unwrap_or(&EN)
 }
 
 /// One Branch's note: the recipe as it reads today, then its Thread.
@@ -1561,6 +1570,19 @@ mod tests {
         assert_eq!(codes, crate::language::LANGUAGES);
     }
 
+    /// Every Language Kamosu reads is named in a note in its own words, each
+    /// name its own, and a code no note is written in is shown as it stands
+    /// (#592).
+    #[test]
+    fn every_language_has_its_own_name_in_a_note() {
+        let names: Vec<&str> = crate::language::LANGUAGES
+            .iter()
+            .map(|code| language_name(code))
+            .collect();
+        assert_eq!(names, ["English", "Français", "Español", "Nederlands"]);
+        assert_eq!(language_name("de"), "de");
+    }
+
     /// A line of the cook's own that starts with some Language's word for
     /// Tags is the cook's, and only the last line in the note's own Language
     /// is taken for the Tags line (#577).
@@ -1747,6 +1769,5 @@ mod tests {
         assert_eq!(words("nl").tags, "Labels");
         assert_eq!(words("nl").prep, "voorbereidingstijd");
         assert_eq!(words("nl").cook, "kooktijd");
-        assert_eq!(language_name("nl"), "Nederlands");
     }
 }
