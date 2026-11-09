@@ -355,13 +355,15 @@ const NL: Words = Words {
     component_method_below: "De bereiding staat onder aan de pagina ↓",
 };
 
+/// Every Language the page is written in, with its words. `words()` reads
+/// this list and the tests walk it, so a Language added to one is in both.
+const PAGE_WORDS: [(&str, &Words); 4] = [("en", &EN), ("fr", &FR), ("es", &ES), ("nl", &NL)];
+
 fn words(language: &str) -> &'static Words {
-    match language {
-        "fr" => &FR,
-        "es" => &ES,
-        "nl" => &NL,
-        _ => &EN,
-    }
+    PAGE_WORDS
+        .iter()
+        .find(|(code, _)| *code == language)
+        .map_or(&EN, |(_, words)| words)
 }
 
 /// The name of a Language, written in itself.
@@ -1449,19 +1451,29 @@ mod tests {
     /// constant per Language and this pins that it stays one.
     #[test]
     fn the_standing_line_is_fixed_wording_in_every_language() {
-        for words in [&EN, &FR, &ES] {
+        for (code, page_words) in PAGE_WORDS {
             assert!(
-                words.standing.split(". ").count() == 2,
-                "the standing line says both halves"
+                page_words.standing.split(". ").count() == 2,
+                "the {code} standing line says both halves"
             );
-            assert!(!words.standing.is_empty());
+            // And it is not built from anything: the same string every time.
+            assert_eq!(words(code).standing, page_words.standing, "{code}");
         }
-        // And it is not built from anything: the same string every time.
-        assert_eq!(words("en").standing, EN.standing);
-        assert_eq!(words("fr").standing, FR.standing);
-        assert_eq!(words("es").standing, ES.standing);
+        // Each Language says it in its own words, so none fell back to
+        // another's.
+        let mut lines: Vec<&str> = PAGE_WORDS.iter().map(|(_, w)| w.standing).collect();
+        lines.sort_unstable();
+        lines.dedup();
+        assert_eq!(lines.len(), PAGE_WORDS.len());
         // An unknown Language falls back rather than showing nothing.
         assert_eq!(words("de").standing, EN.standing);
+    }
+
+    /// The page is written in every Language Kamosu reads, and no other.
+    #[test]
+    fn the_page_has_words_in_every_language() {
+        let codes: Vec<&str> = PAGE_WORDS.iter().map(|(code, _)| *code).collect();
+        assert_eq!(codes, crate::language::LANGUAGES);
     }
 
     /// A stranger's type follows their phone's text size as a member's does
