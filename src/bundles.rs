@@ -519,13 +519,16 @@ const NL: Words = Words {
     translated_from: "Vertaald uit",
 };
 
+/// Every Language a note is written in, with its code. The note's writer and
+/// its reader both walk this one list, so a Language added here is read back
+/// as well as written (#577).
+const NOTE_WORDS: [(&str, &Words); 4] = [("en", &EN), ("fr", &FR), ("es", &ES), ("nl", &NL)];
+
 fn words(language: &str) -> &'static Words {
-    match language {
-        "fr" => &FR,
-        "es" => &ES,
-        "nl" => &NL,
-        _ => &EN,
-    }
+    NOTE_WORDS
+        .iter()
+        .find(|(code, _)| *code == language)
+        .map_or(&EN, |(_, words)| words)
 }
 
 /// One Branch's note: the recipe as it reads today, then its Thread.
@@ -1155,9 +1158,9 @@ pub fn read_note(text: &str) -> Option<Value> {
     }
     let heading = |title: &str| {
         let title = title.trim();
-        [&EN, &FR, &ES]
+        NOTE_WORDS
             .iter()
-            .find_map(|words| {
+            .find_map(|(_, words)| {
                 if title == words.ingredients {
                     Some(Part::Ingredients)
                 } else if title == words.method {
@@ -1176,6 +1179,7 @@ pub fn read_note(text: &str) -> Option<Value> {
     let mut ingredients: Vec<Value> = Vec::new();
     let mut steps: Vec<Value> = Vec::new();
     let mut note: Vec<String> = Vec::new();
+    let mut note_heading = String::new();
     // The list item a continuation line belongs to: the written line break
     // that `block` turned into a hard break comes back as a newline.
     let mut open = false;
@@ -1189,6 +1193,9 @@ pub fn read_note(text: &str) -> Option<Value> {
         }
         if let Some(rest) = line.strip_prefix("## ") {
             part = heading(rest);
+            if part == Part::Note {
+                note_heading = rest.trim().to_string();
+            }
             open = false;
             continue;
         }
@@ -1241,13 +1248,6 @@ pub fn read_note(text: &str) -> Option<Value> {
                 }
             }
             Part::Note => {
-                // The Tags line follows the Note, and is filing, not words.
-                let tags = [&EN, &FR, &ES]
-                    .iter()
-                    .any(|words| line.starts_with(&format!("{}: ", words.tags)));
-                if tags {
-                    continue;
-                }
                 if !line.trim().is_empty() {
                     note.push(unescape(line.trim()));
                 } else if note.last().is_some_and(|held| !held.is_empty()) {
@@ -1258,6 +1258,21 @@ pub fn read_note(text: &str) -> Option<Value> {
         }
     }
     let title = title.filter(|title| !title.is_empty())?;
+    // The Tags line follows the Note, and is filing, not words. It is the
+    // note's last line, in the Language of the Note's own heading, so a line
+    // of the cook's that happens to start with another Language's word for
+    // Tags stays (#577).
+    while note.last().is_some_and(String::is_empty) {
+        note.pop();
+    }
+    let tags_line = note.last().is_some_and(|last| {
+        NOTE_WORDS.iter().any(|(_, words)| {
+            words.note == note_heading && last.starts_with(&format!("{}: ", words.tags))
+        })
+    });
+    if tags_line {
+        note.pop();
+    }
     let note = note.join("\n").trim().replace("\n\n\n", "\n\n");
     Some(json!({
         "title": title,
@@ -1537,6 +1552,73 @@ mod tests {
             "{text}"
         );
         assert_eq!(read_note("no title here"), None);
+    }
+
+    /// The note is written in every Language Kamosu reads, and no other.
+    #[test]
+    fn a_note_has_words_in_every_language() {
+        let codes: Vec<&str> = NOTE_WORDS.iter().map(|(code, _)| *code).collect();
+        assert_eq!(codes, crate::language::LANGUAGES);
+    }
+
+    /// A line of the cook's own that starts with some Language's word for
+    /// Tags is the cook's, and only the last line in the note's own Language
+    /// is taken for the Tags line (#577).
+    #[test]
+    fn a_note_line_that_looks_like_tags_stays() {
+        let text = "# Soup\n\n## Note\n\nLabels: read them for allergens.\n\nTags: soup\n\n---\n";
+        assert_eq!(
+            read_note(text).expect("a title")["note"],
+            json!("Labels: read them for allergens.")
+        );
+        let text = "# Soup\n\n## Note\n\nTags: x\n\nMore.\n\nTags: soup\n\n---\n";
+        assert_eq!(
+            read_note(text).expect("a title")["note"],
+            json!("Tags: x\n\nMore.")
+        );
+        let text = "# Soep\n\n## Notitie\n\nTags: niet de labels.\n\nLabels: soep\n\n---\n";
+        assert_eq!(
+            read_note(text).expect("a title")["note"],
+            json!("Tags: niet de labels.")
+        );
+    }
+
+    /// Every Language a note is written in reads back, Dutch among them
+    /// (#577): its headings are known to the reader, not only the writer.
+    #[test]
+    fn a_note_in_every_language_reads_back() {
+        for (code, _) in NOTE_WORDS {
+            let mut written = contents();
+            written.branches[0].record["language"] = json!(code);
+            written.branches[0].record["tags"] = json!([{ "names": { code: "soep" } }]);
+            written.branches[0].record["versions"][1]["content"] = json!({
+                "title": "Soep",
+                "note": "Lekker.",
+                "ingredients": [{ "kind": "ingredient", "text": "1 ui" }],
+                "steps": [{ "kind": "step", "text": "Snijden." }],
+            });
+            let written = write(&written).expect("writes");
+            let mut archive =
+                zip::ZipArchive::new(std::io::Cursor::new(written.bytes)).expect("a zip");
+            let name = archive
+                .file_names()
+                .map(Result::unwrap)
+                .find(|name| name.ends_with(".md"))
+                .expect("a note")
+                .into_owned();
+            let mut text = String::new();
+            std::io::Read::read_to_string(&mut archive.by_name(&name).unwrap(), &mut text).unwrap();
+            assert_eq!(
+                read_note(&text).expect("a title"),
+                json!({
+                    "title": "Soep",
+                    "note": "Lekker.",
+                    "ingredients": [{ "kind": "ingredient", "text": "1 ui" }],
+                    "steps": [{ "kind": "step", "text": "Snijden." }],
+                }),
+                "{code}: {text}"
+            );
+        }
     }
 
     #[test]
