@@ -73,3 +73,11 @@ written.
 | Read Again | Opnieuw lezen | Follows the English. |
 | In Progress | Bezig | Short, and what a Dutch screen says. |
 | Co-author | Medeauteur | The only word in use. |
+| Shelf | Plank | The shelf a cook's recipes stand on. `Plank` is the shelf of a bookcase. |
+| Diary (of cookings) | Dagboek | The plain word. `Kookdagboek` where it must say which. |
+| Meal Plan | Planning | Short, and what the tab says. `Weekmenu` would say a week, and a plan runs further. |
+| House Notes | Huisnotities | A new compound, and short. |
+| Job | Taak | The usual rendering. |
+| Instance | Installatie | What a cook calls the Kamosu they run. `Instantie` is a government body. |
+| Shortcut (iPhone) | Opdracht | What the Dutch iPhone calls a shortcut, in the app named Opdrachten. |
+| Calendar Link | Agendalink | Written as one word, as Dutch writes a compound. |

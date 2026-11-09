@@ -363,7 +363,7 @@ impl Core {
         language: &str,
         measures: &str,
     ) -> Result<(), OpError> {
-        if !matches!(language, "en" | "fr" | "es")
+        if !matches!(language, "en" | "fr" | "es" | "nl")
             || !matches!(measures, "us" | "metric" | "as_written")
         {
             return Err(OpError::bad_request(

@@ -162,6 +162,12 @@ describe('what a tool is asked for', () => {
 			ToolError,
 		);
 	});
+
+	it('is refused before any browser starts when it names a Language the interface lacks', async () => {
+		await expect(
+			signedInArgs(['--session', 'c', '--locale', 'de', 'before', '/recipes'], 'x'),
+		).rejects.toThrow(/--locale/);
+	});
 });
 
 describe('comparing two sets of pictures', () => {

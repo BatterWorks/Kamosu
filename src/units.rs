@@ -529,10 +529,10 @@ pub fn component_line(
 ) -> String {
     let title = title.unwrap_or("");
     match language {
-        "fr" => component_words(held, stopped, title, share, FR_COMPONENT),
-        "es" => component_words(held, stopped, title, share, ES_COMPONENT),
-        "nl" => component_words(held, stopped, title, share, NL_COMPONENT),
-        _ => component_words(held, stopped, title, share, EN_COMPONENT),
+        "fr" => component_words(held, stopped, title, share, FR_COMPONENT, language),
+        "es" => component_words(held, stopped, title, share, ES_COMPONENT, language),
+        "nl" => component_words(held, stopped, title, share, NL_COMPONENT, language),
+        _ => component_words(held, stopped, title, share, EN_COMPONENT, language),
     }
 }
 
@@ -584,6 +584,7 @@ fn component_words(
     title: &str,
     share: Option<f64>,
     words: ComponentWords,
+    language: &str,
 ) -> String {
     if !held {
         return words.missing.to_string();
@@ -597,7 +598,7 @@ fn component_words(
         Some(share) => words
             .part
             .replace("{title}", title)
-            .replace("{share}", &as_fraction(share)),
+            .replace("{share}", &share_written(share, language)),
     }
 }
 
@@ -1033,6 +1034,7 @@ fn word_it(measured: Measured, language: &str) -> String {
     } else {
         as_decimal(quantity)
     };
+    let number = with_decimal_mark(number, language);
     let unit = match (&measured.unit, &measured.as_written) {
         (Some(unit), _) => display(unit, language, plural(quantity, language)),
         // The cook's own word, exactly as written.
@@ -1045,6 +1047,33 @@ fn word_it(measured: Measured, language: &str) -> String {
         format!("{} {number} {unit}", about(language))
     }
 }
+
+/// A written number with the decimal mark its reader writes: `1,5` in Dutch
+/// (#496), `1.5` in the other three, which have always been written so. The
+/// phone's offline copy is `withDecimalMark` in `ui/src/lib/offline/shopping.ts`,
+/// and `shopping_parity` holds the two to [`DECIMAL_MARKS`].
+fn with_decimal_mark(number: String, language: &str) -> String {
+    match language {
+        "nl" => number.replace('.', ","),
+        _ => number,
+    }
+}
+
+/// How much of a Component's recipe a line takes, as its reader writes it:
+/// `½`, or `0,3` in Dutch where the share has no glyph (#496).
+pub fn share_written(share: f64, language: &str) -> String {
+    with_decimal_mark(as_fraction(share), language)
+}
+
+/// The cases the decimal mark is held to: millilitres, worded for a metric
+/// reader in each Language (#496). `shopping_parity` writes them out for the phone's copy too.
+#[cfg(test)]
+pub(crate) const DECIMAL_MARKS: &[(f64, &str, &str)] = &[
+    (1500.0, "en", "about 1.5 l"),
+    (1500.0, "fr", "environ 1.5 l"),
+    (1500.0, "nl", "ongeveer 1,5 l"),
+    (2000.0, "nl", "ongeveer 2 l"),
+];
 
 /// `4½`, because that is how the cups in the drawer are marked. Public so the
 /// Crouton importer writes a rebuilt line's amount the way this module reads
@@ -2102,5 +2131,20 @@ mod tests {
         assert_eq!(line("el", "nl"), Some("about 30 ml".to_string()));
         assert_eq!(line("kopje", "nl"), Some("about 470 ml".to_string()));
         assert_eq!(line("el", "es"), None);
+    }
+
+    /// A Component's share with no glyph is written with the reader's
+    /// decimal mark (#496), and a half stays a half.
+    #[test]
+    fn a_components_share_takes_the_readers_decimal_mark() {
+        assert_eq!(
+            component_line(true, false, Some("Deeg"), Some(0.3), "nl"),
+            "Deeg · 0,3 van het recept"
+        );
+        assert_eq!(
+            component_line(true, false, Some("Deeg"), Some(0.5), "nl"),
+            "Deeg · ½ van het recept"
+        );
+        assert!(component_line(true, false, Some("Dough"), Some(0.3), "en").contains("0.3"));
     }
 }

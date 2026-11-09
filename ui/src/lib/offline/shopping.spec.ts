@@ -48,6 +48,13 @@ describe('the phone adds a Shopping List up as the server does', () => {
 			);
 	});
 
+	it('writes the decimal mark each Language writes', () => {
+		for (const { millilitres, language, worded } of parity.decimal_marks)
+			expect(wordedVolume(millilitres, 'metric', language), `${millilitres} ml, ${language}`).toBe(
+				worded,
+			);
+	});
+
 	it(`works out the same rows in all ${parity.cases.length} cases`, () => {
 		for (const each of parity.cases) {
 			expect(

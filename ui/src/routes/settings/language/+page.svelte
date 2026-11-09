@@ -39,6 +39,7 @@
 		en: () => m.language_en(),
 		fr: () => m.language_fr(),
 		es: () => m.language_es(),
+		nl: () => m.language_nl(),
 	};
 
 	type Measures = GetReadingPreferencesOutput['reading_measures'];

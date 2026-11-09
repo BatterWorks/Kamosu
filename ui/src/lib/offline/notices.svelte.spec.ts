@@ -195,6 +195,7 @@ describe('the first fill', () => {
 		['en', /^1 recipe and its pictures, about/],
 		['fr', /^1 recette et ses photos, environ/],
 		['es', /^1 receta y sus fotos, unos/],
+		['nl', /^1 recept en de foto's, ongeveer/],
 	] as const)(
 		'says a library of one recipe in the singular, in %s (#533)',
 		async (locale, said) => {

@@ -193,6 +193,9 @@
      on 5 October 2026 (#194, ADR 0044), narrow so that an upright tablet
      keeps almost all of its width for the page. */
   --spacing-rail: 88px;
+  /* In Dutch the rail is 128px (#496, the choice of 9 November 2026, option
+     B): "Boodschappen" and "Instellingen" do not fit in 88. Set at the foot
+     of this file, under "The navigation in Dutch". */
   /* The page's column, 672. Tailwind writes it as 42rem, and the root's font
      size is the reader's text size since #228, so in rem the column would
      widen with their type. */
@@ -1294,4 +1297,31 @@
   .bg-accent :where(a[href]).text-cook-ink-2:hover {
     color: var(--color-on-accent);
   }
+}
+
+/* ── The navigation in Dutch ──────────────────────────────────────────────
+   Dutch names two places with twelve letters, "Boodschappen" and
+   "Instellingen", which fit neither a phone's fifth of the bar (78px against
+   at least 95) nor the 88px rail. The maintainer chose on 9 November 2026
+   (#496, option B) that the words stay and the navigation makes room, in
+   Dutch only, so the other Languages are drawn as they always were: each
+   phone tab is as wide as its word, the rail is 128px, and the labels' letter
+   spacing is 0.08em instead of 0.15em. `place-bar` and `place-link` are
+   hooks on `TabBar` and `PlaceLink`, and these rules sit outside every layer
+   so they beat the utilities those were written with. */
+:root:lang(nl) {
+  --spacing-rail: 128px;
+}
+
+:lang(nl) .place-bar > li {
+  flex: 1 1 auto;
+}
+
+/* At the largest text size even that does not fit: 474px of words on a 390px
+   phone. A long word then breaks onto a second line at the soft hyphen its
+   phrase carries ("Recep-ten", "Boodschap-pen", "Instel-lingen"), as Dutch
+   hyphenates it, rather than running off the screen. */
+:lang(nl) .place-link {
+  --text-label--letter-spacing: 0.08em;
+  text-align: center;
 }

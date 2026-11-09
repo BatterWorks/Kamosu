@@ -40,9 +40,10 @@
 
 	// The document's language is the locale Paraglide resolved, which is what
 	// tells a screen reader — and Safari's translation offer — what it is reading.
-	$effect(() => {
-		document.documentElement.lang = getLocale();
-	});
+	// Set before the first paint rather than after it, because the stylesheet
+	// draws the navigation by it too: in Dutch the rail is wider (#496), and set
+	// after mount it would jump on every load. A locale changes only by a reload.
+	document.documentElement.lang = getLocale();
 
 	// The browser chrome takes the app's ground colour — read from the stylesheet
 	// the page loaded, so it is the same colour every screen is drawn on and

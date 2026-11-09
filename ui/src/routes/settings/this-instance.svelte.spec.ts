@@ -20,6 +20,7 @@ import Meaning from './meaning/+page.svelte';
 import Upkeep from './upkeep/+page.svelte';
 import { renderScreen, type ScreenComponent } from '../../testing/render';
 import type { Answers } from '#lib/api/stand-in.js';
+import { setLocale } from '#lib/paraglide/runtime.js';
 import type { ListFoodsOutput, RereadIngredientLinesOutput } from '#lib/api/catalogue.js';
 
 type Food = ListFoodsOutput['foods'][number];
@@ -719,6 +720,16 @@ describe("This instance's pages", () => {
 			'href',
 			'/api/backups/kamosu-backup-daily-20260920T175418Z.zip',
 		);
+	});
+
+	it('writes a Backup’s size with a decimal comma in Dutch (#496)', async () => {
+		setLocale('nl', { reload: false });
+		try {
+			renderScreen(Backups, quiet);
+			expect(await screen.findByText(/21,9 MB/)).toBeInTheDocument();
+		} finally {
+			setLocale('en', { reload: false });
+		}
 	});
 
 	it('tells the truth about what changing the public address reaches', async () => {

@@ -164,7 +164,7 @@ const PHOTO_MARK = /kamosu-photo:([A-Za-z0-9%._~!*'()-]+)/g;
 
 async function main() {
 	const usage = 'just proto-new <issue>-<slug> <path>…   as in: just proto-new 216-tools /recipes';
-	const { name, routes, origin, secret } = await signedInArgs(process.argv.slice(2), usage);
+	const { name, routes, origin, secret, locale } = await signedInArgs(process.argv.slice(2), usage);
 	if (!/^\d+-[a-z0-9][a-z0-9-]*$/.test(name)) throw new ToolError(`usage: ${usage}`);
 
 	const folder = path.join(PROTOTYPES_DIR, name);
@@ -179,34 +179,40 @@ async function main() {
 	/** @type {string[]} */
 	const errors = [];
 	try {
-		await atEverySize(browser, origin, secret, async (size, page, context) => {
-			page.on('pageerror', (error) => errors.push(`${page.url()} at ${size}: ${error}`));
-			for (const route of routes) {
-				const unsettled = await openSettled(page, origin + route);
-				if (unsettled) console.warn(`${route} at ${size}: captured while ${unsettled}`);
-				const got = await page.evaluate(capture, cardTitles);
-				for (const src of got.photos) {
-					const file = path.join(photos, photoName(src));
-					if (fs.existsSync(file)) continue;
-					const answer = await context.request.get(origin + src);
-					if (!answer.ok()) {
-						errors.push(`${route} at ${size}: a photograph did not come (${answer.status()})`);
-						continue;
+		await atEverySize(
+			browser,
+			origin,
+			secret,
+			async (size, page, context) => {
+				page.on('pageerror', (error) => errors.push(`${page.url()} at ${size}: ${error}`));
+				for (const route of routes) {
+					const unsettled = await openSettled(page, origin + route);
+					if (unsettled) console.warn(`${route} at ${size}: captured while ${unsettled}`);
+					const got = await page.evaluate(capture, cardTitles);
+					for (const src of got.photos) {
+						const file = path.join(photos, photoName(src));
+						if (fs.existsSync(file)) continue;
+						const answer = await context.request.get(origin + src);
+						if (!answer.ok()) {
+							errors.push(`${route} at ${size}: a photograph did not come (${answer.status()})`);
+							continue;
+						}
+						fs.writeFileSync(file, await answer.body());
 					}
-					fs.writeFileSync(file, await answer.body());
+					const body = got.body.replaceAll(
+						PHOTO_MARK,
+						(_, src) => `/photos/${photoName(decodeURIComponent(src))}`,
+					);
+					const htmlAttributes = got.attributes
+						.map(([name, value]) => ` ${name}="${escaped(value)}"`)
+						.join('');
+					const file = path.join(captured, `${slugOf(route)}.${size}.html`);
+					fs.writeFileSync(file, pageOf({ ...got, htmlAttributes, body }));
+					console.log(path.relative(ROOT, file));
 				}
-				const body = got.body.replaceAll(
-					PHOTO_MARK,
-					(_, src) => `/photos/${photoName(decodeURIComponent(src))}`,
-				);
-				const htmlAttributes = got.attributes
-					.map(([name, value]) => ` ${name}="${escaped(value)}"`)
-					.join('');
-				const file = path.join(captured, `${slugOf(route)}.${size}.html`);
-				fs.writeFileSync(file, pageOf({ ...got, htmlAttributes, body }));
-				console.log(path.relative(ROOT, file));
-			}
-		});
+			},
+			locale,
+		);
 	} finally {
 		await browser.close();
 	}

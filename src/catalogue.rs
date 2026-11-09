@@ -332,11 +332,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             add_only_key: false,
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "reading_language": { "enum": ["en", "fr", "es"] }, "reading_measures": { "enum": ["us", "metric", "as_written"] } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
+            input_schema: json!({ "type": "object", "properties": { "reading_language": { "enum": ["en", "fr", "es", "nl"] }, "reading_measures": { "enum": ["us", "metric", "as_written"] } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
             // The same two enums the input takes, and the same two the getter
             // answers with: one preference declared one way, so the generated
             // client cannot type the same field twice over (#49).
-            output_schema: json!({ "type": "object", "properties": { "reading_language": { "enum": ["en", "fr", "es"] }, "reading_measures": { "enum": ["us", "metric", "as_written"] } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "reading_language": { "enum": ["en", "fr", "es", "nl"] }, "reading_measures": { "enum": ["us", "metric", "as_written"] } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
             handler: crate::operations::set_reading_preferences,
         },
         Operation {
@@ -359,7 +359,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             // because those are the only answers there are — which is what
             // lets the generated client type them rather than calling them
             // strings.
-            output_schema: json!({ "type": "object", "properties": { "reading_language": { "enum": ["en", "fr", "es"] }, "reading_measures": { "enum": ["us", "metric", "as_written"] } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "reading_language": { "enum": ["en", "fr", "es", "nl"] }, "reading_measures": { "enum": ["us", "metric", "as_written"] } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
             handler: crate::operations::get_reading_preferences,
         },
         Operation {

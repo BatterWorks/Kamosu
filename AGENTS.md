@@ -224,6 +224,10 @@ just proto-serve <name> <port>    # serve .dev/prototypes/<name>/ to the LAN, ca
   on their own as a Session named `tools`.
 - **`just screens … --webkit` runs in Safari's engine**, which has shown a fault
   Chrome did not (#198). Fetch it once with `cd ui && npx playwright install webkit`.
+- **`just screens … --locale nl` draws the screens in Dutch**, or in any
+  Language the interface speaks, and so does `just proto-new` (#496). It moves
+  only the interface's words: what the server writes follows the account's
+  Reading Language.
 - **A page taller than 32,767 pixels is photographed in pieces**, top to bottom
   with no gap and no overlap, as `<path>.<size>-1.png`, `-2.png` and on (#522).
   WebKit refuses one picture past that height. Chrome takes it, but `just

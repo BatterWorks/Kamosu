@@ -1289,7 +1289,7 @@ describe('the Reading Language (#112)', () => {
 	 * that recipes follow, which can split in two for somebody who reads
 	 * Kamosu in one Language and their recipes in another.
 	 */
-	const signedIn = (reading_language: 'en' | 'fr' | 'es'): Answers => ({
+	const signedIn = (reading_language: 'en' | 'fr' | 'es' | 'nl'): Answers => ({
 		instance_status: {
 			version: '0.1.0',
 			setup_complete: true,
@@ -1345,6 +1345,36 @@ describe('the Reading Language (#112)', () => {
 		// The reload would take the line saying what moved with it, so it is
 		// left for the next load of this screen.
 		expect(sessionStorage.getItem('kamosu.reading-language-moved')).toBe('fr');
+	});
+
+	it('offers Dutch, and choosing it moves both to Dutch (#496)', async () => {
+		const { kamosu } = renderScreen(Language, {
+			...signedIn('en'),
+			set_reading_preferences: { reading_language: 'nl', reading_measures: 'us' },
+		});
+
+		await fireEvent.click(await within(words()).findByRole('button', { name: 'Nederlands' }));
+
+		await vi.waitFor(() => expect(setLocale).toHaveBeenCalledWith('nl'));
+		expect(kamosu.calls).toContainEqual({
+			operation: 'set_reading_preferences',
+			input: { reading_language: 'nl', reading_measures: 'us' },
+		});
+	});
+
+	it('is in Dutch for someone reading in Dutch (#496)', async () => {
+		realSetLocale('nl', { reload: false });
+		try {
+			renderScreen(Language, signedIn('nl'));
+			expect(await screen.findByText('Recepttitels volgen deze taal.')).toBeInTheDocument();
+			expect(
+				within(screen.getByRole('list', { name: 'Taal' })).getByRole('button', {
+					name: 'Nederlands',
+				}),
+			).toHaveAttribute('aria-pressed', 'true');
+		} finally {
+			realSetLocale('en', { reload: false });
+		}
 	});
 
 	it('says what moved once the reload that carried both is over', async () => {
