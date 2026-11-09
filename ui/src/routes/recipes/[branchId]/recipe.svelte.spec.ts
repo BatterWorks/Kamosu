@@ -378,6 +378,22 @@ const NOT_READ_AGAIN = {
 	reason: 'no_runner' as const,
 };
 
+/** Settles once the page's read of `branchId` has answered (#559). */
+function readOf(kamosu: ReturnType<typeof standIn>, branchId: string): Promise<unknown> {
+	const read = kamosu.client.getRecipe.bind(kamosu.client);
+	return new Promise((resolve) => {
+		kamosu.client.getRecipe = ((input) => {
+			const answer = read(input);
+			if (input.branch_id === branchId)
+				answer.then(
+					() => resolve(undefined),
+					() => resolve(undefined),
+				);
+			return answer;
+		}) as typeof kamosu.client.getRecipe;
+	});
+}
+
 function renderRecipe(
 	answers: Answers = forked(),
 	branchId = 'mine',
@@ -2046,6 +2062,82 @@ describe('the recipe screen', () => {
 		await tick();
 		expect(screen.queryByRole('button', { name: /Save onto/ })).toBeNull();
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('save_recipe_version');
+	});
+
+	it('leaves a corrected Reading behind when you walk to another recipe (#559)', async () => {
+		// A correction is laid over the line by its index, and the next recipe
+		// has a line at the same index that is another ingredient entirely.
+		const { kamosu, goTo } = renderRecipe({
+			...solo(),
+			divergence: { refuse: 'not_found' },
+			set_reading: {
+				line_index: 2,
+				reading: { amount: '500', unit: 'ml', target: 'frying oil', lineage_id: null },
+				measured: null,
+			},
+		} as Answers);
+		await fireEvent.click(await screen.findByText('Some cooking oil (for deep frying)'));
+		await fireEvent.input(screen.getByLabelText(/What it is/i), {
+			target: { value: 'frying oil' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: /Save the Reading/i }));
+		await screen.findByText('500 ml frying oil');
+
+		// Gone at once, while the last recipe is still on screen, and still gone
+		// once the next one has answered.
+		const answered = readOf(kamosu, 'another');
+		await goTo('another');
+		await tick();
+		expect(screen.queryByText('500 ml frying oil')).not.toBeInTheDocument();
+		await answered;
+		await tick();
+		expect(screen.getByText('Some cooking oil (for deep frying)')).toBeInTheDocument();
+		expect(screen.queryByText('500 ml frying oil')).not.toBeInTheDocument();
+	});
+
+	it('closes a corrector left open when you walk to another recipe (#559)', async () => {
+		// Its fields hold the last recipe's Reading, and saving them would write
+		// that Reading onto the new recipe's line.
+		const { kamosu, goTo } = renderRecipe({
+			...solo(),
+			divergence: { refuse: 'not_found' },
+		} as Answers);
+		await fireEvent.click(await screen.findByText('Some cooking oil (for deep frying)'));
+		expect(screen.getByLabelText(/What it is/i)).toBeInTheDocument();
+
+		const answered = readOf(kamosu, 'another');
+		await goTo('another');
+		await tick();
+		expect(screen.queryByLabelText(/What it is/i)).toBeNull();
+		await answered;
+		await tick();
+		expect(screen.queryByLabelText(/What it is/i)).toBeNull();
+		// Once the recipe walked to has answered, its own lines correct.
+		await fireEvent.click(screen.getByText('Some cooking oil (for deep frying)'));
+		expect(screen.getByLabelText(/What it is/i)).toBeInTheDocument();
+	});
+
+	it('opens no corrector on the last recipe while the next one is still being read (#559)', async () => {
+		// Until the recipe walked to answers, the last one stays on screen. A
+		// corrector opened on its line would send that line's Reading as a
+		// correction of the new recipe.
+		const { kamosu, goTo } = renderRecipe({
+			...solo(),
+			divergence: { refuse: 'not_found' },
+		} as Answers);
+		await screen.findByText('Some cooking oil (for deep frying)');
+
+		const read = kamosu.client.getRecipe.bind(kamosu.client);
+		kamosu.client.getRecipe = ((input) =>
+			input.branch_id === 'another'
+				? new Promise(() => {})
+				: read(input)) as typeof kamosu.client.getRecipe;
+		await goTo('another');
+		await tick();
+
+		await fireEvent.click(screen.getByText('Some cooking oil (for deep frying)'));
+		await tick();
+		expect(screen.queryByLabelText(/What it is/i)).toBeNull();
 	});
 
 	it('does not re-read the recipe for a correction that touches no Component', async () => {

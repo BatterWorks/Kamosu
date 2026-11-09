@@ -571,6 +571,11 @@
 				// browser's Back button lands here too, and a writing screen
 				// left open would save A's words as a Version of B.
 				closeWriting();
+				// A correction is laid over a line by its index, and the same
+				// index on this recipe is another ingredient. A corrector left
+				// open holds the last recipe's Reading, and would write it onto
+				// this one's line (#559).
+				fixes.forget();
 				// The comparison was the last version's. Walking along the strip
 				// to your own must not carry its marks, or anything taken from
 				// it, onto a page that has nothing to compare (#131).
@@ -811,8 +816,13 @@
 	 * This is the whole of the rule. A marked row reaches the corrector too,
 	 * through a second target inside its unfolded panel rather than through its
 	 * own tap — see `MarkedRow`'s `onFixReading`.
+	 *
+	 * Only once what is on screen is the recipe `branchId` names: walking to
+	 * another leaves the last one up until it answers, and a corrector opened
+	 * on its line would send that line's Reading as a correction of the new
+	 * recipe (#559), as an Edit opened then would have saved its words (#549).
 	 */
-	const correctable = true;
+	const correctable = $derived(readHere);
 
 	function corrected(index: number, reading: Slot, measuredLine: string | null) {
 		// On a page read at a named amount the answer's line was worded at the
