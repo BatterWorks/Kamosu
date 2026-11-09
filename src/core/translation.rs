@@ -500,17 +500,36 @@ pub(super) fn translation_of_branch(
     // receiving a Bundle records the carried Branch it names (#570). While
     // that Branch still holds the translated Version it is the source.
     // A Translation with nothing recorded, or whose recorded Branch no longer
-    // holds that Version, is measured as before.
+    // holds that Version, is measured against the oldest Branch holding it.
+    //
+    // **Otherwise the source is in a Cookbook the Translation's own Cookbook
+    // sees, its own first** (#582). Every Cookbook holding a recipe shares
+    // its Lineage, so on an instance where a sender and a receiver both live,
+    // the sender's Branch holds the translated Version too, and is the older:
+    // a receiver is measured against their own copy, and one who received the
+    // Translation alone against nothing. A Kitchen-mate's recipe translated
+    // before #517 recorded anything is still found, in the Cookbook its
+    // translator sees it in (ADR 0041). A recorded Branch is the source
+    // wherever it now sits, as the recipe page's "not on your shelf" line
+    // expects of one a translator no longer sees.
     let found: Option<(String, i64)> = conn
         .query_row(
             "SELECT branch_versions.branch_id, branch_versions.sequence \
-               FROM branch_versions \
-               JOIN branches ON branches.id = branch_versions.branch_id \
-              WHERE branch_versions.version_id = ?1 \
+               FROM branches AS translation \
+               JOIN branches ON branches.lineage_id = translation.lineage_id \
+               JOIN branch_versions ON branch_versions.branch_id = branches.id \
+              WHERE translation.id = ?3 \
+                AND branch_versions.version_id = ?1 \
                 AND branches.lineage_id = ?2 \
-                AND branch_versions.branch_id <> ?3 \
-              ORDER BY branch_versions.branch_id = \
-                       (SELECT translated_from_branch_id FROM branches WHERE id = ?3) DESC, \
+                AND branches.id <> translation.id \
+                AND (branches.id = translation.translated_from_branch_id \
+                     OR branches.cookbook_id IN ( \
+                        SELECT visible_cookbooks.cookbook_id FROM visible_cookbooks \
+                          JOIN cookbook_authors \
+                            ON cookbook_authors.person_id = visible_cookbooks.person_id \
+                         WHERE cookbook_authors.cookbook_id = translation.cookbook_id)) \
+              ORDER BY branches.id IS translation.translated_from_branch_id DESC, \
+                       branches.cookbook_id = translation.cookbook_id DESC, \
                        branches.created_at ASC, branch_versions.sequence DESC LIMIT 1",
             params![translates_version_id, lineage_id, branch_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
@@ -518,7 +537,7 @@ pub(super) fn translation_of_branch(
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read the source Branch: {e}")))?;
 
-    // The source Branch can be absent on an instance that received the
+    // The source Branch can be absent from a Cookbook that received the
     // Translation alone. The pointer is still the truth about what was
     // translated; how far behind it has fallen is simply unanswerable here,
     // and saying so beats inventing a zero.
