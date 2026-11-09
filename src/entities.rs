@@ -35,6 +35,9 @@ pub fn decode_entities(text: &str) -> String {
     out
 }
 
+/// The furthest byte a `;` is looked for at, counting the `&` as byte 0.
+const LONGEST: usize = 10;
+
 /// `text` starts with `&`. Decodes one entity and reports how many bytes of
 /// `text` it consumed, or `None` if `text` doesn't start with a recognised
 /// one — in which case the `&` is kept literally rather than guessed at.
@@ -44,10 +47,10 @@ pub fn decode_entities(text: &str) -> String {
 /// (#540). A `;` is one byte in UTF-8 and never inside another character, so
 /// where it is found is a char boundary.
 fn decode_one_entity(text: &str) -> Option<(char, usize)> {
-    const LONGEST: usize = 10;
     let end = text
         .bytes()
         .take(LONGEST + 1)
+        .map(read_while_looking)
         .position(|byte| byte == b';')?;
     let body = &text[1..end];
     let decoded = match body {
@@ -65,9 +68,36 @@ fn decode_one_entity(text: &str) -> Option<(char, usize)> {
     Some((decoded, end + 1))
 }
 
+/// Each byte `decode_one_entity` reads while looking for the `;`, passed
+/// through unchanged. A test counts them, so how much work a text costs is a
+/// number it can check rather than a time a busy machine can stretch (#594).
+#[cfg(not(test))]
+fn read_while_looking(byte: u8) -> u8 {
+    byte
+}
+
+#[cfg(test)]
+fn read_while_looking(byte: u8) -> u8 {
+    tests::BYTES_READ.with(|read| read.set(read.get() + 1));
+    byte
+}
+
 #[cfg(test)]
 mod tests {
-    use super::decode_entities;
+    use super::{LONGEST, decode_entities};
+    use std::cell::Cell;
+
+    thread_local! {
+        /// Bytes read looking for a `;` on this test's thread.
+        pub(super) static BYTES_READ: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// How many bytes decoding `text` reads looking for a `;`.
+    fn bytes_read_decoding(text: &str) -> usize {
+        BYTES_READ.with(|read| read.set(0));
+        assert_eq!(decode_entities(text).len(), text.len());
+        BYTES_READ.with(Cell::get)
+    }
 
     #[test]
     fn named_and_numeric_entities_decode() {
@@ -89,30 +119,20 @@ mod tests {
         assert_eq!(decode_entities("&nbsp;"), "&nbsp;");
     }
 
-    /// The least time of three, to keep a busy machine's noise out.
-    fn least_time(text: &str) -> std::time::Duration {
-        (0..3)
-            .map(|_| {
-                let started = std::time::Instant::now();
-                assert_eq!(decode_entities(text).len(), text.len());
-                started.elapsed()
-            })
-            .min()
-            .unwrap()
-    }
-
-    // #540: four times the text takes about four times as long, where the
-    // old scan to the next `;` took sixteen. A ratio, not a time, so a slow
-    // machine does not fail it.
+    // #540: a run of `&` with no `;` reads a few bytes for each, where the
+    // old scan to the next `;` read the rest of the text for each, which is
+    // quadratic. Counted, not timed, so a busy machine cannot fail it (#594).
+    // Every `&` is read at least once, so a scan that goes around the count,
+    // as `text.find(';')` would, fails here too.
     #[test]
     fn a_long_run_of_ampersands_decodes_in_linear_time() {
-        let short = "&".repeat(500_000);
-        let long = "&".repeat(2_000_000);
-        let ratio = least_time(&long).as_secs_f64() / least_time(&short).as_secs_f64();
-        assert!(
-            ratio < 9.0,
-            "four times the text took {ratio:.1} times as long"
-        );
+        for length in [1, 100, 10_000] {
+            let read = bytes_read_decoding(&"&".repeat(length));
+            assert!(
+                (length..=(LONGEST + 1) * length).contains(&read),
+                "{length} ampersands read {read} bytes looking for a `;`"
+            );
+        }
         assert_eq!(decode_entities("&&&amp;&#38;&"), "&&&&&");
         assert_eq!(decode_entities("&#x1F600;é&amp;"), "😀é&");
     }
