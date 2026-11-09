@@ -95,7 +95,6 @@
   "component_pick_closest": "Nada coincide del todo. Estas son las más cercanas.",
   "component_pick_failed": "No se han podido buscar tus recetas ahora mismo.",
   "component_pick_for": "Para la línea: {line}",
-  "component_pick_language": "En {language}",
   "component_pick_nothing": "Ninguna receta coincide. Busca la que nombra esta línea.",
   "component_pick_search": "Buscar en tus recetas",
   "component_pick_title": "¿Qué receta es esta?",
