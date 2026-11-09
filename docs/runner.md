@@ -538,36 +538,49 @@ The agent fetches with its own tools, outside that guard. Left on your network,
 an agent a page has tricked steps around it.
 
 The fence closes that. It is the agent's own image started as
-`/opt/kamosu-agent/fence`, as the Compose file above shows, and it does three
+`/opt/kamosu-agent/fence`, as the Compose file above shows, and it does four
 things:
 
 1. It sets firewall rules in its own network: the loopback, the DNS server the
    container engine gave it and each address in `KAMOSU_AGENT_FENCE_ALLOW`
-   are allowed, and every private, loopback, link-local and shared address
-   beyond those is refused. The rest of the internet is let through.
+   are allowed, and every private, loopback, link-local and shared IPv4
+   address beyond those is refused, and every IPv6 address. The rest of the
+   internet is let through over IPv4.
 2. It stops being root: it becomes the agent's user, which leaves it no
-   capability, and sleeps.
-3. The agent's container joins its network, with `network_mode:
+   capability.
+3. It says it is up, in the network it fences. The agent waits up to a minute
+   for that when its container starts, and refuses to start without it, so
+   an agent never runs on a network the fence failed to close.
+4. The agent's container joins its network, with `network_mode:
    service:kamosu-agent-fence` in Compose or `--network
    container:kamosu-agent-fence` with `docker run` and `podman run`. It lives
    inside the fence's rules with every capability dropped, so it cannot
    change them.
 
 The fence says what it allows when it starts. To check it, ask from inside
-the agent's container for an address it should not reach, such as the host's
-own on your network:
+the agent's container for an address it should not reach, such as a router's
+on your network and any IPv6 address:
 
 ```sh
-docker exec kamosu-agent curl -sS -m 5 http://192.0.2.10:80/
+docker exec kamosu-agent curl -sS -m 5 http://192.168.1.1/
+docker exec kamosu-agent curl -gsS -m 5 http://[2001:db8::1]/
 ```
 
-`curl` answers that the connection was refused, while the same command for a
-public address answers. It works the same with Docker, rootful or rootless,
-and with rootless Podman.
+`curl` answers that it could not connect to either, while the same command
+for a public address answers. On a host with no IPv6 to the internet, the
+second fails before it reaches the fence, which proves nothing there. It works the same with Docker, rootful or rootless,
+and with rootless Podman. An agent whose fence is not up says so in its log,
+"The agent's network is not fenced", waits a minute and exits, and its
+restart policy starts it again until the fence is up.
 
 - **Restart the agent after the fence.** The agent's container joins the
   network the fence holds when it starts. Its restart after each Job picks up
   a fence that was restarted meanwhile, and a running Job loses its network.
+- **IPv6 is refused whole.** A device on a home network holds a public IPv6
+  address its provider gave it, which no list of private ranges names, so the
+  fence cannot tell your printer from a web site over IPv6. The agent reaches
+  the internet over IPv4, which nearly every site still offers. A host with
+  no IPv4 to the internet at all leaves the agent none.
 - **A service the host offers on its public address** is reached as it is
   from the internet, since a public address is one the fence lets through.
 - **Name Kamosu's address with its port.** `kamosu:5266` lets the agent reach
@@ -727,12 +740,24 @@ holds no key a page could have it send away. For each Job:
    as it arrives, a streamed answer included. A request to `/chat/completions`
    at the relay goes to `https://openrouter.ai/api/v1/chat/completions` when
    that is the address.
-4. When the Job ends, the relay closes, with any request still open, and the
+4. It sends on only a request for a model's answer and reading the list of
+   models, and refuses every other with status 403 before it leaves. The
+   provider's key reaches far more: batches and fine-tuning that go on
+   billing after the Job, the account's stored files, pictures and speech.
+   What it sends on is a `POST` to one of these paths under the address, with
+   at most a version such as `v1` before it: `chat/completions` (every
+   OpenAI-compatible service, OpenRouter, Mistral, Groq, xAI and the like),
+   `responses` (OpenAI, xAI), `messages` and `messages/count_tokens`
+   (Anthropic and the services that speak its dialect), `chat` (Cohere), and
+   `models/<model>:generateContent` or `:streamGenerateContent` (Google);
+   and a `GET` of `models` or `models/<model>`.
+5. When the Job ends, the relay closes, with any request still open, and the
    stand-in is worth nothing.
 
 The relay sends the key to that one address and nowhere else, follows no
 redirect, and refuses a path that would leave the address. A request without
-the Job's stand-in is refused with status 401, and one the provider cannot be
+the Job's stand-in is refused with status 401, one that does not ask a model
+for an answer with 403, and one the provider cannot be
 reached for with 502, each with a sentence saying why. A request may carry up
 to 100 MB.
 

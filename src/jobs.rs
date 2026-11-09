@@ -145,6 +145,10 @@ pub struct JobRecord {
     pub person_id: Option<String>,
     pub read_only: bool,
     pub via_access_key: bool,
+    /// The Access Key that asked, when one did (#539). `via_access_key` says
+    /// that one did on every Job, and this which, on Jobs written since
+    /// migration 75 alone.
+    pub access_key_id: Option<String>,
     pub operation: String,
     pub input: Value,
     pub status: JobStatus,
@@ -369,10 +373,10 @@ impl crate::core::Core {
                         read_only: record.read_only,
                         via_access_key: record.via_access_key,
                         is_operator: false,
-                        // A JobRecord does not carry which Access Key asked, only
-                        // that one did (`via_access_key`) — nothing built on a Job
-                        // needs the specific Key today.
-                        access_key_id: None,
+                        // The Access Key that asked, so that a Job this one
+                        // asks for in turn is that key's too, and ends when
+                        // it is revoked (#539).
+                        access_key_id: record.access_key_id.clone(),
                         // Nor which Session: a Job lists no Sessions.
                         session_id: None,
                         // A Job Key asks for no Job (ADR 0048).
@@ -472,22 +476,41 @@ fn insert(
     if caller.is_some_and(|caller| caller.as_operator) {
         input["as_operator"] = json!(true);
     }
-    let (person_id, read_only, via_access_key) = match caller {
+    let (person_id, read_only, via_access_key, access_key_id) = match caller {
         Some(caller) => (
             Some(caller.person_id.clone()),
             caller.read_only,
             caller.via_access_key,
+            caller.access_key_id.as_deref(),
         ),
-        None => (None, false, false),
+        None => (None, false, false, None),
     };
+    // A Job asks for another as the key that asked for it. Once an Add-only
+    // key has ended, its Jobs are cancelled, and one still running asks for
+    // no more (#539).
+    if let Some(key_id) = access_key_id {
+        let ended_add_only = conn
+            .query_row(
+                "SELECT 1 FROM access_keys WHERE id = ?1 AND add_only = 1 AND revoked = 1",
+                params![key_id],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(|e| OpError::internal(format!("cannot read the asking key: {e}")))?
+            .is_some();
+        if ended_add_only {
+            return Err(OpError::credential_names_nobody());
+        }
+    }
     conn.execute(
-        "INSERT INTO jobs (id, person_id, read_only, via_access_key, operation, input)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO jobs (id, person_id, read_only, via_access_key, access_key_id, operation, input)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             job_id,
             person_id,
             read_only as i64,
             via_access_key as i64,
+            access_key_id,
             operation,
             input.to_string()
         ],
@@ -1679,7 +1702,8 @@ pub fn read(core: &crate::core::Core, job_id: &str) -> Result<Option<JobRecord>,
         conn.prepare(
             "SELECT id, person_id, read_only, via_access_key, operation, input, status,
                         progress_done, progress_total, progress_message,
-                        result, error, error_code, created_at, updated_at, error_reason
+                        result, error, error_code, created_at, updated_at, error_reason,
+                        access_key_id
                  FROM jobs WHERE id = ?1",
         )
         .map_err(|e| OpError::internal(format!("cannot read Job: {e}")))?
@@ -1699,7 +1723,8 @@ pub fn read_of_person(
             .prepare(
                 "SELECT id, person_id, read_only, via_access_key, operation, input, status,
                         progress_done, progress_total, progress_message,
-                        result, error, error_code, created_at, updated_at, error_reason
+                        result, error, error_code, created_at, updated_at, error_reason,
+                        access_key_id
                  FROM jobs WHERE person_id = ?1
                  ORDER BY created_at DESC LIMIT 100",
             )
@@ -1733,6 +1758,7 @@ fn map_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<JobRecord> {
         created_at: row.get(13)?,
         updated_at: row.get(14)?,
         error_reason: row.get(15)?,
+        access_key_id: row.get(16)?,
     })
 }
 
@@ -1774,6 +1800,44 @@ pub fn cancel(core: &crate::core::Core, job_id: &str) -> Result<bool, OpError> {
         tx.commit().map_err(failed)?;
         Ok(changed > 0)
     })
+}
+
+/// Cancel every Job an Add-only key of this Person started that still
+/// waits or is held, once that key has ended (#539, ADR 0055). An Add-only
+/// key lives on a phone, where it can be taken, so whoever took it spends
+/// nothing more on the agent once it is revoked, whether one key was revoked
+/// or every key ended with a new password or a recovery. Asked after each of
+/// those, and again harmlessly: a Job cancelled already is not found.
+///
+/// A Job Kamosu does itself that a worker already carries runs to its end,
+/// as every cancel leaves it, but asks for no new Job (`insert`).
+///
+/// Asked once the keys have ended and that change is saved, so a fault here
+/// is logged and never turns the change into a failure its asker would try
+/// again.
+pub fn cancel_those_of_ended_add_only_keys(core: &crate::core::Core, person_id: &str) {
+    if let Err(error) = cancel_add_only_jobs(core, person_id) {
+        tracing::warn!("cannot cancel the Jobs of an ended Add-only key: {error}");
+    }
+}
+
+fn cancel_add_only_jobs(core: &crate::core::Core, person_id: &str) -> Result<(), OpError> {
+    let failed = |e| OpError::internal(format!("cannot read an ended key's Jobs: {e}"));
+    let standing: Vec<String> = core.db().with_conn(|conn| {
+        conn.prepare(
+            "SELECT jobs.id FROM jobs JOIN access_keys ON access_keys.id = jobs.access_key_id
+              WHERE access_keys.person_id = ?1 AND access_keys.add_only = 1
+                AND access_keys.revoked = 1 AND jobs.status IN ('queued', 'running')",
+        )
+        .map_err(failed)?
+        .query_map(params![person_id], |row| row.get(0))
+        .and_then(Iterator::collect)
+        .map_err(failed)
+    })?;
+    for job_id in standing {
+        cancel(core, &job_id)?;
+    }
+    Ok(())
 }
 
 /// Who may read a Job Kamosu does itself: the Person who asked for it, or

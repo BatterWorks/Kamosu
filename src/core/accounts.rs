@@ -232,6 +232,7 @@ impl Core {
                 name,
             })),
         );
+        crate::jobs::cancel_those_of_ended_add_only_keys(self, person_id);
         Ok(())
     }
 
@@ -669,6 +670,7 @@ impl Core {
                     "ended_access_keys": ended_access_keys,
                 })),
         );
+        crate::jobs::cancel_those_of_ended_add_only_keys(self, &caller.person_id);
         Ok(json!({ "ended_sessions": ended_sessions, "ended_access_keys": ended_access_keys }))
     }
 
@@ -973,6 +975,7 @@ impl Core {
         })?;
         self.note_signed_in(&person_id, session_name, "recovery_link", Some(&ended));
         self.note_runner_keys_recovery_ended(&person_id, session_name, &ended.runner_keys);
+        crate::jobs::cancel_those_of_ended_add_only_keys(self, &person_id);
         Ok(
             json!({"session_id":session.id,"person_id":person_id,"_session_secret":session.secret,"ended_sessions":ended.sessions,"ended_access_keys":ended.access_keys,"ended_runner_keys":ended.runner_keys.len(),"ended_passkeys":ended.passkeys}),
         )
@@ -1158,6 +1161,9 @@ impl Core {
             .naming(self.named_credential(by))
             .about(&person_id),
         );
+        // A disabled account may be enabled again, and its keys' Jobs would
+        // then wait for a Runner again. A deleted one's ended above.
+        crate::jobs::cancel_those_of_ended_add_only_keys(self, &person_id);
         Ok(())
     }
 

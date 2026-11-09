@@ -590,7 +590,9 @@ src/sample_library.rs
 src/model_relay.rs  the Runner's model relay: the provider's key the Runner
                     holds, added to the agent's model requests for the
                     length of a Job and sent to one address alone, so the
-                    agent holds a stand-in worth nothing (#372)
+                    agent holds a stand-in worth nothing (#372), and only
+                    on a request for a model's answer or the model list
+                    (#539)
 src/pdf.rs          the text out of a recipe PDF, for the paste reader; a
                     scan holds none and is refused (#176). Read by Kamosu
                     started again as `kamosu read-pdf`, held to a memory
