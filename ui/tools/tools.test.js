@@ -289,7 +289,7 @@ describe('serving a prototype', () => {
 });
 
 // A real Chrome: each test takes a few seconds, more on a busy machine.
-describe('a screen photographed', { timeout: 20_000 }, () => {
+describe('a screen photographed', () => {
 	/** @type {import('playwright').Browser} */
 	let browser;
 	/** @type {import('node:http').Server} */

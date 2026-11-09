@@ -1321,5 +1321,5 @@ describe('a Replay of an example', () => {
 		await new Promise((wake) => setTimeout(wake, 6500));
 		expect(screen.getByText(m.agent_stopped_nothing())).toBeInTheDocument();
 		expect(screen.queryByText('The card gives no yield.')).toBeNull();
-	}, 10_000);
+	});
 });
