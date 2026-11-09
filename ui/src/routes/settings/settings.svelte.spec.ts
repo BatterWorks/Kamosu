@@ -10,7 +10,7 @@
  * longer serves.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, screen, fireEvent, within, waitFor } from '@testing-library/svelte';
 import Settings from './+page.svelte';
 import SettingsMenu from './SettingsMenu.svelte';
@@ -32,16 +32,37 @@ import { holdTheInstallOffer } from '#lib/offline/device.svelte.js';
 import { signingIn } from '#lib/shell/signing-in.svelte.js';
 import { offerToInstall } from '../../testing/install';
 import { demo } from '#lib/demo.svelte.js';
+import * as runtime from '#lib/paraglide/runtime.js';
 
 /**
  * Paraglide's `setLocale` reloads the page, which jsdom cannot do. What a test
  * wants to know is whether the interface was asked to change, and to what.
+ *
+ * It is replaced through Paraglide's own `overwriteSetLocale`, never `vi.mock`
+ * (#590). Test files share one module cache (isolation is off in the config),
+ * and `as-a-cook.svelte.spec.ts` imports every settings page. Where that file
+ * ran first in the same worker, the Language page was already bound to the
+ * real runtime, so a mock reached nothing: the click ran the real `setLocale`,
+ * which wrote French into storage, and every test after it read French.
+ * `overwriteSetLocale` swaps the function the runtime exports, which a page
+ * imported earlier reads too.
+ *
+ * A call with `reload: false` is Paraglide recording a locale it has resolved
+ * (`getLocale` makes one the first time it runs), or a screen that changes
+ * words in place, as the story does. It goes to the real function and is not
+ * counted as the interface being asked to change. The arguments pass on as
+ * they came, so a call made with one is recorded with one.
  */
-const { setLocale } = vi.hoisted(() => ({ setLocale: vi.fn() }));
-vi.mock('#lib/paraglide/runtime.js', async (original) => ({
-	...(await original<typeof import('#lib/paraglide/runtime.js')>()),
-	setLocale,
-}));
+const setLocale = vi.fn();
+const realSetLocale = runtime.setLocale;
+beforeAll(() =>
+	runtime.overwriteSetLocale((...asked) =>
+		asked[1]?.reload === false ? realSetLocale(...asked) : setLocale(...asked),
+	),
+);
+afterAll(() => runtime.overwriteSetLocale(realSetLocale));
+/** Whatever a test changed the locale to is gone before the next one starts. */
+afterEach(() => localStorage.removeItem(runtime.localStorageKey));
 
 /** An instance at an https:// name where nobody has added a passkey yet (#370). */
 const NO_PASSKEYS = {
@@ -1287,8 +1308,17 @@ describe('the Reading Language (#112)', () => {
 	const words = () => screen.getByRole('list', { name: 'Language' });
 	const recipes = () => screen.getByRole('list', { name: 'Recipes in' });
 
+	/**
+	 * Each test starts from its own state (#590): no call counted and no
+	 * `mockImplementationOnce` left queued by a test that failed before
+	 * using it, and no line about what moved left waiting for the next load.
+	 */
+	beforeEach(() => {
+		setLocale.mockReset();
+		sessionStorage.clear();
+	});
+
 	it('says recipes follow the one control, and moves both when it is changed', async () => {
-		setLocale.mockClear();
 		const { kamosu } = renderScreen(Language, {
 			...signedIn('en'),
 			set_reading_preferences: { reading_language: 'fr', reading_measures: 'us' },
@@ -1329,7 +1359,6 @@ describe('the Reading Language (#112)', () => {
 	});
 
 	it('splits the recipes off on request, and moves only them', async () => {
-		setLocale.mockClear();
 		const { kamosu } = renderScreen(Language, {
 			...signedIn('en'),
 			set_reading_preferences: { reading_language: 'es', reading_measures: 'us' },
@@ -1366,7 +1395,6 @@ describe('the Reading Language (#112)', () => {
 	it('opens split when the account reads in a Language this browser does not speak', async () => {
 		// A new phone, or a split made on another device. The screen says what
 		// is true rather than pretending the two are one.
-		setLocale.mockClear();
 		const { kamosu } = renderScreen(Language, signedIn('fr'));
 
 		await vi.waitFor(() =>
