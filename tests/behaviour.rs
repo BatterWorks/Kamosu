@@ -34736,6 +34736,110 @@ async fn a_translations_source_is_a_branch_its_cookbook_sees() {
     assert!(translation["versions_behind"].is_i64(), "{translation}");
 }
 
+/// **A receiver's Translation of their own copy is not the sender's** (#586),
+/// though on one instance the sender's Branch holds the Version it renders.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translation_in_another_cookbook_is_not_this_recipes_own() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let bundle = bundle_of(&app, &key, &english);
+
+    let nadia = a_receiver(&app);
+    let held = landed_as(&receive(&app, &nadia, &bundle), &english);
+    let nadias_french = translate(&app, &nadia, &held, "fr", french_mousse());
+
+    let (status, set) = app.post_op(
+        "set_recipe_language",
+        Some(&key),
+        &json!({ "branch_id": english, "language": "unknown" }).to_string(),
+    );
+    assert_eq!(
+        status, 200,
+        "Stéphane's Cookbook holds no Translation: {set}"
+    );
+    assert_eq!(set["result"]["language"], json!("unknown"), "{set}");
+
+    // Nadia's own copy is still the source of her Translation.
+    let (status, refused) = app.post_op(
+        "set_recipe_language",
+        Some(&nadia),
+        &json!({ "branch_id": held, "language": "unknown" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    let translation = read_branch(&app, &nadia, &nadias_french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(held),
+        "{translation}"
+    );
+
+    // A guessed Language settles from the text on the first fill, French
+    // here, though Nadia translated her copy of the bare recipe first.
+    let bare = shelve(&app, &key, "Quiche lorraine");
+    let held_bare = landed_as(&receive(&app, &nadia, &bundle_of(&app, &key, &bare)), &bare);
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&nadia),
+        &json!({ "branch_id": held_bare, "language": "fr", "title": "Quiche lorraine" })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+    let mut filled = french_mousse();
+    filled["branch_id"] = json!(bare);
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &filled.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["language"], json!("fr"), "{saved}");
+}
+
+/// **A Kitchen-mate's Translation counts where it names this recipe as its
+/// source** (#586), the way #582 finds that source: the Branch it was started
+/// from first, and a Cookbook its translator sees where none is recorded. A
+/// Kitchen-mate who translated their own copy, received in a Bundle, renders
+/// that copy and not this recipe.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kitchen_mates_translation_counts_where_it_names_this_recipe() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Stéphane");
+    let (_, marc, _) = person_with_kitchen(&app, "Marc");
+    ask_into_kitchen(&app, &key, &kitchen_id, &marc);
+    let call_unknown = |branch: &str| {
+        app.post_op(
+            "set_recipe_language",
+            Some(&key),
+            &json!({ "branch_id": branch, "language": "unknown" }).to_string(),
+        )
+    };
+
+    // Marc translates Stéphane's recipe from the shelf they share.
+    let shared = shelve_recipe(&app, &key, english_mousse());
+    let spanish = translate(&app, &marc, &shared, "es", french_mousse());
+    let (status, refused) = call_unknown(&shared);
+    assert_eq!(status, 400, "Marc's Translation renders it: {refused}");
+
+    // Also when made before #517 recorded the Branch it was started from.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branches SET translated_from_branch_id = NULL WHERE id = ?1",
+                rusqlite::params![spanish],
+            )
+            .unwrap();
+            Ok(())
+        })
+        .unwrap();
+    let (status, refused) = call_unknown(&shared);
+    assert_eq!(status, 400, "found on the shelf the two share: {refused}");
+
+    // Marc translates his own copy, sent to him as a Bundle.
+    let sent = shelve(&app, &key, "Quiche lorraine");
+    let held = landed_as(&receive(&app, &marc, &bundle_of(&app, &key, &sent)), &sent);
+    translate(&app, &marc, &held, "fr", french_mousse());
+    let (status, set) = call_unknown(&sent);
+    assert_eq!(status, 200, "Marc's Translation renders his copy: {set}");
+}
+
 /// **A recipe you do not write says why** (#132). Two recipes answer
 /// `writes: false` for two different reasons, and the writing screens say
 /// which before a save starts the reader's own copy: one was sent to them and

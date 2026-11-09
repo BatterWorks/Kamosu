@@ -54,6 +54,7 @@
 - The agent beside a Runner reads why the model relay refused one of its requests, such as one with the wrong key. Before, an agent slow to send its request could find the relay had hung up instead, and its Job was tried again. [#503]
 - A translation of a named variation, such as "Vegan", now counts how far behind it is against that variation, also after a Co-author leaves or joins again. Before, it was measured against the recipe's unnamed version and said it was behind as soon as that one changed. A second translation into a language you already have is named after the variation it translates, "Vegan" here, instead of after the Cookbook's authors. A Bundle of a variation tells the Kamosu receiving it which variation each translation in it renders, so a received translation is measured against that variation too. Translations made before this change, and those received in a Bundle written before it, are measured as they were. [#517] [#570]
 - A translation received from someone else on the same Kamosu counts how far behind it is against the copy of the recipe in your own Cookbook. Before, it could be measured against the sender's copy, one you cannot open, and a translation you received alone said it was up to date when it could not know. [#582]
+- A recipe someone else on the same Kamosu translated from their own copy can still be marked as written in no single language, and a language Kamosu guessed for it is still corrected from its text. Before, their translation counted as this recipe's own: marking it was refused and the guess stayed. [#586]
 - A Bundle's notes write a recipe's times as the app does, `9 h prep` or `1 h 30 cook` instead of `540 min prep` or `90 min cook`. [#546]
 - A recipe file that lost its `.kamosu/` folder keeps a line of the recipe's note that starts `Tags:`, `Étiquettes:` or `Etiquetas:` when more of the note follows it. Before, such a line was dropped wherever it stood. [#577]
 
@@ -90,6 +91,7 @@
 [#570]: https://github.com/BatterWorks/Kamosu/issues/570
 [#577]: https://github.com/BatterWorks/Kamosu/issues/577
 [#582]: https://github.com/BatterWorks/Kamosu/issues/582
+[#586]: https://github.com/BatterWorks/Kamosu/issues/586
 
 ## v0.5.0 - 2026-10-29
 

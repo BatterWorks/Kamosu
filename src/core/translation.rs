@@ -442,6 +442,15 @@ pub(super) fn translation_source(
 }
 
 /// Whether any other Branch of this Lineage renders a Version of this one.
+///
+/// **A Translation renders this Branch where `translation_of_branch` would
+/// find it as the source** (#586, #582). Every Cookbook holding a recipe
+/// shares its Lineage, so on an instance where a sender and a receiver both
+/// live, a Translation the receiver made of their own copy renders a Version
+/// the sender's Branch holds too, and it is not the sender's. So a Translation
+/// counts where it was started from this Branch, or, where the Branch it
+/// records no longer holds that Version or none is recorded, where its
+/// translator sees this Branch's Cookbook: its own, or a Kitchen-mate's.
 pub(super) fn has_translations(
     conn: &Connection,
     lineage_id: &str,
@@ -455,7 +464,17 @@ pub(super) fn has_translations(
                 ON source.version_id = translation.translates_version_id \
              WHERE branches.lineage_id = ?1 \
                AND translation.branch_id <> ?2 \
-               AND source.branch_id = ?2 )",
+               AND source.branch_id = ?2 \
+               AND (branches.translated_from_branch_id = ?2 \
+                    OR (NOT EXISTS ( \
+                          SELECT 1 FROM branch_versions AS recorded \
+                           WHERE recorded.branch_id = branches.translated_from_branch_id \
+                             AND recorded.version_id = translation.translates_version_id) \
+                        AND (SELECT cookbook_id FROM branches WHERE id = ?2) IN ( \
+                          SELECT visible_cookbooks.cookbook_id FROM visible_cookbooks \
+                            JOIN cookbook_authors \
+                              ON cookbook_authors.person_id = visible_cookbooks.person_id \
+                           WHERE cookbook_authors.cookbook_id = branches.cookbook_id))) )",
         params![lineage_id, branch_id],
         |row| row.get(0),
     )
