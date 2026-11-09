@@ -497,7 +497,8 @@ pub(super) fn translation_of_branch(
     // shares its head Version with the older Branch it grew from, so the
     // oldest holder of a Version is the wrong answer for a Translation of the
     // Variation. `start_translation` records the Branch it was called on, and
-    // while that Branch still holds the translated Version it is the source.
+    // receiving a Bundle records the carried Branch it names (#570). While
+    // that Branch still holds the translated Version it is the source.
     // A Translation with nothing recorded, or whose recorded Branch no longer
     // holds that Version, is measured as before.
     let found: Option<(String, i64)> = conn

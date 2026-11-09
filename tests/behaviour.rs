@@ -34572,6 +34572,76 @@ fn branches_of_lineage(app: &support::TestApp, lineage_id: &str) -> Vec<String> 
         .unwrap()
 }
 
+/// **A received Translation knows which carried Branch it renders** (#570).
+/// A Variation shares its head Version with the Branch it grew from, so a
+/// receiver already holding that Branch could not tell from the Version alone
+/// which of the two a Translation renders. The Bundle names it, and the
+/// receiver records it against the Branch it placed. A Bundle written before
+/// it named one is received as it always was: the oldest Branch holding the
+/// Version is the source.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_received_translation_renders_the_variation_it_travelled_with() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": english, "name": "Vegan" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let vegan = varied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // Each receiver holds the unnamed Branch first, at the Version the Vegan
+    // Variation still shares with it.
+    let unnamed_bundle = bundle_of(&app, &key, &english);
+    let french = translate(&app, &key, &vegan, "fr", french_mousse());
+    let vegan_bundle = bundle_of(&app, &key, &vegan);
+    let sidecar: Value =
+        serde_json::from_slice(&unzip(&vegan_bundle)[kamosu::bundles::SIDECAR]).unwrap();
+    let carried_french = sidecar["branches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|branch| branch["branch_id"] == json!(french))
+        .unwrap_or_else(|| panic!("the Translation travels: {sidecar}"));
+    assert_eq!(carried_french["translates_branch_id"], json!(vegan));
+
+    // Each receiver is an instance of its own, as a Bundle travels.
+    let there = support::spawn_app();
+    let nadia = a_receiver(&there);
+    let held_unnamed = landed_as(&receive(&there, &nadia, &unnamed_bundle), &english);
+    let report = receive(&there, &nadia, &vegan_bundle);
+    let (held_vegan, held_french) = (landed_as(&report, &vegan), landed_as(&report, &french));
+    let translation = read_branch(&there, &nadia, &held_french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(held_vegan),
+        "the Variation it travelled with, not {held_unnamed}: {translation}"
+    );
+
+    // A Bundle that names no Branch reads as before.
+    let older = with_sidecar(&vegan_bundle, |sidecar| {
+        for branch in sidecar["branches"].as_array_mut().unwrap() {
+            branch
+                .as_object_mut()
+                .unwrap()
+                .remove("translates_branch_id");
+        }
+    });
+    let elsewhere = support::spawn_app();
+    let odile = a_receiver(&elsewhere);
+    let held_unnamed = landed_as(&receive(&elsewhere, &odile, &unnamed_bundle), &english);
+    let report = receive(&elsewhere, &odile, &older);
+    let held_french = landed_as(&report, &french);
+    let translation = read_branch(&elsewhere, &odile, &held_french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(held_unnamed),
+        "{translation}"
+    );
+}
+
 /// **A recipe you do not write says why** (#132). Two recipes answer
 /// `writes: false` for two different reasons, and the writing screens say
 /// which before a save starts the reader's own copy: one was sent to them and
