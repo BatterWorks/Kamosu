@@ -540,7 +540,9 @@ impl Core {
     /// row under that lock, and an Original is kept in the transaction that
     /// records its Job, so a file whose row came after the list was taken
     /// is met here with its row and kept. Asked outside the lock, a picture
-    /// a visitor uploaded at 04:00 would keep its row and lose its bytes.
+    /// recorded at 04:00 would keep its row and lose its bytes. A Demo
+    /// refuses every upload and import today, so nothing records one while
+    /// it runs; this keeps the reset safe the day a Demo takes cooking photos.
     fn forget_unnamed_files(&self, unnamed: &[Unnamed]) -> Result<(), OpError> {
         if unnamed.is_empty() {
             return Ok(());
