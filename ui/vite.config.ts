@@ -161,6 +161,16 @@ export default defineConfig(({ command }) => ({
 		// the screen tests' 48 seconds (#122). What a shared environment lets one
 		// file leave for the next, `setup.ts` puts back at the top of every file.
 		isolate: false,
+		// One limit for every test and every hook, with room for a busy host
+		// (#563). Vitest's default of 5 s a test failed tests that pass in under
+		// a second on a quiet host: under load, one took 5.3 s and another
+		// 6.4 s. Some tests are slow even on an idle host: they wait out a 3 s
+		// poll or a 6.5 s pause, or drive a real Chrome, which a hook starts
+		// (10 s by default). A test that truly hangs still fails within half a
+		// minute. A test that needs longer says so beside itself, as the
+		// long-words test's Chrome start does (#554).
+		testTimeout: 30_000,
+		hookTimeout: 30_000,
 		// The dev tools' own rules are tested beside them, outside src/ (#216).
 		include: ['src/**/*.{test,spec}.{js,ts}', 'tools/**/*.test.js'],
 	},

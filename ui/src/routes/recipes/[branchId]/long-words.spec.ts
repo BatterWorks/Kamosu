@@ -156,5 +156,5 @@ describe('a word too long for its line', () => {
 	it('breaks at the edge of its box on the phone, in an Ingredient Line, a Step and the note', async () => {
 		const measured = await overhangs(await drawnPage());
 		expect(measured).toEqual({ 'Ingredient Line': 0, Step: 0, note: 0 });
-	}, 20_000);
+	});
 });

@@ -347,7 +347,7 @@ describe('the list of everything sent to the AI agent (#463)', () => {
 		expect(
 			await screen.findByRole('link', { name: 'Apple cake' }, { timeout: 5000 }),
 		).toBeInTheDocument();
-	}, 15000);
+	});
 
 	it('says when nothing has been sent', async () => {
 		sentPage([]);
