@@ -2234,12 +2234,13 @@ pub fn start_attempt(core: &Core, invocation: &Invocation, input: Value) -> Resu
         .and_then(Value::as_str)
         .ok_or_else(|| {
             OpError::bad_request(
-                "start_attempt takes { branch_id, version_id?, attempt_id?, started_at? }",
+                "start_attempt takes { branch_id, version_id?, attempt_id?, started_at?, lineage_id? }",
             )
         })?;
     let version_id = input.get("version_id").and_then(Value::as_str);
     let attempt_id = input.get("attempt_id").and_then(Value::as_str);
     let started_at = input.get("started_at").and_then(Value::as_str);
+    let lineage_id = input.get("lineage_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     core.start_attempt(
         &caller.person_id,
@@ -2247,6 +2248,7 @@ pub fn start_attempt(core: &Core, invocation: &Invocation, input: Value) -> Resu
         version_id,
         attempt_id,
         started_at,
+        lineage_id,
     )
 }
 

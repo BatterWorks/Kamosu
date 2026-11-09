@@ -40,6 +40,49 @@ pub(super) fn written_moment(
     Ok(if moment > now { now } else { moment })
 }
 
+/// **A held write's times moved onto the server's clock** (#537). A phone
+/// that held writes with no network says, as it sends them, what its own
+/// clock reads (`sent_at`). Its `written_at` and `started_at` were read off
+/// that same clock, so each is moved by the gap between the two, and a phone
+/// a minute slow no longer writes a minute in the past. The difference is
+/// counted in whole milliseconds, which is how SQLite holds a time, so a
+/// phone whose clock agrees moves nothing. `sent_at` goes no further than
+/// this: no Operation reads it.
+pub(super) fn on_the_servers_clock(conn: &Connection, input: &mut Value) -> Result<(), OpError> {
+    let Some(Value::String(sent_at)) = input.as_object_mut().and_then(|o| o.remove("sent_at"))
+    else {
+        return Ok(());
+    };
+    let gap: Option<i64> = conn
+        .query_row(
+            "SELECT CAST(round((julianday('now') - julianday(?1)) * 86400000) AS INTEGER)",
+            params![sent_at],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read the time: {e}")))?;
+    let gap = gap.ok_or_else(|| {
+        OpError::bad_request("sent_at must be a time, such as 2026-09-19T14:05:00.000Z")
+    })?;
+    for field in ["written_at", "started_at"] {
+        let Some(Value::String(at)) = input.get(field) else {
+            continue;
+        };
+        let moved: Option<String> = conn
+            .query_row(
+                "SELECT strftime('%Y-%m-%dT%H:%M:%fZ', ?1, printf('%+.3f seconds', ?2 / 1000.0))",
+                params![at, gap],
+                |row| row.get(0),
+            )
+            .map_err(|e| OpError::internal(format!("cannot read the time: {e}")))?;
+        // A time that does not parse is left for the Operation to refuse in
+        // its own words, as it would be without `sent_at`.
+        if let Some(moved) = moved {
+            input[field] = Value::String(moved);
+        }
+    }
+    Ok(())
+}
+
 /// The name a Hand is shown by, as a SQL expression over the column holding
 /// it (GLOSSARY.md, "Hand"; ADR 0015). A Hand this instance minted is named
 /// live — a Person's from `people`, a Cookbook's from the Cookbook answering

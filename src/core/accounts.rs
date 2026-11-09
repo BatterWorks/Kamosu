@@ -313,6 +313,7 @@ impl Core {
                 "reading_measures": "us",
                 "is_operator": true,
             },
+            "person_id": person_id,
             "_session_secret": session.secret,
             "session_id": session.id,
         }))
@@ -354,7 +355,9 @@ impl Core {
         })?;
         turn.matched();
         let session = self.mint_session(&person_id, session_name, "password")?;
-        Ok(json!({ "session_id": session.id, "_session_secret": session.secret }))
+        Ok(
+            json!({ "session_id": session.id, "person_id": person_id, "_session_secret": session.secret }),
+        )
     }
 
     pub fn set_reading_preferences(
@@ -808,7 +811,7 @@ impl Core {
             );
         }
         Ok(
-            json!({"person":{"id":person_id,"name":name,"hand_id":person_id,"cookbook_id":cookbook_id,"reading_language":"en","reading_measures":"us","is_operator":operator},"session_id":session.id,"_session_secret":session.secret}),
+            json!({"person":{"id":person_id,"name":name,"hand_id":person_id,"cookbook_id":cookbook_id,"reading_language":"en","reading_measures":"us","is_operator":operator},"person_id":person_id,"session_id":session.id,"_session_secret":session.secret}),
         )
     }
 
@@ -971,7 +974,7 @@ impl Core {
         self.note_signed_in(&person_id, session_name, "recovery_link", Some(&ended));
         self.note_runner_keys_recovery_ended(&person_id, session_name, &ended.runner_keys);
         Ok(
-            json!({"session_id":session.id,"_session_secret":session.secret,"ended_sessions":ended.sessions,"ended_access_keys":ended.access_keys,"ended_runner_keys":ended.runner_keys.len(),"ended_passkeys":ended.passkeys}),
+            json!({"session_id":session.id,"person_id":person_id,"_session_secret":session.secret,"ended_sessions":ended.sessions,"ended_access_keys":ended.access_keys,"ended_runner_keys":ended.runner_keys.len(),"ended_passkeys":ended.passkeys}),
         )
     }
 

@@ -4400,6 +4400,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                         "type": "string",
                         "description": "When cooking really started, for a start that waited on a phone with no network (#77). The same form as written_at.",
                     },
+                    "lineage_id": {
+                        "type": "string",
+                        "description": "The recipe's Lineage, for a start that waited on a phone with no network (#537). With attempt_id, started_at and version_id, a recipe deleted or gone out of sight meanwhile still lands the cooking in the diary, with no recipe.",
+                    },
                 },
                 "required": ["branch_id"],
                 "additionalProperties": false,
@@ -6006,6 +6010,15 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
     for op in operations.iter_mut() {
         if AS_OPERATOR.contains(&op.name) {
             op.input_schema["properties"]["as_operator"] = as_operator();
+        }
+    }
+    // Every write a phone may hold with no network says when it was made, and
+    // with it the phone's clock as it sends (#537), so the Core moves those
+    // times onto its own clock before any Operation reads them.
+    for op in operations.iter_mut() {
+        let properties = &op.input_schema["properties"];
+        if properties.get("written_at").is_some() || properties.get("started_at").is_some() {
+            op.input_schema["properties"]["sent_at"] = sent_at_schema();
         }
     }
     // The demonstration Job exists only where tests can drive it end-to-end
@@ -9091,7 +9104,16 @@ fn shopping_basis_schema() -> Value {
 fn written_at_schema() -> Value {
     json!({
         "type": "string",
-        "description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+        "description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
+    })
+}
+
+/// **The phone's clock as it sends** what it held (#537): the same form as
+/// `written_at`, and only meaningful beside it.
+fn sent_at_schema() -> Value {
+    json!({
+        "type": "string",
+        "description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
     })
 }
 

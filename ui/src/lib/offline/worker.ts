@@ -19,9 +19,14 @@
  *   network failed, something in front of Kamosu answered for it, or Kamosu
  *   could not answer just then.
  * - **What the phone keeps belongs to the Session that filled it.** Logging in,
- *   logging out, being refused and ending this phone's own Session all empty
- *   it, so a second person on the same phone never reads the first one's
- *   recipes. Ending another device's Session leaves it.
+ *   logging out, a Session that names nobody any more and ending this phone's
+ *   own Session all empty it, so a second person on the same phone never reads
+ *   the first one's recipes. Ending another device's Session leaves it, and so
+ *   does a refusal about what the Person may do, such as an Operator's
+ *   Operation asked by a cook (#537).
+ * - **A recipe the server says is not there is not kept either** (#537):
+ *   deleted, or out of the reader's sight. Its kept reads go, with the
+ *   pictures nothing else kept names, and every page is told.
  */
 
 import { SHARED_PATH, receiveShare } from './shared';
@@ -68,13 +73,23 @@ type WaitUntil = (work: Promise<unknown>) => void;
  * the server was reached — which `navigator.onLine` cannot say.
  */
 export type WorkerMessage =
-	{ type: 'kamosu:refreshed'; operation: string } | { type: 'kamosu:reach'; reached: boolean };
+	| { type: 'kamosu:refreshed'; operation: string }
+	| { type: 'kamosu:reach'; reached: boolean }
+	| { type: 'kamosu:gone'; branch_id: string };
 
 interface Envelope {
 	ok?: boolean;
 	result?: { current?: boolean };
-	error?: { kind?: string };
+	error?: { kind?: string; reason?: string };
 }
+
+/**
+ * Whether a refusal says the Secret names nobody: the Session has ended. Every
+ * other refusal of kind `unauthorized` is about what a Person Kamosu did
+ * recognise may do, and empties nothing (#537).
+ */
+const namesNobody = (envelope: Envelope | undefined) =>
+	envelope?.error?.kind === 'unauthorized' && envelope.error.reason === 'credential_names_nobody';
 
 const parse = (text: string): Envelope | undefined => {
 	try {
@@ -102,6 +117,19 @@ const JUST_KEPT_MS = 10_000;
 
 /** A kept answer a write changed, refreshed behind on its next ask however young. */
 const OWED_HEADER = 'x-kamosu-owed';
+
+/** Whether the kept read under this key was asked about this recipe. */
+function namesBranch(keyUrl: string, branchId: string): boolean {
+	try {
+		const input = JSON.parse(decodeURIComponent(new URL(keyUrl).search.slice(1))) as Record<
+			string,
+			unknown
+		>;
+		return input.branch_id === branchId || input.other_branch_id === branchId;
+	} catch {
+		return false;
+	}
+}
 
 export function createWorker(world: WorkerWorld) {
 	const announce = (operation: string) => world.tell({ type: 'kamosu:refreshed', operation });
@@ -181,6 +209,35 @@ export function createWorker(world: WorkerWorld) {
 		]);
 	}
 
+	/**
+	 * Every kept read about one recipe, and each picture they named that no
+	 * read still kept names, and every page told so the library stops counting
+	 * it (#537). A picture another recipe or the diary shows stays.
+	 */
+	async function forgetRecipe(branchId: string): Promise<void> {
+		const reads = await world.caches.open(READS_CACHE);
+		const left: string[] = [];
+		const dropped: string[] = [];
+		for (const request of await reads.keys()) {
+			const body = (await (await reads.match(request))?.text()) ?? '';
+			if (namesBranch(request.url, branchId)) {
+				dropped.push(body);
+				await reads.delete(request);
+			} else {
+				left.push(body);
+			}
+		}
+		const pictures = await world.caches.open(PHOTOGRAPHS_CACHE);
+		for (const request of await pictures.keys()) {
+			const id = new URL(request.url).pathname.split('/')[3];
+			if (!id) continue;
+			if (dropped.some((body) => body.includes(id)) && !left.some((body) => body.includes(id))) {
+				await pictures.delete(request);
+			}
+		}
+		world.tell({ type: 'kamosu:gone', branch_id: branchId });
+	}
+
 	/** A write, or anything else not kept: straight to the server. */
 	async function passThrough(
 		request: Request,
@@ -196,7 +253,7 @@ export function createWorker(world: WorkerWorld) {
 			// server says whether it was (#291). Another device's leaves this
 			// phone signed in and its library where it is.
 			if (operation === 'revoke_session' && envelope.result?.current !== false) await forget();
-		} else if (envelope?.error?.kind === 'unauthorized') {
+		} else if (namesNobody(envelope)) {
 			await forget();
 		}
 		return response;
@@ -236,7 +293,9 @@ export function createWorker(world: WorkerWorld) {
 				return response;
 			}
 			if (response.status !== 200) {
-				if (response.status === 401) await refused();
+				const refusal = parse(await response.clone().text());
+				if (namesNobody(refusal)) await refused();
+				else if (refusal?.error?.kind === 'not_found') await gone();
 				return response;
 			}
 			const body = await response.clone().text();
@@ -252,11 +311,30 @@ export function createWorker(world: WorkerWorld) {
 					}),
 				);
 				if (before !== undefined && before !== body) announce(operation);
-			} else if (envelope?.error?.kind === 'unauthorized') {
+			} else if (namesNobody(envelope)) {
 				await refused();
 			}
 			return response;
 		};
+
+		/**
+		 * The server says what was asked for is not there: deleted, or out of
+		 * this reader's sight. The kept answer goes, and a recipe takes every
+		 * kept read about it with it, so it is not read from the phone again,
+		 * online or off (#537). A page shown the kept answer is told to ask
+		 * again, and now hears what the server said.
+		 */
+		async function gone() {
+			const branchId = (input as { branch_id?: unknown } | null)?.branch_id;
+			// The recipe's own answer goes with the rest of its reads, and is
+			// read first for the pictures it named.
+			if (operation === 'get_recipe' && typeof branchId === 'string') {
+				await forgetRecipe(branchId);
+			} else if (kept) {
+				await store.delete(key);
+			}
+			if (kept) announce(operation);
+		}
 
 		/**
 		 * The Session is gone. If the page was already shown a kept answer, it

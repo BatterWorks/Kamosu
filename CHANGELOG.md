@@ -37,6 +37,11 @@
 - A new recovery link ends any earlier one for the same Person still unused, and so do recovering the account and changing the password. Before, an older link could still set a new password after the account was recovered. [#535]
 - A recipe's Share Link page writes its times as the app does, `9 h` or `1 h 30` instead of `540` or `90` minutes, in the page and in the card a messaging app shows. A Step's photograph is a small square at the end of its row that opens the picture, a Component's Steps included, and a shared variation shows its name under the title. `read_shared_recipe` answers the Branch's `name`. [#521]
 - Saving a recipe again within the hour no longer replaces a Version somebody has cooked. Before, the cooking left the recipe's History, and a Kitchen-mate leaving the Kitchen kept nothing of it. A save from a second device or an old tab, made from an earlier Version, is now a Version of its own instead of replacing the other device's save. `save_recipe_version` and `edit_recipe` take the Version the save was written from as `base_version_id`. [#536]
+- A cook's phone keeps its offline library when Kamosu refuses something only an Operator, or a recipe's own Cookbook, may do. Before, any such refusal emptied it, so with no network every recipe said it could not be read. Only a Session that has ended empties it now. [#537]
+- Changes made with no network are sent when the same person signs back in after their Session was ended on another device, by a password change or by a recovery. Before, any sign-in threw them away without a word. Someone else signing in on the phone still never sends them. [#537]
+- A recipe deleted, or no longer shared with you, no longer opens from the phone's copy, and the count of recipes on the phone drops it. Before, the phone went on showing it whole, online too. [#537]
+- A cooking recorded with no network lands in your diary even when its recipe was deleted, or stopped being shared with you, before the phone reconnected. Before, it was lost with its note, rating and photos. [#537]
+- A note, rating or photos written with no network no longer replace newer ones written since on another device, and a server whose clock disagrees with the phone's no longer drops changes the phone held. `start_attempt` takes `lineage_id`, and every write that takes `written_at` also takes `sent_at`, the sender's clock as it sends. [#537]
 - A picture that would take more than 200 MB of memory to open is refused when it is sent, and Kamosu remakes at most two pictures at once: one more sent by a person is answered "busy, try again in a moment", and one an import brings waits its turn. Before, a picture under 1 MB could take more than 1 GB to open, and a few at once could run the instance out of memory. A camera's photograph, up to about 50 megapixels, is unaffected. [#538]
 - A phone's Shortcut key sends files of at most 25 MB and holds at most ten waiting to be added, which is what adding a recipe takes. Before, it could send any number of files up to 2 GB each. [#538]
 - Receiving a Bundle refuses a file that is no zip, or larger than a Bundle can be, without reading it into memory first. [#538]
@@ -83,6 +88,7 @@
 [#534]: https://github.com/BatterWorks/Kamosu/issues/534
 [#535]: https://github.com/BatterWorks/Kamosu/issues/535
 [#536]: https://github.com/BatterWorks/Kamosu/issues/536
+[#537]: https://github.com/BatterWorks/Kamosu/issues/537
 [#538]: https://github.com/BatterWorks/Kamosu/issues/538
 [#540]: https://github.com/BatterWorks/Kamosu/issues/540
 [#541]: https://github.com/BatterWorks/Kamosu/issues/541

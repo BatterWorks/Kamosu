@@ -118,6 +118,7 @@ const ordinary = () => ({
 /** A Kitchen of two recipes, one with a picture. */
 const library = (): Answers => ({
 	instance_status: ordinary(),
+	get_person: { person_id: 'p_1', name: 'Carl', is_operator: false },
 	search_recipes: { query: null, closest: false, recipes: [entry('b_1', 'p_1'), entry('b_2')] },
 	get_recipe: () => recipe('b_1'),
 	get_thread: () => thread('b_1'),

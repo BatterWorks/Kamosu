@@ -239,8 +239,16 @@ describe('writing with no network', () => {
 			attempt_id: started.id,
 			version_id: 'v_2',
 			started_at: started.created_at,
+			// So the cooking still lands if the recipe is gone by now (#537).
+			lineage_id: 'l_1',
 		});
 		expect(sent[0].input.written_at).toBeUndefined();
+		// Each with the phone's clock as it went, which the server moves the
+		// times by (#537), and never earlier than the time it carries.
+		for (const each of sent) {
+			const when = (each.input.written_at ?? each.input.started_at) as string;
+			expect(Date.parse(each.input.sent_at as string)).toBeGreaterThan(Date.parse(when));
+		}
 		const whens = sent.slice(1).map((each) => each.input.written_at as string);
 		expect(whens.every(Boolean)).toBe(true);
 		expect([...whens].sort()).toEqual(whens);
@@ -345,6 +353,34 @@ describe('writing with no network', () => {
 		expect(at.kept()?.queue.map((each) => each.operation)).toEqual(['add_loose_item']);
 		busy = false;
 		await at.outbox.flush();
+		expect(at.kept()?.queue).toEqual([]);
+	});
+
+	it('waits for a Session that has ended, and drops only what the Person may not do (#537)', async () => {
+		let refusal: OperationError | undefined = new OperationError(
+			'add_loose_item',
+			'unauthorized',
+			'this Credential does not name anyone',
+			{ reason: 'credential_names_nobody' },
+		);
+		const at = world({
+			add_loose_item: () => refusal ?? { chosen: [], rows: [] },
+			get_shopping_list: () => ({ chosen: [], rows: [] }),
+			get_reading_preferences: () => ({ reading_language: 'en', reading_measures: 'metric' }),
+		});
+		await at.call('get_shopping_list');
+		await at.call('get_reading_preferences');
+		at.offline();
+		await at.call('add_loose_item', { text: 'saffron' });
+		at.online();
+		await at.outbox.flush();
+		expect(at.kept()?.queue.map((each) => each.operation)).toEqual(['add_loose_item']);
+
+		// Signed in again, and refused for something else: that write is its own.
+		refusal = new OperationError('add_loose_item', 'unauthorized', 'not yours to change');
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		await at.outbox.flush();
+		warn.mockRestore();
 		expect(at.kept()?.queue).toEqual([]);
 	});
 

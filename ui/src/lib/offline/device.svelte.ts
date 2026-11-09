@@ -224,6 +224,12 @@ export const refreshed = new SvelteMap<string, number>();
 export const landedSend: { answer: SendToShoppingListOutput | null } = $state({ answer: null });
 
 /**
+ * Told the id of each recipe the server said is not there any more, which the
+ * phone has stopped keeping (#537). The Library listens, so its count drops it.
+ */
+export const recipeGone = new Set<(branchId: string) => void>();
+
+/**
  * Listen to the service worker, once, from the root layout: for reads that
  * have changed, and for whether the server is being reached.
  */
@@ -235,6 +241,8 @@ export function listenToTheWorker(): () => void {
 			refreshed.set(message.operation, (refreshed.get(message.operation) ?? 0) + 1);
 		} else if (message?.type === 'kamosu:reach' && typeof message.reached === 'boolean') {
 			reached(message.reached);
+		} else if (message?.type === 'kamosu:gone' && typeof message.branch_id === 'string') {
+			for (const told of recipeGone) told(message.branch_id);
 		}
 	};
 	navigator.serviceWorker.addEventListener('message', heard);

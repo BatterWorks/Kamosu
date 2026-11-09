@@ -498,7 +498,9 @@ impl Core {
             return Err(OpError::unauthorized(NOT_KNOWN));
         }
         let session = self.mint_session(&person_id, session_name, "passkey")?;
-        Ok(json!({ "session_id": session.id, "_session_secret": session.secret }))
+        Ok(
+            json!({ "session_id": session.id, "person_id": person_id, "_session_secret": session.secret }),
+        )
     }
 }
 
