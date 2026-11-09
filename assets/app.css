@@ -2563,7 +2563,7 @@
   text-align: center;
 }
 .place-bar .place-link:not(:lang(nl)) {
-  padding-inline: calc((var(--type-unit) - 1px) * 8.6);
+  padding-inline: max( clamp(0px, calc((var(--type-unit) - 1px) * 1000), 2px), calc((var(--type-unit) - 1px) * 8.6) );
 }
 :root:lang(nl) {
   --spacing-rail: 128px;

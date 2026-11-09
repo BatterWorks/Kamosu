@@ -1299,7 +1299,7 @@
   }
 }
 
-/* ── The navigation at the largest text size (#600) ────────────────────────
+/* ── The navigation at large text sizes (#600, #608) ──────────────────────
    Each place's word is 12 type units with 0.15em between its letters, so it
    grows with the reader's text and runs out of room before the type does: at
    the largest size, "COOKED" ran off a 360px phone and "SHOPPING" and
@@ -1328,12 +1328,23 @@
    as a tab is only as narrow as its word allows. Each tab keeps room at its
    sides that grows from nothing with the text, to 3px each at the top (8.6
    times the 0.35px the unit can grow, which rests on that top as the 5.55
-   above does), so at the ordinary size it is nothing again. The rail has no neighbour beside a
+   above does), so at the ordinary size it is nothing again. A tab is as
+   wide as its word or its fifth of the bar, whichever is wider, so the room
+   at its sides is the least two words side by side can be apart. Grown that
+   evenly, it was under 2px a side up to about 19.7px, and French and
+   Spanish words came 2.5px apart there (#608). So it is never under 2px
+   once the text is any larger than the ordinary size: the 1000 takes it
+   from nothing to 2px within the first 0.002px of the unit's growth, and
+   the 8.6 takes it on from 2px to 3px. At the ordinary size it is still
+   nothing, and no word moves. The rail has no neighbour beside a
    word and keeps its whole width for it. Dutch keeps a fixed 2px instead,
    below: its tabs are as wide as their words already, and room that grows
    would push "Gekookt" off a 360px phone. */
 .place-bar .place-link:not(:lang(nl)) {
-  padding-inline: calc((var(--type-unit) - 1px) * 8.6);
+  padding-inline: max(
+    clamp(0px, calc((var(--type-unit) - 1px) * 1000), 2px),
+    calc((var(--type-unit) - 1px) * 8.6)
+  );
 }
 
 /* ── The navigation in Dutch ──────────────────────────────────────────────
