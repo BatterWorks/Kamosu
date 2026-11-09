@@ -157,6 +157,9 @@ pub fn router(core: Arc<Core>) -> Router {
 /// arriving from a link has told Kamosu nothing, and the one thing known about
 /// what they are about to read is what it is written in.
 struct Words {
+    /// The Language's own name, written in itself, as the list of
+    /// Translations shows it (#588).
+    name: &'static str,
     sent_you: &'static str,
     ingredients: &'static str,
     method: &'static str,
@@ -220,6 +223,7 @@ struct Words {
 }
 
 const EN: Words = Words {
+    name: "English",
     sent_you: "sent you this recipe",
     ingredients: "Ingredients",
     method: "Method",
@@ -254,6 +258,7 @@ const EN: Words = Words {
 };
 
 const FR: Words = Words {
+    name: "Français",
     sent_you: "vous a envoyé cette recette",
     ingredients: "Ingrédients",
     method: "Préparation",
@@ -288,6 +293,7 @@ const FR: Words = Words {
 };
 
 const ES: Words = Words {
+    name: "Español",
     sent_you: "te ha enviado esta receta",
     ingredients: "Ingredientes",
     method: "Preparación",
@@ -322,6 +328,7 @@ const ES: Words = Words {
 };
 
 const NL: Words = Words {
+    name: "Nederlands",
     sent_you: "stuurde je dit recept",
     ingredients: "Ingrediënten",
     method: "Bereiding",
@@ -359,22 +366,23 @@ const NL: Words = Words {
 /// this list and the tests walk it, so a Language added to one is in both.
 const PAGE_WORDS: [(&str, &Words); 4] = [("en", &EN), ("fr", &FR), ("es", &ES), ("nl", &NL)];
 
-fn words(language: &str) -> &'static Words {
+/// The page's words in a Language, if the page is written in it.
+fn page_words(language: &str) -> Option<&'static Words> {
     PAGE_WORDS
         .iter()
         .find(|(code, _)| *code == language)
-        .map_or(&EN, |(_, words)| words)
+        .map(|(_, words)| *words)
 }
 
-/// The name of a Language, written in itself.
+fn words(language: &str) -> &'static Words {
+    page_words(language).unwrap_or(&EN)
+}
+
+/// The name of a Language, written in itself. It is read off `PAGE_WORDS`, so
+/// every Language the page is written in has one (#588). A code the page does
+/// not know shows a dash rather than another Language's name.
 fn language_name(language: &str) -> &'static str {
-    match language {
-        "fr" => "Français",
-        "es" => "Español",
-        "nl" => "Nederlands",
-        "en" => "English",
-        _ => "—",
-    }
+    page_words(language).map_or("—", |words| words.name)
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -1474,6 +1482,18 @@ mod tests {
     fn the_page_has_words_in_every_language() {
         let codes: Vec<&str> = PAGE_WORDS.iter().map(|(code, _)| *code).collect();
         assert_eq!(codes, crate::language::LANGUAGES);
+    }
+
+    /// Every Language Kamosu reads is named on the page in its own words, each
+    /// name its own, and a code the page does not know shows a dash (#588).
+    #[test]
+    fn every_language_has_its_own_name() {
+        let names: Vec<&str> = crate::language::LANGUAGES
+            .iter()
+            .map(|code| language_name(code))
+            .collect();
+        assert_eq!(names, ["English", "Français", "Español", "Nederlands"]);
+        assert_eq!(language_name("de"), "—");
     }
 
     /// A stranger's type follows their phone's text size as a member's does
