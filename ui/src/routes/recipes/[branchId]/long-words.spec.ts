@@ -4,22 +4,17 @@
  * A web address has no space in it, and a browser breaks a line only at a
  * space or a hyphen unless the stylesheet lets it break inside a word. Before
  * #385 nothing did, so an address in a recipe pushed the phone's page
- * sideways. jsdom lays nothing out, so the page is drawn here as the tests
- * draw it and then handed, markup and the stylesheet the binary embeds, to the
- * Chrome the dev tools drive, at the phone's size, to be measured. The
- * stylesheet is the one `just css` wrote into `assets/`, so a change to
- * `ui/src/app.css` reaches this test only once that has run.
+ * sideways. The page is drawn here as the tests draw it and then measured in
+ * Chrome at the phone's size (`src/testing/chrome.ts`).
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { chromium, type Browser } from 'playwright';
+import type { Browser } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import { standIn } from '#lib/api/stand-in.js';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
 import { MY_KITCHENS, recipeAnswer, threadBranch } from '../../../testing/recipes';
-import { chromePath, devEnv, ROOT } from '../../../../tools/dev.mjs';
+import { CHROME_HOOK_MS, drawn, startChrome } from '../../../testing/chrome';
 import { SIZES } from '../../../../tools/sizes.mjs';
 
 /**
@@ -77,34 +72,13 @@ async function drawnPage(): Promise<string> {
 	return document.body.innerHTML;
 }
 
-/**
- * How long Chrome gets to start. Alone it starts in a second or two, but
- * under a full `just test`, beside the Rust build, it once missed vitest's
- * default 10 s for a hook (#554).
- */
-const CHROME_START_MS = 60_000;
-
-/**
- * How long each hook waits: ten seconds more than Chrome's start, so a Chrome
- * that cannot start fails with the error below, not with the hook's.
- */
-const HOOK_MS = CHROME_START_MS + 10_000;
-
 let browser: Browser;
 beforeAll(async () => {
-	// The Chrome `.env` names, else the first on the path: a machine with no
-	// dev instance to name still runs the tests.
-	const env = fs.existsSync(path.join(ROOT, '.env')) ? devEnv() : {};
-	const executablePath = chromePath(env);
-	try {
-		browser = await chromium.launch({ executablePath, timeout: CHROME_START_MS });
-	} catch (error) {
-		throw new Error(`Chrome did not start from ${executablePath}`, { cause: error });
-	}
-}, HOOK_MS);
+	browser = await startChrome();
+}, CHROME_HOOK_MS);
 afterAll(async () => {
 	await browser?.close();
-}, HOOK_MS);
+}, CHROME_HOOK_MS);
 
 /**
  * How far each box's text runs past the right edge of its box, or of the
@@ -112,23 +86,8 @@ afterAll(async () => {
  * is not itself a run of text.
  */
 async function overhangs(markup: string): Promise<Record<string, number>> {
-	const [width, height] = SIZES.phone;
-	const page = await browser.newPage({ viewport: { width, height } });
+	const page = await drawn(browser, markup, { size: SIZES.phone });
 	try {
-		// The stylesheet and its fonts from where the binary serves them.
-		await page.route('http://kamosu.test/**', (route) => {
-			const url = new URL(route.request().url());
-			if (url.pathname === '/') {
-				return route.fulfill({
-					contentType: 'text/html',
-					body: `<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="/assets/app.css"></head><body>${markup}</body></html>`,
-				});
-			}
-			const file = path.join(ROOT, url.pathname);
-			return fs.existsSync(file) ? route.fulfill({ path: file }) : route.fulfill({ status: 404 });
-		});
-		await page.goto('http://kamosu.test/');
-		await page.evaluate(() => document.fonts.ready);
 		return await page.evaluate((boxes) => {
 			const found: Record<string, number> = {};
 			for (const [name, text] of Object.entries(boxes)) {
