@@ -160,6 +160,10 @@ export default defineConfig(({ command }) => ({
 		// One jsdom per worker rather than per file: building it 34 times was 43 of
 		// the screen tests' 48 seconds (#122). What a shared environment lets one
 		// file leave for the next, `setup.ts` puts back at the top of every file.
+		// The module cache is shared too, so a `vi.mock` in one file does not
+		// reach a module an earlier file in the same worker already imported:
+		// replace a function through the module's own API instead, as the
+		// settings spec does Paraglide's `setLocale` (#590).
 		isolate: false,
 		// One limit for every test and every hook, with room for a busy host
 		// (#563). Vitest's default of 5 s a test failed tests that pass in under
