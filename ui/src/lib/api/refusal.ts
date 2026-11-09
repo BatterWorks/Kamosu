@@ -62,4 +62,14 @@ export class OperationError extends Error {
 		this.retryAfterSeconds = options?.retryAfterSeconds;
 		this.reason = options?.reason;
 	}
+
+	/**
+	 * Whether the Secret this was asked with names nobody: the Session has
+	 * ended. Every other refusal of kind `unauthorized` is about what a Person
+	 * Kamosu did recognise may do, an Operator's Operation asked by a cook
+	 * say, and says nothing about the Session (#537).
+	 */
+	get sessionEnded(): boolean {
+		return this.kind === 'unauthorized' && this.reason === 'credential_names_nobody';
+	}
 }

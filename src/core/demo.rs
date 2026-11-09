@@ -644,7 +644,9 @@ impl Core {
             ));
         }
         let session = self.mint_session(&person_id, session_name, "demo")?;
-        Ok(json!({ "session_id": session.id, "_session_secret": session.secret }))
+        Ok(
+            json!({ "session_id": session.id, "person_id": person_id, "_session_secret": session.secret }),
+        )
     }
 }
 

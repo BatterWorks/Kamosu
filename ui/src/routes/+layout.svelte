@@ -16,6 +16,7 @@
 	import Arrived from '#lib/Arrived.svelte';
 	import { listenToTheWorker, reach, retryWhileUnreachable } from '#lib/offline/device.svelte.js';
 	import { realOutbox } from '#lib/offline/outbox.js';
+	import { sessions } from '#lib/offline/library.svelte.js';
 	import { m } from '#lib/paraglide/messages.js';
 	import { WindowRoom } from '#lib/room.svelte.js';
 	import { keepDropsOut } from '#lib/drop.svelte.js';
@@ -98,7 +99,10 @@
 	// What was written with no network goes as soon as the server answers
 	// again (#77): on opening, whenever the server is found again, and when the
 	// browser says the network is back.
+	// And when somebody signs in, since what the same Person held while their
+	// Session was ended elsewhere waits for them (#537).
 	$effect(() => {
+		void sessions.began;
 		if (reach.server) void outbox.flush();
 	});
 	$effect(() => {

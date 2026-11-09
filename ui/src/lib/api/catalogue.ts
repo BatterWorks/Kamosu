@@ -4476,6 +4476,8 @@ export type RereadIngredientLinesOutput = {
 export type StartAttemptInput = {
 	attempt_id?: string;
 	branch_id: string;
+	lineage_id?: string;
+	sent_at?: string;
 	started_at?: string;
 	version_id?: string;
 };
@@ -4580,6 +4582,7 @@ export type AdvanceAttemptInput = {
 		noun: string;
 	} | null;
 	current_step_index?: number;
+	sent_at?: string;
 	ticked_ingredients?: number[];
 	written_at?: string;
 };
@@ -4683,6 +4686,7 @@ export type FinishAttemptInput = {
 	note?: string | null;
 	photographs?: string[] | null;
 	rating?: "again" | "tweak" | "no" | null;
+	sent_at?: string;
 	written_at?: string;
 };
 /** What finish_attempt answers. */
@@ -4785,6 +4789,7 @@ export type EditAttemptInput = {
 	note?: string | null;
 	photographs?: string[] | null;
 	rating?: "again" | "tweak" | "no" | null;
+	sent_at?: string;
 	written_at?: string;
 };
 /** What edit_attempt answers. */
@@ -4942,6 +4947,7 @@ export type SetAsCookedInput = {
 		} | null;
 	} | null;
 	attempt_id: string;
+	sent_at?: string;
 	written_at?: string;
 };
 /** What set_as_cooked answers. */
@@ -5447,6 +5453,7 @@ export type ShoppingBasisOutput = {
 /** Choose a recipe to shop for. It is chosen at a Yield, a multiplier (a Yield with an empty noun) or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
 export type AddToShoppingListInput = {
 	branch_id: string;
+	sent_at?: string;
 	shopping_yield?: {
 		amount: string;
 		noun: string;
@@ -5490,6 +5497,7 @@ export type AddToShoppingListOutput = {
 /** Take a recipe off your Shopping List. Works whether or not it can still be read, which is exactly the entry somebody most wants gone. Answers the whole list. */
 export type RemoveFromShoppingListInput = {
 	branch_id: string;
+	sent_at?: string;
 	written_at?: string;
 };
 /** What remove_from_shopping_list answers. */
@@ -5529,6 +5537,7 @@ export type RemoveFromShoppingListOutput = {
 /** Say how much of a chosen recipe you are shopping for. Send an amount and its noun, a multiplier (an amount with an empty noun: twice the recipe is `2`), or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list. */
 export type SetShoppingYieldInput = {
 	branch_id: string;
+	sent_at?: string;
 	shopping_yield?: {
 		amount: string;
 		noun: string;
@@ -5578,6 +5587,7 @@ export type ShoppingListAsTextOutput = {
 
 /** Empty your Shopping List. Every recipe chosen and every typed line goes at once. Offered after the list has left as text and never done on the way out: a list that emptied itself when it was sent would be silent and unrecoverable. Answers the whole list. */
 export type EmptyShoppingListInput = {
+	sent_at?: string;
 	written_at?: string;
 };
 /** What empty_shopping_list answers. */
@@ -5617,6 +5627,7 @@ export type EmptyShoppingListOutput = {
 /** Type a line straight onto your Shopping List. Think bin bags, coffee. Kept exactly as typed and never read, so it carries no amount and merges with nothing: typing flour beside a recipe that wants flour gives two lines. Answers the whole list. */
 export type AddLooseItemInput = {
 	item_id?: string;
+	sent_at?: string;
 	text: string;
 	written_at?: string;
 };
@@ -5657,6 +5668,7 @@ export type AddLooseItemOutput = {
 /** Take one typed line off your Shopping List. Answers the whole list. */
 export type RemoveLooseItemInput = {
 	item_id: string;
+	sent_at?: string;
 	written_at?: string;
 };
 /** What remove_loose_item answers. */
@@ -5734,6 +5746,7 @@ export type PlanRecipeInput = {
 		amount: string;
 		noun: string;
 	} | null;
+	sent_at?: string;
 	week?: string;
 	written_at?: string;
 };
@@ -5769,6 +5782,7 @@ export type SetPlannedYieldInput = {
 		amount: string;
 		noun: string;
 	} | null;
+	sent_at?: string;
 	written_at?: string;
 };
 /** What set_planned_yield answers. */
@@ -5800,6 +5814,7 @@ export type SetPlannedYieldOutput = {
 export type PlanWordsInput = {
 	day?: string;
 	planned_meal_id?: string;
+	sent_at?: string;
 	week?: string;
 	words: string;
 	written_at?: string;
@@ -5832,6 +5847,7 @@ export type PlanWordsOutput = {
 /** Change the written words of a Planned Meal. Those are the ones plan_words wrote. They are kept exactly as written, the ends trimmed. A planned recipe has no words to change. Answers the Planned Meal. */
 export type SetPlannedWordsInput = {
 	planned_meal_id: string;
+	sent_at?: string;
 	words: string;
 	written_at?: string;
 };
@@ -5865,6 +5881,7 @@ export type MovePlannedMealInput = {
 	day?: string;
 	planned_meal_id: string;
 	position?: number;
+	sent_at?: string;
 	week?: string;
 	written_at?: string;
 };
@@ -5896,6 +5913,7 @@ export type MovePlannedMealOutput = {
 /** Take a Planned Meal off your Meal Plan. Works whether or not its recipe can still be read, and taking one that is already gone is not an error. Answers null. */
 export type RemovePlannedMealInput = {
 	planned_meal_id: string;
+	sent_at?: string;
 	written_at?: string;
 };
 /** What remove_planned_meal answers. */
@@ -5927,6 +5945,7 @@ export type RemovePlannedMealOutput = {
 export type SendToShoppingListInput = {
 	any_day_of?: string[];
 	days?: string[];
+	sent_at?: string;
 	weeks?: string[];
 	written_at?: string;
 };
@@ -29895,6 +29914,14 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
+				"lineage_id": {
+					"description": "The recipe's Lineage, for a start that waited on a phone with no network (#537). With attempt_id, started_at and version_id, a recipe deleted or gone out of sight meanwhile still lands the cooking in the diary, with no recipe.",
+					"type": "string"
+				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"started_at": {
 					"description": "When cooking really started, for a start that waited on a phone with no network (#77). The same form as written_at.",
 					"type": "string"
@@ -30436,6 +30463,10 @@ export const CATALOGUE = [
 					"minimum": 0,
 					"type": "integer"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"ticked_ingredients": {
 					"items": {
 						"minimum": 0,
@@ -30444,7 +30475,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -30995,8 +31026,12 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -31547,8 +31582,12 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -32351,8 +32390,12 @@ export const CATALOGUE = [
 				"attempt_id": {
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -34977,6 +35020,10 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"shopping_yield": {
 					"additionalProperties": false,
 					"properties": {
@@ -34998,7 +35045,7 @@ export const CATALOGUE = [
 					]
 				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -35190,8 +35237,12 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -35383,6 +35434,10 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"shopping_yield": {
 					"additionalProperties": false,
 					"properties": {
@@ -35404,7 +35459,7 @@ export const CATALOGUE = [
 					]
 				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -35616,8 +35671,12 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -35807,12 +35866,16 @@ export const CATALOGUE = [
 					"description": "The id to give this line, for one typed with no network (#77): i_ and sixteen lower-case hex digits. Sending the same line twice adds it once.",
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"text": {
 					"maxLength": 2000,
 					"type": "string"
 				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -36004,8 +36067,12 @@ export const CATALOGUE = [
 				"item_id": {
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -36383,12 +36450,16 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"week": {
 					"description": "The Monday of a week, such as 2026-11-02, for any day of it. Send this or day.",
 					"type": "string"
 				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -36555,8 +36626,12 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -36709,6 +36784,10 @@ export const CATALOGUE = [
 					"description": "The id to give this Planned Meal, for one planned with no network (#77): pm_ and sixteen lower-case hex digits. Sending the same one twice plans it once.",
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"week": {
 					"description": "The Monday of a week, such as 2026-11-02, for any day of it. Send this or day.",
 					"type": "string"
@@ -36718,7 +36797,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -36865,12 +36944,16 @@ export const CATALOGUE = [
 				"planned_meal_id": {
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"words": {
 					"maxLength": 2000,
 					"type": "string"
 				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -37026,12 +37109,16 @@ export const CATALOGUE = [
 					"minimum": 0,
 					"type": "integer"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"week": {
 					"description": "The Monday of a week, such as 2026-11-02, for any day of it. Send this or day.",
 					"type": "string"
 				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -37178,8 +37265,12 @@ export const CATALOGUE = [
 				"planned_meal_id": {
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -37337,6 +37428,10 @@ export const CATALOGUE = [
 					},
 					"type": "array"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"weeks": {
 					"description": "The Monday of each week, such as 2026-11-02, for all of it.",
 					"items": {
@@ -37345,7 +37440,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},

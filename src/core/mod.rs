@@ -130,9 +130,13 @@ pub struct OpError {
     /// Which refusal this is, for the few a screen says in its own words
     /// rather than the Core's English sentence: a scanned PDF (#176). The web
     /// door carries it as `reason`. Nothing else is keyed on it; the sentence
-    /// is still the whole answer at the MCP door.
+    /// is still the whole answer at the MCP door. The refusal of a Secret that
+    /// names nobody carries one too, so a phone can tell it apart (#537).
     pub reason: Option<&'static str>,
 }
+
+/// The `reason` the one refusal about the Secret itself carries (#537).
+pub const CREDENTIAL_NAMES_NOBODY: &str = "credential_names_nobody";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
@@ -173,7 +177,22 @@ impl OpError {
     pub fn credential_names_nobody() -> Self {
         OpError {
             credential_names_nobody: true,
+            // Said in the body as well (#537): a phone empties what it keeps
+            // for a Session on this refusal alone, and never on one about
+            // what a Person it did recognise may do.
+            reason: Some(CREDENTIAL_NAMES_NOBODY),
             ..OpError::unauthorized("this Credential does not name anyone")
+        }
+    }
+    /// A refusal for want of any Credential at all. It carries the same
+    /// `reason` as one naming nobody (#537): a browser whose ended Session's
+    /// cookie was taken back asks with nothing, and a phone must still read
+    /// that as signed out, holding its changes for the next sign-in rather
+    /// than dropping them. There is no cookie here to take back.
+    pub fn no_credential(message: impl Into<String>) -> Self {
+        OpError {
+            reason: Some(CREDENTIAL_NAMES_NOBODY),
+            ..OpError::unauthorized(message)
         }
     }
     pub fn unknown_operation(name: &str) -> Self {
@@ -607,8 +626,12 @@ impl Core {
                 op.name
             ))),
             (_, Permission::Public) | (Asker::Person(_), Permission::Person) => None,
-            (Asker::Nobody, Permission::Person) => Some(OpError::unauthorized(format!(
+            (Asker::Nobody, Permission::Person) => Some(OpError::no_credential(format!(
                 "Operation '{}' requires a Credential naming a Person",
+                op.name
+            ))),
+            (Asker::Nobody, Permission::Operator) => Some(OpError::no_credential(format!(
+                "Operation '{}' requires a Credential naming an Operator",
                 op.name
             ))),
             (Asker::Person(caller), Permission::Operator) if caller.is_operator => None,
@@ -669,6 +692,11 @@ impl Core {
         // describe. What it does *not* check is meaning — whether a Branch
         // exists, whether an amount parses — which stays in the handlers.
         crate::schema::validate_input(op.name, &input)?;
+        let mut input = input;
+        if input.get("sent_at").is_some() {
+            self.db()
+                .with_conn(|conn| on_the_servers_clock(conn, &mut input))?;
+        }
 
         // Acting as an Operator is asked for one call at a time (#302, ADR
         // 0049): an Operator is a Person like any other until a call says

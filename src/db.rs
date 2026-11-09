@@ -2307,6 +2307,23 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 74,
+        description: "when a cooking's note, rating and Photographs were last written (#537)",
+        sql: r#"
+        -- The last one written is what the cook said, as migration 31 made it
+        -- for where the cook is and the Shopping List: a note a phone held
+        -- with no network and sent after the iPad rewrote it is older, and
+        -- changes nothing. Each of the three on its own, so a rating held
+        -- offline still lands beside a newer note. NULL on every Attempt
+        -- already written, which reads as "never written", so the next write
+        -- lands whenever it was made.
+        ALTER TABLE attempts ADD COLUMN note_written_at TEXT;
+        ALTER TABLE attempts ADD COLUMN rating_written_at TEXT;
+        ALTER TABLE attempts ADD COLUMN photographs_written_at TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.

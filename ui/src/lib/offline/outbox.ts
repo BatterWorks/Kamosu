@@ -599,8 +599,13 @@ export class Outbox implements Keeping {
 		};
 		// Pinned to what the phone had, which a recipe edited meanwhile at home
 		// does not change: the Version cooked still exists, so this lands
-		// exactly as it was cooked (ADR 0013).
-		return { value: attempt, send: { ...input, version_id, started_at: written_at } };
+		// exactly as it was cooked (ADR 0013). Its Lineage goes too, so a
+		// recipe deleted or out of reach by then still lands it in the diary
+		// (#537).
+		return {
+			value: attempt,
+			send: { ...input, version_id, started_at: written_at, lineage_id: recipe.lineage_id },
+		};
 	}
 
 	async #holdShopping(
@@ -1220,9 +1225,16 @@ export class Outbox implements Keeping {
 				return first;
 			});
 			if (!next) break;
-			const input = SAYS_WHEN.has(next.operation)
+			const said = SAYS_WHEN.has(next.operation)
 				? { ...next.input, written_at: next.written_at }
 				: next.input;
+			// With what this phone's clock reads now, so the server moves each
+			// time onto its own clock: a phone a minute slow does not write a
+			// minute in the past (#537).
+			const input =
+				'written_at' in said || 'started_at' in said
+					? { ...said, sent_at: this.#world.now().toISOString() }
+					: said;
 			let answer: unknown;
 			try {
 				answer = await this.#send(next.operation, input);
@@ -1231,7 +1243,8 @@ export class Outbox implements Keeping {
 				if (isUnreached(error)) return true;
 				// A Session that has ended cannot send anything; what it wrote
 				// waits for it rather than being thrown away one write at a time.
-				if (error instanceof OperationError && error.kind === 'unauthorized') return true;
+				// Any other refusal of what the Person may do is this write's own.
+				if (error instanceof OperationError && error.sessionEnded) return true;
 				// Neither can a server answering as many requests as it takes
 				// (#368): it would have taken the write a moment later, so the
 				// write waits for that moment rather than being thrown away.

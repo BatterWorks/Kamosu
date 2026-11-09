@@ -38292,6 +38292,288 @@ async fn a_cooking_recorded_offline_lands_unchanged_against_a_recipe_edited_mean
     );
 }
 
+/// A cooking a phone held with no network still lands when its recipe was
+/// deleted before the phone came back (#537): in the diary, with no recipe,
+/// keeping what the cook said about it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cooking_held_offline_lands_in_the_diary_when_its_recipe_was_deleted_meanwhile() {
+    let app = support::spawn_app();
+    let (key, branch_id, lineage_id, _kitchen) = recipe_ready_to_cook(&app, "Stéphane");
+    let (_, before) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let cooked_version = before["result"]["head_version_id"].clone();
+
+    let (status, deleted) = app.post_op(
+        "delete_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+
+    // Started as it happens, a deleted recipe is still not there.
+    let (status, online) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 404, "{online}");
+
+    // A start naming another dish's Lineage is no way in either.
+    let (_, other_branch, other_lineage, _) = recipe_ready_to_cook(&app, "Olga");
+    let (status, elsewhere) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({
+            "branch_id": other_branch,
+            "attempt_id": "at_5370000000000001",
+            "started_at": minutes_ago(&app, 90),
+            "version_id": cooked_version,
+            "lineage_id": lineage_id,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 404, "{elsewhere}");
+
+    let _ = other_lineage;
+
+    let attempt_id = "at_53700000000000aa";
+    let sent = [
+        (
+            "start_attempt",
+            json!({ "branch_id": branch_id, "version_id": cooked_version, "lineage_id": lineage_id, "attempt_id": attempt_id, "started_at": minutes_ago(&app, 90) }),
+        ),
+        (
+            "finish_attempt",
+            json!({ "attempt_id": attempt_id, "written_at": minutes_ago(&app, 60) }),
+        ),
+        (
+            "edit_attempt",
+            json!({ "attempt_id": attempt_id, "rating": "again", "note": "best ever", "written_at": minutes_ago(&app, 50) }),
+        ),
+    ];
+    for (operation, input) in sent {
+        let (status, answered) = app.post_op(operation, Some(&key), &input.to_string());
+        assert_eq!(status, 200, "{operation}: {answered}");
+    }
+
+    let (status, diary) = app.post_op("list_attempts", Some(&key), "{}");
+    assert_eq!(status, 200, "{diary}");
+    let entry = &diary["result"]["attempts"][0];
+    assert_eq!(entry["id"], json!(attempt_id));
+    assert_eq!(entry["version_id"], cooked_version);
+    assert_eq!(entry["note"], json!("best ever"));
+    assert_eq!(entry["rating"], json!("again"));
+    assert_eq!(entry["recipe"]["branch_id"], Value::Null, "{entry}");
+    assert_eq!(entry["recipe"]["title"], json!("Katsu Curry"));
+}
+
+/// The same for a recipe that went out of the cook's sight meanwhile: they
+/// were removed from the Kitchen that let them read it (#537).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cooking_held_offline_lands_in_the_diary_when_its_recipe_went_out_of_reach() {
+    let app = support::spawn_app();
+    let (olga_key, branch_id, lineage_id, kitchen_id) = recipe_ready_to_cook(&app, "Olga");
+    let (carl, carl_key, _) = person_with_kitchen(&app, "Carl");
+    ask_into_kitchen(&app, &olga_key, &kitchen_id, &carl_key);
+    let (status, read) = app.post_op(
+        "get_recipe",
+        Some(&carl_key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    let cooked_version = read["result"]["head_version_id"].clone();
+
+    let (status, removed) = app.post_op(
+        "remove_kitchen_member",
+        Some(&olga_key),
+        &json!({ "kitchen_id": kitchen_id, "person_id": carl }).to_string(),
+    );
+    assert_eq!(status, 200, "{removed}");
+
+    let (status, landed) = app.post_op(
+        "start_attempt",
+        Some(&carl_key),
+        &json!({
+            "branch_id": branch_id,
+            "version_id": cooked_version,
+            "lineage_id": lineage_id,
+            "attempt_id": "at_53700000000000bb",
+            "started_at": minutes_ago(&app, 90),
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{landed}");
+    let (_, diary) = app.post_op("list_attempts", Some(&carl_key), "{}");
+    let entry = &diary["result"]["attempts"][0];
+    assert_eq!(entry["id"], json!("at_53700000000000bb"));
+    assert_eq!(entry["recipe"]["branch_id"], Value::Null, "{entry}");
+}
+
+/// An older note or rating, held offline and sent late, never replaces one
+/// written since (#537), each of the three on its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_older_judgement_never_replaces_a_newer_one() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Stéphane");
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+    let (status, finished) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "note": "perfect with half the salt" }).to_string(),
+    );
+    assert_eq!(status, 200, "{finished}");
+
+    // An edit the phone held an hour, sent now.
+    let (status, late) = app.post_op(
+        "edit_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "note": "too salty", "rating": "again", "written_at": minutes_ago(&app, 60) }).to_string(),
+    );
+    assert_eq!(status, 200, "{late}");
+    assert_eq!(late["result"]["note"], json!("perfect with half the salt"));
+    assert_eq!(
+        late["result"]["rating"],
+        json!("again"),
+        "a rating nobody wrote since still lands"
+    );
+
+    // A finish sent again late, onto the finished cooking, is the same.
+    let (status, again) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "note": "too salty", "rating": "no", "written_at": minutes_ago(&app, 90) }).to_string(),
+    );
+    assert_eq!(status, 200, "{again}");
+    assert_eq!(again["result"]["note"], json!("perfect with half the salt"));
+    assert_eq!(
+        again["result"]["rating"],
+        json!("again"),
+        "the rating, stamped an hour ago, is newer than this finish"
+    );
+
+    // Something newer still lands.
+    let (status, newer) = app.post_op(
+        "edit_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "note": "with rice next time", "written_at": minutes_ago(&app, 0) }).to_string(),
+    );
+    assert_eq!(status, 200, "{newer}");
+    assert_eq!(newer["result"]["note"], json!("with rice next time"));
+
+    // A picture added now is not taken away by a whole list held from before.
+    let photograph = upload_a_picture(&app, &key, 53);
+    app.post_op(
+        "edit_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "add_photographs": [photograph] }).to_string(),
+    );
+    let (status, older_list) = app.post_op(
+        "edit_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "photographs": [], "written_at": minutes_ago(&app, 20) }).to_string(),
+    );
+    assert_eq!(status, 200, "{older_list}");
+    assert_eq!(older_list["result"]["photographs"], json!([photograph]));
+}
+
+/// A held write is judged on the server's clock (#537): the phone says what
+/// its clock reads as it sends, and the server moves the write by the gap.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_write_is_moved_onto_the_servers_clock() {
+    let app = support::spawn_app();
+    let (_person, key, _kitchen) = person_with_kitchen(&app, "Stéphane");
+    for (text, item) in [
+        ("eggs", "i_0000000000000e01"),
+        ("milk", "i_0000000000000e02"),
+    ] {
+        let (status, added) = app.post_op(
+            "add_loose_item",
+            Some(&key),
+            &json!({ "text": text, "item_id": item }).to_string(),
+        );
+        assert_eq!(status, 200, "{added}");
+    }
+    // Online, now, on the server's clock.
+    let (status, removed) = app.post_op(
+        "remove_loose_item",
+        Some(&key),
+        &json!({ "item_id": "i_0000000000000e01" }).to_string(),
+    );
+    assert_eq!(status, 200, "{removed}");
+
+    // The phone's clock is two minutes behind the server's. It removed milk
+    // after eggs went, just as it sent, so by its own clock two minutes before
+    // the online removal, which reads as older unless the gap is known.
+    let phone_now = minutes_ago(&app, 2);
+    let (status, held) = app.post_op(
+        "remove_loose_item",
+        Some(&key),
+        &json!({
+            "item_id": "i_0000000000000e02",
+            "written_at": phone_now,
+            "sent_at": phone_now,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{held}");
+    let (_, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert!(
+        !list.to_string().contains("\"milk\""),
+        "milk was removed after eggs, once both are on one clock: {list}"
+    );
+
+    // A sent_at that is no time is refused, not ignored.
+    let (status, refused) = app.post_op(
+        "remove_loose_item",
+        Some(&key),
+        &json!({ "item_id": "i_0000000000000e02", "written_at": minutes_ago(&app, 1), "sent_at": "yesterday" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+/// Only a Secret that names nobody says so in its refusal (#537). A phone
+/// empties its kept library on that refusal alone, so a refusal about what a
+/// recognised Person may do must not carry it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_a_secret_naming_nobody_is_refused_as_one() {
+    let app = support::spawn_app();
+    let (_person, key, _kitchen) = person_with_kitchen(&app, "Carl");
+
+    let (status, operator_only) = app.post_op("list_accounts", Some(&key), "{}");
+    assert_eq!(status, 401, "{operator_only}");
+    assert_eq!(operator_only["error"]["kind"], json!("unauthorized"));
+    assert_eq!(
+        operator_only["error"].get("reason"),
+        None,
+        "{operator_only}"
+    );
+
+    let (status, nobody) = app.post_op("list_attempts", Some("not-a-secret"), "{}");
+    assert_eq!(status, 401, "{nobody}");
+    assert_eq!(nobody["error"]["reason"], json!("credential_names_nobody"));
+
+    // Once the dead cookie is taken back, the browser asks with nothing, and
+    // that is still signed out: the phone holds its changes for the next
+    // sign-in rather than dropping them.
+    for operation in ["list_attempts", "list_accounts"] {
+        let (status, bare) = app.post_op(operation, None, "{}");
+        assert_eq!(status, 401, "{bare}");
+        assert_eq!(
+            bare["error"]["reason"],
+            json!("credential_names_nobody"),
+            "{operation}"
+        );
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_picture_taken_on_one_device_never_erases_one_taken_on_another() {
     let app = support::spawn_app();

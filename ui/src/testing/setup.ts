@@ -13,7 +13,7 @@ import { cleanup } from '@testing-library/svelte';
 import { kept, went } from './navigation';
 import { forgetArrival } from '#lib/arrival.svelte.js';
 import { mistake } from '#lib/mistake.svelte.js';
-import { reach, refreshed } from '#lib/offline/device.svelte.js';
+import { reach, recipeGone, refreshed } from '#lib/offline/device.svelte.js';
 import { sessions } from '#lib/offline/library.svelte.js';
 import { standing } from '#lib/offline/standing.svelte.js';
 import { story } from '#lib/story/showing.svelte.js';
@@ -64,6 +64,7 @@ function startAsIsolationWould(): void {
 	// The story's language buttons write it, like the app's own layout does.
 	document.documentElement.removeAttribute('lang');
 	refreshed.clear();
+	recipeGone.clear();
 	forgetArrival();
 	forgetSlash();
 	forgetDragHere();
