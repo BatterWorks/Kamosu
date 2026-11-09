@@ -1299,12 +1299,50 @@
   }
 }
 
+/* ── The navigation at the largest text size (#600) ────────────────────────
+   Each place's word is 12 type units with 0.15em between its letters, so it
+   grows with the reader's text and runs out of room before the type does: at
+   the largest size, "COOKED" ran off a 360px phone and "SHOPPING" and
+   "SETTINGS" out of the 88px rail, and French was 50px too wide for a 390px
+   phone. Rather than make the bar or the rail wider, which would move them at
+   the ordinary size too, the letters close up as the text grows: 0.15em while
+   the type unit is 1px, falling evenly to 0.03em at its 1.35px top, where
+   0.12em of a 16.2px word is the 5.55 times (unit - 1px) taken off. The
+   5.55 rests on `--text-label` being 12 units and on the unit's 1.35px top,
+   so it is worked out again if either moves. At the ordinary size the
+   subtraction is zero and nothing moves.
+
+   That fits every word in English and Spanish. French still needs about
+   400px across five tabs, so three of its words carry a soft hyphen
+   ("Ac-cueil", "Cour-ses", "Cui-siné") and break onto a second line, centred,
+   where their tab is too narrow. Only those three: "Recettes" and "Planning"
+   are 73px at the ordinary size on a 360px phone, where a tab is 72, and a
+   break in them would put them on two lines there. Dutch keeps its own
+   spacing, below, whose rule is the more particular one. */
+.place-link {
+  --text-label--letter-spacing: calc(0.15em - (var(--type-unit) - 1px) * 5.55);
+  text-align: center;
+}
+
+/* Closed up, two words side by side in the bar would touch, "SHOPPINGCOOKED",
+   as a tab is only as narrow as its word allows. Each tab keeps room at its
+   sides that grows from nothing with the text, to 3px each at the top (8.6
+   times the 0.35px the unit can grow, which rests on that top as the 5.55
+   above does), so at the ordinary size it is nothing again. The rail has no neighbour beside a
+   word and keeps its whole width for it. Dutch has none: its tabs are as wide
+   as their words already, and the room would push "Gekookt" off a 360px
+   phone. */
+.place-bar .place-link:not(:lang(nl)) {
+  padding-inline: calc((var(--type-unit) - 1px) * 8.6);
+}
+
 /* ── The navigation in Dutch ──────────────────────────────────────────────
    Dutch names two places with twelve letters, "Boodschappen" and
    "Instellingen", which fit neither a phone's fifth of the bar (78px against
    at least 95) nor the 88px rail. The maintainer chose on 9 November 2026
    (#496, option B) that the words stay and the navigation makes room, in
-   Dutch only, so the other Languages are drawn as they always were: each
+   Dutch only, so at the ordinary text size the other Languages are drawn as
+   they always were: each
    phone tab is as wide as its word, the rail is 128px, and the labels' letter
    spacing is 0.08em instead of 0.15em. `place-bar` and `place-link` are
    hooks on `TabBar` and `PlaceLink`, and these rules sit outside every layer
@@ -1320,8 +1358,8 @@
 /* At the largest text size even that does not fit: 474px of words on a 390px
    phone. A long word then breaks onto a second line at the soft hyphen its
    phrase carries ("Recep-ten", "Boodschap-pen", "Instel-lingen"), as Dutch
-   hyphenates it, rather than running off the screen. */
+   hyphenates it, rather than running off the screen, centred by the rule
+   above. */
 :lang(nl) .place-link {
   --text-label--letter-spacing: 0.08em;
-  text-align: center;
 }

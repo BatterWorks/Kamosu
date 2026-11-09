@@ -59,6 +59,7 @@
 - A Bundle's notes write a recipe's times as the app does, `9 h prep` or `1 h 30 cook` instead of `540 min prep` or `90 min cook`. [#546]
 - A recipe file that lost its `.kamosu/` folder keeps a line of the recipe's note that starts `Tags:`, `Étiquettes:` or `Etiquetas:` when more of the note follows it. Before, such a line was dropped wherever it stood. [#577]
 - Choosing which recipe an ingredient line names marks a recipe shown in another language by the language's name, "In French", as the recipe shelf does. Before, it showed the language's code, "In fr". [#598]
+- At the largest text size the phone's setting allows, the navigation's words fit: the letters of each close up a little, and in French *Accueil*, *Courses* and *Cuisiné* break onto a second line where their tab is too narrow. Before, *Cooked* ran off a narrow phone and *Shopping* and *Settings* out of a tablet's sidebar, and French lost more. At the ordinary text size nothing changes. [#600]
 
 [#464]: https://github.com/BatterWorks/Kamosu/issues/464
 [#477]: https://github.com/BatterWorks/Kamosu/issues/477
@@ -97,6 +98,7 @@
 [#586]: https://github.com/BatterWorks/Kamosu/issues/586
 [#598]: https://github.com/BatterWorks/Kamosu/issues/598
 [#599]: https://github.com/BatterWorks/Kamosu/issues/599
+[#600]: https://github.com/BatterWorks/Kamosu/issues/600
 
 ## v0.5.0 - 2026-10-29
 
