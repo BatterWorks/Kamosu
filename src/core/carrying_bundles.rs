@@ -348,6 +348,12 @@ impl Core {
         })?;
 
         let mut food_matches = FoodMatches::default();
+        // Each Branch placed so far, by the Travelling id it carried, at the
+        // Local id it is held under here: a Translation names the Branch it
+        // renders by the first, and is recorded here against the second
+        // (#570). The shared Branch comes first in every Bundle, so it is
+        // placed before the Translations that name it.
+        let mut placed_at: HashMap<String, String> = HashMap::new();
         for (done, record) in records.iter().enumerate() {
             // Reported between Branches and never under the lock: a Job's
             // progress is itself written to the database.
@@ -370,6 +376,7 @@ impl Core {
                         caller,
                         record,
                         &held_before,
+                        &placed_at,
                         &mut food_matches,
                     )?,
                     Some(damage) => {
@@ -404,6 +411,11 @@ impl Core {
                 }
                 Ok(fate)
             })?;
+            if let (Fate::Placed { branch_id, .. }, Some(travelling_id)) =
+                (&fate, foreign_id.as_str())
+            {
+                placed_at.insert(travelling_id.to_string(), branch_id.clone());
+            }
             match fate {
                 Fate::Placed { .. } => arrived.push(fate.row(&foreign_id, subject)),
                 _ => unreadable.push(fate.row(&foreign_id, subject)),
@@ -749,6 +761,7 @@ fn bundle_contents(
             order.push(sibling);
         }
     }
+    let translations_end = order.len();
 
     // Walk every carried Branch's head for Components, Passengers included,
     // so a dough inside a dough travels too. `order` grows as the walk finds
@@ -790,6 +803,15 @@ fn bundle_contents(
             components: walk.found,
         });
         index += 1;
+    }
+    // Each Translation names the carried Branch it renders, by the id that
+    // Branch travels under (#570). A Variation shares its head Version with the
+    // Branch it grew from, so a receiver holding both could not tell from the
+    // Version alone which one was translated. Outside every Version's content,
+    // so no fingerprint moves.
+    let shared_travelling_id = carried[0].record["branch_id"].clone();
+    for translation in &mut carried[1..translations_end] {
+        translation.record["translates_branch_id"] = shared_travelling_id.clone();
     }
 
     let mut hashes: Vec<String> = Vec::new();
@@ -1191,6 +1213,13 @@ impl Fate {
 /// minted **Local id**, and that is what the Import Report names it by, since
 /// that is the id every Operation and every URL here takes.
 ///
+/// A Translation new here records the Branch it renders where the Bundle
+/// names one it carried and that Branch was placed (#570): `placed_at` holds
+/// each placed Branch's Local id by its Travelling id. A Translation that
+/// names none, as every Bundle written before did, or names one refused here,
+/// records nothing and is measured as before. One already held keeps what it
+/// had.
+///
 /// A Branch placed here is the sender's writing, and **arrives**: the first
 /// change to it starts a Branch of the receiver's own. The one exception is a
 /// Branch carrying a Hand this Cookbook answers to — its own recipe coming
@@ -1206,6 +1235,7 @@ fn place_carried_branch(
     caller: &Caller,
     record: &Value,
     held_before: &HashSet<String>,
+    placed_at: &HashMap<String, String>,
     food_matches: &mut FoodMatches,
 ) -> Result<Fate, OpError> {
     let travelling_id = record["branch_id"].as_str().unwrap_or_default();
@@ -1266,13 +1296,16 @@ fn place_carried_branch(
                 )?,
                 None => None,
             };
+            let translated_from = record["translates_branch_id"]
+                .as_str()
+                .and_then(|carried| placed_at.get(carried));
             // The origin address is a hint and stays one: stored as it came, never
             // fetched, and carried on unchanged by every reshare (ADR 0020).
             conn.execute(
                 "INSERT INTO branches \
              (id, travelling_id, lineage_id, cookbook_id, hand_id, language, origin_address, \
-              head_version_id, name, started_by, arrived) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+              head_version_id, name, started_by, arrived, translated_from_branch_id) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
                     branch_id,
                     travelling_id,
@@ -1284,7 +1317,8 @@ fn place_carried_branch(
                     head_version_id,
                     name,
                     caller.person_id,
-                    !comes_home as i64
+                    !comes_home as i64,
+                    translated_from
                 ],
             )
             .map_err(|e| OpError::internal(format!("cannot place Branch: {e}")))?;
