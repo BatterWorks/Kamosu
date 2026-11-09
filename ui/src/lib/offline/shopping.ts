@@ -317,9 +317,9 @@ function plural(quantity: number, language: string): boolean {
 	return language === 'fr' ? quantity >= 2 : quantity > 1;
 }
 
-/** `units::with_decimal_mark`: `1,5` in Dutch (#496), `1.5` in the other three. */
+/** `units::with_decimal_mark`: `1,5` in French, Spanish and Dutch (#496, #599), `1.5` in English. */
 export function withDecimalMark(number: string, language: string): string {
-	return language === 'nl' ? number.replaceAll('.', ',') : number;
+	return ['fr', 'es', 'nl'].includes(language) ? number.replaceAll('.', ',') : number;
 }
 
 /** `units::word_it`. */

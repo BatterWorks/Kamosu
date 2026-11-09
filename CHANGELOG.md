@@ -21,6 +21,7 @@
 
 - A release publishes one pair of tags for each image, `<version>` and `latest`, which Docker and Podman both run. The `podman-<version>` and `podman-latest` tags are no longer published, and those already on Docker Hub stay where they are. [#483]
 - The published agent image beside a Runner files a recipe under all its Tags in one `set_recipe_tag` call. Before, it put them on one call at a time, so a network error partway left the recipe with some of its Tags. [#477]
+- A reader in French or Spanish sees a decimal comma, "environ 1,5 l" or "aprox. 1,25 kg", in a converted amount under an ingredient line, on the Shopping List and in its text, and in the share of a recipe a Component's line takes, "0,3". Before, both were written with a point, "1.5". [#599]
 
 ### Fixed
 
@@ -95,6 +96,7 @@
 [#582]: https://github.com/BatterWorks/Kamosu/issues/582
 [#586]: https://github.com/BatterWorks/Kamosu/issues/586
 [#598]: https://github.com/BatterWorks/Kamosu/issues/598
+[#599]: https://github.com/BatterWorks/Kamosu/issues/599
 
 ## v0.5.0 - 2026-10-29
 
