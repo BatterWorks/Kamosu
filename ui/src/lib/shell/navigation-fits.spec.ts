@@ -22,10 +22,11 @@ import { NARROWEST_PHONE, SIZES } from '../../../tools/sizes.mjs';
 
 const LARGEST = '21.6px';
 /**
- * The least space between two words side by side, in CSS pixels. Dutch is
- * held to none yet: two pairs of its words touch on a 360px phone (#605).
+ * The least space between two words side by side, in CSS pixels, the same
+ * in every Language: before #605, two pairs of Dutch words touched on a
+ * 360px phone.
  */
-const APART: Record<Locale, number> = { en: 4, fr: 4, es: 4, nl: 0 };
+const APART = 4;
 /** The narrowest phone the bar is held to, and the phone every tool draws. */
 const PHONES = { 'a 360px phone': NARROWEST_PHONE, 'a 390px phone': SIZES.phone };
 
@@ -54,10 +55,9 @@ function markupIn(language: Locale, navigation: typeof TabBar | typeof Sidebar):
  * What is wrong with the navigation's words, in CSS pixels: each place whose
  * word runs past either side of its link inside the link's border, where the
  * current place's line is drawn, or past the screen, with how far; and each
- * two words side by side less than `APART` apart in that Language, with how
- * far apart. A word is measured itself rather than by its link's scroll
- * width, which counts only the right of a centred word's overflow, in whole
- * pixels.
+ * two words side by side less than `APART` apart, with how far apart. A word
+ * is measured itself rather than by its link's scroll width, which counts
+ * only the right of a centred word's overflow, in whole pixels.
  */
 async function faults(markup: string, language: Locale, size: readonly number[]) {
 	const page = await drawn(browser, markup, { size, lang: language, rootFontSize: LARGEST });
@@ -89,7 +89,7 @@ async function faults(markup: string, language: Locale, size: readonly number[])
 				if (sideBySide && gap < apart) found[`${before.name} and ${name} touch`] = gap;
 			}
 			return found;
-		}, APART[language]);
+		}, APART);
 	} finally {
 		await page.close();
 	}
