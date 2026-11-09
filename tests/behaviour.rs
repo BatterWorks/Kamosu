@@ -34642,6 +34642,100 @@ async fn a_received_translation_renders_the_variation_it_travelled_with() {
     );
 }
 
+/// **A Translation's source is a Branch its Cookbook sees, its own first**
+/// (#582). Every Cookbook holding a recipe shares its Lineage, so on an
+/// instance where the sender and the receiver both live, the sender's Branch
+/// holds the translated Version too, and is the older. The receiver's
+/// Translation is measured against the receiver's own Branch, and where no
+/// Cookbook it sees holds one, how far behind it is goes unanswered rather
+/// than read off a stranger's recipe. A Kitchen-mate's recipe is one it sees.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translations_source_is_a_branch_its_cookbook_sees() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": english, "name": "Vegan" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let vegan = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    let unnamed_bundle = bundle_of(&app, &key, &english);
+    let french = translate(&app, &key, &vegan, "fr", french_mousse());
+    // A Bundle written before #570, which names no Branch the Translation
+    // renders.
+    let vegan_bundle = with_sidecar(&bundle_of(&app, &key, &vegan), |sidecar| {
+        for branch in sidecar["branches"].as_array_mut().unwrap() {
+            branch
+                .as_object_mut()
+                .unwrap()
+                .remove("translates_branch_id");
+        }
+    });
+    let french_bundle = bundle_of(&app, &key, &french);
+
+    // The receiver lives on the sender's own instance.
+    let nadia = a_receiver(&app);
+    let held_unnamed = landed_as(&receive(&app, &nadia, &unnamed_bundle), &english);
+    let held_french = landed_as(&receive(&app, &nadia, &vegan_bundle), &french);
+    let translation = read_branch(&app, &nadia, &held_french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(held_unnamed),
+        "the receiver's own Branch, not the sender's {english}: {translation}"
+    );
+    assert!(translation["versions_behind"].is_i64(), "{translation}");
+
+    // A Translation received alone has no source in its Cookbook, though the
+    // sender's Branches on this instance hold the Version it translates.
+    let odile = a_receiver(&app);
+    let report = receive(&app, &odile, &french_bundle);
+    let alone = landed_as(&report, &french);
+    let translation = read_branch(&app, &odile, &alone)["translation"].clone();
+    assert!(
+        !translation["translates_version_id"].is_null(),
+        "it still says what it translates: {translation}"
+    );
+    assert_eq!(
+        translation["source_branch_id"],
+        Value::Null,
+        "{translation}"
+    );
+    assert_eq!(translation["versions_behind"], Value::Null, "{translation}");
+
+    // A Kitchen-mate's Translation lands in the translator's own Cookbook,
+    // and its source is the recipe they translated from the shelf they share,
+    // also when made before #517 recorded that Branch.
+    let (_, marc, _) = person_with_kitchen(&app, "Marc");
+    ask_into_kitchen(&app, &key, &kitchen_id, &marc);
+    let spanish = translate(&app, &marc, &english, "es", french_mousse());
+    let translation = read_branch(&app, &marc, &spanish)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(english),
+        "{translation}"
+    );
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branches SET translated_from_branch_id = NULL WHERE id = ?1",
+                rusqlite::params![spanish],
+            )
+            .unwrap();
+            Ok(())
+        })
+        .unwrap();
+    let translation = read_branch(&app, &marc, &spanish)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(english),
+        "found on the shelf the two share: {translation}"
+    );
+    assert!(translation["versions_behind"].is_i64(), "{translation}");
+}
+
 /// **A recipe you do not write says why** (#132). Two recipes answer
 /// `writes: false` for two different reasons, and the writing screens say
 /// which before a save starts the reader's own copy: one was sent to them and
