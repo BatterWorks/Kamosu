@@ -172,7 +172,8 @@ export async function sessionOf(origin, secret) {
 
 /**
  * What `screens` and `proto-new` are both given: a cookie file after
- * `--session`, a name, and the paths to open. Checked before a browser starts,
+ * `--session`, a name, the paths to open, and the interface's Language after
+ * `--locale`, English when none is given (#496). Checked before a browser starts,
  * the Session included: a dead one would capture the sign-in screen at every
  * size and call it done.
  * @param {string[]} args
@@ -182,6 +183,11 @@ export async function signedInArgs(args, usage) {
 	const rest = [...args];
 	const at = rest.indexOf('--session');
 	const session = at >= 0 ? rest.splice(at, 2)[1] : undefined;
+	const atLocale = rest.indexOf('--locale');
+	const locale = atLocale >= 0 ? rest.splice(atLocale, 2)[1] : 'en';
+	if (!fs.existsSync(path.join(ROOT, 'ui', 'messages', `${locale}.json`))) {
+		throw new ToolError(`--locale takes a Language the interface speaks, as in --locale nl`);
+	}
 	const [name, ...routes] = rest;
 	if (!name || routes.length === 0 || !session) throw new ToolError(`usage: ${usage}`);
 	const strays = routes.filter((route) => !route.startsWith('/'));
@@ -193,7 +199,7 @@ export async function signedInArgs(args, usage) {
 	if (!(await sessionOf(origin, secret))) {
 		throw new ToolError(`the Session in ${session} has ended; sign in again`);
 	}
-	return { name, routes, origin, secret };
+	return { name, routes, origin, secret, locale };
 }
 
 /**
@@ -203,9 +209,9 @@ export async function signedInArgs(args, usage) {
  * @param {string} secret
  * @param {(size: string, page: import('playwright').Page, context: import('playwright').BrowserContext) => Promise<void>} visit
  */
-export async function atEverySize(browser, origin, secret, visit) {
+export async function atEverySize(browser, origin, secret, visit, locale = 'en') {
 	for (const [size, dimensions] of Object.entries(SIZES)) {
-		const context = await signedInContext(browser, origin, secret, dimensions);
+		const context = await signedInContext(browser, origin, secret, dimensions, locale);
 		try {
 			await visit(size, await context.newPage(), context);
 		} finally {
@@ -263,7 +269,9 @@ export async function openBrowser({ webkit = false } = {}) {
 }
 
 /**
- * A browser context of one size, signed in to the dev instance in English.
+ * A browser context of one size, signed in to the dev instance, its interface
+ * in English unless `locale` names another Language (#496). The account's
+ * Reading Language is the account's: this moves only the screens' words.
  *
  * The service worker is kept out: it would answer from its own cache, and
  * these tools exist to show what the code on disk draws today.
@@ -271,14 +279,15 @@ export async function openBrowser({ webkit = false } = {}) {
  * @param {string} origin
  * @param {string} secret
  * @param {number[]} size
+ * @param {string} [locale]
  */
-export async function signedInContext(browser, origin, secret, [width, height]) {
+export async function signedInContext(browser, origin, secret, [width, height], locale = 'en') {
 	const context = await browser.newContext({
 		viewport: { width, height },
 		serviceWorkers: 'block',
 		reducedMotion: 'reduce',
 	});
-	await context.addInitScript(() => localStorage.setItem('PARAGLIDE_LOCALE', 'en'));
+	await context.addInitScript((chosen) => localStorage.setItem('PARAGLIDE_LOCALE', chosen), locale);
 	await holdWindowStill(context);
 	await holdCodeStill(context);
 	await leaveNoTrace(context);

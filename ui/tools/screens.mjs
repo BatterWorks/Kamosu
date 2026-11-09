@@ -14,7 +14,8 @@
  * photographing everything, so one run reports every fault there is.
  *
  * `--webkit` among the arguments runs it in Safari's engine, which found a
- * real fault on #198 that Chrome did not show.
+ * real fault on #198 that Chrome did not show. `--locale nl` draws the screens
+ * in another Language the interface speaks (#496).
  *
  * Two runs over an unchanged screen write the same bytes, which is what lets
  * `just screens-same` answer "is the phone unchanged?" with no image library:
@@ -166,9 +167,10 @@ async function main() {
 		routes,
 		origin,
 		secret,
+		locale,
 	} = await signedInArgs(
 		args.filter((arg) => arg !== '--webkit'),
-		'just screens <folder> <path>… [--webkit]',
+		'just screens <folder> <path>… [--webkit] [--locale nl]',
 	);
 
 	const out = fromRoot(folder);
@@ -177,38 +179,45 @@ async function main() {
 	/** @type {string[]} */
 	const faults = [];
 	try {
-		await atEverySize(browser, origin, secret, async (size, page) => {
-			// What a page logs is put down to the address it is showing by then.
-			const where = () => `${new URL(page.url()).pathname} at ${size}`;
-			page.on('console', (message) => {
-				if (message.type() === 'error') faults.push(`${where()}: console error: ${message.text()}`);
-			});
-			page.on('pageerror', (error) => faults.push(`${where()}: ${error}`));
-			for (const route of routes) {
-				try {
-					// Before anything can fail, so a failed run leaves no earlier
-					// run's pictures to be compared as if they were this one's.
-					clearPictures(out, route, size);
-					// A screen still changing would differ from one run to the next,
-					// so it is a fault, though it is still photographed.
-					const unsettled = await openSettled(page, origin + route);
-					if (unsettled) faults.push(`${route} at ${size}: ${unsettled}`);
-					const spill = await page.evaluate(
-						() => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-					);
-					if (spill > 0) faults.push(`${route} at ${size}: scrolls sideways by ${spill}px`);
-					const { files, height } = await photograph(page, out, route, size);
-					if (files.length > 1) {
-						console.log(
-							`${route} at ${size} is ${height}px tall, too tall for one picture: ${files.length} pieces`,
+		await atEverySize(
+			browser,
+			origin,
+			secret,
+			async (size, page) => {
+				// What a page logs is put down to the address it is showing by then.
+				const where = () => `${new URL(page.url()).pathname} at ${size}`;
+				page.on('console', (message) => {
+					if (message.type() === 'error')
+						faults.push(`${where()}: console error: ${message.text()}`);
+				});
+				page.on('pageerror', (error) => faults.push(`${where()}: ${error}`));
+				for (const route of routes) {
+					try {
+						// Before anything can fail, so a failed run leaves no earlier
+						// run's pictures to be compared as if they were this one's.
+						clearPictures(out, route, size);
+						// A screen still changing would differ from one run to the next,
+						// so it is a fault, though it is still photographed.
+						const unsettled = await openSettled(page, origin + route);
+						if (unsettled) faults.push(`${route} at ${size}: ${unsettled}`);
+						const spill = await page.evaluate(
+							() => document.documentElement.scrollWidth - document.documentElement.clientWidth,
 						);
+						if (spill > 0) faults.push(`${route} at ${size}: scrolls sideways by ${spill}px`);
+						const { files, height } = await photograph(page, out, route, size);
+						if (files.length > 1) {
+							console.log(
+								`${route} at ${size} is ${height}px tall, too tall for one picture: ${files.length} pieces`,
+							);
+						}
+						for (const file of files) console.log(path.relative(ROOT, file));
+					} catch (error) {
+						faults.push(`${route} at ${size}: not photographed: ${String(error).split('\n')[0]}`);
 					}
-					for (const file of files) console.log(path.relative(ROOT, file));
-				} catch (error) {
-					faults.push(`${route} at ${size}: not photographed: ${String(error).split('\n')[0]}`);
 				}
-			}
-		});
+			},
+			locale,
+		);
 	} finally {
 		await browser.close();
 	}

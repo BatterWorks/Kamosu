@@ -26,12 +26,12 @@ export type InstanceStatusOutput = {
 
 /** Set the Language and measures this Person reads in. */
 export type SetReadingPreferencesInput = {
-	reading_language: "en" | "fr" | "es";
+	reading_language: "en" | "fr" | "es" | "nl";
 	reading_measures: "us" | "metric" | "as_written";
 };
 /** What set_reading_preferences answers. */
 export type SetReadingPreferencesOutput = {
-	reading_language: "en" | "fr" | "es";
+	reading_language: "en" | "fr" | "es" | "nl";
 	reading_measures: "us" | "metric" | "as_written";
 };
 
@@ -39,7 +39,7 @@ export type SetReadingPreferencesOutput = {
 export type GetReadingPreferencesInput = Record<string, never>;
 /** What get_reading_preferences answers. */
 export type GetReadingPreferencesOutput = {
-	reading_language: "en" | "fr" | "es";
+	reading_language: "en" | "fr" | "es" | "nl";
 	reading_measures: "us" | "metric" | "as_written";
 };
 
@@ -7418,7 +7418,8 @@ export const CATALOGUE = [
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"nl"
 					]
 				},
 				"reading_measures": {
@@ -7442,7 +7443,8 @@ export const CATALOGUE = [
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"nl"
 					]
 				},
 				"reading_measures": {
@@ -7477,7 +7479,8 @@ export const CATALOGUE = [
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"nl"
 					]
 				},
 				"reading_measures": {

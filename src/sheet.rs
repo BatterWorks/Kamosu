@@ -649,7 +649,9 @@ pub fn compose(gathered: &Gathered) -> Value {
             let how_much = match share {
                 None => words.unscaled.to_string(),
                 Some(share) if !scales(share) => words.whole.to_string(),
-                Some(share) => words.part.replace("{share}", &units::as_fraction(share)),
+                Some(share) => words
+                    .part
+                    .replace("{share}", &units::share_written(share, language)),
             };
             let mut lead = vec![words.for_recipe.replace("{title}", parent_title), how_much];
             if share.is_some()

@@ -150,8 +150,10 @@ port, and it sends your data nowhere.
   read-only or not, and connects Claude Code, Codex, Hermes or any MCP client
   to `/mcp`. The agent gets every operation the web app uses; nothing is
   web-only.
-- **In English, French and Spanish.** Each person picks the language they read
-  in, and a recipe can carry translations beside the original.
+- **In English, French and Spanish, and Dutch as a preview.** Each person picks
+  the language they read in, and a recipe can carry translations beside the
+  original. The Dutch is machine-translated, and corrections are welcome
+  through the Dutch issue form.
 - **One small, locked-down container.** A distroless, rootless image (no shell,
   runs as an unprivileged user) that deploys with Docker or Podman, on amd64 or
   arm64.

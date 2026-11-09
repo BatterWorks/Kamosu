@@ -33,7 +33,7 @@
 <div class="fixed inset-x-0 bottom-0 z-20">
 	{@render above?.()}
 	<nav aria-label={m.nav_sections()} class="bg-accent pb-safe">
-		<ul class="mx-auto flex max-w-2xl">
+		<ul class="place-bar mx-auto flex max-w-2xl">
 			{#each places as place (place.href)}
 				<li class="flex flex-1 flex-col">
 					<PlaceLink {place} current={isCurrent(place.href, pathname)} edge="top" />

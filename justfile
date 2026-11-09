@@ -258,7 +258,8 @@ dev-session-end label:
 # taking every other size. Take the "before" set when a ticket is claimed, while the
 # worktree is still clean, and the "after" set once it is built. Add --webkit
 # to run it in Safari's engine, fetched once with
-# `cd ui && npx playwright install webkit`.
+# `cd ui && npx playwright install webkit`, and --locale nl to draw the
+# screens in another Language the interface speaks (#496).
 screens folder +$paths:
     #!/usr/bin/env bash
     set -euo pipefail

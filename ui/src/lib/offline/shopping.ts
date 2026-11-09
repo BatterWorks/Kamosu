@@ -317,10 +317,18 @@ function plural(quantity: number, language: string): boolean {
 	return language === 'fr' ? quantity >= 2 : quantity > 1;
 }
 
+/** `units::with_decimal_mark`: `1,5` in Dutch (#496), `1.5` in the other three. */
+export function withDecimalMark(number: string, language: string): string {
+	return language === 'nl' ? number.replaceAll('.', ',') : number;
+}
+
 /** `units::word_it`. */
 function wordIt(measured: Measured, language: string): string {
 	const quantity = roundTo(measured.quantity, measured.unit.id);
-	const number = measured.unit.system === 'customary' ? asFraction(quantity) : asDecimal(quantity);
+	const number = withDecimalMark(
+		measured.unit.system === 'customary' ? asFraction(quantity) : asDecimal(quantity),
+		language,
+	);
 	return `${about(language)} ${number} ${display(measured.unit, language, plural(quantity, language))}`;
 }
 

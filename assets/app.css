@@ -2558,6 +2558,16 @@
     color: var(--color-on-accent);
   }
 }
+:root:lang(nl) {
+  --spacing-rail: 128px;
+}
+:lang(nl) .place-bar > li {
+  flex: 1 1 auto;
+}
+:lang(nl) .place-link {
+  --text-label--letter-spacing: 0.08em;
+  text-align: center;
+}
 @property --tw-translate-x {
   syntax: "*";
   inherits: false;

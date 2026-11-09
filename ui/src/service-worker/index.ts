@@ -60,8 +60,8 @@ self.addEventListener('install', (event) => {
 		(async () => {
 			const store = await caches.open(SHELL);
 			// The app, every language included — Paraglide compiles every
-			// phrase into these chunks, so precaching them is precaching fr, en
-			// and es alike (ADR 0013).
+			// phrase into these chunks, so precaching them is precaching every
+			// Reading Language alike (ADR 0013).
 			await store.addAll([...PRECACHED, '/']);
 			// The binary's assets are worth having, but never worth failing the
 			// install over.

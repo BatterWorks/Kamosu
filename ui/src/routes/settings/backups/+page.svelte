@@ -3,6 +3,8 @@
 	import Refusal from '#lib/Refusal.svelte';
 	import { aDate } from '#lib/dates.js';
 	import { m } from '#lib/paraglide/messages.js';
+	import { getLocale } from '#lib/paraglide/runtime.js';
+	import { withDecimalMark } from '#lib/offline/shopping.js';
 	import { useKamosu } from '#lib/kamosu.js';
 	import { OperationError } from '#lib/api/client.js';
 	import { waitForJob } from '#lib/api/job.js';
@@ -56,8 +58,12 @@
 		}
 	}
 
-	/** Megabytes, to one place. An archive is never small enough for bytes. */
-	const weight = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`;
+	/**
+	 * Megabytes, to one place, with the decimal mark the reader writes (#496).
+	 * An archive is never small enough for bytes.
+	 */
+	const weight = (bytes: number) =>
+		`${withDecimalMark((bytes / 1_000_000).toFixed(1), getLocale())} MB`;
 </script>
 
 <OperatorOnly title={m.settings_backups()} onallowed={load}>

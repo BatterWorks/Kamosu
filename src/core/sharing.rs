@@ -568,10 +568,34 @@ const ES: Words = Words {
     newer_shortcut: "Hay un atajo más nuevo en Ajustes, en Compartir desde tu teléfono.",
 };
 
+const NL: Words = Words {
+    added: "Toegevoegd aan je plank: {title}",
+    sent_to_agent: "Verstuurd. De AI-agent van Kamosu leest het, en het recept staat over een \
+                    paar minuten op je plank.",
+    agent_away: "Verstuurd. De AI-agent van Kamosu antwoordt nu niet, en leest het zodra \
+                 hij terug is.",
+    still_reading: "Verstuurd. Kamosu leest het nog, en het recept staat op je plank zodra \
+                    dat klaar is.",
+    read_in_kamosu: "Deze Kamosu kan die pagina niet zelf lezen. Open Kamosu en voeg de link \
+                     daar toe, waar je kunt controleren wat het leest.",
+    no_agent: "Deze Kamosu heeft geen AI-agent om foto's, tekst of PDF's te lezen. Voeg het \
+               recept met de hand toe in Kamosu.",
+    page_refused: "Kamosu kon die pagina niet openen. Kopieer de tekst van het recept en deel \
+                   die in plaats daarvan.",
+    already_on_shelf: "Staat al op je plank: {title}",
+    being_added: "Wordt al toegevoegd. Het staat op je plank zodra het gelezen is.",
+    failed: "Kamosu kon dat niet toevoegen: {reason}",
+    too_old: "Deze opdracht is te oud voor deze Kamosu. Installeer de nieuwe via Instellingen, \
+              onder Opslaan vanaf je telefoon.",
+    newer_shortcut: "Er staat een nieuwere opdracht in Instellingen, onder Opslaan vanaf je \
+                     telefoon.",
+};
+
 fn words(language: &str) -> &'static Words {
     match language {
         "fr" => &FR,
         "es" => &ES,
+        "nl" => &NL,
         _ => &EN,
     }
 }
@@ -594,7 +618,7 @@ mod tests {
     /// Every Language says every answer, and says the title it is given.
     #[test]
     fn every_message_is_in_every_language() {
-        for language in ["en", "fr", "es"] {
+        for language in ["en", "fr", "es", "nl"] {
             let said = words(language);
             assert!(said.say(&Said::Added("Tarte".into())).contains("Tarte"));
             assert!(
@@ -605,5 +629,6 @@ mod tests {
         }
         assert_ne!(words("fr").no_agent, words("en").no_agent);
         assert_ne!(words("es").no_agent, words("en").no_agent);
+        assert_ne!(words("nl").no_agent, words("en").no_agent);
     }
 }

@@ -39,7 +39,7 @@ Everything you can do in the web app, an agent can do over MCP (the Model Contex
 - **Bring your recipes in.** A web page, a pasted recipe or a recipe PDF, the export of Mealie, Paprika, Tandoor, KitchenOwl, Nextcloud Cookbook, RecipeSage, Bar Assistant, Crouton and others, anything sent from a phone's Share menu, or a recipe from another Kamosu. With a Runner, also photos of a cookbook page, a scanned PDF or a cooking video.
 - **Share with anyone.** A Share Link shows one recipe to whoever holds it, no account needed, with a printable PDF.
 - **Agents are first-class.** Each person creates their own Access Keys, read-only or not, and connects Claude Code, Codex, Hermes or any MCP client to `/mcp`.
-- **In English, French and Spanish.** Each person picks the language they read in.
+- **In English, French and Spanish, and Dutch as a preview.** Each person picks the language they read in. The Dutch is machine-translated, and corrections are welcome on GitHub.
 
 ## Who it is for
 

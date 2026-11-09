@@ -21174,6 +21174,22 @@ async fn a_language_is_detected_from_the_text_when_there_is_none_to_disagree_wit
     );
     assert_eq!(bare_read["result"]["language"], json!("en"));
 
+    // A writer reading in Dutch gets Dutch as the guess, as for the other
+    // three (#496). The same title as above, which reads as no Language at
+    // all, so only the writer's Language can have made it Dutch.
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "nl", "reading_measures": "metric" }).to_string(),
+    );
+    let kale = shelve(&app, &key, "Dan Dan Noodles");
+    let (_, kale_read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": kale }).to_string(),
+    );
+    assert_eq!(kale_read["result"]["language"], json!("nl"));
+
     // And a Language stated outright is never second-guessed.
     let mut stated = french_mousse();
     stated["language"] = json!("es");
@@ -29311,6 +29327,18 @@ async fn a_value_outside_a_declared_enum_is_refused_at_both_doors() {
         json!(false),
         "a declared value was refused at the MCP door: {accepted}"
     );
+
+    // Dutch is one of them, at both Doors (#496).
+    let (status, body) = app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "nl", "reading_measures": "metric" }).to_string(),
+    );
+    assert_eq!(status, 200, "Dutch was refused at the web Door: {body}");
+    let dutch = call(json!({ "reading_language": "nl", "reading_measures": "metric" }));
+    assert_eq!(dutch["result"]["isError"], json!(false), "{dutch}");
+    let (_, read) = app.post_op("get_reading_preferences", Some(&key), "{}");
+    assert_eq!(read["result"]["reading_language"], json!("nl"));
 }
 
 /// The failure #85 was opened for: a misspelt Yield used to erase the Yield and
@@ -50530,6 +50558,8 @@ mod sharing_from_a_phone {
         let en = in_language("en");
         let fr = in_language("fr");
         let es = in_language("es");
+        let nl = in_language("nl");
+        assert!(nl.starts_with("Deze Kamosu heeft geen AI-agent"), "{nl}");
         assert!(en.starts_with("This Kamosu has no AI agent"), "{en}");
         assert!(fr.starts_with("Ce Kamosu n'a pas d'agent IA"), "{fr}");
         assert!(
@@ -51015,13 +51045,13 @@ async fn dutch_is_a_language_a_recipe_a_tag_and_a_food_can_be_named_in_at_both_d
     assert_eq!(status, 200, "{answered}");
     assert_eq!(answered["result"]["isError"], json!(false), "{answered}");
 
-    // Reading Language is the screens' to widen.
-    let (status, refused) = app.post_op(
+    // And a Person may read Kamosu in it, since the screens speak it (#496).
+    let (status, accepted) = app.post_op(
         "set_reading_preferences",
         Some(&key),
         &json!({ "reading_language": "nl", "reading_measures": "metric" }).to_string(),
     );
-    assert_eq!(status, 400, "{refused}");
+    assert_eq!(status, 200, "{accepted}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

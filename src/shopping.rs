@@ -1381,6 +1381,14 @@ mod tests {
                 })
             })
             .collect::<Vec<_>>();
+        let decimal_marks = units::DECIMAL_MARKS
+            .iter()
+            .map(|&(millilitres, language, worded)| {
+                let said = units::worded_volume(millilitres, Measures::Metric, language);
+                assert_eq!(said, worded, "{millilitres} ml in {language}");
+                json!({ "millilitres": millilitres, "language": language, "worded": said })
+            })
+            .collect::<Vec<_>>();
         let cases = parity_cases();
         let texts = cases
             .iter()
@@ -1414,7 +1422,7 @@ mod tests {
                 .join(",\n")
         };
         let said = format!(
-            "{{\"about\": {},\n\"folds\": [\n{}\n],\n\"amounts\": [\n{}\n],\n\"yield_scales\": [\n{}\n],\n\"cup_plurals\": [\n{}\n],\n\"cases\": [\n{}\n],\n\"texts\": [\n{}\n]}}\n",
+            "{{\"about\": {},\n\"folds\": [\n{}\n],\n\"amounts\": [\n{}\n],\n\"yield_scales\": [\n{}\n],\n\"cup_plurals\": [\n{}\n],\n\"decimal_marks\": [\n{}\n],\n\"cases\": [\n{}\n],\n\"texts\": [\n{}\n]}}\n",
             json!(
                 "Written by shopping_parity in src/shopping.rs (#77). Do not edit: rewrite it with KAMOSU_WRITE_PARITY=1 cargo test shopping_parity."
             ),
@@ -1422,6 +1430,7 @@ mod tests {
             lines(&amounts),
             lines(&yields),
             lines(&cup_plurals),
+            lines(&decimal_marks),
             lines(&cases),
             lines(&texts),
         );

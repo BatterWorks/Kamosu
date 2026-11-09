@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { m } from '#lib/paraglide/messages.js';
 
-type Locale = 'en' | 'fr' | 'es';
+type Locale = 'en' | 'fr' | 'es' | 'nl';
 
 const SAID = {
 	en: [
@@ -160,6 +160,34 @@ const SAID = {
 			(count: number, locale: Locale) => m.settings_meaning_catching_up({ count }, { locale }),
 			'1 receta ha cambiado desde el último índice. Kamosu se pone al día en un minuto.',
 			'2 recetas han cambiado desde el último índice. Kamosu se pone al día en un minuto.',
+		],
+	],
+	nl: [
+		[
+			(count: number, locale: Locale) => m.divergence_put_away({ count }, { locale }),
+			'Alleen het recept. 1 verschil opgeborgen.',
+			'Alleen het recept. 2 verschillen opgeborgen.',
+		],
+		[
+			(count: number, locale: Locale) => m.report_relate({ count }, { locale }),
+			'1 paar koppelen',
+			'2 paren koppelen',
+		],
+		[
+			(count: number, locale: Locale) => m.report_lede_unreadable({ count }, { locale }),
+			'1 kon niet worden gelezen.',
+			'2 konden niet worden gelezen.',
+		],
+		[
+			(count: number, locale: Locale) => m.report_bare({ count, titles: 'Soep' }, { locale }),
+			'1 kwam binnen als alleen een naam en een link: Soep.',
+			'2 kwamen binnen als alleen een naam en een link: Soep.',
+		],
+		[
+			(count: number, locale: Locale) =>
+				m.offline_phone_kept({ count, date: 'vandaag' }, { locale }),
+			'1 recept op deze telefoon, bijgewerkt vandaag.',
+			'2 recepten op deze telefoon, bijgewerkt vandaag.',
 		],
 	],
 } as const;

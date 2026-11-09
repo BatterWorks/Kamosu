@@ -33,6 +33,12 @@ describe("a date, in the app's own Language", () => {
 		expect(aDay(noon)).toBe('25 de septiembre');
 	});
 
+	it('writes Dutch in Dutch (#496)', () => {
+		setLocale('nl', { reload: false });
+		expect(aDay(noon)).toBe('25 september');
+		expect(aDate(noon)).toBe('25 sep 2026');
+	});
+
 	it('writes a moment with its minute and no seconds, on a 24-hour clock', () => {
 		const written = aMoment(noon);
 		expect(written).toMatch(/^25 Sept 2026, \d\d:05$/);
