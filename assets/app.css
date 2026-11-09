@@ -2574,6 +2574,9 @@
 :lang(nl) .place-link {
   --text-label--letter-spacing: 0.08em;
 }
+:lang(nl) .place-bar .place-link {
+  padding-inline: 2px;
+}
 @property --tw-translate-x {
   syntax: "*";
   inherits: false;

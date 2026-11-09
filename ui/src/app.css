@@ -1329,9 +1329,9 @@
    sides that grows from nothing with the text, to 3px each at the top (8.6
    times the 0.35px the unit can grow, which rests on that top as the 5.55
    above does), so at the ordinary size it is nothing again. The rail has no neighbour beside a
-   word and keeps its whole width for it. Dutch has none: its tabs are as wide
-   as their words already, and the room would push "Gekookt" off a 360px
-   phone. */
+   word and keeps its whole width for it. Dutch keeps a fixed 2px instead,
+   below: its tabs are as wide as their words already, and room that grows
+   would push "Gekookt" off a 360px phone. */
 .place-bar .place-link:not(:lang(nl)) {
   padding-inline: calc((var(--type-unit) - 1px) * 8.6);
 }
@@ -1362,4 +1362,16 @@
    above. */
 :lang(nl) .place-link {
   --text-label--letter-spacing: 0.08em;
+}
+
+/* Broken that way, the tabs were as narrow as their words, and two words
+   side by side came under 2px apart, "THUISRECEP-" on a 360px phone (#605).
+   Each tab keeps 2px at its sides, at every text size, so two words are
+   always 4px apart. At the ordinary size the tabs share out the bar's spare
+   room between them, and the 2px comes out of that share, so no word moves.
+   That holds while the bar has the 20px to spare: it has 23px on a 360px
+   phone, so a longer word there would move the others.
+   Why the room does not grow, as the other Languages' does, is said above. */
+:lang(nl) .place-bar .place-link {
+  padding-inline: 2px;
 }
