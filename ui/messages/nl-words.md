@@ -30,7 +30,7 @@ written.
 | Share Link | Deellink | Written as one word, as Dutch writes a compound. |
 | Bundle | Receptbestand | Chosen over `Bundel`, which is a book of poems. It is the file a recipe travels in. |
 | Vault | Kluis | The word a Dutch password manager uses for the same idea. |
-| Shopping List | Boodschappenlijst | The only word in use. |
+| Shopping List | Boodschappenlijst | The only word in use. The navigation says `Lijstje`, the spoken short form, since `Boodschappen` takes a third of a phone's tab bar (11 November 2026). |
 | Yield | Opbrengst | On a recipe the number reads as `porties`. |
 | Servings | Porties | The word Dutch recipe sites use, and the one Mealie ships. |
 | Translation | Vertaling | The only word in use. |
