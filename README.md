@@ -123,7 +123,10 @@ port, and it sends your data nowhere.
 - **A plan for the days ahead.** Put a recipe on a day, or on a week before the
   day is decided, for as many as you will cook for, and it opens at that amount
   on the night. Write "leftovers" or "eating out" on a day, and move things
-  around as the week changes.
+  around as the week changes. Send planned days to your shopping list, or
+  subscribe to your plan in Apple Calendar or Google Calendar from
+  **Settings › Your plan in your calendar**. A Mealie backup brings its
+  household's meal plan in too.
 - **A shopping list worked out from recipes.** Pick dishes and how many you are
   cooking for. Flour from three recipes becomes one row, added together where
   the units convert and shown side by side where they do not.
@@ -203,7 +206,7 @@ It is not:
   Kamosu never calculates nutrition from ingredients.
 - **A public recipe site.** There is no signup. Every account starts from an
   invite, and nothing is visible to strangers unless you share a link.
-- **Finished.** This is 0.5.0. It is used in one kitchen, and nobody else has
+- **Finished.** This is 0.6.0. It is used in one kitchen, and nobody else has
   run it yet.
 
 ## Quick start
@@ -266,7 +269,7 @@ a proxy must not speak HTTP/2 to it in the clear.
 
 ## Connecting an agent
 
-In Kamosu, open **Settings**, then **Account**, and create an Access Key. Tick
+In Kamosu, open **Settings › Keys for agents**, and create an Access Key. Tick
 **Read-only** if the agent only needs to look things up. The key is shown once.
 Put it in an environment variable, `KAMOSU_ACCESS_KEY` below, in the
 environment that starts your agent. Kamosu's MCP endpoint is
@@ -365,8 +368,8 @@ Either way, you choose the model's provider and pay for the model.
 An instance without a Runner is complete. It reads what it reads, and nothing
 in it waits for one. [docs/runner.md](docs/runner.md) says how to set one up.
 
-An Operator makes the Runner's key under **Settings**, **Administer this
-instance**, on the **Instance** tab. House Notes go there too, rules such as
+An Operator makes the Runner's key under **Settings › Runner and House Notes**.
+House Notes go there too, rules such as
 "grams, never cups" that every Job's agent follows.
 
 ## Meaning Search
@@ -498,8 +501,8 @@ your passkeys, so a Runner needs a new key afterwards and you add your
 passkeys again. Only the newest link works. Another Operator can also send you
 one from **Settings › People**, which lists the links not yet used.
 
-**Podman shows no health status.** On amd64, Podman reads no health check
-from the published image, though Docker does, and so does Podman on arm64. The
+**Podman shows no health status on an older image.** Releases through 0.5.0
+carried no health check Podman could read on amd64. Upgrade to 0.6.0 or later. The
 [`docker-compose.yml`](docker-compose.yml) declares one, so use it with the
 image written as `docker.io/battermanz/kamosu:latest`, or add
 `--health-cmd '["/app/kamosu", "health-check"]' --health-interval 30s` to

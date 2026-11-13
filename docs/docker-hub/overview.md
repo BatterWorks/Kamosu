@@ -33,7 +33,7 @@ Everything you can do in the web app, an agent can do over MCP (the Model Contex
 - **A recipe keeps its whole history.** Every save is a new version and none is ever lost. Start a variation or a translation beside the original, and Kamosu shows how two versions differ line by line.
 - **A diary of what you cooked.** Each cooking is dated and rated, with photos, notes, and what you actually did if it differed from the recipe.
 - **Scaling and conversions.** Cook for 3 instead of 6 and every amount follows, with metric or US measures beside the amounts as written.
-- **A plan for the days ahead.** Put a recipe on a day, or on a week before the day is decided, for as many as you will cook for, and it opens at that amount on the night. Write "leftovers" or "eating out" on a day, and move things around as the week changes.
+- **A plan for the days ahead.** Put a recipe on a day, or on a week before the day is decided, for as many as you will cook for, and it opens at that amount on the night. Write "leftovers" or "eating out" on a day, move things around as the week changes, and send planned days to your shopping list. Subscribe to your plan in Apple Calendar or Google Calendar from **Settings › Your plan in your calendar**. A Mealie backup brings its household's meal plan in too.
 - **A shopping list worked out from recipes.** Pick dishes and how many you are cooking for. Flour from three recipes becomes one row.
 - **Search by words, or by meaning.** Turn on Meaning Search and "that thing with aubergines" finds a recipe that never says aubergine.
 - **Bring your recipes in.** A web page, a pasted recipe or a recipe PDF, the export of Mealie, Paprika, Tandoor, KitchenOwl, Nextcloud Cookbook, RecipeSage, Bar Assistant, Crouton and others, anything sent from a phone's Share menu, or a recipe from another Kamosu. With a Runner, also photos of a cookbook page, a scanned PDF or a cooking video.
@@ -99,7 +99,7 @@ Kamosu serves plain HTTP and never handles a certificate. Put your own reverse p
 
 ## Connecting an agent
 
-In Kamosu, open **Settings**, then **Account**, and create an Access Key. Tick **Read-only** if the agent only needs to look things up. Point any MCP client at `https://your-kamosu/mcp` with the key as a bearer token. The [GitHub README](https://github.com/BatterWorks/Kamosu#connecting-an-agent) has the exact configuration for Claude Code, Codex and Hermes.
+In Kamosu, open **Settings › Keys for agents**, and create an Access Key. Tick **Read-only** if the agent only needs to look things up. Point any MCP client at `https://your-kamosu/mcp` with the key as a bearer token. The [GitHub README](https://github.com/BatterWorks/Kamosu#connecting-an-agent) has the exact configuration for Claude Code, Codex and Hermes.
 
 The image also holds the Runner, `/app/kamosu runner`: a program you run beside an agent of your choosing, which hands it what Kamosu cannot read itself, such as a photo of a cookbook page. The image holds no agent: the one Kamosu builds is published as [`battermanz/kamosu-agent`](https://hub.docker.com/r/battermanz/kamosu-agent), under the same version tags. The [Runner guide](https://github.com/BatterWorks/Kamosu/blob/main/docs/runner.md) says how to set one up.
 
