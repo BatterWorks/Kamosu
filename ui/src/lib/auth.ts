@@ -56,9 +56,9 @@ async function reach(
 		recover: '/auth/recover',
 	}[mode];
 
-	await post(path, input);
+	const answer = await post(path, input);
 	// Whoever this is, the library on this phone was not filled for them (#76).
-	sessionBegan();
+	sessionBegan(await whoSignedIn(answer));
 }
 
 /** A POST to an `/auth/…` route, refused in the Core's own words. */
@@ -85,6 +85,21 @@ async function post(path: string, body: object): Promise<Response> {
 	// the refusal it throws: an answer that is not ok carries no result.
 	if (!response.ok) await readEnvelope('authentication', response);
 	return response;
+}
+
+/**
+ * The Person a sign-in answered for, so what they held offline stays theirs
+ * (#537). Undefined where the answer does not say, and then nothing held is
+ * kept.
+ */
+async function whoSignedIn(answer: Response): Promise<string | undefined> {
+	try {
+		const envelope = (await answer.json()) as { result?: { person_id?: unknown } };
+		const id = envelope.result?.person_id;
+		return typeof id === 'string' ? id : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 type Begun = { ceremony_id: string; options: object };
@@ -121,18 +136,17 @@ async function signInWithPasskey(sessionName: string): Promise<'signed-in' | 'de
 	const begun = await asked;
 	const answer = await presentPasskey(begun.options);
 	if (!('credential' in answer)) return 'declined';
-	await post('/auth/passkey/finish', {
+	const signedIn = await post('/auth/passkey/finish', {
 		ceremony_id: begun.ceremony_id,
 		credential: answer.credential,
 		session_name: sessionName,
 	});
-	sessionBegan();
+	sessionBegan(await whoSignedIn(signedIn));
 	return 'signed-in';
 }
 
 async function arrive(sessionName: string): Promise<void> {
-	await post('/auth/demo', { session_name: sessionName });
-	sessionBegan();
+	sessionBegan(await whoSignedIn(await post('/auth/demo', { session_name: sessionName })));
 }
 
 export const realAuth = (): AuthClient => ({

@@ -13,12 +13,12 @@
 	nothing else about Cookbooks belongs on that screen.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { joinedNames } from '$lib/cookbook';
-	import type { GetCookbookOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { joinedNames } from '#lib/cookbook.js';
+	import type { GetCookbookOutput } from '#lib/api/catalogue.js';
 
 	type Join = GetCookbookOutput['joins'][number];
 

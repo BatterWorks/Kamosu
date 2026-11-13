@@ -11,8 +11,8 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { m } from '$lib/paraglide/messages';
-	import { INSTALL_KAMOSU, openWelcomeAgain } from '$lib/demo.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { INSTALL_KAMOSU, openWelcomeAgain } from '#lib/demo.svelte.js';
 
 	interface Props {
 		/**

@@ -5,9 +5,9 @@
  * instance's every Operator reads.
  */
 
-import { m } from '$lib/paraglide/messages';
-import { aClock, aWeekday, byDay as byDayOf, type Day } from '$lib/dates';
-import type { ListSecurityRecordOutput } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import { aClock, aWeekday, byDay as byDayOf, type Day } from '#lib/dates.js';
+import type { ListSecurityRecordOutput } from '#lib/api/catalogue.js';
 
 export type SecurityEvent = ListSecurityRecordOutput['events'][number];
 
@@ -91,6 +91,21 @@ export function say(event: SecurityEvent): Said {
 			};
 		case 'session_ended':
 			return { line: m.security_session_ended({ name }), under: under(), warn: false };
+		case 'calendar_link_made':
+			return {
+				line: m.security_calendar_link_made(),
+				under: under(
+					name ? m.security_on({ name }) : undefined,
+					detail.replaced ? m.security_calendar_link_replaced() : undefined,
+				),
+				warn: false,
+			};
+		case 'calendar_link_ended':
+			return {
+				line: m.security_calendar_link_ended(),
+				under: under(name ? m.security_on({ name }) : undefined),
+				warn: false,
+			};
 		case 'house_notes_changed':
 			return {
 				line: detail.taken_away
@@ -163,6 +178,18 @@ export function say(event: SecurityEvent): Said {
 				under: under(saidBy(event)),
 				warn: false,
 			};
+		case 'invite_revoked':
+			return {
+				line: detail.operator ? m.security_operator_invite_revoked() : m.security_invite_revoked(),
+				under: under(saidBy(event)),
+				warn: false,
+			};
+		case 'recovery_link_revoked':
+			return {
+				line: m.security_recovery_revoked({ name: about }),
+				under: under(saidBy(event)),
+				warn: false,
+			};
 	}
 }
 
@@ -190,6 +217,7 @@ function whatEnded(detail: SecurityEvent['detail']): (string | undefined)[] {
 	const sessions = detail.ended_sessions ?? 0;
 	const keys = detail.ended_access_keys ?? 0;
 	const runnerKeys = detail.ended_runner_keys ?? 0;
+	const passkeys = detail.ended_passkeys ?? 0;
 	return [
 		sessions === 0
 			? undefined
@@ -206,6 +234,11 @@ function whatEnded(detail: SecurityEvent['detail']): (string | undefined)[] {
 			: runnerKeys === 1
 				? m.security_runner_keys_ended_one()
 				: m.security_runner_keys_ended({ count: String(runnerKeys) }),
+		passkeys === 0
+			? undefined
+			: passkeys === 1
+				? m.security_passkeys_ended_one()
+				: m.security_passkeys_ended({ count: String(passkeys) }),
 	];
 }
 

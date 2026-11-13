@@ -2,6 +2,8 @@
 
 **An Operation's declared `input_schema` is what validates its input, compiled once and checked in the Core at dispatch.** Not in a Door, not per Operation, and not by a JSON Schema crate. `src/schema.rs` holds the compiler and the check; a declaration it cannot compile breaks the build in `tests/parity.rs`.
 
+_(Amended by [#538](https://github.com/BatterWorks/Kamosu/issues/538), 2026-11-06: a tenth keyword, `maxLength`, counted in characters, so a limit on how long a text field may be is declared once and holds at both Doors.)_
+
 This closes the one declaration in Kamosu that was never wired to anything. Every Operation already said what it accepts — field names, types, which are required, `additionalProperties: false` — and that statement was load-bearing in three directions: the MCP door publishes it to agents, `just client` generates the interface's types from it, and `just check` fails when the generated copy drifts. It was load-bearing in none of the direction that matters when a call actually arrives.
 
 ## Why

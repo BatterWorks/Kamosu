@@ -55,7 +55,7 @@ async fn the_corpus_produces_zero_duplicate_photographs_and_zero_step_photos() {
     let mut recipes: Vec<(String, Vec<Vec<u8>>)> = Vec::new();
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).expect("read entry");
-        if !entry.name().ends_with(".crumb") {
+        if !entry.name().unwrap().ends_with(".crumb") {
             continue;
         }
         let mut text = String::new();

@@ -14,11 +14,12 @@
 
 import { getContext, setContext } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
-import type { KamosuClient } from '$lib/api/catalogue';
-import { OperationError } from '$lib/api/client';
+import type { KamosuClient } from '#lib/api/catalogue.js';
+import { OperationError } from '#lib/api/client.js';
 import { PHOTOGRAPHS_CACHE, keptAt } from './reads';
 import { forgetEverythingHeld } from './outbox';
-import { yoursAmong } from '$lib/cookbook';
+import { recipeGone } from './device.svelte';
+import { yoursAmong } from '#lib/cookbook.js';
 
 /**
  * What one recipe costs the phone, measured on the dev library (2026-09-19,
@@ -97,6 +98,24 @@ export class Library {
 	constructor(kamosu: KamosuClient) {
 		this.#kamosu = kamosu;
 		this.#recall();
+		recipeGone.add((branchId) => this.#gone(branchId));
+	}
+
+	/**
+	 * A recipe the server says is not there any more, deleted or out of the
+	 * Person's sight, which the phone has stopped keeping (#537): no longer
+	 * counted as on the phone.
+	 */
+	#gone(branchId: string): void {
+		this.#entries = this.#entries.filter((entry) => entry.branch_id !== branchId);
+		this.held.delete(branchId);
+		// Taken out of what the device keeps as it stands, rather than writing
+		// this Library's whole view back: a sign-in since may have changed it,
+		// and a fill still running saves its own at the end.
+		const kept = load();
+		if (kept?.held.includes(branchId)) {
+			save({ ...kept, held: kept.held.filter((id) => id !== branchId) });
+		}
 	}
 
 	/** What the device remembers of the library, which a new Session wipes. */
@@ -133,6 +152,19 @@ export class Library {
 		if (!(await controlled())) {
 			this.phase = 'unavailable';
 			return;
+		}
+		// Who this device is signed in as, for a device signed in before it
+		// kept that (#537): what they hold offline then stays theirs when they
+		// sign back in after their Session ends elsewhere. Not written over a
+		// sign-in that happened while this was being asked.
+		if (!signedInAs()) {
+			const began = sessions.began;
+			void this.#kamosu
+				.getPerson()
+				.then((person) => {
+					if (sessions.began === began) noteSignedInAs(person.person_id);
+				})
+				.catch(() => {});
 		}
 		try {
 			// Exactly what the Recipes shelf asks on first open, so surveying the
@@ -200,7 +232,8 @@ export class Library {
 					// The network went, or the Session did: stop, and let the next
 					// start pick up the rest. A single recipe refused — deleted
 					// while this ran — is simply skipped.
-					failed = error instanceof OperationError ? unreachable(error) : true;
+					// Never put back by another reader's single refused recipe.
+					failed ||= error instanceof OperationError ? unreachable(error) : true;
 				}
 				this.done += 1;
 			}
@@ -278,7 +311,7 @@ export class Library {
 }
 
 /** The network is gone, or the Session is: no point asking for the next recipe. */
-const unreachable = (error: OperationError) => !error.reached || error.kind === 'unauthorized';
+const unreachable = (error: OperationError) => !error.reached || error.sessionEnded;
 
 /** Whether a service worker is answering this page's requests, so reading is keeping. */
 async function controlled(): Promise<boolean> {
@@ -338,14 +371,59 @@ async function persist(): Promise<void> {
  */
 export const sessions = $state({ began: 0 });
 
-export function sessionBegan(): void {
+/** Who last signed in on this device, so what they held offline stays theirs. */
+const SIGNED_IN_AS = 'kamosu.signed-in-as';
+
+/** Who this device last knew to be signed in, if it knows. */
+function signedInAs(): string | null {
 	try {
-		localStorage.removeItem(KEY);
+		return localStorage.getItem(SIGNED_IN_AS);
+	} catch {
+		return null;
+	}
+}
+
+/** Note who is signed in on this device, learned from the server. */
+function noteSignedInAs(personId: string): void {
+	try {
+		localStorage.setItem(SIGNED_IN_AS, personId);
+	} catch {
+		// Not kept: held changes are let go at the next sign-in, as before.
+	}
+}
+
+/**
+ * This device signed out. What it held is thrown away now, as the sign-out
+ * sheet said it would be, so the same Person signing back in does not send
+ * changes they chose to lose (#537).
+ */
+export function signedOutHere(): void {
+	try {
+		localStorage.removeItem(SIGNED_IN_AS);
 	} catch {
 		// Nothing kept, then nothing to forget.
 	}
-	// And nothing the last person wrote offline is sent as this one (#77).
 	void forgetEverythingHeld();
+}
+
+/**
+ * A Session began on this device for `personId`, as the sign-in answered.
+ * What a different Person wrote offline is never sent as this one (#77), so
+ * it goes. The same Person signing back in, after their Session was ended on
+ * another device, keeps what they held, and it is sent (#537). Where the
+ * device never learned who held it, it goes, as it always did.
+ */
+export function sessionBegan(personId?: string): void {
+	let before: string | null = null;
+	try {
+		localStorage.removeItem(KEY);
+		before = localStorage.getItem(SIGNED_IN_AS);
+		if (personId) localStorage.setItem(SIGNED_IN_AS, personId);
+		else localStorage.removeItem(SIGNED_IN_AS);
+	} catch {
+		// Nothing kept, then nothing to forget.
+	}
+	if (!personId || before !== personId) void forgetEverythingHeld();
 	sessions.began += 1;
 }
 

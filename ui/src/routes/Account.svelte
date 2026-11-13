@@ -12,15 +12,15 @@
 	`link` and goes Home once this form has signed in (#126).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { useAuth } from '$lib/auth';
-	import { OperationError } from '$lib/api/client';
-	import Screen from '$lib/shell/Screen.svelte';
-	import { thisDeviceName } from '$lib/device-name';
-	import { passkeysWorkHere } from '$lib/passkeys';
-	import { heardWhetherSignedIn, signingIn } from '$lib/shell/signing-in.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { useAuth } from '#lib/auth.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import { thisDeviceName } from '#lib/device-name.js';
+	import { passkeysWorkHere } from '#lib/passkeys.js';
+	import { heardWhetherSignedIn, signingIn } from '#lib/shell/signing-in.svelte.js';
 	import type { Snippet } from 'svelte';
 
 	interface Props {

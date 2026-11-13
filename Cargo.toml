@@ -1,16 +1,16 @@
 [package]
 name = "kamosu"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 license = "AGPL-3.0-only"
 repository = "https://github.com/BatterWorks/Kamosu"
 
 [dependencies]
-argon2 = { version = "0.5.3", features = ["password-hash", "rand"] }
+argon2 = { version = "0.6.0", features = ["password-hash", "getrandom"] }
 axum = "0.8.9"
 base64 = "0.23.1"
 caseless = "0.2.2"
-clap = { version = "4.6.6", features = ["derive"] }
+clap = { version = "4.6.7", features = ["derive"] }
 # Meaning Search's engine: FastEmbed loads EmbeddingGemma through ONNX Runtime.
 # `default-features = false` is load-bearing here for the same reason it is on
 # `image` above — the defaults are native-TLS everywhere and an image-model
@@ -19,7 +19,7 @@ clap = { version = "4.6.6", features = ["derive"] }
 #
 # The weights themselves are NOT a dependency: ADR 0029 ships no model, and this
 # crate only knows how to load one an Operator chose to download.
-fastembed = { version = "6.0.2", default-features = false, features = ["ort-download-binaries-rustls-tls", "hf-hub-rustls-tls"] }
+fastembed = { version = "7.5.0", default-features = false, features = ["ort-download-binaries-rustls-tls", "hf-hub-rustls-tls"] }
 hex = "0.4.3"
 # Held at the major FastEmbed itself depends on, deliberately — this is not a
 # version left behind. Kamosu downloads the model at a **pinned commit**, which
@@ -63,12 +63,12 @@ image = { version = "0.25.10", default-features = false, features = [
     "webp",
 ] }
 iso8601-duration = "0.2.0"
-rand = { version = "0.10.2", features = ["sys_rng"] }
-reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }
-reqwest-ssrf-guard = "0.1.0"
-rusqlite = { version = "0.40.2", features = ["bundled", "functions"] }
-rust-embed = "8.12.0"
-scraper = "0.27.0"
+rand = { version = "0.10.3", features = ["sys_rng"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
+reqwest-ssrf-guard = "0.2.0"
+rusqlite = { version = "0.41.1", features = ["bundled", "functions"] }
+rust-embed = "8.13.0"
+scraper = "0.29.0"
 # The title on a Share Card, turned from a font into an outline. `skrifa` is
 # the font parser Google Fonts maintains, and it hands out a glyph as the same
 # move/line/curve commands a Cover's shapes already arrive as — so `tiny-skia`
@@ -77,19 +77,19 @@ scraper = "0.27.0"
 # database marked unmaintained (RUSTSEC-2026-0192) with no fix upstream and
 # `skrifa` named as the successor. `default-features = false` drops the
 # autohinter: Kamosu draws at 40px and up, where hinting changes nothing.
-skrifa = { version = "0.46.2", default-features = false, features = ["std"] }
+skrifa = { version = "0.49.0", default-features = false, features = ["std"] }
 serde = "1.0.229"
-serde_json = "1.0.151"
-sha2 = "0.11.0"
+serde_json = "1.0.154"
+sha2 = "0.11.1"
 tiny-skia = "0.12.0"
-tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time", "signal", "fs", "process", "io-util"] }
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "time", "signal", "fs", "process", "io-util"] }
 # `io` alone, for `ReaderStream`: a Backup is served straight off the disk in
 # chunks rather than read whole into memory first (#78). A library big enough
 # to be worth backing up is a library too big to buffer.
-tokio-util = { version = "0.7.19", default-features = false, features = ["io"] }
+tokio-util = { version = "0.7.20", default-features = false, features = ["io"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-unicode-normalization = "0.1.25"
+unicode-normalization = "0.1.26"
 url = "2.5.8"
 webp = "0.3.1"
 whatlang = "0.18.0"
@@ -100,7 +100,7 @@ whatlang = "0.18.0"
 # speak — bzip2, zstd, xz, ppmd, AES — is one Kamosu neither writes nor needs
 # to read. The database deflates well; the Photographs are stored uncompressed,
 # already being compressed pictures.
-zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+zip = { version = "9.3.0", default-features = false, features = ["deflate"] }
 # Streams a large upload to disk a chunk at a time (#69); already in the
 # tree through axum, so this adds no crate.
 futures-util = { version = "0.3.34", default-features = false }
@@ -126,7 +126,7 @@ pdf-extract = "0.12.1"
 # The Runner (#274) starts an agent command in a process group of its own and
 # stops the whole group with kill(2), so that what the agent started stops
 # with it. Neither the standard library nor tokio sends a signal to a group.
-libc = "0.2.190"
+libc = "0.2.191"
 # Kamosu runs its own accept loop over hyper rather than `axum::serve` (#368),
 # because `axum::serve` gives hyper no timer and so no header-read timeout: a
 # stranger could hold a connection open for as long as they liked. Both are
@@ -134,14 +134,21 @@ libc = "0.2.190"
 # each to its current patch release.
 hyper = { version = "1.12.0", features = ["server", "http1"] }
 hyper-util = { version = "0.1.21", features = ["server", "server-graceful", "http1", "tokio", "service"] }
-# Passkeys (#370, ADR 0051). Held at the 0.6 prerelease, exactly: the stable
-# 0.5 links OpenSSL, which the distroless image does not carry, and 0.6 does
-# the same work on RustCrypto. Move to 0.6 stable when it ships.
+# Passkeys (#370, ADR 0051). 0.6 or later, never 0.5: 0.5 links OpenSSL,
+# which the distroless image does not carry, and 0.6 does the same work on
+# RustCrypto. `cargo tree -i openssl` answers that nothing depends on it.
 # `conditional-ui` is the feature that holds the sign-in that asks for no name
 # (discoverable credentials); Kamosu asks from a button, not as autofill.
-webauthn-rs = { version = "=0.6.1-dev", features = ["conditional-ui"] }
+webauthn-rs = { version = "0.6.2", features = ["conditional-ui"] }
 # A Paprika export is a zip of gzip files, one recipe in each (#414).
 flate2 = "1.1.10"
+toml = { version = "1.1.8", default-features = false, features = ["parse", "serde"] }
+# The day a cooking fell on where the cook is (#489): an Attempt's moment is
+# UTC, and a Planned Meal's day is the cook's own calendar. The time zone
+# database is built in (`tzdb-bundle-always`, with the system's left off), so
+# a name such as Europe/Amsterdam reads the same in the distroless image, on
+# a developer's machine and in the tests.
+jiff = { version = "0.2.39", default-features = false, features = ["std", "tzdb-bundle-always"] }
 
 [features]
 # Adds `probe_job`, a demonstration Job Operation, so the behaviour suite can
@@ -157,7 +164,7 @@ test-jobs = []
 # would then run Kamosu with its JSON in another order than it ships with.
 p256 = { version = "0.14.0", features = ["ecdsa"] }
 tempfile = "3.27.0"
-tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time"] }
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "time"] }
 
 # The corpus checks are kept out of the default `cargo test` set. Every one of
 # their tests is `#[ignore]`d — they read `samples/crouton/`, which is personal

@@ -9,8 +9,8 @@
  * whose point is how recent it is (#275).
  */
 
-import { getLocale } from '$lib/paraglide/runtime';
-import { m } from '$lib/paraglide/messages';
+import { getLocale } from '#lib/paraglide/runtime.js';
+import { m } from '#lib/paraglide/messages.js';
 
 /**
  * Kamosu's English is the day-first kind, `25 Sept 2026`. Intl reads a bare
@@ -61,6 +61,54 @@ export const aClock = (when: string | Date): string =>
 /** A day of the week and its date, as the Security Record heads one: `Mon 13 Oct` (#371). */
 export const aWeekday = (when: string | Date): string =>
 	at(when).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' });
+
+/**
+ * A planned day (#486), which is a date with no time zone and so is written as
+ * the date it is, wherever the cook is: `Thursday 5 November`.
+ */
+export const aPlannedDay = (day: string): string =>
+	at(`${day}T00:00:00Z`).toLocaleDateString(locale(), {
+		weekday: 'long',
+		day: 'numeric',
+		month: 'long',
+		timeZone: 'UTC',
+	});
+
+/** A planned day's date with no weekday, as a week is named by it: `9 November`. */
+export const aPlannedDate = (day: string): string =>
+	at(`${day}T00:00:00Z`).toLocaleDateString(locale(), {
+		day: 'numeric',
+		month: 'long',
+		timeZone: 'UTC',
+	});
+
+/**
+ * A planned day in a sentence that may reach back years, as an imported plan
+ * does (#492): `9 November`, and `9 November 2022` outside this year.
+ */
+export const aPlannedDateOfAnyYear = (day: string): string =>
+	at(`${day}T00:00:00Z`).toLocaleDateString(locale(), {
+		day: 'numeric',
+		month: 'long',
+		...(day.slice(0, 4) === String(new Date().getFullYear()) ? {} : { year: 'numeric' }),
+		timeZone: 'UTC',
+	});
+
+/** A planned day's weekday alone, as the Plan heads a day: `Thu`. */
+export const aPlannedWeekday = (day: string): string =>
+	at(`${day}T00:00:00Z`).toLocaleDateString(locale(), { weekday: 'short', timeZone: 'UTC' });
+
+/** The seven days from a Monday, as the Plan heads a week: `26 October – 1 November`. */
+export const aPlannedWeek = (monday: string, sunday: string): string => {
+	const day = (date: string, month: boolean) =>
+		at(`${date}T00:00:00Z`).toLocaleDateString(locale(), {
+			day: 'numeric',
+			...(month ? { month: 'long' } : {}),
+			timeZone: 'UTC',
+		});
+	const sameMonth = monday.slice(0, 7) === sunday.slice(0, 7);
+	return `${day(monday, !sameMonth)} – ${day(sunday, true)}`;
+};
 
 /** A month, as the diary heads one: `September 2026`. */
 export const aMonth = (when: string | Date): string =>
@@ -118,3 +166,9 @@ export function byDay<T>(rows: T[], when: (row: T) => string, now: Date = new Da
 	}
 	return days;
 }
+
+/**
+ * The time zone the browser is in, by name, such as `Europe/Amsterdam`: the
+ * Plan reads with it, so a cooking counts on the day it was here (#489).
+ */
+export const timeZoneHere = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone;

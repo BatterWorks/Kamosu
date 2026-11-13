@@ -6,6 +6,8 @@ _(Amended by [ADR 0055](./0055-a-phone-shares-into-kamosu-through-one-operation-
 
 _(Amended by [ADR 0056](./0056-settings-is-grouped-by-whose-a-thing-is.md), 2026-10-26: Settings keeps its menu in a column beside the page that is open, as Foods keeps its list, and carries no back arrow there. The Operator screen is no more: its rooms are pages of Settings.)_
 
+_(Amended by [ADR 0058](./0058-a-meal-plan-is-a-persons-own-days-ahead.md), 2026-10-31: the sidebar holds Plan between Recipes and Shopping.)_
+
 ## What was decided
 
 - **One PWA everywhere.** Installed from Safari on an iPad, from Chrome on an Android tablet, and from Chrome on a computer (in a tab or as an installed app window). Native apps were never on the table once this was settled: they would bring packaging, signing and updates, and a second codebase to keep level with the Catalogue.

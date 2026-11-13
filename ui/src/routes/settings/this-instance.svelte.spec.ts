@@ -19,8 +19,9 @@ import Address from './address/+page.svelte';
 import Meaning from './meaning/+page.svelte';
 import Upkeep from './upkeep/+page.svelte';
 import { renderScreen, type ScreenComponent } from '../../testing/render';
-import type { Answers } from '$lib/api/stand-in';
-import type { ListFoodsOutput, RereadIngredientLinesOutput } from '$lib/api/catalogue';
+import type { Answers } from '#lib/api/stand-in.js';
+import { setLocale } from '#lib/paraglide/runtime.js';
+import type { ListFoodsOutput, RereadIngredientLinesOutput } from '#lib/api/catalogue.js';
 
 type Food = ListFoodsOutput['foods'][number];
 
@@ -42,6 +43,7 @@ const farine = food({ id: 'f_farine', name: 'farine', language: 'fr', reading_co
  * an empty worklist, and every Food in use.
  */
 const quiet: Answers = {
+	get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: true },
 	list_accounts: {
 		accounts: [
 			{
@@ -78,6 +80,23 @@ const quiet: Answers = {
 	get_house_notes: { notes: null, saved_by: null, saved_at: null },
 	// An Operator in no Kitchen yet, so an Invite offers none to arrive in.
 	list_kitchens: { kitchens: [] },
+	list_account_links: { links: [] },
+};
+
+/** An Invite that makes an Operator, and a recovery link for Camille, both unused (#535). */
+const operatorInvite = {
+	id: 'al_invite',
+	kind: 'invite' as const,
+	operator: true,
+	person: null,
+	created_at: '2026-09-20T10:00:00Z',
+};
+const camillesRecovery = {
+	id: 'al_recovery',
+	kind: 'recovery' as const,
+	operator: false,
+	person: 'Camille',
+	created_at: '2026-09-21T10:00:00Z',
 };
 
 /** The same instance, with one pair of Foods waiting to be looked at. */
@@ -123,16 +142,16 @@ describe("This instance's pages", () => {
 		'%s shows nothing at all to a Person who is not an Operator',
 		async (_, page, asks) => {
 			const { kamosu } = renderScreen(page, {
-				list_accounts: {
-					refuse: 'unauthorized',
-					message: 'requires a Credential naming an Operator',
-				},
+				get_person: { person_id: 'p_2', name: 'Camille', is_operator: false },
 			});
 
 			expect(await screen.findByText(/nothing here for you/i)).toBeInTheDocument();
 			// Not merely hidden: the page is never asked about. One that listed
 			// Backups and then declined to show them would still have asked.
+			// Nor is the cook sent to ask anything an Operator alone may ask,
+			// to be refused (#533).
 			expect(kamosu.calls.map((call) => call.operation)).not.toContain(asks);
+			expect(kamosu.calls.map((call) => call.operation)).toEqual(['get_person']);
 		},
 	);
 
@@ -370,6 +389,102 @@ describe("This instance's pages", () => {
 		expect(within(camille).getByText(/recovery link for Camille/i)).toBeInTheDocument();
 	});
 
+	it('lists the Invites and recovery links not yet used, and says what each does (#535)', async () => {
+		renderScreen(People, {
+			...quiet,
+			list_account_links: { links: [operatorInvite, camillesRecovery] },
+		});
+
+		const section = (await screen.findByRole('heading', { name: 'Links not yet used' })).closest(
+			'section',
+		) as HTMLElement;
+		expect(await within(section).findByText('Operator Invite')).toBeInTheDocument();
+		expect(within(section).getByText('Recovery link for Camille')).toBeInTheDocument();
+		expect(within(section).getAllByText(/^Made /)).toHaveLength(2);
+		expect(within(section).getAllByRole('button', { name: 'Revoke' })).toHaveLength(2);
+	});
+
+	it('says when no link is waiting', async () => {
+		renderScreen(People, quiet);
+		expect(await screen.findByText('No Invite or recovery link is waiting.')).toBeInTheDocument();
+	});
+
+	it('says why the links cannot be listed, rather than that none is waiting (#535)', async () => {
+		renderScreen(People, {
+			...quiet,
+			list_account_links: { refuse: 'internal', message: 'the database is unreadable' },
+		});
+		expect(await screen.findByText(/the database is unreadable/)).toBeInTheDocument();
+		expect(screen.queryByText('No Invite or recovery link is waiting.')).not.toBeInTheDocument();
+	});
+
+	it('asks before revoking a link, and revokes that one alone (#535)', async () => {
+		const { kamosu } = renderScreen(People, {
+			...quiet,
+			list_account_links: { links: [operatorInvite, camillesRecovery] },
+			revoke_account_link: { revoked: true },
+		});
+
+		const row = (await screen.findByText('Recovery link for Camille')).closest('li') as HTMLElement;
+		await fireEvent.click(within(row).getByRole('button', { name: 'Revoke' }));
+		const sheet = await screen.findByRole('dialog', {
+			name: 'Revoke Camille’s recovery link?',
+		});
+		expect(within(sheet).getByText(/stops working for everyone/)).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('revoke_account_link');
+
+		kamosu.answer('list_account_links', { links: [operatorInvite] });
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Revoke' }));
+
+		expect(kamosu.calls.find((call) => call.operation === 'revoke_account_link')?.input).toEqual({
+			id: 'al_recovery',
+		});
+		await vi.waitFor(() =>
+			expect(screen.queryByText('Recovery link for Camille')).not.toBeInTheDocument(),
+		);
+		expect(screen.getByText('Operator Invite')).toBeInTheDocument();
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+	});
+
+	it('takes a link off the list when revoking it is refused because it is gone (#535)', async () => {
+		const { kamosu } = renderScreen(People, {
+			...quiet,
+			list_account_links: { links: [camillesRecovery] },
+			revoke_account_link: {
+				refuse: 'not_found',
+				message: 'no live Invite or recovery link has that id',
+			},
+		});
+		const row = (await screen.findByText('Recovery link for Camille')).closest('li') as HTMLElement;
+		await fireEvent.click(within(row).getByRole('button', { name: 'Revoke' }));
+		const sheet = await screen.findByRole('dialog');
+		kamosu.answer('list_account_links', { links: [] });
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Revoke' }));
+
+		expect(await within(sheet).findByText(/no live Invite/)).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(screen.getByText('No Invite or recovery link is waiting.')).toBeInTheDocument(),
+		);
+	});
+
+	it('lists an Invite as soon as it is made (#535)', async () => {
+		const { kamosu } = renderScreen(People, {
+			...quiet,
+			mint_invite: { link: '/invite/8f2c1a94e07b' },
+		});
+		await screen.findByText('No Invite or recovery link is waiting.');
+
+		kamosu.answer('list_account_links', {
+			links: [{ ...operatorInvite, operator: false }],
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'Make the invite link' }));
+
+		const section = screen
+			.getByRole('heading', { name: 'Links not yet used' })
+			.closest('section') as HTMLElement;
+		expect(await within(section).findByText('Invite')).toBeInTheDocument();
+	});
+
 	it('raises a Person to Operator and stands one down, by name', async () => {
 		const { kamosu } = renderScreen(People, {
 			...quiet,
@@ -568,10 +683,25 @@ describe("This instance's pages", () => {
 		expect(screen.queryByText(/nothing pointing at them/)).not.toBeInTheDocument();
 	});
 
-	it('does not mistake a broken Kamosu for a page that is not yours', async () => {
+	it('says why the accounts cannot be listed, rather than listing none (#533)', async () => {
 		renderScreen(People, {
 			...quiet,
 			list_accounts: { refuse: 'internal', message: 'the database is unreadable' },
+			mint_invite: { link: '/invite/8f2c1a94e07b' },
+		});
+
+		expect(await screen.findByText('the database is unreadable')).toBeInTheDocument();
+		expect(screen.queryByText(/nothing here for you/i)).not.toBeInTheDocument();
+		// An act that follows does not wipe why the list is empty.
+		await fireEvent.click(screen.getByRole('button', { name: 'Make the invite link' }));
+		await screen.findByText(`${window.location.origin}/invite/8f2c1a94e07b`);
+		expect(screen.getByText('the database is unreadable')).toBeInTheDocument();
+	});
+
+	it('does not mistake a broken Kamosu for a page that is not yours', async () => {
+		renderScreen(People, {
+			...quiet,
+			get_person: { refuse: 'internal', message: 'the database is unreadable' },
 		});
 
 		// An Operator whose instance is failing is owed the reason, not an
@@ -590,6 +720,16 @@ describe("This instance's pages", () => {
 			'href',
 			'/api/backups/kamosu-backup-daily-20260920T175418Z.zip',
 		);
+	});
+
+	it('writes a Backup’s size with a decimal comma in Dutch (#496)', async () => {
+		setLocale('nl', { reload: false });
+		try {
+			renderScreen(Backups, quiet);
+			expect(await screen.findByText(/21,9 MB/)).toBeInTheDocument();
+		} finally {
+			setLocale('en', { reload: false });
+		}
 	});
 
 	it('tells the truth about what changing the public address reaches', async () => {

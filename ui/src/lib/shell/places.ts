@@ -4,7 +4,11 @@
  * (ADR 0044, #194).
  */
 
-import { m } from '$lib/paraglide/messages';
+import { m } from '#lib/paraglide/messages.js';
+
+/** The Cooked place's steaming bowl, which the Plan's "Cooked" mark wears too (#489). */
+export const COOKED_BOWL =
+	'M4 15h16a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4ZM7 11c0-2 1.5-2 1.5-4M12 11c0-2 1.5-2 1.5-4M17 11c0-2 1.5-2 1.5-4';
 
 export interface Place {
 	href: string;
@@ -13,7 +17,10 @@ export interface Place {
 	path: string;
 }
 
-/** Home · Recipes · Shopping · Cooked: the four the tab bar has always held. */
+/**
+ * Home · Recipes · Plan · Shopping · Cooked. Plan is the fifth, put between the
+ * recipes and the shopping it leads to (#486, ADR 0058).
+ */
 export const places: Place[] = [
 	{
 		href: '/',
@@ -26,6 +33,11 @@ export const places: Place[] = [
 		path: 'M4 4h11a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V4Zm13 0h3v16M8 8h6M8 12h6',
 	},
 	{
+		href: '/plan',
+		label: () => m.nav_plan(),
+		path: 'M4 6.5A1.5 1.5 0 0 1 5.5 5h13A1.5 1.5 0 0 1 20 6.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6.5ZM4 10h16M8 3v4M16 3v4',
+	},
+	{
 		href: '/shopping',
 		label: () => m.nav_shopping(),
 		path: 'M4 6h3l2 11h9l2-8H8M10 21h.01M17 21h.01',
@@ -33,12 +45,12 @@ export const places: Place[] = [
 	{
 		href: '/cooked',
 		label: () => m.nav_cooked(),
-		path: 'M4 15h16a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4ZM7 11c0-2 1.5-2 1.5-4M12 11c0-2 1.5-2 1.5-4M17 11c0-2 1.5-2 1.5-4',
+		path: COOKED_BOWL,
 	},
 ];
 
 /**
- * Settings, the fifth place. Only the sidebar lists it: on the phone the way
+ * Settings, the sixth place. Only the sidebar lists it: on the phone the way
  * in is the gear in the header (#218), which the wide layout does not draw.
  */
 export const settings: Place = {

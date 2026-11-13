@@ -23,17 +23,17 @@
 	upload: the recipe is fetched once, and what lands is what was shown.
 -->
 <script lang="ts">
-	import { aDate } from '$lib/dates';
-	import Refusal from '$lib/Refusal.svelte';
+	import { aDate } from '#lib/dates.js';
+	import Refusal from '#lib/Refusal.svelte';
 	import { goto } from '$app/navigation';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { StillRunning, waitForJob } from '$lib/api/job';
-	import { receiveStaged } from '$lib/receive';
-	import Screen from '$lib/shell/Screen.svelte';
-	import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
-	import type { PreviewSharedRecipeOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { StillRunning, waitForJob } from '#lib/api/job.js';
+	import { receiveStaged } from '#lib/receive.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import { heardWhetherSignedIn } from '#lib/shell/signing-in.svelte.js';
+	import type { PreviewSharedRecipeOutput } from '#lib/api/catalogue.js';
 	import Account from '../Account.svelte';
 
 	interface Props {

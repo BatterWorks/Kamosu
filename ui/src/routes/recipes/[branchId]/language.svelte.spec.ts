@@ -23,9 +23,9 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetRecipeOutput } from '$lib/api/catalogue';
-import type { BranchLanguage, WrittenLanguage } from '$lib/language';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { GetRecipeOutput } from '#lib/api/catalogue.js';
+import type { BranchLanguage, WrittenLanguage } from '#lib/language.js';
 import LanguageTestHarness from './LanguageTestHarness.svelte';
 
 type Translation = GetRecipeOutput['translation'];
@@ -329,16 +329,27 @@ describe('saying what Language a recipe is in, by hand', () => {
 		).toBeInTheDocument();
 
 		// French is already one of this Lineage's Languages, so it is not
-		// offered as somewhere to translate to a second time. Spanish is the
-		// only row, and it is named apart from the French row above it.
+		// offered as somewhere to translate to a second time. Spanish and Dutch
+		// are the rows, each named apart from the French row above them.
 		const intoRows = screen
 			.getAllByRole('button')
 			.map((button) => button.textContent?.trim() ?? '')
 			.filter((label) => label.startsWith('Into '));
-		expect(intoRows).toEqual(['Into Spanish']);
+		expect(intoRows).toEqual(['Into Spanish', 'Into Dutch']);
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Into Spanish' }));
 		expect(translate).toHaveBeenCalledWith('es');
+	});
+
+	it("names Dutch in words where a recipe's Language is chosen", async () => {
+		const translate = vi.fn();
+		draw({ language: 'en', sheet: { inAFamily: true, taken: ['en'] }, translate });
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Into Dutch' }));
+		expect(translate).toHaveBeenCalledWith('nl');
+		// The row that sets a recipe's Language names it the same way.
+		expect(screen.getByRole('button', { name: 'Dutch' })).toBeInTheDocument();
+		expect(screen.queryByText('nl')).not.toBeInTheDocument();
 	});
 
 	it('starting a translation writes nothing on its own', async () => {

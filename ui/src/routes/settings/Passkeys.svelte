@@ -15,17 +15,17 @@
 	sentence says why none can be added or used here.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import { aDate, aMoment } from '$lib/dates';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { thisDeviceName } from '$lib/device-name';
-	import { browserHasPasskeys, makePasskey, passkeysWorkHere } from '$lib/passkeys';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import Confirm from '$lib/Confirm.svelte';
-	import Section from '$lib/shell/Section.svelte';
-	import type { ListPasskeysOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { aDate, aMoment } from '#lib/dates.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { thisDeviceName } from '#lib/device-name.js';
+	import { browserHasPasskeys, makePasskey, passkeysWorkHere } from '#lib/passkeys.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import Confirm from '#lib/Confirm.svelte';
+	import Section from '#lib/shell/Section.svelte';
+	import type { ListPasskeysOutput } from '#lib/api/catalogue.js';
 
 	type Passkey = ListPasskeysOutput['passkeys'][number];
 

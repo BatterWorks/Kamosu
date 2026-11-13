@@ -1565,12 +1565,14 @@ pub(super) fn copy_branch_at(
         cookbook_hand(conn, cookbook_id)?
     };
     conn.execute(
-        // A guessed Language is the copy's guess too (#321).
+        // A guessed Language is the copy's guess too (#321), and a
+        // Translation's copy renders the same source Branch (#517).
         "INSERT INTO branches \
          (id, travelling_id, lineage_id, cookbook_id, hand_id, language, origin_address, \
-          head_version_id, name, started_by, arrived, language_guessed) \
+          head_version_id, name, started_by, arrived, language_guessed, translated_from_branch_id) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, \
-                 (SELECT language_guessed FROM branches WHERE id = ?12))",
+                 (SELECT language_guessed FROM branches WHERE id = ?12), \
+                 (SELECT translated_from_branch_id FROM branches WHERE id = ?12))",
         params![
             new_branch_id,
             keeps_travelling.then_some(&travelling),
@@ -1647,6 +1649,7 @@ pub(super) fn delete_branch_rows(conn: &Connection, branch_id: &str) -> Result<(
     jobs::end_for_deleted_recipe(conn, branch_id)?;
     for statement in [
         "DELETE FROM branch_versions WHERE branch_id = ?1",
+        "DELETE FROM folded_versions WHERE branch_id = ?1",
         "DELETE FROM branch_tags WHERE branch_id = ?1",
         "DELETE FROM share_links WHERE branch_id = ?1",
         // The ledger belongs to the Import, not to the recipe (ADR 0025), so
@@ -1804,7 +1807,7 @@ pub(super) fn keep_branches(conn: &Connection, kept: &[(String, String)]) -> Res
         let own = cookbook_of_person(conn, person)?;
         let copy = copy_branch_into(conn, branch_id, &own, person, None)?;
         mark_copied(conn, &copy, branch_id)?;
-        repoint_shopping(conn, person, branch_id, &copy)?;
+        repoint_shopping_and_plan(conn, person, branch_id, &copy)?;
     }
     Ok(())
 }
@@ -1822,8 +1825,8 @@ fn mark_copied(conn: &Connection, copy: &str, source: &str) -> Result<(), OpErro
 
 /// A Shopping List entry follows a recipe to the Branch its reader keeps of
 /// it (#131, question 12), rather than going dead on one they can no longer
-/// read.
-fn repoint_shopping(
+/// read, and a Planned Meal of theirs with it (#486).
+fn repoint_shopping_and_plan(
     conn: &Connection,
     person_id: &str,
     from: &str,
@@ -1842,7 +1845,7 @@ fn repoint_shopping(
         params![person_id, from],
     )
     .map_err(|e| OpError::internal(format!("cannot move a Shopping List entry: {e}")))?;
-    Ok(())
+    repoint_planned_meals(conn, from, to, Whose::Only(person_id))
 }
 
 /// Two Cookbooks become one: everything `from` holds moves into `into`, and
@@ -2185,6 +2188,12 @@ fn fold_branch(conn: &Connection, drop: &str, keep: &str, into: &str) -> Result<
         params![drop, keep],
     )
     .map_err(|e| OpError::internal(format!("cannot move a copy's source: {e}")))?;
+    // A Translation of the one that goes renders the one kept now (#517).
+    conn.execute(
+        "UPDATE branches SET translated_from_branch_id = ?2 WHERE translated_from_branch_id = ?1",
+        params![drop, keep],
+    )
+    .map_err(|e| OpError::internal(format!("cannot move a Translation's source: {e}")))?;
     conn.execute(
         "UPDATE OR IGNORE shopping_choices SET branch_id = ?2 WHERE branch_id = ?1",
         params![drop, keep],
@@ -2197,6 +2206,9 @@ fn fold_branch(conn: &Connection, drop: &str, keep: &str, into: &str) -> Result<
         params![drop],
     )
     .map_err(|e| OpError::internal(format!("cannot move Shopping List entries: {e}")))?;
+    // A plan may hold both on one day, and keeps both: two dinners planned
+    // are two dinners, whichever Branch each was planned from.
+    repoint_planned_meals(conn, drop, keep, Whose::Everyone)?;
     let keep_has_link: bool = conn
         .query_row(
             "SELECT EXISTS (SELECT 1 FROM share_links WHERE branch_id = ?1 AND ended_at IS NULL)",
@@ -2381,6 +2393,8 @@ pub(super) fn separate(
     // started them.
     let mut moved: Vec<String> = Vec::new();
     let mut copies: Vec<String> = Vec::new();
+    // Each Branch, the Copy made of it, and the Cookbook the Copy is in.
+    let mut copied: Vec<(String, String, String)> = Vec::new();
     for (branch_id, started_by) in branches {
         if started_by.as_deref() == Some(leaver) {
             moved.push(branch_id.clone());
@@ -2396,6 +2410,7 @@ pub(super) fn separate(
             .map_err(|e| OpError::internal(format!("cannot move Branch: {e}")))?;
             let copy = copy_branch_into(conn, &branch_id, cookbook_id, &stayer, None)?;
             mark_copied(conn, &copy, &branch_id)?;
+            copied.push((branch_id.clone(), copy.clone(), cookbook_id.to_string()));
             conn.execute(
                 "DELETE FROM branch_tags WHERE branch_id = ?1",
                 params![branch_id],
@@ -2416,19 +2431,43 @@ pub(super) fn separate(
                 params![branch_id, leaver],
             )
             .map_err(|e| OpError::internal(format!("cannot move Shopping List entries: {e}")))?;
+            repoint_planned_meals(conn, &branch_id, &copy, Whose::AllBut(leaver))?;
         } else {
             let copy = copy_branch_into(conn, &branch_id, &own, leaver, None)?;
             mark_copied(conn, &copy, &branch_id)?;
-            repoint_shopping(conn, leaver, &branch_id, &copy)?;
+            repoint_shopping_and_plan(conn, leaver, &branch_id, &copy)?;
+            copied.push((branch_id.clone(), copy.clone(), own.clone()));
             copies.push(copy);
         }
     }
     copy_related(conn, cookbook_id, &own)?;
     give_back_own_names(conn, cookbook_id, leaver, &moved, &copies)?;
+    follow_translation_sources(conn, &copied)?;
     // Whoever left no longer has a say in a join this Cookbook waits on, and
     // may have been the last one it waited for (#135).
     settle_joins_of(conn, cookbook_id)?;
     Ok(own)
+}
+
+/// A Translation whose recorded source went to the other side of a
+/// separation renders this side's Copy of it from now on (#517), so it is
+/// measured against a Branch its own Cookbook writes and not one that now
+/// moves with somebody else's saves. Each of `copied` is a Branch and the
+/// Copy of it the separation left in a Cookbook: only that separation's
+/// Copies, never an older one with the same `copied_from`.
+fn follow_translation_sources(
+    conn: &Connection,
+    copied: &[(String, String, String)],
+) -> Result<(), OpError> {
+    for (source, copy, cookbook_id) in copied {
+        conn.execute(
+            "UPDATE branches SET translated_from_branch_id = ?2 \
+              WHERE translated_from_branch_id = ?1 AND cookbook_id = ?3",
+            params![source, copy, cookbook_id],
+        )
+        .map_err(|e| OpError::internal(format!("cannot move a Translation's source: {e}")))?;
+    }
+    Ok(())
 }
 
 /// **The recipes a leaver started are theirs again, unnamed** (#131, answers

@@ -9,8 +9,8 @@
  * (ADR 0017); until then the outbox shows it from the phone.
  */
 
-import type { KamosuClient, StartAttemptOutput } from '$lib/api/catalogue';
-import { OperationError } from '$lib/api/client';
+import type { KamosuClient, StartAttemptOutput } from '#lib/api/catalogue.js';
+import { OperationError } from '#lib/api/client.js';
 import type { Keeping } from './outbox';
 
 export async function photographCooking(

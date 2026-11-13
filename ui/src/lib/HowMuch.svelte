@@ -17,7 +17,7 @@
 	back from the Core (ADR 0016), and whoever holds this decides when to ask.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import {
 		choices,
 		counts,
@@ -27,7 +27,7 @@
 		stepped,
 		type Wanted,
 		type Written,
-	} from '$lib/how-much';
+	} from '#lib/how-much.js';
 
 	interface Props {
 		written: Written;

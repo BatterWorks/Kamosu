@@ -21,7 +21,7 @@ Everything you can do in the web app, an agent can do over MCP (the Model Contex
 | ![Cooking mode on one step, with its ingredients to tick off](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/cooking.png) | ![A cooking in the diary: more garlic, basil added and a reworded step, each above the line it replaced, and a button to keep them as a new version](https://raw.githubusercontent.com/BatterWorks/Kamosu/main/docs/readme/cooked-changed.png) |
 | **Cooking mode**: one step and what it uses | **Cooked**: what you changed at the stove, to keep as a new version |
 
-- **Try the live demo:** https://kamosu.battercloud.cc, a family's library of about 40 recipes, where you arrive signed in and can cook and shop. It goes back to how it was every morning.
+- **Try the live demo:** https://kamosu.battercloud.cc, a family's library of about 40 recipes, where you arrive signed in and can cook, plan and shop. It goes back to how it was every morning.
 - **Source and full README:** https://github.com/BatterWorks/Kamosu
 - **Changelog:** https://github.com/BatterWorks/Kamosu/blob/main/CHANGELOG.md
 
@@ -33,23 +33,25 @@ Everything you can do in the web app, an agent can do over MCP (the Model Contex
 - **A recipe keeps its whole history.** Every save is a new version and none is ever lost. Start a variation or a translation beside the original, and Kamosu shows how two versions differ line by line.
 - **A diary of what you cooked.** Each cooking is dated and rated, with photos, notes, and what you actually did if it differed from the recipe.
 - **Scaling and conversions.** Cook for 3 instead of 6 and every amount follows, with metric or US measures beside the amounts as written.
+- **A plan for the days ahead.** Put a recipe on a day, or on a week before the day is decided, for as many as you will cook for, and it opens at that amount on the night. Write "leftovers" or "eating out" on a day, move things around as the week changes, and send planned days to your shopping list. Subscribe to your plan in Apple Calendar or Google Calendar from **Settings › Your plan in your calendar**. A Mealie backup brings its household's meal plan in too.
 - **A shopping list worked out from recipes.** Pick dishes and how many you are cooking for. Flour from three recipes becomes one row.
 - **Search by words, or by meaning.** Turn on Meaning Search and "that thing with aubergines" finds a recipe that never says aubergine.
 - **Bring your recipes in.** A web page, a pasted recipe or a recipe PDF, the export of Mealie, Paprika, Tandoor, KitchenOwl, Nextcloud Cookbook, RecipeSage, Bar Assistant, Crouton and others, anything sent from a phone's Share menu, or a recipe from another Kamosu. With a Runner, also photos of a cookbook page, a scanned PDF or a cooking video.
 - **Share with anyone.** A Share Link shows one recipe to whoever holds it, no account needed, with a printable PDF.
 - **Agents are first-class.** Each person creates their own Access Keys, read-only or not, and connects Claude Code, Codex, Hermes or any MCP client to `/mcp`.
-- **In English, French and Spanish.** Each person picks the language they read in.
+- **In English, French and Spanish, and Dutch as a preview.** Each person picks the language they read in. The Dutch is machine-translated, and corrections are welcome on GitHub.
 
 ## Who it is for
 
 Kamosu suits a person, a household or a group of people who want to keep their recipes on their own server, cook from a phone, and let an agent add, fix or translate recipes for them.
 
-It is not a hosted service, a meal planner, a nutrition tracker or a public recipe site. Every account starts from an invite, and nothing is visible to strangers unless you share a link.
+It is not a hosted service, a nutrition tracker or a public recipe site. Every account starts from an invite, and nothing is visible to strangers unless you share a link.
 
 ## Tags
 
-- `latest` and `<version>`: images for Docker
-- `podman-latest` and `podman-<version>`: images for Podman
+- `latest` and `<version>`, for Docker and Podman alike
+
+Releases up to 0.5.0 also published `podman-latest` and `podman-<version>`. Those tags are no longer published and no longer move.
 
 Every tag is built for amd64 and arm64. The image is distroless and rootless: it has no shell and runs as the unprivileged user `65532`.
 
@@ -97,7 +99,7 @@ Kamosu serves plain HTTP and never handles a certificate. Put your own reverse p
 
 ## Connecting an agent
 
-In Kamosu, open **Settings**, then **Account**, and create an Access Key. Tick **Read-only** if the agent only needs to look things up. Point any MCP client at `https://your-kamosu/mcp` with the key as a bearer token. The [GitHub README](https://github.com/BatterWorks/Kamosu#connecting-an-agent) has the exact configuration for Claude Code, Codex and Hermes.
+In Kamosu, open **Settings › Keys for agents**, and create an Access Key. Tick **Read-only** if the agent only needs to look things up. Point any MCP client at `https://your-kamosu/mcp` with the key as a bearer token. The [GitHub README](https://github.com/BatterWorks/Kamosu#connecting-an-agent) has the exact configuration for Claude Code, Codex and Hermes.
 
 The image also holds the Runner, `/app/kamosu runner`: a program you run beside an agent of your choosing, which hands it what Kamosu cannot read itself, such as a photo of a cookbook page. The image holds no agent: the one Kamosu builds is published as [`battermanz/kamosu-agent`](https://hub.docker.com/r/battermanz/kamosu-agent), under the same version tags. The [Runner guide](https://github.com/BatterWorks/Kamosu/blob/main/docs/runner.md) says how to set one up.
 
@@ -119,10 +121,12 @@ No environment variable is required.
 | `KAMOSU_PORT` | `5266` | Port to listen on. |
 | `KAMOSU_DATA_DIR` | `/data` | The folder that holds everything. Leave it alone and change the mount instead. |
 | `KAMOSU_LOG` | `info` | Log level, such as `debug`. |
-| `KAMOSU_DEMO_ERASES_LIBRARY_DAILY` | unset | `true` makes this instance a public demo: anyone gets in without a password, and only cooking and shopping save. It erases the library when it starts and every day at 04:00 UTC, putting its Sample Library in its place, so never set it on a Kamosu you keep recipes in. |
+| `KAMOSU_DEMO_ERASES_LIBRARY_DAILY` | unset | `true` makes this instance a public demo: anyone gets in without a password, and only cooking, planning and shopping save. It erases the library when it starts and every day at 04:00 UTC, putting its Sample Library in its place, so never set it on a Kamosu you keep recipes in. |
 | `KAMOSU_DEMO_PUBLIC_ADDRESS` | unset | In a demo only, the address visitors reach it at, such as `https://demo.example.com`. The demo's shared recipe builds its link on it. Without demo mode, Kamosu ignores it: an ordinary instance keeps its address in Settings. |
 | `KAMOSU_DEMO_UMAMI_SCRIPT` | unset | In a demo only, the address of an Umami script to count visits with, such as `https://umami.example.com/script.js`. The demo's pages load it and let its address through their security policy. It must send its counts to its own address, as a self-hosted Umami does. Without demo mode, Kamosu ignores it and sends nothing anywhere. |
 | `KAMOSU_DEMO_UMAMI_WEBSITE_ID` | unset | The website id Umami gave the demo. Needed with `KAMOSU_DEMO_UMAMI_SCRIPT`; one without the other counts nothing. |
+
+Kamosu fetches a link's page and pictures itself, from public internet addresses only, and ignores `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY`. Through a proxy, Kamosu could not tell whether a link leads into your own network.
 
 The [GitHub README](https://github.com/BatterWorks/Kamosu#readme) covers Meaning Search, running a demo of your own, troubleshooting and security.
 

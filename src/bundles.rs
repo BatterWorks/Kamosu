@@ -21,6 +21,7 @@
 //! to the recipe it names, and the Thread follows a rule, newest first like the
 //! Share Link page, with a branch nested under the Version it grew from.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -28,6 +29,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::core::OpError;
+use crate::other_apps;
 
 /// Where the sidecar sits inside the zip.
 pub const SIDECAR: &str = ".kamosu/bundle.json";
@@ -426,13 +428,11 @@ fn photograph_names(contents: &Contents) -> HashMap<String, String> {
     names
 }
 
+/// The name of a Language, written in itself. It is read off `NOTE_WORDS`, so
+/// every Language a note is written in has one (#592). A code no note is
+/// written in is shown as it stands.
 fn language_name(language: &str) -> &str {
-    match language {
-        "en" => "English",
-        "fr" => "Français",
-        "es" => "Español",
-        other => other,
-    }
+    note_words(language).map_or(language, |words| words.name)
 }
 
 // ── The note ─────────────────────────────────────────────────────────────────
@@ -442,6 +442,9 @@ fn language_name(language: &str) -> &str {
 /// ADR 0020 puts the Thread in the note "in the same words the Share Link page
 /// uses".
 struct Words {
+    /// The Language's own name for itself, which names a Translation in a
+    /// note's file name and its Thread.
+    name: &'static str,
     ingredients: &'static str,
     method: &'static str,
     note: &'static str,
@@ -449,14 +452,15 @@ struct Words {
     from_source: &'static str,
     history: &'static str,
     written_down: &'static str,
-    min_prep: &'static str,
-    min_cook: &'static str,
+    prep: &'static str,
+    cook: &'static str,
     see: &'static str,
     branched_here: &'static str,
     translated_from: &'static str,
 }
 
 const EN: Words = Words {
+    name: "English",
     ingredients: "Ingredients",
     method: "Method",
     note: "Note",
@@ -464,14 +468,15 @@ const EN: Words = Words {
     from_source: "From",
     history: "History",
     written_down: "Written down",
-    min_prep: "min prep",
-    min_cook: "min cook",
+    prep: "prep",
+    cook: "cook",
     see: "see",
     branched_here: "Branched here",
     translated_from: "Translated from",
 };
 
 const FR: Words = Words {
+    name: "Français",
     ingredients: "Ingrédients",
     method: "Préparation",
     note: "Note",
@@ -479,14 +484,15 @@ const FR: Words = Words {
     from_source: "D'après",
     history: "Historique",
     written_down: "Écrite",
-    min_prep: "min prép.",
-    min_cook: "min cuisson",
+    prep: "prépa",
+    cook: "cuisson",
     see: "voir",
     branched_here: "Partie d'ici",
     translated_from: "Traduite de",
 };
 
 const ES: Words = Words {
+    name: "Español",
     ingredients: "Ingredientes",
     method: "Preparación",
     note: "Nota",
@@ -494,19 +500,44 @@ const ES: Words = Words {
     from_source: "De",
     history: "Historial",
     written_down: "Escrita",
-    min_prep: "min prep.",
-    min_cook: "min cocción",
+    prep: "prep",
+    cook: "cocción",
     see: "ver",
     branched_here: "Partió de aquí",
     translated_from: "Traducida de",
 };
 
+const NL: Words = Words {
+    name: "Nederlands",
+    ingredients: "Ingrediënten",
+    method: "Bereiding",
+    note: "Notitie",
+    tags: "Labels",
+    from_source: "Van",
+    history: "Geschiedenis",
+    written_down: "Geschreven",
+    prep: "voorbereidingstijd",
+    cook: "kooktijd",
+    see: "zie",
+    branched_here: "Hier afgetakt",
+    translated_from: "Vertaald uit",
+};
+
+/// Every Language a note is written in, with its code. The note's writer and
+/// its reader both walk this one list, so a Language added here is read back
+/// as well as written (#577).
+const NOTE_WORDS: [(&str, &Words); 4] = [("en", &EN), ("fr", &FR), ("es", &ES), ("nl", &NL)];
+
+/// A note's words in a Language, if a note is written in it.
+fn note_words(language: &str) -> Option<&'static Words> {
+    NOTE_WORDS
+        .iter()
+        .find(|(code, _)| *code == language)
+        .map(|(_, words)| *words)
+}
+
 fn words(language: &str) -> &'static Words {
-    match language {
-        "fr" => &FR,
-        "es" => &ES,
-        _ => &EN,
-    }
+    note_words(language).unwrap_or(&EN)
 }
 
 /// One Branch's note: the recipe as it reads today, then its Thread.
@@ -542,11 +573,15 @@ fn note(
     if !recipe_yield.trim().is_empty() {
         meta.push(inline(recipe_yield.trim()));
     }
+    // A time is written as the app, the Sheet and the Share Link page write
+    // it, `9 h prep` and never `540 min prep` (#546).
     if let Some(minutes) = content["prep_time_minutes"].as_i64() {
-        meta.push(format!("{minutes} {}", words.min_prep));
+        let time = crate::sheet::duration(minutes);
+        meta.push(format!("{time} {}", words.prep));
     }
     if let Some(minutes) = content["cook_time_minutes"].as_i64() {
-        meta.push(format!("{minutes} {}", words.min_cook));
+        let time = crate::sheet::duration(minutes);
+        meta.push(format!("{time} {}", words.cook));
     }
     if !meta.is_empty() {
         out.push_str(&meta.join(" · "));
@@ -919,7 +954,19 @@ const MOST_READ: u64 = 64 * 1024 * 1024;
 /// Kamosu made. Photographs are read one at a time whatever this says, so it
 /// limits the work of unpacking, and the memory only of the notes read back
 /// from a file with no sidecar.
-const MOST_IN_ALL: u64 = 256 * 1000 * 1000;
+///
+/// A Bundle's own file is held to this too, and `import_bundle` refuses a
+/// larger one before reading it (#538). What a Bundle holds barely
+/// compresses, so its file is about what it unpacks to, a little more for
+/// the zip's own headers: only a Bundle within those headers of this limit
+/// is refused that would have opened.
+pub const MOST_IN_ALL: u64 = 256 * 1000 * 1000;
+
+/// Whether these bytes start as a zip does, a Bundle with no files in it
+/// included. Says nothing about whether the rest of it opens.
+pub fn looks_like_a_zip(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"PK\x03\x04") || bytes.starts_with(b"PK\x05\x06")
+}
 
 /// A Bundle opened: its sidecar, and the zip still open behind it, so each
 /// Photograph the sidecar names is read when it is wanted and never all at
@@ -1084,10 +1131,9 @@ impl Opened<'_> {
 
 /// Every top-level recipe note in the zip, read back into a recipe's words.
 fn read_notes(archive: &mut Archive, left: &mut u64) -> Result<Vec<(String, Value)>, TooLarge> {
-    let mut names: Vec<String> = archive
-        .file_names()
+    let mut names: Vec<String> = other_apps::names(archive)
         .filter(|name| name.ends_with(".md") && !name.contains('/'))
-        .map(str::to_string)
+        .map(Cow::into_owned)
         .collect();
     names.sort();
     let mut notes = Vec::new();
@@ -1121,9 +1167,9 @@ pub fn read_note(text: &str) -> Option<Value> {
     }
     let heading = |title: &str| {
         let title = title.trim();
-        [&EN, &FR, &ES]
+        NOTE_WORDS
             .iter()
-            .find_map(|words| {
+            .find_map(|(_, words)| {
                 if title == words.ingredients {
                     Some(Part::Ingredients)
                 } else if title == words.method {
@@ -1142,6 +1188,7 @@ pub fn read_note(text: &str) -> Option<Value> {
     let mut ingredients: Vec<Value> = Vec::new();
     let mut steps: Vec<Value> = Vec::new();
     let mut note: Vec<String> = Vec::new();
+    let mut note_heading = String::new();
     // The list item a continuation line belongs to: the written line break
     // that `block` turned into a hard break comes back as a newline.
     let mut open = false;
@@ -1155,6 +1202,9 @@ pub fn read_note(text: &str) -> Option<Value> {
         }
         if let Some(rest) = line.strip_prefix("## ") {
             part = heading(rest);
+            if part == Part::Note {
+                note_heading = rest.trim().to_string();
+            }
             open = false;
             continue;
         }
@@ -1207,13 +1257,6 @@ pub fn read_note(text: &str) -> Option<Value> {
                 }
             }
             Part::Note => {
-                // The Tags line follows the Note, and is filing, not words.
-                let tags = [&EN, &FR, &ES]
-                    .iter()
-                    .any(|words| line.starts_with(&format!("{}: ", words.tags)));
-                if tags {
-                    continue;
-                }
                 if !line.trim().is_empty() {
                     note.push(unescape(line.trim()));
                 } else if note.last().is_some_and(|held| !held.is_empty()) {
@@ -1224,6 +1267,21 @@ pub fn read_note(text: &str) -> Option<Value> {
         }
     }
     let title = title.filter(|title| !title.is_empty())?;
+    // The Tags line follows the Note, and is filing, not words. It is the
+    // note's last line, in the Language of the Note's own heading, so a line
+    // of the cook's that happens to start with another Language's word for
+    // Tags stays (#577).
+    while note.last().is_some_and(String::is_empty) {
+        note.pop();
+    }
+    let tags_line = note.last().is_some_and(|last| {
+        NOTE_WORDS.iter().any(|(_, words)| {
+            words.note == note_heading && last.starts_with(&format!("{}: ", words.tags))
+        })
+    });
+    if tags_line {
+        note.pop();
+    }
     let note = note.join("\n").trim().replace("\n\n\n", "\n\n");
     Some(json!({
         "title": title,
@@ -1480,9 +1538,10 @@ mod tests {
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(written.bytes)).expect("a zip");
         let name = archive
             .file_names()
+            .map(Result::unwrap)
             .find(|name| name.ends_with(".md"))
             .expect("a note")
-            .to_string();
+            .into_owned();
         let mut text = String::new();
         std::io::Read::read_to_string(&mut archive.by_name(&name).unwrap(), &mut text).unwrap();
         assert_eq!(
@@ -1502,6 +1561,86 @@ mod tests {
             "{text}"
         );
         assert_eq!(read_note("no title here"), None);
+    }
+
+    /// The note is written in every Language Kamosu reads, and no other.
+    #[test]
+    fn a_note_has_words_in_every_language() {
+        let codes: Vec<&str> = NOTE_WORDS.iter().map(|(code, _)| *code).collect();
+        assert_eq!(codes, crate::language::LANGUAGES);
+    }
+
+    /// Every Language Kamosu reads is named in a note in its own words, each
+    /// name its own, and a code no note is written in is shown as it stands
+    /// (#592).
+    #[test]
+    fn every_language_has_its_own_name_in_a_note() {
+        let names: Vec<&str> = crate::language::LANGUAGES
+            .iter()
+            .map(|code| language_name(code))
+            .collect();
+        assert_eq!(names, ["English", "Français", "Español", "Nederlands"]);
+        assert_eq!(language_name("de"), "de");
+    }
+
+    /// A line of the cook's own that starts with some Language's word for
+    /// Tags is the cook's, and only the last line in the note's own Language
+    /// is taken for the Tags line (#577).
+    #[test]
+    fn a_note_line_that_looks_like_tags_stays() {
+        let text = "# Soup\n\n## Note\n\nLabels: read them for allergens.\n\nTags: soup\n\n---\n";
+        assert_eq!(
+            read_note(text).expect("a title")["note"],
+            json!("Labels: read them for allergens.")
+        );
+        let text = "# Soup\n\n## Note\n\nTags: x\n\nMore.\n\nTags: soup\n\n---\n";
+        assert_eq!(
+            read_note(text).expect("a title")["note"],
+            json!("Tags: x\n\nMore.")
+        );
+        let text = "# Soep\n\n## Notitie\n\nTags: niet de labels.\n\nLabels: soep\n\n---\n";
+        assert_eq!(
+            read_note(text).expect("a title")["note"],
+            json!("Tags: niet de labels.")
+        );
+    }
+
+    /// Every Language a note is written in reads back, Dutch among them
+    /// (#577): its headings are known to the reader, not only the writer.
+    #[test]
+    fn a_note_in_every_language_reads_back() {
+        for (code, _) in NOTE_WORDS {
+            let mut written = contents();
+            written.branches[0].record["language"] = json!(code);
+            written.branches[0].record["tags"] = json!([{ "names": { code: "soep" } }]);
+            written.branches[0].record["versions"][1]["content"] = json!({
+                "title": "Soep",
+                "note": "Lekker.",
+                "ingredients": [{ "kind": "ingredient", "text": "1 ui" }],
+                "steps": [{ "kind": "step", "text": "Snijden." }],
+            });
+            let written = write(&written).expect("writes");
+            let mut archive =
+                zip::ZipArchive::new(std::io::Cursor::new(written.bytes)).expect("a zip");
+            let name = archive
+                .file_names()
+                .map(Result::unwrap)
+                .find(|name| name.ends_with(".md"))
+                .expect("a note")
+                .into_owned();
+            let mut text = String::new();
+            std::io::Read::read_to_string(&mut archive.by_name(&name).unwrap(), &mut text).unwrap();
+            assert_eq!(
+                read_note(&text).expect("a title"),
+                json!({
+                    "title": "Soep",
+                    "note": "Lekker.",
+                    "ingredients": [{ "kind": "ingredient", "text": "1 ui" }],
+                    "steps": [{ "kind": "step", "text": "Snijden." }],
+                }),
+                "{code}: {text}"
+            );
+        }
     }
 
     #[test]
@@ -1589,5 +1728,46 @@ mod tests {
             !text.contains("## Ingrédients") && !text.contains("## Préparation"),
             "a recipe with nothing listed gets no heading over nothing:\n{text}"
         );
+    }
+
+    /// A time on the note reads as the app, the Sheet and the Share Link page
+    /// write it, never as the stored minutes: a 9-hour prove read `540 min
+    /// prep` before (#546).
+    #[test]
+    fn a_notes_times_read_in_hours_and_minutes() {
+        for (minutes, prep, cook) in [
+            (540, "9 h prep", "9 h cook"),
+            (90, "1 h 30 prep", "1 h 30 cook"),
+            (15, "15 min prep", "15 min cook"),
+        ] {
+            let mut written = contents();
+            written.branches[0].record["language"] = json!("en");
+            written.branches[0].record["versions"][1]["content"] = json!({
+                "title": "Bœuf bourguignon",
+                "prep_time_minutes": minutes,
+                "cook_time_minutes": minutes,
+            });
+            let written = write(&written).expect("writes");
+            let mut archive =
+                zip::ZipArchive::new(std::io::Cursor::new(written.bytes)).expect("a zip");
+            let mut text = String::new();
+            std::io::Read::read_to_string(
+                &mut archive.by_name("Bœuf bourguignon.md").expect("the note"),
+                &mut text,
+            )
+            .expect("reads");
+            let meta = format!("\n{prep} · {cook}\n");
+            assert!(text.contains(&meta), "{minutes} minutes:\n{text}");
+        }
+    }
+
+    #[test]
+    fn a_dutch_recipes_note_is_in_dutch() {
+        assert_eq!(words("nl").ingredients, "Ingrediënten");
+        assert_eq!(words("nl").method, "Bereiding");
+        assert_eq!(words("nl").history, "Geschiedenis");
+        assert_eq!(words("nl").tags, "Labels");
+        assert_eq!(words("nl").prep, "voorbereidingstijd");
+        assert_eq!(words("nl").cook, "kooktijd");
     }
 }

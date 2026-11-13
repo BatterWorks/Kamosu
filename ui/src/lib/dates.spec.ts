@@ -6,7 +6,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { setLocale } from '$lib/paraglide/runtime';
+import { setLocale } from '#lib/paraglide/runtime.js';
 import { aDate, aDay, aMoment, aMonth, howLongAgo } from './dates';
 
 const noon = '2026-09-25T12:05:00Z';
@@ -31,6 +31,12 @@ describe("a date, in the app's own Language", () => {
 	it('writes Spanish in Spanish', () => {
 		setLocale('es', { reload: false });
 		expect(aDay(noon)).toBe('25 de septiembre');
+	});
+
+	it('writes Dutch in Dutch (#496)', () => {
+		setLocale('nl', { reload: false });
+		expect(aDay(noon)).toBe('25 september');
+		expect(aDate(noon)).toBe('25 sep 2026');
 	});
 
 	it('writes a moment with its minute and no seconds, on a 24-hour clock', () => {

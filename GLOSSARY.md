@@ -65,7 +65,7 @@ A one-use link that turns a stranger into a Person, adds a Person to a Kitchen, 
 _Avoid_: Signup, registration, join code, magic link
 
 **Access Key**:
-A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only or add-only (an **Add-only key**), and never expiring. One of the sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account. An Operator's Access Key acts as an ordinary Person unless it is an **Operator key**. Setting a new password through a recovery link ends every Access Key and Session the account held.
+A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only or add-only (an **Add-only key**), and never expiring. One of the sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account. An Operator's Access Key acts as an ordinary Person unless it is an **Operator key**. Setting a new password through a recovery link ends every Access Key, Session and passkey the account held (#535).
 _Avoid_: API key, token, secret, password, Credential
 
 **Operator key**:
@@ -76,6 +76,10 @@ _Avoid_: admin key, admin token
 An **Access Key** that can only hand something to Kamosu to be added and see how that went, chosen when it is minted. It is the key a phone's Shortcut carries, so a leaked one can add recipes and never change or delete one. It also keeps whether what it adds goes to the **Agent** every time or only when Kamosu cannot read it alone (ADR 0055).
 _Avoid_: Shortcut key, inbox key, upload token, write-only key
 
+**Calendar Link**:
+A **Secret** in an address a Person gives their phone's calendar app, which reads their **Meal Plan** at it with no sign-in and shows each **Planned Meal** as an all-day event. It reads the plan and nothing else. A Person has one at most, made in Settings and shown once; making another ends it, and so does ending it (ADR 0059).
+_Avoid_: iCal feed, calendar token, subscription URL
+
 **Runner Key**:
 A **Secret** an Operator mints for a **Runner**. It can ask for a **Job**, keep hold of it and report how it ended, and nothing else. It never acts as a Person and it cannot touch a recipe (ADR 0048). Setting a new password through a recovery link ends every Runner Key that account minted, and an Operator's also ends those minted before Kamosu recorded who mints them (#378).
 _Avoid_: Agent key, API key, token, service account, Access Key
@@ -85,7 +89,7 @@ A **Secret** that comes with one **Job** a **Runner** takes, for the agent that 
 _Avoid_: Job token, session, Runner Key, Access Key
 
 **Operator**:
-A Person who also administers the instance: seeing who holds an account, minting Invites, raising a Person to Operator and standing one down, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, changing the instance's public address, merging Foods and deleting one nothing points at, sweeping Photographs nothing points at, deleting a Kitchen nobody is left in, taking and fetching a **Backup**, minting and revoking **Runner Keys**, minting **Operator keys**, reading the instance's **Security Record**, reading every Ingredient Line again, writing the **House Notes**, and looking after any **Cookbook**: reading, changing, creating and deleting its recipes, and their Tags and Related Recipes, under the Operator's own **Hand**, on a call that says so (ADR 0049). Otherwise an Operator is a Person like any other. Nothing beyond that list. No Operator reaches another Person's Attempts or shopping list, and seeing who holds an account is a list of names and nothing about what they cook. More than one is allowed and the last cannot be demoted, disabled or deleted, because an instance with nobody to administer it can never appoint anybody. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
+A Person who also administers the instance: seeing who holds an account, minting Invites and recovery links and revoking those not yet used (#535), raising a Person to Operator and standing one down, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, changing the instance's public address, merging Foods and deleting one nothing points at, sweeping Photographs nothing points at, deleting a Kitchen nobody is left in, taking and fetching a **Backup**, minting and revoking **Runner Keys**, minting **Operator keys**, reading the instance's **Security Record**, reading every Ingredient Line again, writing the **House Notes**, and looking after any **Cookbook**: reading, changing, creating and deleting its recipes, and their Tags and Related Recipes, under the Operator's own **Hand**, on a call that says so (ADR 0049). Otherwise an Operator is a Person like any other. Nothing beyond that list. No Operator reaches another Person's Attempts or shopping list, and seeing who holds an account is a list of names and nothing about what they cook. More than one is allowed and the last cannot be demoted, disabled or deleted, because an instance with nobody to administer it can never appoint anybody. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
 _Avoid_: Admin, root, superuser, owner, host
 
 ### Doing and permission
@@ -95,7 +99,7 @@ What a request presents to prove who is acting. It comes from one of four places
 _Avoid_: Token, session, auth, API key, login
 
 **Secret**:
-A long random string where holding it *is* the permission — a **Share Link** token, an **Access Key**, a **Runner Key**, a **Job Key**, an **Invite**, a recovery link, a **Session**. All are 256 bits of randomness, revocable one at a time, and **never on a clock**. All but the Share Link are stored hashed, shown once at minting, and known afterwards only by a name and when they were last used. A Share Link keeps its Secret readable, so its address can be shown again for as long as it lives: it grants reading one recipe, which whoever holds the database already has (ADR 0031, as amended by #171). A Secret ends in one of exactly two ways — it is *spent*, as an Invite and a recovery link are on first use and a Job Key is when its Job ends, or it is *revoked*. A password is not a Secret: it is short, chosen by a person, never stored, and the only thing in Kamosu that is throttled.
+A long random string where holding it *is* the permission: a **Share Link** token, a **Calendar Link**, an **Access Key**, a **Runner Key**, a **Job Key**, an **Invite**, a recovery link, a **Session**. All are 256 bits of randomness, revocable one at a time, and **never on a clock**. All but the Share Link are stored hashed, shown once at minting, and known afterwards only by a name and when they were last used. A Share Link keeps its Secret readable, so its address can be shown again for as long as it lives: it grants reading one recipe, which whoever holds the database already has (ADR 0031, as amended by #171). A Secret ends in one of exactly two ways: it is *spent*, as an Invite and a recovery link are on first use and a Job Key is when its Job ends, or it is *revoked*. A password is not a Secret: it is short, chosen by a person, never stored, and the only thing in Kamosu that is throttled.
 _Avoid_: Token, key, credential, nonce, bearer token
 
 **Session**:
@@ -107,7 +111,7 @@ A way for a Person to log in with their device's face, fingerprint or screen loc
 _Avoid_: WebAuthn key, security key, biometric login, FIDO credential
 
 **Security Record**:
-What Kamosu notes of what happens at its doors, kept 90 days (#371). A Person reads their own: each sign-in and how it was made, a run of wrong passwords at their name as one entry, their passkeys, password, Access Keys and Sessions ended. Every Operator reads the instance's: changes to the House Notes and the public address, who administers, accounts ended, Operator keys, Runner Keys, Backups fetched and a crowd at the sign-in, each with who did it through which Credential. Every entry is also one line of the log, in a fixed format (`docs/security-record.md`). It names Credentials, never an address, and is sent nowhere.
+What Kamosu notes of what happens at its doors, kept 90 days (#371). A Person reads their own: each sign-in and how it was made, a run of wrong passwords at their name as one entry, their passkeys, password, Access Keys and Sessions ended. Every Operator reads the instance's: changes to the House Notes and the public address, who administers, accounts ended, Operator keys, Runner Keys, Backups fetched, Invites and recovery links revoked and a crowd at the sign-in, each with who did it through which Credential. Every entry is also one line of the log, in a fixed format (`docs/security-record.md`). It names Credentials, never an address, and is sent nowhere.
 _Avoid_: Audit log, activity log, history
 
 **Immediate Operation**:
@@ -211,7 +215,7 @@ An edible thing Kamosu knows about, pointed at by the Readings that mention it a
 _Avoid_: Item, product, ingredient (an Ingredient is a row in a recipe; a Food is the thing itself)
 
 **Food Match**:
-How a word looking for a Food finds one — the same act whether the word arrived in a Bundle, was read out of a Crouton file or a web page, or was typed. Two words are the same word when they are in the same Language and equal once capitals and stray spaces are folded away; accents and plurals are meaning, so *maïs* is not *mais* and English *raisin* is not French *raisin*. It never asks a question and never interrupts a recipe arriving. One hit matches, and the Food learns any arriving name that nothing on the instance answers to. **Doubt makes a new Food, never a merge**: where an arriving Food's words hit two, it lands as a third carrying all of them, because welding two Foods together cannot be undone while keeping two apart is one tap to repair. A lone word that is ambiguous goes to the Food the most Readings already use. Getting it wrong is survivable in every case, since the Ingredient Line reads as written whatever the Reading over it points at.
+How a word looking for a Food finds one — the same act whether the word arrived in a Bundle, was read out of a Crouton file or a web page, or was typed. Two words are the same word when they are in the same Language and equal once capitals and stray spaces are folded away; accents and plurals are meaning, so *maïs* is not *mais* and English *raisin* is not French *raisin*. Dutch alone takes plurals and diminutives off a name's main word too, so *uien* and *ui* are one word (ADR 0057). It never asks a question and never interrupts a recipe arriving. One hit matches, and the Food learns any arriving name that nothing on the instance answers to. **Doubt makes a new Food, never a merge**: where an arriving Food's words hit two, it lands as a third carrying all of them, because welding two Foods together cannot be undone while keeping two apart is one tap to repair. A lone word that is ambiguous goes to the Food the most Readings already use. Getting it wrong is survivable in every case, since the Ingredient Line reads as written whatever the Reading over it points at.
 _Avoid_: Matching, resolution, deduplication, fuzzy match, lookup
 
 **Merge Suggestion**:
@@ -364,11 +368,21 @@ _Avoid_: Deviation, adjustment, diff, draft, variant, modification
 The deliberate act of taking something provisional out of an Attempt and making it part of the recipe — an As Cooked becoming a Version, or an Attempt photograph becoming the Main Photo or a Step's photo. The interface says *keep*: a cooking whose changed lines were never promoted is *unkept*, and Cooked offers to keep them as a Version. The point at which an Attempt's freedoms end and the recipe's rules begin: what is promoted is append-only, and promoting requires the right to edit the recipe.
 _Avoid_: Apply, merge, commit, save back, accept
 
+### Planning
+
+**Meal Plan**:
+One **Person**'s own calendar of what they will cook: the days ahead, and the recipes put on each. Everyone has exactly one; it has no name, nobody else reads it, and an Operator acting as one does not reach it. It keeps what it held after the week has gone and after the shop, where the **Shopping List** is emptied. That it is a Person's own is a candidate: a plan shared by a **Cookbook**'s Co-authors is the open alternative (ADR 0058).
+_Avoid_: Menu, meal planner, calendar, schedule, agenda
+
+**Planned Meal**:
+What stands on a **Meal Plan**: on a day, or on a week with no day yet ("this week, any day"), the week named by its Monday. It is a recipe or a few written words. A recipe is one **Branch**, always at its latest **Version**, at the **Yield** the cook means or as written. Written words ("leftovers", "eating out") are kept exactly as written and never read, as a **Loose Item** is. A day, and a week's meals with no day, each hold as many as the cook likes, in the order the cook puts them, with no breakfast, lunch or dinner. Any Planned Meal can be moved to another day or week, put in another order, or planned again elsewhere, which plans a second one. One whose recipe is deleted or no longer shared stays, keeps the name it was known by and says it can no longer be read, as a Shopping List entry does. A recipe sent to the **Shopping List** remembers how much of it went, so it is never sent twice; emptying the list leaves that as it was.
+_Avoid_: Plan entry, meal, slot, event
+
 ### Shopping
 
 **Shopping List**:
 One **Person**'s standing choice of what they are about to cook — the recipes they picked, how much of each they are shopping for, and any **Loose Item** they typed. Everyone has exactly one; it has no name, it is never archived, and sending it offers to empty it but never does so by itself. It holds a **Branch** rather than a **Lineage**, because on the day you are cooking one particular text and a friend's version of the dish may want anchovies where yours does not — and always that Branch's latest **Version**, never a pinned one, so a recipe edited on Monday is right on Tuesday. What is stored is the choosing; what is shown is worked out from it every time and kept nowhere. A recipe that is deleted or whose sharing is withdrawn stays on the list, keeps the name it was known by and contributes nothing, saying so.
-_Avoid_: Basket, cart, meal plan, groceries, list
+_Avoid_: Basket, cart, meal plan (the days ahead are the **Meal Plan**), groceries, list
 
 **Shopping Row**:
 One thing to buy, worked out from a **Shopping List** and stored nowhere. It names a **Food** rather than any **Ingredient Line**, in the reader's **Reading Language** and falling back to whatever name the Food has, marked — so every mention of flour across every recipe on the list becomes one row. It carries as many amounts as the arithmetic honestly supports: added together where the **Unit**s convert, in the reader's **Reading Measures** and saying *about*; side by side where they do not, `500 g + 2 poignées`, because two true amounts beat one wrong one. An amount nobody stated is one of those, shown as *some* and never dropped. The lines it was made from are always one tap away.
@@ -381,7 +395,7 @@ _Avoid_: Extra, manual item, custom item, note
 ### Showing Kamosu
 
 **Demo**:
-An instance anyone may open without signing in, to see what Kamosu is before installing it, where every screen opens and only cooking and shopping save. Every visitor is the same Person, in a **Sample Library** put back every day (ADR 0052).
+An instance anyone may open without signing in, to see what Kamosu is before installing it, where every screen opens and only cooking, planning and shopping save. Every visitor is the same Person, in a **Sample Library** put back every day (ADR 0052).
 _Avoid_: Sandbox, trial, guest access, read-only mode, playground
 
 **Sample Library**:

@@ -7,12 +7,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { RUNNER_KEYS } from '$lib/agent/agent';
+	import { RUNNER_KEYS } from '#lib/agent/agent.js';
 
 	onMount(
 		() =>
 			void goto(location.hash === `#${RUNNER_KEYS}` ? '/settings/runner' : '/settings/people', {
-				replaceState: true,
+				replace: true,
 			}),
 	);
 </script>

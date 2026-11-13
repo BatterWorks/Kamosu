@@ -14,7 +14,7 @@
 	path.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import Unfolded from './Unfolded.svelte';
 	import { pathKey, type Component, type Unfolding } from './unfolding.svelte';
 

@@ -8,7 +8,7 @@
  * the fact.
  */
 
-import { OperationError } from '$lib/api/client';
+import { OperationError } from '#lib/api/client.js';
 
 export class Acting {
 	said = $state<string | undefined>(undefined);

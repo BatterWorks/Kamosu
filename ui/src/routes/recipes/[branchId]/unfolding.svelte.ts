@@ -7,7 +7,7 @@
  * and a dough unfolds whichever recipe you are standing in. What is held here
  * is only which of them the cook has opened.
  */
-import type { GetRecipeOutput } from '$lib/api/catalogue';
+import type { GetRecipeOutput } from '#lib/api/catalogue.js';
 
 /** One Component of the recipe being read, unfolded by the Core (ADR 0008). */
 export type Component = GetRecipeOutput['versions'][number]['components'][number];

@@ -721,6 +721,54 @@ async fn an_operators_invite_can_bring_a_newcomer_into_a_kitchen() {
     assert_eq!(status, 404, "{refused}");
 }
 
+/// `get_person` says whether the Person a Credential names is an Operator, so
+/// the interface never has to ask an Operator's Operation to find out (#533).
+/// It is the Person's answer, not the Credential's: an Operator's ordinary key
+/// says yes too, and both Doors say the same.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_person_says_whether_the_person_is_an_operator() {
+    let app = support::spawn_app();
+    let create =
+        json!({ "name": "Stéphane", "password": "the right password", "session_name": "operator" });
+    let operator = app.post_auth_response("/auth/first-person", &create.to_string());
+    let operator = support::session_cookie_secret(&operator);
+    let (status, me) = app.post_op("get_person", Some(&operator), "{}");
+    assert_eq!(status, 200, "{me}");
+    assert_eq!(me["result"]["is_operator"], json!(true), "{me}");
+    let operator_id = me["result"]["person_id"].as_str().unwrap();
+
+    let ordinary_key = app
+        .core
+        .mint_access_key(operator_id, "browser", false)
+        .unwrap()
+        .secret;
+    let (_, by_key) = app.post_op("get_person", Some(&ordinary_key), "{}");
+    assert_eq!(by_key["result"]["is_operator"], json!(true), "{by_key}");
+
+    let cook = app.core.create_person("Camille Martin").expect("a cook");
+    let cook_key = app
+        .core
+        .mint_access_key(&cook, "browser", false)
+        .unwrap()
+        .secret;
+    let (status, cooks) = app.post_op("get_person", Some(&cook_key), "{}");
+    assert_eq!(status, 200, "{cooks}");
+    assert_eq!(cooks["result"]["is_operator"], json!(false), "{cooks}");
+
+    for (key, expected) in [(&ordinary_key, true), (&cook_key, false)] {
+        let call = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": "get_person", "arguments": {} },
+        });
+        let (_, answer) = app.post_mcp(&call.to_string(), Some(key));
+        assert_eq!(
+            answer["result"]["structuredContent"]["is_operator"],
+            json!(expected),
+            "{answer}"
+        );
+    }
+}
+
 /// A Kitchen an Invite names can still be deleted once nobody is in it, and
 /// the Invite then brings its newcomer into no Kitchen (#469).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1094,6 +1142,36 @@ async fn logging_in_mints_a_revocable_session_credential() {
     );
     assert_eq!(status, 200, "{revoked}");
     assert_eq!(app.post_op("list_jobs", Some(secret), "{}").0, 401);
+}
+
+/// A password hashed before `argon2` 0.6 still signs in after it (#524). The
+/// hash is fixed text written by `argon2` 0.5.3 at ADR 0031's cost, put where
+/// the Person's own hash was, so a later release of the crate that reads a
+/// stored PHC string differently locks this cook out here first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_password_hashed_by_argon2_0_5_still_signs_in() {
+    let app = support::spawn_app();
+    let create =
+        json!({ "name": "Stéphane", "password": "the first password", "session_name": "laptop" });
+    assert_eq!(
+        app.post_auth("/auth/first-person", &create.to_string()).0,
+        200
+    );
+    let written_by_0_5_3 = "$argon2id$v=19$m=20480,t=2,p=1$PPXBK7EotfItcQykIEYXGg$VyaDIaloWbOOASOZLbbATtGf9A4cvHh2qoIJpFRXTww";
+    let data_dir = app.data_dir().expect("the app's own directory");
+    rusqlite::Connection::open(data_dir.join(db::DATABASE_FILE))
+        .unwrap()
+        .execute("UPDATE people SET password_hash = ?1", [written_by_0_5_3])
+        .unwrap();
+
+    let login = |password: &str| {
+        let login = json!({ "name": "Stéphane", "password": password, "session_name": "phone" });
+        app.post_auth("/auth/login", &login.to_string())
+    };
+    let (status, signed_in) = login("a tart for the old hash");
+    assert_eq!(status, 200, "{signed_in}");
+    let (status, refused) = login("a tart for the new hash");
+    assert_eq!(status, 401, "{refused}");
 }
 
 /// Several Sessions of one Person are told apart (#114): the one asking is
@@ -7114,6 +7192,208 @@ async fn a_recovery_link_ends_every_session_and_access_key_the_account_held() {
     );
 }
 
+/// A recovery link minted for `name` at the web door, as its path.
+fn recovery_link(app: &support::TestApp, operator: &str, name: &str) -> String {
+    let (status, minted) = app.post_op(
+        "mint_recovery_link",
+        Some(operator),
+        &json!({ "name": name }).to_string(),
+    );
+    assert_eq!(status, 200, "{minted}");
+    minted["result"]["link"].as_str().unwrap().to_string()
+}
+
+/// A recovery link spent with a new password: the status it answered.
+fn recover_with(app: &support::TestApp, link: &str, password: &str) -> u16 {
+    app.post_auth(
+        "/auth/recover",
+        &json!({ "link": link, "password": password, "session_name": "whoever" }).to_string(),
+    )
+    .0
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_newer_recovery_link_ends_the_one_before() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    invited(&app, &session, "Marie");
+    let first = recovery_link(&app, &session, "Marie");
+    let second = recovery_link(&app, &session, "Marie");
+    assert_eq!(
+        recover_with(&app, &first, "a password from the first link"),
+        401
+    );
+    assert_eq!(recover_with(&app, &second, "her own new password"), 200);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn recovering_ends_every_other_recovery_link_of_the_account() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    invited(&app, &session, "Marie");
+    let older = recovery_link(&app, &session, "Marie");
+    let newer = recovery_link(&app, &session, "Marie");
+    // Two live at once, as a library from before #535 may hold.
+    rusqlite::Connection::open(app.data_dir().unwrap().join(db::DATABASE_FILE))
+        .unwrap()
+        .execute("UPDATE account_links SET revoked = 0", [])
+        .unwrap();
+    assert_eq!(recover_with(&app, &newer, "her own new password"), 200);
+    assert_eq!(
+        recover_with(&app, &older, "the intruder's password"),
+        401,
+        "an older link takes the recovered account over no more"
+    );
+    let login = json!({ "name": "Marie", "password": "her own new password", "session_name": "x" });
+    assert_eq!(app.post_auth("/auth/login", &login.to_string()).0, 200);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn changing_a_password_ends_the_accounts_recovery_links() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let marie = invited(&app, &session, "Marie");
+    let link = recovery_link(&app, &session, "Marie");
+    let (status, changed) = app.post_op(
+        "change_password",
+        Some(&marie),
+        &json!({ "current_password": "the password someone took",
+                 "new_password": "a password nobody else has",
+                 "sign_out_other_devices": true, "end_access_keys": false })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{changed}");
+    assert_eq!(recover_with(&app, &link, "the intruder's password"), 401);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_operator_lists_the_live_invites_and_recovery_links_and_revokes_each() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let marie = invited(&app, &session, "Marie");
+    let (_, invite) = app.post_op("mint_invite", Some(&session), r#"{"is_operator":true}"#);
+    let invite = invite["result"]["link"].as_str().unwrap().to_string();
+    let recovery = recovery_link(&app, &session, "Marie");
+
+    let (status, listed) = app.post_op("list_account_links", Some(&session), "{}");
+    assert_eq!(status, 200, "{listed}");
+    let links = listed["result"]["links"].as_array().unwrap().clone();
+    // Marie's spent Invite is no longer live, so it is not listed.
+    assert_eq!(links.len(), 2, "{listed}");
+    let of = |kind: &str| {
+        links
+            .iter()
+            .find(|link| link["kind"] == kind)
+            .cloned()
+            .unwrap_or_else(|| panic!("no {kind} in {listed}"))
+    };
+    let (listed_invite, listed_recovery) = (of("invite"), of("recovery"));
+    assert_eq!(listed_invite["operator"], true, "{listed_invite}");
+    assert_eq!(listed_invite["person"], Value::Null, "{listed_invite}");
+    assert_eq!(listed_recovery["person"], "Marie", "{listed_recovery}");
+    assert_eq!(listed_recovery["operator"], false, "{listed_recovery}");
+    assert!(listed_invite["created_at"].is_string(), "{listed_invite}");
+    // Never the Secret, which is kept by its hash alone (ADR 0031).
+    for link in [&invite, &recovery] {
+        let secret = link.rsplit('/').next().unwrap();
+        assert!(!listed.to_string().contains(secret), "{listed}");
+    }
+
+    // A cook may not list them, nor any key, an Operator's own included.
+    let (status, refused) = app.post_op("list_account_links", Some(&marie), "{}");
+    assert_eq!(status, 401, "{refused}");
+    let (_, key) = app.post_op(
+        "mint_access_key",
+        Some(&session),
+        r#"{"name":"house agent","operator":true}"#,
+    );
+    let key = key["result"]["secret"].as_str().unwrap().to_string();
+    for (operation, input) in [
+        ("list_account_links", json!({})),
+        ("revoke_account_link", json!({ "id": listed_invite["id"] })),
+    ] {
+        let (status, refused) = app.post_op(operation, Some(&key), &input.to_string());
+        assert_eq!(status, 401, "{operation} at a key: {refused}");
+        let (status, refused) = app.post_op(operation, Some(&marie), &input.to_string());
+        assert_eq!(status, 401, "{operation} at a cook: {refused}");
+    }
+
+    for listed in [&listed_invite, &listed_recovery] {
+        let (status, revoked) = app.post_op(
+            "revoke_account_link",
+            Some(&session),
+            &json!({ "id": listed["id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{revoked}");
+    }
+    let (status, again) = app.post_op(
+        "revoke_account_link",
+        Some(&session),
+        &json!({ "id": listed_invite["id"] }).to_string(),
+    );
+    assert_eq!(status, 404, "a revoked link is no longer live: {again}");
+    let (_, listed) = app.post_op("list_account_links", Some(&session), "{}");
+    assert_eq!(listed["result"]["links"], json!([]), "{listed}");
+
+    let joined = app.post_auth(
+        "/auth/invite",
+        &json!({ "link": invite, "name": "Somebody", "password": "a password of their own",
+                 "session_name": "x" })
+        .to_string(),
+    );
+    assert_eq!(joined.0, 401, "{}", joined.1);
+    assert_eq!(
+        recover_with(&app, &recovery, "the intruder's password"),
+        401
+    );
+
+    // Every Operator reads which went, by whom and through what.
+    let (_, record) = app.post_op("list_instance_security_record", Some(&session), "{}");
+    let seen: Vec<(Value, Value, Value, Value)> = record["result"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["event"] == "invite_revoked" || row["event"] == "recovery_link_revoked")
+        .map(|row| {
+            (
+                row["event"].clone(),
+                row["about"].clone(),
+                row["credential"]["name"].clone(),
+                row["detail"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        vec![
+            (
+                json!("recovery_link_revoked"),
+                json!("Marie"),
+                json!("test browser"),
+                json!({})
+            ),
+            (
+                json!("invite_revoked"),
+                Value::Null,
+                json!("test browser"),
+                json!({ "operator": true })
+            ),
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recovery_link_of_an_ended_account_is_not_listed() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    invited(&app, &session, "Marie");
+    recovery_link(&app, &session, "Marie");
+    let (status, _) = app.post_op("disable_account", Some(&session), r#"{"name":"Marie"}"#);
+    assert_eq!(status, 200);
+    let (_, listed) = app.post_op("list_account_links", Some(&session), "{}");
+    assert_eq!(listed["result"]["links"], json!([]), "{listed}");
+}
+
 /// A Person invited and signed in at the web door: their Session's Secret.
 fn invited(app: &support::TestApp, operator: &str, name: &str) -> String {
     let (_, invite) = app.post_op("mint_invite", Some(operator), "{}");
@@ -7299,6 +7579,133 @@ async fn an_access_key_is_not_listed_the_tools_it_is_always_refused() {
         ),
         "{refused}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_credential_naming_no_operator_is_not_listed_an_operators_tools() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let minted = |input: &str| {
+        let (status, key) = app.post_op("mint_access_key", Some(&session), input);
+        assert_eq!(status, 200, "{key}");
+        key["result"]["secret"].as_str().unwrap().to_string()
+    };
+    let ordinary = minted(r#"{"name":"recipe agent"}"#);
+    let operator_key = minted(r#"{"name":"house agent","operator":true}"#);
+    let operators: Vec<&str> = kamosu::catalogue::OPERATIONS
+        .iter()
+        .filter(|op| op.permission == kamosu::catalogue::Permission::Operator)
+        .map(|op| op.name)
+        .collect();
+    assert!(operators.contains(&"set_house_notes"), "{operators:?}");
+
+    // An Operator's ordinary key is a Person's, and is listed none of them.
+    let to_the_ordinary_key = mcp_tool_names(&app, &ordinary);
+    assert!(
+        to_the_ordinary_key.iter().any(|tool| tool == "get_recipe"),
+        "the key lost its ordinary tools: {to_the_ordinary_key:?}"
+    );
+    for name in &operators {
+        assert!(
+            !to_the_ordinary_key.iter().any(|tool| tool == name),
+            "a key naming no Operator was listed {name}, which it is always refused"
+        );
+    }
+    // The Operator key and the Operator's Session are listed every one of
+    // them, but a Session-only one for the key.
+    let to_the_operator_key = mcp_tool_names(&app, &operator_key);
+    let to_the_session = mcp_tool_names(&app, &session);
+    for name in &operators {
+        let session_only = kamosu::catalogue::find(name).unwrap().session_only;
+        assert_eq!(
+            to_the_operator_key.iter().any(|tool| tool == name),
+            !session_only,
+            "the Operator key and {name}"
+        );
+        assert!(
+            to_the_session.iter().any(|tool| tool == name),
+            "the Operator's Session was not listed {name}"
+        );
+    }
+
+    // Called anyway, one answers with the refusal it always gave.
+    let call = json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": { "name": "set_house_notes", "arguments": { "notes": "Salt to taste." } },
+    });
+    let (_, refused) = app.post_mcp(&call.to_string(), Some(&ordinary));
+    assert_eq!(refused["result"]["isError"], json!(true), "{refused}");
+    assert!(
+        refused
+            .to_string()
+            .contains("Operation 'set_house_notes' requires a Credential naming an Operator"),
+        "{refused}"
+    );
+}
+
+/// A mistyped key shows when its client first lists, not at its first call:
+/// a Secret that names nobody is refused at `tools/list`, while no Secret at
+/// all is listed as before (#534).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_secret_naming_nobody_is_refused_the_tool_listing() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let (status, revoked) =
+        app.post_op("mint_access_key", Some(&session), r#"{"name":"old agent"}"#);
+    assert_eq!(status, 200, "{revoked}");
+    let revoked_id = revoked["result"]["id"].as_str().unwrap().to_string();
+    let revoked = revoked["result"]["secret"].as_str().unwrap().to_string();
+    let (status, _) = app.post_op(
+        "revoke_access_key",
+        Some(&session),
+        &json!({ "access_key_id": revoked_id }).to_string(),
+    );
+    assert_eq!(status, 200);
+
+    let listing = r#"{"jsonrpc":"2.0","id":7,"method":"tools/list"}"#;
+    for wrong in ["not-a-key-anyone-holds", revoked.as_str()] {
+        let (status, refused) = app.post_mcp(listing, Some(wrong));
+        assert_eq!(status, 401, "{refused}");
+        assert_eq!(refused["jsonrpc"], json!("2.0"), "{refused}");
+        assert_eq!(refused["id"], json!(7), "{refused}");
+        assert_eq!(refused["error"]["code"], json!(-32600), "{refused}");
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("does not name anyone")),
+            "{refused}"
+        );
+    }
+
+    let (status, listed) = app.post_mcp(listing, None);
+    assert_eq!(status, 200, "{listed}");
+    assert!(
+        listed["result"]["tools"]
+            .as_array()
+            .is_some_and(|tools| !tools.is_empty()),
+        "{listed}"
+    );
+}
+
+/// A body that is not JSON is answered as JSON-RPC answers a parse failure,
+/// never with the extractor's plain text (#534).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unparseable_mcp_body_is_a_json_rpc_parse_error() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    for secret in [None, Some(session.as_str())] {
+        let (status, refused) = app.post_mcp(r#"{"jsonrpc":"2.0","id":1,"meth"#, secret);
+        assert_eq!(status, 200, "{refused}");
+        assert_eq!(refused["jsonrpc"], json!("2.0"), "{refused}");
+        assert_eq!(refused["id"], Value::Null, "{refused}");
+        assert_eq!(refused["error"]["code"], json!(-32700), "{refused}");
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .is_some_and(|m| m.starts_with("Parse error")),
+            "{refused}"
+        );
+    }
 }
 
 // --- Runner Keys (issue #260) -------------------------------------------------
@@ -8746,6 +9153,77 @@ async fn cancelling_a_task_is_acknowledged_and_honoured_while_it_waits_in_line()
         std::thread::sleep(Duration::from_millis(25));
     }
     panic!("the running task never completed");
+}
+
+/// A worker reads a Job queued under one lock and moves it to running under
+/// another, and a cancel can land between the two (#541). It used to answer
+/// yes, and the worker then ran the Job anyway: a cancelled import landed every
+/// recipe in its file. The cancel is put in that window by a hook, not by luck.
+#[cfg(feature = "test-jobs")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_job_cancelled_after_a_worker_picked_it_is_not_run() {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc;
+
+    let app = support::spawn_app();
+    let person = app.core.create_person("Stéphane").expect("person");
+    let key = app
+        .core
+        .mint_access_key(&person, "browser session", false)
+        .unwrap()
+        .secret;
+
+    // The first Job a worker picks waits there until the test says go.
+    let (picked, was_picked) = mpsc::channel::<String>();
+    let (go, wait_for_go) = mpsc::channel::<()>();
+    let wait_for_go = Mutex::new(wait_for_go);
+    let paused_once = AtomicBool::new(false);
+    app.core.before_a_job_runs(move |job_id| {
+        if paused_once.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        picked.send(job_id.to_string()).expect("the test listens");
+        let _ = wait_for_go
+            .lock()
+            .expect("one worker waits")
+            .recv_timeout(Duration::from_secs(10));
+    });
+
+    let (status, ask) = app.post_op(
+        "probe_job",
+        Some(&key),
+        &json!({ "steps": 1, "delay_ms": 1 }).to_string(),
+    );
+    assert_eq!(status, 200, "{ask}");
+    let job_id = ask["result"]["job_id"]
+        .as_str()
+        .expect("a job id")
+        .to_string();
+    let in_the_window = was_picked
+        .recv_timeout(Duration::from_secs(10))
+        .expect("a worker picks the Job");
+    assert_eq!(in_the_window, job_id);
+
+    // Cancelled while the worker holds it, read as queued, in its hand.
+    let (status, cancelled) = app.post_op(
+        "cancel_job",
+        Some(&key),
+        &json!({ "job_id": job_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{cancelled}");
+    assert_eq!(cancelled["result"]["cancelled"], json!(true), "{cancelled}");
+    go.send(()).expect("the worker waits");
+
+    // Run, the Job would be running in a millisecond and completed in two.
+    // It stays as the cancel left it.
+    let get = json!({ "job_id": job_id }).to_string();
+    for _ in 0..40 {
+        let (_, job) = app.post_op("get_job", Some(&key), &get);
+        assert_eq!(job["result"]["status"], json!("cancelled"), "{job}");
+        assert_eq!(job["result"]["progress"]["done"], json!(null), "{job}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
 
 #[cfg(feature = "test-jobs")]
@@ -14156,7 +14634,7 @@ mod web_link_importer {
             Some(&runner),
             json!({ "job_id": first_job, "outcome": "completed" }),
         );
-        assert_eq!(report["result"].is_object(), true, "{report}");
+        assert!(report["result"].is_object(), "{report}");
         let (_, second_job, _) = a_job_waiting(&app, &key);
         let handed = ask_for_work(&app, &runner);
         assert_eq!(handed["job_id"], json!(second_job));
@@ -15134,18 +15612,18 @@ mod web_link_importer {
         let held = a_job_held(&app);
         assert_eq!(tools_listed_to(&app, &held.job_key), THE_JOB_KEYS_LIST);
 
-        // Once the Job has ended the Job Key is nobody's, and is listed as
-        // nobody is.
+        // Once the Job has ended the Job Key is nobody's, and is refused the
+        // listing as a Secret naming nobody is (#534).
         let (status, reported) = report_on_job(
             &app,
             Some(&held.runner),
             json!({ "job_id": held.job_id, "outcome": "completed" }),
         );
         assert_eq!(status, 200, "{reported}");
-        assert_eq!(
-            tools_listed_to(&app, &held.job_key),
-            tools_listed_to(&app, &"f".repeat(64))
-        );
+        let listing = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
+        let ended = app.post_mcp(listing, Some(&held.job_key));
+        assert_eq!(ended.0, 401, "{}", ended.1);
+        assert_eq!(ended, app.post_mcp(listing, Some(&"f".repeat(64))));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -17294,6 +17772,34 @@ mod web_link_importer {
                 "{taken_by}"
             );
         }
+    }
+
+    /// A cooking holds the Version it started from as firmly as a Copy does
+    /// (#536): the Job's next save may neither replace it nor leave a second
+    /// Version, so it is refused, with a reason that says it was a cooking.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_cooking_of_a_jobs_version_has_the_next_save_refused() {
+        let reason = kamosu::jobs::COOKED_WHILE_IT_WORKED;
+        let app = support::spawn_app();
+        let held = a_job_held(&app);
+        saved_by_the_job(
+            &app,
+            &held,
+            "save_recipe_version",
+            the_recipe_an_agent_read(&held.branch_id),
+        );
+        let asking = json!({ "branch_id": held.branch_id });
+        let (status, started) = app.post_op("start_attempt", Some(&held.cook), &asking.to_string());
+        assert_eq!(status, 200, "{started}");
+        let before = read_recipe(&app, &held.cook, &held.branch_id);
+
+        let asking = json!({ "branch_id": held.branch_id, "note": "Better the next day." });
+        let (status, refused) =
+            app.post_op("edit_recipe", Some(&held.job_key), &asking.to_string());
+        assert_eq!(status, 400, "{refused}");
+        assert_eq!(refused["error"]["message"], json!(reason));
+        the_job_failed_saying(&app, &held, reason);
+        assert_eq!(read_recipe(&app, &held.cook, &held.branch_id), before);
     }
 
     // --- A Co-author asks for a recipe to be read again (#272) -----------
@@ -20668,6 +21174,22 @@ async fn a_language_is_detected_from_the_text_when_there_is_none_to_disagree_wit
     );
     assert_eq!(bare_read["result"]["language"], json!("en"));
 
+    // A writer reading in Dutch gets Dutch as the guess, as for the other
+    // three (#496). The same title as above, which reads as no Language at
+    // all, so only the writer's Language can have made it Dutch.
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "nl", "reading_measures": "metric" }).to_string(),
+    );
+    let kale = shelve(&app, &key, "Dan Dan Noodles");
+    let (_, kale_read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": kale }).to_string(),
+    );
+    assert_eq!(kale_read["result"]["language"], json!("nl"));
+
     // And a Language stated outright is never second-guessed.
     let mut stated = french_mousse();
     stated["language"] = json!("es");
@@ -20756,6 +21278,204 @@ async fn a_first_fill_too_short_to_read_ends_the_guess() {
     let (_, saved) = app.post_op("save_recipe_version", Some(&key), &filled.to_string());
     assert_eq!(saved["result"]["language"], json!("en"), "{saved}");
     assert_eq!(saved["result"]["language_offer"], json!("fr"));
+}
+
+/// One more step on a Branch, saved as a new Version of it.
+fn add_a_step(app: &support::TestApp, key: &str, branch_id: &str, mut recipe: Value, step: &str) {
+    backdate_branch_head(app, branch_id);
+    recipe["branch_id"] = json!(branch_id);
+    recipe["steps"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "kind": "step", "text": step }));
+    let (status, saved) = app.post_op("save_recipe_version", Some(key), &recipe.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["collapsed"], json!(false), "{saved}");
+}
+
+/// A Branch as `get_recipe` answers it.
+fn read_branch(app: &support::TestApp, key: &str, branch_id: &str) -> Value {
+    let (status, read) = app.post_op(
+        "get_recipe",
+        Some(key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    read["result"].clone()
+}
+
+/// A Variation shares its head Version with the Branch it was started from,
+/// so the Version alone cannot say which was translated. The Translation
+/// remembers the Branch it was started from and is measured against it
+/// (#517).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translation_of_a_variation_is_measured_against_that_variation() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": english, "name": "Vegan" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let vegan = varied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // The unnamed Branch moves on; the Variation stays where it started.
+    add_a_step(
+        &app,
+        &key,
+        &english,
+        english_mousse(),
+        "Rest the mousse overnight.",
+    );
+
+    let french = translate(&app, &key, &vegan, "fr", french_mousse());
+    let translation = read_branch(&app, &key, &french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(vegan),
+        "{translation}"
+    );
+    assert_eq!(translation["versions_behind"], json!(0), "{translation}");
+
+    // The Variation moves on, and the Translation is one behind it.
+    add_a_step(
+        &app,
+        &key,
+        &vegan,
+        english_mousse(),
+        "Serve with oat cream.",
+    );
+    let translation = read_branch(&app, &key, &french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(vegan),
+        "{translation}"
+    );
+    assert_eq!(translation["versions_behind"], json!(1), "{translation}");
+
+    // Naming the Version the two Branches still share keeps the Variation
+    // as the source, which the Version alone cannot say.
+    let shared = translation["translates_version_id"].clone();
+    let mut reworded = french_mousse();
+    reworded["translates_version_id"] = shared;
+    add_a_step(
+        &app,
+        &key,
+        &french,
+        reworded,
+        "Réservez au frais deux heures.",
+    );
+    let translation = read_branch(&app, &key, &french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(vegan),
+        "{translation}"
+    );
+    assert_eq!(translation["versions_behind"], json!(1), "{translation}");
+
+    // Catching up keeps the Variation as the source.
+    let vegan_head = read_branch(&app, &key, &vegan)["head_version_id"].clone();
+    let mut caught_up = french_mousse();
+    caught_up["translates_version_id"] = vegan_head;
+    add_a_step(
+        &app,
+        &key,
+        &french,
+        caught_up,
+        "Servez avec une crème d'avoine.",
+    );
+    let translation = read_branch(&app, &key, &french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(vegan),
+        "{translation}"
+    );
+    assert_eq!(translation["versions_behind"], json!(0), "{translation}");
+}
+
+/// A Translation of the unnamed Branch answers as it always has: that Branch
+/// is its source, it needs no name, and it falls behind as the Branch moves
+/// (#517).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translation_of_the_unnamed_branch_answers_as_before() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": english, "name": "Vegan" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+
+    let french = translate(&app, &key, &english, "fr", french_mousse());
+    let read = read_branch(&app, &key, &french);
+    assert_eq!(read["name"], json!(null), "{read}");
+    assert_eq!(read["translation"]["source_branch_id"], json!(english));
+    assert_eq!(read["translation"]["versions_behind"], json!(0));
+
+    add_a_step(
+        &app,
+        &key,
+        &english,
+        english_mousse(),
+        "Rest the mousse overnight.",
+    );
+    let read = read_branch(&app, &key, &french);
+    assert_eq!(read["translation"]["source_branch_id"], json!(english));
+    assert_eq!(read["translation"]["versions_behind"], json!(1));
+}
+
+/// A second Branch in a Language the Cookbook already holds needs a name. It
+/// is the one sent as `branch_name`, else the translated Branch's own, and
+/// only for an unnamed source whose the source is (#517). `name` still names
+/// the first Version.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_translation_into_a_language_is_named_after_its_source() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": english, "name": "Vegan" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let vegan = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    let first = translate(&app, &key, &english, "fr", french_mousse());
+    assert_eq!(read_branch(&app, &key, &first)["name"], json!(null));
+
+    let after_source = translate(&app, &key, &vegan, "fr", french_mousse());
+    assert_eq!(
+        read_branch(&app, &key, &after_source)["name"],
+        json!("Vegan")
+    );
+
+    let mut named = french_mousse();
+    named["branch_name"] = json!("Végane");
+    named["name"] = json!("Première version");
+    let given = translate(&app, &key, &vegan, "fr", named);
+    let read = read_branch(&app, &key, &given);
+    assert_eq!(read["name"], json!("Végane"), "{read}");
+    assert_eq!(read["translation"]["source_branch_id"], json!(vegan));
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&key),
+        &json!({ "branch_id": given }).to_string(),
+    );
+    assert!(
+        thread.to_string().contains("Première version"),
+        "the first Version keeps its own name: {thread}"
+    );
+
+    let unnamed_again = translate(&app, &key, &english, "fr", french_mousse());
+    let name = read_branch(&app, &key, &unnamed_again)["name"].clone();
+    assert!(
+        name.is_string() && name != json!("Vegan"),
+        "an unnamed source is named as a Copy is: {name}"
+    );
 }
 
 /// A Translation renders its source in another Language, so a guess on a
@@ -21710,8 +22430,11 @@ async fn a_collapsing_edit_never_makes_a_recipe_forget_it_was_cooked() {
     };
     assert_eq!(cooked_before["count"], json!(2));
 
-    // An ordinary edit, inside the collapse window, so it folds into the very
-    // Version both cookings are pinned to.
+    // An ordinary edit, inside the collapse window. Since #536 it no longer
+    // folds into a Version somebody cooked, so the state this test is about
+    // only exists in a library written before then. The edit is made, and
+    // its rows are then rewritten the way that older collapse left them: the
+    // first row repointed at the edit's Version, and no second row.
     let (status, saved) = app.post_op(
         "save_recipe_version",
         Some(&key),
@@ -21724,11 +22447,19 @@ async fn a_collapsing_edit_never_makes_a_recipe_forget_it_was_cooked() {
         .to_string(),
     );
     assert_eq!(status, 200, "{saved}");
-    assert_eq!(
-        saved["result"]["collapsed"],
-        json!(true),
-        "this test needs the collapse it is about: {saved}"
-    );
+    assert_eq!(saved["result"]["collapsed"], json!(false), "{saved}");
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute_batch(&format!(
+                "UPDATE branch_versions SET version_id = '{edit}' \
+                  WHERE branch_id = '{branch_id}' AND sequence = 1; \
+                 DELETE FROM branch_versions WHERE branch_id = '{branch_id}' AND sequence = 2;",
+                edit = saved["result"]["version_id"].as_str().unwrap(),
+            ))
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("fold the edit away as a collapse before #536 did");
 
     // The state this test exists for, asserted rather than assumed: the
     // Version both cookings are pinned to is no longer carried by the Branch
@@ -22018,20 +22749,30 @@ async fn a_version_carries_nothing_of_a_cooking() {
 /// Promoting is an ordinary save, so it inherits the collapse window — and a
 /// save that names nothing writes a Version's name away. Promoting a picture
 /// into a Version somebody had named must not quietly un-name it.
+///
+/// The cook writes a Version after cooking, so the one being shaped is not the
+/// one cooked: a Version somebody cooked never collapses (#536).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn promoting_a_picture_keeps_the_version_its_name() {
     let app = support::spawn_app();
     let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Stéphane");
 
+    let picture = upload_a_picture(&app, &key, 123);
+    let attempt_id = cook_it(&app, &key, &branch_id, json!({ "photographs": [picture] }));
+
+    let mut rewritten = katsu_as_written();
+    rewritten["branch_id"] = json!(branch_id);
+    rewritten["steps"][2]["text"] = json!("Servir avec le riz et du chou");
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &rewritten.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["collapsed"], json!(false), "{saved}");
+
     let (_, named) = app.post_op(
         "rename_version",
         Some(&key),
-        &json!({ "branch_id": branch_id, "sequence": 1, "name": "Sunday version" }).to_string(),
+        &json!({ "branch_id": branch_id, "sequence": 2, "name": "Sunday version" }).to_string(),
     );
     assert_eq!(named["result"]["name"], json!("Sunday version"));
-
-    let picture = upload_a_picture(&app, &key, 123);
-    let attempt_id = cook_it(&app, &key, &branch_id, json!({ "photographs": [picture] }));
 
     let (status, promoted) = app.post_op(
         "promote_attempt_photograph",
@@ -25067,6 +25808,81 @@ async fn a_recipe_kamosu_knows_no_time_for_is_never_called_quick() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_time_past_four_thousand_years_is_refused() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let longest = i64::from(i32::MAX);
+
+    // The bound itself is a time a recipe may hold, one minute past it is not
+    // (#553). Past it, the home shelves added two times into an overflow.
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "title": "Forever stew", "prep_time_minutes": longest }).to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    for field in ["prep_time_minutes", "cook_time_minutes"] {
+        let (status, refused) = app.post_op(
+            "create_recipe",
+            Some(&key),
+            &json!({ "title": "Longer stew", field: i64::MAX }).to_string(),
+        );
+        assert_eq!(status, 400, "{refused}");
+        assert!(
+            refused.to_string().contains(field),
+            "the refusal names the time: {refused}"
+        );
+
+        let (status, refused) = app.post_op(
+            "edit_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id, field: longest + 1 }).to_string(),
+        );
+        assert_eq!(status, 400, "{refused}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_time_stored_past_the_bound_still_reads_on_the_shelves_and_the_share_link_page() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let branch_id = timed_recipe_in(&app, &key, "Forever stew", Some(1), Some(1));
+
+    // Saved before #553 bounded the times: nothing refused it then.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE versions SET content = json_set(content, \
+                 '$.prep_time_minutes', 9223372036854775807) \
+                 WHERE id IN (SELECT version_id FROM branch_versions WHERE branch_id = ?1)",
+                rusqlite::params![branch_id],
+            )
+            .unwrap();
+            Ok(())
+        })
+        .expect("stored the time");
+
+    let shelves = home_titles(&app, &key);
+    assert_eq!(
+        shelves.get("quick_tonight"),
+        None,
+        "the longest time there is is not quick: {shelves:?}"
+    );
+
+    let (token, _url) = share(&app, &key, &branch_id);
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(page.contains("Forever stew"), "the recipe is there");
+
+    // Neither answer took the database down with it.
+    let (status, home) = app.post_op("home_shelves", Some(&key), "{}");
+    assert_eq!(status, 200, "{home}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_empty_shelf_is_left_out_and_an_empty_library_answers_with_no_shelves_at_all() {
     let app = support::spawn_app();
     let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
@@ -26528,6 +27344,1519 @@ async fn a_version_written_before_a_field_existed_still_answers_the_declared_sha
     );
 }
 
+// --- The Meal Plan (issue #486, ADR 0058) ------------------------------------
+
+/// One Operation on a plan, answering its status and its `result`.
+fn plan_op(app: &support::TestApp, key: &str, name: &str, input: Value) -> (u16, Value) {
+    let (status, answer) = app.post_op(name, Some(key), &input.to_string());
+    (status, answer["result"].clone())
+}
+
+/// Plan a recipe and answer the Planned Meal's id.
+fn plan(app: &support::TestApp, key: &str, input: Value) -> String {
+    let (status, planned) = plan_op(app, key, "plan_recipe", input);
+    assert_eq!(status, 200, "{planned}");
+    planned["planned_meal"]["planned_meal_id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// The Planned Meals from one day to another.
+fn planned(app: &support::TestApp, key: &str, from: &str, to: &str) -> Vec<Value> {
+    let (status, read) = plan_op(app, key, "get_meal_plan", json!({ "from": from, "to": to }));
+    assert_eq!(status, 200, "{read}");
+    read["planned_meals"].as_array().unwrap().clone()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_planned_on_a_day_is_read_back_in_the_order_it_was_put_there() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = written(&app, &key, "Soupe au pistou");
+    let tarte = written(&app, &key, "Tarte Tatin");
+
+    let first = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-05" }),
+    );
+    let second = plan(
+        &app,
+        &key,
+        json!({ "branch_id": tarte, "day": "2026-11-05" }),
+    );
+    // The same recipe again, another day, and a day outside what is read.
+    let monday = plan(
+        &app,
+        &key,
+        json!({ "branch_id": tarte, "day": "2026-11-02" }),
+    );
+    plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-09" }),
+    );
+
+    let week = planned(&app, &key, "2026-11-02", "2026-11-08");
+    let ids = week
+        .iter()
+        .map(|meal| meal["planned_meal_id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, [monday.as_str(), first.as_str(), second.as_str()]);
+    assert_eq!(
+        week[1],
+        json!({
+            "planned_meal_id": first,
+            "week": "2026-11-02",
+            "day": "2026-11-05",
+            "position": 0,
+            "branch_id": soupe,
+            "words": Value::Null,
+            "title": "Soupe au pistou",
+            "gone": false,
+            "planned_yield": Value::Null,
+            "written_yield": Value::Null,
+            "main_photo": Value::Null,
+            "sent_factor": Value::Null,
+            "sent_at": Value::Null,
+            "cooked": false,
+        })
+    );
+    assert_eq!(week[2]["position"], json!(1));
+
+    // Taken off, it is gone; taken off again, nothing fails.
+    for _ in 0..2 {
+        let (status, removed) = plan_op(
+            &app,
+            &key,
+            "remove_planned_meal",
+            json!({ "planned_meal_id": first }),
+        );
+        assert_eq!(status, 200, "{removed}");
+        assert_eq!(removed, json!({ "planned_meal": null }));
+    }
+    assert_eq!(planned(&app, &key, "2026-11-05", "2026-11-05").len(), 1);
+
+    // A day that is not one, a range turned round, and one too long.
+    for (input, said) in [
+        (
+            json!({ "from": "2026-02-30", "to": "2026-03-01" }),
+            "calendar date",
+        ),
+        (
+            json!({ "from": "tomorrow", "to": "2026-03-01" }),
+            "calendar date",
+        ),
+        (
+            json!({ "from": "2026-11-08", "to": "2026-11-02" }),
+            "same day",
+        ),
+        (json!({ "from": "2026-01-01", "to": "2027-01-02" }), "366"),
+    ] {
+        let (status, refused) = app.post_op("get_meal_plan", Some(&key), &input.to_string());
+        assert_eq!(status, 400, "{input}: {refused}");
+        assert!(refused.to_string().contains(said), "{refused}");
+    }
+    let (status, refused) = plan_op(
+        &app,
+        &key,
+        "plan_recipe",
+        json!({ "branch_id": soupe, "day": "2026-11-31" }),
+    );
+    assert_eq!(status, 400, "{refused}");
+    let (status, refused) = plan_op(
+        &app,
+        &key,
+        "plan_recipe",
+        json!({ "branch_id": "b_0000000000000000", "day": "2026-11-05" }),
+    );
+    assert_eq!(status, 404, "{refused}");
+}
+
+/// Say when a cooking began, as a moment in UTC.
+fn cooking_began(app: &support::TestApp, attempt_id: &str, moment: &str) {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE attempts SET created_at = ?2 WHERE id = ?1",
+                rusqlite::params![attempt_id, moment],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("say when the cooking began");
+}
+
+/// **A planned recipe shows it was cooked** (#489): an Attempt of its
+/// Lineage, this Person's own, begun on its day where the cook is, or on any
+/// day of its week where it has no day. Nothing is stored for it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_planned_recipe_was_cooked_when_its_cook_began_cooking_it_that_day() {
+    let app = support::spawn_app();
+    let (_, stephane) = someone(&app, "Stéphane");
+    let (_, helene) = someone(&app, "Hélène");
+    kitchen_of(&app, &stephane, "Family", &[&helene]);
+    let soupe = written(&app, &stephane, "Soupe au pistou");
+    let tarte = written(&app, &stephane, "Tarte Tatin");
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&stephane),
+        &json!({ "branch_id": soupe, "name": "Sans basilic" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let sans_basilic = varied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let thursday = plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": soupe, "day": "2026-11-05" }),
+    );
+    let friday = plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": soupe, "day": "2026-11-06" }),
+    );
+    let any_day = plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": soupe, "week": "2026-11-02" }),
+    );
+    let tarte_thursday = plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": tarte, "day": "2026-11-05" }),
+    );
+    let next_week = plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": soupe, "week": "2026-11-09" }),
+    );
+    let (status, words) = plan_op(
+        &app,
+        &stephane,
+        "plan_words",
+        json!({ "words": "leftovers", "day": "2026-11-05" }),
+    );
+    assert_eq!(status, 200, "{words}");
+    let leftovers = words["planned_meal"]["planned_meal_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let attempts = |app: &support::TestApp| -> i64 {
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.query_row("SELECT COUNT(*) FROM attempts", [], |row| row.get(0))
+                    .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+            })
+            .unwrap()
+    };
+    assert_eq!(attempts(&app), 0, "planning cooks nothing");
+
+    // Thursday noon: the other Branch of the soup, finished. Hélène cooks
+    // the tart the same day, which is hers and not Stéphane's.
+    let other_branch = cook_it(&app, &stephane, &sans_basilic, json!({}));
+    cooking_began(&app, &other_branch, "2026-11-05T12:00:00.000Z");
+    let hers = cook_it(&app, &helene, &tarte, json!({}));
+    cooking_began(&app, &hers, "2026-11-05T12:00:00.000Z");
+    // Friday at half past ten in the evening in New York, which is Saturday
+    // in UTC, begun and never finished.
+    let (status, started) = app.post_op(
+        "start_attempt",
+        Some(&stephane),
+        &json!({ "branch_id": soupe }).to_string(),
+    );
+    assert_eq!(status, 200, "{started}");
+    let late = started["result"]["id"].as_str().unwrap().to_string();
+    cooking_began(&app, &late, "2026-11-07T03:30:00.000Z");
+
+    let cooked = |input: Value| -> Vec<(String, bool)> {
+        let (status, read) = plan_op(&app, &stephane, "get_meal_plan", input);
+        assert_eq!(status, 200, "{read}");
+        read["planned_meals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|meal| {
+                (
+                    meal["planned_meal_id"].as_str().unwrap().to_string(),
+                    meal["cooked"].as_bool().unwrap(),
+                )
+            })
+            .collect()
+    };
+    let in_new_york = cooked(json!({
+        "from": "2026-11-02", "to": "2026-11-15", "time_zone": "America/New_York"
+    }));
+    assert_eq!(
+        in_new_york,
+        [
+            (any_day.clone(), true),
+            (thursday.clone(), true),
+            (tarte_thursday.clone(), false),
+            (leftovers.clone(), false),
+            (friday.clone(), true),
+            (next_week.clone(), false),
+        ]
+    );
+    // Named by no time zone, the days are UTC's: the late cooking was
+    // Saturday, and Friday's soup was not cooked.
+    let in_utc = cooked(json!({ "from": "2026-11-02", "to": "2026-11-15" }));
+    assert_eq!(
+        in_utc,
+        [
+            (any_day, true),
+            (thursday, true),
+            (tarte_thursday, false),
+            (leftovers, false),
+            (friday, false),
+            (next_week, false),
+        ]
+    );
+    assert_eq!(attempts(&app), 3, "reading the plan cooks nothing either");
+
+    let (status, refused) = app.post_op(
+        "get_meal_plan",
+        Some(&stephane),
+        &json!({ "from": "2026-11-02", "to": "2026-11-08", "time_zone": "Mars/Olympus" })
+            .to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert!(refused.to_string().contains("time_zone"), "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_planned_recipe_is_its_branch_at_its_newest_version() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = written(&app, &key, "Soupe");
+    plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-05" }),
+    );
+    let (status, edited) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": soupe, "title": "Soupe au pistou", "yield": { "amount": "4", "noun": "bowls" } })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+    let meal = &planned(&app, &key, "2026-11-05", "2026-11-05")[0];
+    assert_eq!(
+        meal["title"],
+        json!("Soupe au pistou"),
+        "Monday's correction is what Thursday shows"
+    );
+    assert_eq!(
+        meal["written_yield"],
+        json!({ "amount": "4", "noun": "bowls" })
+    );
+}
+
+/// **A planned Yield follows the Shopping List's rule** (#109): a Yield in the
+/// recipe's noun, a multiplier, or none for the recipe as written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_planned_yield_holds_to_the_shopping_lists_rule_multiplier_included() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let (status, made) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "title": "Chicken pie", "yield": { "amount": "4 to 6", "noun": "servings" } })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{made}");
+    let pie = made["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // Its own Yield has no amount to count from, so it is planned twice over.
+    let meal = plan(
+        &app,
+        &key,
+        json!({ "branch_id": pie, "day": "2026-11-05", "planned_yield": { "amount": "2", "noun": "" } }),
+    );
+    let read = &planned(&app, &key, "2026-11-05", "2026-11-05")[0];
+    assert_eq!(read["planned_yield"], json!({ "amount": "2", "noun": "" }));
+    assert_eq!(
+        read["written_yield"],
+        json!({ "amount": "4 to 6", "noun": "servings" })
+    );
+
+    for (wanted, status) in [
+        (json!({ "amount": "6", "noun": "servings" }), 200),
+        (json!(null), 200),
+        (json!({ "amount": "nothing", "noun": "" }), 400),
+        (json!({ "amount": "0", "noun": "" }), 400),
+    ] {
+        let (got, answer) = plan_op(
+            &app,
+            &key,
+            "set_planned_yield",
+            json!({ "planned_meal_id": meal, "planned_yield": wanted }),
+        );
+        assert_eq!(got, status, "{wanted}: {answer}");
+        if status == 200 {
+            assert_eq!(answer["planned_meal"]["planned_yield"], wanted);
+        }
+    }
+    // A refused Yield leaves the one stored.
+    assert_eq!(
+        planned(&app, &key, "2026-11-05", "2026-11-05")[0]["planned_yield"],
+        json!(null)
+    );
+}
+
+/// **The last device to write a plan wins**, as with the Shopping List
+/// (ADR 0024): a write the phone held offline and sent after the iPad's
+/// changes nothing, and a meal it named is planned once however often sent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_last_device_to_write_a_plan_wins() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = written(&app, &key, "Soupe");
+    let kept = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-05" }),
+    );
+    let yesterday = minutes_ago(&app, 24 * 60);
+
+    for (operation, input) in [
+        (
+            "plan_recipe",
+            json!({ "branch_id": soupe, "day": "2026-11-06", "planned_meal_id": "pm_00000000000000aa", "written_at": yesterday }),
+        ),
+        (
+            "set_planned_yield",
+            json!({ "planned_meal_id": kept, "planned_yield": { "amount": "3", "noun": "" }, "written_at": yesterday }),
+        ),
+        (
+            "remove_planned_meal",
+            json!({ "planned_meal_id": kept, "written_at": yesterday }),
+        ),
+    ] {
+        let (status, answer) = plan_op(&app, &key, operation, input);
+        assert_eq!(status, 200, "{operation}: {answer}");
+    }
+    let week = planned(&app, &key, "2026-11-02", "2026-11-08");
+    assert_eq!(
+        week.len(),
+        1,
+        "written before the plan's last write, they change nothing"
+    );
+    assert_eq!(week[0]["planned_meal_id"], json!(kept));
+    assert_eq!(week[0]["planned_yield"], json!(null));
+
+    // Written after, a meal the phone named lands under its name, once.
+    let named = json!({ "branch_id": soupe, "day": "2026-11-06", "planned_meal_id": "pm_00000000000000bb" });
+    for _ in 0..2 {
+        assert_eq!(plan(&app, &key, named.clone()), "pm_00000000000000bb");
+    }
+    assert_eq!(planned(&app, &key, "2026-11-06", "2026-11-06").len(), 1);
+
+    let (status, refused) = plan_op(
+        &app,
+        &key,
+        "plan_recipe",
+        json!({ "branch_id": soupe, "day": "2026-11-06", "planned_meal_id": "not-mine" }),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+/// **A plan is one Person's** (ADR 0058): nobody in their Kitchen reads or
+/// changes it, whatever ids they hold.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_plan_is_its_persons_alone() {
+    let app = support::spawn_app();
+    let (_, stephane) = someone(&app, "Stéphane");
+    let (_, helene) = someone(&app, "Hélène");
+    kitchen_of(&app, &stephane, "Family", &[&helene]);
+    let soupe = written(&app, &stephane, "Soupe");
+    let his = plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": soupe, "day": "2026-11-05" }),
+    );
+
+    assert!(planned(&app, &helene, "2026-11-01", "2026-11-30").is_empty());
+    // Her own meal of the same recipe leaves his where it was.
+    let hers = plan(
+        &app,
+        &helene,
+        json!({ "branch_id": soupe, "day": "2026-11-05" }),
+    );
+    assert_eq!(
+        planned(&app, &stephane, "2026-11-05", "2026-11-05").len(),
+        1
+    );
+
+    let (status, refused) = plan_op(
+        &app,
+        &helene,
+        "set_planned_yield",
+        json!({ "planned_meal_id": his, "planned_yield": null }),
+    );
+    assert_eq!(status, 404, "{refused}");
+    plan_op(
+        &app,
+        &helene,
+        "remove_planned_meal",
+        json!({ "planned_meal_id": his }),
+    );
+    assert_eq!(
+        planned(&app, &stephane, "2026-11-05", "2026-11-05").len(),
+        1
+    );
+    let (status, refused) = plan_op(
+        &app,
+        &helene,
+        "plan_recipe",
+        json!({ "branch_id": soupe, "day": "2026-11-06", "planned_meal_id": his }),
+    );
+    assert_eq!(status, 400, "an id of his is not hers to take: {refused}");
+    assert_eq!(
+        planned(&app, &helene, "2026-11-05", "2026-11-05")[0]["planned_meal_id"],
+        json!(hers)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deleted_recipe_stays_on_the_plan_and_says_it_cannot_be_read() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = written(&app, &key, "Ratatouille");
+    let meal = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-05" }),
+    );
+    // Renamed after it was planned, then the Yield changed: the name it is
+    // known by follows, as a Shopping List entry's does.
+    let (status, edited) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": soupe, "title": "Ratatouille aux anchois" }).to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+    let (status, set) = plan_op(
+        &app,
+        &key,
+        "set_planned_yield",
+        json!({ "planned_meal_id": meal, "planned_yield": { "amount": "2", "noun": "" } }),
+    );
+    assert_eq!(status, 200, "{set}");
+    let (status, answered) = delete_recipe(&app, &key, &soupe);
+    assert_eq!(status, 200, "{answered}");
+
+    let read = &planned(&app, &key, "2026-11-05", "2026-11-05")[0];
+    assert_eq!(read["title"], json!("Ratatouille aux anchois"));
+    assert_eq!(read["gone"], json!(true));
+    let (status, refused) = plan_op(
+        &app,
+        &key,
+        "set_planned_yield",
+        json!({ "planned_meal_id": meal, "planned_yield": { "amount": "2", "noun": "" } }),
+    );
+    assert_eq!(status, 400, "{refused}");
+    let (status, _) = plan_op(
+        &app,
+        &key,
+        "remove_planned_meal",
+        json!({ "planned_meal_id": meal }),
+    );
+    assert_eq!(status, 200);
+    assert!(planned(&app, &key, "2026-11-05", "2026-11-05").is_empty());
+}
+
+/// **A recipe planned on a week waits there with no day** (#487): read with
+/// any day of that week, before the week's days, in its own order. A week is
+/// named by its Monday, and a plan write names a day or a week, never both.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_planned_on_a_week_waits_with_no_day_before_the_days() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = written(&app, &key, "Soupe au pistou");
+    let tarte = written(&app, &key, "Tarte Tatin");
+
+    let tuesday = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-03" }),
+    );
+    let first = plan(
+        &app,
+        &key,
+        json!({ "branch_id": tarte, "week": "2026-11-02", "planned_yield": { "amount": "2", "noun": "" } }),
+    );
+    let second = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "week": "2026-11-02" }),
+    );
+    // Next week's, which a read of this week leaves out.
+    plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "week": "2026-11-09" }),
+    );
+
+    let week = planned(&app, &key, "2026-11-02", "2026-11-08");
+    let ids = week
+        .iter()
+        .map(|meal| meal["planned_meal_id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, [first.as_str(), second.as_str(), tuesday.as_str()]);
+    assert_eq!(week[0]["week"], json!("2026-11-02"));
+    assert_eq!(week[0]["day"], Value::Null);
+    assert_eq!(week[0]["position"], json!(0));
+    assert_eq!(week[1]["position"], json!(1));
+    assert_eq!(
+        week[0]["planned_yield"],
+        json!({ "amount": "2", "noun": "" })
+    );
+    assert_eq!(week[2]["week"], json!("2026-11-02"));
+
+    // From a Saturday on, as "Plan this" reads: the week it is in still has them.
+    let from_saturday = planned(&app, &key, "2026-11-07", "2026-11-20");
+    assert_eq!(
+        from_saturday
+            .iter()
+            .map(|meal| meal["day"].clone())
+            .collect::<Vec<_>>(),
+        [Value::Null, Value::Null, Value::Null],
+        "this week's two and next week's one, and no Tuesday"
+    );
+
+    for (input, said) in [
+        (
+            json!({ "branch_id": soupe, "week": "2026-11-04" }),
+            "Monday",
+        ),
+        (
+            json!({ "branch_id": soupe, "week": "2026-11-31" }),
+            "calendar date",
+        ),
+        (
+            json!({ "branch_id": soupe, "day": "2026-11-04", "week": "2026-11-02" }),
+            "not both",
+        ),
+        (json!({ "branch_id": soupe }), "not both"),
+    ] {
+        let (status, refused) = app.post_op("plan_recipe", Some(&key), &input.to_string());
+        assert_eq!(status, 400, "{input}: {refused}");
+        assert!(refused.to_string().contains(said), "{input}: {refused}");
+    }
+}
+
+/// **Written words on the plan are kept as written and never read** (#487),
+/// as a Loose Item is: on a day or a week, changed, and refused a Yield. A
+/// recipe has no words to change.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn written_words_on_the_plan_are_kept_as_written_and_never_read() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = written(&app, &key, "Soupe au pistou");
+
+    let (status, answer) = plan_op(
+        &app,
+        &key,
+        "plan_words",
+        json!({ "words": "  2 portions of leftovers, ½ a quiche ", "day": "2026-11-06" }),
+    );
+    assert_eq!(status, 200, "{answer}");
+    let leftovers = answer["planned_meal"]["planned_meal_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        answer["planned_meal"],
+        json!({
+            "planned_meal_id": leftovers,
+            "week": "2026-11-02",
+            "day": "2026-11-06",
+            "position": 0,
+            "branch_id": Value::Null,
+            "words": "2 portions of leftovers, ½ a quiche",
+            "title": Value::Null,
+            "gone": false,
+            "planned_yield": Value::Null,
+            "written_yield": Value::Null,
+            "main_photo": Value::Null,
+            "sent_factor": Value::Null,
+            "sent_at": Value::Null,
+        })
+    );
+    // On a week with no day, after a recipe already there.
+    plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "week": "2026-11-02" }),
+    );
+    let (status, out) = plan_op(
+        &app,
+        &key,
+        "plan_words",
+        json!({ "words": "Eating out", "week": "2026-11-02" }),
+    );
+    assert_eq!(status, 200, "{out}");
+    assert_eq!(out["planned_meal"]["position"], json!(1));
+    assert_eq!(out["planned_meal"]["day"], Value::Null);
+
+    let (status, changed) = plan_op(
+        &app,
+        &key,
+        "set_planned_words",
+        json!({ "planned_meal_id": leftovers, "words": "Leftovers " }),
+    );
+    assert_eq!(status, 200, "{changed}");
+    assert_eq!(changed["planned_meal"]["words"], json!("Leftovers"));
+    assert_eq!(
+        planned(&app, &key, "2026-11-06", "2026-11-06")
+            .iter()
+            .find(|meal| meal["planned_meal_id"] == json!(leftovers))
+            .unwrap()["words"],
+        json!("Leftovers")
+    );
+
+    let recipe = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-06" }),
+    );
+    for (name, input, said) in [
+        (
+            "plan_words",
+            json!({ "words": "   ", "day": "2026-11-06" }),
+            "words is required",
+        ),
+        (
+            "set_planned_words",
+            json!({ "planned_meal_id": leftovers, "words": "" }),
+            "words is required",
+        ),
+        (
+            "set_planned_words",
+            json!({ "planned_meal_id": recipe, "words": "Soup" }),
+            "is a recipe",
+        ),
+        (
+            "set_planned_yield",
+            json!({ "planned_meal_id": leftovers, "planned_yield": { "amount": "2", "noun": "" } }),
+            "no Yield",
+        ),
+        ("plan_words", json!({ "words": "Pizza" }), "not both"),
+    ] {
+        let (status, refused) = app.post_op(name, Some(&key), &input.to_string());
+        assert_eq!(status, 400, "{name} {input}: {refused}");
+        assert!(refused.to_string().contains(said), "{name}: {refused}");
+    }
+    // Taken off like a recipe.
+    let (status, removed) = plan_op(
+        &app,
+        &key,
+        "remove_planned_meal",
+        json!({ "planned_meal_id": leftovers }),
+    );
+    assert_eq!(status, 200, "{removed}");
+    assert_eq!(
+        planned(&app, &key, "2026-11-06", "2026-11-06")
+            .iter()
+            .filter(|meal| meal["day"] == json!("2026-11-06"))
+            .count(),
+        1
+    );
+}
+
+/// **A Planned Meal moves to another day, a week, or another place** (#487):
+/// the list it lands in is numbered again in its new order, a place past the
+/// end is last, and an older write, another Person's meal or one that is not
+/// there changes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_planned_meal_moves_to_another_day_a_week_or_another_place() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = written(&app, &key, "Soupe");
+    let tarte = written(&app, &key, "Tarte");
+    let thursday = "2026-11-05";
+    let a = plan(&app, &key, json!({ "branch_id": soupe, "day": thursday }));
+    let b = plan(&app, &key, json!({ "branch_id": tarte, "day": thursday }));
+    let (_, c) = plan_op(
+        &app,
+        &key,
+        "plan_words",
+        json!({ "words": "Cheese", "day": thursday }),
+    );
+    let c = c["planned_meal"]["planned_meal_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let order = |day: &str| {
+        planned(&app, &key, day, day)
+            .into_iter()
+            .filter(|meal| meal["day"] == json!(day))
+            .map(|meal| {
+                (
+                    meal["planned_meal_id"].as_str().unwrap().to_string(),
+                    meal["position"].as_i64().unwrap(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let moved = |input: Value| {
+        let (status, answer) = plan_op(&app, &key, "move_planned_meal", input.clone());
+        assert_eq!(status, 200, "{input}: {answer}");
+        answer["planned_meal"].clone()
+    };
+
+    // Up to the top of its own day.
+    moved(json!({ "planned_meal_id": c, "day": thursday, "position": 0 }));
+    assert_eq!(
+        order(thursday),
+        [(c.clone(), 0), (a.clone(), 1), (b.clone(), 2)]
+    );
+    // Down one, then past the end.
+    moved(json!({ "planned_meal_id": c, "day": thursday, "position": 1 }));
+    assert_eq!(order(thursday)[1].0, c);
+    moved(json!({ "planned_meal_id": c, "day": thursday, "position": 99 }));
+    assert_eq!(order(thursday)[2], (c.clone(), 2));
+
+    // To the week with no day, and to another week's Friday, last.
+    let on_week = moved(json!({ "planned_meal_id": a, "week": "2026-11-02" }));
+    assert_eq!(on_week["day"], Value::Null);
+    assert_eq!(on_week["week"], json!("2026-11-02"));
+    plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-13" }),
+    );
+    let friday = moved(json!({ "planned_meal_id": b, "day": "2026-11-13" }));
+    assert_eq!(friday["week"], json!("2026-11-09"));
+    assert_eq!(friday["position"], json!(1));
+    assert_eq!(order(thursday), [(c.clone(), 0)]);
+    // A meal from a week gone by moves like any other.
+    let back = moved(json!({ "planned_meal_id": c, "day": "2026-10-20" }));
+    assert_eq!(back["week"], json!("2026-10-19"));
+
+    // An older write is dropped whole.
+    let (status, _) = plan_op(
+        &app,
+        &key,
+        "move_planned_meal",
+        json!({ "planned_meal_id": c, "day": thursday, "written_at": "2020-01-01T00:00:00Z" }),
+    );
+    assert_eq!(status, 200);
+    assert_eq!(order("2026-10-20").len(), 1);
+
+    // Another Person's, and one that is not there.
+    let (_, helene) = someone(&app, "Hélène");
+    for (who, id) in [(&helene, c.as_str()), (&key, "pm_00000000000000ff")] {
+        let (status, refused) = plan_op(
+            &app,
+            who,
+            "move_planned_meal",
+            json!({ "planned_meal_id": id, "day": thursday }),
+        );
+        assert_eq!(status, 404, "{refused}");
+        let (status, refused) = plan_op(
+            &app,
+            who,
+            "set_planned_words",
+            json!({ "planned_meal_id": id, "words": "Mine now" }),
+        );
+        assert_eq!(status, 404, "{refused}");
+    }
+    assert_eq!(order("2026-10-20").len(), 1);
+}
+
+// --- A Calendar Link (issue #491) -------------------------------------------
+
+/// A calendar date `days` from today, UTC's, as the calendar file reads it.
+fn day_from_today(days: i64) -> String {
+    let today = jiff::Timestamp::now()
+        .to_zoned(jiff::tz::TimeZone::UTC)
+        .date();
+    today
+        .checked_add(jiff::Span::new().days(days))
+        .unwrap()
+        .to_string()
+}
+
+/// A calendar date in the iCalendar form, 20261105.
+fn basic(day: &str) -> String {
+    day.replace('-', "")
+}
+
+/// The Monday of the week a calendar date is in.
+fn monday_of(day: &str) -> String {
+    let date: jiff::civil::Date = day.parse().unwrap();
+    let back = date.weekday().to_monday_zero_offset() as i64;
+    date.checked_sub(jiff::Span::new().days(back))
+        .unwrap()
+        .to_string()
+}
+
+/// The first Person, signed in: a Session, which making a key needs.
+fn signed_in_first(app: &support::TestApp, name: &str) -> String {
+    let created = app.post_auth_response(
+        "/auth/first-person",
+        &json!({ "name": name, "password": "the right password", "session_name": "laptop" })
+            .to_string(),
+    );
+    assert_eq!(created.status, 200, "{}", created.text());
+    support::session_cookie_secret(&created)
+}
+
+/// Another Person, signed in through an Invite.
+fn signed_in_by_invite(app: &support::TestApp, name: &str) -> String {
+    let link = app.core.mint_invite(false).unwrap();
+    let joined = app.post_auth_response(
+        "/auth/invite",
+        &json!({ "link": link, "name": name, "password": "their own password",
+                 "session_name": "their phone" })
+        .to_string(),
+    );
+    assert_eq!(joined.status, 200, "{}", joined.text());
+    support::session_cookie_secret(&joined)
+}
+
+/// The rows of the asker's own Security Record that name an event.
+fn recorded(app: &support::TestApp, key: &str, event: &str) -> Vec<Value> {
+    let (status, record) = app.post_op("list_security_record", Some(key), "{}");
+    assert_eq!(status, 200, "{record}");
+    record["result"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["event"] == json!(event))
+        .cloned()
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_calendar_link_answers_the_plan_as_a_calendar_file() {
+    let app = support::spawn_app();
+    let session = signed_in_first(&app, "Stéphane");
+    let (status, set) = plan_op(
+        &app,
+        &session,
+        "set_public_address",
+        json!({ "public_address": "https://recipes.kamosu.example" }),
+    );
+    assert_eq!(status, 200, "{set}");
+    let soupe = written(&app, &session, "Soupe au pistou");
+    let tarte = written(&app, &session, "Tarte Tatin");
+
+    let thursday = day_from_today(3);
+    let soon = plan(
+        &app,
+        &session,
+        json!({ "branch_id": soupe, "day": thursday }),
+    );
+    let (_, words) = plan_op(
+        &app,
+        &session,
+        "plan_words",
+        json!({ "words": "Pasta, salad; then\\cake", "day": day_from_today(4) }),
+    );
+    let words = words["planned_meal"]["planned_meal_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let week = monday_of(&day_from_today(7));
+    let undated = plan(&app, &session, json!({ "branch_id": tarte, "week": week }));
+    let lately = plan(
+        &app,
+        &session,
+        json!({ "branch_id": tarte, "day": day_from_today(-80) }),
+    );
+    let long_ago = plan(
+        &app,
+        &session,
+        json!({ "branch_id": tarte, "day": day_from_today(-100) }),
+    );
+
+    let (status, made) = plan_op(&app, &session, "make_calendar_link", json!({}));
+    assert_eq!(status, 200, "{made}");
+    let path = made["path"].as_str().unwrap().to_string();
+    let secret = made["secret"].as_str().unwrap();
+    assert_eq!(path, format!("/calendar/{secret}.ics"));
+    assert_eq!(
+        made["url"],
+        json!(format!("https://recipes.kamosu.example{path}"))
+    );
+    let (_, link) = plan_op(&app, &session, "get_calendar_link", json!({}));
+    assert_eq!(link["calendar_link"]["last_read_at"], Value::Null, "{link}");
+    assert_eq!(link["calendar_link"].get("secret"), None, "{link}");
+
+    let (status, content_type, file) = app.get(&path);
+    assert_eq!(status, 200, "{file}");
+    assert_eq!(content_type, "text/calendar; charset=utf-8");
+    assert!(file.starts_with("BEGIN:VCALENDAR\r\n"), "{file}");
+    let event = |id: &str| {
+        let start = file
+            .find(&format!("UID:{id}@kamosu\r\n"))
+            .unwrap_or_else(|| panic!("{id} is not in the file: {file}"));
+        let end = file[start..].find("END:VEVENT").unwrap();
+        file[start..start + end].to_string()
+    };
+    let soupe_event = event(&soon);
+    assert!(
+        soupe_event.contains(&format!(
+            "DTSTART;VALUE=DATE:{}\r\nDTEND;VALUE=DATE:{}\r\n",
+            basic(&thursday),
+            basic(&day_from_today(4))
+        )),
+        "{soupe_event}"
+    );
+    assert!(
+        soupe_event.contains("SUMMARY:Soupe au pistou\r\n"),
+        "{soupe_event}"
+    );
+    assert!(
+        soupe_event.contains(&format!(
+            "URL:https://recipes.kamosu.example/recipes/{soupe}\r\n"
+        )),
+        "{soupe_event}"
+    );
+    // Written words as written, escaped as the format asks.
+    let words_event = event(&words);
+    assert!(
+        words_event.contains("SUMMARY:Pasta\\, salad\\; then\\\\cake\r\n"),
+        "{words_event}"
+    );
+    assert!(!words_event.contains("URL:"), "{words_event}");
+    // A week with no day, as its week.
+    assert!(
+        event(&undated).contains(&format!("DTSTART;VALUE=DATE:{}\r\n", basic(&week))),
+        "{file}"
+    );
+    // The past 90 days and no further back.
+    event(&lately);
+    assert!(!file.contains(&long_ago), "{file}");
+
+    // A calendar app's read is noted, so the cook sees it works.
+    let (_, link) = plan_op(&app, &session, "get_calendar_link", json!({}));
+    assert!(link["calendar_link"]["last_read_at"].is_string(), "{link}");
+
+    // A meal moved keeps its event, on its new day.
+    let (status, moved) = plan_op(
+        &app,
+        &session,
+        "move_planned_meal",
+        json!({ "planned_meal_id": soon, "day": day_from_today(5) }),
+    );
+    assert_eq!(status, 200, "{moved}");
+    let (_, _, file) = app.get(&path);
+    assert_eq!(
+        file.matches(&format!("UID:{soon}@kamosu")).count(),
+        1,
+        "{file}"
+    );
+    let start = file.find(&format!("UID:{soon}@kamosu")).unwrap();
+    assert!(
+        file[start..].contains(&format!("DTSTART;VALUE=DATE:{}", basic(&day_from_today(5)))),
+        "{file}"
+    );
+
+    // Making another ends the one before.
+    let (_, again) = plan_op(&app, &session, "make_calendar_link", json!({}));
+    let second = again["path"].as_str().unwrap().to_string();
+    assert_eq!(app.get(&path).0, 404);
+    assert_eq!(app.get(&second).0, 200);
+    let made_lines = recorded(&app, &session, "calendar_link_made");
+    assert_eq!(made_lines.len(), 2, "{made_lines:?}");
+    assert_eq!(
+        made_lines[0]["detail"]["replaced"],
+        json!(true),
+        "{made_lines:?}"
+    );
+
+    // Ended, it answers nothing, as a Secret never made does.
+    let (status, ended) = plan_op(&app, &session, "end_calendar_link", json!({}));
+    assert_eq!(status, 200, "{ended}");
+    assert_eq!(ended, json!({ "ended": true }));
+    assert_eq!(app.get(&second).0, 404);
+    let (_, link) = plan_op(&app, &session, "get_calendar_link", json!({}));
+    assert_eq!(link, json!({ "calendar_link": null }));
+    assert_eq!(recorded(&app, &session, "calendar_link_ended").len(), 1);
+    let (_, ended) = plan_op(&app, &session, "end_calendar_link", json!({}));
+    assert_eq!(ended, json!({ "ended": false }));
+    assert_eq!(recorded(&app, &session, "calendar_link_ended").len(), 1);
+    assert_eq!(
+        app.get("/calendar/0000000000000000000000000000000000000000000000000000000000000000.ics")
+            .0,
+        404
+    );
+    assert_eq!(app.get(&second.replace(".ics", "")).0, 404);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn each_person_has_one_calendar_link_and_it_reads_their_plan_alone() {
+    let app = support::spawn_app();
+    let stephane = signed_in_first(&app, "Stéphane");
+    let helene = signed_in_by_invite(&app, "Hélène");
+    let soupe = written(&app, &stephane, "Soupe");
+    plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": soupe, "day": day_from_today(1) }),
+    );
+    let (_, words) = plan_op(
+        &app,
+        &helene,
+        "plan_words",
+        json!({ "words": "Eating out", "day": day_from_today(1) }),
+    );
+    assert!(words["planned_meal"].is_object(), "{words}");
+
+    let path_of = |key: &str| {
+        let (status, made) = plan_op(&app, key, "make_calendar_link", json!({}));
+        assert_eq!(status, 200, "{made}");
+        // No public address yet: the screen builds the link itself.
+        assert_eq!(made["url"], Value::Null, "{made}");
+        made["path"].as_str().unwrap().to_string()
+    };
+    let hers = path_of(&helene);
+    let his = path_of(&stephane);
+    let (status, _, her_file) = app.get(&hers);
+    assert_eq!(status, 200, "making his left hers alone");
+    assert!(her_file.contains("SUMMARY:Eating out"), "{her_file}");
+    assert!(!her_file.contains("Soupe"), "{her_file}");
+    assert!(
+        her_file.contains("X-WR-CALNAME:Kamosu · Hélène"),
+        "{her_file}"
+    );
+    let (_, _, his_file) = app.get(&his);
+    assert!(his_file.contains("SUMMARY:Soupe"), "{his_file}");
+    assert!(!his_file.contains("Eating out"), "{his_file}");
+    // A recipe with no public address to link to is named alone.
+    assert!(!his_file.contains("URL:"), "{his_file}");
+
+    // A link is a key, and an Access Key mints none. Reading and ending one
+    // are not minting.
+    let (person, key) = someone(&app, "Inès");
+    let (status, refused) = plan_op(&app, &key, "make_calendar_link", json!({}));
+    assert_eq!(status, 401, "{refused}");
+    let (status, read) = plan_op(&app, &key, "get_calendar_link", json!({}));
+    assert_eq!(status, 200, "{read}");
+    assert_eq!(read, json!({ "calendar_link": null }));
+    let _ = person;
+
+    // A Person who can no longer sign in is answered nothing, and their link
+    // ends with their keys, so enabling them again brings it back no more.
+    let (status, disabled) = plan_op(
+        &app,
+        &stephane,
+        "disable_account",
+        json!({ "name": "Hélène" }),
+    );
+    assert_eq!(status, 200, "{disabled}");
+    assert_eq!(app.get(&hers).0, 404);
+    let live: i64 = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM calendar_links JOIN people ON people.id = person_id \
+                  WHERE people.name = 'Hélène' AND ended_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(live, 0);
+}
+
+// --- Sending the plan to the Shopping List (issue #488, ADR 0058) ------------
+
+/// A recipe with a Yield, answering its Branch.
+fn yielding(app: &support::TestApp, key: &str, title: &str, amount: &str, noun: &str) -> String {
+    let (status, made) = app.post_op(
+        "create_recipe",
+        Some(key),
+        &json!({ "title": title, "yield": { "amount": amount, "noun": noun } }).to_string(),
+    );
+    assert_eq!(status, 200, "{made}");
+    made["result"]["branch_id"].as_str().unwrap().to_string()
+}
+
+/// Send days and weeks to the Shopping List, answering the send.
+fn send_plan(app: &support::TestApp, key: &str, input: Value) -> Value {
+    let (status, sent) = plan_op(app, key, "send_to_shopping_list", input);
+    assert_eq!(status, 200, "{sent}");
+    sent
+}
+
+/// The Shopping List's entry for one Branch.
+fn on_list(list: &Value, branch_id: &str) -> Value {
+    list["chosen"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["branch_id"] == json!(branch_id))
+        .cloned()
+        .unwrap_or(Value::Null)
+}
+
+/// One Planned Meal as the plan reads it now.
+fn read_meal(app: &support::TestApp, key: &str, id: &str) -> Value {
+    planned(app, key, "2026-10-26", "2026-11-22")
+        .into_iter()
+        .find(|meal| meal["planned_meal_id"] == json!(id))
+        .unwrap_or_else(|| panic!("{id} is not on the plan"))
+}
+
+/// **Sending a week puts its recipes on the Shopping List** (#488): each at
+/// its planned Yield, added to what the list already holds for that Branch,
+/// two Planned Meals of one Branch together, a day and its own week sent
+/// once. Written words and a recipe that can no longer be read send nothing
+/// and are named, and the answer is the list as it now stands.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sending_a_week_adds_its_recipes_to_what_the_shopping_list_holds() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let chili = yielding(&app, &key, "Chili", "4", "people");
+    let gone = written(&app, &key, "Shakshuka");
+
+    // Chili for another occasion, chosen by hand, as written.
+    let (status, chosen) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": chili }).to_string(),
+    );
+    assert_eq!(status, 200, "{chosen}");
+
+    let monday = plan(
+        &app,
+        &key,
+        json!({ "branch_id": chili, "day": "2026-11-02" }),
+    );
+    let any_day = plan(
+        &app,
+        &key,
+        json!({ "branch_id": chili, "week": "2026-11-02" }),
+    );
+    let shakshuka = plan(
+        &app,
+        &key,
+        json!({ "branch_id": gone, "day": "2026-11-03" }),
+    );
+    let (status, words) = plan_op(
+        &app,
+        &key,
+        "plan_words",
+        json!({ "words": "Eating out", "day": "2026-11-04" }),
+    );
+    assert_eq!(status, 200, "{words}");
+    let words = words["planned_meal"]["planned_meal_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let next_week = plan(
+        &app,
+        &key,
+        json!({ "branch_id": chili, "day": "2026-11-09" }),
+    );
+    let (status, deleted) = delete_recipe(&app, &key, &gone);
+    assert_eq!(status, 200, "{deleted}");
+
+    // Monday chosen twice over: on its own, and as a day of its week.
+    let sent = send_plan(
+        &app,
+        &key,
+        json!({ "days": ["2026-11-02"], "weeks": ["2026-11-02"] }),
+    );
+    assert_eq!(sent["outcome"], json!("sent"));
+    assert_eq!(
+        sent["sent"],
+        json!([{
+            "branch_id": chili,
+            "title": "Chili",
+            "added_factor": 2.0,
+            "raised": false,
+            "planned_meals": [any_day, monday],
+            "was_on_list": true,
+            "shopping_yield": { "amount": "12", "noun": "people" },
+            "written_yield": { "amount": "4", "noun": "people" },
+        }]),
+        "4 people by hand, and 4 and 4 planned, read 12 people"
+    );
+    assert_eq!(sent["already_sent"], json!([]));
+    assert_eq!(
+        sent["skipped"],
+        json!([
+            { "planned_meal_id": shakshuka, "title": "Shakshuka", "words": null, "reason": "gone" },
+            { "planned_meal_id": words, "title": null, "words": "Eating out", "reason": "words" },
+        ])
+    );
+    assert_eq!(
+        on_list(&sent["shopping_list"], &chili)["shopping_yield"],
+        json!({ "amount": "12", "noun": "people" })
+    );
+    assert_eq!(
+        sent["shopping_list"]["chosen"].as_array().unwrap().len(),
+        1,
+        "{sent}"
+    );
+    let answered = sent["planned_meals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|meal| meal["planned_meal_id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        answered,
+        [
+            any_day.as_str(),
+            monday.as_str(),
+            shakshuka.as_str(),
+            words.as_str()
+        ]
+    );
+
+    // The plan says what was sent, and when; nothing else is marked.
+    for id in [&monday, &any_day] {
+        let meal = read_meal(&app, &key, id);
+        assert_eq!(meal["sent_factor"], json!(1.0), "{meal}");
+        assert!(meal["sent_at"].is_string(), "{meal}");
+    }
+    for id in [&shakshuka, &words, &next_week] {
+        let meal = read_meal(&app, &key, id);
+        assert_eq!(meal["sent_factor"], Value::Null, "{meal}");
+        assert_eq!(meal["sent_at"], Value::Null, "{meal}");
+    }
+
+    // A week's meals with no day, alone: next week's undated chili, and
+    // none of its days.
+    let next_any_day = plan(
+        &app,
+        &key,
+        json!({ "branch_id": chili, "week": "2026-11-09" }),
+    );
+    let undated = send_plan(&app, &key, json!({ "any_day_of": ["2026-11-09"] }));
+    assert_eq!(
+        undated["sent"][0]["planned_meals"],
+        json!([next_any_day]),
+        "{undated}"
+    );
+    assert_eq!(
+        read_meal(&app, &key, &next_week)["sent_factor"],
+        Value::Null
+    );
+
+    // A day that is not one, a week that is not a Monday, and nothing at all.
+    for (input, said) in [
+        (json!({ "days": ["2026-11-31"] }), "calendar date"),
+        (json!({ "weeks": ["2026-11-04"] }), "Monday"),
+        (json!({ "any_day_of": ["2026-11-04"] }), "Monday"),
+        (json!({ "days": [], "weeks": [] }), "at least one"),
+    ] {
+        let (status, refused) =
+            app.post_op("send_to_shopping_list", Some(&key), &input.to_string());
+        assert_eq!(status, 400, "{input}: {refused}");
+        assert!(refused.to_string().contains(said), "{refused}");
+    }
+}
+
+/// **Pressing again sends only what has not gone** (#488): a second send adds
+/// nothing, a Yield raised since sends its difference, one lowered takes
+/// nothing off, and emptying the list after the shop leaves every mark.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_send_adds_only_what_was_raised_since_and_takes_nothing_off() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = yielding(&app, &key, "Soupe", "4", "bowls");
+    let monday = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-02" }),
+    );
+    let tuesday = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-03", "planned_yield": { "amount": "8", "noun": "bowls" } }),
+    );
+    let week = json!({ "weeks": ["2026-11-02"] });
+
+    let first = send_plan(&app, &key, week.clone());
+    assert_eq!(first["sent"][0]["added_factor"], json!(3.0));
+    assert_eq!(first["sent"][0]["was_on_list"], json!(false));
+    assert_eq!(
+        on_list(&first["shopping_list"], &soupe)["shopping_yield"],
+        json!({ "amount": "12", "noun": "bowls" })
+    );
+
+    let again = send_plan(&app, &key, week.clone());
+    assert_eq!(again["outcome"], json!("sent"));
+    assert_eq!(again["sent"], json!([]), "a double press never doubles");
+    assert_eq!(
+        again["already_sent"],
+        json!([
+            { "planned_meal_id": monday, "branch_id": soupe, "title": "Soupe", "planned_fewer": false },
+            { "planned_meal_id": tuesday, "branch_id": soupe, "title": "Soupe", "planned_fewer": false },
+        ])
+    );
+    assert_eq!(again["shopping_list"], first["shopping_list"]);
+
+    // After the shop the list is emptied; the plan keeps what it sent.
+    let (status, emptied) = app.post_op("empty_shopping_list", Some(&key), "{}");
+    assert_eq!(status, 200, "{emptied}");
+    assert_eq!(read_meal(&app, &key, &monday)["sent_factor"], json!(1.0));
+    assert_eq!(read_meal(&app, &key, &tuesday)["sent_factor"], json!(2.0));
+
+    // A guest on Monday, one fewer on Tuesday.
+    for (id, wanted) in [(&monday, "6"), (&tuesday, "4")] {
+        let (status, set) = plan_op(
+            &app,
+            &key,
+            "set_planned_yield",
+            json!({ "planned_meal_id": id, "planned_yield": { "amount": wanted, "noun": "bowls" } }),
+        );
+        assert_eq!(status, 200, "{set}");
+    }
+    let raised = send_plan(&app, &key, week);
+    assert_eq!(
+        raised["sent"],
+        json!([{
+            "branch_id": soupe,
+            "title": "Soupe",
+            "added_factor": 0.5,
+            "raised": true,
+            "planned_meals": [monday],
+            "was_on_list": false,
+            "shopping_yield": { "amount": "2", "noun": "bowls" },
+            "written_yield": { "amount": "4", "noun": "bowls" },
+        }]),
+        "only the guest's share goes"
+    );
+    assert_eq!(
+        raised["already_sent"],
+        json!([{ "planned_meal_id": tuesday, "branch_id": soupe, "title": "Soupe", "planned_fewer": true }])
+    );
+    assert_eq!(read_meal(&app, &key, &monday)["sent_factor"], json!(1.5));
+    assert_eq!(
+        read_meal(&app, &key, &tuesday)["sent_factor"],
+        json!(2.0),
+        "a lowered Yield keeps what was sent"
+    );
+}
+
+/// **Yields add as factors of the recipe as written** (#488): the sum is
+/// held in the recipe's own noun where its amount can be read, and as a
+/// multiplier where it cannot or where the recipe states none. A sum of the
+/// recipe once over is the recipe as written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sent_yields_add_in_the_recipes_noun_or_as_a_multiplier() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let chili = yielding(&app, &key, "Chili", "4", "people");
+    let pie = yielding(&app, &key, "Chicken pie", "4 to 6", "servings");
+    let bread = written(&app, &key, "Bread");
+    let tarte = yielding(&app, &key, "Tarte", "6", "slices");
+    let salt = written(&app, &key, "Seasoned salt");
+
+    // Chili on the list twice over, as a multiplier, before the plan's 4.
+    let (status, chosen) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": chili, "shopping_yield": { "amount": "2", "noun": "" } }).to_string(),
+    );
+    assert_eq!(status, 200, "{chosen}");
+    for input in [
+        json!({ "branch_id": chili, "day": "2026-11-02" }),
+        json!({ "branch_id": pie, "day": "2026-11-03" }),
+        json!({ "branch_id": pie, "day": "2026-11-04", "planned_yield": { "amount": "2", "noun": "" } }),
+        json!({ "branch_id": bread, "day": "2026-11-05", "planned_yield": { "amount": "1.5", "noun": "" } }),
+        json!({ "branch_id": tarte, "day": "2026-11-06" }),
+        json!({ "branch_id": salt, "day": "2026-11-07", "planned_yield": { "amount": "0.05", "noun": "" } }),
+        json!({ "branch_id": bread, "day": "2026-11-08", "planned_yield": { "amount": "0.3", "noun": "" } }),
+    ] {
+        plan(&app, &key, input);
+    }
+    let sent = send_plan(&app, &key, json!({ "weeks": ["2026-11-02"] }));
+    let list = &sent["shopping_list"];
+    assert_eq!(
+        on_list(list, &chili)["shopping_yield"],
+        json!({ "amount": "12", "noun": "people" }),
+        "a multiplier and a noun add up in the noun"
+    );
+    assert_eq!(
+        on_list(list, &pie)["shopping_yield"],
+        json!({ "amount": "3", "noun": "" }),
+        "4 to 6 cannot be counted from, so the pie is a multiplier"
+    );
+    assert_eq!(
+        on_list(list, &bread)["shopping_yield"],
+        json!({ "amount": "1.8", "noun": "" }),
+        "a recipe with no Yield is a multiplier, and 1.5 and 0.3 add to 1.8, not to eighths"
+    );
+    assert_eq!(
+        on_list(list, &tarte)["shopping_yield"],
+        Value::Null,
+        "once over is the recipe as written"
+    );
+    assert_eq!(
+        on_list(list, &salt)["shopping_yield"],
+        json!({ "amount": "0.05", "noun": "" }),
+        "a sliver of a recipe is never rounded to nothing"
+    );
+}
+
+/// **A send is one write on the Shopping List's clock** (#488): one made
+/// offline and arriving after the list changed elsewhere adds nothing and
+/// marks nothing, and says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_send_older_than_the_lists_last_write_adds_nothing_and_marks_nothing() {
+    let app = support::spawn_app();
+    let (_, key) = someone(&app, "Stéphane");
+    let soupe = yielding(&app, &key, "Soupe", "4", "bowls");
+    let meal = plan(
+        &app,
+        &key,
+        json!({ "branch_id": soupe, "day": "2026-11-02" }),
+    );
+    let yesterday = minutes_ago(&app, 24 * 60);
+    let (status, typed) = app.post_op(
+        "add_loose_item",
+        Some(&key),
+        &json!({ "text": "Coffee" }).to_string(),
+    );
+    assert_eq!(status, 200, "{typed}");
+
+    let refused = send_plan(
+        &app,
+        &key,
+        json!({ "days": ["2026-11-02"], "written_at": yesterday }),
+    );
+    assert_eq!(refused["outcome"], json!("refused"));
+    assert_eq!(refused["sent"], json!([]));
+    assert_eq!(refused["shopping_list"], typed["result"]);
+    assert_eq!(read_meal(&app, &key, &meal)["sent_factor"], Value::Null);
+
+    let sent = send_plan(&app, &key, json!({ "days": ["2026-11-02"] }));
+    assert_eq!(sent["outcome"], json!("sent"));
+    assert_eq!(read_meal(&app, &key, &meal)["sent_factor"], json!(1.0));
+
+    // A line typed offline after that send, then a send with nothing left to
+    // send: it writes nothing, so the line still lands when it arrives.
+    let typed_offline = minutes_ago(&app, 0);
+    // Later than the line by a clear margin, so a send that did take the
+    // clock would refuse it.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let nothing = send_plan(&app, &key, json!({ "days": ["2026-11-02"] }));
+    assert_eq!(nothing["sent"], json!([]));
+    let (status, landed) = app.post_op(
+        "add_loose_item",
+        Some(&key),
+        &json!({ "text": "Tea", "written_at": typed_offline }).to_string(),
+    );
+    assert_eq!(status, 200, "{landed}");
+    assert!(landed.to_string().contains("Tea"), "{landed}");
+}
+
 // --- The Shopping List (issue #73, ADR 0024) ---------------------------------
 
 /// Two real recipes from the Crouton corpus, cut to the lines that make
@@ -26998,6 +29327,18 @@ async fn a_value_outside_a_declared_enum_is_refused_at_both_doors() {
         json!(false),
         "a declared value was refused at the MCP door: {accepted}"
     );
+
+    // Dutch is one of them, at both Doors (#496).
+    let (status, body) = app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "nl", "reading_measures": "metric" }).to_string(),
+    );
+    assert_eq!(status, 200, "Dutch was refused at the web Door: {body}");
+    let dutch = call(json!({ "reading_language": "nl", "reading_measures": "metric" }));
+    assert_eq!(dutch["result"]["isError"], json!(false), "{dutch}");
+    let (_, read) = app.post_op("get_reading_preferences", Some(&key), "{}");
+    assert_eq!(read["result"]["reading_language"], json!("nl"));
 }
 
 /// The failure #85 was opened for: a misspelt Yield used to erase the Yield and
@@ -28345,6 +30686,112 @@ async fn a_component_travels_as_a_passenger_without_its_own_visibility_changing(
     assert!(
         page.contains("its own method") && page.contains("Knead for ten minutes."),
         "and its Steps are set at the foot, under a heading of their own"
+    );
+}
+
+/// The Share Link page keeps level with the recipe page (#521): a shared
+/// variation carries its name at both Doors and on the page, and a Step's
+/// photograph, the recipe's own or a Component's in the annexe, is a square
+/// whose picture the token serves.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shared_variation_carries_its_name_and_its_steps_photographs() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let kneaded = upload_a_picture(&app, &key, 31);
+    let stretched = upload_a_picture(&app, &key, 32);
+    let floured = upload_a_picture(&app, &key, 33);
+    let (dough, dough_lineage) = recipe_with(
+        &app,
+        &key,
+        "Neapolitan Pizza Dough",
+        Some(("1", "kg")),
+        json!([{ "kind": "ingredient", "text": "600 g tipo 00 flour" }]),
+        json!([{ "kind": "step", "text": "Knead for ten minutes.", "photo": kneaded }]),
+    );
+    let (pizza, _) = recipe_with(
+        &app,
+        &key,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([{ "kind": "ingredient", "text": "Dough for 2 pizzas" }]),
+        json!([
+            { "kind": "step", "text": "Stretch the dough.", "photo": stretched },
+            { "kind": "step", "text": "Top and bake.", "photo": null },
+        ]),
+    );
+    // The dough's own Main Photo is drawn nowhere on the pizza's page.
+    let (status, photographed) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": dough, "main_photo": floured }).to_string(),
+    );
+    assert_eq!(status, 200, "{photographed}");
+    make_component(
+        &app,
+        &key,
+        &pizza,
+        0,
+        Some("500"),
+        Some("g"),
+        &dough_lineage,
+    );
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": pizza, "name": "Bianca" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let bianca = varied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // An unnamed Branch's share answers no name, and its page sets none.
+    let (plain_token, _url) = share(&app, &key, &pizza);
+    let (status, plain) = app.post_op(
+        "read_shared_recipe",
+        None,
+        &json!({ "token": plain_token }).to_string(),
+    );
+    assert_eq!(status, 200, "{plain}");
+    assert_eq!(plain["result"]["recipe"]["name"], Value::Null, "{plain}");
+    let (_status, _type, plain_page) = app.get(&format!("/s/{plain_token}"));
+    assert!(!plain_page.contains("Bianca"));
+
+    // The variation's share names it, at the MCP Door too.
+    let (token, _url) = share(&app, &key, &bianca);
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "read_shared_recipe", "arguments": { "token": token } },
+    });
+    let (status, answered) = app.post_mcp(&call.to_string(), None);
+    assert_eq!(status, 200, "{answered}");
+    assert_eq!(
+        answered["result"]["structuredContent"]["recipe"]["name"],
+        json!("Bianca"),
+        "{answered}"
+    );
+
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(page.contains("Bianca"), "the name is set under the title");
+    for (hash, whose) in [
+        (&stretched, "the recipe's Step"),
+        (&kneaded, "the Component's Step"),
+    ] {
+        assert!(
+            page.contains(&format!(r#"href="/s/{token}/photo/{hash}""#)),
+            "{whose} ends in a square linking to its photograph"
+        );
+        let (status, kind, _body) = app.get(&format!("/s/{token}/photo/{hash}"));
+        assert_eq!(status, 200, "the token serves {whose}'s photograph");
+        assert_eq!(kind, "image/webp");
+    }
+    // A Component's Step photographs are let through for the annexe, and
+    // nothing else of it: its Main Photo is not on this page.
+    let (status, _type, _body) = app.get(&format!("/s/{token}/photo/{floured}"));
+    assert_eq!(
+        status, 404,
+        "a Component's Main Photo stays behind the token"
     );
 }
 
@@ -30329,6 +32776,307 @@ async fn a_cooking_kept_by_a_collapsing_save_stays_on_the_thread() {
     assert_eq!(seen["version_id"], started_from);
 }
 
+/// **A save never folds away a Version somebody cooked** (#536). Bob cooks
+/// Ann's stew; Ann re-saves inside the collapse window. Her save is a Version
+/// of its own, so his cooking stays on the Thread, counts in what he keeps on
+/// leaving, and a start his phone held offline, pinned to the Version he
+/// cooked, still lands.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_save_inside_the_window_keeps_the_version_somebody_cooked() {
+    let app = support::spawn_app();
+    let (_, ann) = someone(&app, "Ann");
+    let (bob_id, bob) = someone(&app, "Bob");
+    let family = kitchen_of(&app, &ann, "Family", &[&bob]);
+    let stew = written(&app, &ann, "Stew");
+    let (_, read) = read_as(&app, &ann, &stew);
+    let cooked = read["head_version_id"].as_str().unwrap().to_string();
+    let first = cook_it(&app, &bob, &stew, json!({ "rating": "again" }));
+
+    // No ageing: twenty minutes later, well inside the hour.
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&ann),
+        &json!({ "branch_id": stew, "title": "Beef stew" }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["collapsed"], json!(false), "{saved}");
+    assert_eq!(saved["result"]["parent_version_id"], json!(cooked));
+
+    // A start Bob's phone held while offline, pinned to the Version it had.
+    let (status, offline) = app.post_op(
+        "start_attempt",
+        Some(&bob),
+        &json!({
+            "branch_id": stew,
+            "version_id": cooked,
+            "attempt_id": "at_0123456789abcdef",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{offline}");
+    assert_eq!(offline["result"]["version_id"], json!(cooked));
+
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&ann),
+        &json!({ "branch_id": stew }).to_string(),
+    );
+    let attempts = thread["result"]["attempts"].as_array().unwrap();
+    for attempt_id in [first.as_str(), "at_0123456789abcdef"] {
+        let seen = attempts
+            .iter()
+            .find(|attempt| attempt["id"] == json!(attempt_id))
+            .unwrap_or_else(|| panic!("{attempt_id} is on the Thread: {thread}"));
+        assert_eq!(seen["eaten_version_id"], json!(cooked));
+    }
+
+    let (status, preview) = app.post_op(
+        "preview_leaving_kitchen",
+        Some(&bob),
+        &json!({ "kitchen_id": family }).to_string(),
+    );
+    assert_eq!(status, 200, "{preview}");
+    assert_eq!(preview["result"], json!({ "they_keep": 0, "you_keep": 1 }));
+    let (status, removed) = app.post_op(
+        "remove_kitchen_member",
+        Some(&ann),
+        &json!({ "kitchen_id": family, "person_id": bob_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{removed}");
+    assert_eq!(
+        shelf_titles(&app, &bob),
+        ["Beef stew"],
+        "he keeps a Branch of what he cooked, whole chain and all"
+    );
+}
+
+/// **A start held offline lands when the Version it names was folded away
+/// before anyone cooked it** (#548). Bob's phone has Ann's pie; Ann re-saves
+/// straight away, and the collapse replaces the Version his phone holds. His
+/// start, replayed later, is a cooking of the Version that took its place:
+/// on Ann's Thread, and counted in what he keeps on leaving the Kitchen. A
+/// Version of another recipe is still refused.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_start_held_offline_lands_on_a_version_a_collapse_replaced() {
+    let app = support::spawn_app();
+    let (_, ann) = someone(&app, "Ann");
+    let (bob_id, bob) = someone(&app, "Bob");
+    let family = kitchen_of(&app, &ann, "Family", &[&bob]);
+    let pie = written(&app, &ann, "Pie");
+    let (_, read) = read_as(&app, &bob, &pie);
+    let held = read["head_version_id"].as_str().unwrap().to_string();
+
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&ann),
+        &json!({ "branch_id": pie, "title": "Apple pie" }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["collapsed"], json!(true), "{saved}");
+    assert_eq!(saved["result"]["sequence"], json!(1), "{saved}");
+    let replaced_by = saved["result"]["version_id"].as_str().unwrap().to_string();
+
+    let (status, started) = app.post_op(
+        "start_attempt",
+        Some(&bob),
+        &json!({
+            "branch_id": pie,
+            "version_id": held,
+            "attempt_id": "at_0123456789abcdef",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{started}");
+    assert_eq!(
+        started["result"]["version_id"],
+        json!(replaced_by),
+        "a cooking of the Version that stands in the folded one's place"
+    );
+
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&ann),
+        &json!({ "branch_id": pie }).to_string(),
+    );
+    let seen = thread["result"]["attempts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|attempt| attempt["id"] == json!("at_0123456789abcdef"))
+        .unwrap_or_else(|| panic!("the cooking is on Ann's Thread: {thread}"))
+        .clone();
+    assert_eq!(seen["eaten_version_id"], json!(replaced_by));
+
+    // A Version of another recipe is no Version this Branch ever held.
+    let tart = written(&app, &ann, "Tart");
+    let (_, tart_read) = read_as(&app, &ann, &tart);
+    let (status, refused) = app.post_op(
+        "start_attempt",
+        Some(&bob),
+        &json!({
+            "branch_id": pie,
+            "version_id": tart_read["head_version_id"],
+            "attempt_id": "at_fedcba9876543210",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert_eq!(
+        refused["error"]["message"],
+        json!("version_id is not a Version of this Branch"),
+        "{refused}"
+    );
+
+    let (status, preview) = app.post_op(
+        "preview_leaving_kitchen",
+        Some(&bob),
+        &json!({ "kitchen_id": family }).to_string(),
+    );
+    assert_eq!(status, 200, "{preview}");
+    assert_eq!(preview["result"], json!({ "they_keep": 0, "you_keep": 1 }));
+    let (status, removed) = app.post_op(
+        "remove_kitchen_member",
+        Some(&ann),
+        &json!({ "kitchen_id": family, "person_id": bob_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{removed}");
+    assert_eq!(
+        shelf_titles(&app, &bob),
+        ["Apple pie"],
+        "he keeps a Branch of what he cooked"
+    );
+
+    // Nor is a Version another Branch of the same recipe folded away: Ann's
+    // variation, started from the Version Bob cooked, re-saves straight away
+    // and its first change is folded at a place Pie's own chain also has.
+    let (status, appended) = app.post_op(
+        "save_recipe_version",
+        Some(&ann),
+        &json!({ "branch_id": pie, "title": "Apple pie with cream" }).to_string(),
+    );
+    assert_eq!(status, 200, "{appended}");
+    assert_eq!(appended["result"]["sequence"], json!(2), "{appended}");
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&ann),
+        &json!({ "branch_id": pie, "name": "Cold", "version_id": replaced_by }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let variation = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    let save = |title: &str| {
+        let (status, saved) = app.post_op(
+            "save_recipe_version",
+            Some(&ann),
+            &json!({ "branch_id": variation, "title": title }).to_string(),
+        );
+        assert_eq!(status, 200, "{saved}");
+        saved["result"].clone()
+    };
+    let folded_there = save("Cold apple pie")["version_id"].clone();
+    let chilled = save("Chilled apple pie");
+    assert_eq!(chilled["collapsed"], json!(true), "{chilled}");
+    assert_eq!(chilled["sequence"], json!(2), "{chilled}");
+    let (status, refused) = app.post_op(
+        "start_attempt",
+        Some(&ann),
+        &json!({ "branch_id": pie, "version_id": folded_there }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    let (status, landed) = app.post_op(
+        "start_attempt",
+        Some(&ann),
+        &json!({ "branch_id": variation, "version_id": folded_there }).to_string(),
+    );
+    assert_eq!(
+        status, 200,
+        "on the Branch that folded it, it lands: {landed}"
+    );
+}
+
+/// **A save made from an older Version than the newest is a Version of its
+/// own** (#536). The same cook saves from two devices that both opened the
+/// soup: the second save names the Version it was written from, which is no
+/// longer the newest, so it does not fold the first device's edit away. A
+/// save naming no base collapses as it always did.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_save_from_a_stale_base_keeps_the_other_devices_save() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Ann");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Soup",
+            "ingredients": [{ "kind": "ingredient", "text": "1 onion" }],
+        })
+        .to_string(),
+    );
+    let soup = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let base = created["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    age_branch_head(&app, &soup);
+
+    let save = |line: &str, note: Option<&str>, base: Option<&str>| {
+        let mut body = json!({
+            "branch_id": soup,
+            "title": "Soup",
+            "ingredients": [
+                { "kind": "ingredient", "text": "1 onion" },
+                { "kind": "ingredient", "text": line },
+            ],
+        });
+        if let Some(note) = note {
+            body["change_note"] = json!(note);
+        }
+        if let Some(base) = base {
+            body["base_version_id"] = json!(base);
+        }
+        let (status, saved) = app.post_op("save_recipe_version", Some(&key), &body.to_string());
+        assert_eq!(status, 200, "{saved}");
+        saved["result"].clone()
+    };
+
+    let stock = save("2 litres stock", Some("added stock"), Some(&base));
+    assert_eq!(stock["collapsed"], json!(false), "{stock}");
+    let salt = save("1 tsp salt", Some("added salt"), Some(&base));
+    assert_eq!(
+        salt["collapsed"],
+        json!(false),
+        "written from the Version before the stock, so it folds nothing away: {salt}"
+    );
+    assert_eq!(salt["parent_version_id"], stock["version_id"]);
+
+    // From the newest Version, and with no base at all, the window works as
+    // it always did.
+    let pepper = save("1 tsp pepper", None, salt["version_id"].as_str());
+    assert_eq!(pepper["collapsed"], json!(true), "{pepper}");
+    let bay = save("1 bay leaf", None, None);
+    assert_eq!(bay["collapsed"], json!(true), "{bay}");
+
+    let (_, read) = read_as(&app, &key, &soup);
+    let versions = read["versions"].as_array().unwrap();
+    let kept: Vec<(Value, Value)> = versions
+        .iter()
+        .map(|v| {
+            (
+                v["content"]["ingredients"][1]["text"].clone(),
+                v["change_note"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        kept,
+        vec![
+            (json!(null), json!(null)),
+            (json!("2 litres stock"), json!("added stock")),
+            (json!("1 bay leaf"), json!("added salt")),
+        ],
+        "each device's edit is a Version with its own note"
+    );
+}
+
 /// The History says whose cooking each one is (#249): everyone else's sit
 /// together under a Version as names, apart from the reader's own, and a
 /// screen has only a Person's id to go on unless the Thread names them.
@@ -30580,7 +33328,14 @@ fn entries_in(path: &std::path::Path) -> Vec<String> {
     let file = std::fs::File::open(path).expect("open the Backup");
     let mut archive = zip::ZipArchive::new(file).expect("a readable zip");
     (0..archive.len())
-        .map(|at| archive.by_index(at).expect("an entry").name().to_string())
+        .map(|at| {
+            archive
+                .by_index(at)
+                .expect("an entry")
+                .name()
+                .unwrap()
+                .into_owned()
+        })
         .collect()
 }
 
@@ -30741,6 +33496,48 @@ async fn the_database_inside_a_backup_is_a_working_kamosu_database() {
         titles.contains(&"Tonkatsu".to_string()),
         "the restored database does not hold the recipe: {titles:?}"
     );
+}
+
+/// **A plan is in a Backup and in no Bundle** (#486): it is the cook's own
+/// and restored with the instance, and nothing about it is part of a recipe.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_plan_is_in_a_backup_and_in_no_bundle() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+    let tonkatsu = written(&app, &key, "Tonkatsu");
+    plan(
+        &app,
+        &key,
+        json!({ "branch_id": tonkatsu, "day": "2026-11-05" }),
+    );
+
+    take_a_backup(&app, &key);
+    let restored = restore(&app, &archive_named(&app, &key, "daily"));
+    let days: Vec<String> = restored
+        .with_conn(|conn| {
+            let mut statement = conn
+                .prepare("SELECT day FROM planned_meals")
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(rows.filter_map(Result::ok).collect())
+        })
+        .expect("read the restored plan");
+    assert_eq!(days, ["2026-11-05"]);
+
+    let bytes = bundle_of(&app, &key, &tonkatsu);
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("a zip");
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).unwrap();
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut entry, &mut text).ok();
+        assert!(
+            !text.contains("2026-11-05"),
+            "{} holds the plan",
+            entry.name().unwrap()
+        );
+    }
 }
 
 /// Unzip one Backup into a directory of its own and open the database in it,
@@ -31038,7 +33835,7 @@ fn unzip(bytes: &[u8]) -> std::collections::BTreeMap<String, Vec<u8>> {
             let mut entry = archive.by_index(index).expect("an entry");
             let mut held = Vec::new();
             std::io::Read::read_to_end(&mut entry, &mut held).expect("reads");
-            (entry.name().to_string(), held)
+            (entry.name().unwrap().into_owned(), held)
         })
         .collect()
 }
@@ -31801,6 +34598,274 @@ fn branches_of_lineage(app: &support::TestApp, lineage_id: &str) -> Vec<String> 
                 .unwrap())
         })
         .unwrap()
+}
+
+/// **A received Translation knows which carried Branch it renders** (#570).
+/// A Variation shares its head Version with the Branch it grew from, so a
+/// receiver already holding that Branch could not tell from the Version alone
+/// which of the two a Translation renders. The Bundle names it, and the
+/// receiver records it against the Branch it placed. A Bundle written before
+/// it named one is received as it always was: the oldest Branch holding the
+/// Version is the source.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_received_translation_renders_the_variation_it_travelled_with() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": english, "name": "Vegan" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let vegan = varied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // Each receiver holds the unnamed Branch first, at the Version the Vegan
+    // Variation still shares with it.
+    let unnamed_bundle = bundle_of(&app, &key, &english);
+    let french = translate(&app, &key, &vegan, "fr", french_mousse());
+    let vegan_bundle = bundle_of(&app, &key, &vegan);
+    let sidecar: Value =
+        serde_json::from_slice(&unzip(&vegan_bundle)[kamosu::bundles::SIDECAR]).unwrap();
+    let carried_french = sidecar["branches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|branch| branch["branch_id"] == json!(french))
+        .unwrap_or_else(|| panic!("the Translation travels: {sidecar}"));
+    assert_eq!(carried_french["translates_branch_id"], json!(vegan));
+
+    // Each receiver is an instance of its own, as a Bundle travels.
+    let there = support::spawn_app();
+    let nadia = a_receiver(&there);
+    let held_unnamed = landed_as(&receive(&there, &nadia, &unnamed_bundle), &english);
+    let report = receive(&there, &nadia, &vegan_bundle);
+    let (held_vegan, held_french) = (landed_as(&report, &vegan), landed_as(&report, &french));
+    let translation = read_branch(&there, &nadia, &held_french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(held_vegan),
+        "the Variation it travelled with, not {held_unnamed}: {translation}"
+    );
+
+    // A Bundle that names no Branch reads as before.
+    let older = with_sidecar(&vegan_bundle, |sidecar| {
+        for branch in sidecar["branches"].as_array_mut().unwrap() {
+            branch
+                .as_object_mut()
+                .unwrap()
+                .remove("translates_branch_id");
+        }
+    });
+    let elsewhere = support::spawn_app();
+    let odile = a_receiver(&elsewhere);
+    let held_unnamed = landed_as(&receive(&elsewhere, &odile, &unnamed_bundle), &english);
+    let report = receive(&elsewhere, &odile, &older);
+    let held_french = landed_as(&report, &french);
+    let translation = read_branch(&elsewhere, &odile, &held_french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(held_unnamed),
+        "{translation}"
+    );
+}
+
+/// **A Translation's source is a Branch its Cookbook sees, its own first**
+/// (#582). Every Cookbook holding a recipe shares its Lineage, so on an
+/// instance where the sender and the receiver both live, the sender's Branch
+/// holds the translated Version too, and is the older. The receiver's
+/// Translation is measured against the receiver's own Branch, and where no
+/// Cookbook it sees holds one, how far behind it is goes unanswered rather
+/// than read off a stranger's recipe. A Kitchen-mate's recipe is one it sees.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translations_source_is_a_branch_its_cookbook_sees() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": english, "name": "Vegan" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let vegan = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    let unnamed_bundle = bundle_of(&app, &key, &english);
+    let french = translate(&app, &key, &vegan, "fr", french_mousse());
+    // A Bundle written before #570, which names no Branch the Translation
+    // renders.
+    let vegan_bundle = with_sidecar(&bundle_of(&app, &key, &vegan), |sidecar| {
+        for branch in sidecar["branches"].as_array_mut().unwrap() {
+            branch
+                .as_object_mut()
+                .unwrap()
+                .remove("translates_branch_id");
+        }
+    });
+    let french_bundle = bundle_of(&app, &key, &french);
+
+    // The receiver lives on the sender's own instance.
+    let nadia = a_receiver(&app);
+    let held_unnamed = landed_as(&receive(&app, &nadia, &unnamed_bundle), &english);
+    let held_french = landed_as(&receive(&app, &nadia, &vegan_bundle), &french);
+    let translation = read_branch(&app, &nadia, &held_french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(held_unnamed),
+        "the receiver's own Branch, not the sender's {english}: {translation}"
+    );
+    assert!(translation["versions_behind"].is_i64(), "{translation}");
+
+    // A Translation received alone has no source in its Cookbook, though the
+    // sender's Branches on this instance hold the Version it translates.
+    let odile = a_receiver(&app);
+    let report = receive(&app, &odile, &french_bundle);
+    let alone = landed_as(&report, &french);
+    let translation = read_branch(&app, &odile, &alone)["translation"].clone();
+    assert!(
+        !translation["translates_version_id"].is_null(),
+        "it still says what it translates: {translation}"
+    );
+    assert_eq!(
+        translation["source_branch_id"],
+        Value::Null,
+        "{translation}"
+    );
+    assert_eq!(translation["versions_behind"], Value::Null, "{translation}");
+
+    // A Kitchen-mate's Translation lands in the translator's own Cookbook,
+    // and its source is the recipe they translated from the shelf they share,
+    // also when made before #517 recorded that Branch.
+    let (_, marc, _) = person_with_kitchen(&app, "Marc");
+    ask_into_kitchen(&app, &key, &kitchen_id, &marc);
+    let spanish = translate(&app, &marc, &english, "es", french_mousse());
+    let translation = read_branch(&app, &marc, &spanish)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(english),
+        "{translation}"
+    );
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branches SET translated_from_branch_id = NULL WHERE id = ?1",
+                rusqlite::params![spanish],
+            )
+            .unwrap();
+            Ok(())
+        })
+        .unwrap();
+    let translation = read_branch(&app, &marc, &spanish)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(english),
+        "found on the shelf the two share: {translation}"
+    );
+    assert!(translation["versions_behind"].is_i64(), "{translation}");
+}
+
+/// **A receiver's Translation of their own copy is not the sender's** (#586),
+/// though on one instance the sender's Branch holds the Version it renders.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translation_in_another_cookbook_is_not_this_recipes_own() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let english = shelve_recipe(&app, &key, english_mousse());
+    let bundle = bundle_of(&app, &key, &english);
+
+    let nadia = a_receiver(&app);
+    let held = landed_as(&receive(&app, &nadia, &bundle), &english);
+    let nadias_french = translate(&app, &nadia, &held, "fr", french_mousse());
+
+    let (status, set) = app.post_op(
+        "set_recipe_language",
+        Some(&key),
+        &json!({ "branch_id": english, "language": "unknown" }).to_string(),
+    );
+    assert_eq!(
+        status, 200,
+        "Stéphane's Cookbook holds no Translation: {set}"
+    );
+    assert_eq!(set["result"]["language"], json!("unknown"), "{set}");
+
+    // Nadia's own copy is still the source of her Translation.
+    let (status, refused) = app.post_op(
+        "set_recipe_language",
+        Some(&nadia),
+        &json!({ "branch_id": held, "language": "unknown" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    let translation = read_branch(&app, &nadia, &nadias_french)["translation"].clone();
+    assert_eq!(
+        translation["source_branch_id"],
+        json!(held),
+        "{translation}"
+    );
+
+    // A guessed Language settles from the text on the first fill, French
+    // here, though Nadia translated her copy of the bare recipe first.
+    let bare = shelve(&app, &key, "Quiche lorraine");
+    let held_bare = landed_as(&receive(&app, &nadia, &bundle_of(&app, &key, &bare)), &bare);
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&nadia),
+        &json!({ "branch_id": held_bare, "language": "fr", "title": "Quiche lorraine" })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+    let mut filled = french_mousse();
+    filled["branch_id"] = json!(bare);
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &filled.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["language"], json!("fr"), "{saved}");
+}
+
+/// **A Kitchen-mate's Translation counts where it names this recipe as its
+/// source** (#586), the way #582 finds that source: the Branch it was started
+/// from first, and a Cookbook its translator sees where none is recorded. A
+/// Kitchen-mate who translated their own copy, received in a Bundle, renders
+/// that copy and not this recipe.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kitchen_mates_translation_counts_where_it_names_this_recipe() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Stéphane");
+    let (_, marc, _) = person_with_kitchen(&app, "Marc");
+    ask_into_kitchen(&app, &key, &kitchen_id, &marc);
+    let call_unknown = |branch: &str| {
+        app.post_op(
+            "set_recipe_language",
+            Some(&key),
+            &json!({ "branch_id": branch, "language": "unknown" }).to_string(),
+        )
+    };
+
+    // Marc translates Stéphane's recipe from the shelf they share.
+    let shared = shelve_recipe(&app, &key, english_mousse());
+    let spanish = translate(&app, &marc, &shared, "es", french_mousse());
+    let (status, refused) = call_unknown(&shared);
+    assert_eq!(status, 400, "Marc's Translation renders it: {refused}");
+
+    // Also when made before #517 recorded the Branch it was started from.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branches SET translated_from_branch_id = NULL WHERE id = ?1",
+                rusqlite::params![spanish],
+            )
+            .unwrap();
+            Ok(())
+        })
+        .unwrap();
+    let (status, refused) = call_unknown(&shared);
+    assert_eq!(status, 400, "found on the shelf the two share: {refused}");
+
+    // Marc translates his own copy, sent to him as a Bundle.
+    let sent = shelve(&app, &key, "Quiche lorraine");
+    let held = landed_as(&receive(&app, &marc, &bundle_of(&app, &key, &sent)), &sent);
+    translate(&app, &marc, &held, "fr", french_mousse());
+    let (status, set) = call_unknown(&sent);
+    assert_eq!(status, 200, "Marc's Translation renders his copy: {set}");
 }
 
 /// **A recipe you do not write says why** (#132). Two recipes answer
@@ -35227,6 +38292,288 @@ async fn a_cooking_recorded_offline_lands_unchanged_against_a_recipe_edited_mean
     );
 }
 
+/// A cooking a phone held with no network still lands when its recipe was
+/// deleted before the phone came back (#537): in the diary, with no recipe,
+/// keeping what the cook said about it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cooking_held_offline_lands_in_the_diary_when_its_recipe_was_deleted_meanwhile() {
+    let app = support::spawn_app();
+    let (key, branch_id, lineage_id, _kitchen) = recipe_ready_to_cook(&app, "Stéphane");
+    let (_, before) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let cooked_version = before["result"]["head_version_id"].clone();
+
+    let (status, deleted) = app.post_op(
+        "delete_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+
+    // Started as it happens, a deleted recipe is still not there.
+    let (status, online) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 404, "{online}");
+
+    // A start naming another dish's Lineage is no way in either.
+    let (_, other_branch, other_lineage, _) = recipe_ready_to_cook(&app, "Olga");
+    let (status, elsewhere) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({
+            "branch_id": other_branch,
+            "attempt_id": "at_5370000000000001",
+            "started_at": minutes_ago(&app, 90),
+            "version_id": cooked_version,
+            "lineage_id": lineage_id,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 404, "{elsewhere}");
+
+    let _ = other_lineage;
+
+    let attempt_id = "at_53700000000000aa";
+    let sent = [
+        (
+            "start_attempt",
+            json!({ "branch_id": branch_id, "version_id": cooked_version, "lineage_id": lineage_id, "attempt_id": attempt_id, "started_at": minutes_ago(&app, 90) }),
+        ),
+        (
+            "finish_attempt",
+            json!({ "attempt_id": attempt_id, "written_at": minutes_ago(&app, 60) }),
+        ),
+        (
+            "edit_attempt",
+            json!({ "attempt_id": attempt_id, "rating": "again", "note": "best ever", "written_at": minutes_ago(&app, 50) }),
+        ),
+    ];
+    for (operation, input) in sent {
+        let (status, answered) = app.post_op(operation, Some(&key), &input.to_string());
+        assert_eq!(status, 200, "{operation}: {answered}");
+    }
+
+    let (status, diary) = app.post_op("list_attempts", Some(&key), "{}");
+    assert_eq!(status, 200, "{diary}");
+    let entry = &diary["result"]["attempts"][0];
+    assert_eq!(entry["id"], json!(attempt_id));
+    assert_eq!(entry["version_id"], cooked_version);
+    assert_eq!(entry["note"], json!("best ever"));
+    assert_eq!(entry["rating"], json!("again"));
+    assert_eq!(entry["recipe"]["branch_id"], Value::Null, "{entry}");
+    assert_eq!(entry["recipe"]["title"], json!("Katsu Curry"));
+}
+
+/// The same for a recipe that went out of the cook's sight meanwhile: they
+/// were removed from the Kitchen that let them read it (#537).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cooking_held_offline_lands_in_the_diary_when_its_recipe_went_out_of_reach() {
+    let app = support::spawn_app();
+    let (olga_key, branch_id, lineage_id, kitchen_id) = recipe_ready_to_cook(&app, "Olga");
+    let (carl, carl_key, _) = person_with_kitchen(&app, "Carl");
+    ask_into_kitchen(&app, &olga_key, &kitchen_id, &carl_key);
+    let (status, read) = app.post_op(
+        "get_recipe",
+        Some(&carl_key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    let cooked_version = read["result"]["head_version_id"].clone();
+
+    let (status, removed) = app.post_op(
+        "remove_kitchen_member",
+        Some(&olga_key),
+        &json!({ "kitchen_id": kitchen_id, "person_id": carl }).to_string(),
+    );
+    assert_eq!(status, 200, "{removed}");
+
+    let (status, landed) = app.post_op(
+        "start_attempt",
+        Some(&carl_key),
+        &json!({
+            "branch_id": branch_id,
+            "version_id": cooked_version,
+            "lineage_id": lineage_id,
+            "attempt_id": "at_53700000000000bb",
+            "started_at": minutes_ago(&app, 90),
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{landed}");
+    let (_, diary) = app.post_op("list_attempts", Some(&carl_key), "{}");
+    let entry = &diary["result"]["attempts"][0];
+    assert_eq!(entry["id"], json!("at_53700000000000bb"));
+    assert_eq!(entry["recipe"]["branch_id"], Value::Null, "{entry}");
+}
+
+/// An older note or rating, held offline and sent late, never replaces one
+/// written since (#537), each of the three on its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_older_judgement_never_replaces_a_newer_one() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Stéphane");
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+    let (status, finished) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "note": "perfect with half the salt" }).to_string(),
+    );
+    assert_eq!(status, 200, "{finished}");
+
+    // An edit the phone held an hour, sent now.
+    let (status, late) = app.post_op(
+        "edit_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "note": "too salty", "rating": "again", "written_at": minutes_ago(&app, 60) }).to_string(),
+    );
+    assert_eq!(status, 200, "{late}");
+    assert_eq!(late["result"]["note"], json!("perfect with half the salt"));
+    assert_eq!(
+        late["result"]["rating"],
+        json!("again"),
+        "a rating nobody wrote since still lands"
+    );
+
+    // A finish sent again late, onto the finished cooking, is the same.
+    let (status, again) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "note": "too salty", "rating": "no", "written_at": minutes_ago(&app, 90) }).to_string(),
+    );
+    assert_eq!(status, 200, "{again}");
+    assert_eq!(again["result"]["note"], json!("perfect with half the salt"));
+    assert_eq!(
+        again["result"]["rating"],
+        json!("again"),
+        "the rating, stamped an hour ago, is newer than this finish"
+    );
+
+    // Something newer still lands.
+    let (status, newer) = app.post_op(
+        "edit_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "note": "with rice next time", "written_at": minutes_ago(&app, 0) }).to_string(),
+    );
+    assert_eq!(status, 200, "{newer}");
+    assert_eq!(newer["result"]["note"], json!("with rice next time"));
+
+    // A picture added now is not taken away by a whole list held from before.
+    let photograph = upload_a_picture(&app, &key, 53);
+    app.post_op(
+        "edit_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "add_photographs": [photograph] }).to_string(),
+    );
+    let (status, older_list) = app.post_op(
+        "edit_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "photographs": [], "written_at": minutes_ago(&app, 20) }).to_string(),
+    );
+    assert_eq!(status, 200, "{older_list}");
+    assert_eq!(older_list["result"]["photographs"], json!([photograph]));
+}
+
+/// A held write is judged on the server's clock (#537): the phone says what
+/// its clock reads as it sends, and the server moves the write by the gap.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_write_is_moved_onto_the_servers_clock() {
+    let app = support::spawn_app();
+    let (_person, key, _kitchen) = person_with_kitchen(&app, "Stéphane");
+    for (text, item) in [
+        ("eggs", "i_0000000000000e01"),
+        ("milk", "i_0000000000000e02"),
+    ] {
+        let (status, added) = app.post_op(
+            "add_loose_item",
+            Some(&key),
+            &json!({ "text": text, "item_id": item }).to_string(),
+        );
+        assert_eq!(status, 200, "{added}");
+    }
+    // Online, now, on the server's clock.
+    let (status, removed) = app.post_op(
+        "remove_loose_item",
+        Some(&key),
+        &json!({ "item_id": "i_0000000000000e01" }).to_string(),
+    );
+    assert_eq!(status, 200, "{removed}");
+
+    // The phone's clock is two minutes behind the server's. It removed milk
+    // after eggs went, just as it sent, so by its own clock two minutes before
+    // the online removal, which reads as older unless the gap is known.
+    let phone_now = minutes_ago(&app, 2);
+    let (status, held) = app.post_op(
+        "remove_loose_item",
+        Some(&key),
+        &json!({
+            "item_id": "i_0000000000000e02",
+            "written_at": phone_now,
+            "sent_at": phone_now,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{held}");
+    let (_, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert!(
+        !list.to_string().contains("\"milk\""),
+        "milk was removed after eggs, once both are on one clock: {list}"
+    );
+
+    // A sent_at that is no time is refused, not ignored.
+    let (status, refused) = app.post_op(
+        "remove_loose_item",
+        Some(&key),
+        &json!({ "item_id": "i_0000000000000e02", "written_at": minutes_ago(&app, 1), "sent_at": "yesterday" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+/// Only a Secret that names nobody says so in its refusal (#537). A phone
+/// empties its kept library on that refusal alone, so a refusal about what a
+/// recognised Person may do must not carry it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_a_secret_naming_nobody_is_refused_as_one() {
+    let app = support::spawn_app();
+    let (_person, key, _kitchen) = person_with_kitchen(&app, "Carl");
+
+    let (status, operator_only) = app.post_op("list_accounts", Some(&key), "{}");
+    assert_eq!(status, 401, "{operator_only}");
+    assert_eq!(operator_only["error"]["kind"], json!("unauthorized"));
+    assert_eq!(
+        operator_only["error"].get("reason"),
+        None,
+        "{operator_only}"
+    );
+
+    let (status, nobody) = app.post_op("list_attempts", Some("not-a-secret"), "{}");
+    assert_eq!(status, 401, "{nobody}");
+    assert_eq!(nobody["error"]["reason"], json!("credential_names_nobody"));
+
+    // Once the dead cookie is taken back, the browser asks with nothing, and
+    // that is still signed out: the phone holds its changes for the next
+    // sign-in rather than dropping them.
+    for operation in ["list_attempts", "list_accounts"] {
+        let (status, bare) = app.post_op(operation, None, "{}");
+        assert_eq!(status, 401, "{bare}");
+        assert_eq!(
+            bare["error"]["reason"],
+            json!("credential_names_nobody"),
+            "{operation}"
+        );
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_picture_taken_on_one_device_never_erases_one_taken_on_another() {
     let app = support::spawn_app();
@@ -37414,9 +40761,28 @@ async fn leaving_a_cookbook_opens_your_own_recipes_again() {
         Some("Camille".to_string()),
         "joined, hers is named after her"
     );
+    plan(
+        &app,
+        &stephane,
+        json!({ "branch_id": hers, "day": "2026-11-05" }),
+    );
+    plan(
+        &app,
+        &camille,
+        json!({ "branch_id": hers, "day": "2026-11-05" }),
+    );
 
     let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
     assert_eq!(status, 200, "{left}");
+    // His plan follows her soupe to the Copy he keeps of it; hers stays on it.
+    let his_meal = &planned(&app, &stephane, "2026-11-05", "2026-11-05")[0];
+    assert_ne!(his_meal["branch_id"], json!(hers), "{his_meal}");
+    assert_eq!(his_meal["gone"], json!(false), "{his_meal}");
+    assert_eq!(his_meal["title"], json!("Soupe, with chervil"));
+    assert_eq!(
+        planned(&app, &camille, "2026-11-05", "2026-11-05")[0]["branch_id"],
+        json!(hers)
+    );
     assert_eq!(
         scalar::<Option<String>>(
             &app,
@@ -37461,7 +40827,23 @@ async fn joining_again_folds_the_copies_leaving_took() {
     write_together(&app, &stephane, &camille);
     let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
     assert_eq!(status, 200, "{left}");
+    let her_copy = shelf(&app, &camille, json!({ "query": "Soupe" }))
+        .into_iter()
+        .find(|recipe| recipe["branch_id"] != json!(soupe))
+        .expect("her copy of the soupe")["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    plan(
+        &app,
+        &camille,
+        json!({ "branch_id": her_copy, "day": "2026-11-05" }),
+    );
     write_together(&app, &stephane, &camille);
+    // Her copy folded into his soupe, and her plan moved with it.
+    let meal = &planned(&app, &camille, "2026-11-05", "2026-11-05")[0];
+    assert_ne!(meal["branch_id"], json!(her_copy), "{meal}");
+    assert_eq!(meal["gone"], json!(false), "{meal}");
 
     let joined = cookbook_of(&app, &stephane_id);
     assert_eq!(
@@ -37504,6 +40886,85 @@ async fn joining_again_folds_the_copies_leaving_took() {
         2,
         "no copy of his own recipes handed back to him"
     );
+}
+
+/// **A Translation keeps its source across a leave** (#517). She started the
+/// Vegan Variation and it goes with her; the Copy he keeps of it is what his
+/// Translation renders from then on, not her Branch, which moves with her
+/// saves.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn leaving_points_a_translation_at_the_copy_of_its_source_that_stays() {
+    let app = support::spawn_app();
+    let (_, stephane) = someone(&app, "Stéphane");
+    let (_, camille) = someone(&app, "Camille");
+    let english = shelve_recipe(&app, &stephane, english_mousse());
+    write_together(&app, &stephane, &camille);
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&camille),
+        &json!({ "branch_id": english, "name": "Vegan" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let hers = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    let french = translate(&app, &stephane, &hers, "fr", french_mousse());
+
+    let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
+    assert_eq!(status, 200, "{left}");
+    let source = read_branch(&app, &stephane, &french)["translation"].clone();
+    let his_copy: String = scalar(
+        &app,
+        &format!("SELECT id FROM branches WHERE copied_from = '{hers}'"),
+    );
+    assert_eq!(source["source_branch_id"], json!(his_copy), "{source}");
+    assert_eq!(source["versions_behind"], json!(0), "{source}");
+
+    // Her Vegan moving on is nothing to his Translation.
+    add_a_step(
+        &app,
+        &camille,
+        &hers,
+        english_mousse(),
+        "Serve with oat cream.",
+    );
+    let source = read_branch(&app, &stephane, &french)["translation"].clone();
+    assert_eq!(source["source_branch_id"], json!(his_copy), "{source}");
+    assert_eq!(source["versions_behind"], json!(0), "{source}");
+}
+
+/// **A Translation keeps its source across a join** (#517). Her Translation
+/// renders her copy of his Vegan; joining again folds that copy into his
+/// Vegan, and the Translation renders his Vegan, not the older unnamed Branch
+/// that shares its Version.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn joining_points_a_translation_at_the_branch_its_source_folds_into() {
+    let app = support::spawn_app();
+    let (_, stephane) = someone(&app, "Stéphane");
+    let (_, camille) = someone(&app, "Camille");
+    let english = shelve_recipe(&app, &stephane, english_mousse());
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&stephane),
+        &json!({ "branch_id": english, "name": "Vegan" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let vegan = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    write_together(&app, &stephane, &camille);
+    let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
+    assert_eq!(status, 200, "{left}");
+    let her_vegan: String = scalar(
+        &app,
+        &format!("SELECT id FROM branches WHERE copied_from = '{vegan}'"),
+    );
+    let french = translate(&app, &camille, &her_vegan, "fr", french_mousse());
+    assert_eq!(
+        read_branch(&app, &camille, &french)["translation"]["source_branch_id"],
+        json!(her_vegan)
+    );
+
+    write_together(&app, &stephane, &camille);
+    let source = read_branch(&app, &camille, &french)["translation"].clone();
+    assert_eq!(source["source_branch_id"], json!(vegan), "{source}");
+    assert_eq!(source["versions_behind"], json!(0), "{source}");
 }
 
 /// **Leaving and joining again, over and over, holds steady.** Her own changed
@@ -37836,6 +41297,20 @@ async fn leaving_a_kitchen_keeps_each_side_a_branch_of_what_they_cooked() {
         &json!({ "branch_id": cooked_by_her }).to_string(),
     );
     assert_eq!(status, 200, "{listed}");
+    let gratin = shelf(&app, &helene, json!({ "query": "Gratin" }))[0]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    plan(
+        &app,
+        &helene,
+        json!({ "branch_id": cooked_by_her, "day": "2026-11-05" }),
+    );
+    plan(
+        &app,
+        &helene,
+        json!({ "branch_id": gratin, "day": "2026-11-05" }),
+    );
 
     let rows_before: i64 = scalar(&app, "SELECT COUNT(*) FROM branches");
     let (status, preview) = app.post_op(
@@ -37880,6 +41355,15 @@ async fn leaving_a_kitchen_keeps_each_side_a_branch_of_what_they_cooked() {
         .unwrap()
         .to_string();
     assert!(text.contains(&kept), "{list}");
+
+    // Her plan follows it too, in the same step. His gratin, which she never
+    // cooked, left with his Cookbook: it stays, by name, and cannot be read.
+    let day = planned(&app, &helene, "2026-11-05", "2026-11-05");
+    assert_eq!(day[0]["branch_id"], json!(kept), "{day:?}");
+    assert_eq!(day[0]["gone"], json!(false));
+    assert_eq!(day[1]["branch_id"], json!(gratin));
+    assert_eq!(day[1]["title"], json!("Gratin"));
+    assert_eq!(day[1]["gone"], json!(true));
 }
 
 /// **What you already copied, you do not get twice.** A cook who saved her
@@ -38592,8 +42076,11 @@ mod mealie {
     }
 
     fn import(app: &support::TestApp, key: &str, name: &str) -> Value {
-        let (status, staged) =
-            app.post_bytes("/api/uploads", Some(key), "application/zip", &fixture(name));
+        import_file(app, key, &fixture(name))
+    }
+
+    fn import_file(app: &support::TestApp, key: &str, file: &[u8]) -> Value {
+        let (status, staged) = app.post_bytes("/api/uploads", Some(key), "application/zip", file);
         assert_eq!(status, 200, "{staged}");
         let (status, ask) = app.post_op(
             "import_from_another_app",
@@ -38948,6 +42435,145 @@ mod mealie {
         assert_eq!(recipes_held(&app), 3);
     }
 
+    /// `pre-v1-export.zip` with its recipes 3 and 4 named as another
+    /// instance's are, and its recipe 5 left out: what a second Mealie of
+    /// before version 1 exports, numbering its own recipes from 1 too.
+    fn another_instance_before_v1() -> Vec<u8> {
+        let mut archive =
+            zip::ZipArchive::new(std::io::Cursor::new(fixture("pre-v1-export.zip"))).unwrap();
+        let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).unwrap();
+            let name = entry.name().unwrap().into_owned();
+            if name.contains("pizza-dough") {
+                continue;
+            }
+            let mut bytes = Vec::new();
+            std::io::Read::read_to_end(&mut entry, &mut bytes).unwrap();
+            if name.ends_with(".json") && !name.starts_with("__MACOSX") {
+                let mut recipe: Value = serde_json::from_slice(&bytes).unwrap();
+                recipe["name"] = json!(match recipe["id"].as_i64() {
+                    Some(3) => "Lemon tart",
+                    Some(4) => "Miso soup",
+                    other => panic!("recipe {other:?}"),
+                });
+                bytes = serde_json::to_vec(&recipe).unwrap();
+            }
+            out.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            std::io::Write::write_all(&mut out, &bytes).unwrap();
+        }
+        out.finish().unwrap().into_inner()
+    }
+
+    /// Before Mealie 1 every instance numbered its recipes from 1, so recipe
+    /// 3 of a second instance is a recipe of its own, never a change to
+    /// recipe 3 of the first (#540).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn two_mealies_before_v1_are_told_apart_by_name() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        import(&app, &key, "pre-v1-export.zip");
+        let second = import_file(&app, &key, &another_instance_before_v1());
+        assert_eq!(
+            statuses(&second),
+            ["Lemon tart created", "Miso soup created"],
+            "{second}"
+        );
+        assert_eq!(second["offered"], json!([]), "{second}");
+        assert_eq!(recipes_held(&app), 5);
+
+        let again = import(&app, &key, "pre-v1-export.zip");
+        assert_eq!(
+            statuses(&again),
+            [
+                "Levain Chocolate Chip Cookies unchanged",
+                "Old-Fashioned Beef Stew unchanged",
+                "PIZZA DOUGH — Basics With Babish unchanged",
+            ],
+            "{again}"
+        );
+        assert_eq!(recipes_held(&app), 5);
+    }
+
+    /// A ledger written before #540 holds each recipe by its bare number.
+    /// The first instance's recipes still match it where their titles agree,
+    /// and the row is left as it was; another instance's land as new.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_ledger_from_before_names_were_added_still_matches() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let first = import(&app, &key, "pre-v1-export.zip");
+        let ledger = |app: &support::TestApp| -> Vec<String> {
+            app.core
+                .db()
+                .with_conn(|conn| {
+                    let mut query = conn
+                        .prepare("SELECT foreign_id FROM import_ledger ORDER BY foreign_id")
+                        .unwrap();
+                    Ok(query
+                        .query_map([], |row| row.get(0))
+                        .unwrap()
+                        .map(Result::unwrap)
+                        .collect())
+                })
+                .unwrap()
+        };
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.execute(
+                    "UPDATE import_ledger SET foreign_id = substr(foreign_id, 1, 1)",
+                    [],
+                )
+                .unwrap();
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(ledger(&app), ["3", "4", "5"]);
+        // A cook cooked one and renamed it since, a Version of its own: it
+        // is still the same recipe.
+        let stew = row(&first, "arrived", "Old-Fashioned Beef Stew")["branch_id"].clone();
+        let (status, cooked) = app.post_op(
+            "start_attempt",
+            Some(&key),
+            &json!({ "branch_id": stew }).to_string(),
+        );
+        assert_eq!(status, 200, "{cooked}");
+        let (status, renamed) = app.post_op(
+            "edit_recipe",
+            Some(&key),
+            &json!({ "branch_id": stew, "title": "Grandma's stew" }).to_string(),
+        );
+        assert_eq!(status, 200, "{renamed}");
+
+        let again = import(&app, &key, "pre-v1-export.zip");
+        assert_eq!(
+            statuses(&again),
+            [
+                "Levain Chocolate Chip Cookies unchanged",
+                "PIZZA DOUGH — Basics With Babish unchanged",
+            ],
+            "{again}"
+        );
+        assert_eq!(
+            row(&again, "offered", "Old-Fashioned Beef Stew")["branch_id"],
+            stew,
+            "{again}"
+        );
+        assert_eq!(recipes_held(&app), 3);
+        assert_eq!(ledger(&app), ["3", "4", "5"], "no row was rewritten");
+
+        let second = import_file(&app, &key, &another_instance_before_v1());
+        assert_eq!(
+            statuses(&second),
+            ["Lemon tart created", "Miso soup created"],
+            "{second}"
+        );
+        assert_eq!(second["offered"], json!([]), "{second}");
+        assert_eq!(recipes_held(&app), 5);
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_borrowed_exports_are_read() {
         let app = support::spawn_app();
@@ -39068,10 +42694,9 @@ mod mealie {
             ]
         );
         assert_eq!(report["unreadable"], json!([]), "{report}");
-        assert_eq!(
-            report["left_out_of_file"],
-            json!([{ "what": "meal_plans", "count": 1 }])
-        );
+        // The Family's meal plan entry is planned, not left out (#492).
+        assert_eq!(report["left_out_of_file"], json!([]));
+        assert_eq!(report["meal_plan"]["planned"], json!(1), "{report}");
         assert_eq!(
             left_out_of(&report, "Margherita pizza"),
             [
@@ -39184,6 +42809,11 @@ mod mealie {
         let offered = row(&report, "offered", "Margherita pizza");
         assert_eq!(offered["branch_id"], json!(pizza_id));
         assert_eq!(recipes_held(&app), 3);
+        // The meal plan's pizza is the recipe it was offered on (#492).
+        let [dinner] = &planned(&app, &key, "2026-10-23", "2026-10-23")[..] else {
+            panic!("one Planned Meal");
+        };
+        assert_eq!(dinner["branch_id"], json!(pizza_id));
 
         let finished: Vec<Value> = diary(&app, &key)
             .into_iter()
@@ -39228,6 +42858,172 @@ mod mealie {
         assert_eq!(diary(&app, &key).len(), 5);
     }
 
+    /// A Mealie backup's meal plan lands in the importer's own plan (#492):
+    /// each cook's entries of the household, recipes at their scale, notes
+    /// as written words, a week entry on its week, a day in Mealie's meal
+    /// order, all unsent. The same file again plans nothing twice, and a
+    /// Co-author importing it gets their own.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_backup_s_meal_plan_lands_in_the_importer_s_plan_once() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        // Something already on the Tuesday stays first.
+        let (status, written) = plan_op(
+            &app,
+            &key,
+            "plan_words",
+            json!({ "words": "Market day", "day": "2026-11-03" }),
+        );
+        assert_eq!(status, 200, "{written}");
+        let report = import(&app, &key, "nightly-backup-week.zip");
+        assert_eq!(report["unreadable"], json!([]), "{report}");
+        assert_eq!(report["left_out_of_file"], json!([]));
+        assert_eq!(
+            report["meal_plan"],
+            json!({
+                "planned": 5,
+                "already_planned": 0,
+                "as_words": [],
+                "first_week": "2026-11-02",
+                "last_week": "2026-11-09",
+                "meal_names_left_out": true,
+            })
+        );
+        let chili = row(&report, "arrived", "Weeknight chili")["branch_id"].clone();
+        let porridge = row(&report, "arrived", "Porridge")["branch_id"].clone();
+        let read = |key: &str| -> Vec<Value> {
+            planned(&app, key, "2026-11-02", "2026-11-15")
+                .iter()
+                .map(|meal| {
+                    json!([
+                        meal["day"]
+                            .as_str()
+                            .unwrap_or(meal["week"].as_str().unwrap()),
+                        meal["branch_id"],
+                        meal["title"].as_str().or(meal["words"].as_str()),
+                        meal["planned_yield"],
+                        meal["sent_factor"],
+                    ])
+                })
+                .collect()
+        };
+        let times = |amount: &str| json!({ "amount": amount, "noun": "" });
+        let expected = |mine: bool| {
+            let mut all = vec![
+                json!(["2026-11-03", porridge, "Porridge", null, null]),
+                json!(["2026-11-03", chili, "Weeknight chili", times("2"), null]),
+                json!(["2026-11-04", null, "Leftovers: from the chili", null, null]),
+                json!(["2026-11-09", chili, "Weeknight chili", times("1.5"), null]),
+                json!(["2026-11-09", null, "Eating out", null, null]),
+            ];
+            if mine {
+                all.insert(0, json!(["2026-11-03", null, "Market day", null, null]));
+            }
+            all
+        };
+        let mine = read(&key);
+        assert_eq!(mine, expected(true));
+
+        let again = import(&app, &key, "nightly-backup-week.zip");
+        assert_eq!(again["meal_plan"]["planned"], json!(0));
+        assert_eq!(again["meal_plan"]["already_planned"], json!(5));
+        assert_eq!(read(&key), mine, "nothing planned twice");
+
+        // A Co-author's own import brings their own.
+        let (_, partner, _) = person_with_kitchen(&app, "Camille");
+        write_together(&app, &key, &partner);
+        let theirs = import(&app, &partner, "nightly-backup-week.zip");
+        assert_eq!(theirs["meal_plan"]["planned"], json!(5), "{theirs}");
+        assert_eq!(read(&partner), expected(false));
+        assert_eq!(read(&key), mine);
+
+        // Leaving the Cookbook moves the recipes to one of the partner's own,
+        // under an Import of its own; the file brings no meal twice all the same.
+        let (status, left) = app.post_op("leave_cookbook", Some(&partner), "{}");
+        assert_eq!(status, 200, "{left}");
+        let after = import(&app, &partner, "nightly-backup-week.zip");
+        assert_eq!(after["meal_plan"]["planned"], json!(0), "{after}");
+        assert_eq!(after["meal_plan"]["already_planned"], json!(5));
+        assert_eq!(read(&partner).len(), 5);
+    }
+
+    /// Mealie numbers its meal plan entries from 1 in every instance, so a
+    /// backup of another Mealie whose entry carries the same number is a
+    /// meal of its own, and is planned (#492).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn another_mealie_s_entry_with_the_same_number_is_planned() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let upload_id = stage(&app, &key, &fixture("v3-backup.zip"));
+        let first = ask(&app, &key, &upload_id, Some("Family"));
+        assert_eq!(first["meal_plan"]["planned"], json!(1), "{first}");
+        let other = backup_changed(|database| {
+            let plans = database["group_meal_plans"].as_array_mut().unwrap();
+            plans[0]["group_id"] = json!("5b0f6c3e8a2d4e7f9c1b3a5d7e9f1a2b");
+            plans[0]["created_at"] = json!("2026-10-30T18:00:00.000000");
+        });
+        let upload_id = stage(&app, &key, &other);
+        let second = ask(&app, &key, &upload_id, Some("Family"));
+        assert_eq!(second["meal_plan"]["planned"], json!(1), "{second}");
+        assert_eq!(planned(&app, &key, "2026-10-23", "2026-10-23").len(), 2);
+    }
+
+    /// The real backup with its `database.json` changed by `change`.
+    fn backup_changed(change: impl FnOnce(&mut Value)) -> Vec<u8> {
+        use std::io::{Read, Write};
+        let mut original =
+            zip::ZipArchive::new(std::io::Cursor::new(fixture("v3-backup.zip"))).unwrap();
+        let mut changed = std::io::Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut changed);
+            let mut change = Some(change);
+            for index in 0..original.len() {
+                let mut entry = original.by_index(index).unwrap();
+                let name = entry.name().unwrap().into_owned();
+                let mut bytes = Vec::new();
+                entry.read_to_end(&mut bytes).unwrap();
+                if name == "database.json" {
+                    let mut database: Value = serde_json::from_slice(&bytes).unwrap();
+                    (change.take().unwrap())(&mut database);
+                    bytes = serde_json::to_vec(&database).unwrap();
+                }
+                writer
+                    .start_file(name, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                writer.write_all(&bytes).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+        changed.into_inner()
+    }
+
+    /// A meal plan entry whose recipe stayed in Mealie, here the Cabin's
+    /// cake planned by the Family, is planned as the recipe's name in
+    /// written words, and the Report names it (#492).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_entry_whose_recipe_did_not_arrive_is_planned_as_its_name() {
+        let app = support::spawn_app();
+        let (key, _) = operator_with_kitchen(&app);
+        let changed = backup_changed(|database| {
+            let plans = database["group_meal_plans"].as_array_mut().unwrap();
+            plans[0]["recipe_id"] = json!("ed5f3c7f3f1c4b6c9aaeddba6b39a03b");
+            plans[0]["recipe_scale"] = json!(3.0);
+        });
+        let upload_id = stage(&app, &key, &changed);
+        let report = ask(&app, &key, &upload_id, Some("Family"));
+        assert_eq!(report["meal_plan"]["planned"], json!(1), "{report}");
+        assert_eq!(
+            report["meal_plan"]["as_words"],
+            json!([{ "title": "Lemon drizzle cake", "count": 1 }])
+        );
+        let [cake] = &planned(&app, &key, "2026-10-23", "2026-10-23")[..] else {
+            panic!("one Planned Meal");
+        };
+        assert_eq!(cake["words"], json!("Lemon drizzle cake"));
+        assert_eq!(cake["branch_id"], Value::Null);
+        assert_eq!(cake["planned_yield"], Value::Null);
+    }
+
     /// A backup whose recipes are all one household's is read with no
     /// question: here Mealie's own anonymised sample of August 2022, from
     /// before Mealie had households, whose one group is the household.
@@ -39260,7 +43056,7 @@ mod mealie {
             let mut writer = zip::ZipWriter::new(&mut planted);
             for index in 0..original.len() {
                 let mut entry = original.by_index(index).unwrap();
-                let name = entry.name().to_string();
+                let name = entry.name().unwrap().into_owned();
                 let mut bytes = Vec::new();
                 entry.read_to_end(&mut bytes).unwrap();
                 if name == "database.json" {
@@ -39365,7 +43161,7 @@ mod paprika {
             let mut zip = zip::ZipWriter::new(&mut out);
             for index in 0..archive.len() {
                 let mut entry = archive.by_index(index).unwrap();
-                let name = entry.name().to_string();
+                let name = entry.name().unwrap().into_owned();
                 let mut bytes = Vec::new();
                 entry.read_to_end(&mut bytes).unwrap();
                 if name.ends_with(".paprikarecipe") && !name.contains("__MACOSX") {
@@ -40617,7 +44413,7 @@ mod reading_a_recipe_pdf {
         let key = a_reader(&app);
         let read = |bytes: &[u8]| {
             let upload_id = staged(&app, &key, bytes);
-            app.post_op(
+            app.post_working_op(
                 "read_recipe_pdf",
                 Some(&key),
                 &json!({ "upload_id": upload_id }).to_string(),
@@ -40660,7 +44456,7 @@ mod reading_a_recipe_pdf {
             .map(|bytes| staged(&app, &key, bytes))
             .collect();
         let read = |upload_id: &str| {
-            app.post_op(
+            app.post_working_op(
                 "read_recipe_pdf",
                 Some(&key),
                 &json!({ "upload_id": upload_id }).to_string(),
@@ -40669,7 +44465,8 @@ mod reading_a_recipe_pdf {
         std::thread::scope(|scope| {
             let first = scope.spawn(|| read(&uploads[0]));
             let second = scope.spawn(|| read(&uploads[1]));
-            // Each takes about two seconds to reach its cap.
+            // Each takes about two seconds to reach its cap on a quiet machine,
+            // and longer on a busy one, which only keeps it reading longer.
             std::thread::sleep(std::time::Duration::from_millis(500));
             let (status, busy) = read(&uploads[2]);
             assert_eq!(status, 503, "{busy}");
@@ -43418,6 +47215,87 @@ mod an_operator_looks_after_every_cookbook {
         );
     }
 
+    /// A Person's plan stays theirs: an Operator reads none of it, and may
+    /// not ask to as an Operator (#486).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_operator_reaches_nothing_of_a_plan() {
+        let app = support::spawn_app();
+        let at = an_instance(&app);
+        let (status, planned) = op(
+            &app,
+            "plan_recipe",
+            &at.owner,
+            json!({ "branch_id": at.recipe, "day": "2026-11-05" }),
+        );
+        assert_eq!(status, 200, "{planned}");
+        let meal = planned["result"]["planned_meal"]["planned_meal_id"].clone();
+        let week = json!({ "from": "2026-11-02", "to": "2026-11-08" });
+        let (status, read) = op(&app, "get_meal_plan", &at.operator, week.clone());
+        assert_eq!(status, 200, "{read}");
+        assert_eq!(read["result"]["planned_meals"], json!([]));
+        for (name, input) in [
+            ("get_meal_plan", week.clone()),
+            (
+                "set_planned_yield",
+                json!({ "planned_meal_id": meal, "planned_yield": null }),
+            ),
+            ("remove_planned_meal", json!({ "planned_meal_id": meal })),
+            (
+                "plan_recipe",
+                json!({ "branch_id": at.recipe, "day": "2026-11-05" }),
+            ),
+            (
+                "plan_words",
+                json!({ "words": "Soup", "day": "2026-11-05" }),
+            ),
+            (
+                "set_planned_words",
+                json!({ "planned_meal_id": meal, "words": "Soup" }),
+            ),
+            (
+                "move_planned_meal",
+                json!({ "planned_meal_id": meal, "day": "2026-11-06" }),
+            ),
+            ("send_to_shopping_list", json!({ "days": ["2026-11-05"] })),
+        ] {
+            let (status, refused) = op(&app, name, &at.operator, as_operator(&input));
+            assert_eq!(status, 400, "{name}: {refused}");
+        }
+        let (status, refused) = op(
+            &app,
+            "set_planned_yield",
+            &at.operator,
+            json!({ "planned_meal_id": meal, "planned_yield": null }),
+        );
+        assert_eq!(status, 404, "{refused}");
+        let (status, refused) = op(
+            &app,
+            "move_planned_meal",
+            &at.operator,
+            json!({ "planned_meal_id": meal, "day": "2026-11-06" }),
+        );
+        assert_eq!(status, 404, "{refused}");
+        // Sending their own plan's Thursday sends nothing of the owner's.
+        let (status, sent) = op(
+            &app,
+            "send_to_shopping_list",
+            &at.operator,
+            json!({ "days": ["2026-11-05"] }),
+        );
+        assert_eq!(status, 200, "{sent}");
+        assert_eq!(sent["result"]["sent"], json!([]), "{sent}");
+        let (_, read) = op(&app, "get_meal_plan", &at.owner, week);
+        assert_eq!(read["result"]["planned_meals"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            read["result"]["planned_meals"][0]["day"],
+            json!("2026-11-05")
+        );
+        assert_eq!(
+            read["result"]["planned_meals"][0]["sent_factor"],
+            Value::Null
+        );
+    }
+
     /// Attempts, shopping lists and who writes a Cookbook stay their owner's.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_operator_reaches_no_attempt_or_shopping_list() {
@@ -43872,7 +47750,7 @@ async fn a_recovery_link_says_what_it_ended_with_the_old_password() {
     );
     assert_eq!(
         record["events"][0]["detail"],
-        json!({ "how": "recovery_link", "ended_sessions": 1, "ended_access_keys": 1, "ended_runner_keys": 0 })
+        json!({ "how": "recovery_link", "ended_sessions": 1, "ended_access_keys": 1, "ended_runner_keys": 0, "ended_passkeys": 0 })
     );
     assert_eq!(
         record["events"].as_array().unwrap().last().unwrap()["detail"],
@@ -44152,7 +48030,7 @@ mod a_demo {
 
     /// The writes a Demo lets through. Every other write is refused in a Demo,
     /// so one let through is added here on purpose or this test fails.
-    const A_DEMOS_WRITES: [&str; 15] = [
+    const A_DEMOS_WRITES: [&str; 22] = [
         "add_loose_item",
         "add_to_shopping_list",
         "advance_attempt",
@@ -44161,17 +48039,29 @@ mod a_demo {
         "edit_attempt",
         "empty_shopping_list",
         "finish_attempt",
+        "move_planned_meal",
         "note_recipe_opened",
+        "plan_recipe",
+        "plan_words",
         "remove_from_shopping_list",
         "remove_loose_item",
+        "remove_planned_meal",
         "revoke_session",
+        "send_to_shopping_list",
         "set_as_cooked",
+        "set_planned_words",
+        "set_planned_yield",
         "set_shopping_yield",
         "start_attempt",
     ];
 
-    /// What writes nothing and is refused all the same: the start of importing.
-    const A_DEMOS_REFUSED_READS: [&str; 2] = ["read_pasted_recipe", "read_recipe_pdf"];
+    /// What writes nothing and is refused all the same: the start of importing,
+    /// and the Invites and recovery links not yet used (#535).
+    const A_DEMOS_REFUSED_READS: [&str; 3] = [
+        "list_account_links",
+        "read_pasted_recipe",
+        "read_recipe_pdf",
+    ];
 
     #[test]
     fn a_demo_lets_through_these_writes() {
@@ -44282,6 +48172,19 @@ mod a_demo {
     fn assert_refused_as_a_demo(status: u16, answer: &Value, what: &str) {
         assert_eq!(status, 400, "{what}: {answer}");
         assert_eq!(answer["error"]["reason"], json!("demo"), "{what}: {answer}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_demo_refuses_making_a_calendar_link() {
+        let demo = a_demo_with_camille();
+        let (_, visitor) = arrive(&demo.app);
+        let (status, answer) = op(&demo.app, "make_calendar_link", &visitor, json!({}));
+        assert_refused_as_a_demo(status, &answer, "make_calendar_link");
+        let (status, answer) = op(&demo.app, "end_calendar_link", &visitor, json!({}));
+        assert_refused_as_a_demo(status, &answer, "end_calendar_link");
+        let (status, answer) = op(&demo.app, "get_calendar_link", &visitor, json!({}));
+        assert_eq!(status, 200, "{answer}");
+        assert_eq!(answer["result"], json!({ "calendar_link": null }));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -44419,7 +48322,7 @@ mod a_demo {
     /// Cooking and shopping save, and so do noting a recipe opened and
     /// signing out.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn cooking_and_shopping_save_in_a_demo() {
+    async fn cooking_planning_and_shopping_save_in_a_demo() {
         let demo = a_demo_with_camille();
         let app = &demo.app;
         let (session_id, visitor) = arrive(app);
@@ -44492,6 +48395,37 @@ mod a_demo {
         ok("remove_from_shopping_list", recipe.clone());
         ok("add_to_shopping_list", recipe.clone());
         ok("empty_shopping_list", json!({}));
+
+        let meal = ok(
+            "plan_recipe",
+            json!({ "branch_id": demo.recipe, "day": "2026-11-05" }),
+        )["planned_meal"]["planned_meal_id"]
+            .clone();
+        ok(
+            "set_planned_yield",
+            json!({ "planned_meal_id": meal, "planned_yield": { "amount": "2", "noun": "" } }),
+        );
+        let week = ok(
+            "get_meal_plan",
+            json!({ "from": "2026-11-02", "to": "2026-11-08" }),
+        );
+        assert_eq!(week["planned_meals"][0]["planned_meal_id"], meal, "{week}");
+        ok(
+            "move_planned_meal",
+            json!({ "planned_meal_id": meal, "week": "2026-11-02" }),
+        );
+        let words = ok(
+            "plan_words",
+            json!({ "words": "Leftovers", "day": "2026-11-06" }),
+        )["planned_meal"]["planned_meal_id"]
+            .clone();
+        ok(
+            "set_planned_words",
+            json!({ "planned_meal_id": words, "words": "Eating out" }),
+        );
+        let sent = ok("send_to_shopping_list", json!({ "weeks": ["2026-11-02"] }));
+        assert_eq!(sent["outcome"], json!("sent"), "{sent}");
+        ok("remove_planned_meal", json!({ "planned_meal_id": meal }));
 
         let signed_out = ok("revoke_session", json!({ "session_id": session_id }));
         assert_eq!(signed_out["current"], json!(true), "{signed_out}");
@@ -44681,7 +48615,9 @@ mod a_demos_sample_library {
     }
 
     /// Every row of the library, table by table and sorted, with every time
-    /// in it moved forward `days`.
+    /// in it moved forward `days`. Where a Planned Meal stands is left out:
+    /// its days and weeks move by rules of their own, which
+    /// `the_cleaning_keeps_camilles_week_the_current_one` checks.
     fn the_library(app: &support::TestApp, days: i64) -> BTreeMap<String, Vec<String>> {
         app.core
             .db()
@@ -44703,11 +48639,17 @@ mod a_demos_sample_library {
                         .prepare(&format!("SELECT * FROM \"{table}\""))
                         .map_err(failed)?;
                     let width = stmt.column_count();
+                    let placed: Vec<bool> = (0..width)
+                        .map(|i| {
+                            table == "planned_meals"
+                                && matches!(stmt.column_name(i), Ok("day" | "week"))
+                        })
+                        .collect();
                     let mut rows = Vec::new();
                     let mut found = stmt.query([]).map_err(failed)?;
                     while let Some(row) = found.next().map_err(failed)? {
                         let mut values = Vec::new();
-                        for i in 0..width {
+                        for i in (0..width).filter(|i| !placed[*i]) {
                             let value: rusqlite::types::Value = row.get(i).map_err(failed)?;
                             values.push(match value {
                                 rusqlite::types::Value::Text(text) if is_a_time(&text) => conn
@@ -44907,6 +48849,155 @@ mod a_demos_sample_library {
         // And the published key goes on working.
         let (status, _) = app.post_op("get_person", Some(kamosu::core::DEMO_ACCESS_KEY), "{}");
         assert_eq!(status, 200);
+    }
+
+    /// Camille's plan from `from` days to `to` days after `today`, as the Plan
+    /// reads it: each meal as `day title`, an undated one's day `week`, and
+    /// what is marked on it.
+    fn camilles_plan(
+        app: &support::TestApp,
+        visitor: &str,
+        today: &str,
+        from: i64,
+        to: i64,
+    ) -> Vec<String> {
+        let day =
+            |days: i64| -> String { ask(app, &format!("SELECT date('{today}', '{days:+} days')")) };
+        let plan = op(
+            app,
+            "get_meal_plan",
+            visitor,
+            json!({ "from": day(from), "to": day(to), "time_zone": "Europe/Amsterdam" }),
+        );
+        plan["planned_meals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|meal| {
+                let when = match meal["day"].as_str() {
+                    Some(day) => day.to_string(),
+                    None => format!("week of {}", meal["week"].as_str().unwrap()),
+                };
+                let what = meal["title"].as_str().or(meal["words"].as_str()).unwrap();
+                let mut marks = String::new();
+                if meal["cooked"] == json!(true) {
+                    marks.push_str(" cooked");
+                }
+                if !meal["sent_at"].is_null() {
+                    marks.push_str(" sent");
+                }
+                format!("{when} {what}{marks}")
+            })
+            .collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_cleaning_keeps_camilles_week_the_current_one() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let app = support::spawn_sample_demo_in(dir.path());
+        let visitor = arrive(&app);
+        // The day the library was built, which its plan is counted from, and
+        // which the clock may have passed since: poured again on that day.
+        let today: String = rusqlite::Connection::open(
+            dir.path()
+                .join("sample-library")
+                .join(kamosu::db::DATABASE_FILE),
+        )
+        .and_then(|built| {
+            built.query_row(
+                "SELECT value FROM meta WHERE key = 'sample_library_built_on'",
+                [],
+                |row| row.get(0),
+            )
+        })
+        .unwrap();
+        app.core.put_back_sample_library_on(&today).unwrap();
+
+        // A visitor's own planning saves, until the cleaning.
+        let lasagna = op(
+            &app,
+            "search_recipes",
+            &visitor,
+            json!({ "query": "Lasagna Soup" }),
+        );
+        let planned = op(
+            &app,
+            "plan_recipe",
+            &visitor,
+            json!({
+                "branch_id": lasagna["recipes"][0]["branch_id"],
+                "day": today,
+                "planned_meal_id": "pm_0123456789abcdef",
+            }),
+        );
+        assert_eq!(planned["planned_meal"]["day"], json!(today), "{planned}");
+        let mut with_mine = camilles_plan(&app, &visitor, &today, 0, 0);
+        with_mine.retain(|meal| !meal.starts_with("week of"));
+        assert_eq!(
+            with_mine,
+            vec![
+                format!("{today} Kogelbiefstuk, pan-seared"),
+                format!("{today} Lasagna Soup"),
+            ]
+        );
+
+        // The week after a cleaning today and on each day after it, so a
+        // week with no day is seen to follow whichever weekday a visitor
+        // comes on.
+        for on in 0..=7 {
+            let cleaned_on: String = ask(&app, &format!("SELECT date('{today}', '+{on} days')"));
+            app.core.put_back_sample_library_on(&cleaned_on).unwrap();
+            let day = |days: i64| -> String {
+                ask(
+                    &app,
+                    &format!("SELECT date('{cleaned_on}', '{days:+} days')"),
+                )
+            };
+            let its_monday: String = ask(
+                &app,
+                &format!("SELECT date('{cleaned_on}', '-6 days', 'weekday 1')"),
+            );
+            let mut expected = vec![
+                format!("{} Garlic Butter Noodles cooked", day(-1)),
+                format!("{} Kogelbiefstuk, pan-seared", day(0)),
+                format!("{} Bacon, pork and broccolini pasta sent", day(1)),
+                format!("{} Dinner at Lucía's", day(2)),
+                format!("{} Beef bourguignon", day(3)),
+                format!("week of {its_monday} Lasagna Soup"),
+            ];
+            let mut read = camilles_plan(&app, &visitor, &cleaned_on, -1, 3);
+            expected.sort();
+            read.sort();
+            assert_eq!(read, expected, "cleaned on {cleaned_on}");
+
+            // A week gone by, its shakshuka cooked by the Attempt of its day.
+            let mut gone_by = camilles_plan(&app, &visitor, &cleaned_on, -11, -8);
+            gone_by.retain(|meal| !meal.starts_with("week of"));
+            assert_eq!(
+                gone_by,
+                vec![
+                    format!("{} Weeknight Tomato Pasta", day(-11)),
+                    format!("{} Sunny Side Shakshuka cooked", day(-10)),
+                    format!("{} Leftovers", day(-9)),
+                    format!("{} Crispy oven rice with beef and mushrooms", day(-8)),
+                ],
+                "cleaned on {cleaned_on}"
+            );
+        }
+
+        // What was sent is still on the list, as the story left it.
+        let shopping = op(&app, "get_shopping_list", &visitor, json!({}));
+        assert!(
+            shopping
+                .to_string()
+                .contains("Bacon, pork and broccolini pasta"),
+            "{shopping}"
+        );
+        let mine: i64 = ask(
+            &app,
+            "SELECT COUNT(*) FROM planned_meals WHERE id = 'pm_0123456789abcdef'",
+        );
+        assert_eq!(mine, 0, "the visitor's own meal went at the first cleaning");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -46309,6 +50400,148 @@ mod sharing_from_a_phone {
         }
     }
 
+    /// A key taken from a phone stops spending once it is revoked: the Jobs
+    /// it started end, the one a Runner holds as well as the one waiting,
+    /// and nobody else's do (#539).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn revoking_an_add_only_key_cancels_the_jobs_it_started_and_no_others() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        let (key, key_id) = add_only_key(&app, &session, false);
+        let (other_key, _) = add_only_key(&app, &session, false);
+        let job_of = |answered: &Value| answered["job_id"].as_str().unwrap().to_string();
+
+        let held = job_of(&add(
+            &app,
+            &key,
+            json!({ "text": "Lemon tart\n200 g flour" }),
+        ));
+        let work = ask_for_work(&app, &runner);
+        assert_eq!(work["job_id"], json!(held), "{work}");
+        let job_key = work["job_key"].as_str().unwrap().to_string();
+        let waiting = job_of(&add(&app, &key, json!({ "text": "Plum cake\n3 eggs" })));
+        let others = job_of(&add(
+            &app,
+            &other_key,
+            json!({ "text": "Pear tart\n2 pears" }),
+        ));
+        let (_, asked) = app.post_op(
+            "import_by_agent",
+            Some(&session),
+            &json!({ "text": "Fig tart\n4 figs" }).to_string(),
+        );
+        let the_cooks = asked["result"]["job_id"].as_str().unwrap().to_string();
+
+        let (status, revoked) = app.post_op(
+            "revoke_access_key",
+            Some(&session),
+            &json!({ "access_key_id": key_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{revoked}");
+
+        let status_of = |job_id: &str| {
+            let (code, job) = app.post_op(
+                "get_job",
+                Some(&session),
+                &json!({ "job_id": job_id }).to_string(),
+            );
+            assert_eq!(code, 200, "{job}");
+            job["result"]["status"].as_str().unwrap().to_string()
+        };
+        assert_eq!(status_of(&held), "cancelled");
+        assert_eq!(status_of(&waiting), "cancelled");
+        assert_eq!(status_of(&others), "queued");
+        assert_eq!(status_of(&the_cooks), "queued");
+        // The agent holding the key's Job reads nothing more with its Job Key.
+        let (status, refused) = app.post_op(
+            "search_recipes",
+            Some(&job_key),
+            &json!({ "query": "tart" }).to_string(),
+        );
+        assert_eq!(status, 401, "{refused}");
+        // And the Runner is told so at its next renewal.
+        let (_, renewed) = app.post_op(
+            "renew_hold",
+            Some(&runner),
+            &json!({ "job_id": held }).to_string(),
+        );
+        assert!(renewed.get("error").is_some(), "{renewed}");
+    }
+
+    /// Every key ended with a new password ends the Add-only key's Jobs as
+    /// revoking it alone does, since a taken phone is why a cook does it
+    /// (#539). A recovery ends them through the same call.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_new_password_that_ends_every_key_cancels_the_add_only_keys_jobs() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        let (key, _) = add_only_key(&app, &session, false);
+        let job_of = |answered: &Value| answered["job_id"].as_str().unwrap().to_string();
+        let held = job_of(&add(
+            &app,
+            &key,
+            json!({ "text": "Lemon tart\n200 g flour" }),
+        ));
+        ask_for_work(&app, &runner);
+        let waiting = job_of(&add(&app, &key, json!({ "text": "Plum cake\n3 eggs" })));
+
+        let (status, changed) = app.post_op(
+            "change_password",
+            Some(&session),
+            &json!({ "current_password": "a password only its person knows",
+                     "new_password": "a password nobody else has",
+                     "sign_out_other_devices": false, "end_access_keys": true })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{changed}");
+        for job_id in [held, waiting] {
+            let (_, job) = app.post_op(
+                "get_job",
+                Some(&session),
+                &json!({ "job_id": job_id }).to_string(),
+            );
+            assert_eq!(job["result"]["status"], json!("cancelled"), "{job}");
+        }
+    }
+
+    /// A recovery and an Operator disabling the account end every key, and
+    /// the Add-only key's Jobs with them, so enabling the account again
+    /// puts none back in line (#539).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_recovery_or_a_disabled_account_cancels_the_add_only_keys_jobs() {
+        let app = support::spawn_app();
+        let (operator, _) = a_cook(&app);
+        a_runner(&app);
+        let status_of = |job_id: &str| -> String {
+            app.core
+                .db()
+                .with_conn(|conn| {
+                    conn.query_row("SELECT status FROM jobs WHERE id = ?1", [job_id], |row| {
+                        row.get(0)
+                    })
+                    .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+                })
+                .unwrap()
+        };
+        let mut started = Vec::new();
+        for name in ["Marie", "Camille"] {
+            let session = super::invited(&app, &operator, name);
+            let (key, _) = add_only_key(&app, &session, false);
+            let sent = add(&app, &key, json!({ "text": "Lemon tart\n200 g flour" }));
+            started.push(sent["job_id"].as_str().unwrap().to_string());
+        }
+        assert_eq!(status_of(&started[0]), "queued");
+        super::recovered(&app, &operator, "Marie");
+        let (status, disabled) =
+            app.post_op("disable_account", Some(&operator), r#"{"name":"Camille"}"#);
+        assert_eq!(status, 200, "{disabled}");
+        for job_id in &started {
+            assert_eq!(status_of(job_id), "cancelled", "{job_id}");
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn with_an_agent_text_pictures_and_a_pdf_are_sent_and_said_so() {
         let app = support::spawn_app();
@@ -46417,6 +50650,296 @@ mod sharing_from_a_phone {
         assert_eq!(said["outcome"], json!("sent"), "{said}");
     }
 
+    /// One reel shared twice carries two codes (#464), which Instagram does
+    /// not even name the same. It is one link while it is read and once it is
+    /// a recipe, and the agent and the Source never see a code.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_reel_shared_again_under_another_code_is_the_same_reel() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        ask_for_work(&app, &runner);
+        let (key, _) = add_only_key(&app, &session, true);
+        let reel = "https://www.instagram.com/reel/POSTID/";
+
+        let sent = add(&app, &key, json!({ "link": format!("{reel}?rpxt=one") }));
+        assert_eq!(sent["outcome"], json!("sent"), "{sent}");
+        let twice = add(&app, &key, json!({ "link": format!("{reel}?psln=two") }));
+        assert_eq!(twice["outcome"], json!("already"), "{twice}");
+        assert_eq!(twice["job_id"], sent["job_id"]);
+
+        let work = ask_for_work(&app, &runner);
+        assert_eq!(work["link"], json!(reel), "{work}");
+        let (status, created) = app.post_op(
+            "create_recipe",
+            work["job_key"].as_str(),
+            &json!({
+                "title": "Tarte au citron",
+                "source": { "text": "Instagram", "link": work["link"] },
+                "ingredients": [{ "kind": "ingredient", "text": "4 eggs" }],
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{created}");
+        app.post_op(
+            "report_on_job",
+            Some(&runner),
+            &json!({ "job_id": work["job_id"], "outcome": "completed" }).to_string(),
+        );
+
+        // Its Job has ended, so the shelf answers now. A post's own address
+        // is the same post.
+        let held = add(
+            &app,
+            &key,
+            json!({ "link": "https://instagram.com/p/POSTID/?igsh=three" }),
+        );
+        assert_eq!(held["outcome"], json!("already"), "{held}");
+        assert_eq!(held["branch_id"], created["result"]["branch_id"]);
+        assert_eq!(recipes_held(&app), 1);
+    }
+
+    /// `vm.tiktok.com` and `www.instagram.com` as this test binary dials them
+    /// (#497): one server for every test, on a thread of its own, since the
+    /// hosts are sent to it once. Each short link redirects as the real ones
+    /// do, in one hop to the post, and `GONE` is a code that is not there.
+    fn serve_short_links() {
+        static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        STARTED.get_or_init(|| {
+            let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+            std_listener.set_nonblocking(true).unwrap();
+            let at = std_listener.local_addr().unwrap();
+            std::thread::spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                runtime.block_on(async move {
+                    let listener = tokio::net::TcpListener::from_std(std_listener).unwrap();
+                    let router = axum::Router::new()
+                        .route(
+                            "/SHORTCODE/",
+                            axum::routing::get(|| async {
+                                axum::response::Redirect::permanent(
+                                    "https://www.tiktok.com/@somecook/video/7000000000000000497?_r=1&_t=CODE",
+                                )
+                            }),
+                        )
+                        .route(
+                            "/share/reel/TOKEN/",
+                            axum::routing::get(|| async {
+                                axum::response::Redirect::temporary(
+                                    "https://www.instagram.com/reel/POSTID/?igsh=CODE",
+                                )
+                            }),
+                        );
+                    axum::serve(listener, router).await.unwrap();
+                });
+            });
+            kamosu::web_import::answer_short_link_hosts_for_tests(at);
+        });
+    }
+
+    /// A short link is the video it leads to (#497): known while that video
+    /// is being added under its full address, and once it is on a shelf, and
+    /// handed to the agent as the video's own address.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_short_link_is_known_as_the_video_it_leads_to() {
+        serve_short_links();
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        ask_for_work(&app, &runner);
+        let (key, _) = add_only_key(&app, &session, true);
+        let video = "https://www.tiktok.com/@somecook/video/7000000000000000497";
+
+        let sent = add(
+            &app,
+            &key,
+            json!({ "link": "http://vm.tiktok.com/SHORTCODE/" }),
+        );
+        assert_eq!(sent["outcome"], json!("sent"), "{sent}");
+        let full = add(&app, &key, json!({ "link": video }));
+        assert_eq!(full["outcome"], json!("already"), "{full}");
+        assert_eq!(full["job_id"], sent["job_id"]);
+
+        // The reel is being added under its own address, and its short link
+        // is that reel.
+        let reel = add(
+            &app,
+            &key,
+            json!({ "link": "https://www.instagram.com/reel/POSTID/" }),
+        );
+        assert_eq!(reel["outcome"], json!("sent"), "{reel}");
+        let shared = add(
+            &app,
+            &key,
+            json!({ "link": "http://www.instagram.com/share/reel/TOKEN/" }),
+        );
+        assert_eq!(shared["outcome"], json!("already"), "{shared}");
+        assert_eq!(shared["job_id"], reel["job_id"]);
+
+        let work = ask_for_work(&app, &runner);
+        assert_eq!(work["job_id"], sent["job_id"], "{work}");
+        assert_eq!(work["link"], json!(video), "{work}");
+        let (status, created) = app.post_op(
+            "create_recipe",
+            work["job_key"].as_str(),
+            &json!({
+                "title": "Tarte au citron",
+                "source": { "text": "TikTok", "link": work["link"] },
+                "ingredients": [{ "kind": "ingredient", "text": "4 eggs" }],
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{created}");
+        app.post_op(
+            "report_on_job",
+            Some(&runner),
+            &json!({ "job_id": work["job_id"], "outcome": "completed" }).to_string(),
+        );
+
+        let held = add(
+            &app,
+            &key,
+            json!({ "link": "http://vm.tiktok.com/SHORTCODE/" }),
+        );
+        assert_eq!(held["outcome"], json!("already"), "{held}");
+        assert_eq!(held["branch_id"], created["result"]["branch_id"]);
+    }
+
+    /// A short link that leads nowhere goes on as it is, and the add does not
+    /// fail for it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_short_link_that_cannot_be_followed_is_added_as_it_is() {
+        serve_short_links();
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        ask_for_work(&app, &runner);
+        let (key, _) = add_only_key(&app, &session, true);
+        let gone = "http://vm.tiktok.com/GONE/";
+
+        let sent = add(&app, &key, json!({ "link": gone }));
+        assert_eq!(sent["outcome"], json!("sent"), "{sent}");
+        let work = ask_for_work(&app, &runner);
+        assert_eq!(work["link"], json!(gone), "{work}");
+    }
+
+    /// A Source written before #464 keeps its code, because it is part of its
+    /// Version's id, and is still found under any other.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_source_that_still_holds_a_code_is_found_and_left_as_it_is() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let (key, _) = add_only_key(&app, &session, false);
+        let (_, made) = app.post_op(
+            "create_recipe",
+            Some(&session),
+            &json!({ "title": "Tarte au citron" }).to_string(),
+        );
+        let branch_id = made["result"]["branch_id"].as_str().unwrap();
+        let written = "https://youtu.be/VIDEOID?si=old";
+        let (status, saved) = app.post_op(
+            "save_recipe_version",
+            Some(&session),
+            &json!({
+                "branch_id": branch_id,
+                "title": "Tarte au citron",
+                "source": { "text": "YouTube", "link": written },
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{saved}");
+
+        let held = add(
+            &app,
+            &key,
+            json!({ "link": "https://www.youtube.com/shorts/VIDEOID?is=new&t=30" }),
+        );
+        assert_eq!(held["outcome"], json!("already"), "{held}");
+        assert_eq!(held["branch_id"], json!(branch_id));
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&session),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(
+            read["result"]["versions"][0]["content"]["source"]["link"],
+            json!(written),
+            "{read}"
+        );
+    }
+
+    /// Whoever calls `create_recipe`, a code does not reach its Source, and
+    /// any other link is kept to the letter.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_new_recipe_keeps_a_video_link_with_no_code_and_any_other_link_as_written() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let source_of = |link: &str| {
+            let (status, made) = app.post_op(
+                "create_recipe",
+                Some(&session),
+                &json!({ "title": "Tart", "source": { "text": "x", "link": link } }).to_string(),
+            );
+            assert_eq!(status, 200, "{made}");
+            let (_, read) = app.post_op(
+                "get_recipe",
+                Some(&session),
+                &json!({ "branch_id": made["result"]["branch_id"] }).to_string(),
+            );
+            read["result"]["versions"][0]["content"]["source"]["link"].clone()
+        };
+        assert_eq!(
+            source_of("https://www.instagram.com/reel/POSTID/?igsh=code"),
+            json!("https://www.instagram.com/reel/POSTID/")
+        );
+        let page = "https://example.org/tart?utm_source=share";
+        assert_eq!(source_of(page), json!(page));
+    }
+
+    /// The recipe an agent made from a link is in the ledger under that
+    /// link, so Kamosu's own reader finds it and lands no second one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_link_an_agent_read_alone_is_found_by_the_ledger() {
+        let app = support::spawn_app();
+        let (session, _) = a_cook(&app);
+        let runner = a_runner(&app);
+        ask_for_work(&app, &runner);
+        let (everything, _) = add_only_key(&app, &session, true);
+        let (plain, _) = add_only_key(&app, &session, false);
+        let base = serve(&[("story", "<html><body><p>Our trip.</p></body></html>".into())]);
+        let story = format!("{base}/pages/story");
+
+        add(&app, &everything, json!({ "link": story }));
+        let work = ask_for_work(&app, &runner);
+        let (status, created) = app.post_op(
+            "create_recipe",
+            work["job_key"].as_str(),
+            // No Source: the ledger is what finds it, and the shelf cannot.
+            &json!({
+                "title": "Tarte au citron",
+                "ingredients": [{ "kind": "ingredient", "text": "4 eggs" }],
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{created}");
+        app.post_op(
+            "report_on_job",
+            Some(&runner),
+            &json!({ "job_id": work["job_id"], "outcome": "completed" }).to_string(),
+        );
+
+        for key in [&plain, &everything] {
+            let again = add(&app, key, json!({ "link": story }));
+            assert_eq!(again["outcome"], json!("already"), "{again}");
+            assert_eq!(again["title"], json!("Tarte au citron"), "{again}");
+            assert_eq!(again["branch_id"], created["result"]["branch_id"]);
+        }
+        assert_eq!(recipes_held(&app), 1);
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_link_answers_sent_when_its_wait_runs_out() {
         let app = support::spawn_app();
@@ -46459,6 +50982,8 @@ mod sharing_from_a_phone {
         let en = in_language("en");
         let fr = in_language("fr");
         let es = in_language("es");
+        let nl = in_language("nl");
+        assert!(nl.starts_with("Deze Kamosu heeft geen AI-agent"), "{nl}");
         assert!(en.starts_with("This Kamosu has no AI agent"), "{en}");
         assert!(fr.starts_with("Ce Kamosu n'a pas d'agent IA"), "{fr}");
         assert!(
@@ -46511,5 +51036,773 @@ mod sharing_from_a_phone {
             let (status, refused) = app.post_op("add_this", Some(&session), &wrong.to_string());
             assert_eq!(status, 400, "{wrong}: {refused}");
         }
+    }
+}
+
+// ── Dutch (#495, ADR 0057) ───────────────────────────────────────────────────
+
+/// A Dutch recipe, as a cook saves it: no Language said.
+fn dutch_soup() -> Value {
+    json!({
+        "title": "Tomatensoep met kip en verse kruiden",
+        "yield": { "amount": "4", "noun": "porties" },
+        "ingredients": [
+            { "kind": "ingredient", "text": "2 el olijfolie" },
+            { "kind": "ingredient", "text": "1,5 kg tomaten" },
+            { "kind": "ingredient", "text": "2 grote uien" },
+            { "kind": "ingredient", "text": "1 teentje knoflook" },
+            { "kind": "ingredient", "text": "250 g tarwebloem" },
+            { "kind": "ingredient", "text": "500 ml kippenbouillon" },
+            { "kind": "ingredient", "text": "zout naar smaak" },
+        ],
+        "steps": [
+            { "kind": "step", "text": "Verwarm de oven voor op 180 graden en fruit de ui in de olijfolie." },
+            { "kind": "step", "text": "Voeg de bloem toe en roer een kwartier op laag vuur door de tomaten." },
+            { "kind": "step", "text": "Giet de bouillon erbij, voeg 100 g boter toe en laat anderhalf uur zachtjes koken." },
+        ],
+    })
+}
+
+fn saved_dutch_soup(app: &support::TestApp, key: &str) -> Value {
+    let (status, created) = app.post_op("create_recipe", Some(key), &dutch_soup().to_string());
+    assert_eq!(status, 200, "{created}");
+    created["result"].clone()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dutch_recipe_saved_with_no_language_is_read_as_dutch_through_the_web_door() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let created = saved_dutch_soup(&app, &key);
+    let branch = created["branch_id"].as_str().unwrap();
+    assert_eq!(created["language"], json!("nl"), "{created}");
+
+    // American measures, the stated default: the oven and the spoons convert.
+    let (status, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    assert_eq!(status, 200, "{recipe}");
+    assert_eq!(recipe["result"]["language"], json!("nl"));
+    let version = recipe["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+
+    let read = |index: usize| {
+        let reading = &version["readings"][index];
+        (
+            reading["amount"].clone(),
+            reading["unit"].clone(),
+            reading["target"].clone(),
+        )
+    };
+    assert_eq!(read(0), (json!("2"), json!("el"), json!("olijfolie")));
+    assert_eq!(read(1), (json!("1,5"), json!("kg"), json!("tomaten")));
+    assert_eq!(read(2), (json!("2"), Value::Null, json!("uien")));
+    assert_eq!(read(3), (json!("1"), json!("teentje"), json!("knoflook")));
+    assert_eq!(read(6), (Value::Null, Value::Null, json!("zout")));
+
+    let steps = &version["cooking"]["steps"];
+    assert_eq!(steps[0]["uses"], json!([0, 2]), "{steps}");
+    assert_eq!(steps[1]["uses"], json!([1, 4]), "{steps}");
+    assert_eq!(steps[1]["timer_seconds"], json!(900), "{steps}");
+    assert_eq!(steps[2]["uses"], json!([5]), "{steps}");
+    assert_eq!(steps[2]["timer_seconds"], json!(5400), "{steps}");
+
+    let measured = version["measured"].to_string();
+    assert!(measured.contains("about 350 °F"), "{measured}");
+    assert!(measured.contains("about 3½ oz"), "{measured}");
+    assert_eq!(version["measured"]["ingredients"][1], json!("about 3¼ lb"));
+
+    // Scaled to twice the Yield, the amount inside a Step scales too.
+    let (status, scaled) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch, "wanted_yield": { "amount": "8", "noun": "porties" } })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{scaled}");
+    let scaled = scaled["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()["measured"]
+        .to_string();
+    assert!(scaled.contains("about 7 oz"), "{scaled}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dutch_line_and_an_english_line_naming_one_food_add_on_the_shopping_list() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    read_in(&app, &key, "metric");
+    let dutch = saved_dutch_soup(&app, &key);
+
+    // One Food, known in both Languages, before the English line is read.
+    let (status, foods) = app.post_op("list_foods", Some(&key), "{}");
+    assert_eq!(status, 200, "{foods}");
+    let olive_oil = foods["result"]["foods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|food| food["name"] == json!("olijfolie"))
+        .unwrap_or_else(|| panic!("{foods}"))["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, named) = app.post_op(
+        "set_food_names",
+        Some(&key),
+        &json!({ "food_id": olive_oil, "language": "en", "names": ["olive oil"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+
+    let (status, english) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Plain white loaf for the whole family to share every day",
+            "language": "en",
+            "ingredients": [{ "kind": "ingredient", "text": "1 cup olive oil" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{english}");
+
+    for branch in [&dutch["branch_id"], &english["result"]["branch_id"]] {
+        let (status, added) = app.post_op(
+            "add_to_shopping_list",
+            Some(&key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        assert_eq!(status, 200, "{added}");
+    }
+    let (status, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert_eq!(status, 200, "{list}");
+    let rows = list["result"]["rows"].as_array().unwrap();
+    let oil = rows
+        .iter()
+        .find(|row| row["id"] == json!(olive_oil))
+        .unwrap_or_else(|| panic!("{list}"));
+    // 2 el is 30 ml and a cup is 240: one volume, on one row.
+    assert_eq!(oil["parts"].as_array().unwrap().len(), 1, "{oil}");
+    assert_eq!(oil["parts"][0]["text"], json!("about 270 ml"), "{oil}");
+    assert_eq!(oil["lines"].as_array().unwrap().len(), 2, "{oil}");
+    // And `uien` and `ui` are one Food however a recipe writes them.
+    let (status, again) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Uiensoep met veel uien en een beetje tijm uit de tuin",
+            "language": "nl",
+            "ingredients": [{ "kind": "ingredient", "text": "1 ui" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{again}");
+    let (_, foods) = app.post_op("list_foods", Some(&key), "{}");
+    let named: Vec<&Value> = foods["result"]["foods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|food| food["name"] == json!("uien") || food["name"] == json!("ui"))
+        .collect();
+    assert_eq!(named.len(), 1, "{foods}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn setting_a_recipe_to_dutch_reads_its_lines_again_and_so_does_reading_every_line_again() {
+    let app = support::spawn_app();
+    let (key, _kitchen) = operator_with_kitchen(&app);
+    read_in(&app, &key, "metric");
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Soep",
+            "language": "en",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 el olijfolie" },
+                { "kind": "ingredient", "text": "1 teentje knoflook" },
+                { "kind": "ingredient", "text": "boter om in de pan te smelten voor het bakken" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let branch = created["result"]["branch_id"].as_str().unwrap();
+    assert_eq!(
+        created["result"]["versions"][0]["readings"][2],
+        Value::Null,
+        "a sentence in English: {created}"
+    );
+    assert_eq!(
+        created["result"]["versions"][0]["readings"][0]["unit"],
+        Value::Null,
+        "`el` is no Unit in English: {created}"
+    );
+
+    let (status, set) = app.post_op(
+        "set_recipe_language",
+        Some(&key),
+        &json!({ "branch_id": branch, "language": "nl" }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+    let (_, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    let version = recipe["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(version["readings"][0]["unit"], json!("el"), "{version}");
+    assert_eq!(
+        version["readings"][1]["unit"],
+        json!("teentje"),
+        "{version}"
+    );
+    // Only lines that had a Reading are read again here (#397).
+    assert_eq!(version["readings"][2], Value::Null, "{version}");
+
+    // The Version now stands in Dutch: everything after the Reading asks Dutch
+    // words too, what the Unit is worth and what the shopping list adds up.
+    assert_eq!(
+        version["measured"]["ingredients"][0],
+        json!("about 30 ml"),
+        "{version}"
+    );
+    let (status, basis) = app.post_op(
+        "shopping_basis",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    assert_eq!(status, 200, "{basis}");
+    assert_eq!(
+        basis["result"]["lines"][0]["food"]["unit_id"],
+        json!("tablespoon"),
+        "{basis}"
+    );
+
+    // Read again wholesale, a Dutch recipe is read with Dutch words.
+    let (status, asked) = app.post_op("reread_ingredient_lines", Some(&key), "{}");
+    assert_eq!(status, 200, "{asked}");
+    let job = support::wait_terminal(
+        &app,
+        Some(&key),
+        asked["result"]["job_id"].as_str().unwrap(),
+    );
+    assert_eq!(job["status"], json!("completed"), "{job}");
+    let (_, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    let version = recipe["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(
+        version["readings"][2]["target"],
+        json!("boter"),
+        "{version}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translation_into_and_out_of_dutch_takes_the_food_of_the_line_in_its_place() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Gochujang chicken",
+            "language": "en",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 tbsp olive oil" },
+                { "kind": "ingredient", "text": "2 onions" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let english = created["result"]["branch_id"].as_str().unwrap();
+    let foods_before = food_count(&app, &key);
+
+    let (status, dutch) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({
+            "branch_id": english,
+            "language": "nl",
+            "title": "Gochujang-kip",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 el olijfolie" },
+                { "kind": "ingredient", "text": "2 uien" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{dutch}");
+    let version = &dutch["result"]["versions"][0];
+    assert_eq!(version["readings"][0]["unit"], json!("el"), "{version}");
+    assert_eq!(
+        food_count(&app, &key),
+        foods_before,
+        "each Dutch line took the Food of the line in its place"
+    );
+
+    // And out of Dutch: the source is read in Dutch, the Translation in French.
+    let dutch_branch = dutch["result"]["branch_id"].as_str().unwrap();
+    let (status, french) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({
+            "branch_id": dutch_branch,
+            "language": "fr",
+            "title": "Poulet au gochujang",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 c. à soupe d'huile d'olive" },
+                { "kind": "ingredient", "text": "2 oignons" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{french}");
+    assert_eq!(food_count(&app, &key), foods_before, "{french}");
+    assert_eq!(
+        french["result"]["versions"][0]["readings"][0]["unit"],
+        json!("c. à soupe"),
+        "{french}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dutch_recipe_pasted_as_text_has_its_lines_found_and_read_as_dutch() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let text = "Stamppot boerenkool met worst\n\n\
+                Ingrediënten\n\
+                1 kg kruimige aardappelen\n\
+                2 el boter\n\
+                1 tl mosterd\n\
+                een snufje zout\n\n\
+                Bereiding\n\
+                Schil de aardappelen en kook ze in ongeveer twintig minuten gaar in een ruime pan.\n\
+                Stamp alles fijn met de boter en de mosterd en breng op smaak met wat zout en peper.\n";
+    let (status, read) = app.post_op(
+        "read_pasted_recipe",
+        Some(&key),
+        &json!({ "text": text }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    assert_eq!(read["result"]["boundary"], json!(5), "{read}");
+    let lines = read["result"]["lines"].as_array().unwrap();
+    assert_eq!(lines[0]["kind"], json!("section"), "{read}");
+    assert_eq!(lines[2]["text"], json!("2 el boter"), "{read}");
+    assert_eq!(lines[5]["text"], json!("Bereiding"), "{read}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dutch_is_a_language_a_recipe_a_tag_and_a_food_can_be_named_in_at_both_doors() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let created = saved_dutch_soup(&app, &key);
+    let branch = created["branch_id"].as_str().unwrap();
+
+    let (status, tag) = app.post_op(
+        "create_tag",
+        Some(&key),
+        &json!({ "language": "nl", "name": "Hoofdgerecht" }).to_string(),
+    );
+    assert_eq!(status, 200, "{tag}");
+    let tag_id = tag["result"]["id"].as_str().unwrap();
+
+    // A name in no other Language is shown, wherever the reader reads.
+    let (_, tags) = app.post_op("list_tags", Some(&key), "{}");
+    let listed = &tags["result"]["tags"][0];
+    assert_eq!(listed["name"], json!("Hoofdgerecht"), "{tags}");
+    assert_eq!(listed["language"], json!("nl"), "{tags}");
+    assert_eq!(listed["language_fallback"], json!(true), "{tags}");
+
+    // The Spanish name comes before the Dutch in the fixed order.
+    let (status, renamed) = app.post_op(
+        "rename_tag",
+        Some(&key),
+        &json!({ "tag_id": tag_id, "language": "es", "name": "Plato principal" }).to_string(),
+    );
+    assert_eq!(status, 200, "{renamed}");
+    let (_, tags) = app.post_op("list_tags", Some(&key), "{}");
+    assert_eq!(
+        tags["result"]["tags"][0]["name"],
+        json!("Plato principal"),
+        "{tags}"
+    );
+
+    let (_, foods) = app.post_op("list_foods", Some(&key), "{}");
+    let food_id = foods["result"]["foods"][0]["id"].as_str().unwrap();
+    let (status, named) = app.post_op(
+        "set_food_names",
+        Some(&key),
+        &json!({ "food_id": food_id, "language": "nl", "names": ["Knoflookje"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+
+    // The MCP Door takes it the same way, being built from one declaration.
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "set_recipe_language",
+            "arguments": { "branch_id": branch, "language": "nl" },
+        },
+    });
+    let (status, answered) = app.post_mcp(&call.to_string(), Some(&key));
+    assert_eq!(status, 200, "{answered}");
+    assert_eq!(answered["result"]["isError"], json!(false), "{answered}");
+
+    // And a Person may read Kamosu in it, since the screens speak it (#496).
+    let (status, accepted) = app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "nl", "reading_measures": "metric" }).to_string(),
+    );
+    assert_eq!(status, 200, "{accepted}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dutch_recipes_sheet_and_share_link_page_are_in_dutch() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let created = saved_dutch_soup(&app, &key);
+    let branch = created["branch_id"].as_str().unwrap();
+
+    let (_result, _type, text) = a_sheet(
+        &app,
+        "make_sheet",
+        Some(&key),
+        json!({ "branch_id": branch }),
+    );
+    assert!(text.contains("Voor 4 porties"), "{text}");
+    assert!(text.contains("geschreven op"), "{text}");
+    assert!(text.contains("pagina 1 van 1"), "{text}");
+    assert!(!text.contains("written"), "{text}");
+
+    let (token, _url) = share(&app, &key, branch);
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(page.contains(r#"lang="nl""#), "{page}");
+    assert!(page.contains("Ingrediënten"), "{page}");
+    assert!(page.contains("Bereiding"), "{page}");
+    assert!(page.contains("Dit recept importeren"), "{page}");
+    assert!(!page.contains(">Ingredients<"), "{page}");
+}
+
+/// What one request may make an instance spend: memory decoding a picture,
+/// disk on staged uploads, memory reading a Bundle, and the database lock on
+/// a long line of text (#538).
+mod what_one_request_may_cost {
+    use super::*;
+
+    fn picture(width: u32, height: u32) -> Vec<u8> {
+        let image = image::RgbImage::from_fn(width, height, |x, y| {
+            image::Rgb([(x % 251) as u8, (y % 241) as u8, ((x + y) % 239) as u8])
+        });
+        let mut jpeg = Vec::new();
+        image::DynamicImage::ImageRgb8(image)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .expect("encodes");
+        jpeg
+    }
+
+    /// CRC-32 as PNG defines it, for a header rewritten below.
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for byte in bytes {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    (crc >> 1) ^ 0xEDB8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+
+    /// A PNG of 16 bits a colour with transparency whose header says it is
+    /// 10,000 × 10,000: 100 megapixels, within the count Kamosu opens, and
+    /// 800 MB unpacked. What follows the header is never reached.
+    fn deep_100_megapixels() -> Vec<u8> {
+        let small = image::DynamicImage::ImageRgba16(image::ImageBuffer::new(4, 4));
+        let mut png = Vec::new();
+        small
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("encodes");
+        png[16..20].copy_from_slice(&10_000u32.to_be_bytes());
+        png[20..24].copy_from_slice(&10_000u32.to_be_bytes());
+        let crc = crc32(&png[12..29]);
+        png[29..33].copy_from_slice(&crc.to_be_bytes());
+        png
+    }
+
+    fn upload_photograph(app: &support::TestApp, key: &str, bytes: &[u8]) -> (u16, Value) {
+        app.post_bytes("/api/photographs", Some(key), "image/png", bytes)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_picture_that_unpacks_past_the_limit_is_refused_and_a_photograph_is_not() {
+        let app = support::spawn_app();
+        let (_, key) = someone(&app, "Stéphane");
+
+        let (status, refused) = upload_photograph(&app, &key, &deep_100_megapixels());
+        assert_eq!(status, 400, "{refused}");
+        assert!(
+            refused
+                .to_string()
+                .contains("which unpacks to more than the 200 MB"),
+            "{refused}"
+        );
+
+        // A 24-megapixel photograph, as a camera saves one.
+        let (status, stored) = upload_photograph(&app, &key, &picture(6000, 4000));
+        assert_eq!(status, 200, "{stored}");
+    }
+
+    #[cfg(feature = "test-jobs")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_third_picture_while_two_are_remade_is_busy() {
+        let app = support::spawn_app();
+        let (_, key) = someone(&app, "Stéphane");
+        let first = app.core.hold_a_picture_place().expect("a place");
+        let second = app.core.hold_a_picture_place().expect("a place");
+
+        let (status, busy) = upload_photograph(&app, &key, &picture(64, 48));
+        assert_eq!(status, 503, "{busy}");
+        assert_eq!(busy["error"]["kind"], json!("busy"));
+
+        drop(first);
+        let (status, stored) = upload_photograph(&app, &key, &picture(64, 48));
+        assert_eq!(status, 200, "{stored}");
+        drop(second);
+    }
+
+    fn add_only_key(app: &support::TestApp, session: &str) -> String {
+        let (status, minted) = app.post_op(
+            "mint_access_key",
+            Some(session),
+            &json!({ "name": "iPhone", "add_only": true }).to_string(),
+        );
+        assert_eq!(status, 200, "{minted}");
+        minted["result"]["secret"].as_str().unwrap().to_string()
+    }
+
+    fn stage(app: &support::TestApp, key: &str, bytes: &[u8]) -> (u16, Value) {
+        app.post_bytes("/api/uploads", Some(key), "application/octet-stream", bytes)
+    }
+
+    fn staged_files(app: &support::TestApp, person_id: &str) -> usize {
+        std::fs::read_dir(app.core.data_dir().join("uploads").join(person_id))
+            .map(|files| files.count())
+            .unwrap_or(0)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_add_only_key_stages_only_what_add_this_takes() {
+        let app = support::spawn_app();
+        let (session, person_id) = super::operator_signed_in(&app);
+        let key = add_only_key(&app, &session);
+
+        let larger = vec![7u8; kamosu::core::LARGEST_HANDED_FILE as usize + 1];
+        let (status, refused) = stage(&app, &key, &larger);
+        assert_eq!(status, 400, "{refused}");
+        assert!(
+            refused.to_string().contains("larger than 25 MB"),
+            "{refused}"
+        );
+        assert_eq!(staged_files(&app, &person_id), 0, "nothing of it is kept");
+
+        for _ in 0..kamosu::core::MOST_PAGES {
+            let (status, staged) = stage(&app, &key, b"a page");
+            assert_eq!(status, 200, "{staged}");
+        }
+        let (status, refused) = stage(&app, &key, b"an eleventh");
+        assert_eq!(status, 400, "{refused}");
+        assert!(
+            refused.to_string().contains("waiting to be added"),
+            "{refused}"
+        );
+        assert_eq!(staged_files(&app, &person_id), kamosu::core::MOST_PAGES);
+
+        // A send that failed halfway leaves its files behind. Once one has
+        // waited unused for a while, the next file takes its place, so the
+        // phone is not kept out for the day it would take to clear.
+        let uploads = app.core.data_dir().join("uploads").join(&person_id);
+        let oldest = std::fs::read_dir(&uploads)
+            .unwrap()
+            .flatten()
+            .next()
+            .unwrap()
+            .path();
+        std::fs::File::options()
+            .write(true)
+            .open(&oldest)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600))
+            .unwrap();
+        let (status, staged) = stage(&app, &key, b"sent again");
+        assert_eq!(status, 200, "{staged}");
+        assert!(!oldest.exists(), "the abandoned file made way");
+        assert_eq!(staged_files(&app, &person_id), kamosu::core::MOST_PAGES);
+
+        // The cook's own Session still stages a library's worth, and past
+        // the ten the key holds.
+        let (status, staged) = stage(&app, &session, &larger);
+        assert_eq!(status, 200, "{staged}");
+    }
+
+    /// A staged file grown in place to a size no test could hold in memory,
+    /// costing no disk: if anything read it whole, the test would not end.
+    fn staged_and_grown(app: &support::TestApp, key: &str, head: &[u8], to: u64) -> String {
+        let (status, staged) = stage(app, key, head);
+        assert_eq!(status, 200, "{staged}");
+        let upload_id = staged["result"]["upload_id"].as_str().unwrap().to_string();
+        let uploads = app.core.data_dir().join("uploads");
+        let path = std::fs::read_dir(&uploads)
+            .unwrap()
+            .flatten()
+            .map(|person| person.path().join(&upload_id))
+            .find(|path| path.is_file())
+            .expect("the staged file");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(to)
+            .unwrap();
+        upload_id
+    }
+
+    /// The Job `import_bundle` starts, once it has ended.
+    fn import_bundle(app: &support::TestApp, key: &str, upload_id: &str) -> Value {
+        super::importing(app, key, json!({ "upload_id": upload_id }))
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_bundle_that_is_no_zip_or_too_large_is_refused_without_being_read() {
+        let app = support::spawn_app();
+        let (_, key) = someone(&app, "Stéphane");
+        let hundred_gigabytes = 100 * 1000 * 1000 * 1000;
+
+        let not_a_zip = staged_and_grown(&app, &key, b"zeros", hundred_gigabytes);
+        let ended = import_bundle(&app, &key, &not_a_zip);
+        assert_eq!(ended["status"], json!("completed"), "{ended}");
+        assert!(ended.to_string().contains("it is not a zip"), "{ended}");
+
+        let too_large = staged_and_grown(&app, &key, b"PK\x03\x04", hundred_gigabytes);
+        let ended = import_bundle(&app, &key, &too_large);
+        assert_eq!(ended["status"], json!("failed"), "{ended}");
+        assert!(
+            ended.to_string().contains("at most 256000000 bytes"),
+            "{ended}"
+        );
+        assert_eq!(
+            std::fs::read_dir(app.core.data_dir().join("uploads"))
+                .unwrap()
+                .flatten()
+                .map(|person| std::fs::read_dir(person.path()).unwrap().count())
+                .sum::<usize>(),
+            0,
+            "each staged file is used up"
+        );
+    }
+
+    /// The refusal at each Door for one over-long field, and that one
+    /// character fewer goes through.
+    fn refused_at_both_doors(
+        app: &support::TestApp,
+        key: &str,
+        operation: &str,
+        input: impl Fn(&str) -> Value,
+        field: &str,
+        most: usize,
+    ) {
+        let over = "é".repeat(most + 1);
+        let said = format!("'{field}' must be at most {most} characters");
+        let (status, refused) = app.post_op(operation, Some(key), &input(&over).to_string());
+        assert_eq!(status, 400, "{refused}");
+        assert!(refused.to_string().contains(&said), "{refused}");
+
+        let call = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": operation, "arguments": input(&over) },
+        });
+        let (_, refused) = app.post_mcp(&call.to_string(), Some(key));
+        assert_eq!(refused["result"]["isError"], json!(true), "{refused}");
+        assert!(refused.to_string().contains(&said), "{refused}");
+
+        let (status, taken) =
+            app.post_op(operation, Some(key), &input(&"é".repeat(most)).to_string());
+        assert_eq!(status, 200, "{taken}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_over_long_line_plan_or_note_is_refused_at_both_doors() {
+        let app = support::spawn_app();
+        let (_, key) = someone(&app, "Stéphane");
+
+        refused_at_both_doors(
+            &app,
+            &key,
+            "add_loose_item",
+            |text| json!({ "text": text }),
+            "text",
+            2_000,
+        );
+        refused_at_both_doors(
+            &app,
+            &key,
+            "plan_words",
+            |words| json!({ "words": words, "day": "2026-11-02" }),
+            "words",
+            2_000,
+        );
+
+        let tart = written(&app, &key, "Tarte aux pommes");
+        let (status, started) = app.post_op(
+            "start_attempt",
+            Some(&key),
+            &json!({ "branch_id": tart }).to_string(),
+        );
+        assert_eq!(status, 200, "{started}");
+        let attempt = started["result"]["id"].as_str().unwrap().to_string();
+        refused_at_both_doors(
+            &app,
+            &key,
+            "edit_attempt",
+            |note| json!({ "attempt_id": attempt, "note": note }),
+            "note",
+            10_000,
+        );
+        refused_at_both_doors(
+            &app,
+            &key,
+            "finish_attempt",
+            |note| json!({ "attempt_id": attempt, "note": note }),
+            "note",
+            10_000,
+        );
     }
 }

@@ -2,24 +2,25 @@
 	import { afterNavigate, onNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import '../app.css';
-	import { getLocale } from '$lib/paraglide/runtime';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
-	import Shell from '$lib/shell/Shell.svelte';
-	import { realKamosu } from '$lib/kamosu';
-	import { realAuth } from '$lib/auth';
-	import { realPhotographUpload, realUpload } from '$lib/api/upload';
-	import { realFiles } from '$lib/api/files';
-	import { readToken } from '$lib/tokens';
-	import Notices from '$lib/offline/Notices.svelte';
-	import WentWrong from '$lib/WentWrong.svelte';
-	import { watchForMistakes, wentWrong } from '$lib/mistake.svelte';
-	import Arrived from '$lib/Arrived.svelte';
-	import { listenToTheWorker, reach, retryWhileUnreachable } from '$lib/offline/device.svelte';
-	import { realOutbox } from '$lib/offline/outbox';
-	import { m } from '$lib/paraglide/messages';
-	import { WindowRoom } from '$lib/room.svelte';
-	import { keepDropsOut } from '$lib/drop.svelte';
-	import { noteArrival } from '$lib/shell/way-back';
+	import { getLocale } from '#lib/paraglide/runtime.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
+	import Shell from '#lib/shell/Shell.svelte';
+	import { realKamosu } from '#lib/kamosu.js';
+	import { realAuth } from '#lib/auth.js';
+	import { realPhotographUpload, realUpload } from '#lib/api/upload.js';
+	import { realFiles } from '#lib/api/files.js';
+	import { readToken } from '#lib/tokens.js';
+	import Notices from '#lib/offline/Notices.svelte';
+	import WentWrong from '#lib/WentWrong.svelte';
+	import { watchForMistakes, wentWrong } from '#lib/mistake.svelte.js';
+	import Arrived from '#lib/Arrived.svelte';
+	import { listenToTheWorker, reach, retryWhileUnreachable } from '#lib/offline/device.svelte.js';
+	import { realOutbox } from '#lib/offline/outbox.js';
+	import { sessions } from '#lib/offline/library.svelte.js';
+	import { m } from '#lib/paraglide/messages.js';
+	import { WindowRoom } from '#lib/room.svelte.js';
+	import { keepDropsOut } from '#lib/drop.svelte.js';
+	import { noteArrival } from '#lib/shell/way-back.js';
 
 	let { children } = $props();
 
@@ -40,9 +41,10 @@
 
 	// The document's language is the locale Paraglide resolved, which is what
 	// tells a screen reader — and Safari's translation offer — what it is reading.
-	$effect(() => {
-		document.documentElement.lang = getLocale();
-	});
+	// Set before the first paint rather than after it, because the stylesheet
+	// draws the navigation by it too: in Dutch the rail is wider (#496), and set
+	// after mount it would jump on every load. A locale changes only by a reload.
+	document.documentElement.lang = getLocale();
 
 	// The browser chrome takes the app's ground colour — read from the stylesheet
 	// the page loaded, so it is the same colour every screen is drawn on and
@@ -57,6 +59,8 @@
 	// in app.css; this is the one line of script the API needs, and a browser
 	// without it simply navigates.
 	onNavigate((navigation) => {
+		// A shallow `goto` only tidies the address, and draws no new page (#525).
+		if (navigation.shallow && navigation.type === 'goto') return;
 		if (!document.startViewTransition) return;
 		return new Promise((resolve) => {
 			const transition = document.startViewTransition(async () => {
@@ -95,7 +99,10 @@
 	// What was written with no network goes as soon as the server answers
 	// again (#77): on opening, whenever the server is found again, and when the
 	// browser says the network is back.
+	// And when somebody signs in, since what the same Person held while their
+	// Session was ended elsewhere waits for them (#537).
 	$effect(() => {
+		void sessions.began;
 		if (reach.server) void outbox.flush();
 	});
 	$effect(() => {
@@ -122,7 +129,11 @@
 		redrawScreen = reset;
 		wentWrong(error);
 	}
-	afterNavigate(() => {
+
+	afterNavigate(({ shallow, type }) => {
+		// As in onNavigate above: no new page to redraw (#525).
+		if (shallow && type === 'goto') return;
+
 		const redraw = redrawScreen;
 		redrawScreen = undefined;
 		redraw?.();

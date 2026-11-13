@@ -17,7 +17,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import Header from './Header.svelte';
-import { m } from '$lib/paraglide/messages';
+import { m } from '#lib/paraglide/messages.js';
 
 function header(onSettings = false, bare = false) {
 	render(Header, { props: { onSettings, bare } });

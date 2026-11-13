@@ -1,0 +1,54 @@
+# The Dutch form for a clumsy phrase or a misread line (#496). Kamosu's Dutch
+# was written by a machine and checked by nobody who speaks it, so this is how
+# it gets corrected. A blank issue stays allowed: there is no config.yml here
+# turning blank issues off, and none should be added for this form's sake.
+name: Nederlands verbeteren
+description: Een onhandige zin of een verkeerd gelezen regel in het Nederlands van Kamosu.
+title: "[nl] "
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Het Nederlands van Kamosu is door een machine vertaald, en nog niemand die Nederlands spreekt heeft het nagekeken. Bedankt dat je helpt het te verbeteren.
+
+        Een verkeerd gelezen regel uit een recept komt na de reparatie in de Nederlandse testset, zodat hij goed gelezen blijft.
+  - type: dropdown
+    id: soort
+    attributes:
+      label: Wat is er mis?
+      options:
+        - Een zin op een scherm klinkt niet goed
+        - Kamosu las een regel uit een recept verkeerd
+        - Iets anders
+    validations:
+      required: true
+  - type: textarea
+    id: waar
+    attributes:
+      label: Waar zag je het?
+      description: Het scherm (bijvoorbeeld Instellingen › Taal en maten), of de regel uit het recept precies zoals hij geschreven is.
+      placeholder: "2 el olijfolie"
+    validations:
+      required: true
+  - type: textarea
+    id: getoond
+    attributes:
+      label: Wat liet Kamosu zien?
+      description: De zin zoals Kamosu hem schreef, of wat Kamosu van de regel maakte.
+    validations:
+      required: true
+  - type: textarea
+    id: verwacht
+    attributes:
+      label: Wat had er moeten staan?
+    validations:
+      required: true
+  - type: input
+    id: versie
+    attributes:
+      label: Kamosu-versie
+      description: Staat onder Instellingen › Over Kamosu.
+      placeholder: "0.5.0"
+    validations:
+      required: true

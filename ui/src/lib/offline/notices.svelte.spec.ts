@@ -8,11 +8,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
-import { aDate } from '$lib/dates';
+import { heardWhetherSignedIn } from '#lib/shell/signing-in.svelte.js';
+import { aDate } from '#lib/dates.js';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetRecipeOutput } from '$lib/api/catalogue';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { GetRecipeOutput } from '#lib/api/catalogue.js';
 import {
 	cookbookLabel,
 	kitchenAnswer,
@@ -26,7 +26,8 @@ import type { Device } from './device.svelte';
 import { sessionBegan } from './library.svelte';
 import { holdTheInstallOffer, reached } from './device.svelte';
 import { standing } from './standing.svelte';
-import { demo } from '$lib/demo.svelte';
+import { demo } from '#lib/demo.svelte.js';
+import { setLocale } from '#lib/paraglide/runtime.js';
 import { anInstallOffer, offerToInstall } from '../../testing/install';
 
 const entry = (branch_id: string, main_photo: string | null = null) => ({
@@ -117,6 +118,7 @@ const ordinary = () => ({
 /** A Kitchen of two recipes, one with a picture. */
 const library = (): Answers => ({
 	instance_status: ordinary(),
+	get_person: { person_id: 'p_1', name: 'Carl', is_operator: false },
 	search_recipes: { query: null, closest: false, recipes: [entry('b_1', 'p_1'), entry('b_2')] },
 	get_recipe: () => recipe('b_1'),
 	get_thread: () => thread('b_1'),
@@ -189,6 +191,27 @@ describe('the first fill', () => {
 		// Nothing was fetched: an iPhone cannot tell wifi from mobile data.
 		expect(kamosu.calls.filter((c) => c.operation === 'get_recipe')).toHaveLength(0);
 	});
+
+	it.each([
+		['en', /^1 recipe and its pictures, about/],
+		['fr', /^1 recette et ses photos, environ/],
+		['es', /^1 receta y sus fotos, unos/],
+		['nl', /^1 recept en de foto's, ongeveer/],
+	] as const)(
+		'says a library of one recipe in the singular, in %s (#533)',
+		async (locale, said) => {
+			setLocale(locale, { reload: false });
+			try {
+				show({
+					...library(),
+					search_recipes: { query: null, closest: false, recipes: [entry('b_1', 'p_1')] },
+				});
+				expect(await screen.findByText(said)).toBeInTheDocument();
+			} finally {
+				setLocale('en', { reload: false });
+			}
+		},
+	);
 
 	it('reads every recipe as its page would, with its pictures, when asked', async () => {
 		const kamosu = show({

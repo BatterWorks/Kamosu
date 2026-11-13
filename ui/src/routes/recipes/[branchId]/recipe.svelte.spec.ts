@@ -11,21 +11,22 @@
  * wrong.
  */
 
-import { aDate } from '$lib/dates';
-import { m } from '$lib/paraglide/messages';
+import { aDate } from '#lib/dates.js';
+import { addDays, mondayOf, today } from '#lib/plan-days.js';
+import { m } from '#lib/paraglide/messages.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import { tick, type ComponentProps } from 'svelte';
 import userEvent from '@testing-library/user-event';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import { realFiles } from '$lib/api/files';
-import { OperationError } from '$lib/api/client';
-import type { DivergenceOutput, GetRecipeOutput } from '$lib/api/catalogue';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import { realFiles } from '#lib/api/files.js';
+import { OperationError } from '#lib/api/client.js';
+import type { DivergenceOutput, GetRecipeOutput } from '#lib/api/catalogue.js';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
 import { went } from '../../../testing/navigation';
 import { outlivingTheWait, withTheClockFaked } from '../../../testing/jobs';
 import { cookbookLabel, threadBranch, writtenByMe } from '../../../testing/recipes';
-import { holdPaste, takePaste } from '$lib/pasted.svelte';
+import { holdPaste, takePaste } from '#lib/pasted.svelte.js';
 
 // Deleting ends by going back to the shelf, because there is nothing left to
 // stand on. Where that goes is the router's business, not this screen's, so
@@ -377,11 +378,27 @@ const NOT_READ_AGAIN = {
 	reason: 'no_runner' as const,
 };
 
+/** Settles once the page's read of `branchId` has answered (#559). */
+function readOf(kamosu: ReturnType<typeof standIn>, branchId: string): Promise<unknown> {
+	const read = kamosu.client.getRecipe.bind(kamosu.client);
+	return new Promise((resolve) => {
+		kamosu.client.getRecipe = ((input) => {
+			const answer = read(input);
+			if (input.branch_id === branchId)
+				answer.then(
+					() => resolve(undefined),
+					() => resolve(undefined),
+				);
+			return answer;
+		}) as typeof kamosu.client.getRecipe;
+	});
+}
+
 function renderRecipe(
 	answers: Answers = forked(),
 	branchId = 'mine',
 	/** The phone it is on, and how it fetches a Sheet to share (#149). */
-	on: Pick<ComponentProps<typeof RecipeTestHarness>, 'device' | 'files' | 'upload'> = {},
+	on: Pick<ComponentProps<typeof RecipeTestHarness>, 'device' | 'files' | 'upload' | 'openAt'> = {},
 ) {
 	// Your own cookings, read for their pictures (#110). Nobody here has
 	// cooked anything unless a test says so.
@@ -1251,7 +1268,7 @@ describe('the recipe screen', () => {
 	 * asked for at an amount — the chicken doubled, the oil with nothing Kamosu
 	 * could scale, as the Core answers it.
 	 */
-	function scalable(extra: Answers = {}) {
+	function scalable(extra: Answers = {}, on: Parameters<typeof renderRecipe>[2] = {}) {
 		const plain = solo().get_recipe as GetRecipeOutput;
 		const held: { kamosu?: ReturnType<typeof standIn> } = {};
 		const asked = () =>
@@ -1261,8 +1278,8 @@ describe('the recipe screen', () => {
 				.at(-1);
 		const answers: Answers = {
 			...solo(),
-			get_recipe: () => {
-				const wanted = asked();
+			get_recipe: (input) => {
+				const wanted = input.wanted_yield ?? asked();
 				if (!wanted) return plain;
 				return {
 					...plain,
@@ -1283,7 +1300,7 @@ describe('the recipe screen', () => {
 			set_shopping_yield: { chosen: [], rows: [] },
 			...extra,
 		};
-		const rendered = renderRecipe(answers);
+		const rendered = renderRecipe(answers, 'mine', on);
 		held.kamosu = rendered.kamosu;
 		return rendered;
 	}
@@ -2017,6 +2034,112 @@ describe('the recipe screen', () => {
 		expect(screen.queryByText('Saved.')).not.toBeInTheDocument();
 	});
 
+	it('closes the writing screen when you walk to another recipe, and saves nothing onto it (#549)', async () => {
+		// The browser's Back button moves this same screen to the recipe you
+		// came from. A draft left open would be one recipe's words, saved as a
+		// Version of the other.
+		const { kamosu, goTo } = renderRecipe({
+			...solo(),
+			divergence: { refuse: 'not_found' },
+		} as Answers);
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		expect(await screen.findAllByRole('button', { name: /Save onto mine/ })).not.toHaveLength(0);
+
+		// The recipe walked to has not answered yet, so the last one is still
+		// on screen. Its Edit button must not open the last recipe's words
+		// under the new recipe's name.
+		const read = kamosu.client.getRecipe.bind(kamosu.client);
+		kamosu.client.getRecipe = ((input) =>
+			input.branch_id === 'another'
+				? new Promise(() => {})
+				: read(input)) as typeof kamosu.client.getRecipe;
+		await goTo('another');
+		await tick();
+		expect(screen.queryByRole('button', { name: /Save onto/ })).toBeNull();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Edit this recipe' }));
+		await tick();
+		expect(screen.queryByRole('button', { name: /Save onto/ })).toBeNull();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('save_recipe_version');
+	});
+
+	it('leaves a corrected Reading behind when you walk to another recipe (#559)', async () => {
+		// A correction is laid over the line by its index, and the next recipe
+		// has a line at the same index that is another ingredient entirely.
+		const { kamosu, goTo } = renderRecipe({
+			...solo(),
+			divergence: { refuse: 'not_found' },
+			set_reading: {
+				line_index: 2,
+				reading: { amount: '500', unit: 'ml', target: 'frying oil', lineage_id: null },
+				measured: null,
+			},
+		} as Answers);
+		await fireEvent.click(await screen.findByText('Some cooking oil (for deep frying)'));
+		await fireEvent.input(screen.getByLabelText(/What it is/i), {
+			target: { value: 'frying oil' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: /Save the Reading/i }));
+		await screen.findByText('500 ml frying oil');
+
+		// Gone at once, while the last recipe is still on screen, and still gone
+		// once the next one has answered.
+		const answered = readOf(kamosu, 'another');
+		await goTo('another');
+		await tick();
+		expect(screen.queryByText('500 ml frying oil')).not.toBeInTheDocument();
+		await answered;
+		await tick();
+		expect(screen.getByText('Some cooking oil (for deep frying)')).toBeInTheDocument();
+		expect(screen.queryByText('500 ml frying oil')).not.toBeInTheDocument();
+	});
+
+	it('closes a corrector left open when you walk to another recipe (#559)', async () => {
+		// Its fields hold the last recipe's Reading, and saving them would write
+		// that Reading onto the new recipe's line.
+		const { kamosu, goTo } = renderRecipe({
+			...solo(),
+			divergence: { refuse: 'not_found' },
+		} as Answers);
+		await fireEvent.click(await screen.findByText('Some cooking oil (for deep frying)'));
+		expect(screen.getByLabelText(/What it is/i)).toBeInTheDocument();
+
+		const answered = readOf(kamosu, 'another');
+		await goTo('another');
+		await tick();
+		expect(screen.queryByLabelText(/What it is/i)).toBeNull();
+		await answered;
+		await tick();
+		expect(screen.queryByLabelText(/What it is/i)).toBeNull();
+		// Once the recipe walked to has answered, its own lines correct.
+		await fireEvent.click(screen.getByText('Some cooking oil (for deep frying)'));
+		expect(screen.getByLabelText(/What it is/i)).toBeInTheDocument();
+	});
+
+	it('opens no corrector on the last recipe while the next one is still being read (#559)', async () => {
+		// Until the recipe walked to answers, the last one stays on screen. A
+		// corrector opened on its line would send that line's Reading as a
+		// correction of the new recipe.
+		const { kamosu, goTo } = renderRecipe({
+			...solo(),
+			divergence: { refuse: 'not_found' },
+		} as Answers);
+		await screen.findByText('Some cooking oil (for deep frying)');
+
+		const read = kamosu.client.getRecipe.bind(kamosu.client);
+		kamosu.client.getRecipe = ((input) =>
+			input.branch_id === 'another'
+				? new Promise(() => {})
+				: read(input)) as typeof kamosu.client.getRecipe;
+		await goTo('another');
+		await tick();
+
+		await fireEvent.click(screen.getByText('Some cooking oil (for deep frying)'));
+		await tick();
+		expect(screen.queryByLabelText(/What it is/i)).toBeNull();
+	});
+
 	it('does not re-read the recipe for a correction that touches no Component', async () => {
 		// The ordinary correction, which is nearly every correction. Everything
 		// it changes is laid over the Readings on this page already, so a
@@ -2072,6 +2195,28 @@ describe('the recipe screen', () => {
 		expect(kamosu.calls.some((call) => call.operation === 'save_recipe_version')).toBe(false);
 		// Held once: nothing is waiting for this recipe any more.
 		expect(takePaste('mine')).toBeUndefined();
+	});
+
+	it('still opens on the paste when the page walks to that recipe rather than opening on it (#549)', async () => {
+		// Walking to another recipe closes the writing screen. A paste waiting
+		// for the recipe walked to must open it after that, not be closed by it.
+		const { goTo } = renderRecipe({
+			...solo({ ingredients: [], steps: [] }),
+			divergence: { refuse: 'not_found' },
+		} as Answers);
+		await screen.findByRole('button', { name: 'Edit this recipe' });
+
+		holdPaste('another', {
+			title: 'Korean Fried Chicken',
+			note: null,
+			source: null,
+			ingredients: [{ kind: 'ingredient', text: '1 lemon' }],
+			steps: [{ kind: 'step', text: 'Squeeze it over.' }],
+		});
+		await goTo('another');
+
+		expect(await screen.findByDisplayValue('1 lemon')).toBeInTheDocument();
+		expect(takePaste('another')).toBeUndefined();
 	});
 
 	// #301: a page with no recipe data, read from its own text, brings its
@@ -2297,6 +2442,122 @@ describe('the recipe screen', () => {
 		);
 		expect(said.tagName).toBe('SPAN');
 		expect(said.closest('button')).toBeNull();
+	});
+
+	// ---- planning it (#486) ---------------------------------------------------
+
+	it('plans the version on screen on a day, at an amount, and says where it went (#486)', async () => {
+		const { kamosu } = scalable({
+			get_meal_plan: { planned_meals: [] },
+			plan_recipe: { planned_meal: null },
+		});
+		await screen.findByText('Amounts for 4 servings');
+		await fireEvent.click(screen.getByRole('button', { name: 'Plan this' }));
+		const sheet = await screen.findByRole('dialog');
+		expect(within(sheet).getByRole('button', { name: 'Choose a day' })).toBeDisabled();
+		const tomorrow = addDays(today(), 1);
+		await fireEvent.click(within(sheet).getByRole('radio', { name: /^Tomorrow · / }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'One more' }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: /^Plan it for / }));
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'plan_recipe',
+			input: {
+				branch_id: 'mine',
+				day: tomorrow,
+				planned_yield: { amount: '5', noun: 'servings' },
+			},
+		});
+		const said = await screen.findByRole('status', { name: '' });
+		expect(said).toHaveTextContent(/^Planned for .*, for 5 servings\./);
+		expect(within(said).getByRole('link', { name: 'See the plan' })).toHaveAttribute(
+			'href',
+			`/plan?week=${mondayOf(tomorrow)}`,
+		);
+		expect(screen.queryByRole('dialog')).toBeNull();
+	});
+
+	it('plans the version on screen on any day of a week, and says so (#487)', async () => {
+		const { kamosu } = scalable({
+			get_meal_plan: { planned_meals: [] },
+			plan_recipe: { planned_meal: null },
+		});
+		await screen.findByText('Amounts for 4 servings');
+		await fireEvent.click(screen.getByRole('button', { name: 'Plan this' }));
+		const sheet = await screen.findByRole('dialog');
+		const nextMonday = addDays(mondayOf(today()), 7);
+		await fireEvent.click(within(sheet).getByRole('radio', { name: 'Any day next week' }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Plan it for next week' }));
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'plan_recipe',
+			input: { branch_id: 'mine', week: nextMonday },
+		});
+		const said = await screen.findByRole('status', { name: '' });
+		expect(said).toHaveTextContent(/^Planned for any day next week\./);
+		expect(within(said).getByRole('link', { name: 'See the plan' })).toHaveAttribute(
+			'href',
+			`/plan?week=${nextMonday}`,
+		);
+	});
+
+	it('opens a recipe planned as written as written, whatever the list holds (#486)', async () => {
+		const { kamosu } = scalable(
+			{
+				get_shopping_list: {
+					chosen: [
+						{
+							branch_id: 'mine',
+							title: 'Korean Fried Chicken',
+							gone: false,
+							shopping_yield: { amount: '8', noun: 'servings' },
+							written_yield: { amount: '4', noun: 'servings' },
+						},
+					],
+					rows: [],
+				},
+			},
+			{ openAt: null },
+		);
+		expect(await screen.findByText('Amounts for 4 servings')).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(kamosu.calls.some((call) => call.operation === 'get_shopping_list')).toBe(true),
+		);
+		await tick();
+		const asked = kamosu.calls
+			.filter((call) => call.operation === 'get_recipe')
+			.map((call) => (call.input as { wanted_yield?: unknown }).wanted_yield);
+		expect(asked).toEqual([null]);
+		expect(screen.getByText('Amounts for 4 servings')).toBeInTheDocument();
+	});
+
+	it('opens a recipe planned as written with no network, from the copy the phone holds (#486)', async () => {
+		const plain = solo().get_recipe as GetRecipeOutput;
+		const { kamosu } = renderRecipe(
+			{
+				...solo(),
+				get_shopping_list: { chosen: [], rows: [] },
+				get_recipe: (input) => {
+					if (!('wanted_yield' in input)) return plain;
+					throw new OperationError('get_recipe', 'internal', 'Kamosu could not be reached.', {
+						reached: false,
+					});
+				},
+			},
+			'mine',
+			{ openAt: null },
+		);
+		expect(await screen.findByText('Amounts for 4 servings')).toBeInTheDocument();
+		expect(kamosu.calls.filter((call) => call.operation === 'get_recipe')).toHaveLength(2);
+	});
+
+	it('opens at the amount a planned recipe names (#486)', async () => {
+		const { kamosu } = scalable({}, { openAt: { amount: '8', noun: 'servings' } });
+		expect(await screen.findByText('Amounts for 8 servings')).toBeInTheDocument();
+		expect(kamosu.calls.find((call) => call.operation === 'get_recipe')?.input).toEqual({
+			branch_id: 'mine',
+			wanted_yield: { amount: '8', noun: 'servings' },
+		});
 	});
 });
 
@@ -2920,7 +3181,7 @@ describe('deleting a recipe', () => {
 
 		const asked = kamosu.calls.find((call) => call.operation === 'delete_recipe');
 		expect(asked?.input).toEqual({ branch_id: 'mine' });
-		expect(went).toHaveBeenCalledWith('/recipes', { replaceState: true });
+		expect(went).toHaveBeenCalledWith('/recipes', { replace: true });
 	});
 
 	it('says what came back when Kamosu refuses, and stays where it is', async () => {
@@ -2938,7 +3199,7 @@ describe('deleting a recipe', () => {
 
 		expect(await screen.findByRole('alert')).toHaveTextContent('no such Branch');
 		expect(screen.getByRole('dialog')).toBeInTheDocument();
-		expect(went).not.toHaveBeenCalledWith('/recipes', { replaceState: true });
+		expect(went).not.toHaveBeenCalledWith('/recipes', { replace: true });
 		expect(kamosu.calls.some((call) => call.operation === 'delete_recipe')).toBe(true);
 	});
 });

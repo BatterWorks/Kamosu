@@ -30,6 +30,7 @@
 //!   scaling factor, and no export yet has populated a folder.
 //! - **Text is decoded** of the HTML entities Crouton scraped and kept.
 
+use std::borrow::Cow;
 use std::io::{Read, Seek};
 
 use serde_json::{Value, json};
@@ -120,7 +121,7 @@ impl Export {
                 })?;
             let mut crumbs: Vec<(String, usize)> = (0..archive.len())
                 .filter_map(|index| {
-                    let name = archive.name_for_index(index)?;
+                    let name = other_apps::name_at(&archive, index)?;
                     let lower = name.to_lowercase();
                     let file = lower.rsplit('/').next().unwrap_or(&lower);
                     // macOS zips carry `__MACOSX/._name.crumb` resource forks
@@ -288,6 +289,7 @@ impl Export {
             total,
             recipes: Box::new(recipes),
             left_out: Vec::new(),
+            planned: Vec::new(),
         }
     }
 }
@@ -307,12 +309,12 @@ fn read_up_to(reader: &mut impl Read, buffer: &mut [u8]) -> std::io::Result<usiz
 }
 
 /// The last path segment of an entry's name. A zip made on a Mac stores its
-/// names as UTF-8 without saying so, so the raw bytes are tried as UTF-8 first
-/// — otherwise `Îles Flottantes` reads back as `I╠Вles Flottantes`.
+/// names as UTF-8 without saying so, and `zip` tries a name as UTF-8 before
+/// CP437, so `Îles Flottantes` does not read back as `I╠Вles Flottantes`.
+/// Every entry read here was listed by [`other_apps::name_at`], so its name
+/// reads.
 fn file_name(entry: &zip::read::ZipFile<'_, Box<dyn ReadSeek>>) -> String {
-    let name = std::str::from_utf8(entry.name_raw())
-        .map(str::to_string)
-        .unwrap_or_else(|_| entry.name().to_string());
+    let name = entry.name().map(Cow::into_owned).unwrap_or_default();
     name.rsplit('/').next().unwrap_or(&name).to_string()
 }
 
@@ -363,6 +365,7 @@ pub fn read_crumb(crumb: &Value) -> Result<Crumb, String> {
             let noun = match crate::language::detect_content(&candidate) {
                 Some("fr") => "portions",
                 Some("es") => "raciones",
+                Some("nl") => "porties",
                 _ => "servings",
             };
             json!({ "amount": serves.to_string(), "noun": noun })
@@ -438,9 +441,12 @@ fn text(value: &Value, field: &str) -> Option<String> {
 /// stores a time nobody filled in, so it is no time at all rather than a claim
 /// the dish takes none.
 fn minutes(value: Option<&Value>) -> Value {
-    match value.and_then(Value::as_u64) {
-        Some(minutes) if minutes > 0 => json!(minutes),
-        _ => Value::Null,
+    match value
+        .and_then(Value::as_u64)
+        .and_then(|minutes| crate::web_import::recipe_minutes(minutes as f64))
+    {
+        Some(minutes) => json!(minutes),
+        None => Value::Null,
     }
 }
 

@@ -5,9 +5,9 @@
 	state, since the reading page it sits on can be swapped out for writing.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import SheetFrame from '$lib/SheetFrame.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import SheetFrame from '#lib/SheetFrame.svelte';
 	import type { Marking } from './marking.svelte';
 	import { between, type Words } from './divergence';
 

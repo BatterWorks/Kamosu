@@ -14,10 +14,10 @@
  * `/imports`, since each is a list with what is open beside it (#199).
  */
 
-import { m } from '$lib/paraglide/messages';
-import { KEPT_FOR_DAYS } from '$lib/security-record';
-import { appsInBrief } from '$lib/other-apps';
-import { demo } from '$lib/demo.svelte';
+import { m } from '#lib/paraglide/messages.js';
+import { KEPT_FOR_DAYS } from '#lib/security-record.js';
+import { appsInBrief } from '#lib/other-apps.js';
+import { demo } from '#lib/demo.svelte.js';
 
 export interface PageEntry {
 	href: string;
@@ -47,6 +47,13 @@ export const GROUPS: Group[] = [
 		entries: [
 			{ href: FIRST_PAGE, title: m.settings_signing_in, inside: m.settings_signing_in_inside },
 			{ href: '/settings/keys', title: m.settings_keys, inside: m.settings_keys_inside },
+			// The Calendar Link (#491). A Demo refuses making one, so it does not offer the page.
+			{
+				href: '/settings/calendar',
+				title: m.settings_calendar,
+				inside: m.settings_calendar_inside,
+				offered: () => !demo.is,
+			},
 			{
 				href: '/settings/language',
 				title: m.settings_language_page,

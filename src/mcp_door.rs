@@ -24,6 +24,7 @@
 
 use std::sync::Arc;
 
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::{self, Next};
@@ -83,14 +84,34 @@ async fn refuse_any_origin(request: Request, next: Next) -> Response {
 async fn handle(
     State(core): State<Arc<Core>>,
     headers: HeaderMap,
-    body: Option<Json<Value>>,
+    body: Result<Json<Value>, JsonRejection>,
 ) -> Response {
+    // A body that is not JSON is a JSON-RPC parse error, never the extractor's
+    // own plain-text refusal (#534). Nothing was read, so it names no id.
     let request = match body {
-        Some(Json(value)) => value,
-        None => {
+        Ok(Json(value)) => value,
+        Err(JsonRejection::MissingJsonContentType(_)) => {
             return json_rpc_error_response(
                 None,
                 json_rpc_error(-32700, "Parse error: a JSON-RPC request body is required"),
+            );
+        }
+        Err(rejection @ (JsonRejection::JsonSyntaxError(_) | JsonRejection::JsonDataError(_))) => {
+            return json_rpc_error_response(
+                None,
+                json_rpc_error(-32700, format!("Parse error: {}", rejection.body_text())),
+            );
+        }
+        // A body that could not be read, too large for one, was never parsed:
+        // it keeps the extractor's own status, said in JSON-RPC.
+        Err(rejection) => {
+            return send_error(
+                rejection.status(),
+                None,
+                json_rpc_error(
+                    -32600,
+                    format!("Invalid Request: {}", rejection.body_text()),
+                ),
             );
         }
     };
@@ -137,7 +158,23 @@ async fn handle(
     let result = match method.as_str() {
         // Needs no Credential: nothing it says depends on who is asking.
         "server/discover" => Ok(server_discover()),
-        "tools/list" => Ok(tools_list(&core, &headers)),
+        "tools/list" => match tools_list(&core, &headers) {
+            Ok(listing) => Ok(listing),
+            // The one refusal answered with HTTP's own status: a Secret that
+            // names nobody, so a client shows the key is wrong as it connects
+            // rather than at its first call (#534).
+            Err(refused) if refused.credential_names_nobody => {
+                return send_error(
+                    StatusCode::UNAUTHORIZED,
+                    id,
+                    json_rpc_error(
+                        -32600,
+                        format!("Invalid Request: {}", refused.to_sentence()),
+                    ),
+                );
+            }
+            Err(failed) => Err(json_rpc_error(-32603, failed.to_sentence())),
+        },
         "tools/call" => tools_call(&core, &headers, request.get("params")),
         "tasks/get" => tasks_get(&core, &headers, request.get("params")),
         "tasks/update" => tasks_update(&core, &headers, request.get("params")),
@@ -384,16 +421,19 @@ fn server_instructions() -> String {
             "- A save by the same Hand on the same Branch within {window_minutes} \
              minutes of the previous one collapses into the Version being shaped \
              rather than starting a new one, unless another Branch, a \
-             Translation or a Bundle already holds that Version, or an agent's \
-             Job saved it. Its answer says collapsed: true when it did."
+             Translation or a Bundle already holds that Version, somebody \
+             cooked it, or an agent's Job saved it. A save sending a \
+             base_version_id other than the newest Version never collapses. \
+             Its answer says collapsed: true when it did."
         ),
         // #265: what the line above is for a Job Key, which reads these
         // words too.
         "- With a Job Key, every save of the Job collapses into the one \
          Version the Job started, however long after, and never into a \
          Version from before the Job. Once the Job has saved, a save by \
-         anyone else, or another Branch or a Translation holding that \
-         Version, has the Job's next save refused, and the Job fails."
+         anyone else, or another Branch, a Translation, a Bundle or a \
+         cooking holding that Version, has the Job's next save refused, and \
+         the Job fails."
             .to_string(),
         // #165 is fixed, and this said the opposite until #265 found it.
         "- A collapsed save keeps the name and change_note the Version \
@@ -469,12 +509,16 @@ fn left_out_line(count: usize) -> String {
 /// a read-only Access Key's writes are still absent from it (ADR 0031), and a
 /// Runner Key is shown the Runner's own Operations and no other (ADR 0048),
 /// as a Job Key is shown the ones marked for it.
+/// A Credential naming no Operator is shown none of an Operator's (#534).
 /// The Core says which, from the same declarations `Core::execute` refuses
 /// by, so the two can never disagree about which Operations those are.
-fn tools_list(core: &Core, headers: &HeaderMap) -> Value {
+///
+/// No Secret is listed as a full Credential is. A Secret that names nobody is
+/// refused by the Core, and the caller answers that refusal 401.
+fn tools_list(core: &Core, headers: &HeaderMap) -> Result<Value, crate::core::OpError> {
     let secret = web_door::bearer_from_headers(headers);
-    let tools: Vec<Value> = core
-        .operations_listed_to(secret.as_deref())
+    let listed = core.operations_listed_to(secret.as_deref())?;
+    let tools: Vec<Value> = listed
         .into_iter()
         .map(|op| {
             // A Job's description says what to call after asking. The answer's
@@ -488,14 +532,14 @@ fn tools_list(core: &Core, headers: &HeaderMap) -> Value {
             })
         })
         .collect();
-    json!({
+    Ok(json!({
         "resultType": "complete",
         "tools": tools,
         "ttlMs": LISTING_TTL_MS,
         // What a read-only Access Key, a Runner Key or a Job Key is shown
         // differs from the rest.
         "cacheScope": "private",
-    })
+    }))
 }
 
 fn tools_call(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Result<Value, Value> {

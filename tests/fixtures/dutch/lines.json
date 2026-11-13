@@ -1,0 +1,983 @@
+{
+  "recipes": [
+    {
+      "source": "https://www.leukerecepten.nl/recepten/kip-kerrie/",
+      "title": "Kip kerrie: romig en vers gemaakt",
+      "lines": [
+        {"amount": "150", "food": "rijst", "text": "150 gr rijst", "unit": "gr"},
+        {"amount": "200", "food": "kip", "text": "200 gr kip", "unit": "gr"},
+        {"amount": "200", "food": "ananas", "text": "200 gr ananas", "unit": "gr"},
+        {"amount": "200", "food": "sperziebonen", "text": "200 gr sperziebonen", "unit": "gr"},
+        {"amount": "1", "food": "ui", "text": "1 ui", "unit": null},
+        {"amount": "0.5", "food": "kippenbouillon", "text": "0.5 blokje kippenbouillon", "unit": "blokje"},
+        {"amount": "125", "food": "crème fraîche", "text": "125 ml crème fraîche", "unit": "ml"},
+        {"amount": null, "food": "komijn", "text": "snufje komijn", "unit": "snufje"},
+        {"amount": "1", "food": "kerriepoeder", "text": "1 eetlepel kerriepoeder", "unit": "eetlepel"},
+        {"amount": "1", "food": "limoensap", "text": "1 eetlepel limoensap", "unit": "eetlepel"},
+        {"amount": null, "food": "peterselie", "text": "verse peterselie", "unit": null},
+        {"amount": null, "food": "maïzena", "text": "optioneel: maïzena", "unit": null},
+        {"amount": null, "food": "chili", "text": "Optioneel: Snufje chili", "unit": "Snufje"}
+      ],
+      "steps": [
+        {"oven": null, "text": "Kook de rijst gaar volgens de verpakking.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Snipper de ui en snijd de kip in blokjes.", "timer_seconds": null, "uses": [1, 4]},
+        {"oven": null, "text": "Verhit een beetje olie in een pan en fruit de ui aan.", "timer_seconds": null, "uses": [4]},
+        {"oven": null, "text": "Voeg de kip toe en bak rondom goudbruin.", "timer_seconds": null, "uses": [1]},
+        {"oven": null, "text": "Voeg het kerriepoeder en de komijn toe, mocht je een beetje pit er in willen ook een snufje chili.", "timer_seconds": null, "uses": [7, 8, 12]},
+        {"oven": null, "text": "10 minuten zachtjes pruttelen.", "timer_seconds": 600, "uses": []}
+      ]
+    },
+    {
+      "source": "https://www.leukerecepten.nl/recepten/makkelijke-appeltaart/",
+      "title": "Makkelijke appeltaart",
+      "lines": [
+        {"amount": "300", "food": "zelfrijzend bakmeel", "text": "300 gr zelfrijzend bakmeel", "unit": "gr"},
+        {"amount": "180", "food": "boter", "text": "180 gr boter (of margarine)", "unit": "gr"},
+        {"amount": "150", "food": "lichte basterdsuiker", "text": "150 gr lichte basterdsuiker", "unit": "gr"},
+        {"amount": "1", "food": "zout", "text": "1 snufje zout", "unit": "snufje"},
+        {"amount": "2", "food": "eieren", "text": "2 eieren", "unit": null},
+        {"amount": "4", "food": "appels", "text": "4 appels", "unit": null},
+        {"amount": "1", "food": "lichte basterdsuiker", "text": "1 eetlepel lichte basterdsuiker", "unit": "eetlepel"},
+        {"amount": "2", "food": "kaneel", "text": "2 theelepels kaneel", "unit": "theelepels"},
+        {"amount": "2", "food": "amandelschaafsel", "text": "2 eetlepels amandelschaafsel", "unit": "eetlepels"}
+      ],
+      "steps": [
+        {"oven": null, "text": "Meng de boter en de lichtbruine basterdsuiker door elkaar met een mixer.", "timer_seconds": null, "uses": [1, 2]},
+        {"oven": null, "text": "Voeg de eieren toe en mix erdoor.", "timer_seconds": null, "uses": [4]},
+        {"oven": null, "text": "Doe dan het meel erbij en een snufje zout en mix kort tot een egaal deeg.", "timer_seconds": null, "uses": [0, 3]},
+        {"oven": "about 350 °F", "text": "Zet het deeg zolang in de koelkast en verwarm de oven op 180 graden.", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Schil de appels en snijd in kleine blokjes.", "timer_seconds": null, "uses": [5]},
+        {"oven": null, "text": "45 minuten in de oven tot hij gaar en mooi goudbruin is.", "timer_seconds": 2700, "uses": []}
+      ]
+    },
+    {
+      "source": "https://www.leukerecepten.nl/recepten/tomatensoep-met-balletjes/",
+      "title": "Tomatensoep met balletjes",
+      "lines": [
+        {"amount": "1", "food": "ui", "text": "1 ui (gesnipperd)", "unit": null},
+        {"amount": "2", "food": "knoflook", "text": "2 tenen knoflook (fijngesneden)", "unit": "tenen"},
+        {"amount": "750", "food": "romatomaten", "text": "750 gr romatomaten (in parten)", "unit": "gr"},
+        {"amount": "500", "food": "water", "text": "500 ml water", "unit": "ml"},
+        {"amount": "1", "food": "groentebouillontablet", "text": "1 groentebouillontablet", "unit": null},
+        {"amount": "1", "food": "tomatenpuree", "text": "1 klein blikje tomatenpuree (70 gr)", "unit": "blikje"},
+        {"amount": "300", "food": "rauw vegetarisch gehakt", "text": "300 gr rauw vegetarisch gehakt", "unit": "gr"},
+        {"amount": "2", "food": "paneermeel", "text": "2 eetlepels paneermeel", "unit": "eetlepels"},
+        {"amount": null, "food": "Italiaanse kruiden", "text": "Snuf Italiaanse kruiden", "unit": "Snuf"},
+        {"amount": null, "food": "peper en zout", "text": "peper en zout (naar smaak)", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Fruit de gesnipperde ui en fijngesneden knoflook tot ze glazig zijn.", "timer_seconds": null, "uses": [0, 1]},
+        {"oven": null, "text": "Voeg de parten romatomaten en de tomatenpuree toe.", "timer_seconds": null, "uses": [2, 5]},
+        {"oven": null, "text": "Voeg 500 ml water toe aan de pan en verkruimel het groentebouillontablet erboven.", "timer_seconds": null, "uses": [3, 4]},
+        {"oven": null, "text": "Breng het geheel aan de kook, zet het vuur lager en laat de soep ongeveer 15 minuten zachtjes doorkoken.", "timer_seconds": 900, "uses": []},
+        {"oven": null, "text": "Na 15 minuten koken, gebruik je een staafmixer om de soep te pureren tot een gladde massa.", "timer_seconds": 900, "uses": []},
+        {"oven": null, "text": "Voeg de (vegetarische) gehaktballetjes toe aan de gepureerde soep en laat deze nog 10 minuten meekoken, of tot de balletjes goed gaar zijn.", "timer_seconds": 600, "uses": []}
+      ]
+    },
+    {
+      "source": "https://www.lekkerensimpel.com/boerenkool-stamppot-met-worst/",
+      "title": "Boerenkool stamppot met worst",
+      "lines": [
+        {"amount": "200", "food": "boerenkool", "text": "200 gr boerenkool", "unit": "gr"},
+        {"amount": "500", "food": "kruimige aardappels", "text": "500 gr kruimige aardappels", "unit": "gr"},
+        {"amount": "1", "food": "rookworst", "text": "1 rookworst", "unit": null},
+        {"amount": "15", "food": "boter", "text": "15 gr boter", "unit": "gr"},
+        {"amount": "100", "food": "spekblokjes/reepjes", "text": "100 gr spekblokjes/reepjes", "unit": "gr"},
+        {"amount": null, "food": "zout en peper", "text": "snufje zout en peper", "unit": "snufje"},
+        {"amount": null, "food": "azijn", "text": "evt scheutje azijn", "unit": "scheutje"}
+      ],
+      "steps": [
+        {"oven": null, "text": "Schil de aardappels en snijd grote aardappels in tweeën.", "timer_seconds": null, "uses": [1]},
+        {"oven": null, "text": "Doe de boerenkool en aardappels in een pan en voeg water toe totdat alles goed onderstaat.", "timer_seconds": null, "uses": [0, 1]},
+        {"oven": null, "text": "Breng het geheel aan de kook en kook de aardappels en boerenkool ongeveer 20 minuten totdat de aardappels gaar zijn.", "timer_seconds": 1200, "uses": [0, 1]},
+        {"oven": null, "text": "Bereid de rookworst volgens de verpakking.", "timer_seconds": null, "uses": [2]},
+        {"oven": null, "text": "Zelf kook ik de rookworst mee in de pan met de aardappels en boerenkool.", "timer_seconds": null, "uses": [0, 1, 2]},
+        {"oven": null, "text": "Na ongeveer 20 minuten zijn de aardappels gaar, en giet je het geheel af.", "timer_seconds": 1200, "uses": [1]}
+      ]
+    },
+    {
+      "source": "https://www.eefkooktzo.nl/lasagne-bolognese/",
+      "title": "Lasagne bolognese",
+      "lines": [
+        {"amount": "1", "food": "bolognese saus", "text": "1 portie bolognese saus", "unit": "portie"},
+        {"amount": "1", "food": "bechamelsaus", "text": "1 portie bechamelsaus", "unit": "portie"},
+        {"amount": "250", "food": "lasagnebladen", "text": "250 gram lasagnebladen", "unit": "gram"},
+        {"amount": "175", "food": "geraspte mozzarella", "text": "175 gram geraspte mozzarella", "unit": "gram"},
+        {"amount": "100", "food": "Parmezaanse kaas", "text": "100 gram Parmezaanse kaas", "unit": "gram"},
+        {"amount": null, "food": "boter", "text": "boter ((om de ovenschaal mee in te vetten))", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Maak eerst de bolognese saus en de bechamelsaus klaar.", "timer_seconds": null, "uses": [0, 1]},
+        {"oven": "about 400 °F", "text": "Verwarm ondertussen de oven voor op 200 graden boven- en onderwarmte.", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Vet de ovenschaal in met de boter en dan gaan we nu de lasagne maken.", "timer_seconds": null, "uses": [5]},
+        {"oven": null, "text": "Begin met een dun laagje bechamelsaus en leg daarop de lasagnebladen.", "timer_seconds": null, "uses": [1, 2]},
+        {"oven": null, "text": "Zet de lasagne nu 25 tot 30 minuten in de oven tot de kaas goudbruin en aan het bubbelen is.", "timer_seconds": 1500, "uses": []},
+        {"oven": null, "text": "Haal hem daarna uit de oven en laat hem een kwartiertje even staan alvorens je hem gaat aansnijden.", "timer_seconds": 900, "uses": []}
+      ]
+    },
+    {
+      "source": "https://www.eefkooktzo.nl/appeltaart/",
+      "title": "Appeltaart",
+      "lines": [
+        {"amount": "1", "food": "ei", "text": "1 ei (middel)", "unit": null},
+        {"amount": "225", "food": "roomboter", "text": "225 gram roomboter (ongezouten - kamertemperatuur)", "unit": "gram"},
+        {"amount": "225", "food": "lichtbruine basterdsuiker", "text": "225 gram lichtbruine basterdsuiker", "unit": "gram"},
+        {"amount": "450", "food": "zelfrijzend bakmeel", "text": "450 gram zelfrijzend bakmeel", "unit": "gram"},
+        {"amount": "1", "food": "vanillesuiker", "text": "1 zakje vanillesuiker", "unit": "zakje"},
+        {"amount": null, "food": "zout", "text": "snuf zout", "unit": "snuf"},
+        {"amount": "100", "food": "rozijnen", "text": "100 gram rozijnen", "unit": "gram"},
+        {"amount": "1,5", "food": "appels", "text": "1,5 kilo appels*", "unit": "kilo"},
+        {"amount": "50", "food": "suiker", "text": "50 gram suiker", "unit": "gram"},
+        {"amount": "1", "food": "kaneel", "text": "1 eetlepel kaneel", "unit": "eetlepel"},
+        {"amount": "1", "food": "citroensap", "text": "1 eetlepel citroensap", "unit": "eetlepel"}
+      ],
+      "steps": [
+        {"oven": null, "text": "Begin met het wellen van de rozijnen in warm water en laat dit even staan terwijl je het deeg maakt.", "timer_seconds": null, "uses": [6]},
+        {"oven": "about 350 °F", "text": "Verwarm de oven voor op 175 graden (boven- en onderwarmte)", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Schil de appels, verwijder het klokhuis en snij ze in plakjes.", "timer_seconds": null, "uses": [7]},
+        {"oven": null, "text": "Doe de appels daarna in een ruime kom met de suiker, kaneel en citroensap.", "timer_seconds": null, "uses": [7, 8, 9, 10]},
+        {"oven": null, "text": "Giet de gewelde rozijnen af en voeg die toe aan de vulling.", "timer_seconds": null, "uses": [6]},
+        {"oven": null, "text": "1 uur goudbruin in de oven.", "timer_seconds": 3600, "uses": []}
+      ]
+    },
+    {
+      "source": "https://dagelijksekost.vrt.be/gerechten/tomatensoep-met-veel-balletjes",
+      "title": "Tomatensoep met veel balletjes",
+      "lines": [
+        {"amount": "500", "food": "soepvlees", "text": "500 gram soepvlees (met of zonder bot)", "unit": "gram"},
+        {"amount": "1,6", "food": "tomaten", "text": "1,6 kg hele tomaten (uit blik)", "unit": "kg"},
+        {"amount": "4", "food": "selder", "text": "4 stengel selder", "unit": "stengel"},
+        {"amount": "3", "food": "uien", "text": "3 uien", "unit": null},
+        {"amount": "3", "food": "look", "text": "3 teentjes look", "unit": "teentjes"},
+        {"amount": "3", "food": "wortelen", "text": "3 (kleine) wortelen", "unit": null},
+        {"amount": "2", "food": "rozemarijn", "text": "2 takjes rozemarijn", "unit": "takjes"},
+        {"amount": "4", "food": "laurierblaadjes", "text": "4 laurierblaadjes", "unit": null},
+        {"amount": "4", "food": "tijm", "text": "4 takjes tijm", "unit": "takjes"},
+        {"amount": null, "food": "peterseliestelen", "text": "peterseliestelen", "unit": null},
+        {"amount": "70", "food": "tomatenpuree", "text": "70 gram tomatenpuree (geconcentreerd)", "unit": "gram"},
+        {"amount": "1", "food": "suiker", "text": "1 eetlepel (riet) suiker", "unit": "eetlepel"},
+        {"amount": "2", "food": "olijfolie", "text": "2 scheutjes olijfolie", "unit": "scheutjes"},
+        {"amount": "750", "food": "gemengd gehakt", "text": "750 gram gemengd gehakt", "unit": "gram"},
+        {"amount": "2", "food": "eieren", "text": "2 eieren", "unit": null},
+        {"amount": "50", "food": "paneermeel", "text": "50 gram paneermeel", "unit": "gram"},
+        {"amount": null, "food": "peper van de molen", "text": "peper van de molen", "unit": null},
+        {"amount": null, "food": "zout", "text": "zout", "unit": null},
+        {"amount": "1", "food": "cayennepeper", "text": "1 snuifje cayennepeper", "unit": "snuifje"}
+      ],
+      "steps": [
+        {"oven": null, "text": "Pel de uien en snij ze in grove stukken.", "timer_seconds": null, "uses": [3]},
+        {"oven": null, "text": "Spoel de stengels selder en schil de wortelen.", "timer_seconds": null, "uses": [2, 5]}
+      ]
+    },
+    {
+      "source": "https://www.24kitchen.nl/recepten/vlaams-stoofvlees-met-frieten",
+      "title": "Vlaams stoofvlees met frieten",
+      "lines": [
+        {"amount": "2", "food": "uien", "text": "2 uien", "unit": null},
+        {"amount": "1", "food": "knoflook", "text": "1 teen knoflook", "unit": "teen"},
+        {"amount": "800", "food": "runderpoulet", "text": "800 g runderpoulet", "unit": "g"},
+        {"amount": null, "food": "zout", "text": "zout", "unit": null},
+        {"amount": null, "food": "peper", "text": "versgemalen peper", "unit": null},
+        {"amount": null, "food": "bloem", "text": "bloem", "unit": null},
+        {"amount": "30", "food": "boter", "text": "30 g boter", "unit": "g"},
+        {"amount": "1", "food": "laurierblaadje", "text": "1 laurierblaadje", "unit": null},
+        {"amount": "2", "food": "tijm", "text": "2 takjes tijm", "unit": "takjes"},
+        {"amount": "1", "food": "bouillonblokje", "text": "1 bouillonblokje", "unit": null},
+        {"amount": "3", "food": "kruidnagels", "text": "3 kruidnagels", "unit": null},
+        {"amount": null, "food": "nootmuskaat", "text": "nootmuskaat", "unit": null},
+        {"amount": "1", "food": "trappisten dubbel bier", "text": "1 flesje trappisten dubbel bier", "unit": "flesje"},
+        {"amount": null, "food": "olie", "text": "olie om in te frituren", "unit": null},
+        {"amount": "1", "food": "aardappelen", "text": "1 kg aardappelen", "unit": "kg"}
+      ],
+      "steps": [
+        {"oven": "about 325 °F", "text": "Verwarm de oven voor op 160 ºC.", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Pel en snipper de ui.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Pel en snijd de knoflook.", "timer_seconds": null, "uses": [1]},
+        {"oven": "about 300 °F", "text": "Verhit de frituurpan tot 150 ºC.", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Bak de frieten 5 minuten voor maar laat ze niet bruin worden.", "timer_seconds": 300, "uses": []},
+        {"oven": "about 350 °F", "text": "Verhit de olie opnieuw tot 180 ºC en bak de afgekoelde frieten goudbruin en knapperig.", "timer_seconds": null, "uses": [13]}
+      ]
+    },
+    {
+      "source": "https://www.colruyt.be/nl/recepten/stoofvlees-op-zn-vlaams",
+      "title": "Stoofvlees op z'n Vlaams",
+      "lines": [
+        {"amount": "1", "food": "mager runderstoofvlees", "text": "1 kg mager runderstoofvlees (beenhouwerij)", "unit": "kg"},
+        {"amount": "600", "food": "frieten", "text": "600 g frieten (diepvries)", "unit": "g"},
+        {"amount": "5", "food": "uien", "text": "5 uien", "unit": null},
+        {"amount": "2", "food": "boter", "text": "2 el boter", "unit": "el"},
+        {"amount": "1", "food": "brood", "text": "1 sneetje brood", "unit": "sneetje"},
+        {"amount": "2", "food": "mosterd", "text": "2 el mosterd", "unit": "el"},
+        {"amount": "2", "food": "bloem", "text": "2 el bloem", "unit": "el"},
+        {"amount": "2", "food": "laurier", "text": "2 blaadjes laurier", "unit": "blaadjes"},
+        {"amount": "1", "food": "tijm", "text": "1 kl tijm (gedroogd)", "unit": "kl"},
+        {"amount": null, "food": "zwarte peper", "text": "zwarte peper", "unit": null},
+        {"amount": null, "food": "zout", "text": "zout", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Besmeer het sneetje brood met de mosterd.", "timer_seconds": null, "uses": [4, 5]},
+        {"oven": null, "text": "Smelt de helft van de boter in een grote kookpot en bak de grofgesneden uien bruin.", "timer_seconds": null, "uses": [2, 3]},
+        {"oven": null, "text": "Schep de uien uit de kookpot.", "timer_seconds": null, "uses": [2]},
+        {"oven": null, "text": "Smelt de rest van de boter in dezelfde kookpot en bak het stoofvlees aan alle kanten goudbruin.", "timer_seconds": null, "uses": [0, 3]},
+        {"oven": null, "text": "Verwarm het stoofpotje 15 min.", "timer_seconds": 900, "uses": []}
+      ]
+    },
+    {
+      "source": "https://www.kokerellen.be/stoofvlees-met-bier/",
+      "title": "Vlaams stoofvlees met bier",
+      "lines": [
+        {"amount": "800", "food": "runderstoofvlees", "text": "800 g runderstoofvlees (bijvoorbeeld sukadelappen of riblappen)", "unit": "g"},
+        {"amount": "1", "food": "tarwebloem", "text": "1 eetlepel tarwebloem", "unit": "eetlepel"},
+        {"amount": "1", "food": "ui", "text": "1 grote ui (in halve ringen)", "unit": null},
+        {"amount": "33", "food": "bruin bier", "text": "33 cl bruin bier", "unit": "cl"},
+        {"amount": "1", "food": "bouquet garni", "text": "1 bouquet garni ((gedroogde laurier + tijm, vind je tegenwoordig ook makkelijk kant-en-klaar))", "unit": null},
+        {"amount": "2", "food": "appelstroop", "text": "2 eetlepels appelstroop", "unit": "eetlepels"},
+        {"amount": "1", "food": "graantjesmosterd", "text": "1 grote eetlepel graantjesmosterd", "unit": "eetlepel"},
+        {"amount": "1", "food": "oud brood", "text": "1 snede oud brood", "unit": "snede"}
+      ],
+      "steps": [
+        {"oven": null, "text": "Snij het vlees in stukken van ongeveer 4cm bij 4cm indien nodig.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Ik doe dit in meerdere keren zodat het vlees niet te dicht op elkaar ligt (want dan bruint het niet goed).", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "We willen het vlees nog niet garen, alleen wat kleur geven.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Voeg de tarwebloem toe bij het bakken van de laatste stukjes rundvlees en bak mee.", "timer_seconds": null, "uses": [1]},
+        {"oven": null, "text": "Draai het vuur laag, kruid met peper en zout en stoof ze gaar in 4-5 minuten.", "timer_seconds": 240, "uses": []},
+        {"oven": null, "text": "Laat het stoofvlees rustig pruttelen voor minimaal 2 uur, maar des te langer des te beter!", "timer_seconds": 7200, "uses": [0]}
+      ]
+    },
+    {
+      "source": "https://www.oetker.nl/recepten/r/appeltaart",
+      "title": "Appeltaart",
+      "lines": [
+        {"amount": "150", "food": "basterdsuiker", "text": "150 g basterdsuiker (witte)", "unit": "g"},
+        {"amount": null, "food": "zout", "text": "mespuntje zout", "unit": "mespuntje"},
+        {"amount": "200", "food": null, "text": "200 g boter of margarine (koude, harde)", "unit": "g"},
+        {"amount": "1", "food": "ei", "text": "1 ei (losgeklopt)", "unit": null},
+        {"amount": "1000", "food": "appels", "text": "1000 g appels (Goudreinetten)", "unit": "g"},
+        {"amount": "75", "food": "suiker", "text": "75 g suiker", "unit": "g"}
+      ],
+      "steps": [
+        {"oven": null, "text": "Zeef het bakmeel, de basterdsuiker en het zout in een kom.", "timer_seconds": null, "uses": [0, 1]},
+        {"oven": null, "text": "Voeg de boter, vanillesuiker of citroenrasp en 2/3 van het ei toe.", "timer_seconds": null, "uses": [3]},
+        {"oven": null, "text": "Schil de appels, verwijder de klokhuizen en snijd de appels in dunne schijfjes of in kleine blokjes.", "timer_seconds": null, "uses": [4]},
+        {"oven": null, "text": "Meng het amandelschaafsel en de suiker door de appels en vul er de springvorm mee.", "timer_seconds": null, "uses": [4, 5]},
+        {"oven": null, "text": "Bestrijk het deeg met het resterende ei.", "timer_seconds": null, "uses": [3]},
+        {"oven": null, "text": "Laat de appeltaart minstens 1 uur in de vorm afkoelen tot deze stevig aanvoelt.", "timer_seconds": 3600, "uses": []}
+      ]
+    },
+    {
+      "source": "https://receptenvanoma.nl/boerenkool-stamppot-recept-oma/",
+      "title": "Boerenkool Stamppot Recept van Oma",
+      "lines": [
+        {"amount": "1", "food": "kruimige aardappels", "text": "1 kg kruimige aardappels", "unit": "kg"},
+        {"amount": "500", "food": "boerenkool", "text": "500 g verse boerenkool", "unit": "g"},
+        {"amount": "150", "food": "gerookte spekjes", "text": "150 g gerookte spekjes", "unit": "g"},
+        {"amount": "150", "food": "vetspek", "text": "150 g vetspek", "unit": "g"},
+        {"amount": "½", "food": "ui", "text": "½ ui (gesnipperd)", "unit": null},
+        {"amount": "1", "food": "rookworst", "text": "1 rookworst", "unit": null},
+        {"amount": "50", "food": "melk", "text": "50 ml melk", "unit": "ml"},
+        {"amount": "25", "food": "boter", "text": "25 g boter", "unit": "g"},
+        {"amount": "1", "food": "pittige mosterd", "text": "1 theelepel pittige mosterd", "unit": "theelepel"},
+        {"amount": null, "food": "Zout", "text": "Zout (peper en nootmuskaat naar smaak)", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Bak het vetspek uit.", "timer_seconds": null, "uses": [3]},
+        {"oven": null, "text": "Snijd het vetspek in kleine blokjes en bak deze op laag tot middellaag vuur rustig uit.", "timer_seconds": null, "uses": [3]},
+        {"oven": null, "text": "Schep de uitgebakken spekjes uit de pan en bewaar het spekvet.", "timer_seconds": null, "uses": [2]},
+        {"oven": null, "text": "Kook de aardappels en boerenkool.", "timer_seconds": null, "uses": [0, 1]},
+        {"oven": null, "text": "Schil de aardappels, snijd ze in gelijke stukken en doe ze in een ruime pan met water en een beetje zout.", "timer_seconds": null, "uses": [0, 9]},
+        {"oven": null, "text": "Leg de boerenkool erop en kook alles in ongeveer 20 tot 25 minuten gaar.", "timer_seconds": 1200, "uses": [1]}
+      ]
+    },
+    {
+      "source": "https://culinea.nl/boerenkool-met-worst/",
+      "title": "Boerenkool Recept Oma",
+      "lines": [
+        {"amount": "600", "food": "boerenkool", "text": "600 gr verse boerenkool, gesneden", "unit": "gr"},
+        {"amount": "1", "food": "zuurkoolspek", "text": "1 stuk zuurkoolspek", "unit": "stuk"},
+        {"amount": "1", "food": "kruimige aardappelen", "text": "1 kg iets kruimige aardappelen", "unit": "kg"},
+        {"amount": "100", "food": "vluggort", "text": "100 gr vluggort", "unit": "gr"},
+        {"amount": "1", "food": "grove rookworst", "text": "1 grove rookworst", "unit": null},
+        {"amount": "50", "food": "roomboter", "text": "50 gr roomboter", "unit": "gr"},
+        {"amount": null, "food": "peper en zout", "text": "peper en zout", "unit": null},
+        {"amount": null, "food": "mosterd", "text": "mosterd", "unit": null},
+        {"amount": null, "food": "zilveruitjes", "text": "zilveruitjes", "unit": null},
+        {"amount": null, "food": "jus", "text": "eventueel jus", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Spoel het spek af, snijd het in kleine blokjes en leg dit in een pan met een liter kokend water.", "timer_seconds": null, "uses": [1]},
+        {"oven": null, "text": "Breng aan de kook en doe dan de gesneden boerenkool, vluggort en flink wat zout erop.", "timer_seconds": null, "uses": [0, 3, 6]},
+        {"oven": null, "text": "Kook dit ongeveer 10 minuten.", "timer_seconds": 600, "uses": []},
+        {"oven": null, "text": "Schil ondertussen de aardappelen en snijd ze in stukken.", "timer_seconds": null, "uses": [2]},
+        {"oven": null, "text": "Leg ze op de boerenkool in de pan en breng aan de kook.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Leg nu de rookworst erop, zet het vuur lager en laat ongeveer 20 minuten zachtjes koken met de deksel op de pan tot de aardappelen gaar zijn.", "timer_seconds": 1200, "uses": [4]}
+      ]
+    },
+    {
+      "source": "https://familieoverdekook.nl/boerenkool-stamppot-met-rookworst-en-spekjes/",
+      "title": "Boerenkool stamppot met rookworst en spekjes",
+      "lines": [
+        {"amount": "1250", "food": "kruimige aardappelen", "text": "1250 gram iets kruimige aardappelen ((geschild en in stukken gesneden))", "unit": "gram"},
+        {"amount": "300", "food": "boerenkool", "text": "300 gram boerenkool ((ik gebruik zak voorgesneden))", "unit": "gram"},
+        {"amount": "150", "food": "melk", "text": "150 milliliter melk ((lauwwarm))", "unit": "milliliter"},
+        {"amount": "1", "food": "grove mosterd", "text": "1 eetlepel grove mosterd", "unit": "eetlepel"},
+        {"amount": "1/3", "food": "nootmuskaat", "text": "1/3 theelepel nootmuskaat", "unit": "theelepel"},
+        {"amount": null, "food": "zwarte peper", "text": "versgemalen zwarte peper ((naar smaak))", "unit": null},
+        {"amount": null, "food": "zout", "text": "zout ((naar smaak))", "unit": null},
+        {"amount": "250", "food": "gerookte spekreepjes", "text": "250 gram gerookte spekreepjes", "unit": "gram"},
+        {"amount": "2", "food": "uien", "text": "2 uien ((in dunne halve ringen gesneden))", "unit": null},
+        {"amount": "25", "food": "roomboter", "text": "25 gram roomboter", "unit": "gram"},
+        {"amount": "2", "food": "sambal oelek", "text": "2 theelepels sambal oelek", "unit": "theelepels"},
+        {"amount": "1", "food": "honing", "text": "1 eetlepel honing", "unit": "eetlepel"},
+        {"amount": "285", "food": "rookworst", "text": "285 gram rookworst", "unit": "gram"},
+        {"amount": null, "food": "jus", "text": "jus ((zelfgemaakt of kant-en-klaar))", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Giet de aardappelen en boerenkool af.", "timer_seconds": null, "uses": [0, 1]},
+        {"oven": null, "text": "Voeg de lauwwarme melk toe en stamp tot een smeuïge boerenkoolstamppot.", "timer_seconds": null, "uses": [2]},
+        {"oven": null, "text": "Wanneer de aardappelen boerenkool koken, maak de spekjes met uien klaar: Smelt in een koekenpan de roomboter.", "timer_seconds": null, "uses": [7, 8, 9]},
+        {"oven": null, "text": "Bak de uien met de spekjes krokant.", "timer_seconds": null, "uses": [7, 8]},
+        {"oven": null, "text": "Voeg vlak voordat het klaar is de sambal en honing toe en bak kort mee.", "timer_seconds": null, "uses": [10, 11]},
+        {"oven": null, "text": "Verwarm ondertussen ook de rookworst volgens de gebruiksaanwijzing op de verpakking.", "timer_seconds": null, "uses": [12]}
+      ]
+    },
+    {
+      "source": "https://onskookboek.com/vlaams-stoofvlees/3614/",
+      "title": "Het echte Vlaams stoofvlees met puur Vlaamse ingrediënten",
+      "lines": [
+        {"amount": "1 tot 2", "food": "bruine Cassonnade suiker", "text": "1 tot 2 eetlepels bruine Cassonnade suiker (\"kinnekessuiker\")", "unit": "eetlepels"},
+        {"amount": "1", "food": "kruidentuiltje", "text": "1 kruidentuiltje", "unit": null},
+        {"amount": "1", "food": "bier", "text": "1 liter bier", "unit": "liter"},
+        {"amount": "400", "food": "ui", "text": "400 gram ui", "unit": "gram"},
+        {"amount": "250", "food": "echt spek", "text": "250 gram echt spek (dus zonder toevoegstoffen, zonder smaakstoffen, zonder bewaarmiddelen, zonder suiker...)", "unit": "gram"},
+        {"amount": "6", "food": "peperkoek", "text": "6 sneden peperkoek", "unit": "sneden"},
+        {"amount": null, "food": "boter", "text": "een klontje boter", "unit": "klontje"}
+      ],
+      "steps": [
+        {"oven": null, "text": "Schil de uien en snijd in grove stukken.", "timer_seconds": null, "uses": [3]},
+        {"oven": null, "text": "Snijd het spek in grove stukken.", "timer_seconds": null, "uses": [4]},
+        {"oven": null, "text": "Smelt de boter in de stoofpot en laat er de ui een 10tal minuten zweten onder deksel op een zeer laag vuurtje.", "timer_seconds": 600, "uses": [3, 6]},
+        {"oven": null, "text": "Voeg dan het spek toe en zet het vuur wat hoger, roer zo nu en dan om maar laat zoveel mogelijk onder deksel het spek goed verkleuren.", "timer_seconds": null, "uses": [4]},
+        {"oven": null, "text": "Neem spek en uien uit de pot en zet even apart.", "timer_seconds": null, "uses": [3, 4]},
+        {"oven": null, "text": "Voeg de suiker toe aan het kookvocht, roer met een houten lepel eventuele aanbaksels los en laat het kookvocht indikken.", "timer_seconds": null, "uses": [0]}
+      ]
+    },
+    {
+      "source": "https://bakken.nl/recept/chocolade-taart-makkelijke",
+      "title": "Recept: Makkelijke chocoladetaart - Bakken.nl",
+      "lines": [
+        {"amount": "200", "food": "Boter", "text": "200 g (gram) Boter (op kamertemperatuur)", "unit": "g"},
+        {"amount": "200", "food": "Basterdsuiker", "text": "200 g (gram) Basterdsuiker", "unit": "g"},
+        {"amount": "3", "food": "Ei", "text": "3 Stuk(s) Ei (kamertemperatuur)", "unit": "Stuk"},
+        {"amount": "2", "food": "Melk", "text": "2 Eetlepel(s) Melk", "unit": "Eetlepel"},
+        {"amount": "2", "food": "Cacaopoeder", "text": "2 Eetlepel(s) Cacaopoeder", "unit": "Eetlepel"},
+        {"amount": "200", "food": "slagroom", "text": "200 ml Verse slagroom (onbereid)", "unit": "ml"},
+        {"amount": "200", "food": "Chocolade", "text": "200 g (gram) Chocolade (puur, melk of een combinatie)", "unit": "g"}
+      ],
+      "steps": [
+        {"oven": "about 325 °F", "text": "Plaats het rooster iets onder het midden van de oven en verwarm de oven voor (elektrisch 160°C / hetelucht 150°C).", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Vet de cake- of springvorm in met boter en bestuif de binnenkant met bloem of gebruik bakspray.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Weeg 225 g cakemeel af.Klop met de mixer de boter (200 g) zacht en romig in een beslagkom.Voeg witte basterdsuiker (200 g) toe en meng het geheel tot een gladde massa.", "timer_seconds": null, "uses": [0, 1]},
+        {"oven": null, "text": "5 minuten op de hoogste stand tot een luchtig beslag.", "timer_seconds": 300, "uses": []},
+        {"oven": null, "text": "Voeg melk (2 el), cacaopoeder (2 el) en het afgewogen cakemeel in gedeelten toe en meng het tot een glad geheel.", "timer_seconds": null, "uses": [3, 4]},
+        {"oven": null, "text": "Verwarm de slagroom (200 ml) in een pannetje tot deze net niet kookt.", "timer_seconds": null, "uses": [5]}
+      ]
+    },
+    {
+      "source": "https://brendakookt.nl/recepten/erwtensoep-basisrecept-snert-en-variaties/",
+      "title": "Snert - basisrecept en variaties op erwtensoep",
+      "lines": [
+        {"amount": "500", "food": "spliterwten", "text": "500 g spliterwten", "unit": "g"},
+        {"amount": "2", "food": "water", "text": "2 liter water", "unit": "liter"},
+        {"amount": "1", "food": "laurierblad", "text": "1 laurierblad", "unit": null},
+        {"amount": "2", "food": "uien", "text": "2 uien (gesnipperd)", "unit": null},
+        {"amount": "1/3", "food": "knolselderij", "text": "1/3 knolselderij (in blokjes)", "unit": null},
+        {"amount": "1", "food": "prei", "text": "1 prei (in ringen)", "unit": null},
+        {"amount": "1", "food": "winterwortel", "text": "1 winterwortel (geschrapt en in blokjes)", "unit": null},
+        {"amount": "2", "food": "groentebouillon", "text": "2 blokjes groentebouillon", "unit": "blokjes"},
+        {"amount": "1", "food": "rookworst", "text": "1 rookworst (in plakjes)", "unit": null},
+        {"amount": "150", "food": "spekreepjes", "text": "150 gram spekreepjes", "unit": "gram"},
+        {"amount": null, "food": "zout en peper", "text": "zout en peper", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Doe de spliterwten met water en laurier in de pan en breng dit aan de kook.", "timer_seconds": null, "uses": [0, 1, 2]},
+        {"oven": null, "text": "Laat dit minimaal 1 uur pruttelen op laag vuur, schep het schuim er tussentijds vanaf.", "timer_seconds": 3600, "uses": []},
+        {"oven": null, "text": "Roer de erwten hierne even goed door voor je de groenten met 2 blokjes groentebouillon bij de pan doet.", "timer_seconds": null, "uses": [0, 7]},
+        {"oven": null, "text": "Verwarm dit nog 1 uur mee.", "timer_seconds": 3600, "uses": []},
+        {"oven": null, "text": "Breng op smaak met zout en peper en verwijderd het laurier.", "timer_seconds": null, "uses": [2, 10]},
+        {"oven": null, "text": "Doe de plakjes rookworst bij de pan en verwarm die nog even mee.", "timer_seconds": null, "uses": [8]}
+      ]
+    },
+    {
+      "source": "https://eatertainment.nl/recept/witlof-ovenschotel-met-ham-en-kaas",
+      "title": "Witlof ovenschotel met ham en kaas",
+      "lines": [
+        {"amount": "600", "food": "kruimige aardappelen", "text": "600 gr kruimige aardappelen", "unit": "gr"},
+        {"amount": "1", "food": "zout", "text": "1 snufje zout", "unit": "snufje"},
+        {"amount": "400", "food": "witloven", "text": "400 gr witloven", "unit": "gr"},
+        {"amount": "8", "food": "ham", "text": "8 plakken ham", "unit": "plakken"},
+        {"amount": "2", "food": "crème fraîche", "text": "2 el crème fraîche", "unit": "el"},
+        {"amount": "½", "food": "nootmuskaat", "text": "½ tl nootmuskaat", "unit": "tl"},
+        {"amount": "60", "food": "geraspte kaas", "text": "60 gr geraspte kaas", "unit": "gr"},
+        {"amount": "2", "food": "peterselie", "text": "2 takjes peterselie", "unit": "takjes"}
+      ],
+      "steps": [
+        {"oven": null, "text": "Schil de aardappelen en snijd in kleine blokjes.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Zet in een pan net onder water en voeg een snufje zout toe.", "timer_seconds": null, "uses": [1]},
+        {"oven": null, "text": "Breng de aardappelen aan de kook en kook in 20 min.", "timer_seconds": 1200, "uses": [0]},
+        {"oven": null, "text": "Kook de witlof in 5 min.", "timer_seconds": 300, "uses": [2]},
+        {"oven": "about 350 °F", "text": "Verwarm de oven voor op 180°C.", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Verdeel de geraspte kaas over de witlof en bak het geheel 20 min.", "timer_seconds": 1200, "uses": [2, 6]}
+      ]
+    },
+    {
+      "source": "https://lekkertafelen.nl/recept/nasi-goreng-authentiek-recept/",
+      "title": "Nasi Goreng; authentiek recept",
+      "lines": [
+        {"amount": "250", "food": "witte rijst", "text": "250 gr. witte rijst (basmati of pandan)", "unit": "gr."},
+        {"amount": "1", "food": "ui", "text": "1 ui", "unit": null},
+        {"amount": "3", "food": "knoflook", "text": "3 teentjes knoflook", "unit": "teentjes"},
+        {"amount": "1", "food": "prei", "text": "1 prei", "unit": null},
+        {"amount": "1", "food": "winterpeen", "text": "1 kleine winterpeen", "unit": null},
+        {"amount": "100", "food": "witte kool", "text": "100 gr. witte kool", "unit": "gr."},
+        {"amount": "10", "food": "selderij", "text": "+/- 10 takjes selderij(kruid)", "unit": "takjes"},
+        {"amount": "1", "food": "Spaanse peper", "text": "1 Spaanse peper (lombok)", "unit": null},
+        {"amount": "1 ½", "food": "trassi", "text": "1 ½ tl. trassi", "unit": "tl."},
+        {"amount": "2", "food": null, "text": "2 cm verse galangawortel (laos) of 1 tl poeder", "unit": "cm"},
+        {"amount": "1 ½", "food": "korianderzaad", "text": "1 ½ tl. korianderzaad (ketoembar)", "unit": "tl."},
+        {"amount": "1", "food": "komijnzaad", "text": "1 tl. komijnzaad (djinten)", "unit": "tl."},
+        {"amount": "3", "food": "olie", "text": "3 el. (arachide)olie", "unit": "el."},
+        {"amount": "200", "food": "garnalen", "text": "200 gr. middelgrote garnalen", "unit": "gr."},
+        {"amount": "3", "food": "ketjap manis", "text": "3 el. ketjap manis", "unit": "el."},
+        {"amount": null, "food": "zout", "text": "eventueel nog wat zout", "unit": null},
+        {"amount": "4", "food": "eieren", "text": "4 eieren", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Kook de rijst in ruim water gaar volgens de instructies op het pak.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Giet de rijst af en laat de rijst helemaal koud worden, dan bakt hij het lekkerste op.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Dus: liefst maak je de dag te voren een extra grote portie rijst en laat je het een nacht in de ijskast staan.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Hak de ui, teentjes knoflook, winterpeen en witte kool fijn.", "timer_seconds": null, "uses": [1, 2, 4, 5]},
+        {"oven": null, "text": "Verwijder – als je niet van pittig houdt – de pitjes uit de Spaanse peper en hak de peper ook fijn.", "timer_seconds": null, "uses": [7]},
+        {"oven": null, "text": "Doe de peper, trassi, laos, ketoembar en djinten, met eventueel nog een beetje zout samen in de vijzel en stamp alles fijn.", "timer_seconds": null, "uses": [7, 8, 15]}
+      ]
+    },
+    {
+      "source": "https://ohmydish.nl/recept/linzencurry-met-spinazie",
+      "title": "Linzencurry met spinazie - vegetarische curry",
+      "lines": [
+        {"amount": "200", "food": "gedroogde groene linzen", "text": "200 gram gedroogde groene linzen", "unit": "gram"},
+        {"amount": "1", "food": "rode ui", "text": "1 rode ui", "unit": null},
+        {"amount": "2", "food": "knoflooktenen", "text": "2 knoflooktenen", "unit": null},
+        {"amount": "3", "food": "gember", "text": "3 cm gember", "unit": "cm"},
+        {"amount": "70", "food": "tomatenpuree", "text": "70 gram tomatenpuree", "unit": "gram"},
+        {"amount": "200", "food": "kokosmelk", "text": "200 ml kokosmelk", "unit": "ml"},
+        {"amount": "500", "food": "groentebouillon", "text": "500 ml groentebouillon", "unit": "ml"},
+        {"amount": "200", "food": "spinazie", "text": "200 gram verse spinazie", "unit": "gram"},
+        {"amount": "1", "food": "gemalen komijnzaad", "text": "1 theelepel gemalen komijnzaad", "unit": "theelepel"},
+        {"amount": "2", "food": "kurkuma", "text": "2 theelepels kurkuma", "unit": "theelepels"},
+        {"amount": "1", "food": "gemalen korianderzaad", "text": "1 theelepel gemalen korianderzaad", "unit": "theelepel"},
+        {"amount": "0,5", "food": "zout", "text": "0,5 theelepel zout", "unit": "theelepel"},
+        {"amount": null, "food": "zonnebloemolie", "text": "zonnebloemolie (of andere neutrale olie)", "unit": null},
+        {"amount": "100", "food": "rijst", "text": "100 gram rijst", "unit": "gram"},
+        {"amount": "2", "food": "peterselie", "text": "2 takjes verse peterselie", "unit": "takjes"},
+        {"amount": "2", "food": "naanbroden", "text": "2 naanbroden", "unit": null},
+        {"amount": "125", "food": "Griekse yoghurt", "text": "125 gram Griekse yoghurt", "unit": "gram"},
+        {"amount": "1", "food": "limoen", "text": "1 limoen", "unit": null},
+        {"amount": "1", "food": "avocado", "text": "1 avocado", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Pel de rode ui en knoflooktenen en snijd deze fijn.", "timer_seconds": null, "uses": [1, 2]},
+        {"oven": null, "text": "Schil de gember en rasp of snijd deze fijn.", "timer_seconds": null, "uses": [3]},
+        {"oven": null, "text": "Was de verse spinazie indien nodig en verwijder eventueel de harde stelen.Linzencurry met spinazie - vegetarische curry", "timer_seconds": null, "uses": [7]},
+        {"oven": null, "text": "Verhit een scheut olie in een diepe bakpan en fruit hierin de ui, knoflook en gember tot de ui glazig is geworden.", "timer_seconds": null, "uses": [1, 2, 3, 12]},
+        {"oven": null, "text": "Voeg de tomatenpuree samen met alle kruiden toe en bak dit nog een minuut mee.", "timer_seconds": 60, "uses": [4]},
+        {"oven": null, "text": "Zet het vuur iets lager (middelhoog) zodra het kookt en laat de linzen gaar worden in ongeveer 25 tot 30 minuten.", "timer_seconds": 1500, "uses": []}
+      ]
+    },
+    {
+      "source": "https://recepten.be/recept/vegetarische-linzencurry/",
+      "title": "Vegetarische linzencurry",
+      "lines": [
+        {"amount": "1", "food": "sjalot", "text": "1 sjalot", "unit": null},
+        {"amount": "2", "food": "knoflook", "text": "2 tenen knoflook", "unit": "tenen"},
+        {"amount": "1", "food": "rode chilipeper", "text": "1 rode chilipeper", "unit": null},
+        {"amount": "1", "food": "citroengras", "text": "1 stengel citroengras", "unit": "stengel"},
+        {"amount": "1", "food": "gemalen komijn", "text": "1 theelepel gemalen komijn", "unit": "theelepel"},
+        {"amount": "1", "food": "kerriepoeder", "text": "1 eetlepel kerriepoeder", "unit": "eetlepel"},
+        {"amount": "1", "food": "paprikapoeder", "text": "1 theelepel paprikapoeder", "unit": "theelepel"},
+        {"amount": "150", "food": "groene linzen", "text": "150 gram groene linzen (gedroogd)", "unit": "gram"},
+        {"amount": "1", "food": "rode puntpaprika", "text": "1 rode puntpaprika (in reepjes gesneden)", "unit": null},
+        {"amount": "400", "food": "kokosmelk", "text": "400 ml kokosmelk", "unit": "ml"},
+        {"amount": "1", "food": "groentebouillon", "text": "1 blokjes groentebouillon", "unit": "blokjes"},
+        {"amount": "70", "food": "tomatenconcentraat", "text": "70 gram tomatenconcentraat", "unit": "gram"},
+        {"amount": "1", "food": "broccoli", "text": "1 broccoli", "unit": null},
+        {"amount": "1", "food": "courgette", "text": "1 courgette", "unit": null},
+        {"amount": "1", "food": "koriander", "text": "1 bosje koriander", "unit": "bosje"},
+        {"amount": null, "food": "neutrale olie", "text": "neutrale olie", "unit": null},
+        {"amount": null, "food": "peper en zout", "text": "peper en zout", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Verhit in een ruime kookpot met dikke bodem een flinke scheut neutrale olie (arachide, zonnebloem,...).", "timer_seconds": null, "uses": [15]},
+        {"oven": null, "text": "Snipper de sjalot, teentjes look en chilipeper (verwijder eventueel de zaadjes voor een minder pikant resultaat) erg fijn en fruit op een zacht vuur in de olie.", "timer_seconds": null, "uses": [0, 1, 2, 15]},
+        {"oven": null, "text": "Maak enkele inkervingen in de stengel citroengras en voeg samen met kerrie, komijn en paprikapoeder toe.", "timer_seconds": null, "uses": [3, 4, 6]},
+        {"oven": null, "text": "Voeg de linzen met de reepjes puntpaprika toe.", "timer_seconds": null, "uses": [7, 8]},
+        {"oven": null, "text": "Voeg het blik kokosmelk toe.", "timer_seconds": null, "uses": [9]},
+        {"oven": null, "text": "Laat ongeveer 20 minuten pruttelen, roer nu en dan om.", "timer_seconds": 1200, "uses": []}
+      ]
+    },
+    {
+      "source": "https://receptenpret.nl/gehaktballen-in-jus/",
+      "title": "Gehaktballen in jus: Ontdek dit heerlijke recept!",
+      "lines": [
+        {"amount": "500", "food": "gemengd gehakt", "text": "500 gram gemengd gehakt (rund en varken)", "unit": "gram"},
+        {"amount": "1", "food": "ei", "text": "1 ei", "unit": null},
+        {"amount": "50", "food": "paneermeel", "text": "50 gram paneermeel", "unit": "gram"},
+        {"amount": "1", "food": "ui", "text": "1 ui (fijngehakt)", "unit": null},
+        {"amount": "2", "food": "knoflook", "text": "2 tenen knoflook (fijngehakt)", "unit": "tenen"},
+        {"amount": "1", "food": "paprikapoeder", "text": "1 theelepel paprikapoeder", "unit": "theelepel"},
+        {"amount": null, "food": "zout en peper", "text": "zout en peper naar smaak", "unit": null},
+        {"amount": "2", "food": "olie", "text": "2 eetlepels olie (voor het bakken)", "unit": "eetlepels"},
+        {"amount": "400", "food": "runderbouillon", "text": "400 ml runderbouillon", "unit": "ml"},
+        {"amount": "2", "food": "bloem", "text": "2 eetlepels bloem", "unit": "eetlepels"},
+        {"amount": "100", "food": "room", "text": "100 ml room", "unit": "ml"}
+      ],
+      "steps": [
+        {"oven": null, "text": "Mix het gehakt met het ei, paneermeel, ui, knoflook, paprikapoeder, zout en peper in een grote kom.", "timer_seconds": null, "uses": [0, 1, 2, 3, 4, 5, 6]},
+        {"oven": null, "text": "Verhit de olie in een ruime pan en bak de gehaktballen in porties tot ze mooi bruin en gaar zijn.", "timer_seconds": null, "uses": [7]},
+        {"oven": null, "text": "Bak de ui en knoflook kort aan in dezelfde pan.", "timer_seconds": null, "uses": [3, 4]},
+        {"oven": null, "text": "Voeg de bloem toe en roer goed door.", "timer_seconds": null, "uses": [9]},
+        {"oven": null, "text": "Giet langzaam de bouillon erbij, terwijl je blijft roeren om klonten te voorkomen.", "timer_seconds": null, "uses": [8]},
+        {"oven": null, "text": "Plaats de gehaktballen terug in de pan en laat ze nog 5 minuten sudderen in de jus.", "timer_seconds": 300, "uses": []}
+      ]
+    },
+    {
+      "source": "https://receptenpret.nl/linzen-curry-met-paprika/",
+      "title": "Ontdek de Verrukkelijke Curry met Linzen en Paprika!",
+      "lines": [
+        {"amount": "400", "food": "Kokosmelk", "text": "400 ml Kokosmelk", "unit": "ml"},
+        {"amount": "1", "food": "Groene linzen", "text": "1 kopje Groene linzen", "unit": "kopje"},
+        {"amount": "2", "food": "Rode paprika's", "text": "2 stuk(s) Rode paprika's (in blokjes gesneden)", "unit": "stuk"},
+        {"amount": "1", "food": "Ui", "text": "1 stuk Ui (fijngesneden)", "unit": "stuk"},
+        {"amount": "2", "food": "Knoflook", "text": "2 teentjes Knoflook (fijngehakt)", "unit": "teentjes"},
+        {"amount": "1", "food": "Kurkuma", "text": "1 theelepel Kurkuma", "unit": "theelepel"},
+        {"amount": "1", "food": "Komijn", "text": "1 theelepel Komijn", "unit": "theelepel"},
+        {"amount": "1", "food": "Olijfolie", "text": "1 eetlepel Olijfolie", "unit": "eetlepel"},
+        {"amount": "1", "food": "Groentebouillon", "text": "1 kopje Groentebouillon", "unit": "kopje"},
+        {"amount": null, "food": "Zout en peper", "text": "Zout en peper (naar smaak)", "unit": null},
+        {"amount": null, "food": "koriander", "text": "Verse koriander (voor garnering)", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Verhit de olijfolie in een grote pan op middelhoog vuur.", "timer_seconds": null, "uses": [7]},
+        {"oven": null, "text": "Voeg de gesneden ui en knoflook toe en bak deze 3-4 minuten tot ze zacht en glazig zijn.", "timer_seconds": 180, "uses": [3, 4]},
+        {"oven": null, "text": "Voeg de paprika's toe en bak ze 5 minuten mee totdat ze beginnen te verzachten.", "timer_seconds": 300, "uses": [2]},
+        {"oven": null, "text": "Roer de linzen, kurkuma en komijn erdoor.", "timer_seconds": null, "uses": [1, 5, 6]},
+        {"oven": null, "text": "Meng goed zodat de linzen en groenten bedekt zijn met de kruiden.", "timer_seconds": null, "uses": [1]},
+        {"oven": null, "text": "Laat het geheel 25-30 minuten sudderen totdat de linzen zacht zijn.", "timer_seconds": 1500, "uses": []}
+      ]
+    },
+    {
+      "source": "https://receptenvanoma.nl/erwtensoep-recept-oma/",
+      "title": "Ouderwetse erwtensoep van oma – dikke snert",
+      "lines": [
+        {"amount": "750", "food": "spliterwten", "text": "750 g spliterwten", "unit": "g"},
+        {"amount": "3", "food": "water", "text": "3 liter water (eventueel iets extra)", "unit": "liter"},
+        {"amount": "1", "food": "schouderkarbonade", "text": "1 schouderkarbonade van ongeveer 300–400 g", "unit": null},
+        {"amount": "1", "food": "varkenspoot", "text": "1 schoongemaakte varkenspoot van ongeveer 500–700 g (of 500–700 g krabbetjes)", "unit": null},
+        {"amount": "3", "food": "speklapjes", "text": "3 speklapjes van ongeveer 300–400 g", "unit": null},
+        {"amount": "1", "food": "rookworst", "text": "1 grote rookworst van ongeveer 275 g", "unit": null},
+        {"amount": "2", "food": "uien", "text": "2 uien", "unit": null},
+        {"amount": "3", "food": "wortels", "text": "3 wortels", "unit": null},
+        {"amount": "1", "food": "prei", "text": "1 grote prei", "unit": null},
+        {"amount": "½", "food": "knolselderij", "text": "½ knolselderij van ongeveer 400–500 g", "unit": null},
+        {"amount": "2", "food": "aardappels", "text": "2 middelgrote aardappels", "unit": null},
+        {"amount": "2", "food": "laurierblaadjes", "text": "2 laurierblaadjes", "unit": null},
+        {"amount": "1", "food": "zwarte peper", "text": "1 theelepel zwarte peper", "unit": "theelepel"},
+        {"amount": null, "food": "Zout", "text": "Zout naar smaak", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Doe de spliterwten in een vergiet en spoel ze onder koud stromend water.", "timer_seconds": null, "uses": [0, 1]},
+        {"oven": null, "text": "Doe ze daarna in de grote soeppan met het water.", "timer_seconds": null, "uses": [1]},
+        {"oven": null, "text": "Voeg de schouderkarbonade, de varkenspoot of krabbetjes en de laurierblaadjes toe.", "timer_seconds": null, "uses": [2, 3, 11]},
+        {"oven": null, "text": "Schep het schuim dat boven komt drijven met een schuimspaan van het water, zodat je straks een mooie, smaakvolle bouillon krijgt.", "timer_seconds": null, "uses": [1]},
+        {"oven": null, "text": "Laat het vlees ongeveer anderhalf uur zachtjes pruttelen.", "timer_seconds": 5400, "uses": []},
+        {"oven": null, "text": "Snijd de rookworst in plakjes en voeg deze de laatste 15–20 minuten toe.", "timer_seconds": 900, "uses": [5]}
+      ]
+    },
+    {
+      "source": "https://tijdvoorkoken.nl/recept/hutspot-met-klapstuk/",
+      "title": "Hutspot met klapstuk",
+      "lines": [
+        {"amount": "1", "food": "aardappelen", "text": "1 kilogram aardappelen", "unit": "kilogram"},
+        {"amount": "500", "food": "wortelen", "text": "500 gram wortelen", "unit": "gram"},
+        {"amount": "2", "food": "uien", "text": "2 grote uien", "unit": null},
+        {"amount": "600", "food": "klapstuk", "text": "600 gram klapstuk", "unit": "gram"},
+        {"amount": "50", "food": "boter", "text": "50 gram boter", "unit": "gram"},
+        {"amount": "125", "food": "melk", "text": "125 milliliter melk", "unit": "milliliter"},
+        {"amount": null, "food": "Zout en peper", "text": "Zout en peper naar smaak", "unit": null},
+        {"amount": "2", "food": "laurierblaadjes", "text": "2 laurierblaadjes", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Schil de aardappelen en snijd ze in gelijke stukken.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Schil de wortelen en snijd ze in plakjes.", "timer_seconds": null, "uses": [1]},
+        {"oven": null, "text": "Snijd de uien in ringen.", "timer_seconds": null, "uses": [2]},
+        {"oven": null, "text": "Doe de aardappelen, wortelen en uien in een grote kookpan en voeg voldoende water toe tot ze onder staan.", "timer_seconds": null, "uses": [0, 1, 2]},
+        {"oven": null, "text": "Breng het geheel aan de kook en laat het 20 tot 25 minuten koken tot de groenten gaar zijn.", "timer_seconds": 1200, "uses": []},
+        {"oven": null, "text": "Voeg een beetje water toe en laat het vlees 2 tot 3 uur zachtjes stoven op laag vuur tot het mals is.", "timer_seconds": 7200, "uses": []}
+      ]
+    },
+    {
+      "source": "https://uitpaulineskeuken.nl/recept/healthy-bananabread",
+      "title": "Bananenbrood - gezond recept",
+      "lines": [
+        {"amount": "4", "food": "bananen", "text": "4 rijpe bananen", "unit": null},
+        {"amount": "3", "food": "eieren", "text": "3 eieren", "unit": null},
+        {"amount": "150", "food": "amandelmeel", "text": "150 g amandelmeel", "unit": "g"},
+        {"amount": "60", "food": "dadels", "text": "60 g dadels (3 medjool dadels)", "unit": "g"},
+        {"amount": "2", "food": "bakpoeder", "text": "2 tl bakpoeder", "unit": "tl"},
+        {"amount": "50", "food": "pure chocola", "text": "50 g pure chocola", "unit": "g"},
+        {"amount": null, "food": "zout", "text": "snuf zout", "unit": "snuf"},
+        {"amount": "30", "food": "kokosrasp", "text": "30 g kokosrasp", "unit": "g"},
+        {"amount": "75", "food": "gemengde noten", "text": "75 g gemengde noten", "unit": "g"},
+        {"amount": "1", "food": "koekkruiden", "text": "1 tl koekkruiden", "unit": "tl"}
+      ],
+      "steps": [
+        {"oven": "about 350 °F", "text": "Verwarm de oven voor op 175 graden (boven- en onderwarmte).", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Pureer drie bananen samen met de dadels (zonder pit) glad met een staafmixer in een kom.", "timer_seconds": null, "uses": [0, 3]},
+        {"oven": null, "text": "Spatel het amandelmeel met het bakpoeder en een snuf zout door het beslag.", "timer_seconds": null, "uses": [2, 4, 6]},
+        {"oven": null, "text": "Hak de noten en de chocola in stukjes en spatel deze door het beslag.", "timer_seconds": null, "uses": [5, 8]},
+        {"oven": null, "text": "Spatel tenslotte de kokosrasp door het bananen beslag.", "timer_seconds": null, "uses": [7]}
+      ]
+    },
+    {
+      "source": "https://uitpaulineskeuken.nl/recept/nasi-goreng",
+      "title": "Nasi goreng",
+      "lines": [
+        {"amount": "300", "food": "gekookte rijst", "text": "300 g gekookte rijst", "unit": "g"},
+        {"amount": "2", "food": "uien", "text": "2 uien", "unit": null},
+        {"amount": "2", "food": "knoflook", "text": "2 teentjes knoflook", "unit": "teentjes"},
+        {"amount": "1", "food": "rode paprika", "text": "1 rode paprika", "unit": null},
+        {"amount": "1", "food": "prei", "text": "1 grote prei", "unit": null},
+        {"amount": "125", "food": "taugé", "text": "125 g taugé", "unit": "g"},
+        {"amount": "200", "food": "sperziebonen", "text": "200 g sperziebonen", "unit": "g"},
+        {"amount": "1", "food": "gemalen koriander", "text": "1 tl gemalen koriander", "unit": "tl"},
+        {"amount": "1", "food": "laos", "text": "1 tl laos", "unit": "tl"},
+        {"amount": "1", "food": "kurkuma", "text": "1 tl kurkuma", "unit": "tl"},
+        {"amount": "0,5", "food": "komijn", "text": "0,5 tl komijn", "unit": "tl"},
+        {"amount": "1", "food": "trassi", "text": "1 tl trassi (laat weg voor een vega variant)", "unit": "tl"},
+        {"amount": "2", "food": "sambal", "text": "2 tl sambal", "unit": "tl"},
+        {"amount": "2", "food": "ketjap", "text": "2 el ketjap", "unit": "el"},
+        {"amount": null, "food": "Zout", "text": "Zout", "unit": null},
+        {"amount": null, "food": "Wokolie", "text": "Wokolie", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Pel en snipper de ui en hak de knoflook fijn.", "timer_seconds": null, "uses": [1, 2]},
+        {"oven": null, "text": "Fruit dit aan in wat olie.", "timer_seconds": null, "uses": [15]},
+        {"oven": null, "text": "Voeg alle droge specerijen (of een zakje nasi kruiden) en de trassi toe en verhit deze kort.", "timer_seconds": null, "uses": [11]},
+        {"oven": null, "text": "laat de trassi dan achterwege.", "timer_seconds": null, "uses": [11]},
+        {"oven": null, "text": "Was de prei en snijd deze in ringen.", "timer_seconds": null, "uses": [4]},
+        {"oven": null, "text": "Was de sperziebonen, verwijder de puntjes en snijd ze in stukjes.", "timer_seconds": null, "uses": [6]}
+      ]
+    },
+    {
+      "source": "https://uitpaulineskeuken.nl/recept/zalm-recept",
+      "title": "Griekse zalm uit de oven",
+      "lines": [
+        {"amount": "4", "food": "zalm", "text": "4 mootjes zalm", "unit": "mootjes"},
+        {"amount": "80", "food": "feta", "text": "80 gr feta", "unit": "gr"},
+        {"amount": "200", "food": "cherrytomaten", "text": "200 gr cherrytomaten", "unit": "gr"},
+        {"amount": "100", "food": "olijven", "text": "100 gr olijven", "unit": "gr"},
+        {"amount": "1", "food": "rode ui", "text": "1 rode ui", "unit": null},
+        {"amount": "1", "food": "knoflook", "text": "1 teentje knoflook", "unit": "teentje"},
+        {"amount": null, "food": "dille", "text": "Handje verse dille", "unit": "Handje"},
+        {"amount": "2", "food": "oregano", "text": "2 tl oregano", "unit": "tl"},
+        {"amount": null, "food": "Peper en zout", "text": "Peper en zout", "unit": null},
+        {"amount": null, "food": "Olijfolie", "text": "Olijfolie", "unit": null}
+      ],
+      "steps": [
+        {"oven": "about 350 °F", "text": "Verwarm de oven voor op 180 graden hete lucht.", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Pel de ui en snijd deze in ringen.", "timer_seconds": null, "uses": [4]},
+        {"oven": null, "text": "Hak de knoflook fijn.", "timer_seconds": null, "uses": [5]},
+        {"oven": null, "text": "Snijd de olijven in plakjes, halveer de tomaten en hak de dille grof.", "timer_seconds": null, "uses": [2, 3, 6]},
+        {"oven": null, "text": "Je kan de zalm ook een half uurtje laten marineren in de olie.", "timer_seconds": 1800, "uses": [0, 9]},
+        {"oven": null, "text": "Bak de zalm in ongeveer 12 – 15 minuten af in de oven.", "timer_seconds": 720, "uses": [0]}
+      ]
+    },
+    {
+      "source": "https://www.24kitchen.nl/recepten/leidse-hutspot-met-klapstuk",
+      "title": "Leidse hutspot met klapstuk",
+      "lines": [
+        {"amount": "500", "food": "klapstuk", "text": "500 g klapstuk (of riblappen)", "unit": "g"},
+        {"amount": "50", "food": "ongezouten boter", "text": "50 g ongezouten boter", "unit": "g"},
+        {"amount": "1", "food": "witte ui", "text": "1 witte ui", "unit": null},
+        {"amount": "1", "food": "wortel", "text": "1 wortel", "unit": null},
+        {"amount": "1", "food": "bleekselderij", "text": "1 stengel bleekselderij", "unit": "stengel"},
+        {"amount": "35", "food": "tomatenpuree", "text": "35 g tomatenpuree", "unit": "g"},
+        {"amount": "1", "food": "gedroogd laurierblad", "text": "1 gedroogd laurierblad", "unit": null},
+        {"amount": "250", "food": "rode wijn", "text": "250 ml rode wijn", "unit": "ml"},
+        {"amount": "250", "food": "runderfond", "text": "250 ml runderfond", "unit": "ml"},
+        {"amount": "25", "food": "rode port", "text": "25 ml rode port", "unit": "ml"},
+        {"amount": "1", "food": "aardappelen", "text": "1 kg aardappelen", "unit": "kg"},
+        {"amount": "1", "food": "winterpenen", "text": "1 kg winterpenen", "unit": "kg"},
+        {"amount": "1", "food": "uien", "text": "1 kg uien", "unit": "kg"},
+        {"amount": "50", "food": "melk", "text": "50 ml volle melk", "unit": "ml"},
+        {"amount": "50", "food": "ongezouten roomboter", "text": "50 g ongezouten roomboter", "unit": "g"}
+      ],
+      "steps": [
+
+      ]
+    },
+    {
+      "source": "https://www.baktotaal.nl/klassieke-chocoladetaart-recept",
+      "title": "Klassieke chocoladetaart recept",
+      "lines": [
+        {"amount": "500", "food": "slagroom", "text": "500 milliliter slagroom", "unit": "milliliter"}
+      ],
+      "steps": [
+        {"oven": "about 325 °F", "text": "Verwarm de oven voor op 160 graden (heteluchtoven).", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Mix in 7 à 8 minuten op hoge snelheid de biscuitmix, de eieren en het water door elkaar heen.", "timer_seconds": 420, "uses": []},
+        {"oven": null, "text": "Klop het beslag nog 3 minuten op lage snelheid door.", "timer_seconds": 180, "uses": []},
+        {"oven": null, "text": "Vul de ingevette bakvorm voor ⅔ deel met beslag en bak de biscuit in ongeveer 25 à 30 minuten gaar.Tip!", "timer_seconds": 1500, "uses": []},
+        {"oven": null, "text": "Doe 500 milliliter slagroom in een steelpannetje en verwarm dit tot het kookt.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Doe de chocolade callets in een kom en giet de kokende slagroom eroverheen.", "timer_seconds": null, "uses": [0]}
+      ]
+    },
+    {
+      "source": "https://www.eefkooktzo.nl/chocoladetaart-recept/",
+      "title": "Chocoladetaart",
+      "lines": [
+        {"amount": "300", "food": "roomboter", "text": "300 gram roomboter (ongezouten - kamertemperatuur)", "unit": "gram"},
+        {"amount": "300", "food": "bruine basterdsuiker", "text": "300 gram bruine basterdsuiker", "unit": "gram"},
+        {"amount": "5", "food": "eieren", "text": "5 eieren (middelgroot)", "unit": null},
+        {"amount": "125", "food": "Griekse yoghurt", "text": "125 gram Griekse yoghurt", "unit": "gram"},
+        {"amount": "250", "food": "zelfrijzend bakmeel", "text": "250 gram zelfrijzend bakmeel", "unit": "gram"},
+        {"amount": "50", "food": "cacaopoeder", "text": "50 gram cacaopoeder", "unit": "gram"},
+        {"amount": "1", "food": "baking soda", "text": "1 theelepel baking soda", "unit": "theelepel"},
+        {"amount": "50", "food": "pure chocolade", "text": "50 gram pure chocolade (in kleine stukjes)", "unit": "gram"},
+        {"amount": "50", "food": "melk chocolade", "text": "50 gram melk chocolade (in kleine stukjes)", "unit": "gram"},
+        {"amount": "50", "food": "witte chocolade", "text": "50 gram witte chocolade (in kleine stukjes)", "unit": "gram"}
+      ],
+      "steps": [
+        {"oven": "about 350 °F", "text": "Verwarm de oven voor op 170 graden boven- en onderwarmte.", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Klop de boter en basterdsuiker gedurende 5 minuten met een mixer tot het romig is.", "timer_seconds": 300, "uses": [0, 1]},
+        {"oven": null, "text": "Voeg 1 voor 1 de eieren toe, gevolgd door de Griekse yoghurt, het zelfrijzend bakmeel, cacaopoeder en de baking soda.", "timer_seconds": null, "uses": [2, 3, 4, 5, 6]},
+        {"oven": null, "text": "Doe 1/3 van het beslag in de springvorm en bak de chocoladecake in 20/30 minuten af.", "timer_seconds": 1200, "uses": []}
+      ]
+    },
+    {
+      "source": "https://www.eefkooktzo.nl/witlof-ovenschotel-aardappelpuree-ham-en-kaas/",
+      "title": "Witlof ovenschotel aardappelpuree met ham en kaas",
+      "lines": [
+        {"amount": "1", "food": "aardappels", "text": "1 kilo aardappels", "unit": "kilo"},
+        {"amount": "100", "food": "geraspte kaas", "text": "100 gram geraspte kaas", "unit": "gram"},
+        {"amount": "100", "food": "ham", "text": "100 gram ham", "unit": "gram"},
+        {"amount": "650", "food": "witlof", "text": "650 gram witlof (ca. 5-6 stronken)", "unit": "gram"},
+        {"amount": "3", "food": "crème fraîche", "text": "3 eetlepels crème fraîche", "unit": "eetlepels"},
+        {"amount": null, "food": "peper", "text": "peper, zout, nootmuskaat", "unit": null}
+      ],
+      "steps": [
+        {"oven": "about 400 °F", "text": "Verwarm de oven voor op 200 graden boven- en onderwarmte.", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Schil de aardappels, snijd ze in kleine blokjes en kook ze gaar in ruim water en een snuf zout.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Als de aardappels bijna klaar zijn zet je nog een pannetje met ruim water op het vuur en breng je dit aan de kook.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Verwijder het kontje van de witlof, snijd door de midden en verwijder de bittere, harde kern.", "timer_seconds": null, "uses": [3]},
+        {"oven": null, "text": "Dek de ovenschaal af met aluminiumfolie en zet deze 20 minuten in de oven.", "timer_seconds": 1200, "uses": []},
+        {"oven": null, "text": "Haal de laatste 5 minuten het aluminiumfolie van de ovenschaal zodat de kaas nog even kan gratineren.", "timer_seconds": 300, "uses": [1]}
+      ]
+    },
+    {
+      "source": "https://www.eefkooktzo.nl/zalm-uit-de-oven/",
+      "title": "Zalm uit de oven",
+      "lines": [
+        {"amount": "500", "food": "zalm", "text": "500 gram zalm (in 4 moten)", "unit": "gram"},
+        {"amount": "2", "food": "citroensap", "text": "2 theelepels citroensap", "unit": "theelepels"},
+        {"amount": "1", "food": "olijfolie", "text": "1 eetlepel olijfolie", "unit": "eetlepel"},
+        {"amount": "1", "food": "bieslook", "text": "1 eetlepel bieslook (vers - fijngesneden)", "unit": "eetlepel"},
+        {"amount": "2", "food": "knoflook", "text": "2 tenen knoflook (uitgeperst)", "unit": "tenen"},
+        {"amount": "1", "food": "mosterd", "text": "1 theelepel mosterd (dijon)", "unit": "theelepel"},
+        {"amount": null, "food": "citroen", "text": "citroen, peper en zout", "unit": null}
+      ],
+      "steps": [
+        {"oven": "about 425 °F", "text": "Verwarm de oven voor op 225 graden boven- en onderwarmte.", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Dep de zalm droog met een keukenpapiertje.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Doe de citroensap, olijfolie, bieslook, knoflook en mosterd in een kommetje en meng dit door elkaar.", "timer_seconds": null, "uses": [1, 2, 3, 4, 5]},
+        {"oven": null, "text": "Verdeel de marinade over de zalm en leg één of twee plakjes citroen op elke moot zalm.", "timer_seconds": null, "uses": [0, 6]},
+        {"oven": null, "text": "Zet de zalm (eventueel met asperges, cherrytomaten of andere groenten) in de oven voor 10-15 minuutjes tot de zalm gaar is.", "timer_seconds": 600, "uses": [0]}
+      ]
+    },
+    {
+      "source": "https://www.francescakookt.nl/hollandse-gehaktballen-met-een-heerlijke-jus/",
+      "title": "Hollandse gehaktballen met een heerlijke jus",
+      "lines": [
+        {"amount": "500", "food": "rundergehakt", "text": "500 gr rundergehakt, (van goede kwaliteit, ik gebruikte het gehakt van het MRIJ rund, half-om-half gehakt kan ook)", "unit": "gr"},
+        {"amount": "2", "food": "eieren", "text": "2 eieren, (losgeklopt)", "unit": null},
+        {"amount": "75", "food": "paneermeel", "text": "75 gr paneermeel", "unit": "gr"},
+        {"amount": null, "food": "zout", "text": "zout", "unit": null},
+        {"amount": null, "food": "zwarte peper", "text": "zwarte peper", "unit": null},
+        {"amount": "1", "food": "grove mosterd", "text": "1 el grove mosterd, (bijvoorbeeld Groninger mosterd)", "unit": "el"},
+        {"amount": "1", "food": "uienpoeder", "text": "1 tl uienpoeder", "unit": "tl"},
+        {"amount": "1", "food": "paprikapoeder", "text": "1 tl paprikapoeder", "unit": "tl"},
+        {"amount": "1", "food": "worcestershiresaus", "text": "1 tl worcestershiresaus", "unit": "tl"},
+        {"amount": null, "food": "koolzaadolie", "text": "koolzaadolie", "unit": null},
+        {"amount": "20", "food": "boter", "text": "20 gr boter", "unit": "gr"},
+        {"amount": "250", "food": null, "text": "250 ml rund- of kalfsfond, (verwarmd)", "unit": "ml"},
+        {"amount": "1", "food": "ketjap manis", "text": "1 volle el ketjap manis", "unit": "el"}
+      ],
+      "steps": [
+        {"oven": null, "text": "Meng het gehakt met de eieren, paneermeel, flinke snuf zout en peper, mosterd, uienpoeder, paprikapoeder en worcestershiresaus in een kom.", "timer_seconds": null, "uses": [0, 1, 2, 3, 4, 5, 6, 7, 8]},
+        {"oven": null, "text": "Verdeel het gehakt in 4 delen en draai er mooie ronde ballen van met vochtige handen.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Leg de gehaktballen op een bord en zet deze 30 minuten in de koelkast.", "timer_seconds": 1800, "uses": []},
+        {"oven": null, "text": "Verhit je braadpan op middelhoog vuur (in mijn geval op stand 6 van 10) en schenk een scheutje koolzaadolie in de pan.", "timer_seconds": null, "uses": [9]},
+        {"oven": null, "text": "Na ongeveer driekwart van het aanbraden (ongeveer na 10 minuten) voeg ik wat klontjes boter toe in de pan.", "timer_seconds": 600, "uses": [10]},
+        {"oven": null, "text": "Zet het vuur wat lager en laat 20 minuten pruttelen met de deksel op de pan.", "timer_seconds": 1200, "uses": []}
+      ]
+    },
+    {
+      "source": "https://www.leukerecepten.nl/recepten/bananenbrood-recept/",
+      "title": "Bananenbrood recept",
+      "lines": [
+        {"amount": "4", "food": "bananen", "text": "4 rijpe bananen", "unit": null},
+        {"amount": "3", "food": "eieren", "text": "3 eieren", "unit": null},
+        {"amount": "160", "food": "speltbloem", "text": "160 gr speltbloem (of volkorenmeel)", "unit": "gr"},
+        {"amount": "80", "food": "amandelmeel", "text": "80 gr amandelmeel", "unit": "gr"},
+        {"amount": null, "food": "kaneel", "text": "snuf kaneel", "unit": "snuf"},
+        {"amount": "0.5", "food": "bakpoeder", "text": "0.5 zakje bakpoeder", "unit": "zakje"},
+        {"amount": "3", "food": "dadels", "text": "3 dadels (of 3 eetlepels honing)", "unit": null}
+      ],
+      "steps": [
+        {"oven": "about 350 °F", "text": "Verwarm de oven op 180 graden.", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Leg de dadels 5 minuten in warm water zodat ze wat zachter worden, verwijder de pit en snijd in stukjes.", "timer_seconds": 300, "uses": [6]},
+        {"oven": null, "text": "Doe 3 bananen met de eieren, kaneel en dadels in een keukenmachine en mix tot een glad beslag.", "timer_seconds": null, "uses": [0, 1, 4, 6]},
+        {"oven": null, "text": "Doe dit in een kom en spatel de speltbloem, amandelmeel en bakpoeder er door.", "timer_seconds": null, "uses": [2, 3, 5]},
+        {"oven": null, "text": "Giet het beslag in een cakevorm en leg een gehalveerde banaan er bovenop.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Bak het bananenbrood ongeveer 50 minuten in de oven.", "timer_seconds": 3000, "uses": []}
+      ]
+    },
+    {
+      "source": "https://www.leukerecepten.nl/recepten/nasi-goreng/",
+      "title": "Nasi goreng",
+      "lines": [
+        {"amount": "300", "food": "pandan rijst", "text": "300 gr pandan rijst (gekookt en afgekoeld)", "unit": "gr"},
+        {"amount": "1", "food": "uitje", "text": "1 uitje", "unit": null},
+        {"amount": "1", "food": "knoflook", "text": "1 teen knoflook", "unit": "teen"},
+        {"amount": "2", "food": "paprika's", "text": "2 paprika's", "unit": null},
+        {"amount": "200", "food": "prei", "text": "200 gr fijngesneden prei", "unit": "gr"},
+        {"amount": "1", "food": "ketjap", "text": "1 scheut ketjap", "unit": "scheut"},
+        {"amount": "250", "food": "champignons", "text": "250 gr champignons", "unit": "gr"},
+        {"amount": "1", "food": "sambal", "text": "1 theelepel sambal", "unit": "theelepel"},
+        {"amount": "1", "food": "komijn", "text": "1 Snuf komijn", "unit": "Snuf"},
+        {"amount": "1", "food": "djahe", "text": "1 Snuf djahe (gember)", "unit": "Snuf"},
+        {"amount": "1", "food": "kurkuma", "text": "1 Snuf kurkuma", "unit": "Snuf"},
+        {"amount": null, "food": "peper en zout", "text": "peper en zout (naar smaak )", "unit": null},
+        {"amount": "4", "food": "eieren", "text": "4 eieren", "unit": null},
+        {"amount": null, "food": "kroepoek", "text": "kroepoek (voor er bij )", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Kook de rijst gaar en laat deze helemaal afkoelen, het liefst in de koelkast.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Gebruik je warme rijst dan gaat deze plakken.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Snipper de ui en knoflook en bak deze in een wokpan aan in een beetje olie.", "timer_seconds": null, "uses": [1, 2]},
+        {"oven": null, "text": "Voeg de kruiden toe en de sambal (naar smaak) en een scheut ketjap.", "timer_seconds": null, "uses": [5, 7]},
+        {"oven": null, "text": "Laat dit mengsel 1 min bakken.", "timer_seconds": 60, "uses": []},
+        {"oven": null, "text": "Voeg de paprika in blokjes toe een de pan en bak een paar minuten tot ze iets zacht beginnen te worden.", "timer_seconds": null, "uses": [3]}
+      ]
+    },
+    {
+      "source": "https://www.leukerecepten.nl/recepten/zalm-uit-de-oven/",
+      "title": "Zalm uit de oven",
+      "lines": [
+        {"amount": "2", "food": "zalmmoten", "text": "2 zalmmoten", "unit": null},
+        {"amount": "0.5", "food": "citroen", "text": "0.5 citroen", "unit": null},
+        {"amount": "1", "food": "extra vierge olijfolie", "text": "1 eetlepel extra vierge olijfolie", "unit": "eetlepel"},
+        {"amount": null, "food": "peper en zout", "text": "peper en zout (naar smaak)", "unit": null},
+        {"amount": "1", "food": "knoflook", "text": "1 teen knoflook", "unit": "teen"},
+        {"amount": "1", "food": "bosui", "text": "1 bosui", "unit": null}
+      ],
+      "steps": [
+        {"oven": "about 400 °F", "text": "Verwarm de oven voor op 200 graden.", "timer_seconds": null, "uses": []},
+        {"oven": null, "text": "Leg de zalmmoten in een ovenschaal.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Dep ze eventueel eerst droog met keukenpapier, dan blijft de bovenkant mooier en trekt de knoflook beter in de vis.", "timer_seconds": null, "uses": [4]},
+        {"oven": null, "text": "Bestrooi de zalm met peper en zout.", "timer_seconds": null, "uses": [0, 3]},
+        {"oven": null, "text": "Rasp of hak de knoflook fijn en verdeel dit over de bovenkant.", "timer_seconds": null, "uses": [4]},
+        {"oven": null, "text": "Bak de zalm uit de oven ongeveer 12 tot 15 minuten, afhankelijk van de dikte van de moten.", "timer_seconds": 720, "uses": [0]}
+      ]
+    },
+    {
+      "source": "https://www.mariskabauer.nl/recepten/ouderwetse-hollandse-gehaktballen-in-jus",
+      "title": "Ouderwetse Hollandse gehaktballen in jus",
+      "lines": [
+        {"amount": "500", "food": "gehakt", "text": "500 gram gehakt", "unit": "gram"},
+        {"amount": "1", "food": "ei", "text": "1 ei", "unit": null},
+        {"amount": "1", "food": "ui", "text": "1 middelgrote ui, heel fijn gesnipperd", "unit": null},
+        {"amount": "3", "food": "paneermeel", "text": "3 etl paneermeel", "unit": "etl"},
+        {"amount": "1", "food": "mosterd", "text": "1 tl mosterd", "unit": "tl"},
+        {"amount": "½", "food": "nootmuskaat", "text": "½ tl nootmuskaat", "unit": "tl"},
+        {"amount": "½", "food": "peper", "text": "½ tl peper", "unit": "tl"},
+        {"amount": "½", "food": "zout", "text": "½ tl zout", "unit": "tl"},
+        {"amount": "2", "food": "Croma", "text": "2 el Croma om in te bakken", "unit": "el"},
+        {"amount": "1", "food": "runderfond", "text": "1 pot runderfond", "unit": "pot"},
+        {"amount": "1", "food": "laurier blad", "text": "1 laurier blad", "unit": null},
+        {"amount": "1", "food": "ketjap", "text": "1 tl ketjap", "unit": "tl"},
+        {"amount": "1", "food": "mosterd", "text": "1 tl mosterd", "unit": "tl"},
+        {"amount": "2", "food": "aardappelzetmeel", "text": "2 etl aardappelzetmeel", "unit": "etl"},
+        {"amount": "3", "food": "water", "text": "3 etl water", "unit": "etl"}
+      ],
+      "steps": [
+        {"oven": null, "text": "Meng het gehakt met de fijngesnipperde ui, het ei, het paneermeel, de melk, mosterd, zout, peper, nootmuskaat en eventueel het paprikapoeder.", "timer_seconds": null, "uses": [0, 1, 2, 3, 4, 5, 6, 7]},
+        {"oven": null, "text": "Kneed alles goed door en laat het gehaktmengsel 15 tot 30 minuten rusten in de koelkast.", "timer_seconds": 900, "uses": []},
+        {"oven": null, "text": "Verdeel het gehakt in 4 grote of 8 kleinere gehaktballen en draai er mooie stevige ballen van.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Verhit de Croma in een braadpan.", "timer_seconds": null, "uses": [8]},
+        {"oven": null, "text": "Zet het vuur laag, leg de deksel schuin op de pan en laat de gehaktballen 45 tot 60 minuten zacht sudderen.", "timer_seconds": 2700, "uses": []},
+        {"oven": null, "text": "Roer dit al roerend door de jus en laat nog 2 à 3 minuten zacht koken, totdat de jus mooi gebonden is.", "timer_seconds": 120, "uses": []}
+      ]
+    },
+    {
+      "source": "https://www.mindyourfeed.nl/recepten/diner/indonesische-nasi-goreng/",
+      "title": "Indonesische nasi goreng",
+      "lines": [
+        {"amount": "300", "food": "zilvervliesrijst", "text": "300 gram zilvervliesrijst", "unit": "gram"},
+        {"amount": "2", "food": "uien", "text": "2 uien", "unit": null},
+        {"amount": "3", "food": "knoflook", "text": "3 teentjes knoflook", "unit": "teentjes"},
+        {"amount": "1", "food": "prei", "text": "1 prei", "unit": null},
+        {"amount": "1", "food": "wortel", "text": "1 wortel", "unit": null},
+        {"amount": "1", "food": "gember", "text": "1 cm verse gember (djahé)", "unit": "cm"},
+        {"amount": "1", "food": "trassi", "text": "1 theelepel trassi (garnalenpasta)", "unit": "theelepel"},
+        {"amount": "1/2", "food": "rode peper", "text": "1/2 rode peper", "unit": null},
+        {"amount": "1", "food": "sambal", "text": "1 theelepel sambal ((meer mag ook, ik hou ervan!))", "unit": "theelepel"},
+        {"amount": "3", "food": "sojasaus", "text": "3 eetlepels sojasaus", "unit": "eetlepels"},
+        {"amount": "2", "food": "ketjap", "text": "2 eetlepels ketjap", "unit": "eetlepels"},
+        {"amount": "2", "food": "oestersaus", "text": "2 eetlepels oestersaus", "unit": "eetlepels"},
+        {"amount": "1", "food": "komijn", "text": "1 theelepel komijn", "unit": "theelepel"},
+        {"amount": "1", "food": "kurkuma", "text": "1 theelepel kurkuma", "unit": "theelepel"},
+        {"amount": "1/2", "food": "laos", "text": "1/2 theelepel laos ((galanga-wortel))", "unit": "theelepel"},
+        {"amount": "1/2", "food": "ketoembar", "text": "1/2 theelepel ketoembar ((gedroogde koriander))", "unit": "theelepel"},
+        {"amount": "1/2", "food": "bouillonblokje", "text": "1/2 bouillonblokje", "unit": null},
+        {"amount": null, "food": "olie/boter", "text": "olie/boter om te bakken", "unit": null},
+        {"amount": null, "food": "salade ui", "text": "salade ui", "unit": null},
+        {"amount": null, "food": "gebakken uitjes", "text": "gebakken uitjes", "unit": null}
+      ],
+      "steps": [
+        {"oven": null, "text": "Kook de rijst volgens de aanwijzing op de verpakking gaar in een pan met water met een bouillonblokje.", "timer_seconds": null, "uses": [0, 16]},
+        {"oven": null, "text": "Doe dit het liefst al ruim van tevoren, zodat de rijst goed kan drogen.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Schil en snipper de ui.", "timer_seconds": null, "uses": [1]},
+        {"oven": null, "text": "Snij de prei in fijne ringen en was deze even in een vergiet.", "timer_seconds": null, "uses": [3]},
+        {"oven": null, "text": "Schrap de wortel en snij hier fijne reepjes van.", "timer_seconds": null, "uses": [4]},
+        {"oven": null, "text": "Bak de rijst zo'n 5 minuten mee tot deze goed warm is.", "timer_seconds": 300, "uses": [0]}
+      ]
+    },
+    {
+      "source": "https://www.okokorecepten.nl/recept/groenten/hutspot/hutspot-klapstuk",
+      "title": "Hutspot met klapstuk",
+      "lines": [
+        {"amount": "400", "food": "klapstuk", "text": "400 g klapstuk", "unit": "g"},
+        {"amount": "1¼", "food": "winterwortelen", "text": "1¼ kg winterwortelen, geschrapt en gesneden", "unit": "kg"},
+        {"amount": "1½", "food": "aardappelen", "text": "1½ kg aardappelen, geschild", "unit": "kg"},
+        {"amount": "400", "food": "uien", "text": "400 g uien, fijngesnipperd", "unit": "g"},
+        {"amount": "80-100", "food": "boter", "text": "80-100 g boter", "unit": "g"},
+        {"amount": "75", "food": "melk", "text": "75 ml melk (desgewenst)", "unit": "ml"}
+      ],
+      "steps": [
+        {"oven": null, "text": "Voeg vervolgens aardappelen, winterwortelen en uien toe.", "timer_seconds": null, "uses": [1, 2, 3]},
+        {"oven": null, "text": "30 minuten doorkoken.", "timer_seconds": 1800, "uses": []},
+        {"oven": null, "text": "Stamp aardappelen, uien en winterwortelen fijn en meng alles goed.", "timer_seconds": null, "uses": [1, 2, 3]},
+        {"oven": null, "text": "Roer het kookvocht, de boter en desgewenst hete melk door de stamppot.", "timer_seconds": null, "uses": [4, 5]}
+      ]
+    }
+  ]
+}

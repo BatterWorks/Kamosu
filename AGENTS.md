@@ -1,5 +1,7 @@
 # AGENTS.md
 
+Tracker instructions: `docs/agents/issue-tracker.md`; coding standards: `CODING_STANDARDS.md`, read at review.
+
 Project conventions for Kamosu. Host-specific conventions live in
 `AGENTS.local.md`; vocabulary lives in `GLOSSARY.md`; decisions live in
 `docs/adr/`. **Where the spec and an ADR disagree, the ADR wins.**
@@ -31,7 +33,10 @@ search `docs/svelte/llms-full.txt` for what the small file omits. This is not
 optional: Svelte was chosen over React on the argument that a model reaching for
 Svelte 4 habits is a risk closable at build time, and these files are what closes
 it (ADR 0012). Both are pinned; `docs/svelte/README.md` says to which version and
-how to refresh them.
+how to refresh them. The small file still shows SvelteKit 2's `svelte.config.js`
+and `$lib`: Kamosu is on SvelteKit 3, configured in `ui/vite.config.ts` and
+importing shared code as `#lib/<file>.js`, and that README lists what else the
+small file has wrong.
 
 **Read the library's current documentation before writing against it.** Use the
 **Context7** MCP server before writing code that calls a library API, even when
@@ -201,7 +206,7 @@ is a dev dependency of `ui/`: never load it from anywhere else.
 ```sh
 just dev-session <label>          # sign in as the account in .env; prints the cookie file's path, nothing else
 just dev-session-end <label>      # end that one Session
-just screens <folder> <path>…     # a whole-page picture of each path at every size; fails on a console error or a sideways scroll
+just screens <folder> <path>…     # a whole-page picture of each path at every size, in pieces past 32,767px; fails on a console error, a sideways scroll, a size not photographed or a screen still changing after 30s
 just screens-same <before> <after>   # names the pictures that differ, and fails if any do
 just proto-new <issue>-<slug> <path>…   # .dev/prototypes/<issue>-<slug>/: the real screens as static pages
 just proto-serve <name> <port>    # serve .dev/prototypes/<name>/ to the LAN, caching off
@@ -219,6 +224,15 @@ just proto-serve <name> <port>    # serve .dev/prototypes/<name>/ to the LAN, ca
   on their own as a Session named `tools`.
 - **`just screens … --webkit` runs in Safari's engine**, which has shown a fault
   Chrome did not (#198). Fetch it once with `cd ui && npx playwright install webkit`.
+- **`just screens … --locale nl` draws the screens in Dutch**, or in any
+  Language the interface speaks, and so does `just proto-new` (#496). It moves
+  only the interface's words: what the server writes follows the account's
+  Reading Language.
+- **A page taller than 32,767 pixels is photographed in pieces**, top to bottom
+  with no gap and no overlap, as `<path>.<size>-1.png`, `-2.png` and on (#522).
+  WebKit refuses one picture past that height. Chrome takes it, but `just
+  screens` holds both engines to the limit, so they write the same files. `just screens-same` pairs pieces by name, so
+  a page that went from one picture to pieces, or to a different count, differs.
 - **`.env` at the repo root says where and as whom.** `KAMOSU_DEV_HOST` is the
   dev instance's address, reached over HTTPS because a Session cookie is Secure.
   `KAMOSU_DEV_ADMIN_NAME` and `KAMOSU_DEV_ADMIN_PASSWORD` are the account. The
@@ -353,7 +367,9 @@ offline what the button says. Never read `dataTransfer` on a screen.
 **`svelte-check` runs strict and its warnings are failures**, Svelte's
 accessibility warnings included (ADR 0012). **Paraglide compiles every phrase to
 a function**, so a misspelt key is a build error; messages live in
-`ui/messages/{en,fr,es}.json` and all three are present from the first day.
+`ui/messages/<language>.json`, one file per Reading Language, each holding every
+phrase. Every Dutch phrase, the server's and the screens', uses the words in
+`ui/messages/nl-words.md`.
 
 ## Project layout
 
@@ -367,6 +383,10 @@ src/backups.rs      a Backup: one archive of the database and the
                     Photographs, three kept at three distances (ADR 0039)
 src/bundles.rs      a Bundle: one recipe's worth of Vault, written as a zip of
                     readable notes and a .kamosu/ sidecar (ADR 0020)
+src/calendar_file.rs
+                    a Calendar Link's file: the Meal Plan as iCalendar text,
+                    written by hand, and its route outside the Catalogue,
+                    as the Share Link page's is (ADR 0059, #491)
 src/catalogue.rs    the Catalogue: every Operation declared once
 src/core/           the Core, one file per area, all adding to one `Core`:
   mod.rs            the Core itself, startup, `execute` with the only
@@ -374,11 +394,15 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   accounts.rs       people, logins, Sessions, Access Keys, invites, recovery,
                     changing your own password, a Person's Reading
                     Language, Operator
+  calendar_links.rs a Person's Calendar Link: making, reading and ending
+                    it, and the calendar file its Secret reads (ADR 0059,
+                    #491)
   demo.rs           a Demo: the way a visitor arrives, the refusal
                     every route outside the Catalogue gives, and its
                     Sample Library poured in at startup and every day
-                    at 04:00 UTC, its dates moved forward (ADR 0052,
-                    #403, #404)
+                    at 04:00 UTC, its dates moved forward, the Meal
+                    Plan's days by a step of their own (ADR 0052,
+                    #403, #404, #490)
   kitchens.rs       Kitchens, their members, and leaving one: who sees
                     whose recipes (ADR 0041)
   cookbooks.rs      Cookbooks: who may change a recipe, joining and
@@ -435,6 +459,14 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     Reading Language, and the Shortcut versions it serves
                     (ADR 0055, #452)
   shopping_list.rs  the shopping list
+  meal_plan.rs      the Meal Plan: each Person's own days ahead, a recipe
+                    planned on a day or a week at a Yield, written words,
+                    moving and ordering, the plan following its
+                    recipe when Cookbooks join, and days sent to the
+                    Shopping List, each meal keeping what it sent, and
+                    whether each recipe was cooked, read off the cook's
+                    Attempts on their own calendar each time the plan is
+                    read (ADR 0058, #486, #487, #488, #489)
   search.rs         word search and Meaning Search
   security_record.rs
                     the Security Record: sign-ins, wrong passwords, keys
@@ -505,6 +537,15 @@ src/jobs.rs         slow work: two lanes (one for strangers, ADR 0032), progress
                     recipe again (ADR 0048, #261, #262, #263, #266, #267,
                     #269, #273)
 src/language.rs     a Branch's Language, read off the recipe's own text (ADR 0006)
+src/words.rs        which words read which recipe, and every list a word file
+                    may hold (ADR 0057). The words themselves are data, one
+                    file per Language in src/words/, built into the binary:
+                    change a word there, never in code. A Language's grammar
+                    stays in code
+src/words/          en.toml, fr.toml, es.toml, nl.toml, and every.toml for the
+                    Unit spellings every Language writes
+src/dutch.rs        Dutch grammar: stems for plurals and diminutives, and how a
+                    compound names its main word (#495)
 src/meaning.rs      Meaning Search: the model Kamosu does not ship, and the
                     index it builds from the recipes (ADR 0029)
 src/operations.rs   the functions the Catalogue's declarations name
@@ -513,13 +554,25 @@ src/schema.rs       the Catalogue's declared input, compiled into the thing
                     both Doors inherit it (#85)
 src/reading.rs      reading an Ingredient Line into a Reading — where the
                     number ends, the Unit ends and the Food begins. Its
-                    vocabulary is units.rs's, not its own (ADR 0036)
+                    vocabulary is the word files', not its own (ADR 0036,
+                    ADR 0057)
 src/step_uses.rs    which Ingredient Lines a Step uses, by the short names
                     recipes call them after the list (#184). A short name
                     holds the name's main word, which sits at the end the
                     Branch's Language puts it (#212). A line is taken from
                     the section the Step works in, and the food itself
                     before what is made from it (#439)
+src/video_link.rs   a link to an Instagram, YouTube or TikTok post told
+                    apart from the code each share adds: what two links are
+                    matched by, also as `link_identity` in SQL, and what a
+                    recipe's Source keeps, and a short link told by its
+                    shape, which web_import.rs follows to its post. Its
+                    real shapes are in tests/fixtures/shared-links.json
+                    (#464, #497)
+src/web_import.rs   the web link importer: a page's schema.org recipe
+                    data, and the guarded fetch every outbound byte for
+                    it passes through (ADR 0033), a short video link
+                    followed to its post among them (#497)
 src/page_text.rs    the text of a page's own article, found as a reader
                     would and written out as a browser copies it, for a
                     link with no recipe data on an instance with no
@@ -537,7 +590,9 @@ src/sample_library.rs
 src/model_relay.rs  the Runner's model relay: the provider's key the Runner
                     holds, added to the agent's model requests for the
                     length of a Job and sent to one address alone, so the
-                    agent holds a stand-in worth nothing (#372)
+                    agent holds a stand-in worth nothing (#372), and only
+                    on a request for a model's answer or the model list
+                    (#539)
 src/pdf.rs          the text out of a recipe PDF, for the paste reader; a
                     scan holds none and is refused (#176). Read by Kamosu
                     started again as `kamosu read-pdf`, held to a memory
@@ -545,6 +600,9 @@ src/pdf.rs          the text out of a recipe PDF, for the paste reader; a
 src/slow_work.rs    work too slow for a request worker, moved aside: a
                     password, a picture, a PDF's reader (#370, #373)
 src/web_door.rs     Axum router generated by walking the Catalogue
+src/share_page.rs   the public Share Link page, drawn by the server for a
+                    stranger holding the link, outside the Catalogue (ADR
+                    0026, #65)
 src/mcp_door.rs     MCP endpoint generated by walking the Catalogue
 src/browser_policy.rs
                     the three safety headers every answer carries: CSP,
@@ -654,8 +712,8 @@ predates it.**
   moves, no migration, no Bundle already written is orphaned.
 - **Anything else** — `0`, `"metric"`, `false` — **re-fingerprints the entire
   library.** Every Version id changes, and every row naming one has to change
-  with it: `branches`, `branch_versions`, `readings`, `attempts`,
-  `meaning_vectors`. Migration 29 is the worked example and the only time
+  with it: `branches`, `branch_versions`, `folded_versions`, `readings`,
+  `attempts`, `meaning_vectors`. Migration 29 is the worked example and the only time
   Kamosu has done it. Either give the field an empty default instead, or write
   that migration deliberately and say so in an ADR.
 

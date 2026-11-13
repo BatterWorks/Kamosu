@@ -13,14 +13,14 @@
 	moment that was true, and nothing can write it afterwards (#83).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import { demoRefusalOr } from '$lib/demo.svelte';
-	import { ratingLabel } from '$lib/rating';
-	import { isUnknown, languageName } from '$lib/language';
-	import { OperationError } from '$lib/api/client';
-	import { useKamosu } from '$lib/kamosu';
-	import { branchLabel, yoursAmong } from '$lib/cookbook';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { demoRefusalOr } from '#lib/demo.svelte.js';
+	import { ratingLabel } from '#lib/rating.js';
+	import { isUnknown, languageName } from '#lib/language.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { branchLabel, yoursAmong } from '#lib/cookbook.js';
 	import {
 		foldedLines,
 		graphOf,
@@ -33,7 +33,7 @@
 		type VersionRow,
 	} from './graph';
 	import type { ThreadBranch, ThreadVersion } from './tree';
-	import type { GetThreadOutput } from '$lib/api/catalogue';
+	import type { GetThreadOutput } from '#lib/api/catalogue.js';
 
 	type Attempt = GetThreadOutput['attempts'][number];
 

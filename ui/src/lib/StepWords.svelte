@@ -12,7 +12,7 @@
 	line and "oz. (about 85 g)" began the next.
 -->
 <script lang="ts">
-	import { stepPieces, type StepConversions } from '$lib/step-conversions';
+	import { stepPieces, type StepConversions } from '#lib/step-conversions.js';
 
 	interface Props {
 		text: string;

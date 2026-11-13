@@ -12,7 +12,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use webauthn_rs::prelude::{
-    DiscoverableAuthentication, DiscoverableKey, Passkey, PasskeyRegistration, PublicKeyCredential,
+    DiscoverableAuthentication, Passkey, PasskeyRegistration, PublicKeyCredential,
     RegisterPublicKeyCredential, Url, Uuid, Webauthn, WebauthnBuilder,
 };
 
@@ -480,16 +480,12 @@ impl Core {
         let mut passkey: Passkey = serde_json::from_str(&stored)
             .map_err(|e| OpError::internal(format!("cannot read the kept passkey: {e}")))?;
         let result = webauthn
-            .finish_discoverable_authentication(
-                &credential,
-                state,
-                &[DiscoverableKey::from(&passkey)],
-            )
+            .finish_discoverable_authentication_v2(&credential, state, &passkey)
             .map_err(|_| OpError::unauthorized(NOT_KNOWN))?;
         passkey.update_credential(&result);
         let stored = serde_json::to_string(&passkey)
             .map_err(|e| OpError::internal(format!("cannot keep the passkey: {e}")))?;
-        self.db().with_conn(|conn| {
+        let still_kept = self.db().with_conn(|conn| {
             conn.execute(
                 "UPDATE passkeys SET passkey = ?1, \
                         last_used_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?2",
@@ -497,8 +493,14 @@ impl Core {
             )
             .map_err(|e| OpError::internal(format!("cannot note the passkey's use: {e}")))
         })?;
+        // A recovery that removed it while it was being checked wins (#535).
+        if still_kept == 0 {
+            return Err(OpError::unauthorized(NOT_KNOWN));
+        }
         let session = self.mint_session(&person_id, session_name, "passkey")?;
-        Ok(json!({ "session_id": session.id, "_session_secret": session.secret }))
+        Ok(
+            json!({ "session_id": session.id, "person_id": person_id, "_session_secret": session.secret }),
+        )
     }
 }
 

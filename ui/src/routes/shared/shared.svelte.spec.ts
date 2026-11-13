@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/svelte';
-import type { SharedAnswer } from '$lib/offline/shared';
+import type { SharedAnswer } from '#lib/offline/shared.js';
 
 import Shared from './Shared.svelte';
 

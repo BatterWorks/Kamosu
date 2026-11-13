@@ -18,7 +18,7 @@
 	as the device's own back would.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import { somethingBehind } from './way-back';
 
 	interface Props {

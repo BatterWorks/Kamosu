@@ -9,9 +9,13 @@
  * live here.
  */
 
-import { m } from '$lib/paraglide/messages';
-import { OperationError } from '$lib/api/client';
-import type { ImportWebLinkOutput, KamosuClient, ReadPastedRecipeOutput } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import { OperationError } from '#lib/api/client.js';
+import type {
+	ImportWebLinkOutput,
+	KamosuClient,
+	ReadPastedRecipeOutput,
+} from '#lib/api/catalogue.js';
 
 /**
  * A web page with no recipe data, read from its own text the way a paste is
@@ -118,4 +122,12 @@ export function takePaste(branchId: string): PastedDraft | undefined {
 	const { draft } = held;
 	held = undefined;
 	return draft;
+}
+
+/**
+ * Nothing held. A test file's paste may outlive the file, and the next file
+ * shares the page (#509).
+ */
+export function forgetPaste(): void {
+	held = undefined;
 }

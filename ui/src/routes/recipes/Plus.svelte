@@ -7,7 +7,7 @@
 	straight away, a PDF opens it too and raises the sheet a paste is checked
 	on (#176, a row of its own by the choice on #174), pasted text opens
 	a box for it under the search row (#175, chosen there), and writing one
-	asks for a title under the search row. The acts are `$lib/adding`'s, the
+	asks for a title under the search row. The acts are `#lib/adding`'s, the
 	same ones the dead ends below offer.
 
 	**The arrangement was chosen on 27 September 2026** from two
@@ -60,17 +60,17 @@
 	import { onMount, type Snippet } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { m } from '$lib/paraglide/messages';
-	import { Online } from '$lib/offline/device.svelte';
-	import { useAdding, type Act } from '$lib/adding/adding.svelte';
-	import AddressForm from '$lib/adding/AddressForm.svelte';
-	import TitleForm from '$lib/adding/TitleForm.svelte';
-	import PasteForm from '$lib/adding/PasteForm.svelte';
-	import VideoForm from '$lib/adding/VideoForm.svelte';
-	import ToCheck from '$lib/adding/ToCheck.svelte';
-	import FilePicker from '$lib/adding/FilePicker.svelte';
-	import Said from '$lib/adding/Said.svelte';
-	import { ICON, WATCH_ICON, waitsForServer, type Source } from '$lib/adding/sources';
+	import { m } from '#lib/paraglide/messages.js';
+	import { Online } from '#lib/offline/device.svelte.js';
+	import { useAdding, type Act } from '#lib/adding/adding.svelte.js';
+	import AddressForm from '#lib/adding/AddressForm.svelte';
+	import TitleForm from '#lib/adding/TitleForm.svelte';
+	import PasteForm from '#lib/adding/PasteForm.svelte';
+	import VideoForm from '#lib/adding/VideoForm.svelte';
+	import ToCheck from '#lib/adding/ToCheck.svelte';
+	import FilePicker from '#lib/adding/FilePicker.svelte';
+	import Said from '#lib/adding/Said.svelte';
+	import { ICON, WATCH_ICON, waitsForServer, type Source } from '#lib/adding/sources.js';
 	import DropARecipe from './DropARecipe.svelte';
 
 	interface Props {
@@ -183,9 +183,9 @@
 	onMount(() => {
 		const asked = page.url.searchParams.get('add');
 		if (asked === null) return;
-		const url = new URL(page.url);
+		const url = new URL(page.url.href);
 		url.searchParams.delete('add');
-		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+		void goto(url, { replace: true, reset: false });
 		if (asked === 'paste') choose('paste');
 		else void toggle();
 	});

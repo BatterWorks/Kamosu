@@ -2,6 +2,119 @@
 
 ## Unreleased
 
+## v0.6.0 - 2026-11-13
+
+### After upgrading
+
+- If you hold Dutch recipes, set each one to Dutch, then run *Read every line again* so they are read with Dutch words from then on. [#495]
+- Kamosu now fetches a link, its pictures and a Share Link from another Kamosu directly, never through a proxy named in `HTTP_PROXY`, `HTTPS_PROXY` or `ALL_PROXY`. Before, with one set, a link whose name led into your own network was fetched through the proxy instead of refused. If your Kamosu reaches the internet only through a proxy, give it a direct route out, or adding from a link stops working. [#526]
+- The published agent image beside a Runner now waits for its fence and refuses to start without one: update the fence and the agent to the same version together, and start the agent in the fence's network, as the Compose file in `docs/runner.md` does. Before, an agent whose fence failed to set its rules ran on an open network. [#539]
+
+### Added
+
+- Kamosu speaks and reads Dutch, as a preview: machine-translated, and corrections are welcome through the Dutch issue form on GitHub. Choose *Nederlands* under *Settings › Language and measures* and every screen and refusal is in Dutch, dates and numbers written the Dutch way, as are the shopping list as text, the words beside a converted amount, a Component's line and the answer to an add from the phone's Share menu. A phone or browser set to Dutch starts in Dutch, sign-in screen included, and a recipe too short to tell takes Dutch as its guess when its writer reads in Dutch. Kamosu sees a recipe is Dutch and reads its lines with Dutch words, `2 el olijfolie` as tablespoons and `1 teentje knoflook` as garlic. A Step's `voeg de bloem toe` links `250 g tarwebloem`, `een kwartier` starts a timer, `180 graden` converts, and Dutch lines scale, convert and add up on a shopping list. A Dutch recipe's Sheet, Share Link page and Bundle notes are in Dutch, a Dutch note in a recipe file that lost its `.kamosu/` folder reads back with its ingredients and Steps, and agents can set a recipe or their Reading Language to `nl` and translate into or out of Dutch. [#495] [#496]
+
+- A Plan, the fifth place between Recipes and Shopping, holds the days ahead and what you will cook on each, a week at a time from Monday to Sunday. *Plan this* beside *Cook this* on a recipe puts it on a day, or on any day of a week when the day is not decided yet, at as many servings as you will cook, and a planned recipe opens at that amount. A week's meals with no day wait above its days. The + on a day writes a few words there instead, such as "leftovers" or "eating out", kept as written. Any meal moves to another day or week, earlier or later in its day, or is planned again elsewhere, from this week or one gone by, and on a wide screen it is dragged. *Send to shopping* puts chosen days, or a whole week, onto your Shopping List, each recipe at the amount planned and added to what the list already holds, so two chili nights shop for both. A planned recipe says *Cooked* once you begin cooking it on its day, or any day of its week when it has none, counting the day where you are, and a past one nobody cooked fades, while the plan itself records no cooking. A meal sent says so and is not sent twice: one planned for more since sends only the difference, one planned for less takes nothing off, and emptying the list after the shop leaves the marks. Written words stay behind, and the answer names them. Your plan is yours alone. A planned recipe follows its recipe's corrections, and one deleted or no longer shared stays on the day by name. Planning and sending work offline like the shopping list, and save in a demo, where Camille's week is already planned around the day you visit. A Mealie backup brings its household's meal plan into the plan of whoever imports it, past weeks and upcoming ones, whoever in Mealie planned each meal: a recipe at the scale Mealie planned it, a note as its words, a meal planned for a week on that week with no day, and a day's meals in Mealie's order from breakfast to dessert, though not their names. A meal whose recipe stayed behind in Mealie comes as the recipe's name, and the Import Report counts the meals planned and names those. Importing the same backup again plans nothing twice. Agents read and write it with `get_meal_plan`, `plan_recipe`, `plan_words`, `set_planned_words`, `move_planned_meal`, `set_planned_yield`, `remove_planned_meal` and `send_to_shopping_list`. [#486] [#487] [#488] [#489] [#490] [#492]
+- Your plan can show in your phone's calendar. *Settings › Your plan in your calendar* makes a private link, shown once, that Apple Calendar or Google Calendar subscribes to: each planned meal is then an all-day entry beside your appointments that opens its recipe, and a meal for a week with no day stretches across that week. The page says when a calendar last read the link, and a new link or *Stop the link* ends it. Anyone holding the link sees your plan and can change nothing, and making and ending one is in your Security Record. Agents use `make_calendar_link`, `get_calendar_link` and `end_calendar_link`. [#491]
+- `get_person` says whether the Person a Credential names is an Operator, as `is_operator`, whichever of their keys asks. [#533]
+- `start_translation` takes `branch_name`, the name of the new translation. [#517]
+- Settings › People lists the Invites and recovery links not yet used, each with what it does and when it was made, and *Revoke* ends one. Before, an Invite or a recovery link sent to the wrong place worked until somebody used it. Revoking one is in the instance's Security Record. [#535]
+
+### Changed
+
+- A release publishes one pair of tags for each image, `<version>` and `latest`, which Docker and Podman both run. The `podman-<version>` and `podman-latest` tags are no longer published, and those already on Docker Hub stay where they are. [#483]
+- The published agent image beside a Runner files a recipe under all its Tags in one `set_recipe_tag` call. Before, it put them on one call at a time, so a network error partway left the recipe with some of its Tags. [#477]
+- A reader in French or Spanish sees a decimal comma, "environ 1,5 l" or "aprox. 1,25 kg", in a converted amount under an ingredient line, on the Shopping List and in its text, and in the share of a recipe a Component's line takes, "0,3". Before, both were written with a point, "1.5". [#599]
+
+### Fixed
+
+- The agent image is rebuilt with Alpine's security updates published since the previous release. [#618]
+- Sharing a video Kamosu already holds, or is already reading, says so instead of starting it again, whichever tracking code Instagram, YouTube or TikTok put on the link that time. A short link, such as TikTok's `vm.tiktok.com` or Instagram's `/share/reel/`, is now followed to the video it leads to and known as that video. A recipe added from such a link now keeps the video's own address, without the code, which names who shared it. [#464] [#497]
+- The library Kamosu opens zip files with, for a Backup, a Bundle or another app's export, is past four published flaws, RUSTSEC-2026-0367 to RUSTSEC-2026-0369 and RUSTSEC-2026-0429, all in writing a zip's entries out as files, which Kamosu never does. The library passkeys are checked with is past RUSTSEC-2026-0387, a timing leak in arithmetic Kamosu only ever ran on public keys. [#524]
+- A library of one recipe is "1 recipe", not "1 recipes", in all three languages, and so are the few other lines that counted one in the plural. [#533]
+- Opening the report of something that brought nothing in, such as a Backup, says so instead of showing a bare error page. [#533]
+- A cook's Settings no longer asks the instance anything only an Operator may ask, so it is never refused. [#533]
+- The MCP Door no longer shows the Operator's tools to a key or Session that cannot use them, such as an Operator's Access Key that is not an Operator key. [#534]
+- A wrong or revoked key at the MCP Door is refused as soon as its client lists the tools, instead of looking connected until its first call. [#534]
+- A request to the MCP Door that is not JSON is answered as a JSON-RPC parse error instead of plain text. [#534]
+- Recovering an account with a recovery link now removes its passkeys too, so a passkey added by whoever had the password no longer signs them back in. The recovered Person adds their own again from Settings, and the recovery's line in their Security Record counts the passkeys removed. [#535]
+- A new recovery link ends any earlier one for the same Person still unused, and so do recovering the account and changing the password. Before, an older link could still set a new password after the account was recovered. [#535]
+- A recipe's Share Link page writes its times as the app does, `9 h` or `1 h 30` instead of `540` or `90` minutes, in the page and in the card a messaging app shows. A Step's photograph is a small square at the end of its row that opens the picture, a Component's Steps included, and a shared variation shows its name under the title. `read_shared_recipe` answers the Branch's `name`. [#521]
+- Saving a recipe again within the hour no longer replaces a Version somebody has cooked. Before, the cooking left the recipe's History, and a Kitchen-mate leaving the Kitchen kept nothing of it. A save from a second device or an old tab, made from an earlier Version, is now a Version of its own instead of replacing the other device's save. `save_recipe_version` and `edit_recipe` take the Version the save was written from as `base_version_id`. [#536]
+- A cook's phone keeps its offline library when Kamosu refuses something only an Operator, or a recipe's own Cookbook, may do. Before, any such refusal emptied it, so with no network every recipe said it could not be read. Only a Session that has ended empties it now. [#537]
+- Revoking an Add-only key cancels the agent's Jobs it started, waiting or under way. Before, they ran on to the end, spending on the model after the key was revoked. [#539]
+- The Runner's model relay sends on only a request for a model's answer and the list of models. Before, it sent any request to the provider with the provider's key, so an agent a web page tricked could start batches or fine-tuning billed after its Job, or read the files stored in that account. [#539]
+- The agent's fence refuses every IPv6 address. Before, a device on a home network with IPv6 from its provider, such as a printer or a router, could be reached from the agent at its public IPv6 address. The agent now reaches the internet over IPv4 alone. [#539]
+- Changes made with no network are sent when the same person signs back in after their Session was ended on another device, by a password change or by a recovery. Before, any sign-in threw them away without a word. Someone else signing in on the phone still never sends them. [#537]
+- A recipe deleted, or no longer shared with you, no longer opens from the phone's copy, and the count of recipes on the phone drops it. Before, the phone went on showing it whole, online too. [#537]
+- A cooking recorded with no network lands in your diary even when its recipe was deleted, or stopped being shared with you, before the phone reconnected. Before, it was lost with its note, rating and photos. [#537]
+- A note, rating or photos written with no network no longer replace newer ones written since on another device, and a server whose clock disagrees with the phone's no longer drops changes the phone held. `start_attempt` takes `lineage_id`, and every write that takes `written_at` also takes `sent_at`, the sender's clock as it sends. [#537]
+- A picture that would take more than 200 MB of memory to open is refused when it is sent, and Kamosu remakes at most two pictures at once: one more sent by a person is answered "busy, try again in a moment", and one an import brings waits its turn. Before, a picture under 1 MB could take more than 1 GB to open, and a few at once could run the instance out of memory. A camera's photograph, up to about 50 megapixels, is unaffected. [#538]
+- A phone's Shortcut key sends files of at most 25 MB and holds at most ten waiting to be added, which is what adding a recipe takes. Before, it could send any number of files up to 2 GB each. [#538]
+- Receiving a Bundle refuses a file that is no zip, or larger than a Bundle can be, without reading it into memory first. [#538]
+- A line on the Shopping List and the words on a day of the plan are at most 2,000 characters, and a cooking's note 10,000. Before, one very long line could hold up everyone's requests for seconds, a Demo visitor's included. [#538]
+- A recipe whose time is negative or impossibly long, such as `PT-5M`, now arrives with no time instead of stopping the import, from a link or another app's file. Before, an import from a file ended at that recipe and brought in none after it. [#540] [#553]
+- A page or a file holding a long run of `&` signs, or thousands of recipes of one name, is read in moments. Before, either could hold the import queue for many minutes, Share Link visitors' Sheets and Bundles waiting behind it. [#540] [#552]
+- An Import Report offers at most 200 pairs of Related Recipes to tick, and none among more than five recipes of one name or one page. Before, it offered every pair, thousands of them from a file of many recipes of one name. [#552]
+- A recipe's prep or cook time is at most about 4,000 years, and a longer one is refused when it is saved. Before, a time near the largest number Kamosu holds put the recipe on *Quick tonight* and left its time off its Share Link page. [#553]
+- Two Mealie instances from before Mealie 1 no longer have their recipes mistaken for each other's. Before, recipe 3 of a second instance was offered as a change to recipe 3 of the first and never arrived. Recipes already brought in still match their own. [#540]
+- An import cancelled the moment it was about to start stays cancelled. Before, Kamosu could answer that it was cancelled and then bring in every recipe in the file anyway. [#541]
+- A picture added again after a week on no recipe keeps its file. Before, the daily clean-up could still remove it, and the recipe it then went on kept a missing picture for good. [#541]
+- Turning Meaning Search off at the moment its regular catch-up started no longer has that catch-up read the whole library into an index that is off. [#541]
+- A cooking started on a phone with no network is kept when the recipe's writer saved it again within the hour before the phone came back online. Before, the save replaced the Version the phone had, and the cooking, with its rating, note and photographs, was refused and lost. It now counts as a cooking of the Version that replaced it. [#548]
+- Pressing the browser's Back button while writing a recipe closes the writing screen and drops the draft, as Cancel does. Before, when Back led to another recipe, the screen stayed open on it, and Save made the draft a Version of that recipe. [#549]
+- A Reading corrected on one recipe no longer shows on the next recipe you open from it, and a correction left open there closes. Before, the line at the same place on the next recipe showed the correction, and saving the open one wrote it onto that line. [#559]
+- The agent beside a Runner reads why the model relay refused one of its requests, such as one with the wrong key. Before, an agent slow to send its request could find the relay had hung up instead, and its Job was tried again. [#503]
+- A translation of a named variation, such as "Vegan", now counts how far behind it is against that variation, also after a Co-author leaves or joins again. Before, it was measured against the recipe's unnamed version and said it was behind as soon as that one changed. A second translation into a language you already have is named after the variation it translates, "Vegan" here, instead of after the Cookbook's authors. A Bundle of a variation tells the Kamosu receiving it which variation each translation in it renders, so a received translation is measured against that variation too. Translations made before this change, and those received in a Bundle written before it, are measured as they were. [#517] [#570]
+- A translation received from someone else on the same Kamosu counts how far behind it is against the copy of the recipe in your own Cookbook. Before, it could be measured against the sender's copy, one you cannot open, and a translation you received alone said it was up to date when it could not know. [#582]
+- A recipe someone else on the same Kamosu translated from their own copy can still be marked as written in no single language, and a language Kamosu guessed for it is still corrected from its text. Before, their translation counted as this recipe's own: marking it was refused and the guess stayed. [#586]
+- A Bundle's notes write a recipe's times as the app does, `9 h prep` or `1 h 30 cook` instead of `540 min prep` or `90 min cook`. [#546]
+- A recipe file that lost its `.kamosu/` folder keeps a line of the recipe's note that starts `Tags:`, `Étiquettes:` or `Etiquetas:` when more of the note follows it. Before, such a line was dropped wherever it stood. [#577]
+- Choosing which recipe an ingredient line names marks a recipe shown in another language by the language's name, "In French", as the recipe shelf does. Before, it showed the language's code, "In fr". [#598]
+- At every larger text size, up to the largest the phone's setting allows, the navigation's words fit and stay apart: the letters of each close up a little, and in French *Accueil*, *Courses* and *Cuisiné* break onto a second line where their tab is too narrow. Before, *Cooked* ran off a narrow phone and *Shopping* and *Settings* out of a tablet's sidebar, and French lost more. At the ordinary text size nothing changes. [#600]
+
+[#464]: https://github.com/BatterWorks/Kamosu/issues/464
+[#477]: https://github.com/BatterWorks/Kamosu/issues/477
+[#483]: https://github.com/BatterWorks/Kamosu/issues/483
+[#486]: https://github.com/BatterWorks/Kamosu/issues/486
+[#487]: https://github.com/BatterWorks/Kamosu/issues/487
+[#488]: https://github.com/BatterWorks/Kamosu/issues/488
+[#489]: https://github.com/BatterWorks/Kamosu/issues/489
+[#490]: https://github.com/BatterWorks/Kamosu/issues/490
+[#491]: https://github.com/BatterWorks/Kamosu/issues/491
+[#492]: https://github.com/BatterWorks/Kamosu/issues/492
+[#495]: https://github.com/BatterWorks/Kamosu/issues/495
+[#496]: https://github.com/BatterWorks/Kamosu/issues/496
+[#497]: https://github.com/BatterWorks/Kamosu/issues/497
+[#503]: https://github.com/BatterWorks/Kamosu/issues/503
+[#517]: https://github.com/BatterWorks/Kamosu/issues/517
+[#521]: https://github.com/BatterWorks/Kamosu/issues/521
+[#524]: https://github.com/BatterWorks/Kamosu/issues/524
+[#526]: https://github.com/BatterWorks/Kamosu/issues/526
+[#533]: https://github.com/BatterWorks/Kamosu/issues/533
+[#534]: https://github.com/BatterWorks/Kamosu/issues/534
+[#535]: https://github.com/BatterWorks/Kamosu/issues/535
+[#536]: https://github.com/BatterWorks/Kamosu/issues/536
+[#537]: https://github.com/BatterWorks/Kamosu/issues/537
+[#538]: https://github.com/BatterWorks/Kamosu/issues/538
+[#539]: https://github.com/BatterWorks/Kamosu/issues/539
+[#540]: https://github.com/BatterWorks/Kamosu/issues/540
+[#541]: https://github.com/BatterWorks/Kamosu/issues/541
+[#546]: https://github.com/BatterWorks/Kamosu/issues/546
+[#548]: https://github.com/BatterWorks/Kamosu/issues/548
+[#549]: https://github.com/BatterWorks/Kamosu/issues/549
+[#552]: https://github.com/BatterWorks/Kamosu/issues/552
+[#553]: https://github.com/BatterWorks/Kamosu/issues/553
+[#559]: https://github.com/BatterWorks/Kamosu/issues/559
+[#570]: https://github.com/BatterWorks/Kamosu/issues/570
+[#577]: https://github.com/BatterWorks/Kamosu/issues/577
+[#582]: https://github.com/BatterWorks/Kamosu/issues/582
+[#586]: https://github.com/BatterWorks/Kamosu/issues/586
+[#598]: https://github.com/BatterWorks/Kamosu/issues/598
+[#599]: https://github.com/BatterWorks/Kamosu/issues/599
+[#600]: https://github.com/BatterWorks/Kamosu/issues/600
+[#618]: https://github.com/BatterWorks/Kamosu/pull/618
+
 ## v0.5.0 - 2026-10-29
 
 ### After upgrading

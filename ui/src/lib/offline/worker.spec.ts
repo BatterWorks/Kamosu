@@ -39,6 +39,7 @@ function fakeCaches() {
 				store.set(keyOf(request), response.clone());
 			},
 			keys: async () => [...store.keys()].map((url) => new Request(url)),
+			delete: async (request: RequestInfo | URL) => store.delete(keyOf(request)),
 		} as unknown as Cache;
 	};
 	return {
@@ -92,6 +93,7 @@ function world(
 	const server = fakeServer(script);
 	const announced: string[] = [];
 	const reached: boolean[] = [];
+	const gone: string[] = [];
 	const background: Promise<unknown>[] = [];
 	const worker = createWorker({
 		caches,
@@ -104,7 +106,9 @@ function world(
 		tell: (message) =>
 			message.type === 'kamosu:refreshed'
 				? announced.push(message.operation)
-				: reached.push(message.reached),
+				: message.type === 'kamosu:reach'
+					? reached.push(message.reached)
+					: gone.push(message.branch_id),
 	});
 	const call = async (operation: string, input: unknown = {}) => {
 		const request = new Request(`${ORIGIN}/api/op/${operation}`, {
@@ -123,10 +127,15 @@ function world(
 	const later = () => {
 		clock.at += 60_000;
 	};
-	return { worker, stores, server, announced, reached, call, settle, restarted, later };
+	return { worker, stores, server, announced, reached, gone, call, settle, restarted, later };
 }
 
 const ok = (result: unknown): Answer => ({ body: { ok: true, result } });
+/** The refusal of a Secret that names nobody: the Session has ended. */
+const sessionEnded: Answer = {
+	status: 401,
+	body: { ok: false, error: { kind: 'unauthorized', reason: 'credential_names_nobody' } },
+};
 /** The reverse proxy answering for a Kamosu that is restarting. */
 const badGateway: Answer = { status: 502, page: '<html>502 Bad Gateway</html>' };
 
@@ -140,6 +149,8 @@ describe('what the phone keeps', () => {
 		// #111: whether a new recipe asks whose it is depends on the Kitchens
 		// you cook in now, not the ones you cooked in last time.
 		expect(policyFor('list_kitchens')).toBe('server-first');
+		// #486: a plan made on the phone must be on the iPad's Plan when it opens.
+		expect(policyFor('get_meal_plan')).toBe('server-first');
 		expect(policyFor('get_job')).toBe('never');
 		expect(policyFor('promote_as_cooked')).toBeUndefined();
 	});
@@ -485,11 +496,7 @@ describe('a Session', () => {
 
 	it('that is refused empties it too', async () => {
 		let signedIn = true;
-		const w = world(() =>
-			signedIn
-				? ok({ title: 'Mine' })
-				: { status: 401, body: { ok: false, error: { kind: 'unauthorized' } } },
-		);
+		const w = world(() => (signedIn ? ok({ title: 'Mine' }) : sessionEnded));
 		await w.call('get_recipe', { branch_id: 'b_1' });
 		await w.settle();
 		signedIn = false;
@@ -501,11 +508,7 @@ describe('a Session', () => {
 
 	it('that has ended tells the page it was shown a kept answer, so it asks again', async () => {
 		let signedIn = true;
-		const w = world(() =>
-			signedIn
-				? ok({ shelves: [] })
-				: { status: 401, body: { ok: false, error: { kind: 'unauthorized' } } },
-		);
+		const w = world(() => (signedIn ? ok({ shelves: [] }) : sessionEnded));
 		await w.call('home_shelves');
 		await w.settle();
 		signedIn = false;
@@ -516,6 +519,23 @@ describe('a Session', () => {
 		expect(w.announced).toEqual(['home_shelves']);
 		// …so the page's next ask reaches the server and lands on the sign-in form.
 		expect((await w.call('home_shelves')).ok).toBe(false);
+	});
+
+	it('is not ended by a refusal about what its Person may do (#537)', async () => {
+		// Settings asks whether a cook is an Operator by asking for what only
+		// an Operator may read, and a cook is refused. Their library stays.
+		const w = world((path) =>
+			path.endsWith('list_accounts')
+				? { status: 401, body: { ok: false, error: { kind: 'unauthorized' } } }
+				: ok({ title: 'Mine' }),
+		);
+		await w.call('get_recipe', { branch_id: 'b_1' });
+		await w.worker.handle(new Request(`${ORIGIN}/api/photographs/p_1/card`), () => undefined);
+		expect((await w.call('list_accounts')).ok).toBe(false);
+		await w.call('delete_recipe', { branch_id: 'b_1' });
+		await w.settle();
+		expect(w.stores.get(READS_CACHE)?.size).toBe(1);
+		expect(w.stores.get(PHOTOGRAPHS_CACHE)?.size).toBe(1);
 	});
 
 	it('that is ended here empties it', async () => {
@@ -581,6 +601,15 @@ describe('a navigation', () => {
 		expect(w.server.asked).toEqual([]);
 	});
 
+	it("leaves a Calendar Link's file to the server, never the cached shell (#491)", async () => {
+		const w = await installed({
+			built: ['/_app/immutable/entry/app.js'],
+			precached: ['/_app/immutable/entry/app.js'],
+		});
+		const answer = w.worker.handle(navigationTo('/calendar/a1b2.ics'), () => undefined);
+		expect(answer).toBeUndefined();
+	});
+
 	it('leaves a precached static file to the shell cache in development too', async () => {
 		const w = await installed({ built: [], precached: ['/manifest.webmanifest'] });
 		const answer = await w.worker.handle(
@@ -624,5 +653,47 @@ describe('what was kept', () => {
 	it('leaves another origin’s requests to the browser', () => {
 		const w = world(() => ok({}));
 		expect(w.worker.handle(new Request('https://example.com/x'), () => undefined)).toBe(undefined);
+	});
+});
+
+describe('a recipe the server says is not there (#537)', () => {
+	it('is no longer kept, nor its other reads, nor pictures only it showed', async () => {
+		let deleted = false;
+		const w = world((path, input) => {
+			const branch = (input as { branch_id?: string } | undefined)?.branch_id;
+			if (deleted && branch === 'b_gone') {
+				return { status: 404, body: { ok: false, error: { kind: 'not_found' } } };
+			}
+			if (path.endsWith('get_recipe')) {
+				return ok({ branch_id: branch, main_photo: branch === 'b_gone' ? 'p_only' : 'p_shared' });
+			}
+			if (path.endsWith('list_attempts')) return ok({ photographs: ['p_shared'] });
+			return ok({ branch_id: branch, note: 'p_shared' });
+		});
+		await w.call('get_recipe', { branch_id: 'b_gone' });
+		await w.call('get_thread', { branch_id: 'b_gone' });
+		await w.call('get_recipe', { branch_id: 'b_kept' });
+		await w.call('list_attempts');
+		for (const id of ['p_only', 'p_shared']) {
+			await w.worker.handle(new Request(`${ORIGIN}/api/photographs/${id}/card`), () => undefined);
+		}
+		await w.settle();
+		expect(w.stores.get(READS_CACHE)?.size).toBe(4);
+
+		deleted = true;
+		w.later();
+		// Answered from the phone once, then told it has gone…
+		expect((await w.call('get_recipe', { branch_id: 'b_gone' })).ok).toBe(true);
+		await w.settle();
+		expect(w.announced).toContain('get_recipe');
+		expect(w.gone).toEqual(['b_gone']);
+		// …so it is not read from the phone again, online or off.
+		const kept = [...(w.stores.get(READS_CACHE)?.keys() ?? [])];
+		expect(kept.some((key) => key.includes('b_gone'))).toBe(false);
+		expect(kept).toHaveLength(2);
+		expect([...(w.stores.get(PHOTOGRAPHS_CACHE)?.keys() ?? [])]).toEqual([
+			`${ORIGIN}/api/photographs/p_shared/card`,
+		]);
+		expect((await w.call('get_recipe', { branch_id: 'b_gone' })).ok).toBe(false);
 	});
 });

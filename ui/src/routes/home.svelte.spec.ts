@@ -19,9 +19,9 @@ import { screen, within, fireEvent } from '@testing-library/svelte';
 import Page from './+page.svelte';
 import { renderScreen } from '../testing/render';
 import { writtenByMe } from '../testing/recipes';
-import type { GetCookbookOutput, HomeShelvesOutput } from '$lib/api/catalogue';
-import { demo, INSTALL_KAMOSU, openWelcomeAgain } from '$lib/demo.svelte';
-import { m } from '$lib/paraglide/messages';
+import type { GetCookbookOutput, HomeShelvesOutput } from '#lib/api/catalogue.js';
+import { demo, INSTALL_KAMOSU, openWelcomeAgain } from '#lib/demo.svelte.js';
+import { m } from '#lib/paraglide/messages.js';
 
 type Shelf = HomeShelvesOutput['shelves'][number];
 

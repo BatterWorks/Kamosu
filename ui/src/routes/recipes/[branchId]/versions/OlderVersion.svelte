@@ -39,14 +39,14 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { m } from '$lib/paraglide/messages';
-	import { aDate } from '$lib/dates';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { ChangedSinceOutput } from '$lib/api/catalogue';
-	import StepWords from '$lib/StepWords.svelte';
-	import StepPhoto from '$lib/StepPhoto.svelte';
-	import { tappableLink } from '$lib/source';
+	import { m } from '#lib/paraglide/messages.js';
+	import { aDate } from '#lib/dates.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { ChangedSinceOutput } from '#lib/api/catalogue.js';
+	import StepWords from '#lib/StepWords.svelte';
+	import StepPhoto from '#lib/StepPhoto.svelte';
+	import { tappableLink } from '#lib/source.js';
 	import Hero from '../Hero.svelte';
 	import MetaStrip from '../MetaStrip.svelte';
 	import MarkedRow from '../MarkedRow.svelte';
@@ -59,14 +59,14 @@
 	import { unfolding } from '../unfolding.svelte';
 	import { corrections } from '../corrections.svelte';
 	import { proseSince, sinceThen } from './older';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
 	import UseVersion, { type Act } from './UseVersion.svelte';
 
 	interface Props {
 		branchId: string;
 		versionId: string;
 		/** Going to another page. A test hands in its own. */
-		navigate?: (to: string, how?: { replaceState: boolean }) => Promise<void>;
+		navigate?: (to: string, how?: { replace: boolean }) => Promise<void>;
 	}
 
 	let { branchId, versionId, navigate = goto }: Props = $props();
@@ -105,7 +105,7 @@
 				if (!current) return;
 				// The newest Version is the recipe. Its page is the recipe's.
 				if (answer.version.newest) {
-					void navigate(`/recipes/${asked.branch_id}`, { replaceState: true });
+					void navigate(`/recipes/${asked.branch_id}`, { replace: true });
 					return;
 				}
 				compared = answer;

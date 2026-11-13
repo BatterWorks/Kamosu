@@ -1,6 +1,6 @@
 //! A Demo (ADR 0052): an instance anyone may open without signing in, where
-//! every visitor is the Sample Library's Camille and only cooking and
-//! shopping save.
+//! every visitor is the Sample Library's Camille and only cooking, planning
+//! and shopping save.
 //!
 //! What a Demo refuses of the Catalogue is each declaration's `in_demo` mark,
 //! met in `Core::execute`. What lives here is the rest: the way in, the
@@ -90,7 +90,7 @@ impl Arrivals {
 pub fn refused_in_demo() -> OpError {
     OpError::refused_because(
         "demo",
-        "This is a demo of Kamosu, where only cooking and shopping are saved. \
+        "This is a demo of Kamosu, where only cooking, planning and shopping are saved. \
          Install your own Kamosu to keep everything else.",
     )
 }
@@ -241,10 +241,11 @@ fn until_the_cleaning(now: SystemTime) -> Duration {
 
 /// Pour the built library attached as `sample` into this one, inside the
 /// transaction the caller opened. Every table but the instance's own is
-/// emptied and filled again, every time in it moved forward `by`. The pour
+/// emptied and filled again, every time in it moved forward `by` days, and
+/// the Meal Plan with them from `built_on` to `today`. The pour
 /// keeps the Sessions used in the last day whose Person is still there, the
 /// public address, and, closed, any Person the instance's own state names.
-fn pour(conn: &Connection, by: &str) -> Result<(), OpError> {
+fn pour(conn: &Connection, by: i64, built_on: &str, today: &str) -> Result<(), OpError> {
     let failed =
         |e: rusqlite::Error| OpError::internal(format!("cannot put the Sample Library back: {e}"));
     let tables: Vec<String> = conn
@@ -317,10 +318,11 @@ fn pour(conn: &Connection, by: &str) -> Result<(), OpError> {
             &format!(
                 "INSERT INTO main.\"{table}\" ({names}) SELECT {moved} FROM sample.\"{table}\""
             ),
-            params![by],
+            params![format!("{by:+} days")],
         )
         .map_err(failed)?;
     }
+    meal_plan::move_poured_plan(conn, built_on, today).map_err(failed)?;
     conn.execute_batch(
         "INSERT INTO main.sessions SELECT * FROM temp.kept_sessions; \
          INSERT INTO main.people SELECT * FROM temp.kept_people; \
@@ -339,14 +341,37 @@ fn pour(conn: &Connection, by: &str) -> Result<(), OpError> {
     Ok(())
 }
 
-/// Delete every file in `dir` whose name `kept` says no to.
-fn forget_files_in(dir: &std::path::Path, kept: impl Fn(&str) -> bool) {
+/// A file a Demo's reset found no row naming, and the row that would keep
+/// it: a Photograph's or Display Copy's hash, or an Original's Job.
+enum Unnamed {
+    Photograph {
+        hash: String,
+        path: std::path::PathBuf,
+    },
+    Original {
+        job_id: String,
+        path: std::path::PathBuf,
+    },
+}
+
+/// Every file in `dir` whose row is not among `named`, each as `make`
+/// writes it from that row's key. `key_of` reads the key out of a file's
+/// name; a name it reads none from is no file of Kamosu's, and goes too.
+fn unnamed_in(
+    dir: &std::path::Path,
+    key_of: impl Fn(&str) -> Option<&str>,
+    named: &HashSet<String>,
+    make: impl Fn(String, std::path::PathBuf) -> Unnamed,
+    into: &mut Vec<Unnamed>,
+) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
-        if !kept(&entry.file_name().to_string_lossy()) {
-            let _ = std::fs::remove_file(entry.path());
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let key = key_of(&name);
+        if !key.is_some_and(|key| named.contains(key)) {
+            into.push(make(key.unwrap_or(&name).to_owned(), entry.path()));
         }
     }
 }
@@ -431,12 +456,12 @@ impl Core {
             )
             .map_err(failed)?;
             let poured = (|| {
-                let by: i64 = conn
+                let (built_on, by): (String, i64) = conn
                     .query_row(
-                        "SELECT CAST(round(julianday(?1) - julianday(value)) AS INTEGER) \
+                        "SELECT value, CAST(round(julianday(?1) - julianday(value)) AS INTEGER) \
                          FROM sample.meta WHERE key = ?2",
                         params![today, sample_library::BUILT_ON],
-                        |row| row.get(0),
+                        |row| Ok((row.get(0)?, row.get(1)?)),
                     )
                     .map_err(failed)?;
                 conn.execute_batch("BEGIN IMMEDIATE; PRAGMA defer_foreign_keys = ON;")
@@ -444,7 +469,7 @@ impl Core {
                 // A COMMIT refused, by a foreign key the pour left broken,
                 // leaves the transaction open on the one connection every
                 // request shares, so it is rolled back like any failure.
-                let committed = pour(conn, &format!("{by:+} days"))
+                let committed = pour(conn, by, &built_on, today)
                     .and_then(|()| conn.execute_batch("COMMIT").map_err(failed));
                 if committed.is_err() {
                     let _ = conn.execute_batch("ROLLBACK");
@@ -461,6 +486,15 @@ impl Core {
     /// any more: the library a Demo held before it was built again, or the
     /// ordinary library it replaced. The sweeps delete only what a row names.
     fn forget_files_no_row_names(&self) -> Result<(), OpError> {
+        let unnamed = self.files_no_row_names()?;
+        self.forget_unnamed_files(&unnamed)
+    }
+
+    /// The files no row names, read from a list of what the rows name taken
+    /// under the database lock. A visitor's upload may record a row as soon
+    /// as the lock is let go, so this is what to ask about, never what to
+    /// delete (#556).
+    fn files_no_row_names(&self) -> Result<Vec<Unnamed>, OpError> {
         let (photographs, originals) = self.db().with_conn(|conn| {
             let names = |sql: &str| -> Result<HashSet<String>, OpError> {
                 conn.prepare(sql)
@@ -473,20 +507,70 @@ impl Core {
             ))
         })?;
         let data_dir = self.data_dir();
-        let kept_photograph = |hash: &str| photographs.contains(hash);
-        forget_files_in(&photographs::photographs_dir(&data_dir), |file| {
-            file.strip_suffix(".webp").is_some_and(kept_photograph)
-        });
-        forget_files_in(&photographs::display_dir(&data_dir), |file| {
-            file.split_once('-')
-                .is_some_and(|(hash, _)| kept_photograph(hash))
-        });
+        let mut unnamed = Vec::new();
+        let photograph = |hash, path| Unnamed::Photograph { hash, path };
+        unnamed_in(
+            &photographs::photographs_dir(&data_dir),
+            |file| file.strip_suffix(".webp"),
+            &photographs,
+            photograph,
+            &mut unnamed,
+        );
+        unnamed_in(
+            &photographs::display_dir(&data_dir),
+            |file| file.split_once('-').map(|(hash, _)| hash),
+            &photographs,
+            photograph,
+            &mut unnamed,
+        );
         // A Job's later pages and what Settings shows of it are named after
         // the Job too, before a dot (#463).
-        forget_files_in(&originals_dir(&data_dir), |file| {
-            originals.contains(file.split_once('.').map_or(file, |(job_id, _)| job_id))
-        });
-        Ok(())
+        unnamed_in(
+            &originals_dir(&data_dir),
+            |file| Some(file.split_once('.').map_or(file, |(job_id, _)| job_id)),
+            &originals,
+            |job_id, path| Unnamed::Original { job_id, path },
+            &mut unnamed,
+        );
+        Ok(unnamed)
+    }
+
+    /// Delete each of `unnamed` that no row names now, under the database
+    /// lock (#556). `record_photograph` writes a Photograph's file and its
+    /// row under that lock, and an Original is kept in the transaction that
+    /// records its Job, so a file whose row came after the list was taken
+    /// is met here with its row and kept. Asked outside the lock, a picture
+    /// recorded at 04:00 would keep its row and lose its bytes. A Demo
+    /// refuses every upload and import today, so nothing records one while
+    /// it runs; this keeps the reset safe the day a Demo takes cooking photos.
+    fn forget_unnamed_files(&self, unnamed: &[Unnamed]) -> Result<(), OpError> {
+        if unnamed.is_empty() {
+            return Ok(());
+        }
+        self.db().with_conn(|conn| {
+            let named = |sql: &str, key: &str| -> Result<bool, OpError> {
+                conn.query_row(sql, [key], |_| Ok(()))
+                    .optional()
+                    .map(|row| row.is_some())
+                    .map_err(|e| OpError::internal(format!("cannot ask what is kept: {e}")))
+            };
+            for file in unnamed {
+                let (named_now, path) = match file {
+                    Unnamed::Photograph { hash, path } => (
+                        named("SELECT 1 FROM photographs WHERE hash = ?1", hash)?,
+                        path,
+                    ),
+                    Unnamed::Original { job_id, path } => (
+                        named("SELECT 1 FROM agent_jobs WHERE job_id = ?1", job_id)?,
+                        path,
+                    ),
+                };
+                if !named_now {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+            Ok(())
+        })
     }
 
     /// The examples a visitor replays the agent's work on (#406): the
@@ -560,13 +644,87 @@ impl Core {
             ));
         }
         let session = self.mint_session(&person_id, session_name, "demo")?;
-        Ok(json!({ "session_id": session.id, "_session_secret": session.secret }))
+        Ok(
+            json!({ "session_id": session.id, "person_id": person_id, "_session_secret": session.secret }),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn a_kamosu() -> (tempfile::TempDir, Core) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(crate::db::Db::open(dir.path()).unwrap());
+        (dir, Core::open(db))
+    }
+
+    /// A Demo's reset lists what the rows name, lets the lock go, and comes
+    /// back for the files (#556). A picture a visitor uploads in between
+    /// keeps its bytes. Run in the order the race runs it, one step at a time.
+    #[test]
+    fn a_picture_recorded_while_a_demo_resets_keeps_its_file() {
+        let (_dir, core) = a_kamosu();
+        let bytes = b"a picture a visitor adds at four in the morning";
+        let hash = photographs::hash_bytes(bytes);
+        let file = photographs::photograph_path(&core.data_dir(), &hash);
+        let display =
+            photographs::display_path(&core.data_dir(), &hash, photographs::DisplaySize::Card);
+        std::fs::create_dir_all(photographs::photographs_dir(&core.data_dir())).unwrap();
+        std::fs::create_dir_all(photographs::display_dir(&core.data_dir())).unwrap();
+        std::fs::write(&file, bytes).unwrap();
+        std::fs::write(&display, bytes).unwrap();
+
+        // The reset has listed what it keeps: no row names this picture yet.
+        let unnamed = core.files_no_row_names().unwrap();
+        assert_eq!(unnamed.len(), 2);
+        // The visitor's upload lands.
+        core.record_photograph(&hash, bytes).unwrap();
+        // The reset comes back for the files.
+        core.forget_unnamed_files(&unnamed).unwrap();
+        assert!(file.exists(), "a recorded picture lost its bytes");
+        assert!(display.exists(), "a recorded picture lost its Display Copy");
+    }
+
+    /// The same for an Original: one kept with its Job after the reset
+    /// listed what it keeps stays on the disk (#556).
+    #[test]
+    fn an_original_recorded_while_a_demo_resets_keeps_its_file() {
+        let (_dir, core) = a_kamosu();
+        let dir = originals_dir(&core.data_dir());
+        std::fs::create_dir_all(&dir).unwrap();
+        let job_id = "a-job-a-visitor-sent";
+        let file = dir.join(job_id);
+        let page = dir.join(format!("{job_id}.2"));
+        std::fs::write(&file, b"a pasted recipe").unwrap();
+        std::fs::write(&page, b"its second page").unwrap();
+        let leftover = dir.join("a-job-the-old-library-had");
+        std::fs::write(&leftover, b"from before the reset").unwrap();
+
+        let unnamed = core.files_no_row_names().unwrap();
+        assert_eq!(unnamed.len(), 3);
+        core.db()
+            .with_conn(|conn| {
+                conn.execute(
+                    "INSERT INTO jobs (id, operation, input) VALUES (?1, ?2, '{}')",
+                    params![job_id, jobs::AGENT_OPERATION],
+                )
+                .and_then(|_| {
+                    conn.execute(
+                        "INSERT INTO agent_jobs (job_id, original, original_pages)
+                         VALUES (?1, 'text', 2)",
+                        params![job_id],
+                    )
+                })
+                .map_err(|e| OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        core.forget_unnamed_files(&unnamed).unwrap();
+        assert!(file.exists(), "a recorded Original lost its first page");
+        assert!(page.exists(), "a recorded Original lost its second page");
+        assert!(!leftover.exists(), "an Original no row names was kept");
+    }
 
     #[test]
     fn arrivals_past_a_minutes_worth_wait_until_the_oldest_is_a_minute_old() {

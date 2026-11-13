@@ -11,15 +11,16 @@ You do not need this image to run Kamosu. Kamosu reads a recipe page's own data,
 
 - **[opencode](https://opencode.ai) 2**, the agent. It speaks to several dozen model providers, and to any service with an OpenAI-compatible API. Nothing in the image names a provider or a model: you give both when the container starts.
 - **The tools a Job needs:** yt-dlp, which takes its nightly build each time the container starts, ffmpeg, deno for yt-dlp's YouTube support, poppler for a PDF's pages, curl and python3, on Alpine.
-- **The fence**, the same image started as `/opt/kamosu-agent/fence`, which keeps the agent off your own network: it reaches the internet and Kamosu, and never the host or the rest of your LAN. It starts as root to set its rules, then keeps no root and no capability.
+- **The fence**, the same image started as `/opt/kamosu-agent/fence`, which keeps the agent off your own network: it reaches the internet over IPv4 and Kamosu, and never the host or the rest of your LAN. It starts as root to set its rules, then keeps no root and no capability. The agent waits for it and refuses to start without it. Upgrade the agent and the fence together.
 - **The instructions it follows**, written for an agent reading one recipe alone. You can replace them with your own (below).
 
 It runs as its own user, never as root, in a read-only container that takes one Job and ends. Its restart policy starts it again, empty, for the next one. It never holds the Runner Key or the model provider's key: the Runner, which is Kamosu's own image, holds both. It hands each Job over through a socket in a volume the two share, and relays the agent's model requests through a socket in another, adding the key on the way, so a page that tricks the agent finds no key to send away.
 
 ## Tags
 
-- `latest` and `<version>`: images for Docker
-- `podman-latest` and `podman-<version>`: images for Podman
+- `latest` and `<version>`, for Docker and Podman alike
+
+Releases up to 0.5.0 also published `podman-latest` and `podman-<version>`. Those tags are no longer published and no longer move.
 
 **Use the same version as your Kamosu.** A Kamosu refuses a Runner of any other version, and the agent is made for the Runner of its own. A release that did not change the agent gives its new tag to the image already published, so nothing new is downloaded. Every tag is built for amd64 and arm64.
 
@@ -83,7 +84,7 @@ volumes:
       o: size=1m,uid=65532,gid=65532,mode=0755
 ```
 
-With Podman, use the `podman-<version>` tags of both images.
+With Podman, write both image names in full, as `docker.io/battermanz/kamosu:<version>` and `docker.io/battermanz/kamosu-agent:<version>`.
 
 The Runner's settings file holds its key, Kamosu's address, the agent's socket, and the model provider's key and address with the relay's socket:
 
@@ -98,7 +99,7 @@ KAMOSU_RUNNER_MODEL_SOCKET=/run/kamosu-relay/model.sock
 
 `KAMOSU_RUNNER_MODEL_ADDRESS` is the provider's API address: `https://openrouter.ai/api/v1`, `https://api.openai.com/v1`, `https://api.anthropic.com/v1` or `https://generativelanguage.googleapis.com/v1beta`, or the service's own address for one with an OpenAI-compatible API.
 
-An Operator makes the key in Kamosu: **Settings**, then **Administer this instance**, then **Runner** on the **Instance** tab. The agent's settings file holds the rest:
+An Operator makes the key in Kamosu under **Settings › Runner and House Notes**. The agent's settings file holds the rest:
 
 | Variable | What it holds |
 | --- | --- |
@@ -110,7 +111,7 @@ An agent given `KAMOSU_RUNNER_KEY`, or started without `KAMOSU_AGENT_MODEL`, say
 
 ## Your own instructions
 
-To add rules of your own without replacing the instructions, an Operator writes House Notes in Kamosu, in the Runner section of the **Instance** tab. Every Job carries them, and the agent reads them after its own instructions and follows them where the two disagree.
+To add rules of your own without replacing the instructions, an Operator writes House Notes in Kamosu under **Settings › Runner and House Notes**. Every Job carries them, and the agent reads them after its own instructions and follows them where the two disagree.
 
 The instructions are one file in the image, `/opt/kamosu-agent/instructions.md`. To change them, copy [the file of your version](https://github.com/BatterWorks/Kamosu/blob/main/agent-image/instructions.md), edit it, and mount your copy over it, read-only. It must be readable by the agent's user, uid 1000:
 

@@ -24,7 +24,7 @@ pub struct Config {
     /// Log filter for `tracing_subscriber` (`KAMOSU_LOG`, default `info`).
     pub log_filter: String,
     /// Whether this instance is a public Demo (ADR 0052): anyone arrives
-    /// signed in, and only cooking and shopping save. Named for what it costs
+    /// signed in, and only cooking, planning and shopping save. Named for what it costs
     /// (`KAMOSU_DEMO_ERASES_LIBRARY_DAILY`), since a Demo puts its library
     /// back every day (#404), and on only when the variable says `true`: a
     /// typo leaves a library alone rather than erasing it.

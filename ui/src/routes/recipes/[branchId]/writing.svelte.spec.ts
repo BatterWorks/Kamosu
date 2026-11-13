@@ -18,14 +18,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetRecipeOutput } from '$lib/api/catalogue';
-import type { Whose } from '$lib/cookbook';
-import type { Room } from '$lib/room.svelte';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { GetRecipeOutput } from '#lib/api/catalogue.js';
+import type { Whose } from '#lib/cookbook.js';
+import type { Room } from '#lib/room.svelte.js';
 import WritingTestHarness from './WritingTestHarness.svelte';
 import { recipeAnswer, writtenByMe } from '../../../testing/recipes';
 import { carrying } from '../../../testing/drops';
-import { m } from '$lib/paraglide/messages';
+import { m } from '#lib/paraglide/messages.js';
 
 type Content = GetRecipeOutput['versions'][number]['content'];
 
@@ -86,7 +86,7 @@ function renderWriting(
 	const onSaved = vi.fn();
 	const onCancel = vi.fn();
 	const kamosu = standIn({ ...SAVED, ...answers });
-	render(WritingTestHarness, {
+	const { rerender } = render(WritingTestHarness, {
 		props: {
 			client: kamosu.client,
 			content: start,
@@ -98,7 +98,7 @@ function renderWriting(
 			onCancel,
 		},
 	});
-	return { kamosu, onSaved, onCancel };
+	return { kamosu, onSaved, onCancel, rerender };
 }
 
 /** A recipe that holds nothing yet — a new one, which is where a paste lands. */
@@ -306,6 +306,22 @@ describe('writing a recipe', () => {
 			{ kind: 'section', text: 'To serve' },
 			{ kind: 'ingredient', text: '3 tbsp peanuts (finely chopped)' },
 		]);
+	});
+
+	it('says which Version it was written from, so a stale tab never folds away a newer save', async () => {
+		const { kamosu, rerender } = renderWriting();
+
+		const line = await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+		await fireEvent.input(line, { target: { value: '3 tbsp Chinese sesame paste' } });
+		// The page re-reads the recipe behind the open editor and finds a
+		// newer Version, saved on another device. The draft is still the one
+		// written from the Version the screen opened on.
+		await rerender({ baseVersionId: 'v_newer' });
+		await saveThrough(/Save onto mine/);
+
+		// The Version the recipe stood on when it was opened (#536): where
+		// somebody saved since, the Core keeps both saves as Versions.
+		await waitFor(() => expect(sent(kamosu)?.base_version_id).toBe('v_opened'));
 	});
 
 	it('puts the caret in the row Return just made, so a long list is one run of typing', async () => {

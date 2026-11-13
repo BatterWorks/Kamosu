@@ -28,6 +28,12 @@
 //!   name their cook (ADR 0053). An entry Mealie wrote from its meal plan is
 //!   an `info` one, and is counted on the Report. The entry's subject is
 //!   never read: Mealie writes it in the cook's language.
+//! - **The household's meal plan comes too** (#492): each entry, whoever in
+//!   Mealie planned it, handed over to land in the importing Person's own
+//!   Meal Plan. A recipe entry names its recipe, a note its title and text,
+//!   and a week entry the Monday-to-Sunday week holding the middle of its
+//!   range. A day's entries come in Mealie's meal order, whose names are not
+//!   kept.
 //! - **A revision is read only when a backup of it is among the test files**:
 //!   the database revision a backup carries says which shape its tables have,
 //!   and any other is refused with the update reason.
@@ -65,6 +71,9 @@ const TESTED: &[&str] = &[
     "1d9a002d7234",
     // October 2026, Mealie 3.29.0.
     "1e69ea7cd45e",
+    // November 2026, Mealie's development branch after 3.29.0: a meal plan
+    // entry may stand on a week (#492).
+    "071e03b4f851",
 ];
 
 /// The revisions older than Mealie's data fix of July 2025 (`d7b3ce6fa31a`),
@@ -129,8 +138,9 @@ impl Reader for MealieBackup {
         let chosen = library.chosen(handed.household())?;
         let folders = recipe_folders(&archive, &root);
         let total = chosen.recipes.len();
+        let (planned, unplanned) = library.planned(&chosen.meal_plans);
         let left_out = [
-            FileLeftOut::MealPlans(chosen.meal_plans),
+            FileLeftOut::MealPlans(unplanned),
             FileLeftOut::ShoppingLists(chosen.shopping_lists),
         ]
         .into_iter()
@@ -149,6 +159,7 @@ impl Reader for MealieBackup {
             total,
             recipes: Box::new(recipes),
             left_out,
+            planned,
         }))
     }
 }
@@ -159,7 +170,7 @@ impl Reader for MealieBackup {
 fn database_of(archive: &Archive) -> Option<(String, usize)> {
     (0..archive.len())
         .filter_map(|index| {
-            let name = archive.name_for_index(index)?;
+            let name = other_apps::name_at(archive, index)?;
             if name.starts_with("__MACOSX/") {
                 return None;
             }
@@ -175,10 +186,11 @@ fn database_of(archive: &Archive) -> Option<(String, usize)> {
 /// dashes, by version.
 fn recipe_folders(archive: &Archive, root: &str) -> HashMap<String, String> {
     let under = format!("{root}data/recipes/");
-    archive
-        .file_names()
-        .filter_map(|name| name.strip_prefix(&under)?.split_once('/'))
-        .filter_map(|(folder, _)| Some((uuid(&json!(folder))?, folder.to_string())))
+    other_apps::names(archive)
+        .filter_map(|name| {
+            let (folder, _) = name.strip_prefix(&under)?.split_once('/')?;
+            Some((uuid(&json!(folder))?, folder.to_string()))
+        })
         .collect()
 }
 
@@ -235,7 +247,7 @@ struct Database {
     users_to_recipes: Vec<Judged>,
     users_to_favorites: Vec<OfRecipe>,
     recipe_timeline_events: Vec<Event>,
-    group_meal_plans: Vec<Owned>,
+    group_meal_plans: Vec<PlanRow>,
     shopping_lists: Vec<Owned>,
 }
 
@@ -428,13 +440,54 @@ struct Event {
     created_at: Option<String>,
 }
 
-/// A meal plan or a shopping list, and whose it is.
+/// One entry of the meal plan (#492). Every column Mealie writes is read
+/// but `update_at`, which says when the entry was last changed rather than
+/// when it is planned for; `created_at` and `group_id` only name the entry.
+/// On a recipe entry Mealie's planner shows the recipe and never the entry's
+/// `title` or `text`, so those are read on a note alone, and the title on a
+/// recipe the backup does not hold.
+#[derive(Deserialize, Default, Clone)]
+#[serde(default)]
+struct PlanRow {
+    id: Value,
+    created_at: Option<String>,
+    date: Option<String>,
+    /// Set on a week entry alone, six days after `date` (Mealie's #8836).
+    end_date: Option<String>,
+    entry_type: Option<String>,
+    title: Option<String>,
+    text: Option<String>,
+    recipe_id: Value,
+    recipe_scale: Option<f64>,
+    group_id: Value,
+    household_id: Value,
+    user_id: Value,
+}
+
+/// A shopping list, and whose it is.
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct Owned {
     group_id: Value,
     household_id: Value,
     user_id: Value,
+}
+
+/// Where a meal of Mealie's falls in its day: its seven meals in Mealie's
+/// order (`PlanEntryType`), and any other name after them. The names
+/// themselves are not kept.
+fn meal_order(meal: Option<&str>) -> usize {
+    const MEALS: [&str; 7] = [
+        "breakfast",
+        "lunch",
+        "dinner",
+        "side",
+        "snack",
+        "drink",
+        "dessert",
+    ];
+    meal.and_then(|meal| MEALS.iter().position(|known| meal.trim() == *known))
+        .unwrap_or(MEALS.len())
 }
 
 /// An id column, read as [`uuid`] writes it, or empty where it holds none.
@@ -448,7 +501,8 @@ fn an_id<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D:
 struct Chosen {
     /// Each recipe's place in [`Library::recipes`].
     recipes: Vec<usize>,
-    meal_plans: usize,
+    /// Each meal plan entry's place in [`Library::meal_plans`].
+    meal_plans: Vec<usize>,
     shopping_lists: usize,
 }
 
@@ -473,7 +527,8 @@ struct Library {
     /// Each user's full name, by their id.
     cooks: HashMap<String, String>,
     homes: Homes,
-    meal_plans: Vec<Option<String>>,
+    /// Each meal plan entry, and the home it is in.
+    meal_plans: Vec<(Option<String>, PlanRow)>,
     shopping_lists: Vec<Option<String>>,
 }
 
@@ -764,7 +819,10 @@ impl Library {
             meal_plans: database
                 .group_meal_plans
                 .iter()
-                .map(|plan| homes.home(&plan.household_id, &plan.user_id, &plan.group_id))
+                .map(|plan| {
+                    let home = homes.home(&plan.household_id, &plan.user_id, &plan.group_id);
+                    (home, plan.clone())
+                })
                 .collect(),
             shopping_lists: database
                 .shopping_lists
@@ -798,7 +856,7 @@ impl Library {
         if homes.len() <= 1 {
             return Ok(Chosen {
                 recipes: (0..self.recipes.len()).collect(),
-                meal_plans: every(&self.meal_plans),
+                meal_plans: (0..self.meal_plans.len()).collect(),
                 shopping_lists: every(&self.shopping_lists),
             });
         }
@@ -830,8 +888,115 @@ impl Library {
             recipes: (0..self.recipes.len())
                 .filter(|&at| home_of(&self.recipes[at]).as_ref() == Some(home))
                 .collect(),
-            meal_plans: in_home(&self.meal_plans),
+            meal_plans: (0..self.meal_plans.len())
+                .filter(|&at| self.meal_plans[at].0.as_ref() == Some(home))
+                .collect(),
             shopping_lists: in_home(&self.shopping_lists),
+        })
+    }
+
+    /// The chosen household's meal plan entries (#492), whoever in Mealie
+    /// planned each, in the order each list of the plan takes them: by day,
+    /// then in Mealie's meal order, then in the order they were written. The
+    /// count beside them is the entries that could not be read: one with no
+    /// date Kamosu can read, a note with no words, or a recipe entry naming a
+    /// recipe the backup does not hold and no title of its own.
+    fn planned(&self, chosen: &[usize]) -> (Vec<other_apps::PlannedEntry>, usize) {
+        let mut read: Vec<((String, usize, i64), other_apps::PlannedEntry)> = chosen
+            .iter()
+            .filter_map(|&at| {
+                let row = &self.meal_plans[at].1;
+                let entry = self.planned_entry(row)?;
+                let place = match &entry.when {
+                    other_apps::PlannedWhen::Day(day) => day.clone(),
+                    other_apps::PlannedWhen::Week(monday) => monday.clone(),
+                };
+                let meal = meal_order(row.entry_type.as_deref());
+                let written = row.id.as_i64().unwrap_or(i64::MAX);
+                Some(((place, meal, written), entry))
+            })
+            .collect();
+        let unplanned = chosen.len() - read.len();
+        read.sort_by(|a, b| a.0.cmp(&b.0));
+        (
+            read.into_iter().map(|(_, entry)| entry).collect(),
+            unplanned,
+        )
+    }
+
+    /// One meal plan entry as Kamosu plans it, or nothing where it cannot be.
+    fn planned_entry(&self, row: &PlanRow) -> Option<other_apps::PlannedEntry> {
+        // Mealie numbers its entries 1, 2, 3 in each instance, and on SQLite
+        // may number a new one as an entry deleted before it was. So an entry
+        // is known by its group, which is a UUID of that instance, its number
+        // and when it was written, which no other entry shares.
+        let number = match &row.id {
+            Value::Number(id) => id.to_string(),
+            Value::String(id) if !id.trim().is_empty() => id.trim().to_string(),
+            _ => return None,
+        };
+        let foreign_id = format!(
+            "{}/{number}/{}",
+            uuid(&row.group_id).unwrap_or_default(),
+            row.created_at.as_deref().unwrap_or_default().trim()
+        );
+        let date: jiff::civil::Date = row.date.as_deref()?.trim().parse().ok()?;
+        let end: Option<jiff::civil::Date> = match row.end_date.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(end) => Some(end.parse().ok()?),
+        };
+        let when = match end {
+            None => other_apps::PlannedWhen::Day(date.to_string()),
+            // A week entry stands on the Monday-to-Sunday week holding the
+            // middle of its range, so a week a Mealie started on a Sunday
+            // lands on the week it mostly covers.
+            Some(end) => {
+                let days = date.until(end).ok()?.get_days().max(0);
+                let middle = date.checked_add(jiff::Span::new().days(days / 2)).ok()?;
+                let back = i64::from(middle.weekday().to_monday_zero_offset());
+                let monday = middle.checked_sub(jiff::Span::new().days(back)).ok()?;
+                other_apps::PlannedWhen::Week(monday.to_string())
+            }
+        };
+        let said = |text: &Option<String>| {
+            text.as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(str::to_string)
+        };
+        let what = match uuid(&row.recipe_id) {
+            Some(recipe) => {
+                // A recipe the backup does not hold is planned by the
+                // entry's own title, where it has one.
+                let name = self
+                    .by_id
+                    .get(&recipe)
+                    .and_then(|&at| said(&self.recipes[at].name))
+                    .or_else(|| said(&row.title))?;
+                // Scale 1 is the recipe as written, which stores no Yield.
+                // A scale too small to write, below a thousandth, is read as
+                // the recipe as written rather than as nothing.
+                let times = row
+                    .recipe_scale
+                    .filter(|scale| scale.is_finite() && *scale >= 0.001 && *scale != 1.0);
+                other_apps::PlannedWhat::Recipe {
+                    foreign_id: recipe,
+                    name,
+                    times,
+                }
+            }
+            // A note: its title, then its text where it has one.
+            None => other_apps::PlannedWhat::Words(match (said(&row.title), said(&row.text)) {
+                (Some(title), Some(text)) => format!("{title}: {text}"),
+                (Some(title), None) => title,
+                (None, Some(text)) => text,
+                (None, None) => return None,
+            }),
+        };
+        Some(other_apps::PlannedEntry {
+            foreign_id,
+            when,
+            what,
         })
     }
 
@@ -1196,7 +1361,7 @@ fn unit_shown(quantity: f64, unit: &Unit) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::other_apps::{Photo, Recipe, Unread};
+    use crate::other_apps::{Photo, PlannedEntry, PlannedWhat, PlannedWhen, Recipe, Unread};
 
     fn fixture(name: &str) -> Handed {
         Handed::file(
@@ -1216,6 +1381,180 @@ mod tests {
         let recipes: Vec<_> = export.recipes.collect();
         assert_eq!(recipes.len(), total);
         (recipes, export.left_out)
+    }
+
+    /// The meal plan a backup hands over, each entry known by Mealie's
+    /// number for it alone, and what of it was left out.
+    fn plan_of(handed: &Handed) -> (Vec<PlannedEntry>, Vec<FileLeftOut>) {
+        let export = MealieBackup
+            .read(handed)
+            .unwrap_or_else(|refusal| panic!("refused: {refusal:?}"))
+            .expect("recognised");
+        let planned = export
+            .planned
+            .into_iter()
+            .map(|mut entry| {
+                entry.foreign_id = entry.foreign_id.split('/').nth(1).unwrap().to_string();
+                entry
+            })
+            .collect();
+        (planned, export.left_out)
+    }
+
+    fn day(day: &str) -> PlannedWhen {
+        PlannedWhen::Day(day.to_string())
+    }
+
+    fn recipe(foreign_id: &str, name: &str, times: Option<f64>) -> PlannedWhat {
+        PlannedWhat::Recipe {
+            foreign_id: foreign_id.to_string(),
+            name: name.to_string(),
+            times,
+        }
+    }
+
+    fn entry(foreign_id: &str, when: PlannedWhen, what: PlannedWhat) -> PlannedEntry {
+        PlannedEntry {
+            foreign_id: foreign_id.to_string(),
+            when,
+            what,
+        }
+    }
+
+    #[test]
+    fn an_entry_is_known_by_its_instance_number_and_writing() {
+        // Mealie numbers entries from 1 in every instance, so the number
+        // alone would take a second Mealie's entry for the first's.
+        let export = MealieBackup
+            .read(&fixture("v3-backup.zip").in_household(Some("Family")))
+            .unwrap_or_else(|_| panic!("refused"))
+            .unwrap();
+        assert_eq!(
+            export.planned[0].foreign_id,
+            "d8e62c7f-1f2b-40f1-8806-69a43bfa5010/1/2026-10-23T09:14:06.266754"
+        );
+    }
+
+    #[test]
+    fn a_household_s_meal_plan_entry_names_its_recipe() {
+        let (planned, left_out) = plan_of(&fixture("v3-backup.zip").in_household(Some("Family")));
+        assert!(left_out.is_empty());
+        // A dinner of the pizza, at Mealie's scale of 1: as written.
+        assert_eq!(
+            planned,
+            [entry(
+                "1",
+                day("2026-10-23"),
+                recipe(
+                    "c1acc761-fb3d-4735-b53b-b61059d5716a",
+                    "Margherita pizza",
+                    None
+                )
+            )]
+        );
+        // The Cabin planned nothing.
+        let (planned, left_out) = plan_of(&fixture("v3-backup.zip").in_household(Some("Cabin")));
+        assert!(planned.is_empty() && left_out.is_empty());
+    }
+
+    #[test]
+    fn a_week_entry_stands_on_the_week_holding_its_middle() {
+        // Made on Mealie's development branch (#492): its administrator and
+        // Alex share one household, and each planned some of it.
+        let (planned, left_out) = plan_of(&fixture("nightly-backup-week.zip"));
+        assert!(left_out.is_empty());
+        let chili = "0ab07263-047c-49a9-b52f-1d4ac8d37629";
+        let porridge = "c36e6e3c-a3e6-4963-808d-b0ce70d05601";
+        assert_eq!(
+            planned,
+            [
+                // Alex's breakfast before Sam's dinner, though written after.
+                entry("2", day("2026-11-03"), recipe(porridge, "Porridge", None)),
+                entry(
+                    "1",
+                    day("2026-11-03"),
+                    recipe(chili, "Weeknight chili", Some(2.0))
+                ),
+                // A note: its title, then its text.
+                entry(
+                    "3",
+                    day("2026-11-04"),
+                    PlannedWhat::Words("Leftovers: from the chili".to_string())
+                ),
+                // Sunday 8 to Saturday 14 is mostly the week of Monday 9.
+                entry(
+                    "4",
+                    PlannedWhen::Week("2026-11-09".to_string()),
+                    recipe(chili, "Weeknight chili", Some(1.5))
+                ),
+                // Monday 9 to Sunday 15 is that week too.
+                entry(
+                    "5",
+                    PlannedWhen::Week("2026-11-09".to_string()),
+                    PlannedWhat::Words("Eating out".to_string())
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_meal_name_mealie_does_not_have_comes_after_its_seven() {
+        let handed = changed(|database| {
+            let plans = database["group_meal_plans"].as_array_mut().unwrap();
+            let first = plans[0].clone();
+            plans.clear();
+            for (id, meal) in [
+                (2, "brunch"),
+                (9, "dinner"),
+                (10, "breakfast"),
+                (11, "dessert"),
+            ] {
+                let mut plan = first.clone();
+                plan["id"] = json!(id);
+                plan["entry_type"] = json!(meal);
+                plans.push(plan);
+            }
+        });
+        let (planned, _) = plan_of(&handed.in_household(Some("Family")));
+        let order: Vec<_> = planned
+            .iter()
+            .map(|entry| entry.foreign_id.as_str())
+            .collect();
+        assert_eq!(order, ["10", "9", "11", "2"]);
+    }
+
+    #[test]
+    fn an_entry_whose_recipe_is_not_the_household_s_is_planned_by_its_name() {
+        let handed = changed(|database| {
+            let plans = database["group_meal_plans"].as_array_mut().unwrap();
+            let mut gone = plans[0].clone();
+            // The Cabin's cake, which a Family import does not bring.
+            plans[0]["recipe_id"] = json!("ed5f3c7f3f1c4b6c9aaeddba6b39a03b");
+            plans[0]["recipe_scale"] = json!(3.0);
+            // A recipe the backup does not hold at all, and an entry with no
+            // date: neither can be planned, and both are counted.
+            gone["id"] = json!(2);
+            gone["recipe_id"] = json!("00000000000000000000000000000000");
+            let mut undated = plans[0].clone();
+            undated["id"] = json!(3);
+            undated["date"] = json!(null);
+            plans.push(gone);
+            plans.push(undated);
+        });
+        let (planned, left_out) = plan_of(&handed.in_household(Some("Family")));
+        assert_eq!(
+            planned,
+            [entry(
+                "1",
+                day("2026-10-23"),
+                recipe(
+                    "ed5f3c7f-3f1c-4b6c-9aae-ddba6b39a03b",
+                    "Lemon drizzle cake",
+                    Some(3.0)
+                )
+            )]
+        );
+        assert!(matches!(left_out[..], [FileLeftOut::MealPlans(2)]));
     }
 
     fn titled<'a>(recipes: &'a [Result<Recipe, Unread>], title: &str) -> &'a Recipe {
@@ -1255,7 +1594,8 @@ mod tests {
     fn a_household_s_recipes_read_as_its_export_does() {
         let (recipes, left_out) = read_all(&fixture("v3-backup.zip").in_household(Some("Family")));
         assert_eq!(recipes.len(), 3);
-        assert!(matches!(left_out[..], [FileLeftOut::MealPlans(1)]));
+        // Its one meal plan entry is planned, not left out (#492).
+        assert!(left_out.is_empty());
 
         let export: Vec<_> = crate::mealie::Mealie
             .read(&fixture("v3-export.zip"))
@@ -1387,20 +1727,33 @@ mod tests {
                     .join(name),
             )
         };
-        for (name, recipes) in [
-            ("backup-version-44e8d670719d-1.zip", 349),
-            ("backup-version-44e8d670719d-2.zip", 88),
-            ("backup-version-44e8d670719d-3.zip", 69),
-            ("backup-version-44e8d670719d-4.zip", 44),
-            ("backup-version-bcfdad6b7355-1.zip", 46),
-            ("backup-version-ba1e4a6cfe99-1.zip", 218),
-            ("backup-version-09aba125b57a-1.zip", 42),
-            ("backup-version-86054b40fd06-1.zip", 165),
-            ("backup-version-1d9a002d7234-1.zip", 0),
+        // Each sample's recipes, and the meal plan entries of a sample with
+        // one household.
+        for (name, recipes, planned) in [
+            ("backup-version-44e8d670719d-1.zip", 349, 14),
+            ("backup-version-44e8d670719d-2.zip", 88, 98),
+            ("backup-version-44e8d670719d-3.zip", 69, 0),
+            ("backup-version-44e8d670719d-4.zip", 44, 169),
+            ("backup-version-bcfdad6b7355-1.zip", 46, 3),
+            ("backup-version-ba1e4a6cfe99-1.zip", 218, 23),
+            ("backup-version-09aba125b57a-1.zip", 42, 0),
+            ("backup-version-86054b40fd06-1.zip", 165, 95),
+            ("backup-version-1d9a002d7234-1.zip", 0, 0),
         ] {
             let handed = sample(name);
             let total = match MealieBackup.read(&handed) {
                 Ok(Some(export)) => {
+                    // Every era's meal plan is read whole (#492): each entry
+                    // has a date, and a recipe or a title, and the samples'
+                    // meal names are scrambled, so none is one of Mealie's.
+                    assert!(
+                        !export
+                            .left_out
+                            .iter()
+                            .any(|left| matches!(left, FileLeftOut::MealPlans(_))),
+                        "{name}"
+                    );
+                    assert_eq!(export.planned.len(), planned, "{name}");
                     let read: Vec<_> = export.recipes.collect();
                     assert!(read.iter().all(Result::is_ok), "{name}");
                     read.len()
@@ -1430,7 +1783,7 @@ mod tests {
             let mut change = Some(change);
             for index in 0..original.len() {
                 let mut entry = original.by_index(index).unwrap();
-                let name = entry.name().to_string();
+                let name = entry.name().unwrap().into_owned();
                 let mut bytes = Vec::new();
                 entry.read_to_end(&mut bytes).unwrap();
                 if name == "database.json" {

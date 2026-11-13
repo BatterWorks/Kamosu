@@ -15,10 +15,10 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
-import { m } from '$lib/paraglide/messages';
+import { m } from '#lib/paraglide/messages.js';
 import ReportTestHarness from './ReportTestHarness.svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetJobOutput, ImportCroutonOutput } from '$lib/api/catalogue';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { GetJobOutput, ImportCroutonOutput } from '#lib/api/catalogue.js';
 import { recipeAnswer } from '../../../testing/recipes';
 import { went } from '../../../testing/navigation';
 
@@ -125,6 +125,34 @@ describe('the Import Report', () => {
 			await screen.findByRole('heading', { name: 'Your Crouton library' }),
 		).toBeInTheDocument();
 		expect(screen.queryByRole('link', { name: /‹/ })).toBeNull();
+	});
+
+	it.each([
+		['completed', { backups: [], taken: ['daily'] }, null],
+		['running', null, null],
+		['failed', null, 'the disk is full'],
+	] as const)(
+		'says a Job that is no import, here %s, brought nothing in (#533)',
+		async (status, result, error) => {
+			const kamosu = open({
+				get_job: job({ operation: 'take_backup', status, result, error }),
+			});
+
+			expect(await screen.findByText(m.report_not_an_import())).toBeInTheDocument();
+			expect(screen.getByRole('heading', { name: m.imports_title() })).toBeInTheDocument();
+			expect(screen.queryByRole('alert')).toBeNull();
+			// Read once: a Backup still running is not waited on here.
+			await new Promise((settle) => setTimeout(settle, 50));
+			expect(kamosu.calls.filter((call) => call.operation === 'get_job')).toHaveLength(1);
+		},
+	);
+
+	it("says a Job that is not the cook's, or not there, is not found (#533)", async () => {
+		open({ get_job: { refuse: 'not_found', message: 'No Job j_1 here.' } });
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('No Job j_1 here.');
+		// Not titled for a Crouton library, or for any import.
+		expect(screen.getByRole('heading', { name: m.imports_title() })).toBeInTheDocument();
 	});
 
 	it('does not call one recipe file a Crouton library', async () => {
@@ -241,7 +269,7 @@ describe('the Import Report', () => {
 		expect(within(card).getByText(/same name · same page/)).toBeInTheDocument();
 		expect(within(card).getByText(/11 and 16 ingredients/)).toBeInTheDocument();
 		await fireEvent.click(boxes[1]);
-		await fireEvent.click(within(card).getByRole('button', { name: 'Relate 1 pairs' }));
+		await fireEvent.click(within(card).getByRole('button', { name: 'Relate 1 pair' }));
 
 		expect(
 			await screen.findByText(/Linked: Korean Fried Chicken. The other 1 kept apart./),
@@ -409,6 +437,105 @@ describe('the Import Report', () => {
 		);
 		// What belongs to the whole file names no recipe and opens to nothing.
 		for (const row of rows.slice(8)) expect(row.querySelector('details')).toBeNull();
+	});
+
+	// #492, option B: the app's meal plan, in a section of its own.
+	const mealie = (meal_plan: ImportCroutonOutput['meal_plan']) =>
+		job({
+			operation: 'import_from_another_app',
+			result: report({ source_kind: 'mealie', meal_plan }),
+		});
+
+	it('says how many meals were planned, over which weeks, and opens the Plan on them', async () => {
+		vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-12T10:00:00') });
+		try {
+			open({
+				get_job: mealie({
+					planned: 12,
+					already_planned: 0,
+					as_words: [{ title: 'Lemon drizzle cake', count: 2 }],
+					first_week: '2026-11-02',
+					last_week: '2026-11-23',
+					meal_names_left_out: true,
+				}),
+			});
+			const section = (await screen.findByRole('heading', { name: 'In your Plan' })).closest(
+				'section',
+			)!;
+			expect(section).toHaveTextContent('12 meals planned');
+			expect(section).toHaveTextContent(
+				"From the week of 2 November to the week of 23 November, each day in Mealie's order.",
+			);
+			expect(section).toHaveTextContent(
+				'Lemon drizzle cake stayed in Mealie, so its 2 meals came as just its name.',
+			);
+			expect(section).toHaveTextContent(
+				"Mealie's meal names, such as breakfast or dinner, were not kept.",
+			);
+			// It opens on this week, which the meals cover.
+			expect(within(section).getByRole('link', { name: 'Open the Plan' })).toHaveAttribute(
+				'href',
+				'/plan?week=2026-11-09',
+			);
+			// It comes before what stayed in the app.
+			const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+			expect(headings.indexOf('In your Plan')).toBeLessThan(headings.indexOf('Stayed in Mealie'));
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('says a plan imported again was already planned, and a past one opens on its last week', async () => {
+		vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-12T10:00:00') });
+		try {
+			open({
+				get_job: mealie({
+					planned: 0,
+					already_planned: 12,
+					as_words: [],
+					first_week: null,
+					last_week: null,
+					meal_names_left_out: true,
+				}),
+			});
+			const section = (await screen.findByRole('heading', { name: 'In your Plan' })).closest(
+				'section',
+			)!;
+			expect(section).toHaveTextContent('12 meals, already planned');
+			expect(section).toHaveTextContent('so none was planned twice');
+			expect(within(section).getByRole('link', { name: 'Open the Plan' })).toHaveAttribute(
+				'href',
+				'/plan',
+			);
+			cleanup();
+			open({
+				get_job: mealie({
+					planned: 1,
+					already_planned: 0,
+					as_words: [],
+					first_week: '2022-10-31',
+					last_week: '2022-10-31',
+					meal_names_left_out: true,
+				}),
+			});
+			const past = (await screen.findByRole('heading', { name: 'In your Plan' })).closest(
+				'section',
+			)!;
+			expect(past).toHaveTextContent('1 meal planned');
+			expect(past).toHaveTextContent("In the week of 31 October 2022, each day in Mealie's order.");
+			expect(within(past).getByRole('link', { name: 'Open the Plan' })).toHaveAttribute(
+				'href',
+				'/plan?week=2022-10-31',
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('draws no Plan section for a file with no meal plan', async () => {
+		open({ get_job: job({ operation: 'import_from_another_app', result: report() }) });
+		await screen.findByRole('heading', { name: 'Arrived' });
+		expect(screen.queryByRole('heading', { name: 'In your Plan' })).not.toBeInTheDocument();
 	});
 
 	it('names five recipes, then how many more', async () => {
@@ -1194,5 +1321,5 @@ describe('a Replay of an example', () => {
 		await new Promise((wake) => setTimeout(wake, 6500));
 		expect(screen.getByText(m.agent_stopped_nothing())).toBeInTheDocument();
 		expect(screen.queryByText('The card gives no yield.')).toBeNull();
-	}, 10_000);
+	});
 });

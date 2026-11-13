@@ -90,12 +90,10 @@ The Runner signs in with a **Runner Key**. It can ask for work, keep hold of a
 Job and report on it, and nothing else. It acts as no person and cannot touch a
 recipe.
 
-1. Sign in to Kamosu as an Operator, open **Settings**, then **Administer this
-   instance**.
-2. Open the **Instance** tab and find **Runner**.
-3. Give the key a name that tells this Runner from another, such as
+1. Sign in to Kamosu as an Operator and open **Settings › Runner and House Notes**.
+2. Give the key a name that tells this Runner from another, such as
    `kitchen laptop`, and press **Make a Runner Key**.
-4. Copy the key. Kamosu shows it once. If you lose it, revoke it and make
+3. Copy the key. Kamosu shows it once. If you lose it, revoke it and make
    another.
 
 From this moment the instance **has a Runner**, whether or not one is running:
@@ -138,7 +136,7 @@ docker rm kamosu-copy
 ```
 
 With Podman, the same three commands start with `podman`, and the image is
-`docker.io/battermanz/kamosu:podman-<version>`.
+`docker.io/battermanz/kamosu:<version>`.
 
 **In an image with your agent**, copy it in from Kamosu's image as one stage of
 the build. The Runner and the agent then run in one container, which you start
@@ -278,10 +276,10 @@ Every release of Kamosu publishes an agent's image that does steps 2 to 4 for
 you: an agent, its tools and its instructions, ready to start beside a Runner.
 It is `docker.io/battermanz/kamosu-agent`, built from `agent-image/` in
 Kamosu's repository, with the same tags as Kamosu's own image: `<version>` and
-`latest` for Docker, `podman-<version>` and `podman-latest` for Podman, each
-for amd64 and arm64. **Take the tag of the version your Kamosu runs.** A
-release that did not change the agent gives its new tag to the image already
-published, so a new version of Kamosu may bring nothing new to download here.
+`latest`, each for amd64 and arm64, which Docker and Podman both run. **Take
+the tag of the version your Kamosu runs.** A release that did not change the
+agent gives its new tag to the image already published, so a new version of
+Kamosu may bring nothing new to download here.
 
 - **The agent is [opencode](https://opencode.ai) 2**, which speaks to any of
   several dozen model providers, or to any that offers an OpenAI-compatible
@@ -475,9 +473,9 @@ volumes:
 
 - **Both images are of the version your Kamosu runs.** The Runner's is Kamosu's
   own, since a Kamosu refuses a Runner of any other, and the agent is made for
-  the Runner of its own version. With Podman, use the `podman-<version>` tag of
-  each. The Runner's health check asks for a Kamosu server, which a Runner is
-  not, so it is turned off.
+  the Runner of its own version. With Podman, write each image name in full,
+  starting `docker.io/`. The Runner's health check asks for a Kamosu server,
+  which a Runner is not, so it is turned off.
 - **The agent's socket volume is in memory and belongs to the agent's user**,
   uid 1000, which the Runner's user may call but not write in. The agent clears
   it each time it starts, before anything else, so nothing a Job leaves there
@@ -507,17 +505,17 @@ agent, beside a Kamosu reached at `192.0.2.10:5266`:
 podman run -d --name kamosu-agent-fence --restart always --user 0:0 \
   --read-only --cap-drop all --cap-add NET_ADMIN,SETUID,SETGID \
   --security-opt no-new-privileges -e KAMOSU_AGENT_FENCE_ALLOW=192.0.2.10:5266 \
-  --entrypoint /opt/kamosu-agent/fence docker.io/battermanz/kamosu-agent:podman-<version>
+  --entrypoint /opt/kamosu-agent/fence docker.io/battermanz/kamosu-agent:<version>
 podman run -d --name kamosu-agent --restart always \
   --network container:kamosu-agent-fence \
   --read-only --tmpfs /tmp:rw,exec,mode=1777,size=4g \
   --cap-drop all --security-opt no-new-privileges \
   --env-file ~/.config/kamosu-agent.env \
   -v kamosu-agent-socket:/run/kamosu-agent -v kamosu-relay-socket:/run/kamosu-relay \
-  docker.io/battermanz/kamosu-agent:podman-<version>
+  docker.io/battermanz/kamosu-agent:<version>
 ```
 
-With `docker run`, the same two commands work as written, on the Docker tags.
+With `docker run`, the same two commands work as written.
 Rootless Podman and Docker need no flag beyond these.
 
 An agent's container started without `KAMOSU_AGENT_MODEL`, or given
@@ -538,36 +536,49 @@ The agent fetches with its own tools, outside that guard. Left on your network,
 an agent a page has tricked steps around it.
 
 The fence closes that. It is the agent's own image started as
-`/opt/kamosu-agent/fence`, as the Compose file above shows, and it does three
+`/opt/kamosu-agent/fence`, as the Compose file above shows, and it does four
 things:
 
 1. It sets firewall rules in its own network: the loopback, the DNS server the
    container engine gave it and each address in `KAMOSU_AGENT_FENCE_ALLOW`
-   are allowed, and every private, loopback, link-local and shared address
-   beyond those is refused. The rest of the internet is let through.
+   are allowed, and every private, loopback, link-local and shared IPv4
+   address beyond those is refused, and every IPv6 address. The rest of the
+   internet is let through over IPv4.
 2. It stops being root: it becomes the agent's user, which leaves it no
-   capability, and sleeps.
-3. The agent's container joins its network, with `network_mode:
+   capability.
+3. It says it is up, in the network it fences. The agent waits up to a minute
+   for that when its container starts, and refuses to start without it, so
+   an agent never runs on a network the fence failed to close.
+4. The agent's container joins its network, with `network_mode:
    service:kamosu-agent-fence` in Compose or `--network
    container:kamosu-agent-fence` with `docker run` and `podman run`. It lives
    inside the fence's rules with every capability dropped, so it cannot
    change them.
 
 The fence says what it allows when it starts. To check it, ask from inside
-the agent's container for an address it should not reach, such as the host's
-own on your network:
+the agent's container for an address it should not reach, such as a router's
+on your network and any IPv6 address:
 
 ```sh
-docker exec kamosu-agent curl -sS -m 5 http://192.0.2.10:80/
+docker exec kamosu-agent curl -sS -m 5 http://192.168.1.1/
+docker exec kamosu-agent curl -gsS -m 5 http://[2001:db8::1]/
 ```
 
-`curl` answers that the connection was refused, while the same command for a
-public address answers. It works the same with Docker, rootful or rootless,
-and with rootless Podman.
+`curl` answers that it could not connect to either, while the same command
+for a public address answers. On a host with no IPv6 to the internet, the
+second fails before it reaches the fence, which proves nothing there. It works the same with Docker, rootful or rootless,
+and with rootless Podman. An agent whose fence is not up says so in its log,
+"The agent's network is not fenced", waits a minute and exits, and its
+restart policy starts it again until the fence is up.
 
 - **Restart the agent after the fence.** The agent's container joins the
   network the fence holds when it starts. Its restart after each Job picks up
   a fence that was restarted meanwhile, and a running Job loses its network.
+- **IPv6 is refused whole.** A device on a home network holds a public IPv6
+  address its provider gave it, which no list of private ranges names, so the
+  fence cannot tell your printer from a web site over IPv6. The agent reaches
+  the internet over IPv4, which nearly every site still offers. A host with
+  no IPv4 to the internet at all leaves the agent none.
 - **A service the host offers on its public address** is reached as it is
   from the internet, since a public address is one the fence lets through.
 - **Name Kamosu's address with its port.** `kamosu:5266` lets the agent reach
@@ -727,12 +738,24 @@ holds no key a page could have it send away. For each Job:
    as it arrives, a streamed answer included. A request to `/chat/completions`
    at the relay goes to `https://openrouter.ai/api/v1/chat/completions` when
    that is the address.
-4. When the Job ends, the relay closes, with any request still open, and the
+4. It sends on only a request for a model's answer and reading the list of
+   models, and refuses every other with status 403 before it leaves. The
+   provider's key reaches far more: batches and fine-tuning that go on
+   billing after the Job, the account's stored files, pictures and speech.
+   What it sends on is a `POST` to one of these paths under the address, with
+   at most a version such as `v1` before it: `chat/completions` (every
+   OpenAI-compatible service, OpenRouter, Mistral, Groq, xAI and the like),
+   `responses` (OpenAI, xAI), `messages` and `messages/count_tokens`
+   (Anthropic and the services that speak its dialect), `chat` (Cohere), and
+   `models/<model>:generateContent` or `:streamGenerateContent` (Google);
+   and a `GET` of `models` or `models/<model>`.
+5. When the Job ends, the relay closes, with any request still open, and the
    stand-in is worth nothing.
 
 The relay sends the key to that one address and nowhere else, follows no
 redirect, and refuses a path that would leave the address. A request without
-the Job's stand-in is refused with status 401, and one the provider cannot be
+the Job's stand-in is refused with status 401, one that does not ask a model
+for an answer with 403, and one the provider cannot be
 reached for with 502, each with a sentence saying why. A request may carry up
 to 100 MB.
 
@@ -823,9 +846,11 @@ It can:
   Job that has no recipe yet.
 - **Correct that recipe's Readings** with `set_reading`.
 - **Put a Tag the Cookbook already has** on that recipe, with `set_recipe_tag`.
+  Several Tags go on in one call, named in `tag_ids`, and the call goes
+  through whole or not at all: when it is refused, none of them went on.
   The published agent's instructions have it file every recipe it reads
-  under each of the Cookbook's Tags that plainly fits, and leave the Tags a
-  person put on where they are.
+  under each of the Cookbook's Tags that plainly fits, all in that one call,
+  and leave the Tags a person put on where they are.
 - **Store a Photograph** with `upload_photograph`, or by sending the picture's
   bytes as the whole body of `POST <kamosu>api/photographs`.
 

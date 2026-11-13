@@ -11,13 +11,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import ShellTestHarness from './ShellTestHarness.svelte';
-import { heardWhetherSignedIn, signingIn } from '$lib/shell/signing-in.svelte';
-import { closeWelcome, demo, INSTALL_KAMOSU, openWelcomeAgain } from '$lib/demo.svelte';
-import { HISTORY_INDEX, VISITS, noteArrival } from '$lib/shell/way-back';
-import { m } from '$lib/paraglide/messages';
+import { heardWhetherSignedIn, signingIn } from '#lib/shell/signing-in.svelte.js';
+import { closeWelcome, demo, INSTALL_KAMOSU, openWelcomeAgain } from '#lib/demo.svelte.js';
+import { HISTORY_METADATA, VISITS, noteArrival } from '#lib/shell/way-back.js';
+import { m } from '#lib/paraglide/messages.js';
 import { went } from '../testing/navigation';
-import { forgetSlash } from '$lib/shell/slash';
-import type { Room } from '$lib/room.svelte';
+import { forgetSlash } from '#lib/shell/slash.js';
+import type { Room } from '#lib/room.svelte.js';
 
 function shell(pathname: string, room: Room, holds?: 'account' | 'story' | 'shelf') {
 	render(ShellTestHarness, { props: { pathname, room, holds } });
@@ -40,8 +40,8 @@ function places(): string[] {
 		.map((link) => link.getAttribute('href') ?? '');
 }
 
-const SIDEBAR = ['/', '/recipes', '/shopping', '/cooked', '/settings'];
-const TABS = ['/', '/recipes', '/shopping', '/cooked'];
+const SIDEBAR = ['/', '/recipes', '/plan', '/shopping', '/cooked', '/settings'];
+const TABS = ['/', '/recipes', '/plan', '/shopping', '/cooked'];
 
 describe('on the wide layout', () => {
 	it.each<Room>(['wide', 'roomy'])('a %s window gets the sidebar and no tab bar', (room) => {
@@ -63,6 +63,7 @@ describe('on the wide layout', () => {
 		['/recipes', '/recipes'],
 		['/recipes/b_soba', '/recipes'],
 		['/recipes/b_soba/thread', '/recipes'],
+		['/plan', '/plan'],
 		['/shopping', '/shopping'],
 		['/cooked', '/cooked'],
 		['/settings', '/settings'],
@@ -84,6 +85,7 @@ describe('on the wide layout', () => {
 		expect(labels).toEqual([
 			m.nav_home(),
 			m.nav_recipes(),
+			m.nav_plan(),
 			m.nav_shopping(),
 			m.nav_cooked(),
 			m.open_settings(),
@@ -359,8 +361,9 @@ describe('on the phone layout', () => {
 describe('the back arrow', () => {
 	const arrow = () => screen.queryByRole('link', { name: m.shell_back() });
 
-	/** Put this tab on the history entry SvelteKit numbered `number`. */
-	const onEntry = (number: number) => history.replaceState({ [HISTORY_INDEX]: number }, '');
+	/** Put this tab on the history entry SvelteKit numbered `number`, as SvelteKit writes it. */
+	const onEntry = (number: number) =>
+		history.replaceState({ [HISTORY_METADATA]: { historyIndex: number } }, '');
 
 	/**
 	 * Tap the arrow, and say whether it took the tap over rather than leaving
@@ -400,7 +403,7 @@ describe('the back arrow', () => {
 		expect(await tapTakenOver()).toBe(false);
 	});
 
-	it.each([['/'], ['/recipes'], ['/shopping'], ['/cooked'], ['/settings']])(
+	it.each([['/'], ['/recipes'], ['/plan'], ['/shopping'], ['/cooked'], ['/settings']])(
 		"is not on %s, one of the sidebar's own places",
 		(pathname) => {
 			shell(pathname, 'roomy');
@@ -436,7 +439,7 @@ describe('the back arrow', () => {
 		},
 	);
 
-	it.each([['/'], ['/recipes'], ['/shopping'], ['/cooked'], ['/settings']])(
+	it.each([['/'], ['/recipes'], ['/plan'], ['/shopping'], ['/cooked'], ['/settings']])(
 		"is not on %s on the phone either, one of the bar's places or the gear's",
 		(pathname) => {
 			shell(pathname, 'phone');

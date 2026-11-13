@@ -15,7 +15,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import Account from '../../Account.svelte';
-	import Story from '$lib/story/Story.svelte';
+	import Story from '#lib/story/Story.svelte';
 	import type { PageProps } from './$types';
 
 	let { params }: PageProps = $props();

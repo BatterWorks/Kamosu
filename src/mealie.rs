@@ -101,6 +101,7 @@ impl Reader for Mealie {
             total,
             recipes: Box::new(recipes),
             left_out: Vec::new(),
+            planned: Vec::new(),
         }))
     }
 }
@@ -150,7 +151,7 @@ struct Folder {
 fn recipe_folders(archive: &Archive) -> Vec<Folder> {
     let mut folders: Vec<Folder> = (0..archive.len())
         .filter_map(|index| {
-            let name = archive.name_for_index(index)?;
+            let name = other_apps::name_at(archive, index)?;
             if name.starts_with("__MACOSX/") {
                 return None;
             }
@@ -285,10 +286,11 @@ fn read_folder(
     // The export carries each "I Made This" picture under `images/timeline/`,
     // without the entry it belongs to (Mealie's backup has those, #418): an
     // extra photo of the recipe, counted with the others.
-    let made_this: HashSet<&str> = archive
-        .file_names()
-        .filter_map(|name| name.strip_prefix(&format!("{}images/timeline/", folder.prefix)))
-        .filter_map(|rest| rest.split_once('/').map(|(event, _)| event))
+    let made_this: HashSet<String> = other_apps::names(archive)
+        .filter_map(|name| {
+            let rest = name.strip_prefix(&format!("{}images/timeline/", folder.prefix))?;
+            rest.split_once('/').map(|(event, _)| event.to_string())
+        })
         .collect();
     if !made_this.is_empty() {
         match recipe.left_out.iter_mut().find_map(|left| match left {
@@ -343,13 +345,30 @@ pub(crate) fn with_photos(
     Ok(recipe)
 }
 
-/// Mealie's id for a recipe: a UUID, or before Mealie 1 a number.
+/// What Kamosu knows a Mealie recipe by: its UUID, or before Mealie 1 its
+/// number and its name, `3 Old-Fashioned Beef Stew`. Every Mealie of then
+/// numbered its recipes from 1, so the number alone would take recipe 3 of a
+/// second instance for recipe 3 of the first, as Tandoor's would (#540).
 fn id_of(recipe: &Value) -> Option<String> {
     match recipe.get("id")? {
         Value::String(id) => Some(id.trim().to_string()).filter(|id| !id.is_empty()),
-        Value::Number(id) => Some(id.to_string()),
+        Value::Number(id) => Some(
+            match text(recipe, "name").or_else(|| text(recipe, "slug")) {
+                Some(name) => format!("{id} {name}"),
+                None => id.to_string(),
+            },
+        ),
         _ => None,
     }
+}
+
+/// The bare number a recipe from before Mealie 1 was known by until #540,
+/// which the ledger may still hold for it: `3` of `3 Old-Fashioned Beef
+/// Stew`. A UUID has no space, so it has none.
+pub(crate) fn number_before_v1(foreign_id: &str) -> Option<&str> {
+    let (number, name) = foreign_id.split_once(' ')?;
+    (!number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()) && !name.is_empty())
+        .then_some(number)
 }
 
 /// A recipe read from its JSON, before any file of its folder is opened.
@@ -431,17 +450,24 @@ fn read_recipe(recipe: &Value, shape: Shape) -> Result<ReadRecipe, String> {
         .map(|(_, name)| name.as_str())
         .collect();
 
+    // The recipe's own Language reads its times, and words its Yield and its
+    // Equipment line.
+    let language = crate::language::detect_content(&json!({
+        "title": title,
+        "ingredients": ingredients,
+        "steps": steps,
+    }));
+    let time_in = language.unwrap_or(crate::language::UNKNOWN);
     let mut candidate = json!({
         "title": title,
-        "prep_time_minutes": minutes(recipe, "prep_time"),
-        "cook_time_minutes": minutes(recipe, "perform_time").or_else(|| minutes(recipe, "cook_time")),
+        "prep_time_minutes": minutes(recipe, "prep_time", time_in),
+        "cook_time_minutes": minutes(recipe, "perform_time", time_in)
+            .or_else(|| minutes(recipe, "cook_time", time_in)),
         "source": text(recipe, "org_url").map_or(Value::Null, |link| other_apps::source_of_link(&link)),
         "nutrition": nutrition(recipe),
         "ingredients": ingredients,
         "steps": steps,
     });
-    // The recipe's own Language words its Yield and its Equipment line.
-    let language = crate::language::detect_content(&candidate);
     candidate["yield"] = recipe_yield(recipe, language);
     candidate["note"] = note(recipe, language, &candidate);
 
@@ -695,16 +721,18 @@ fn as_sentence(heading: &str) -> String {
 
 /// One of Mealie's free-text times in whole minutes, or the seconds Mealie 3
 /// keeps beside it where it has them.
-fn minutes(recipe: &Value, field: &str) -> Option<i64> {
-    let seconds = recipe[format!("{field}_seconds")]
+fn minutes(recipe: &Value, field: &str, language: &str) -> Option<i64> {
+    // Seconds past the longest time a recipe holds are passed over for the
+    // written time (#553).
+    let longest = crate::web_import::MAX_RECIPE_MINUTES as f64 * 60.0;
+    let seconds = match recipe[format!("{field}_seconds")]
         .as_f64()
-        .filter(|seconds| *seconds > 0.0)
-        .or_else(|| {
-            let written = text(recipe, field)?;
-            crate::units::step_duration(&written).map(|seconds| seconds as f64)
-        })?;
-    let minutes = (seconds / 60.0).round() as i64;
-    (minutes > 0).then_some(minutes)
+        .filter(|seconds| *seconds > 0.0 && *seconds <= longest)
+    {
+        Some(seconds) => seconds,
+        None => crate::units::step_duration(&text(recipe, field)?, language)? as f64,
+    };
+    crate::web_import::recipe_minutes(seconds / 60.0)
 }
 
 /// The Yield: what the recipe makes where Mealie says (`2 balls`), and its
@@ -714,6 +742,7 @@ fn recipe_yield(recipe: &Value, language: Option<&str>) -> Value {
     let servings = || match language {
         Some("fr") => "portions",
         Some("es") => "raciones",
+        Some("nl") => "porties",
         _ => "servings",
     };
     let positive = |field: &str| recipe[field].as_f64().filter(|amount| *amount > 0.0);
@@ -770,6 +799,7 @@ fn note(recipe: &Value, language: Option<&str>, candidate: &Value) -> Value {
         let lead = match language {
             Some("fr") => "Matériel :",
             Some("es") => "Utensilios:",
+            Some("nl") => "Benodigdheden:",
             _ => "Equipment:",
         };
         paragraphs.push(format!("{lead} {}.", tools.join(", ")));
@@ -1156,7 +1186,12 @@ mod tests {
         let recipes = read_all("pre-v1-export.zip");
         assert_eq!(recipes.len(), 3);
         let stew = titled(&recipes, "Old-Fashioned Beef Stew");
-        assert_eq!(stew.foreign_id, "3");
+        assert_eq!(stew.foreign_id, "3 Old-Fashioned Beef Stew");
+        assert_eq!(number_before_v1(&stew.foreign_id), Some("3"));
+        assert_eq!(
+            number_before_v1("c1acc761-fb3d-4735-b53b-b61059d5716a"),
+            None
+        );
         // Its total time is its only time, and its six figures have no
         // calories among them (#434).
         let stew_note = stew.candidate["note"].as_str().unwrap();
@@ -1284,6 +1319,22 @@ mod tests {
         assert_eq!(calories("850")["calories"], json!(850.0));
         assert_eq!(calories("1,5"), Value::Null);
         assert_eq!(calories("about 300"), Value::Null);
+    }
+
+    #[test]
+    fn a_time_past_four_thousand_years_is_no_time() {
+        // `as i64` saturated a huge one at the largest number there is, which
+        // overflowed where two times were added up (#553).
+        let huge = json!({ "prep_time_seconds": 1e30, "cook_time_seconds": 9.3e18 });
+        assert_eq!(minutes(&huge, "prep_time", "en"), None);
+        assert_eq!(minutes(&huge, "cook_time", "en"), None);
+        let written = json!({ "prep_time_seconds": 1e30, "prep_time": "15 minutes" });
+        assert_eq!(minutes(&written, "prep_time", "en"), Some(15));
+        let longest = json!({ "prep_time_seconds": f64::from(i32::MAX) * 60.0 });
+        assert_eq!(
+            minutes(&longest, "prep_time", "en"),
+            Some(i64::from(i32::MAX))
+        );
     }
 
     #[test]

@@ -6,11 +6,11 @@
 	said in the one line under the box.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Refusal from '$lib/Refusal.svelte';
-	import Screen from '$lib/shell/Screen.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import Screen from '#lib/shell/Screen.svelte';
 
 	const kamosu = useKamosu();
 

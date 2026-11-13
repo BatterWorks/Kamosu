@@ -1,39 +1,42 @@
-/// <reference no-default-lib="true"/>
-/// <reference lib="esnext" />
-/// <reference lib="webworker" />
-/// <reference types="@sveltejs/kit" />
-
 /**
  * The service worker: what puts the cookbook on the phone (#76, ADR 0013).
  *
  * SvelteKit bundles and registers this file itself. Everything it decides is
- * in `$lib/offline/worker.ts`, where a test can reach it; this file only hands
+ * in `#lib/offline/worker.ts`, where a test can reach it; this file only hands
  * the browser's events over, and fills the app's own cache on install.
+ *
+ * It is a TypeScript project of its own, `tsconfig.json` beside it, because a
+ * worker's globals are not a page's (#525).
  *
  * A browser runs this only on a secure page — `https://`, or `localhost` — so
  * over plain `http://` none of it exists, which is what the app's "This
  * connection isn't secure" card is there to say.
  */
 
-import { build, files, version } from '$service-worker';
-import { createWorker } from '$lib/offline/worker';
-import { ASSETS_CACHE, READS_CACHE } from '$lib/offline/reads';
-
-const self = globalThis.self as unknown as ServiceWorkerGlobalScope;
+import { self } from '$app/service-worker';
+import { version } from '$app/env';
+import { assets, immutable } from '$app/manifest';
+import { createWorker } from '#lib/offline/worker.js';
+import { ASSETS_CACHE, READS_CACHE } from '#lib/offline/reads.js';
 
 /** This build's own files. Named by version, so an upgrade replaces them whole. */
 const SHELL = `kamosu-shell-${version}`;
 /**
+ * A path the manifest names, as the path a request asks for. The manifest's
+ * paths are relative to the base path, which is where this worker is served.
+ */
+const served = (path: string) => new URL(path, self.location.href).pathname;
+/**
  * What SvelteKit compiled, and nothing else. It is empty in development, which
  * is how the worker knows not to answer a navigation itself (#95).
  */
-const BUILT = build;
+const BUILT = immutable.map((file) => served(file.path));
 /**
  * What the shell cache holds: the compiled app, plus `ui/static/`'s files,
  * which are served as they are and are worth having on the phone in either
  * build. That second half is why this cannot stand in for `BUILT`.
  */
-const PRECACHED = [...build, ...files];
+const PRECACHED = [...BUILT, ...assets.map((file) => served(file.path))];
 
 /**
  * What the binary serves beside the app and every screen needs: the stylesheet
@@ -56,9 +59,9 @@ self.addEventListener('install', (event) => {
 	event.waitUntil(
 		(async () => {
 			const store = await caches.open(SHELL);
-			// The app, all three languages included — Paraglide compiles every
-			// phrase into these chunks, so precaching them is precaching fr, en
-			// and es alike (ADR 0013).
+			// The app, every language included — Paraglide compiles every
+			// phrase into these chunks, so precaching them is precaching every
+			// Reading Language alike (ADR 0013).
 			await store.addAll([...PRECACHED, '/']);
 			// The binary's assets are worth having, but never worth failing the
 			// install over.

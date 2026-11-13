@@ -15,8 +15,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetRecipeOutput } from '$lib/api/catalogue';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { GetRecipeOutput } from '#lib/api/catalogue.js';
 import TagsTestHarness from './TagsTestHarness.svelte';
 
 type Tag = GetRecipeOutput['tags'][number];

@@ -375,9 +375,35 @@ fn extract_yield(value: Option<&Value>) -> Option<(String, String)> {
 /// guessed at — never invented, matching how nutrition is handled.
 fn duration_field(node: &Value, field: &str) -> Option<i64> {
     let text = text_field(node, field)?;
-    let duration: iso8601_duration::Duration = text.parse().ok()?;
-    let std_duration = duration.to_std()?;
-    Some((std_duration.as_secs() / 60) as i64)
+    duration_minutes(&text.parse().ok()?)
+}
+
+/// The longest time a recipe is read as having, in minutes: about 4,000
+/// years, far past any real one, and small enough that a recipe's times add
+/// up without overflowing (#540). A save refuses more, and every importer
+/// reads more as no time (#553).
+pub(crate) const MAX_RECIPE_MINUTES: i64 = i32::MAX as i64;
+
+/// Whole minutes an importer read, where they are more than none and no more
+/// than [`MAX_RECIPE_MINUTES`]. A file can hold any number, and a save would
+/// refuse the whole recipe over a time past the bound (#553).
+pub(crate) fn recipe_minutes(minutes: f64) -> Option<i64> {
+    let minutes = minutes.round();
+    (minutes.is_finite() && (1.0..=MAX_RECIPE_MINUTES as f64).contains(&minutes))
+        .then_some(minutes as i64)
+}
+
+/// An ISO 8601 duration in whole minutes, or `None` where it has no fixed
+/// length (years, months), is negative, or is longer than
+/// [`MAX_RECIPE_MINUTES`]. The crate's own `to_std` panics on a negative or
+/// huge one (`PT-5M`), and a page or a file can hold either (#540).
+pub(crate) fn duration_minutes(duration: &iso8601_duration::Duration) -> Option<i64> {
+    if duration.year != 0.0 || duration.month != 0.0 {
+        return None;
+    }
+    let minutes = (f64::from(duration.num_seconds()?) / 60.0).floor();
+    (minutes.is_finite() && (0.0..=MAX_RECIPE_MINUTES as f64).contains(&minutes))
+        .then_some(minutes as i64)
 }
 
 /// `nutrition.calories` arrives as a string with the unit fused in
@@ -435,6 +461,28 @@ fn guarded_acl() -> Acl {
     acl
 }
 
+/// Test-only, under the same feature as [`allow_loopback_fetches_for_tests`]:
+/// where the short-link hosts are dialled, so a behaviour test's own server
+/// can answer `vm.tiktok.com` and `www.instagram.com` (#497). Only the
+/// client that follows a short link reads it.
+#[cfg(feature = "test-jobs")]
+static TEST_SHORT_LINK_HOSTS: std::sync::OnceLock<std::net::SocketAddr> =
+    std::sync::OnceLock::new();
+
+#[cfg(feature = "test-jobs")]
+pub fn answer_short_link_hosts_for_tests(at: std::net::SocketAddr) {
+    allow_loopback_fetches_for_tests();
+    let _ = TEST_SHORT_LINK_HOSTS.set(at);
+}
+
+/// Every guarded client starts here: the guard's resolver and redirect
+/// check, and no proxy (#526). A proxy named in the environment
+/// (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) would look up the host's name
+/// itself, so the guard would never see the address a link leads to.
+fn guarded_builder(acl: &Acl) -> reqwest::ClientBuilder {
+    acl.configure(reqwest::Client::builder()).no_proxy()
+}
+
 fn guarded_client(acl: &Acl) -> Result<reqwest::Client, OpError> {
     let for_redirects = acl.clone();
     let redirect_policy = reqwest::redirect::Policy::custom(move |attempt| {
@@ -451,12 +499,84 @@ fn guarded_client(acl: &Acl) -> Result<reqwest::Client, OpError> {
             Err(err) => attempt.error(err.to_string()),
         }
     });
-    acl.configure(reqwest::Client::builder())
+    guarded_builder(acl)
         .redirect(redirect_policy)
         .timeout(Duration::from_secs(FETCH_TIMEOUT_SECS))
         .user_agent(USER_AGENT)
         .build()
         .map_err(|e| OpError::internal(format!("cannot build the guarded HTTP client: {e}")))
+}
+
+/// How long following a short link may take, every hop together (#497). A
+/// phone is waiting for its answer, and a lookup that runs out changes
+/// nothing but what the link is compared by.
+const SHORT_LINK_TIME: Duration = Duration::from_secs(3);
+
+/// Where a short link to a video leads (#497): TikTok's `vm.tiktok.com/<code>/`
+/// or Instagram's `/share/reel/<token>/`, which name no post until they are
+/// followed. Its redirects are followed one at a time under the guarded
+/// fetch's rules, no hop to the local network and at most `MAX_REDIRECTS`,
+/// reading no body, and the first address that names a post is the answer,
+/// without asking for it. `None` for any other link, and wherever following
+/// fails or runs out of time: the short link then goes on as it is.
+///
+/// Needs a multi-threaded runtime, which every Door and Job runs on, and
+/// holds no request worker while it waits.
+fn where_short_link_leads(link: &str) -> Option<String> {
+    if !crate::video_link::is_short_form(link) {
+        return None;
+    }
+    let handle = tokio::runtime::Handle::try_current().ok()?;
+    if handle.runtime_flavor() != tokio::runtime::RuntimeFlavor::MultiThread {
+        return None;
+    }
+    crate::slow_work::off_the_request_workers(|| {
+        handle.block_on(async {
+            tokio::time::timeout(SHORT_LINK_TIME, follow_to_a_post(link, guarded_acl()))
+                .await
+                .ok()
+                .flatten()
+        })
+    })
+}
+
+async fn follow_to_a_post(link: &str, acl: Acl) -> Option<String> {
+    let builder = guarded_builder(&acl)
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(SHORT_LINK_TIME)
+        .user_agent(USER_AGENT);
+    #[cfg(feature = "test-jobs")]
+    let builder = match TEST_SHORT_LINK_HOSTS.get() {
+        Some(at) => ["vm.tiktok.com", "www.instagram.com"]
+            .iter()
+            .fold(builder, |builder, host| builder.resolve(host, *at)),
+        None => builder,
+    };
+    let client = builder.build().ok()?;
+    let mut at = parse_fetchable_url(link).ok()?;
+    for _ in 0..MAX_REDIRECTS {
+        acl.validate_url(&at).ok()?;
+        let response = client.get(at.clone()).send().await.ok()?;
+        if !response.status().is_redirection() {
+            return None;
+        }
+        let location = response.headers().get(reqwest::header::LOCATION)?;
+        let next = at.join(location.to_str().ok()?).ok()?;
+        if crate::video_link::names_a_post(next.as_str()) {
+            return Some(next.into());
+        }
+        at = next;
+    }
+    None
+}
+
+/// `link` as it is matched and handed on: where it leads, for a short link
+/// that can be followed to its post, or `link` itself (#497). An address no
+/// longer than `longest` alone replaces it.
+pub fn followed_if_short(link: &str, longest: usize) -> String {
+    where_short_link_leads(link)
+        .filter(|led_to| led_to.len() <= longest)
+        .unwrap_or_else(|| link.to_string())
 }
 
 /// Whether `link` is one this guarded fetch would set out to read: http or
@@ -1206,6 +1326,130 @@ mod tests {
         assert!(six.is_err(), "a 6th redirect must be refused");
     }
 
+    /// A loopback server answering `routes`, on `ip`. Its address and how
+    /// many requests reached it.
+    async fn counting_server(
+        ip: &str,
+        routes: axum::Router,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = hits.clone();
+        let routes = routes.layer(axum::middleware::from_fn(
+            move |request: axum::extract::Request, next: axum::middleware::Next| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                next.run(request)
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind(format!("{ip}:0"))
+            .await
+            .unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, routes).await.unwrap() });
+        (base, hits)
+    }
+
+    /// The guard, letting through 127.0.0.1 alone, so a test server can be
+    /// dialled there and 127.0.0.2 stands for the local network.
+    fn guard_but_for_one_loopback() -> Acl {
+        Acl::new()
+            .deny_local_network()
+            .allow_ip_when(|ip| ip == std::net::IpAddr::from([127, 0, 0, 1]))
+    }
+
+    /// A short link is followed hop by hop to the first address that names a
+    /// post, which is never asked for itself: here it is TikTok's, and no
+    /// test reaches TikTok (#497).
+    #[tokio::test]
+    async fn a_short_link_is_followed_to_its_post_and_no_further() {
+        let (base, hits) = counting_server(
+            "127.0.0.1",
+            axum::Router::new()
+                .route(
+                    "/SHORTCODE/",
+                    axum::routing::get(|| async { axum::response::Redirect::permanent("/t/HOP/") }),
+                )
+                .route(
+                    "/t/HOP/",
+                    axum::routing::get(|| async {
+                        axum::response::Redirect::temporary(
+                            "https://www.tiktok.com/@somecook/video/7000000000000000000?_r=1&_t=CODE",
+                        )
+                    }),
+                ),
+        )
+        .await;
+        let led_to =
+            follow_to_a_post(&format!("{base}/SHORTCODE/"), guard_but_for_one_loopback()).await;
+        assert_eq!(
+            led_to.as_deref(),
+            Some("https://www.tiktok.com/@somecook/video/7000000000000000000?_r=1&_t=CODE")
+        );
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    /// A hop to the local network is refused before it is dialled, and the
+    /// short link then leads nowhere.
+    #[tokio::test]
+    async fn a_short_link_is_not_followed_onto_the_local_network() {
+        let (inside, inside_hits) = counting_server(
+            "127.0.0.2",
+            axum::Router::new().route(
+                "/{*rest}",
+                axum::routing::get(|| async {
+                    axum::response::Redirect::temporary("https://www.instagram.com/reel/POSTID/")
+                }),
+            ),
+        )
+        .await;
+        let (base, _) = counting_server(
+            "127.0.0.1",
+            axum::Router::new().route(
+                "/share/reel/TOKEN/",
+                axum::routing::get(move || {
+                    let inside = inside.clone();
+                    async move { axum::response::Redirect::temporary(&format!("{inside}/hop")) }
+                }),
+            ),
+        )
+        .await;
+        let led_to = follow_to_a_post(
+            &format!("{base}/share/reel/TOKEN/"),
+            guard_but_for_one_loopback(),
+        )
+        .await;
+        assert_eq!(led_to, None);
+        assert_eq!(inside_hits.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    /// A link that answers with no redirect, or with one that never names a
+    /// post, leads nowhere Kamosu knows.
+    #[tokio::test]
+    async fn a_short_link_that_leads_to_no_post_leads_nowhere() {
+        let (base, _) = counting_server(
+            "127.0.0.1",
+            axum::Router::new()
+                .route(
+                    "/gone/",
+                    axum::routing::get(|| async { axum::http::StatusCode::NOT_FOUND }),
+                )
+                .route(
+                    "/home/",
+                    axum::routing::get(|| async { axum::response::Redirect::temporary("/?_r=1") }),
+                )
+                .route("/", axum::routing::get(|| async { "Home" }))
+                .route(
+                    "/loop/",
+                    axum::routing::get(|| async { axum::response::Redirect::temporary("/loop/") }),
+                ),
+        )
+        .await;
+        for path in ["gone", "home", "loop"] {
+            let led_to =
+                follow_to_a_post(&format!("{base}/{path}/"), guard_but_for_one_loopback()).await;
+            assert_eq!(led_to, None, "{path}");
+        }
+    }
+
     #[test]
     fn a_share_link_is_known_by_its_shape_and_its_file_sits_beside_it() {
         let on = |url: &str| share_link(url).map(|link| link.bundle_url);
@@ -1245,5 +1489,99 @@ mod tests {
         ] {
             assert_eq!(on(not_one), None, "{not_one}");
         }
+    }
+
+    // #540: a time the duration crate would panic on, or one too long to
+    // add up, is no time, and the recipe still reads.
+    #[test]
+    fn an_impossible_time_is_no_time() {
+        for written in ["PT-5M", "PT99999999999999999999H", "PT1e30M", "1e30"] {
+            let html = ld(&format!(
+                r#"{{"@type":"Recipe","name":"T","prepTime":"{written}","cookTime":"PT12M"}}"#
+            ));
+            let parsed = extract_recipe(&html, "https://example.com/r");
+            assert_eq!(parsed.title, "T", "{written}");
+            assert_eq!(parsed.prep_time_minutes, None, "{written}");
+            assert_eq!(parsed.cook_time_minutes, Some(12), "{written}");
+        }
+    }
+
+    /// Set in the copy of this test binary that
+    /// [`a_proxy_variable_routes_no_guarded_fetch`] starts with proxy
+    /// variables in its environment.
+    const IN_THE_PROXIED_COPY: &str = "KAMOSU_TEST_IN_THE_PROXIED_COPY";
+
+    /// A proxy named in Kamosu's environment is never used by a guarded
+    /// fetch (#526). Through a proxy, the proxy looks up the host's name, so
+    /// the guard never sees the address a link leads to. The variables are
+    /// set on a second copy of this test binary, never on this process, so
+    /// no other test running beside it builds a client that reads them.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_proxy_variable_routes_no_guarded_fetch() {
+        if std::env::var_os(IN_THE_PROXIED_COPY).is_some() {
+            return fetch_through_the_named_proxy().await;
+        }
+        let proxy = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_url = format!("http://{}", proxy.local_addr().unwrap());
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = hits.clone();
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            while let Ok((mut stream, _)) = proxy.accept().await {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let _ = stream
+                    .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 7\r\n\r\nproxied")
+                    .await;
+            }
+        });
+
+        let name = format!(
+            "{}::a_proxy_variable_routes_no_guarded_fetch",
+            module_path!().split_once("::").unwrap().1
+        );
+        let mut copy = std::process::Command::new(std::env::current_exe().unwrap());
+        copy.args([name.as_str(), "--exact", "--nocapture", "--test-threads=1"])
+            .env(IN_THE_PROXIED_COPY, "1")
+            .env_remove("NO_PROXY")
+            .env_remove("no_proxy");
+        for variable in [
+            "HTTP_PROXY",
+            "http_proxy",
+            "HTTPS_PROXY",
+            "https_proxy",
+            "ALL_PROXY",
+            "all_proxy",
+        ] {
+            copy.env(variable, &proxy_url);
+        }
+        let ran = tokio::task::spawn_blocking(move || copy.output().unwrap())
+            .await
+            .unwrap();
+        let printed = String::from_utf8_lossy(&ran.stdout);
+        assert!(ran.status.success(), "the proxied copy failed:\n{printed}");
+        assert!(
+            printed.contains("1 passed"),
+            "the proxied copy ran no test:\n{printed}"
+        );
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "a guarded fetch went through the proxy"
+        );
+    }
+
+    /// The proxied copy's half: every guarded client asked for `localhost`
+    /// at the port the counting proxy listens on. The name resolves to this
+    /// machine, so the guard refuses it. Through the proxy, or past a guard
+    /// that let it through, the parent counts a hit.
+    async fn fetch_through_the_named_proxy() {
+        let proxy = std::env::var("HTTP_PROXY").unwrap();
+        let port = proxy.rsplit_once(':').unwrap().1;
+        let client = guarded_client(&guarded_acl()).unwrap();
+        let link = format!("http://localhost:{port}/tart");
+        let answer = client.get(&link).send().await;
+        assert!(answer.is_err(), "{link} answered: {answer:?}");
+        let short = format!("http://localhost:{port}/SHORTCODE/");
+        assert_eq!(follow_to_a_post(&short, guarded_acl()).await, None);
     }
 }

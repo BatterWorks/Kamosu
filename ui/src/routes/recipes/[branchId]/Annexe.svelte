@@ -8,7 +8,7 @@
 	timing matters the cook writes a Step saying so.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import { numbering } from './divergence';
 	import { pathKey, type Component } from './unfolding.svelte';
 

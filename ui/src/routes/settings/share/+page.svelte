@@ -1,7 +1,7 @@
 <!-- Save from your phone (#452), a page of Settings' Add recipes (#469). -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Screen from '$lib/shell/Screen.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Screen from '#lib/shell/Screen.svelte';
 	import ShareFromYourPhone from '../ShareFromYourPhone.svelte';
 </script>
 

@@ -2,6 +2,10 @@
 
 Kamosu gets a demo mode: one environment variable on the released image turns an instance into a public **Demo** that anyone can open without signing in, where every screen can be seen and only cooking and shopping really save. It loads a **Sample Library** of about 40 recipes with lived-in history, puts it back every day, and shows the agent at work through **Replays** of ready examples, since no model runs. Settled on 2026-10-21 in a design session; how other self-hosted apps run theirs is in `docs/research/demo-modes.md`.
 
+_(Amended by [ADR 0058](./0058-a-meal-plan-is-a-persons-own-days-ahead.md), 2026-10-31: planning saves in a Demo too, beside cooking and shopping.)_
+
+_(Amended by [#538](https://github.com/BatterWorks/Kamosu/issues/538), 2026-11-06: "only make a mess" needs a size. A Demo's visitor is a member, so a shopping line once took the 40 MB a request may carry, and adding a few held the database for seconds for everyone. A Shopping List line and a plan's words are now at most 2,000 characters, and a cooking's note 10,000, at every instance and both Doors.)_
+
 The README had pictures and nothing to try. A stranger deciding whether to install Kamosu had to install it first, and most of what makes it different (a recipe's Thread, two cooks, the agent) only shows on a library that has lived for a while.
 
 ## What was decided

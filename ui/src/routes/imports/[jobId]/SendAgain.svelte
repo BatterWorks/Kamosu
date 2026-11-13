@@ -15,13 +15,13 @@
 	the recipe, where an agent has made one from the same file since.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
 	import { goto } from '$app/navigation';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { aDay } from '$lib/dates';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { aDay } from '#lib/dates.js';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
 
 	interface Props {
 		jobId: string;

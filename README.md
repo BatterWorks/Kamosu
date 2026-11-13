@@ -38,7 +38,7 @@ port, and it sends your data nowhere.
 
 <p align="center">
   <b><a href="https://kamosu.battercloud.cc">&#9654;&nbsp; Try the live demo</a></b>: a family's library of
-  about 40 recipes with their history, where you arrive signed in and can cook and shop. It goes
+  about 40 recipes with their history, where you arrive signed in and can cook, plan and shop. It goes
   back to how it was every morning.
 </p>
 
@@ -120,6 +120,13 @@ port, and it sends your data nowhere.
 - **Scaling and conversions.** Cook for 3 instead of 6 and every amount
   follows. Kamosu shows metric or US measures beside the amounts as written,
   and oven temperatures in the other scale.
+- **A plan for the days ahead.** Put a recipe on a day, or on a week before the
+  day is decided, for as many as you will cook for, and it opens at that amount
+  on the night. Write "leftovers" or "eating out" on a day, and move things
+  around as the week changes. Send planned days to your shopping list, or
+  subscribe to your plan in Apple Calendar or Google Calendar from
+  **Settings › Your plan in your calendar**. A Mealie backup brings its
+  household's meal plan in too.
 - **A shopping list worked out from recipes.** Pick dishes and how many you are
   cooking for. Flour from three recipes becomes one row, added together where
   the units convert and shown side by side where they do not.
@@ -146,8 +153,10 @@ port, and it sends your data nowhere.
   read-only or not, and connects Claude Code, Codex, Hermes or any MCP client
   to `/mcp`. The agent gets every operation the web app uses; nothing is
   web-only.
-- **In English, French and Spanish.** Each person picks the language they read
-  in, and a recipe can carry translations beside the original.
+- **In English, French and Spanish, and Dutch as a preview.** Each person picks
+  the language they read in, and a recipe can carry translations beside the
+  original. The Dutch is machine-translated, and corrections are welcome
+  through the Dutch issue form.
 - **One small, locked-down container.** A distroless, rootless image (no shell,
   runs as an unprivileged user) that deploys with Docker or Podman, on amd64 or
   arm64.
@@ -193,11 +202,11 @@ It is not:
 
 - **A hosted service.** There is no Kamosu cloud and no sync between servers.
   Recipes move between instances as files or Share Links.
-- **A meal planner or nutrition tracker.** A recipe can carry one calorie
-  figure you typed. Kamosu never calculates nutrition from ingredients.
+- **A nutrition tracker.** A recipe can carry one calorie figure you typed.
+  Kamosu never calculates nutrition from ingredients.
 - **A public recipe site.** There is no signup. Every account starts from an
   invite, and nothing is visible to strangers unless you share a link.
-- **Finished.** This is 0.5.0. It is used in one kitchen, and nobody else has
+- **Finished.** This is 0.6.0. It is used in one kitchen, and nobody else has
   run it yet.
 
 ## Quick start
@@ -260,7 +269,7 @@ a proxy must not speak HTTP/2 to it in the clear.
 
 ## Connecting an agent
 
-In Kamosu, open **Settings**, then **Account**, and create an Access Key. Tick
+In Kamosu, open **Settings › Keys for agents**, and create an Access Key. Tick
 **Read-only** if the agent only needs to look things up. The key is shown once.
 Put it in an environment variable, `KAMOSU_ACCESS_KEY` below, in the
 environment that starts your agent. Kamosu's MCP endpoint is
@@ -359,8 +368,8 @@ Either way, you choose the model's provider and pay for the model.
 An instance without a Runner is complete. It reads what it reads, and nothing
 in it waits for one. [docs/runner.md](docs/runner.md) says how to set one up.
 
-An Operator makes the Runner's key under **Settings**, **Administer this
-instance**, on the **Instance** tab. House Notes go there too, rules such as
+An Operator makes the Runner's key under **Settings › Runner and House Notes**.
+House Notes go there too, rules such as
 "grams, never cups" that every Job's agent follows.
 
 ## Meaning Search
@@ -415,20 +424,23 @@ No environment variable is required.
 | `KAMOSU_PORT` | `5266` | Port to listen on. |
 | `KAMOSU_DATA_DIR` | `/data` | The folder that holds everything. Inside the container, leave it alone and change the mount instead. |
 | `KAMOSU_LOG` | `info` | Log level, as a `tracing` filter such as `debug` or `kamosu=debug,info`. |
-| `KAMOSU_DEMO_ERASES_LIBRARY_DAILY` | unset | `true` makes this instance a public demo: anyone gets in without a password, and only cooking and shopping save. It erases the library when it starts and every day at 04:00 UTC, putting its Sample Library in its place, so never set it on a Kamosu you keep recipes in. |
+| `KAMOSU_DEMO_ERASES_LIBRARY_DAILY` | unset | `true` makes this instance a public demo: anyone gets in without a password, and only cooking, planning and shopping save. It erases the library when it starts and every day at 04:00 UTC, putting its Sample Library in its place, so never set it on a Kamosu you keep recipes in. |
 | `KAMOSU_DEMO_PUBLIC_ADDRESS` | unset | In a demo only, the address visitors reach it at, such as `https://demo.example.com`. The demo's shared recipe builds its link on it. Stored at every start, since a demo refuses to change the address from its settings. Without demo mode, Kamosu ignores it: an ordinary instance keeps its address in Settings. |
 | `KAMOSU_DEMO_UMAMI_SCRIPT` | unset | In a demo only, the address of an Umami script to count visits with, such as `https://umami.example.com/script.js`. The demo's pages load it and let its address through their security policy. It must send its counts to its own address, as a self-hosted Umami does. Without demo mode, Kamosu ignores it and sends nothing anywhere. |
 | `KAMOSU_DEMO_UMAMI_WEBSITE_ID` | unset | The website id Umami gave the demo. Needed with `KAMOSU_DEMO_UMAMI_SCRIPT`; one without the other counts nothing. |
+
+Kamosu fetches a link's page and pictures itself, from public internet addresses only, and ignores `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY`. Through a proxy, Kamosu could not tell whether a link leads into your own network.
 
 ## Running a demo
 
 `KAMOSU_DEMO_ERASES_LIBRARY_DAILY=true` turns an instance into a public demo,
 like [the live one](https://kamosu.battercloud.cc). Anyone who opens it
 arrives signed in, with nothing to type, as Camille, who runs the instance, so
-every screen opens. Cooking and shopping save. Anything else that would change
-the library, reach beyond it or do work for a visitor is refused with a note
-that this is a demo: creating or editing a recipe, importing, uploading a
-photo, fetching a link, accounts, keys, Kitchens and every Operator setting.
+every screen opens. Cooking, planning and shopping save. Anything else that
+would change the library, reach beyond it or do work for a visitor is refused
+with a note that this is a demo: creating or editing a recipe, importing,
+uploading a photo, fetching a link, accounts, keys, Kitchens and every Operator
+setting.
 
 It erases the library when it starts and every day at 04:00 UTC, and puts its
 Sample Library in its place: about 40 recipes with their versions, cookings and
@@ -484,13 +496,15 @@ docker exec kamosu /app/kamosu recover "Your Name"
 
 It prints a path starting `/recover/`. Open it after your Kamosu's address
 (`https://your-kamosu/recover/...`) and choose a new password. Setting it signs
-out every device and ends every Access Key and Runner Key you held, so a
-Runner needs a new key afterwards. Another
-Operator can also send you one from **Settings › People**.
+out every device, ends every Access Key and Runner Key you held and removes
+your passkeys, so a Runner needs a new key afterwards and you add your
+passkeys again. Only the newest link works. Another Operator can also send you
+one from **Settings › People**, which lists the links not yet used.
 
-**Podman shows no health status.** The `podman-*` images are built in
-Podman's own format, which has no field for a health check. The
-[`docker-compose.yml`](docker-compose.yml) declares one, so use it, or add
+**Podman shows no health status on an older image.** Releases through 0.5.0
+carried no health check Podman could read on amd64. Upgrade to 0.6.0 or later. The
+[`docker-compose.yml`](docker-compose.yml) declares one, so use it with the
+image written as `docker.io/battermanz/kamosu:latest`, or add
 `--health-cmd '["/app/kamosu", "health-check"]' --health-interval 30s` to
 `podman run`.
 

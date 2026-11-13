@@ -8,7 +8,7 @@
  * answers.
  *
  * A screen takes the uploader from context, exactly as it takes its client
- * (`$lib/kamosu`) and its authentication (`$lib/auth`): the layout provides
+ * (`#lib/kamosu`) and its authentication (`#lib/auth`): the layout provides
  * the real one, a test provides a stand-in, and a screen never reaches the
  * network itself.
  */

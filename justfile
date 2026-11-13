@@ -252,11 +252,14 @@ dev-session-end label:
     @node ui/tools/dev-session.mjs end "{{label}}"
 
 # Photograph each path on the dev instance at every size, whole page, into
-# <folder> as <path>.<size>.png. Fails when a page logged a console error or
-# scrolls sideways. Take the "before" set when a ticket is claimed, while the
+# <folder> as <path>.<size>.png, or in pieces <path>.<size>-1.png, -2.png...
+# when the page is taller than one picture may be (#522). Fails when a page
+# logged a console error, scrolls sideways or could not be photographed, after
+# taking every other size. Take the "before" set when a ticket is claimed, while the
 # worktree is still clean, and the "after" set once it is built. Add --webkit
 # to run it in Safari's engine, fetched once with
-# `cd ui && npx playwright install webkit`.
+# `cd ui && npx playwright install webkit`, and --locale nl to draw the
+# screens in another Language the interface speaks (#496).
 screens folder +$paths:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -361,15 +364,23 @@ ui-test:
 # the limit in ui/check-messages.mjs (issue #141).
 #
 # The corpus checks need naming one by one. They carry `test = false` so
-# `just test` does not link eleven binaries to run nothing (see Cargo.toml), and
-# `--all-targets` skips a `test = false` target — so without this second pass
+# `just test` does not link twelve binaries to run nothing (see Cargo.toml), and
+# `--all-targets` skips a `test = false` target — so without the third pass
 # they would quietly stop compiling and nobody would find out until someone ran
 # one by hand. Type-checking them costs about two seconds, because clippy reads
-# them without linking; it was the linking that was expensive. The same pass
-# lints the Runner's tests, which compile only in a `test-jobs` build (#274).
+# them without linking; it was the linking that was expensive. They cannot ride
+# on the second pass: cargo drops every `--test` named beside `--all-targets`.
+#
+# The second pass lints every target with `test-jobs` on, as `just test` builds
+# them: the Runner's tests compile only then (#274), and so does every
+# `#[cfg(feature = "test-jobs")]` block in the behaviour suite (#513). The first
+# pass stays all the same: it alone lints Kamosu as a release builds it, with
+# the feature off, and the `#[cfg(not(feature = "test-jobs"))]` code in the
+# tests.
 check: _check-tokens-fresh _check-client-fresh _check-cover-fresh _check-messages ui-format-check ui-lint ui-check
     cargo fmt --check && cargo clippy --all-targets -- -D warnings
-    cargo clippy --features test-jobs {{ CORPUS_TARGETS }} --test runner -- -D warnings
+    cargo clippy --features test-jobs --all-targets -- -D warnings
+    cargo clippy --features test-jobs {{ CORPUS_TARGETS }} -- -D warnings
 
 # Every tests/*_corpus.rs and the release's library check, as clippy target
 # flags. One list, used by `check`.
@@ -377,6 +388,9 @@ CORPUS_TARGETS := "--test cooking_corpus --test crouton_corpus --test home_corpu
 
 # svelte-check in strict mode, with Svelte's accessibility warnings treated as
 # failures (ADR 0012): the compiler is the reviewer this frontend does not have.
+# Paraglide's output is compiled first, by the `check` script in
+# ui/package.json, so a checkout that has never built has what svelte-check
+# reads (#532).
 ui-check:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -476,7 +490,9 @@ audit:
 _npm-deps:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ ! -d ui/node_modules ]]; then
+    # Again when the lockfile is newer than the last install, so a pull that
+    # adds a package installs it (#532).
+    if [[ ! -d ui/node_modules || ui/package-lock.json -nt ui/node_modules/.package-lock.json ]]; then
         echo "installing ui dependencies (npm ci)"
         ( cd ui && npm ci --no-audit --no-fund >/dev/null )
     fi

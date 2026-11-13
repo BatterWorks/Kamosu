@@ -146,17 +146,20 @@ pub fn router(core: Arc<Core>) -> Router {
 
 // ── The words ────────────────────────────────────────────────────────────────
 
-/// The page's own words, in the three Languages Kamosu speaks.
+/// The page's own words, in the Languages Kamosu speaks.
 ///
 /// Written here rather than compiled by Paraglide because this page is Rust and
 /// Paraglide compiles to TypeScript. They are the only prose the server
 /// renders; anything else belongs in the app, where Paraglide already checks
-/// that all three Languages carry every phrase.
+/// that every Language carries every phrase.
 ///
 /// The Language chosen is the **recipe's**, not the reader's — a stranger
 /// arriving from a link has told Kamosu nothing, and the one thing known about
 /// what they are about to read is what it is written in.
 struct Words {
+    /// The Language's own name, written in itself, as the list of
+    /// Translations shows it (#588).
+    name: &'static str,
     sent_you: &'static str,
     ingredients: &'static str,
     method: &'static str,
@@ -191,8 +194,13 @@ struct Words {
     shared_by: &'static str,
     ended_title: &'static str,
     ended_body: &'static str,
-    min_prep: &'static str,
-    min_cook: &'static str,
+    /// The labels under a time in the strip. The figure carries its own
+    /// unit, `1 h 30`, so the label is only which time it is (#175, #521).
+    prep: &'static str,
+    cook: &'static str,
+    /// The name a Step's photograph square is read out by (#110, #521).
+    /// `{number}` is the Step's number as the list shows it.
+    step_photo_open: &'static str,
     /// The Nutrition figure at the foot of the Ingredients (#84), in its two
     /// bases. `{n}` is the number. A phrase rather than a label, because the
     /// figure has to say what it counts wherever it appears: 308 on its own
@@ -215,6 +223,7 @@ struct Words {
 }
 
 const EN: Words = Words {
+    name: "English",
     sent_you: "sent you this recipe",
     ingredients: "Ingredients",
     method: "Method",
@@ -239,8 +248,9 @@ const EN: Words = Words {
     ended_body: "The person who shared this recipe turned its link off. Ending a link cannot \
                  reach a copy already sent, so somebody may still have this recipe — but this \
                  address no longer opens it.",
-    min_prep: "min prep",
-    min_cook: "min cook",
+    prep: "prep",
+    cook: "cook",
+    step_photo_open: "Show the photograph of step {number}",
     kcal_serving: "{n} kcal a serving",
     kcal_100g: "{n} kcal per 100 g",
     component_method: "its own method",
@@ -248,6 +258,7 @@ const EN: Words = Words {
 };
 
 const FR: Words = Words {
+    name: "Français",
     sent_you: "vous a envoyé cette recette",
     ingredients: "Ingrédients",
     method: "Préparation",
@@ -272,8 +283,9 @@ const FR: Words = Words {
     ended_body: "La personne qui a partagé cette recette a mis fin à son lien. Mettre fin à un \
                  lien n'atteint aucune copie déjà envoyée : quelqu'un a peut-être encore cette \
                  recette, mais cette adresse ne l'ouvre plus.",
-    min_prep: "min prép.",
-    min_cook: "min cuisson",
+    prep: "prépa",
+    cook: "cuisson",
+    step_photo_open: "Afficher la photo de l'étape {number}",
     kcal_serving: "{n} kcal par portion",
     kcal_100g: "{n} kcal pour 100 g",
     component_method: "sa propre préparation",
@@ -281,6 +293,7 @@ const FR: Words = Words {
 };
 
 const ES: Words = Words {
+    name: "Español",
     sent_you: "te ha enviado esta receta",
     ingredients: "Ingredientes",
     method: "Preparación",
@@ -305,30 +318,71 @@ const ES: Words = Words {
     ended_body: "La persona que compartió esta receta terminó su enlace. Terminar un enlace no \
                  alcanza ninguna copia ya enviada: puede que alguien todavía tenga esta receta, \
                  pero esta dirección ya no la abre.",
-    min_prep: "min prep.",
-    min_cook: "min cocción",
+    prep: "prep",
+    cook: "cocción",
+    step_photo_open: "Mostrar la foto del paso {number}",
     kcal_serving: "{n} kcal por ración",
     kcal_100g: "{n} kcal por 100 g",
     component_method: "su propia preparación",
     component_method_below: "Su preparación está al pie de la página ↓",
 };
 
-fn words(language: &str) -> &'static Words {
-    match language {
-        "fr" => &FR,
-        "es" => &ES,
-        _ => &EN,
-    }
+const NL: Words = Words {
+    name: "Nederlands",
+    sent_you: "stuurde je dit recept",
+    ingredients: "Ingrediënten",
+    method: "Bereiding",
+    from_source: "Van",
+    source_opens: "opent de oorspronkelijke pagina",
+    also_in: "Ook geschreven in het",
+    history: "Geschiedenis",
+    import: "Dit recept importeren",
+    bundle: "Receptbestand",
+    file_note: "Een zip met leesbare notities en foto's die overal opent. Een andere Kamosu \
+                neemt het in zijn geheel over, met elke versie erachter.",
+    sheet: "Recept op papier afdrukken",
+    sheet_making: "Je recept op papier wordt gemaakt",
+    sheet_making_body: "Dit duurt even. Het opent hier vanzelf zodra het klaar is.",
+    sheet_failed: "Het recept op papier kon niet worden gemaakt",
+    file_failed: "Het receptbestand kon niet worden gemaakt",
+    written_down: "Geschreven",
+    standing: "Deze link bevat elke versie van dit recept, tot en met de eerste. Beëindigen \
+                houdt nieuwe bezoekers tegen, geen kopieën die al zijn verstuurd.",
+    shared_by: "Gedeeld door {name}",
+    ended_title: "Deze link is beëindigd",
+    ended_body: "Degene die dit recept deelde, heeft de link uitgezet. Een link beëindigen \
+                 bereikt geen kopie die al is verstuurd, dus iemand kan dit recept nog hebben, \
+                 maar dit adres opent het niet meer.",
+    prep: "voorbereidingstijd",
+    cook: "kooktijd",
+    step_photo_open: "Toon de foto van stap {number}",
+    kcal_serving: "{n} kcal per portie",
+    kcal_100g: "{n} kcal per 100 g",
+    component_method: "de eigen bereiding",
+    component_method_below: "De bereiding staat onder aan de pagina ↓",
+};
+
+/// Every Language the page is written in, with its words. `words()` reads
+/// this list and the tests walk it, so a Language added to one is in both.
+const PAGE_WORDS: [(&str, &Words); 4] = [("en", &EN), ("fr", &FR), ("es", &ES), ("nl", &NL)];
+
+/// The page's words in a Language, if the page is written in it.
+fn page_words(language: &str) -> Option<&'static Words> {
+    PAGE_WORDS
+        .iter()
+        .find(|(code, _)| *code == language)
+        .map(|(_, words)| *words)
 }
 
-/// The name of a Language, written in itself.
+fn words(language: &str) -> &'static Words {
+    page_words(language).unwrap_or(&EN)
+}
+
+/// The name of a Language, written in itself. It is read off `PAGE_WORDS`, so
+/// every Language the page is written in has one (#588). A code the page does
+/// not know shows a dash rather than another Language's name.
 fn language_name(language: &str) -> &'static str {
-    match language {
-        "fr" => "Français",
-        "es" => "Español",
-        "en" => "English",
-        _ => "—",
-    }
+    page_words(language).map_or("—", |words| words.name)
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -659,6 +713,7 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
   <div class="overflow-hidden rounded-sm border border-rule bg-card">
     {hero}
     <div class="px-6 pt-6 pb-8">
+      {branch_name}
       {source_on_paper}
       {meta}
       <h2 class="mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">{ingredients_heading}</h2>
@@ -700,14 +755,15 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
 </div>"#,
         sharer_line = format_args!("{} {}", escape(sharer), escape(words.sent_you)),
         hero = hero(token, recipe, content, words),
+        branch_name = branch_name(recipe),
         source_on_paper = source_on_paper(content, words),
         meta = meta(content, words),
         ingredients_heading = escape(words.ingredients),
         ingredients = ingredients(content, carried, words),
         nutrition = nutrition(content, words),
         method_heading = escape(words.method),
-        steps = steps(content),
-        annexes = annexes(carried, words),
+        steps = steps(content, token, words),
+        annexes = annexes(carried, token, words),
         note = note(content),
         translations = translations,
         import = escape(words.import),
@@ -746,10 +802,14 @@ fn open_graph(token: &str, shared: &Value, title: &str, sharer: &str, language: 
             facts.push(format!("{amount} {noun}").trim().to_string());
         }
     }
-    let minutes = content["prep_time_minutes"].as_i64().unwrap_or(0)
-        + content["cook_time_minutes"].as_i64().unwrap_or(0);
+    // Saturating: a time saved before #553 bounded them can be as long as an
+    // i64 holds.
+    let minutes = content["prep_time_minutes"]
+        .as_i64()
+        .unwrap_or(0)
+        .saturating_add(content["cook_time_minutes"].as_i64().unwrap_or(0));
     if minutes > 0 {
-        facts.push(format!("{minutes} min"));
+        facts.push(crate::sheet::duration(minutes));
     }
     if let Some(source) = content["source"].as_object()
         && let Some(text) = source.get("text").and_then(Value::as_str)
@@ -818,6 +878,19 @@ fn hero(token: &str, recipe: &Value, content: &Value, words: &Words) -> String {
     }
 }
 
+/// A named Branch's name, under its title (#131, screen choice 3, #521): a
+/// variation, or a Branch named when two Cookbooks joined, so a stranger sent
+/// one can tell it is one. On paper rather than on the hero, as the app sets
+/// it. A Branch with no name shows nothing.
+fn branch_name(recipe: &Value) -> String {
+    text_at(recipe, "name").map_or(String::new(), |name| {
+        format!(
+            r#"<p class="mb-3 font-display text-list-title font-semibold text-ink">{}</p>"#,
+            escape(name)
+        )
+    })
+}
+
 /// On a Cover the hero carries the title alone: kinari over a dyed ground
 /// clears the title and not the 10.5px Source line, so the Source is set here
 /// instead, on paper (#81). The title is 25px since #88 and still large text at
@@ -883,10 +956,10 @@ fn meta(content: &Value, words: &Words) -> String {
         ));
     };
     if let Some(minutes) = content["prep_time_minutes"].as_i64() {
-        cell(minutes.to_string(), escape(words.min_prep));
+        cell(time_figure(minutes), escape(words.prep));
     }
     if let Some(minutes) = content["cook_time_minutes"].as_i64() {
-        cell(minutes.to_string(), escape(words.min_cook));
+        cell(time_figure(minutes), escape(words.cook));
     }
     if let Some(y) = content["yield"].as_object() {
         cell(
@@ -901,6 +974,23 @@ fn meta(content: &Value, words: &Words) -> String {
         r#"<div class="flex border-y border-rule">{}</div>"#,
         cells.join("")
     )
+}
+
+/// A time in the strip with its unit in the figure, set smaller as the app
+/// sets it: `15 min`, `1 h 30`, `9 h` (#175, #521). The rule is the Sheet's,
+/// so the two server pages and the app write a time the same way.
+fn time_figure(minutes: i64) -> String {
+    crate::sheet::duration_parts(minutes)
+        .into_iter()
+        .enumerate()
+        .map(|(index, (figure, unit))| {
+            let unit = unit.map_or(String::new(), |unit| {
+                format!(r#"<small class="ms-1 text-read font-normal">{unit}</small>"#)
+            });
+            let gap = if index > 0 { r#" class="ms-1""# } else { "" };
+            format!("<span{gap}>{figure}{unit}</span>")
+        })
+        .collect()
 }
 
 /// **The Nutrition figure, closing the Ingredients** (#84) — the treatment
@@ -1107,7 +1197,12 @@ fn section_row(text: &str) -> String {
 /// No subordinate line here either, and for the same reason as an Ingredient
 /// Line: the app's slot holds the oven temperature in *this reader's* measures
 /// (ADR 0016), and a stranger has none to convert to.
-fn steps(content: &Value) -> String {
+///
+/// A Step with a photograph ends in the app's small square (#110, R2, #521).
+/// The page runs no script, so the square is a link to the picture at page
+/// size under the token, which the Core lets through for a Step of the shared
+/// recipe or of a Component it carries.
+fn steps(content: &Value, token: &str, words: &Words) -> String {
     let empty = Vec::new();
     let mut number = 0;
     content["steps"]
@@ -1123,13 +1218,29 @@ fn steps(content: &Value) -> String {
             format!(
                 r#"<li class="flex gap-3 border-b border-rule py-3">
   <span class="w-6 shrink-0 font-display text-line font-semibold text-accent">{number}</span>
-  <p class="min-w-0 flex-1 text-body">{text}</p>
+  <p class="min-w-0 flex-1 text-body">{text}</p>{photo}
 </li>"#,
                 number = number,
                 text = escape(text),
+                photo = text_at(item, "photo")
+                    .map_or(String::new(), |hash| step_photo(token, hash, number, words)),
             )
         })
         .collect()
+}
+
+/// The square a photographed Step ends in, a link to the picture.
+fn step_photo(token: &str, hash: &str, number: usize, words: &Words) -> String {
+    let address = format!("/s/{}/photo/{}", escape(token), escape(hash));
+    format!(
+        r#"
+  <a href="{address}" class="brightens h-[var(--photo-thumb)] w-[var(--photo-thumb)] shrink-0" aria-label="{label}"><img src="{address}" alt="" class="block h-full w-full rounded-sm object-cover"></a>"#,
+        label = escape(
+            &words
+                .step_photo_open
+                .replace("{number}", &number.to_string())
+        ),
+    )
 }
 
 /// **The annexe** (#50, ADR 0008): a Component's own Steps, set at the foot of
@@ -1144,7 +1255,7 @@ fn steps(content: &Value) -> String {
 ///
 /// A Component with no Steps, one this instance does not hold, and one that
 /// stopped at a repeat all contribute nothing here — there is no method to set.
-fn annexes(carried: &[Value], words: &Words) -> String {
+fn annexes(carried: &[Value], token: &str, words: &Words) -> String {
     carried
         .iter()
         .filter(|component| {
@@ -1173,7 +1284,7 @@ fn annexes(carried: &[Value], words: &Words) -> String {
                 // annexe is a long way from the row that named it, and the
                 // screen says it here too.
                 said = escape(text_at(component, "said").unwrap_or("")),
-                steps = steps(&component["content"]),
+                steps = steps(&component["content"], token, words),
             )
         })
         .collect()
@@ -1327,7 +1438,7 @@ mod tests {
                 let escaped: String = class
                     .chars()
                     .flat_map(|ch| {
-                        let needs = matches!(ch, '[' | ']' | '.' | ':' | '/' | '%');
+                        let needs = matches!(ch, '[' | ']' | '(' | ')' | '.' | ':' | '/' | '%');
                         needs.then_some('\\').into_iter().chain(std::iter::once(ch))
                     })
                     .collect();
@@ -1348,19 +1459,41 @@ mod tests {
     /// constant per Language and this pins that it stays one.
     #[test]
     fn the_standing_line_is_fixed_wording_in_every_language() {
-        for words in [&EN, &FR, &ES] {
+        for (code, page_words) in PAGE_WORDS {
             assert!(
-                words.standing.split(". ").count() == 2,
-                "the standing line says both halves"
+                page_words.standing.split(". ").count() == 2,
+                "the {code} standing line says both halves"
             );
-            assert!(!words.standing.is_empty());
+            // And it is not built from anything: the same string every time.
+            assert_eq!(words(code).standing, page_words.standing, "{code}");
         }
-        // And it is not built from anything: the same string every time.
-        assert_eq!(words("en").standing, EN.standing);
-        assert_eq!(words("fr").standing, FR.standing);
-        assert_eq!(words("es").standing, ES.standing);
+        // Each Language says it in its own words, so none fell back to
+        // another's.
+        let mut lines: Vec<&str> = PAGE_WORDS.iter().map(|(_, w)| w.standing).collect();
+        lines.sort_unstable();
+        lines.dedup();
+        assert_eq!(lines.len(), PAGE_WORDS.len());
         // An unknown Language falls back rather than showing nothing.
         assert_eq!(words("de").standing, EN.standing);
+    }
+
+    /// The page is written in every Language Kamosu reads, and no other.
+    #[test]
+    fn the_page_has_words_in_every_language() {
+        let codes: Vec<&str> = PAGE_WORDS.iter().map(|(code, _)| *code).collect();
+        assert_eq!(codes, crate::language::LANGUAGES);
+    }
+
+    /// Every Language Kamosu reads is named on the page in its own words, each
+    /// name its own, and a code the page does not know shows a dash (#588).
+    #[test]
+    fn every_language_has_its_own_name() {
+        let names: Vec<&str> = crate::language::LANGUAGES
+            .iter()
+            .map(|code| language_name(code))
+            .collect();
+        assert_eq!(names, ["English", "Français", "Español", "Nederlands"]);
+        assert_eq!(language_name("de"), "—");
     }
 
     /// A stranger's type follows their phone's text size as a member's does
@@ -1546,5 +1679,165 @@ mod tests {
                 "photo {photo}: {html}"
             );
         }
+    }
+
+    /// The text a page would show for this markup: tags dropped, spaces
+    /// collapsed. Enough to ask what a reader sees in the meta strip.
+    fn shown(html: &str) -> String {
+        let mut text = String::new();
+        let mut in_tag = false;
+        for ch in html.chars() {
+            match ch {
+                '<' => {
+                    in_tag = true;
+                    text.push(' ');
+                }
+                '>' => in_tag = false,
+                _ if !in_tag => text.push(ch),
+                _ => {}
+            }
+        }
+        text.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    /// A time reads as the app reads it (#175, #521): the figure carries its
+    /// unit, and the label beneath is only Prep or Cook. A 9-hour prove read
+    /// `540` over "min prep" before.
+    #[test]
+    fn a_time_in_the_strip_carries_its_own_unit() {
+        for (minutes, figure) in [(540, "9 h"), (90, "1 h 30"), (15, "15 min")] {
+            let content = serde_json::json!({ "prep_time_minutes": minutes });
+            let strip = shown(&meta(&content, &EN));
+            assert_eq!(strip, format!("{figure} prep"), "{minutes} minutes");
+        }
+        let content = serde_json::json!({ "cook_time_minutes": 75 });
+        assert_eq!(shown(&meta(&content, &FR)), "1 h 15 cuisson");
+    }
+
+    /// The chat card's description says the total as the strip would.
+    #[test]
+    fn the_cards_total_time_carries_hours() {
+        let shared = serde_json::json!({
+            "shared_by": "Stéphane",
+            "public_address": "https://kamosu.example",
+            "recipe": { "content": {
+                "title": "Pot roast",
+                "prep_time_minutes": 30,
+                "cook_time_minutes": 60,
+            }},
+        });
+        let tags = open_graph("tok", &shared, "Pot roast", "Stéphane", "en");
+        assert!(
+            tags.contains(r#"og:description" content="1 h 30""#),
+            "{tags}"
+        );
+        assert!(!tags.contains("90 min"), "{tags}");
+    }
+
+    /// A shared recipe as `read_shared_recipe` answers it, cut to what the
+    /// page reads: a Step with a photograph and one without, a Component whose
+    /// own Steps carry one too, and a French Translation of the same.
+    fn shared_with_photographed_steps(name: Value) -> Value {
+        let steps = serde_json::json!([
+            { "kind": "step", "text": "Mix the dough.", "photo": null },
+            { "kind": "step", "text": "Shape the loaves.", "photo": "p_shape" },
+        ]);
+        let component = serde_json::json!({
+            "path": [0],
+            "title": "Poolish",
+            "said": "all of it",
+            "content": { "steps": [
+                { "kind": "step", "text": "Leave it overnight.", "photo": "p_poolish" },
+            ]},
+        });
+        let version = |language: &str, title: &str| {
+            serde_json::json!({
+                "branch_id": format!("b_{language}"),
+                "lineage_id": "l_1848cb7653cb9d93",
+                "language": language,
+                "name": name,
+                "content": {
+                    "title": title,
+                    "main_photo": null,
+                    "ingredients": [],
+                    "steps": steps,
+                },
+                "components": [component],
+            })
+        };
+        serde_json::json!({
+            "ended": false,
+            "shared_by": "Stéphane",
+            "public_address": "https://kamosu.example",
+            "recipe": version("en", "Country loaf"),
+            "translations": [version("fr", "Pain de campagne")],
+            "thread": [],
+        })
+    }
+
+    /// A Step's photograph is the app's small square at the end of its row
+    /// (#110, R2), here a link to the picture under the token, since the page
+    /// runs no script. A Step without one has none.
+    #[test]
+    fn a_photographed_step_ends_in_a_square_that_opens_it() {
+        let shared = shared_with_photographed_steps(Value::Null);
+        let html = render("tok", &shared, None);
+        assert!(
+            html.contains(r#"href="/s/tok/photo/p_shape""#),
+            "the Step's square links to its photograph under the token"
+        );
+        assert!(html.contains(r#"src="/s/tok/photo/p_shape""#));
+        assert!(
+            html.contains(r#"aria-label="Show the photograph of step 2""#),
+            "the square is named by the Step's number: {html}"
+        );
+        assert_eq!(
+            html.matches("photo-thumb").count(),
+            2 * 2,
+            "one square for the photographed Step and one in the annexe, none for the other"
+        );
+        assert!(
+            html.contains(r#"href="/s/tok/photo/p_poolish""#),
+            "a Component's Step in the annexe has its square too"
+        );
+        assert!(!html.contains("/api/photographs"));
+    }
+
+    #[test]
+    fn a_translations_page_draws_its_steps_photographs_in_its_own_language() {
+        let shared = shared_with_photographed_steps(Value::Null);
+        let html = render("tok", &shared, Some("fr"));
+        assert!(html.contains("Pain de campagne"));
+        assert!(html.contains(r#"href="/s/tok/photo/p_shape""#));
+        assert!(html.contains(r#"aria-label="Afficher la photo de l&#39;étape 2""#));
+    }
+
+    /// A variation's name is set under the title (#131, choice 3), so a
+    /// stranger sent one can tell it is one.
+    #[test]
+    fn a_variation_shows_its_name_under_the_title() {
+        let named = render(
+            "tok",
+            &shared_with_photographed_steps(Value::from("Rye <one>")),
+            None,
+        );
+        assert!(named.contains("Rye &lt;one&gt;"), "{named}");
+        let title_at = named.find("Country loaf</h1>").expect("the title");
+        let name_at = named.find("Rye &lt;one&gt;").expect("the name");
+        assert!(title_at < name_at, "the name is set under the title");
+
+        // A Translation's page sets the Translation's own name.
+        let translated = render(
+            "tok",
+            &shared_with_photographed_steps(Value::from("Seigle")),
+            Some("fr"),
+        );
+        assert!(translated.contains("Seigle"), "{translated}");
+
+        let unnamed = render("tok", &shared_with_photographed_steps(Value::Null), None);
+        assert!(
+            !unnamed.contains("text-list-title"),
+            "an unnamed Branch shows nothing extra"
+        );
     }
 }

@@ -10,8 +10,8 @@ import type {
 	OperationName,
 	ShoppingBasisOutput,
 	StartAttemptOutput,
-} from '$lib/api/catalogue';
-import { OperationError } from '$lib/api/client';
+} from '#lib/api/catalogue.js';
+import { OperationError } from '#lib/api/client.js';
 import { Outbox, type Kept, type Pictures } from './outbox';
 
 const attempt = (over: Partial<StartAttemptOutput> = {}): StartAttemptOutput => ({
@@ -104,6 +104,7 @@ function world(
 		forget: async (name) => void pictures.delete(name),
 	};
 	const told = vi.fn();
+	const landed = vi.fn();
 	const outbox = new Outbox({
 		inner,
 		storage: {
@@ -127,6 +128,7 @@ function world(
 		now: () => new Date((clock += 60_000)),
 		mint: () => (minted += 1).toString(16).padStart(16, '0'),
 		told,
+		landed,
 	});
 	return {
 		outbox,
@@ -136,6 +138,7 @@ function world(
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			outbox.transport(operation, input) as Promise<any>,
 		sent,
+		landed,
 		pictures,
 		uploaded,
 		told,
@@ -236,8 +239,16 @@ describe('writing with no network', () => {
 			attempt_id: started.id,
 			version_id: 'v_2',
 			started_at: started.created_at,
+			// So the cooking still lands if the recipe is gone by now (#537).
+			lineage_id: 'l_1',
 		});
 		expect(sent[0].input.written_at).toBeUndefined();
+		// Each with the phone's clock as it went, which the server moves the
+		// times by (#537), and never earlier than the time it carries.
+		for (const each of sent) {
+			const when = (each.input.written_at ?? each.input.started_at) as string;
+			expect(Date.parse(each.input.sent_at as string)).toBeGreaterThan(Date.parse(when));
+		}
 		const whens = sent.slice(1).map((each) => each.input.written_at as string);
 		expect(whens.every(Boolean)).toBe(true);
 		expect([...whens].sort()).toEqual(whens);
@@ -342,6 +353,34 @@ describe('writing with no network', () => {
 		expect(at.kept()?.queue.map((each) => each.operation)).toEqual(['add_loose_item']);
 		busy = false;
 		await at.outbox.flush();
+		expect(at.kept()?.queue).toEqual([]);
+	});
+
+	it('waits for a Session that has ended, and drops only what the Person may not do (#537)', async () => {
+		let refusal: OperationError | undefined = new OperationError(
+			'add_loose_item',
+			'unauthorized',
+			'this Credential does not name anyone',
+			{ reason: 'credential_names_nobody' },
+		);
+		const at = world({
+			add_loose_item: () => refusal ?? { chosen: [], rows: [] },
+			get_shopping_list: () => ({ chosen: [], rows: [] }),
+			get_reading_preferences: () => ({ reading_language: 'en', reading_measures: 'metric' }),
+		});
+		await at.call('get_shopping_list');
+		await at.call('get_reading_preferences');
+		at.offline();
+		await at.call('add_loose_item', { text: 'saffron' });
+		at.online();
+		await at.outbox.flush();
+		expect(at.kept()?.queue.map((each) => each.operation)).toEqual(['add_loose_item']);
+
+		// Signed in again, and refused for something else: that write is its own.
+		refusal = new OperationError('add_loose_item', 'unauthorized', 'not yours to change');
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		await at.outbox.flush();
+		warn.mockRestore();
 		expect(at.kept()?.queue).toEqual([]);
 	});
 
@@ -504,6 +543,286 @@ describe('the Shopping List with no network', () => {
 			item_id: expect.stringMatching(/^i_/),
 		});
 		expect(at.kept()?.shopping).toBeNull();
+	});
+});
+
+describe('the Meal Plan with no network (#486)', () => {
+	const meal = (over: Record<string, unknown>) => ({
+		planned_meal_id: 'pm_server0000000001',
+		week: '2026-11-02',
+		day: '2026-11-05',
+		position: 0,
+		branch_id: 'b_tart',
+		words: null,
+		title: 'Tarte',
+		gone: false,
+		planned_yield: null,
+		written_yield: { amount: '4', noun: 'servings' },
+		main_photo: null,
+		...over,
+	});
+	const week = { from: '2026-11-02', to: '2026-11-08' };
+
+	it('lays its changes over the week it last read, and hands back to the server after', async () => {
+		const at = world({
+			get_meal_plan: () => ({ planned_meals: [meal({})] }),
+			get_recipe: () => recipe,
+			plan_recipe: () => ({ planned_meal: null }),
+			set_planned_yield: () => ({ planned_meal: null }),
+			remove_planned_meal: () => ({ planned_meal: null }),
+		});
+		await at.call('get_meal_plan', week);
+		await at.call('get_recipe', { branch_id: 'b_1' });
+		at.offline();
+
+		const planned = await at.call('plan_recipe', {
+			branch_id: 'b_1',
+			day: '2026-11-05',
+			planned_yield: { amount: '6', noun: 'servings' },
+		});
+		expect(planned.planned_meal).toMatchObject({
+			planned_meal_id: expect.stringMatching(/^pm_[0-9a-f]{16}$/),
+			title: 'Katsu Curry',
+			planned_yield: { amount: '6', noun: 'servings' },
+		});
+		const changed = await at.call('set_planned_yield', {
+			planned_meal_id: 'pm_server0000000001',
+			planned_yield: { amount: '2', noun: '' },
+		});
+		expect(changed.planned_meal.planned_yield).toEqual({ amount: '2', noun: '' });
+
+		const read = await at.call('get_meal_plan', week);
+		expect(read.planned_meals.map((each: { title: string }) => each.title)).toEqual([
+			'Tarte',
+			'Katsu Curry',
+		]);
+		expect(read.planned_meals[0].planned_yield).toEqual({ amount: '2', noun: '' });
+		await at.call('remove_planned_meal', { planned_meal_id: 'pm_server0000000001' });
+		const after = await at.call('get_meal_plan', week);
+		expect(after.planned_meals.map((each: { title: string }) => each.title)).toEqual([
+			'Katsu Curry',
+		]);
+
+		at.online();
+		await at.outbox.flush();
+		const sent = at.sent.slice(-3);
+		expect(sent.map((each) => each.operation)).toEqual([
+			'plan_recipe',
+			'set_planned_yield',
+			'remove_planned_meal',
+		]);
+		expect(sent[0].input).toMatchObject({
+			planned_meal_id: planned.planned_meal.planned_meal_id,
+			written_at: expect.any(String),
+		});
+		expect(at.kept()?.plan).toBeNull();
+		expect(at.told).toHaveBeenCalledWith(expect.arrayContaining(['get_meal_plan']));
+	});
+
+	it('drops "cooked" from a meal moved to another day with no network, and keeps it on its own (#489)', async () => {
+		const at = world({
+			get_meal_plan: () => ({
+				planned_meals: [
+					meal({ cooked: true }),
+					meal({ planned_meal_id: 'pm_server0000000002', position: 1, cooked: true }),
+				],
+			}),
+			move_planned_meal: () => ({ planned_meal: null }),
+		});
+		await at.call('get_meal_plan', week);
+		at.offline();
+
+		await at.call('move_planned_meal', {
+			planned_meal_id: 'pm_server0000000001',
+			day: '2026-11-06',
+		});
+		await at.call('move_planned_meal', {
+			planned_meal_id: 'pm_server0000000002',
+			day: '2026-11-05',
+			position: 0,
+		});
+		const read = await at.call('get_meal_plan', week);
+		expect(
+			read.planned_meals.map((each: { planned_meal_id: string; cooked: boolean }) => [
+				each.planned_meal_id,
+				each.cooked,
+			]),
+		).toEqual([
+			['pm_server0000000002', true],
+			['pm_server0000000001', false],
+		]);
+	});
+
+	it('writes words, moves and reorders with no network, as the server will (#487)', async () => {
+		const at = world({
+			get_meal_plan: () => ({
+				planned_meals: [
+					meal({}),
+					meal({ planned_meal_id: 'pm_server0000000002', position: 1, title: 'Soupe' }),
+				],
+			}),
+			plan_words: () => ({ planned_meal: null }),
+			set_planned_words: () => ({ planned_meal: null }),
+			move_planned_meal: () => ({ planned_meal: null }),
+		});
+		await at.call('get_meal_plan', week);
+		at.offline();
+
+		const written = await at.call('plan_words', { words: ' Leftovers ', week: '2026-11-02' });
+		expect(written.planned_meal).toMatchObject({
+			planned_meal_id: expect.stringMatching(/^pm_[0-9a-f]{16}$/),
+			week: '2026-11-02',
+			day: null,
+			words: 'Leftovers',
+			branch_id: null,
+		});
+		const id = written.planned_meal.planned_meal_id;
+		await at.call('set_planned_words', { planned_meal_id: id, words: 'Leftovers, again' });
+		// The soup to the top of Thursday, and the tart to the week with no day.
+		await at.call('move_planned_meal', {
+			planned_meal_id: 'pm_server0000000002',
+			day: '2026-11-05',
+			position: 0,
+		});
+		await at.call('move_planned_meal', {
+			planned_meal_id: 'pm_server0000000001',
+			week: '2026-11-02',
+			position: 0,
+		});
+
+		// The words back above the tart, in a list that keeps both.
+		await at.call('move_planned_meal', { planned_meal_id: id, week: '2026-11-02', position: 0 });
+
+		// A read from the Saturday still has the week's meals with no day.
+		const read = await at.call('get_meal_plan', week);
+		expect(
+			read.planned_meals.map((each: { title: string | null; words: string | null }) => [
+				each.title ?? each.words,
+			]),
+		).toEqual([['Leftovers, again'], ['Tarte'], ['Soupe']]);
+		const saturday = await at.call('get_meal_plan', { from: '2026-11-07', to: '2026-11-20' });
+		expect(saturday.planned_meals.map((each: { day: string | null }) => each.day)).toEqual([
+			null,
+			null,
+		]);
+
+		at.online();
+		await at.outbox.flush();
+		expect(at.sent.slice(-5).map((each) => each.operation)).toEqual([
+			'plan_words',
+			'set_planned_words',
+			'move_planned_meal',
+			'move_planned_meal',
+			'move_planned_meal',
+		]);
+		expect(at.sent.at(-5)?.input).toMatchObject({
+			planned_meal_id: id,
+			written_at: expect.any(String),
+		});
+		expect(at.kept()?.plan).toBeNull();
+	});
+
+	it('forgets a meal a later read no longer holds, so a move offline does not bring it back (#487)', async () => {
+		let held = [
+			meal({}),
+			meal({ planned_meal_id: 'pm_server0000000002', position: 1, title: 'Soupe' }),
+		];
+		const at = world({
+			get_meal_plan: () => ({ planned_meals: held }),
+			move_planned_meal: () => ({ planned_meal: null }),
+		});
+		await at.call('get_meal_plan', week);
+		// Another device took the soup off; this phone reads the week again.
+		held = [meal({})];
+		await at.call('get_meal_plan', week);
+		at.offline();
+
+		await at.call('move_planned_meal', {
+			planned_meal_id: 'pm_server0000000001',
+			day: '2026-11-05',
+			position: 0,
+		});
+		const read = await at.call('get_meal_plan', week);
+		expect(read.planned_meals.map((each: { title: string }) => each.title)).toEqual(['Tarte']);
+	});
+
+	it('changes offline a meal it planned online, before any read of the plan', async () => {
+		const at = world({
+			plan_recipe: () => ({ planned_meal: meal({ planned_meal_id: 'pm_server0000000009' }) }),
+			set_planned_yield: () => ({ planned_meal: null }),
+		});
+		await at.call('plan_recipe', { branch_id: 'b_tart', day: '2026-11-05' });
+		at.offline();
+
+		const changed = await at.call('set_planned_yield', {
+			planned_meal_id: 'pm_server0000000009',
+			planned_yield: { amount: '3', noun: '' },
+		});
+		expect(changed.planned_meal).toMatchObject({
+			title: 'Tarte',
+			planned_yield: { amount: '3', noun: '' },
+		});
+	});
+
+	it('forgets a meal taken off online, so no change offline brings it back', async () => {
+		const at = world({
+			get_meal_plan: () => ({ planned_meals: [meal({})] }),
+			remove_planned_meal: () => ({ planned_meal: null }),
+		});
+		await at.call('get_meal_plan', week);
+		await at.call('remove_planned_meal', { planned_meal_id: 'pm_server0000000001' });
+		at.offline();
+
+		await expect(
+			at.call('set_planned_yield', {
+				planned_meal_id: 'pm_server0000000001',
+				planned_yield: null,
+			}),
+		).rejects.toThrow();
+	});
+
+	it('cannot plan a recipe the phone has never held', async () => {
+		const at = world({});
+		at.offline();
+		await expect(
+			at.call('plan_recipe', { branch_id: 'b_unknown', day: '2026-11-05' }),
+		).rejects.toThrow();
+	});
+
+	it('holds a send to the Shopping List, answers that it waits, and says what it did once it lands (#488)', async () => {
+		const sentAnswer = {
+			outcome: 'refused',
+			sent: [],
+			already_sent: [],
+			skipped: [],
+			planned_meals: [meal({ sent_factor: null, sent_at: null })],
+			shopping_list: { chosen: [], rows: [] },
+		};
+		const at = world({
+			get_shopping_list: () => ({ chosen: [], rows: [] }),
+			send_to_shopping_list: () => sentAnswer,
+		});
+		await at.call('get_shopping_list');
+		at.offline();
+
+		const held = await at.call('send_to_shopping_list', { weeks: ['2026-11-02'] });
+		expect(held).toMatchObject({ outcome: 'waiting', sent: [], planned_meals: [] });
+		expect(at.landed).not.toHaveBeenCalled();
+
+		at.online();
+		await at.outbox.flush();
+		expect(at.sent.at(-1)).toMatchObject({
+			operation: 'send_to_shopping_list',
+			input: { weeks: ['2026-11-02'], written_at: expect.any(String) },
+		});
+		expect(at.landed).toHaveBeenCalledWith(sentAnswer);
+		expect(at.told).toHaveBeenCalledWith(
+			expect.arrayContaining(['get_meal_plan', 'get_shopping_list']),
+		);
+
+		// Online, it goes straight through and lands nothing later.
+		await at.call('send_to_shopping_list', { days: ['2026-11-05'] });
+		expect(at.landed).toHaveBeenCalledTimes(1);
 	});
 });
 

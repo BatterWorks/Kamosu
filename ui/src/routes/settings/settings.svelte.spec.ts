@@ -10,7 +10,7 @@
  * longer serves.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, screen, fireEvent, within, waitFor } from '@testing-library/svelte';
 import Settings from './+page.svelte';
 import SettingsMenu from './SettingsMenu.svelte';
@@ -24,24 +24,45 @@ import Cookbook from './cookbook/+page.svelte';
 import Tags from './tags/+page.svelte';
 import About from './about/+page.svelte';
 import { renderScreen, type ScreenComponent } from '../../testing/render';
-import type { Answers } from '$lib/api/stand-in';
+import type { Answers } from '#lib/api/stand-in.js';
 import { went } from '../../testing/navigation';
-import type { GetCookbookOutput, MeaningSearchStatusOutput } from '$lib/api/catalogue';
+import type { GetCookbookOutput, MeaningSearchStatusOutput } from '#lib/api/catalogue.js';
 import { cookbookLabel, kitchenAnswer } from '../../testing/recipes';
-import { holdTheInstallOffer } from '$lib/offline/device.svelte';
-import { signingIn } from '$lib/shell/signing-in.svelte';
+import { holdTheInstallOffer } from '#lib/offline/device.svelte.js';
+import { signingIn } from '#lib/shell/signing-in.svelte.js';
 import { offerToInstall } from '../../testing/install';
-import { demo } from '$lib/demo.svelte';
+import { demo } from '#lib/demo.svelte.js';
+import * as runtime from '#lib/paraglide/runtime.js';
 
 /**
  * Paraglide's `setLocale` reloads the page, which jsdom cannot do. What a test
  * wants to know is whether the interface was asked to change, and to what.
+ *
+ * It is replaced through Paraglide's own `overwriteSetLocale`, never `vi.mock`
+ * (#590). Test files share one module cache (isolation is off in the config),
+ * and `as-a-cook.svelte.spec.ts` imports every settings page. Where that file
+ * ran first in the same worker, the Language page was already bound to the
+ * real runtime, so a mock reached nothing: the click ran the real `setLocale`,
+ * which wrote French into storage, and every test after it read French.
+ * `overwriteSetLocale` swaps the function the runtime exports, which a page
+ * imported earlier reads too.
+ *
+ * A call with `reload: false` is Paraglide recording a locale it has resolved
+ * (`getLocale` makes one the first time it runs), or a screen that changes
+ * words in place, as the story does. It goes to the real function and is not
+ * counted as the interface being asked to change. The arguments pass on as
+ * they came, so a call made with one is recorded with one.
  */
-const { setLocale } = vi.hoisted(() => ({ setLocale: vi.fn() }));
-vi.mock('$lib/paraglide/runtime', async (original) => ({
-	...(await original<typeof import('$lib/paraglide/runtime')>()),
-	setLocale,
-}));
+const setLocale = vi.fn();
+const realSetLocale = runtime.setLocale;
+beforeAll(() =>
+	runtime.overwriteSetLocale((...asked) =>
+		asked[1]?.reload === false ? realSetLocale(...asked) : setLocale(...asked),
+	),
+);
+afterAll(() => runtime.overwriteSetLocale(realSetLocale));
+/** Whatever a test changed the locale to is gone before the next one starts. */
+afterEach(() => localStorage.removeItem(runtime.localStorageKey));
 
 /** An instance at an https:// name where nobody has added a passkey yet (#370). */
 const NO_PASSKEYS = {
@@ -57,10 +78,6 @@ const NO_PASSKEYS = {
  * visitor would be refused — the same shape a stranger meets at either Door. */
 const anonymous: Answers = {
 	list_sessions: { refuse: 'unauthorized' },
-	// Whether this Person administers the instance is learnt by asking
-	// something only an Operator may ask (#103). A stranger is refused, and the
-	// way into the Operator's screen is simply not there.
-	list_accounts: { refuse: 'unauthorized' },
 	list_passkeys: { refuse: 'unauthorized' },
 	list_access_keys: { refuse: 'unauthorized' },
 	get_reading_preferences: { refuse: 'unauthorized' },
@@ -112,9 +129,8 @@ function cookbookOf(over: Partial<GetCookbookOutput> = {}): GetCookbookOutput {
 const readsInAmerican: Answers = {
 	get_reading_preferences: { reading_language: 'en', reading_measures: 'us' },
 	// Who is signed in, and what they are called (#113).
-	get_person: { person_id: 'p_1', name: 'Stéphane' },
-	// A signed-in Person who does not administer the instance (#103).
-	list_accounts: { refuse: 'unauthorized' },
+	// A signed-in Person who does not administer the instance (#103, #533).
+	get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: false },
 	// Meaning Search as most instances have it: nobody has been asked, so this
 	// screen shows nothing about it at all. It is not where the feature is
 	// discovered — that is inside *nothing found* (ADR 0029) — so its absence
@@ -187,17 +203,7 @@ describe('the settings screen', () => {
 	it("shows an Operator the instance's group, People first (#469)", async () => {
 		renderScreen(Settings, {
 			...readsInAmerican,
-			list_accounts: {
-				accounts: [
-					{
-						name: 'Stéphane',
-						is_operator: true,
-						disabled: false,
-						is_you: true,
-						created_at: '2026-01-04T10:00:00Z',
-					},
-				],
-			},
+			get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: true },
 		});
 
 		expect(await screen.findByRole('link', { name: /People/ })).toHaveAttribute(
@@ -265,7 +271,6 @@ describe('the settings screen', () => {
 				passkey_origin: null,
 				demo: false,
 			},
-			list_accounts: { refuse: 'unauthorized' },
 			list_sessions: { sessions: [] },
 			...readsInAmerican,
 			list_passkeys: NO_PASSKEYS,
@@ -297,7 +302,6 @@ describe('the settings screen', () => {
 				passkey_origin: null,
 				demo: false,
 			},
-			list_accounts: { refuse: 'unauthorized' },
 			list_sessions: {
 				sessions: [
 					{
@@ -435,17 +439,7 @@ describe('the settings screen', () => {
 			},
 			list_sessions: { sessions: [] },
 			...readsInAmerican,
-			list_accounts: {
-				accounts: [
-					{
-						name: 'Stéphane',
-						is_operator: true,
-						disabled: false,
-						is_you: true,
-						created_at: '2026-01-04T10:00:00Z',
-					},
-				],
-			},
+			get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: true },
 			list_passkeys: NO_PASSKEYS,
 			list_access_keys: {
 				access_keys: [
@@ -508,7 +502,6 @@ describe('the settings screen', () => {
 			},
 			list_sessions: { sessions: [] },
 			...readsInAmerican,
-			list_accounts: { refuse: 'unauthorized' },
 			list_passkeys: NO_PASSKEYS,
 			list_access_keys: { access_keys: [] },
 			mint_access_key: {
@@ -936,18 +929,7 @@ describe('the settings screen', () => {
 
 	it('groups its pages by whose they are, each row saying what is inside (#469)', async () => {
 		const { kamosu } = renderScreen(Settings, {
-			get_person: { person_id: 'p_1', name: 'Stéphane' },
-			list_accounts: {
-				accounts: [
-					{
-						name: 'Stéphane',
-						is_operator: true,
-						disabled: false,
-						is_you: true,
-						created_at: '2026-01-04T10:00:00Z',
-					},
-				],
-			},
+			get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: true },
 		});
 
 		await screen.findByRole('heading', { name: 'This instance' });
@@ -962,6 +944,7 @@ describe('the settings screen', () => {
 			'/settings/name',
 			'/settings/signing-in',
 			'/settings/keys',
+			'/settings/calendar',
 			'/settings/language',
 			'/settings/device',
 			'/settings/security',
@@ -994,12 +977,9 @@ describe('the settings screen', () => {
 		// Foods is for every Person: all five of its Operations are
 		// Permission::Person, so it is no Operator's power (#107).
 		expect(row('/foods')).toHaveTextContent('Foods');
-		// The menu reads who is signed in, and whether they administer the
-		// instance, and nothing else: every page reads what it needs.
-		expect(kamosu.calls.map((call) => call.operation).sort()).toEqual([
-			'get_person',
-			'list_accounts',
-		]);
+		// The menu reads who is signed in, which says whether they administer
+		// the instance, and nothing else: every page reads what it needs.
+		expect(kamosu.calls.map((call) => call.operation)).toEqual(['get_person']);
 		expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
 	});
 
@@ -1186,6 +1166,26 @@ describe('the settings screen', () => {
 		});
 	});
 
+	it('keeps a Dutch name a Dutch name when it is renamed', async () => {
+		// The name shown here is the fallback, in Dutch. Corrected where it
+		// stands, it stays in Dutch and lands nowhere near the reader's Language.
+		const { kamosu } = renderScreen(Tags, {
+			...withKitchen,
+			get_reading_preferences: { reading_language: 'en', reading_measures: 'metric' },
+			list_tags: { tags: [settingsTag('t_hoofd', 'Hoofdgerecht', 7, 'nl')] },
+			rename_tag: settingsTag('t_hoofd', 'Hoofdgerechten', 7, 'nl'),
+		});
+
+		const shown = await screen.findByDisplayValue('Hoofdgerecht');
+		await fireEvent.input(shown, { target: { value: 'Hoofdgerechten' } });
+		await fireEvent.submit(shown.closest('form') as HTMLElement);
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'rename_tag',
+			input: { tag_id: 't_hoofd', language: 'nl', name: 'Hoofdgerechten' },
+		});
+	});
+
 	it('gives a tag known only in French an English name, without renaming the French one', async () => {
 		// The fallback ADR 0006 built, finally fixable: nothing until now let
 		// anybody add the name it fell back from.
@@ -1289,7 +1289,7 @@ describe('the Reading Language (#112)', () => {
 	 * that recipes follow, which can split in two for somebody who reads
 	 * Kamosu in one Language and their recipes in another.
 	 */
-	const signedIn = (reading_language: 'en' | 'fr' | 'es'): Answers => ({
+	const signedIn = (reading_language: 'en' | 'fr' | 'es' | 'nl'): Answers => ({
 		instance_status: {
 			version: '0.1.0',
 			setup_complete: true,
@@ -1308,8 +1308,17 @@ describe('the Reading Language (#112)', () => {
 	const words = () => screen.getByRole('list', { name: 'Language' });
 	const recipes = () => screen.getByRole('list', { name: 'Recipes in' });
 
+	/**
+	 * Each test starts from its own state (#590): no call counted and no
+	 * `mockImplementationOnce` left queued by a test that failed before
+	 * using it, and no line about what moved left waiting for the next load.
+	 */
+	beforeEach(() => {
+		setLocale.mockReset();
+		sessionStorage.clear();
+	});
+
 	it('says recipes follow the one control, and moves both when it is changed', async () => {
-		setLocale.mockClear();
 		const { kamosu } = renderScreen(Language, {
 			...signedIn('en'),
 			set_reading_preferences: { reading_language: 'fr', reading_measures: 'us' },
@@ -1338,6 +1347,36 @@ describe('the Reading Language (#112)', () => {
 		expect(sessionStorage.getItem('kamosu.reading-language-moved')).toBe('fr');
 	});
 
+	it('offers Dutch, and choosing it moves both to Dutch (#496)', async () => {
+		const { kamosu } = renderScreen(Language, {
+			...signedIn('en'),
+			set_reading_preferences: { reading_language: 'nl', reading_measures: 'us' },
+		});
+
+		await fireEvent.click(await within(words()).findByRole('button', { name: 'Nederlands' }));
+
+		await vi.waitFor(() => expect(setLocale).toHaveBeenCalledWith('nl'));
+		expect(kamosu.calls).toContainEqual({
+			operation: 'set_reading_preferences',
+			input: { reading_language: 'nl', reading_measures: 'us' },
+		});
+	});
+
+	it('is in Dutch for someone reading in Dutch (#496)', async () => {
+		realSetLocale('nl', { reload: false });
+		try {
+			renderScreen(Language, signedIn('nl'));
+			expect(await screen.findByText('Recepttitels volgen deze taal.')).toBeInTheDocument();
+			expect(
+				within(screen.getByRole('list', { name: 'Taal' })).getByRole('button', {
+					name: 'Nederlands',
+				}),
+			).toHaveAttribute('aria-pressed', 'true');
+		} finally {
+			realSetLocale('en', { reload: false });
+		}
+	});
+
 	it('says what moved once the reload that carried both is over', async () => {
 		sessionStorage.setItem('kamosu.reading-language-moved', 'fr');
 		renderScreen(Language, signedIn('en'));
@@ -1350,7 +1389,6 @@ describe('the Reading Language (#112)', () => {
 	});
 
 	it('splits the recipes off on request, and moves only them', async () => {
-		setLocale.mockClear();
 		const { kamosu } = renderScreen(Language, {
 			...signedIn('en'),
 			set_reading_preferences: { reading_language: 'es', reading_measures: 'us' },
@@ -1387,7 +1425,6 @@ describe('the Reading Language (#112)', () => {
 	it('opens split when the account reads in a Language this browser does not speak', async () => {
 		// A new phone, or a split made on another device. The screen says what
 		// is true rather than pretending the two are one.
-		setLocale.mockClear();
 		const { kamosu } = renderScreen(Language, signedIn('fr'));
 
 		await vi.waitFor(() =>

@@ -5,7 +5,7 @@
 	has typed a name and pressed enter has already asked.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import type { Adding } from './adding.svelte';
 
 	interface Props {

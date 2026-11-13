@@ -2,7 +2,7 @@
 //! and the ledger that finds every Import again (#108).
 
 use super::*;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use crate::other_apps::{self, LeftOut, Unread};
 
@@ -92,6 +92,7 @@ impl Core {
             app: export.app,
         };
         let mut left_out_of_file = export.left_out;
+        let planned = export.planned;
         let mut pointing = VecDeque::new();
         let mut cooked = Vec::new();
         let mut photos_not_in_export = 0;
@@ -119,6 +120,9 @@ impl Core {
             self.import_each(caller, export.app, into, export.total, incoming, progress)?;
         photos_not_in_export += self.land_components(caller, &mut report, pointing, &downloads)?;
         self.land_cookings(caller, &report, cooked)?;
+        if !planned.is_empty() {
+            report["meal_plan"] = self.land_plan(caller, &report, planned)?;
+        }
         if photos_not_in_export > 0 {
             match left_out_of_file.iter_mut().find_map(|left| match left {
                 other_apps::FileLeftOut::PhotosNotInExport(count) => Some(count),
@@ -151,7 +155,7 @@ impl Core {
         let mut unreadable = 0;
         let mut stored = |bytes: &[u8]| {
             let stored = self
-                .store_photograph(bytes)
+                .store_photograph_in_turn(bytes)
                 .ok()
                 .and_then(|stored| stored["photograph_id"].as_str().map(str::to_string));
             if stored.is_none() {
@@ -172,7 +176,7 @@ impl Core {
                     .photo_already_landed(downloads, &recipe.foreign_id)
                     .or_else(|| {
                         let bytes = downloads.fetch(&address)?;
-                        let stored = self.store_photograph(&bytes).ok()?;
+                        let stored = self.store_photograph_in_turn(&bytes).ok()?;
                         stored["photograph_id"].as_str().map(str::to_string)
                     });
                 if stored.is_none() {
@@ -455,6 +459,115 @@ impl Core {
         Ok(())
     }
 
+    /// Plan each entry of the app's meal plan in the importing Person's own
+    /// plan (#492, ADR 0058), once every recipe of the file has landed. A
+    /// recipe entry plans the Branch its recipe landed as, the one offered
+    /// where it was offered; one whose recipe did not land is planned as the
+    /// recipe's name, in written words, and the answer lists those. Each
+    /// lands at the end of its list in the order the reader gives, unsent.
+    /// An entry this Person already had planned from the same app is never
+    /// planned again, even where it was taken off the plan since, or the
+    /// Cookbook the recipes landed in has since changed.
+    ///
+    /// The answer is the Report's `meal_plan`.
+    fn land_plan(
+        &self,
+        caller: &Caller,
+        report: &Value,
+        planned: Vec<other_apps::PlannedEntry>,
+    ) -> Result<Value, OpError> {
+        use super::meal_plan::{ImportedMeal, Place, plan_imported, plan_moment};
+        use other_apps::{PlannedWhat, PlannedWhen};
+        let source_kind = report["source_kind"].as_str().unwrap_or_default();
+        let person_id = caller.person_id.as_str();
+        self.db().with_conn(|conn| {
+            let failed = |e| OpError::internal(format!("cannot plan the meal plan: {e}"));
+            let tx = conn.unchecked_transaction().map_err(failed)?;
+            let mut arrived = 0;
+            let mut already = 0;
+            // Each recipe planned as its name, with how many entries were.
+            let mut as_words: Vec<(String, usize)> = Vec::new();
+            let mut weeks: Vec<String> = Vec::new();
+            let mut moment = None;
+            for entry in &planned {
+                let known = tx
+                    .query_row(
+                        "SELECT 1 FROM imported_planned_meals \
+                          WHERE person_id = ?1 AND source_kind = ?2 AND foreign_id = ?3",
+                        params![person_id, source_kind, entry.foreign_id],
+                        |_| Ok(()),
+                    )
+                    .optional()
+                    .map_err(failed)?
+                    .is_some();
+                if known {
+                    already += 1;
+                    continue;
+                }
+                // The whole file is one write on the plan's clock, made now.
+                let moment = match &moment {
+                    Some(moment) => moment,
+                    None => moment.insert(match plan_moment(&tx, person_id, None)? {
+                        Some(moment) => moment,
+                        // The plan was written after now, by a phone whose
+                        // clock runs ahead: the import is planned all the same.
+                        None => written_moment(&tx, None)?,
+                    }),
+                };
+                let landed = match &entry.what {
+                    PlannedWhat::Recipe { foreign_id, .. } => LinesOn::of(report, foreign_id),
+                    PlannedWhat::Words(_) => None,
+                };
+                let what = match (&entry.what, &landed) {
+                    (PlannedWhat::Recipe { times, .. }, Some(lines_on)) => ImportedMeal::Recipe {
+                        branch_id: &lines_on.branch_id,
+                        times: *times,
+                    },
+                    (PlannedWhat::Recipe { name, .. }, None) => {
+                        match as_words.iter_mut().find(|(said, _)| said == name) {
+                            Some((_, count)) => *count += 1,
+                            None => as_words.push((name.clone(), 1)),
+                        }
+                        ImportedMeal::Words(name)
+                    }
+                    (PlannedWhat::Words(words), _) => ImportedMeal::Words(words),
+                };
+                let place = match &entry.when {
+                    PlannedWhen::Day(day) => Place::Day(day),
+                    PlannedWhen::Week(week) => Place::Week(week),
+                };
+                let (planned_meal_id, week) = plan_imported(&tx, person_id, place, what, moment)?;
+                if !weeks.contains(&week) {
+                    weeks.push(week);
+                }
+                tx.execute(
+                    "INSERT INTO imported_planned_meals \
+                         (person_id, source_kind, foreign_id, planned_meal_id) \
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![person_id, source_kind, entry.foreign_id, planned_meal_id],
+                )
+                .map_err(failed)?;
+                arrived += 1;
+            }
+            tx.commit().map_err(failed)?;
+            weeks.sort();
+            Ok(json!({
+                "planned": arrived,
+                "already_planned": already,
+                "as_words": as_words
+                    .iter()
+                    .map(|(title, count)| json!({ "title": title, "count": count }))
+                    .collect::<Vec<_>>(),
+                "first_week": weeks.first(),
+                "last_week": weeks.last(),
+                // Mealie names each entry's meal (breakfast, dinner), and a
+                // Planned Meal has no meal: the order of a day is kept, the
+                // names are not.
+                "meal_names_left_out": true,
+            }))
+        })
+    }
+
     /// How long one import may spend downloading photos (#414).
     fn photo_download_time(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.photo_download_millis.load(Ordering::Relaxed))
@@ -694,6 +807,76 @@ impl Core {
         })
     }
 
+    /// Stage a file sent to `POST /api/uploads`: where to write it, and the
+    /// most bytes it may be. That is [`Self::LARGEST_UPLOAD`], except for an
+    /// Add-only key, held to what `add_this` takes (ADR 0055, #538): files
+    /// of at most [`LARGEST_HANDED_FILE`], as many unused at once as
+    /// `add_this` reads in one call. A leaked key in plain view otherwise
+    /// fills `/data` 2 GB at a time.
+    ///
+    /// At that count, a file the key could have sent and nobody has used
+    /// for [`Self::ABANDONED_AFTER`] makes way for the new one: a send that
+    /// failed halfway would otherwise keep the phone out for a day. A file
+    /// sent more recently is refused, so one being added is never taken.
+    pub fn begin_staged_upload(&self, caller: &Caller) -> Result<Staging, OpError> {
+        if caller.add_only {
+            self.make_way_for_one_more(&caller.person_id)?;
+        }
+        let (upload_id, path) = self.begin_upload(&caller.person_id)?;
+        let largest = if caller.add_only {
+            LARGEST_HANDED_FILE
+        } else {
+            Self::LARGEST_UPLOAD
+        };
+        Ok(Staging {
+            upload_id,
+            path,
+            largest,
+        })
+    }
+
+    /// How long a file an Add-only key could have sent waits unused before
+    /// a new one from the key may take its place.
+    const ABANDONED_AFTER: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+    /// Below [`MOST_PAGES`] unused files, or brought back below it by
+    /// removing the oldest abandoned one, or refused.
+    fn make_way_for_one_more(&self, person_id: &str) -> Result<(), OpError> {
+        let Ok(files) = std::fs::read_dir(self.uploads_dir(person_id)?) else {
+            return Ok(());
+        };
+        let held: Vec<(std::path::PathBuf, std::fs::Metadata)> = files
+            .flatten()
+            .filter_map(|file| Some((file.path(), file.metadata().ok()?)))
+            .collect();
+        if held.len() < MOST_PAGES {
+            return Ok(());
+        }
+        let abandoned = held
+            .iter()
+            .filter(|(_, metadata)| {
+                metadata.len() <= LARGEST_HANDED_FILE
+                    && metadata
+                        .modified()
+                        .ok()
+                        .and_then(|modified| modified.elapsed().ok())
+                        .is_some_and(|age| age > Self::ABANDONED_AFTER)
+            })
+            .min_by_key(|(_, metadata)| metadata.modified().ok());
+        match abandoned {
+            Some((path, _)) if std::fs::remove_file(path).is_ok() => Ok(()),
+            _ => Err(OpError::bad_request(format!(
+                "{MOST_PAGES} files sent are waiting to be added already. Add them, or send \
+                 again in a few minutes"
+            ))),
+        }
+    }
+
+    /// The largest file `POST /api/uploads` stages. A real 86-recipe library
+    /// is 114 MB, almost all of it photographs; this leaves room for a library
+    /// many times that size without letting one request fill the disk.
+    pub const LARGEST_UPLOAD: u64 = 2 * 1024 * 1024 * 1024;
+
     /// A file too large for an Operation's JSON envelope, staged on disk under
     /// the Person who sent it until an Operation names it by its id (ADR 0001:
     /// non-JSON payloads travel out of band under the same Credential). A
@@ -710,6 +893,30 @@ impl Core {
         let upload_id = format!("u_{}", hex::encode(random_bytes(16)));
         let path = dir.join(&upload_id);
         Ok((upload_id, path))
+    }
+
+    /// The first `count` bytes of the Person's own staged upload, or fewer
+    /// where it is shorter, without reading the rest (#538).
+    pub fn staged_upload_head(
+        &self,
+        person_id: &str,
+        upload_id: &str,
+        count: u64,
+    ) -> Result<Vec<u8>, OpError> {
+        use std::io::Read;
+        let path = self.staged_upload(person_id, upload_id)?;
+        let mut head = Vec::new();
+        std::fs::File::open(&path)
+            .and_then(|file| file.take(count).read_to_end(&mut head))
+            .map_err(|e| OpError::internal(format!("cannot open the upload: {e}")))?;
+        Ok(head)
+    }
+
+    /// Remove the Person's own staged upload, used up without being read.
+    pub fn forget_staged_upload(&self, person_id: &str, upload_id: &str) {
+        if let Ok(path) = self.staged_upload(person_id, upload_id) {
+            let _ = std::fs::remove_file(path);
+        }
     }
 
     /// Where the Person's own staged upload sits. Another Person's upload is
@@ -980,8 +1187,8 @@ impl Core {
     /// text is handed over (#269): a Job that waits for a Runner with no
     /// recipe, whose agent creates it in the caller's own Cookbook under
     /// their Hand. Kamosu never fetches the link itself, so no bare recipe
-    /// lands from the page's title. The same link sent again is not matched,
-    /// and makes a Job of its own.
+    /// lands from the page's title. The same link sent again here is not
+    /// matched, and makes a Job of its own: `add_this` asks first.
     ///
     /// The answer is the Job's id. Its result is an Import Report from the
     /// moment it is asked for, under the source a link imported is listed
@@ -1091,16 +1298,10 @@ impl Core {
         let (version_id, content_text) = stored_version(&content);
 
         self.db().with_conn(|conn| {
-            let existing: Option<(String, String, String)> = conn
-                .query_row(
-                    "SELECT import_ledger.lineage_id, import_ledger.branch_id, branches.head_version_id \
-                       FROM import_ledger JOIN branches ON branches.id = import_ledger.branch_id \
-                      WHERE import_ledger.import_id = ?1 AND import_ledger.foreign_id = ?2",
-                    params![import_id, foreign_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                )
-                .optional()
-                .map_err(|e| OpError::internal(format!("cannot read Import ledger: {e}")))?;
+            let existing = match ledger_row(conn, import_id, foreign_id)? {
+                None => mealie_row_by_bare_number(conn, import_id, foreign_id, &title)?,
+                found => found,
+            };
 
             let outcome = match existing {
                 None => {
@@ -1164,7 +1365,9 @@ impl Core {
                                 |row| row.get::<_, String>(0),
                             )
                             .map(|content| serde_json::from_str(&content).unwrap_or_default())
-                            .map_err(|e| OpError::internal(format!("cannot read the recipe: {e}")))?;
+                            .map_err(|e| {
+                                OpError::internal(format!("cannot read the recipe: {e}"))
+                            })?;
                         Ok(ImportOutcome::Landed {
                             lineage_id,
                             branch_id,
@@ -1200,6 +1403,16 @@ impl Core {
             Ok(outcome)
         })
     }
+}
+
+/// A file about to be staged at `POST /api/uploads` (#538).
+pub struct Staging {
+    /// What the Operation that reads it next names it by.
+    pub upload_id: String,
+    /// Where to write it.
+    pub path: std::path::PathBuf,
+    /// The most bytes this sender's file may be.
+    pub largest: u64,
 }
 
 /// One recipe as an importer hands it to [`Core::import_each`]: the candidate,
@@ -1382,6 +1595,55 @@ impl LinesOn {
     }
 }
 
+/// The Lineage, Branch and head Version the ledger holds for `foreign_id`.
+fn ledger_row(
+    conn: &Connection,
+    import_id: &str,
+    foreign_id: &str,
+) -> Result<Option<(String, String, String)>, OpError> {
+    conn.query_row(
+        "SELECT import_ledger.lineage_id, import_ledger.branch_id, branches.head_version_id \
+           FROM import_ledger JOIN branches ON branches.id = import_ledger.branch_id \
+          WHERE import_ledger.import_id = ?1 AND import_ledger.foreign_id = ?2",
+        params![import_id, foreign_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read Import ledger: {e}")))
+}
+
+/// A recipe from before Mealie 1 that the ledger still holds by its bare
+/// number, as every import did before #540: the same recipe where some
+/// Version of the recipe it landed as bears the title arriving, so a cook's
+/// own renaming since keeps the match, and none otherwise, so recipe 3 of
+/// another instance lands as a recipe of its own. The row stays as written.
+fn mealie_row_by_bare_number(
+    conn: &Connection,
+    import_id: &str,
+    foreign_id: &str,
+    title: &str,
+) -> Result<Option<(String, String, String)>, OpError> {
+    let Some(number) = crate::mealie::number_before_v1(foreign_id) else {
+        return Ok(None);
+    };
+    conn.query_row(
+        "SELECT import_ledger.lineage_id, import_ledger.branch_id, branches.head_version_id \
+           FROM import_ledger \
+           JOIN imports ON imports.id = import_ledger.import_id \
+           JOIN branches ON branches.id = import_ledger.branch_id \
+          WHERE import_ledger.import_id = ?1 AND import_ledger.foreign_id = ?2 \
+            AND imports.source_kind = 'mealie' \
+            AND EXISTS (SELECT 1 FROM branch_versions \
+                          JOIN versions ON versions.id = branch_versions.version_id \
+                         WHERE branch_versions.branch_id = import_ledger.branch_id \
+                           AND json_extract(versions.content, '$.title') = ?3)",
+        params![import_id, number, title],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read Import ledger: {e}")))
+}
+
 /// The Lineage an Import's ledger knows a foreign id as.
 fn ledger_lineage(
     conn: &Connection,
@@ -1531,7 +1793,7 @@ impl LandedShape {
                 .as_str()
                 .map(str::trim)
                 .filter(|link| !link.is_empty())
-                .map(str::to_string),
+                .map(crate::video_link::link_identity),
         }
     }
 }
@@ -1563,44 +1825,97 @@ fn relating_name(title: &str) -> String {
     folded
 }
 
+/// The most recipes of one name, or of one page, that are offered to each
+/// other as Related Recipes. Five recipes are ten pairs to tick. More than that
+/// sharing a name is a pile of unrelated "Lemonade"s, or one recipe copied, and
+/// every pair of a hundred is five thousand rows nobody reads (#552).
+const RELATED_GROUP_LIMIT: usize = 5;
+
+/// The most Related Recipe candidates one Import Report offers, whatever the
+/// file holds (#552).
+const RELATED_CANDIDATES_LIMIT: usize = 200;
+
+/// Which recipes among those one Import landed share a name or a web page, as
+/// pairs of their places in `landed`, in that order, each with what it shares:
+/// `name`, then `page`. Recipes are grouped by what they share, so this costs
+/// the recipes and the pairs, never every recipe against every other, and a
+/// group larger than `RELATED_GROUP_LIMIT` offers none of its pairs (#552).
+fn relating_pairs(landed: &[Relatable]) -> BTreeMap<(usize, usize), Vec<&'static str>> {
+    relating_pairs_counted(landed, &mut 0)
+}
+
+/// `relating_pairs`, adding to `steps` each recipe placed in a group and each
+/// pair looked at, so a test can count the work rather than time it (#552).
+fn relating_pairs_counted(
+    landed: &[Relatable],
+    steps: &mut usize,
+) -> BTreeMap<(usize, usize), Vec<&'static str>> {
+    let names: Vec<String> = landed.iter().map(|r| relating_name(&r.title)).collect();
+    let mut grouped = |keys: Vec<Option<&String>>| {
+        let mut groups: HashMap<&String, Vec<usize>> = HashMap::new();
+        for (at, key) in keys.into_iter().enumerate() {
+            if let Some(key) = key {
+                *steps += 1;
+                groups.entry(key).or_default().push(at);
+            }
+        }
+        groups.into_values().collect::<Vec<_>>()
+    };
+    let by_name = grouped(names.iter().map(Some).collect());
+    let by_page = grouped(landed.iter().map(|r| r.shape.link.as_ref()).collect());
+
+    let mut pairs: BTreeMap<(usize, usize), Vec<&'static str>> = BTreeMap::new();
+    for (groups, shared) in [(by_name, "name"), (by_page, "page")] {
+        for group in groups {
+            // Counted in Lineages: a recipe a file holds twice is one recipe,
+            // offered by the first place it landed.
+            let mut seen: HashSet<&str> = HashSet::new();
+            let mut firsts: Vec<usize> = Vec::new();
+            for &at in &group {
+                *steps += 1;
+                if seen.insert(landed[at].lineage_id.as_str()) {
+                    firsts.push(at);
+                    if firsts.len() > RELATED_GROUP_LIMIT {
+                        break;
+                    }
+                }
+            }
+            if firsts.len() > RELATED_GROUP_LIMIT {
+                continue;
+            }
+            for (i, &a) in firsts.iter().enumerate() {
+                for &b in &firsts[i + 1..] {
+                    *steps += 1;
+                    let why = pairs.entry((a, b)).or_default();
+                    // A pair found by its page in a crowd of one name still
+                    // says it shares the name, as it did before the limit.
+                    if shared == "page" && why.is_empty() && names[a] == names[b] {
+                        why.push("name");
+                    }
+                    why.push(shared);
+                }
+            }
+        }
+    }
+    pairs
+}
+
 /// Pairs among the recipes one Import landed that share a name or a web page,
 /// offered as Related Recipe candidates (GLOSSARY.md, "Related Recipe"). A
 /// site's name alone is not enough: nine Instagram recipes share one and have
-/// nothing to do with each other. A pair already related is not offered again.
+/// nothing to do with each other. A pair already related is not offered again,
+/// and no more than `RELATED_CANDIDATES_LIMIT` are offered (#552).
 fn related_candidates(
     conn: &Connection,
     cookbook_id: &str,
     landed: &[Relatable],
 ) -> Result<Vec<Value>, OpError> {
-    let mut pairs: Vec<((usize, usize), Vec<&'static str>)> = Vec::new();
-    let mut offer = |a: usize, b: usize, shared: &'static str| match pairs
-        .iter_mut()
-        .find(|(pair, _)| *pair == (a, b))
-    {
-        Some((_, why)) => {
-            if !why.contains(&shared) {
-                why.push(shared);
-            }
-        }
-        None => pairs.push(((a, b), vec![shared])),
-    };
-    let names: Vec<String> = landed.iter().map(|r| relating_name(&r.title)).collect();
-    for a in 0..landed.len() {
-        for b in a + 1..landed.len() {
-            if landed[a].lineage_id == landed[b].lineage_id {
-                continue;
-            }
-            if names[a] == names[b] {
-                offer(a, b, "name");
-            }
-            if landed[a].shape.link.is_some() && landed[a].shape.link == landed[b].shape.link {
-                offer(a, b, "page");
-            }
-        }
-    }
-
+    let pairs = relating_pairs(landed);
     let mut offered = Vec::new();
     for ((a, b), shared) in pairs {
+        if offered.len() == RELATED_CANDIDATES_LIMIT {
+            break;
+        }
         let (first, second) = (&landed[a], &landed[b]);
         let (low, high) = if first.lineage_id < second.lineage_id {
             (&first.lineage_id, &second.lineage_id)
@@ -1967,4 +2282,138 @@ pub(super) fn arrival_as_it_reads(
 /// Cookbook the caller may not see.
 fn no_such_import() -> OpError {
     OpError::not_found("no such Import")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn recipe(at: usize, title: &str, link: Option<&str>) -> Relatable {
+        Relatable {
+            lineage_id: format!("lineage-{at}"),
+            branch_id: format!("branch-{at}"),
+            title: title.to_string(),
+            shape: LandedShape {
+                main_photo: None,
+                bare: false,
+                ingredients: 1,
+                link: link.map(str::to_string),
+            },
+        }
+    }
+
+    /// `count` recipes, two of each name.
+    fn named_in_twos(count: usize) -> Vec<Relatable> {
+        (0..count)
+            .map(|at| recipe(at, &format!("Lemonade {}", at / 2), None))
+            .collect()
+    }
+
+    #[test]
+    fn thousands_of_recipes_of_one_name_offer_no_pair() {
+        let landed: Vec<Relatable> = (0..3000).map(|at| recipe(at, "Lemonade", None)).collect();
+        assert!(relating_pairs(&landed).is_empty());
+    }
+
+    #[test]
+    fn the_work_on_recipes_of_one_name_grows_with_the_recipes_not_their_square() {
+        let steps_for = |count: usize| {
+            let landed: Vec<Relatable> = (0..count)
+                .map(|at| recipe(at, "Lemonade", Some("example.com/lemonade")))
+                .collect();
+            let mut steps = 0;
+            assert!(relating_pairs_counted(&landed, &mut steps).is_empty());
+            steps
+        };
+        // Each recipe is placed once by its name and once by its page, and
+        // each crowd is looked into only until it holds one recipe too many.
+        let (smaller, larger) = (steps_for(1500), steps_for(3000));
+        assert_eq!(larger - smaller, 3000, "{smaller} {larger}");
+    }
+
+    #[test]
+    fn a_pair_in_a_crowd_of_one_name_sharing_a_page_says_both() {
+        let mut landed: Vec<Relatable> = (0..=RELATED_GROUP_LIMIT)
+            .map(|at| recipe(at, "Lemonade", None))
+            .collect();
+        landed[0].shape.link = Some("example.com/lemonade".to_string());
+        landed[3].shape.link = Some("example.com/lemonade".to_string());
+        let pairs: Vec<_> = relating_pairs(&landed).into_iter().collect();
+        assert_eq!(pairs, vec![((0, 3), vec!["name", "page"])]);
+    }
+
+    #[test]
+    fn the_pairs_offered_grow_with_the_recipes_not_their_square() {
+        // Twice the recipes in twos, twice the pairs: every pair is a query
+        // and a row a Report could carry. The work itself is counted above.
+        let smaller = relating_pairs(&named_in_twos(1500)).len();
+        let larger = relating_pairs(&named_in_twos(3000)).len();
+        assert_eq!((smaller, larger), (750, 1500));
+    }
+
+    #[test]
+    fn a_group_of_the_limit_offers_every_pair_and_one_more_offers_none() {
+        let mut landed: Vec<Relatable> = (0..RELATED_GROUP_LIMIT)
+            .map(|at| recipe(at, "Tart", None))
+            .collect();
+        landed.extend(
+            (RELATED_GROUP_LIMIT..2 * RELATED_GROUP_LIMIT + 1).map(|at| recipe(at, "Pie", None)),
+        );
+        let pairs = relating_pairs(&landed);
+        assert_eq!(
+            pairs.len(),
+            RELATED_GROUP_LIMIT * (RELATED_GROUP_LIMIT - 1) / 2
+        );
+        assert!(pairs.keys().all(|&(a, b)| a < b && b < RELATED_GROUP_LIMIT));
+    }
+
+    #[test]
+    fn a_pair_sharing_a_name_and_a_page_says_both_in_that_order() {
+        let landed = vec![
+            recipe(0, "Pandebonos", Some("example.com/pan")),
+            recipe(1, "Soup", Some("example.com/soup")),
+            recipe(2, "Pandebonos (Version 2)", Some("example.com/pan")),
+            recipe(3, "soup", None),
+        ];
+        let pairs: Vec<_> = relating_pairs(&landed).into_iter().collect();
+        assert_eq!(
+            pairs,
+            vec![((0, 2), vec!["name", "page"]), ((1, 3), vec!["name"])]
+        );
+    }
+
+    #[test]
+    fn a_crowd_of_one_recipe_held_many_times_still_offers_its_one_pair() {
+        let mut landed: Vec<Relatable> = (0..3000).map(|at| recipe(at, "Soup", None)).collect();
+        for twin in &mut landed[1..] {
+            twin.lineage_id = "lineage-0".to_string();
+        }
+        landed.push(recipe(3000, "soup", None));
+        let mut steps = 0;
+        let pairs: Vec<_> = relating_pairs_counted(&landed, &mut steps)
+            .into_iter()
+            .collect();
+        assert_eq!(pairs, vec![((0, 3000), vec!["name"])]);
+        // Placed once, looked over once: linear, however many times it repeats.
+        assert_eq!(steps, 2 * landed.len() + 1);
+    }
+
+    #[test]
+    fn one_lineage_landed_twice_is_no_pair() {
+        let mut landed = vec![recipe(0, "Soup", None), recipe(1, "Soup", None)];
+        landed[1].lineage_id = landed[0].lineage_id.clone();
+        assert!(relating_pairs(&landed).is_empty());
+    }
+
+    #[test]
+    fn a_report_offers_at_most_the_limit_whatever_the_file_holds() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::db::Db::open(dir.path()).unwrap();
+        let offered = db
+            .with_conn(|conn| related_candidates(conn, "a-cookbook", &named_in_twos(3000)))
+            .unwrap();
+        assert_eq!(offered.len(), RELATED_CANDIDATES_LIMIT);
+        assert_eq!(offered[0]["recipes"][0]["lineage_id"], json!("lineage-0"));
+        assert_eq!(offered[0]["recipes"][1]["lineage_id"], json!("lineage-1"));
+    }
 }

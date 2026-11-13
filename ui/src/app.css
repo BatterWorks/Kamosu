@@ -24,7 +24,7 @@
    into this stylesheet. Only src/ holds markup, so only src/ is read.
 
    paraglide is excluded because an explicit @source overrides .gitignore, and
-   that directory is every translated phrase in three languages compiled into
+   that directory is every translated phrase in every language compiled into
    functions. A phrase is not a class name.
 
    When the Share Link page arrives it is rendered from Rust strings (ADR 0013)
@@ -193,6 +193,9 @@
      on 5 October 2026 (#194, ADR 0044), narrow so that an upright tablet
      keeps almost all of its width for the page. */
   --spacing-rail: 88px;
+  /* In Dutch the rail is 128px (#496, the choice of 9 November 2026, option
+     B): "Boodschappen" and "Instellingen" do not fit in 88. Set at the foot
+     of this file, under "The navigation in Dutch". */
   /* The page's column, 672. Tailwind writes it as 42rem, and the root's font
      size is the reader's text size since #228, so in rem the column would
      widen with their type. */
@@ -303,7 +306,7 @@
    least 1000 wide is also `roomy`, which is room for two columns.
 
    Both the stylesheet (`wide:` and `roomy:` in a class, `@variant wide` in
-   CSS) and the Room the app reads (`$lib/room.svelte`, through `--room`
+   CSS) and the Room the app reads (`#lib/room.svelte.ts`, through `--room`
    below) come from these two lines, so a style rule and the Room cannot
    disagree about which layout is showing. Tailwind's own `sm`/`md`/`lg`
    stay unused.
@@ -327,7 +330,7 @@
   }
 }
 
-/* The Room, as the stylesheet decided it. `$lib/room.svelte` reads this back
+/* The Room, as the stylesheet decided it. `#lib/room.svelte.ts` reads this back
    rather than holding a copy of the thresholds above. */
 @layer base {
   :root {
@@ -710,7 +713,7 @@
    window while the column it belongs to centres beside the sidebar, half a
    rail apart. The dimmed backdrops are `inset-0`, not `inset-x-0`, and still
    cover the sidebar. Since #196 every sheet is drawn by one frame,
-   `$lib/SheetFrame.svelte`, and it is held here like the tray rather than by a
+   `#lib/SheetFrame.svelte`, and it is held here like the tray rather than by a
    rule of its own: the frame is drawn on the cooking screen too, which has
    no rail, and only this element knows a rail is there. */
 @utility beside-rail {
@@ -736,7 +739,7 @@
    readable behind it, and its hairline alone would be lost against the
    recipe's own rules.
 
-   `$lib/SheetFrame.svelte` puts this on the frame when the Room is wide, in place
+   `#lib/SheetFrame.svelte` puts this on the frame when the Room is wide, in place
    of the bottom sheet's classes, so no `wide` variant is needed here. */
 @utility sheet-window {
   top: 50%;
@@ -1294,4 +1297,84 @@
   .bg-accent :where(a[href]).text-cook-ink-2:hover {
     color: var(--color-on-accent);
   }
+}
+
+/* ── The navigation at large text sizes (#600, #608) ──────────────────────
+   Each place's word is 12 type units with 0.15em between its letters, so it
+   grows with the reader's text and runs out of room before the type does: at
+   the largest size, "COOKED" ran off a 360px phone and "SHOPPING" and
+   "SETTINGS" out of the 88px rail, and French was 50px too wide for a 390px
+   phone. Rather than make the bar or the rail wider, which would move them at
+   the ordinary size too, the letters close up as the text grows: 0.15em while
+   the type unit is 1px, falling evenly to 0.03em at its 1.35px top, where
+   0.12em of a 16.2px word is the 5.55 times (unit - 1px) taken off. The
+   5.55 rests on `--text-label` being 12 units and on the unit's 1.35px top,
+   so it is worked out again if either moves. At the ordinary size the
+   subtraction is zero and nothing moves.
+
+   That fits every word in English and Spanish. French still needs about
+   400px across five tabs, so three of its words carry a soft hyphen
+   ("Ac-cueil", "Cour-ses", "Cui-siné") and break onto a second line, centred,
+   where their tab is too narrow. Only those three: "Recettes" and "Planning"
+   are 73px at the ordinary size on a 360px phone, where a tab is 72, and a
+   break in them would put them on two lines there. Dutch keeps its own
+   spacing, below, whose rule is the more particular one. */
+.place-link {
+  --text-label--letter-spacing: calc(0.15em - (var(--type-unit) - 1px) * 5.55);
+  text-align: center;
+}
+
+/* Closed up, two words side by side in the bar would touch, "SHOPPINGCOOKED",
+   as a tab is only as narrow as its word allows. Each tab keeps room at its
+   sides that grows from nothing with the text, to 3px each at the top (8.6
+   times the 0.35px the unit can grow, which rests on that top as the 5.55
+   above does), so at the ordinary size it is nothing again. A tab is as
+   wide as its word or its fifth of the bar, whichever is wider, so the room
+   at its sides is the least two words side by side can be apart. Grown that
+   evenly, it was under 2px a side up to about 19.7px, and French and
+   Spanish words came 2.5px apart there (#608). So it is never under 2px
+   once the text is any larger than the ordinary size: the 1000 takes it
+   from nothing to 2px within the first 0.002px of the unit's growth, and
+   the 8.6 takes it on from 2px to 3px. At the ordinary size it is still
+   nothing, and no word moves. The rail has no neighbour beside a
+   word and keeps its whole width for it. Dutch keeps a fixed 2px instead,
+   below, which room that grows would break onto two lines sooner. */
+.place-bar .place-link:not(:lang(nl)) {
+  padding-inline: max(
+    clamp(0px, calc((var(--type-unit) - 1px) * 1000), 2px),
+    calc((var(--type-unit) - 1px) * 8.6)
+  );
+}
+
+/* ── The navigation in Dutch ──────────────────────────────────────────────
+   Dutch names a place with twelve letters, "Instellingen", which does not fit
+   the 88px rail, so in Dutch the rail is 128px and the labels' letter spacing
+   0.08em instead of 0.15em. The bar once had a second, "Boodschappen", and on
+   9 November 2026 (#496, option B) each phone tab was made as wide as its
+   word to hold it. On a phone that read as one tab a third of the bar wide
+   and the others crowded, so on 11 November 2026 the maintainer chose the
+   shorter word instead: the bar says "Lijstje", and its five tabs share the
+   bar evenly again, as in every other Language. `place-bar` and `place-link`
+   are hooks on `TabBar` and `PlaceLink`, and these rules sit outside every
+   layer so they beat the utilities those were written with. */
+:root:lang(nl) {
+  --spacing-rail: 128px;
+}
+
+/* At the largest text size a word can still outgrow its fifth of the bar. It
+   then breaks onto a second line at the soft hyphen its phrase carries
+   ("Recep-ten", "Plan-ning", "Instel-lingen"), as Dutch hyphenates it, rather
+   than running off the screen. */
+:lang(nl) .place-link {
+  --text-label--letter-spacing: 0.08em;
+}
+
+/* A word wider than its fifth makes its tab as wide as the word, and two
+   such words side by side came under 2px apart, "THUISRECEP-" on a 360px
+   phone (#605). Each tab keeps 2px at its sides, at every text size, so two
+   words are always 4px apart. At the ordinary size every Dutch word fits its
+   fifth, and the 2px comes out of the room beside it, so no word moves.
+   Why the room does not grow, as the other Languages' does, is said above. */
+:lang(nl) .place-bar .place-link {
+  padding-inline: 2px;
 }

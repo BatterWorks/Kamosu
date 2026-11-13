@@ -3,7 +3,9 @@ import { defineConfig } from 'vitest/config';
 import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
-import { loadEnv } from 'vite';
+import { loadEnv, type Plugin } from 'vite';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 
 /// The backend, in development: two processes side by side (ADR 0028). Vite
 /// serves the interface and proxies everything the binary owns to it, so a
@@ -16,7 +18,45 @@ const BACKEND = 'http://127.0.0.1:5266';
 /// accepts only its defaults, localhost and IP addresses.
 const DEV_HOST = loadEnv('development', '..', 'KAMOSU_DEV_HOST').KAMOSU_DEV_HOST;
 
-export default defineConfig({
+/// Every plugin project.inlang/settings.json names, loaded before Paraglide
+/// compiles, and a stop if one does not load. Paraglide only warns when a
+/// plugin fails: without the one that reads messages/, every phrase is
+/// undefined, and a build would ship an interface with no words in it (#532).
+/// A plugin is a file in node_modules, so a lockfile version `just audit`
+/// reads. A URL is refused, since that would be whatever a CDN serves.
+function inlangPluginsLoad(): Plugin {
+	return {
+		name: 'kamosu:inlang-plugins-load',
+		async buildStart() {
+			const settings = JSON.parse(
+				await readFile(resolve(import.meta.dirname, 'project.inlang/settings.json'), 'utf8'),
+			);
+			for (const module of settings.modules ?? []) {
+				if (/^https?:/.test(module)) {
+					throw new Error(
+						`project.inlang/settings.json names a plugin by URL, ${module}. Add it with npm install and name its file in node_modules.`,
+					);
+				}
+				let key;
+				try {
+					// As the inlang SDK loads it: the file's text, imported whole.
+					const text = await readFile(resolve(import.meta.dirname, module), 'utf8');
+					({ key } =
+						(await import(`data:text/javascript,${encodeURIComponent(text)}`)).default ?? {});
+				} catch (error) {
+					throw new Error(`Paraglide's plugin ${module} did not load: run npm ci in ui/.`, {
+						cause: error,
+					});
+				}
+				if (typeof key !== 'string') {
+					throw new Error(`Paraglide's plugin ${module} is not an inlang plugin.`);
+				}
+			}
+		},
+	};
+}
+
+export default defineConfig(({ command }) => ({
 	plugins: [
 		tailwindcss(),
 		sveltekit({
@@ -29,17 +69,34 @@ export default defineConfig({
 			// adapter-static with a fallback: SvelteKit's server half is unused
 			// (ADR 0012). The Rust binary serves `build/` — one artefact, one version.
 			adapter: adapter({ fallback: 'index.html', strict: false }),
+
+			// SvelteKit 3 would ask the server for a new version every hour and
+			// set `updated.current`. Kamosu reads `updated` nowhere: the service
+			// worker already takes up a new build, and the page reloads on its
+			// `controllerchange`. Off, so the interface makes no request it did
+			// not make before (#525).
+			version: { pollInterval: 0 },
 		}),
 
 		// Paraglide compiles every phrase into a function, so a misspelt key is a
 		// build error rather than a blank button in a kitchen (ADR 0012). The
 		// locale is a setting, not a URL segment: no `/fr/…` routes exist, which
 		// is what lets the whole app be one prerendered shell.
+		//
+		// What it compiles is in project.inlang/paraglide.config.js, which
+		// `npm run check` reads too. Its plugins come from node_modules (#532).
+		inlangPluginsLoad(),
 		paraglideVitePlugin({
 			project: './project.inlang',
-			outdir: './src/lib/paraglide',
-			strategy: ['localStorage', 'preferredLanguage', 'baseLocale'],
-			emitTsDeclarations: true,
+			// Served (the dev server and the screen tests), one module per
+			// language rather than one per phrase. Paraglide 3 serves every
+			// phrase as a module of its own, near 300 requests a screen, and the
+			// dev instance's TLS proxy dropped some of them, which broke `just
+			// screens` (#525). Paraglide 2 did the same, and so does what came
+			// with it: a build writes the other layout into the same folder, so
+			// a running dev server needs `just dev-start` again after one. A
+			// build keeps Paraglide 3's own default.
+			...(command === 'serve' && { outputStructure: 'locale-modules' }),
 		}),
 	],
 
@@ -62,7 +119,8 @@ export default defineConfig({
 		// matches a plain string as a prefix, so a bare `/s` would swallow
 		// `/settings`, `/shopping` and `/share` and hand three of the app's own
 		// screens to the binary. Anchoring the trailing slash keeps it to the one
-		// path the binary actually owns.
+		// path the binary actually owns. `^/calendar/` is a Calendar Link's file
+		// (#491), anchored the same way.
 		proxy: Object.fromEntries(
 			[
 				'/api',
@@ -72,8 +130,27 @@ export default defineConfig({
 				'/favicon-32.png',
 				'/apple-touch-icon.png',
 				'^/s/',
+				'^/calendar/',
 			].map((path) => [path, { target: BACKEND, changeOrigin: false }]),
 		),
+	},
+
+	build: {
+		rolldownOptions: {
+			// A phrase imported from Paraglide's messages that will always be
+			// undefined is one Paraglide did not compile, for whatever reason:
+			// Paraglide only warns, and the build would ship an interface
+			// with no words in it, so here the first one stops the build (#532).
+			// Vite logs an error handed to it and carries on, so this throws.
+			onLog(level, log, handler) {
+				if (log.code === 'IMPORT_IS_UNDEFINED' && log.message.includes('virtual:paraglide/')) {
+					throw new Error(
+						`${log.message}\nA phrase that does not compile leaves the interface without words. Paraglide's warnings are above.`,
+					);
+				}
+				handler(level, log);
+			},
+		},
 	},
 
 	test: {
@@ -83,7 +160,21 @@ export default defineConfig({
 		// One jsdom per worker rather than per file: building it 34 times was 43 of
 		// the screen tests' 48 seconds (#122). What a shared environment lets one
 		// file leave for the next, `setup.ts` puts back at the top of every file.
+		// The module cache is shared too, so a `vi.mock` in one file does not
+		// reach a module an earlier file in the same worker already imported:
+		// replace a function through the module's own API instead, as the
+		// settings spec does Paraglide's `setLocale` (#590).
 		isolate: false,
+		// One limit for every test and every hook, with room for a busy host
+		// (#563). Vitest's default of 5 s a test failed tests that pass in under
+		// a second on a quiet host: under load, one took 5.3 s and another
+		// 6.4 s. Some tests are slow even on an idle host: they wait out a 3 s
+		// poll or a 6.5 s pause, or drive a real Chrome, which a hook starts
+		// (10 s by default). A test that truly hangs still fails within half a
+		// minute. A test that needs longer says so beside itself, as the
+		// long-words test's Chrome start does (#554).
+		testTimeout: 30_000,
+		hookTimeout: 30_000,
 		// The dev tools' own rules are tested beside them, outside src/ (#216).
 		include: ['src/**/*.{test,spec}.{js,ts}', 'tools/**/*.test.js'],
 	},
@@ -91,4 +182,4 @@ export default defineConfig({
 	// Screens are exercised as a browser would run them, so the browser build of
 	// Svelte is what the tests resolve — the server build cannot mount anything.
 	resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
-});
+}));

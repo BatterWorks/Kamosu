@@ -8,7 +8,7 @@
 
 import type { JobAsk } from './job';
 
-/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes, and the Umami script it counts its visits with, if any. */
+/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking, planning and shopping save. A Demo also names the read-only Access Key it publishes, and the Umami script it counts its visits with, if any. */
 export type InstanceStatusInput = Record<string, never>;
 /** What instance_status answers. */
 export type InstanceStatusOutput = {
@@ -26,12 +26,12 @@ export type InstanceStatusOutput = {
 
 /** Set the Language and measures this Person reads in. */
 export type SetReadingPreferencesInput = {
-	reading_language: "en" | "fr" | "es";
+	reading_language: "en" | "fr" | "es" | "nl";
 	reading_measures: "us" | "metric" | "as_written";
 };
 /** What set_reading_preferences answers. */
 export type SetReadingPreferencesOutput = {
-	reading_language: "en" | "fr" | "es";
+	reading_language: "en" | "fr" | "es" | "nl";
 	reading_measures: "us" | "metric" | "as_written";
 };
 
@@ -39,14 +39,15 @@ export type SetReadingPreferencesOutput = {
 export type GetReadingPreferencesInput = Record<string, never>;
 /** What get_reading_preferences answers. */
 export type GetReadingPreferencesOutput = {
-	reading_language: "en" | "fr" | "es";
+	reading_language: "en" | "fr" | "es" | "nl";
 	reading_measures: "us" | "metric" | "as_written";
 };
 
-/** Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. */
+/** Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. `is_operator` says whether that Person administers this instance, whichever of their Credentials asks. An Operator's ordinary key still cannot do an Operator's work: that takes their Operator key. */
 export type GetPersonInput = Record<string, never>;
 /** What get_person answers. */
 export type GetPersonOutput = {
+	is_operator: boolean;
 	name: string;
 	person_id: string;
 };
@@ -101,13 +102,35 @@ export type DeleteAccountOutput = {
 	deleted: boolean;
 };
 
-/** Mint a recovery link for a Person who forgot their password. The link is spent on its one use. */
+/** Mint a recovery link for a Person who forgot their password. The link is spent on its one use, and ends any earlier one of theirs still unspent. Setting a password with it signs out everything the old one reached: Sessions, Access Keys, Runner Keys minted with it, and passkeys. */
 export type MintRecoveryLinkInput = {
 	name: string;
 };
 /** What mint_recovery_link answers. */
 export type MintRecoveryLinkOutput = {
 	link: string;
+};
+
+/** List the live Invites and recovery links. Live is not yet spent, not revoked, and for a recovery link, its Person's account still open. Each by its id and when it was made, never its Secret. An Invite says whether it makes an Operator; a recovery link names whose account it opens. Kitchen and Cookbook Invites are not among them. */
+export type ListAccountLinksInput = Record<string, never>;
+/** What list_account_links answers. */
+export type ListAccountLinksOutput = {
+	links: {
+		created_at: string;
+		id: string;
+		kind: "invite" | "recovery";
+		operator: boolean;
+		person: string | null;
+	}[];
+};
+
+/** Revoke a live Invite or recovery link. Name it by the id list_account_links gives it. Nobody can spend it after. */
+export type RevokeAccountLinkInput = {
+	id: string;
+};
+/** What revoke_account_link answers. */
+export type RevokeAccountLinkOutput = {
+	revoked: boolean;
 };
 
 /** Make a Person an Operator, or stop them being one. The last Operator cannot be demoted (ADR 0007): an instance with nobody to administer it can never get one back, so the refusal is the point rather than a nicety. */
@@ -248,16 +271,18 @@ export type ListInstanceSecurityRecordOutput = {
 			address?: string;
 			backup?: string;
 			ended_access_keys?: number;
+			ended_passkeys?: number;
 			ended_runner_keys?: number;
 			ended_sessions?: number;
 			how?: "password" | "passkey" | "invite" | "recovery_link" | "setup" | "demo";
 			key?: string;
 			operator?: boolean;
 			read_only?: boolean;
+			replaced?: boolean;
 			runner_key?: string;
 			taken_away?: boolean;
 		};
-		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched";
+		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "calendar_link_made" | "calendar_link_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched" | "invite_revoked" | "recovery_link_revoked";
 		first_at: string;
 		id: number;
 	}[];
@@ -437,16 +462,18 @@ export type ListSecurityRecordOutput = {
 			address?: string;
 			backup?: string;
 			ended_access_keys?: number;
+			ended_passkeys?: number;
 			ended_runner_keys?: number;
 			ended_sessions?: number;
 			how?: "password" | "passkey" | "invite" | "recovery_link" | "setup" | "demo";
 			key?: string;
 			operator?: boolean;
 			read_only?: boolean;
+			replaced?: boolean;
 			runner_key?: string;
 			taken_away?: boolean;
 		};
-		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched";
+		event: "signed_in" | "sign_in_failed" | "passkey_added" | "passkey_removed" | "password_changed" | "access_key_minted" | "access_key_ended" | "session_ended" | "calendar_link_made" | "calendar_link_ended" | "house_notes_changed" | "public_address_changed" | "operator_raised" | "operator_stood_down" | "account_disabled" | "account_deleted" | "operator_key_minted" | "sign_in_crowd" | "runner_key_minted" | "runner_key_revoked" | "backup_fetched" | "invite_revoked" | "recovery_link_revoked";
 		first_at: string;
 		id: number;
 	}[];
@@ -516,7 +543,7 @@ export type FinishAddingPasskeyOutput = {
 	works_here: boolean;
 };
 
-/** Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working. */
+/** Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working. A recovery link of yours not yet used ends. */
 export type ChangePasswordInput = {
 	current_password: string;
 	end_access_keys: boolean;
@@ -1185,7 +1212,7 @@ export type CreateTagInput = {
 	as_operator?: boolean;
 	cookbook_id?: string;
 	kitchen_id?: string;
-	language: "en" | "fr" | "es";
+	language: "en" | "fr" | "es" | "nl";
 	name: string;
 };
 /** What create_tag answers. */
@@ -1227,7 +1254,7 @@ export type ListTagsOutput = {
 
 /** Name a Tag in one Language, or change the name it has there. Reaches every recipe carrying it at once, and mints no Version. */
 export type RenameTagInput = {
-	language: "en" | "fr" | "es";
+	language: "en" | "fr" | "es" | "nl";
 	name: string;
 	tag_id: string;
 };
@@ -1327,7 +1354,7 @@ export type CreateRecipeInput = {
 		text: string;
 	}[];
 	kitchen_id?: string;
-	language?: "en" | "fr" | "es" | "unknown";
+	language?: "en" | "fr" | "es" | "nl" | "unknown";
 	main_photo?: string | null;
 	note?: string | null;
 	nutrition?: {
@@ -1530,9 +1557,10 @@ export type CreateRecipeOutput = {
 	writes: boolean;
 };
 
-/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped, unless another Branch, a Translation or a Bundle already holds that Version, or an agent's Job saved it. A save with a Job Key collapses into the one Version its Job started. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, or is refused once it is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write, a Kitchen-mate's or one that arrived, is a Copy: a new Branch of the same Lineage in your own Cookbook, carrying the whole chain up to the Version you changed, and the Branch you changed is left untouched. */
+/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped, unless another Branch, a Translation, a Bundle or a cooking already holds that Version, or an agent's Job saved it. A save with a Job Key collapses into the one Version its Job started. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, or is refused once it is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write, a Kitchen-mate's or one that arrived, is a Copy: a new Branch of the same Lineage in your own Cookbook, carrying the whole chain up to the Version you changed, and the Branch you changed is left untouched. */
 export type SaveRecipeVersionInput = {
 	as_operator?: boolean;
+	base_version_id?: string;
 	branch_id: string;
 	change_note?: string;
 	cook_time_minutes?: number | null;
@@ -1584,9 +1612,10 @@ export type SaveRecipeVersionOutput = {
 	version_id: string;
 };
 
-/** Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch, a Translation or a Bundle already holds it, or an agent's Job saved it), an edit with a Job Key collapses and is refused as its save is, and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was keeps its Reading as it was, a misreading included; correct one with set_reading. */
+/** Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch, a Translation, a Bundle or a cooking already holds it, or an agent's Job saved it), an edit with a Job Key collapses and is refused as its save is, and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was keeps its Reading as it was, a misreading included; correct one with set_reading. */
 export type EditRecipeInput = {
 	as_operator?: boolean;
+	base_version_id?: string;
 	branch_id: string;
 	change_note?: string;
 	cook_time_minutes?: number | null;
@@ -2091,6 +2120,7 @@ export type ImportByAgentOutput = {
 /** Translate a recipe into another Language. It is an ordinary Branch of its Lineage. Its first Version records which Version of the source it renders, and its chain starts fresh, unlike a Copy's. An agent translating calls this under the Person's Credential. Keep each Ingredient Line and section heading in the source's place, with its amount and unit: such a line takes the source line's Food, here and on a save naming a newer translates_version_id. */
 export type StartTranslationInput = {
 	branch_id: string;
+	branch_name?: string;
 	change_note?: string;
 	cook_time_minutes?: number | null;
 	ingredients?: {
@@ -2098,7 +2128,7 @@ export type StartTranslationInput = {
 		text: string;
 	}[];
 	kitchen_id?: string;
-	language: "en" | "fr" | "es";
+	language: "en" | "fr" | "es" | "nl";
 	main_photo?: string | null;
 	name?: string;
 	note?: string | null;
@@ -2306,7 +2336,7 @@ export type StartTranslationOutput = {
 /** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so, except to set one guessed for a recipe that held too little text to read, from the first text that says one. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
 export type SetRecipeLanguageInput = {
 	branch_id: string;
-	language: "en" | "fr" | "es" | "unknown";
+	language: "en" | "fr" | "es" | "nl" | "unknown";
 };
 /** What set_recipe_language answers. */
 export type SetRecipeLanguageOutput = {
@@ -2325,7 +2355,7 @@ export type ImportInput = {
 			kind: "section" | "ingredient";
 			text: string;
 		}[];
-		language?: "en" | "fr" | "es" | "unknown";
+		language?: "en" | "fr" | "es" | "nl" | "unknown";
 		main_photo?: string | null;
 		note?: string | null;
 		nutrition?: {
@@ -2392,6 +2422,17 @@ export type ImportOutput = {
 		count: number;
 		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
+	meal_plan?: {
+		already_planned: number;
+		as_words: {
+			count: number;
+			title: string;
+		}[];
+		first_week: string | null;
+		last_week: string | null;
+		meal_names_left_out: boolean;
+		planned: number;
+	};
 	offered: {
 		branch_id: string;
 		candidate_version_id: string;
@@ -2471,6 +2512,17 @@ export type ImportCroutonOutput = {
 		count: number;
 		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
+	meal_plan?: {
+		already_planned: number;
+		as_words: {
+			count: number;
+			title: string;
+		}[];
+		first_week: string | null;
+		last_week: string | null;
+		meal_names_left_out: boolean;
+		planned: number;
+	};
 	offered: {
 		branch_id: string;
 		candidate_version_id: string;
@@ -2551,6 +2603,17 @@ export type ImportFromAnotherAppOutput = {
 		count: number;
 		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
+	meal_plan?: {
+		already_planned: number;
+		as_words: {
+			count: number;
+			title: string;
+		}[];
+		first_week: string | null;
+		last_week: string | null;
+		meal_names_left_out: boolean;
+		planned: number;
+	};
 	offered?: {
 		branch_id: string;
 		candidate_version_id: string;
@@ -2728,6 +2791,17 @@ export type ImportWebLinkOutput = {
 		count: number;
 		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
+	meal_plan?: {
+		already_planned: number;
+		as_words: {
+			count: number;
+			title: string;
+		}[];
+		first_week: string | null;
+		last_week: string | null;
+		meal_names_left_out: boolean;
+		planned: number;
+	};
 	offered?: {
 		branch_id: string;
 		candidate_version_id: string;
@@ -3450,6 +3524,17 @@ export type ImportBundleOutput = {
 		count: number;
 		what: "meal_plans" | "shopping_lists" | "photos_not_in_export" | "items" | "expenses";
 	}[];
+	meal_plan?: {
+		already_planned: number;
+		as_words: {
+			count: number;
+			title: string;
+		}[];
+		first_week: string | null;
+		last_week: string | null;
+		meal_names_left_out: boolean;
+		planned: number;
+	};
 	offered: {
 		branch_id: string;
 		candidate_version_id: string;
@@ -3566,6 +3651,7 @@ export type ReadSharedRecipeOutput = {
 		};
 		language: string;
 		lineage_id: string;
+		name: string | null;
 		readings: ({
 			amount: string | null;
 			lineage_id: string | null;
@@ -3660,6 +3746,7 @@ export type ReadSharedRecipeOutput = {
 		};
 		language: string;
 		lineage_id: string;
+		name: string | null;
 		readings: ({
 			amount: string | null;
 			lineage_id: string | null;
@@ -4389,6 +4476,8 @@ export type RereadIngredientLinesOutput = {
 export type StartAttemptInput = {
 	attempt_id?: string;
 	branch_id: string;
+	lineage_id?: string;
+	sent_at?: string;
 	started_at?: string;
 	version_id?: string;
 };
@@ -4493,6 +4582,7 @@ export type AdvanceAttemptInput = {
 		noun: string;
 	} | null;
 	current_step_index?: number;
+	sent_at?: string;
 	ticked_ingredients?: number[];
 	written_at?: string;
 };
@@ -4596,6 +4686,7 @@ export type FinishAttemptInput = {
 	note?: string | null;
 	photographs?: string[] | null;
 	rating?: "again" | "tweak" | "no" | null;
+	sent_at?: string;
 	written_at?: string;
 };
 /** What finish_attempt answers. */
@@ -4698,6 +4789,7 @@ export type EditAttemptInput = {
 	note?: string | null;
 	photographs?: string[] | null;
 	rating?: "again" | "tweak" | "no" | null;
+	sent_at?: string;
 	written_at?: string;
 };
 /** What edit_attempt answers. */
@@ -4855,6 +4947,7 @@ export type SetAsCookedInput = {
 		} | null;
 	} | null;
 	attempt_id: string;
+	sent_at?: string;
 	written_at?: string;
 };
 /** What set_as_cooked answers. */
@@ -5360,6 +5453,7 @@ export type ShoppingBasisOutput = {
 /** Choose a recipe to shop for. It is chosen at a Yield, a multiplier (a Yield with an empty noun) or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
 export type AddToShoppingListInput = {
 	branch_id: string;
+	sent_at?: string;
 	shopping_yield?: {
 		amount: string;
 		noun: string;
@@ -5403,6 +5497,7 @@ export type AddToShoppingListOutput = {
 /** Take a recipe off your Shopping List. Works whether or not it can still be read, which is exactly the entry somebody most wants gone. Answers the whole list. */
 export type RemoveFromShoppingListInput = {
 	branch_id: string;
+	sent_at?: string;
 	written_at?: string;
 };
 /** What remove_from_shopping_list answers. */
@@ -5442,6 +5537,7 @@ export type RemoveFromShoppingListOutput = {
 /** Say how much of a chosen recipe you are shopping for. Send an amount and its noun, a multiplier (an amount with an empty noun: twice the recipe is `2`), or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list. */
 export type SetShoppingYieldInput = {
 	branch_id: string;
+	sent_at?: string;
 	shopping_yield?: {
 		amount: string;
 		noun: string;
@@ -5491,6 +5587,7 @@ export type ShoppingListAsTextOutput = {
 
 /** Empty your Shopping List. Every recipe chosen and every typed line goes at once. Offered after the list has left as text and never done on the way out: a list that emptied itself when it was sent would be silent and unrecoverable. Answers the whole list. */
 export type EmptyShoppingListInput = {
+	sent_at?: string;
 	written_at?: string;
 };
 /** What empty_shopping_list answers. */
@@ -5530,6 +5627,7 @@ export type EmptyShoppingListOutput = {
 /** Type a line straight onto your Shopping List. Think bin bags, coffee. Kept exactly as typed and never read, so it carries no amount and merges with nothing: typing flour beside a recipe that wants flour gives two lines. Answers the whole list. */
 export type AddLooseItemInput = {
 	item_id?: string;
+	sent_at?: string;
 	text: string;
 	written_at?: string;
 };
@@ -5570,6 +5668,7 @@ export type AddLooseItemOutput = {
 /** Take one typed line off your Shopping List. Answers the whole list. */
 export type RemoveLooseItemInput = {
 	item_id: string;
+	sent_at?: string;
 	written_at?: string;
 };
 /** What remove_loose_item answers. */
@@ -5604,6 +5703,363 @@ export type RemoveLooseItemOutput = {
 		}[];
 		said: string | null;
 	}[];
+};
+
+/** Read your Meal Plan from one day to another. It answers what you planned on each day, both days included, and on any day of each week those days touch. A week runs Monday to Sunday and is named by its Monday, and each meal says its week and its day, or no day. They come a week at a time: the week's meals with no day first, then each day's, each list in the order you put it in. A meal is a recipe or written words. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05. One read covers at most 366 days. Each recipe says whether it was cooked: you began cooking any Branch of that recipe on its day, or on any day of its week where it has no day, finished or not. The day is the one where you are, so send your time_zone; without one the days are UTC's. The plan never records a cooking itself. */
+export type GetMealPlanInput = {
+	from: string;
+	time_zone?: string;
+	to: string;
+};
+/** What get_meal_plan answers. */
+export type GetMealPlanOutput = {
+	planned_meals: {
+		branch_id: string | null;
+		cooked: boolean;
+		day: string | null;
+		gone: boolean;
+		main_photo: string | null;
+		planned_meal_id: string;
+		planned_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
+		title: string | null;
+		week: string;
+		words: string | null;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	}[];
+};
+
+/** Plan a recipe on a day or a week of your Meal Plan. Send `day`, or `week` as its Monday for a week with no day yet. It goes after whatever that day, or that week's meals with no day, already hold. It plans one Branch, always at its newest Version: choosing between a recipe's Branches is choosing which method you will cook. Plan it at a Yield, a multiplier (a Yield with an empty noun), or as written by sending none; a recipe whose own Yield has no amount Kamosu can count from is planned by a multiplier. The same recipe may be planned on several days, or twice on one. Planning one again elsewhere is this Operation again. Answers the Planned Meal. */
+export type PlanRecipeInput = {
+	branch_id: string;
+	day?: string;
+	planned_meal_id?: string;
+	planned_yield?: {
+		amount: string;
+		noun: string;
+	} | null;
+	sent_at?: string;
+	week?: string;
+	written_at?: string;
+};
+/** What plan_recipe answers. */
+export type PlanRecipeOutput = {
+	planned_meal: {
+		branch_id: string | null;
+		day: string | null;
+		gone: boolean;
+		main_photo: string | null;
+		planned_meal_id: string;
+		planned_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
+		title: string | null;
+		week: string;
+		words: string | null;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	} | null;
+};
+
+/** Say how much of a planned recipe you will cook. Send an amount and its noun, a multiplier (an amount with an empty noun), or null for the recipe as written. Written words have no Yield. Answers the Planned Meal. */
+export type SetPlannedYieldInput = {
+	planned_meal_id: string;
+	planned_yield: {
+		amount: string;
+		noun: string;
+	} | null;
+	sent_at?: string;
+	written_at?: string;
+};
+/** What set_planned_yield answers. */
+export type SetPlannedYieldOutput = {
+	planned_meal: {
+		branch_id: string | null;
+		day: string | null;
+		gone: boolean;
+		main_photo: string | null;
+		planned_meal_id: string;
+		planned_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
+		title: string | null;
+		week: string;
+		words: string | null;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	} | null;
+};
+
+/** Write a few words on a day or a week of your Meal Plan. Words such as "leftovers" or "eating out". Send `day`, or `week` as its Monday for a week with no day yet. They are kept exactly as written, the ends trimmed, and never read: they are not a recipe and reach no Shopping List. They go after whatever that list already holds. Answers the Planned Meal, whose `words` they are. */
+export type PlanWordsInput = {
+	day?: string;
+	planned_meal_id?: string;
+	sent_at?: string;
+	week?: string;
+	words: string;
+	written_at?: string;
+};
+/** What plan_words answers. */
+export type PlanWordsOutput = {
+	planned_meal: {
+		branch_id: string | null;
+		day: string | null;
+		gone: boolean;
+		main_photo: string | null;
+		planned_meal_id: string;
+		planned_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
+		title: string | null;
+		week: string;
+		words: string | null;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	} | null;
+};
+
+/** Change the written words of a Planned Meal. Those are the ones plan_words wrote. They are kept exactly as written, the ends trimmed. A planned recipe has no words to change. Answers the Planned Meal. */
+export type SetPlannedWordsInput = {
+	planned_meal_id: string;
+	sent_at?: string;
+	words: string;
+	written_at?: string;
+};
+/** What set_planned_words answers. */
+export type SetPlannedWordsOutput = {
+	planned_meal: {
+		branch_id: string | null;
+		day: string | null;
+		gone: boolean;
+		main_photo: string | null;
+		planned_meal_id: string;
+		planned_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
+		title: string | null;
+		week: string;
+		words: string | null;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	} | null;
+};
+
+/** Move a Planned Meal to another day, week or place. It may be a recipe or written words. Send `day`, or `week` as its Monday for a week with no day, or the list it is in already, to change only its place. `position` counts from 0 among the others in that list; without it the meal goes last. Answers the Planned Meal. */
+export type MovePlannedMealInput = {
+	day?: string;
+	planned_meal_id: string;
+	position?: number;
+	sent_at?: string;
+	week?: string;
+	written_at?: string;
+};
+/** What move_planned_meal answers. */
+export type MovePlannedMealOutput = {
+	planned_meal: {
+		branch_id: string | null;
+		day: string | null;
+		gone: boolean;
+		main_photo: string | null;
+		planned_meal_id: string;
+		planned_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
+		title: string | null;
+		week: string;
+		words: string | null;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	} | null;
+};
+
+/** Take a Planned Meal off your Meal Plan. Works whether or not its recipe can still be read, and taking one that is already gone is not an error. Answers null. */
+export type RemovePlannedMealInput = {
+	planned_meal_id: string;
+	sent_at?: string;
+	written_at?: string;
+};
+/** What remove_planned_meal answers. */
+export type RemovePlannedMealOutput = {
+	planned_meal: {
+		branch_id: string | null;
+		day: string | null;
+		gone: boolean;
+		main_photo: string | null;
+		planned_meal_id: string;
+		planned_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
+		title: string | null;
+		week: string;
+		words: string | null;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	} | null;
+};
+
+/** Send days and weeks of your Meal Plan to your Shopping List. A day sends its own Planned Meals; a week, named by its Monday, sends its days' and its meals with no day; `any_day_of` sends a week's meals with no day alone. One chosen twice (a day and its own week) is sent once. Each recipe goes on at its planned Yield, added to what the list already holds for that Branch, never replacing it: two meals of one recipe add up. A meal sent before sends only what its Yield has grown by since, and nothing when it was lowered: nothing is taken off. Written words and recipes that can no longer be read send nothing and are named in `skipped`. A send is one write on the Shopping List's clock: one older than the list's last write adds nothing, marks nothing and answers `refused`; one with nothing to send writes nothing and answers `sent`. Emptying the list leaves what each meal sent as it was. Answers what went, what was sent before, what was skipped, the meals as they now stand and the whole list. */
+export type SendToShoppingListInput = {
+	any_day_of?: string[];
+	days?: string[];
+	sent_at?: string;
+	weeks?: string[];
+	written_at?: string;
+};
+/** What send_to_shopping_list answers. */
+export type SendToShoppingListOutput = {
+	already_sent: {
+		branch_id: string;
+		planned_fewer: boolean;
+		planned_meal_id: string;
+		title: string;
+	}[];
+	outcome: "sent" | "refused" | "waiting";
+	planned_meals: {
+		branch_id: string | null;
+		day: string | null;
+		gone: boolean;
+		main_photo: string | null;
+		planned_meal_id: string;
+		planned_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		position: number;
+		sent_at: string | null;
+		sent_factor: number | null;
+		title: string | null;
+		week: string;
+		words: string | null;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	}[];
+	sent: {
+		added_factor: number;
+		branch_id: string;
+		planned_meals: string[];
+		raised: boolean;
+		shopping_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		title: string;
+		was_on_list: boolean;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	}[];
+	shopping_list: {
+		chosen: {
+			branch_id: string;
+			gone: boolean;
+			shopping_yield: {
+				amount: string;
+				noun: string;
+			} | null;
+			title: string;
+			written_yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		}[];
+		rows: {
+			id: string;
+			kind: "food" | "line" | "loose";
+			lines: {
+				branch_id: string;
+				recipe: string;
+				text: string;
+			}[];
+			name: string;
+			name_language: string | null;
+			parts: {
+				kind: "about" | "count" | "as_written" | "no_amount";
+				sources: string[];
+				text: string;
+			}[];
+			said: string | null;
+		}[];
+	};
+	skipped: {
+		planned_meal_id: string;
+		reason: "words" | "gone";
+		title: string | null;
+		words: string | null;
+	}[];
+};
+
+/** Make the link a calendar app subscribes to for your plan. It shows each of your Planned Meals as an all-day event, from 90 days back on. Anyone holding it reads your plan and changes nothing. You have one at most: making one ends the one before. Its Secret is answered this once and kept nowhere; `url` is the whole link where the instance has a public address, and null where it has none, when the link is `path` at the address Kamosu is reached at. */
+export type MakeCalendarLinkInput = Record<string, never>;
+/** What make_calendar_link answers. */
+export type MakeCalendarLinkOutput = {
+	made_at: string;
+	path: string;
+	secret: string;
+	url: string | null;
+};
+
+/** Whether you have a live Calendar Link. It says when it was made and when a calendar app last read it, and never the link itself, which is shown once when it is made. */
+export type GetCalendarLinkInput = Record<string, never>;
+/** What get_calendar_link answers. */
+export type GetCalendarLinkOutput = {
+	calendar_link: {
+		last_read_at: string | null;
+		made_at: string;
+	} | null;
+};
+
+/** End your Calendar Link. A calendar app holding it is answered nothing from then on. Answers whether there was one to end. */
+export type EndCalendarLinkInput = Record<string, never>;
+/** What end_calendar_link answers. */
+export type EndCalendarLinkOutput = {
+	ended: boolean;
 };
 
 /** List every Food this instance knows. Each is shown in the reader's Reading Language where it has a name there. */
@@ -5645,7 +6101,7 @@ export type GetFoodOutput = {
 /** Say every name a Food answers to in one Language. Send them in order: the list replaces the names it had there. A line naming any of them reads as this Food, so "œufs" and "œuf" can both be the eggs. The first is the one a reader is shown. An empty list takes the Language off, but a Food's last name may not go. Any Person may — a Food is instance-wide, not a Kitchen's to guard. */
 export type SetFoodNamesInput = {
 	food_id: string;
-	language: "en" | "fr" | "es";
+	language: "en" | "fr" | "es" | "nl";
 	names: string[];
 };
 /** What set_food_names answers. */
@@ -5937,6 +6393,18 @@ export interface Operations {
 	mint_recovery_link: {
 		input: MintRecoveryLinkInput;
 		output: MintRecoveryLinkOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	list_account_links: {
+		input: ListAccountLinksInput;
+		output: ListAccountLinksOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	revoke_account_link: {
+		input: RevokeAccountLinkInput;
+		output: RevokeAccountLinkOutput;
 		kind: 'immediate';
 		permission: 'operator';
 	};
@@ -6726,6 +7194,72 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	get_meal_plan: {
+		input: GetMealPlanInput;
+		output: GetMealPlanOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	plan_recipe: {
+		input: PlanRecipeInput;
+		output: PlanRecipeOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_planned_yield: {
+		input: SetPlannedYieldInput;
+		output: SetPlannedYieldOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	plan_words: {
+		input: PlanWordsInput;
+		output: PlanWordsOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_planned_words: {
+		input: SetPlannedWordsInput;
+		output: SetPlannedWordsOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	move_planned_meal: {
+		input: MovePlannedMealInput;
+		output: MovePlannedMealOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	remove_planned_meal: {
+		input: RemovePlannedMealInput;
+		output: RemovePlannedMealOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	send_to_shopping_list: {
+		input: SendToShoppingListInput;
+		output: SendToShoppingListOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	make_calendar_link: {
+		input: MakeCalendarLinkInput;
+		output: MakeCalendarLinkOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	get_calendar_link: {
+		input: GetCalendarLinkInput;
+		output: GetCalendarLinkOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	end_calendar_link: {
+		input: EndCalendarLinkInput;
+		output: EndCalendarLinkOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	list_foods: {
 		input: ListFoodsInput;
 		output: ListFoodsOutput;
@@ -6831,7 +7365,7 @@ export type Answer<N extends OperationName> =
 export const CATALOGUE = [
 	{
 		"name": "instance_status",
-		"summary": "Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes, and the Umami script it counts its visits with, if any.",
+		"summary": "Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking, planning and shopping save. A Demo also names the read-only Access Key it publishes, and the Umami script it counts its visits with, if any.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -6903,7 +7437,8 @@ export const CATALOGUE = [
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"nl"
 					]
 				},
 				"reading_measures": {
@@ -6927,7 +7462,8 @@ export const CATALOGUE = [
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"nl"
 					]
 				},
 				"reading_measures": {
@@ -6962,7 +7498,8 @@ export const CATALOGUE = [
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"nl"
 					]
 				},
 				"reading_measures": {
@@ -6982,7 +7519,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_person",
-		"summary": "Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with.",
+		"summary": "Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. `is_operator` says whether that Person administers this instance, whichever of their Credentials asks. An Operator's ordinary key still cannot do an Operator's work: that takes their Operator key.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6993,6 +7530,9 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"is_operator": {
+					"type": "boolean"
+				},
 				"name": {
 					"type": "string"
 				},
@@ -7002,7 +7542,8 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"person_id",
-				"name"
+				"name",
+				"is_operator"
 			],
 			"type": "object"
 		}
@@ -7182,7 +7723,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "mint_recovery_link",
-		"summary": "Mint a recovery link for a Person who forgot their password. The link is spent on its one use.",
+		"summary": "Mint a recovery link for a Person who forgot their password. The link is spent on its one use, and ends any earlier one of theirs still unspent. Setting a password with it signs out everything the old one reached: Sessions, Access Keys, Runner Keys minted with it, and passkeys.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -7206,6 +7747,95 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"link"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_account_links",
+		"summary": "List the live Invites and recovery links. Live is not yet spent, not revoked, and for a recovery link, its Person's account still open. Each by its id and when it was made, never its Secret. An Invite says whether it makes an Operator; a recovery link names whose account it opens. Kitchen and Cookbook Invites are not among them.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"links": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"kind": {
+								"enum": [
+									"invite",
+									"recovery"
+								]
+							},
+							"operator": {
+								"description": "An Invite that makes an Operator.",
+								"type": "boolean"
+							},
+							"person": {
+								"description": "Whose account a recovery link opens; null for an Invite.",
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"id",
+							"kind",
+							"operator",
+							"person",
+							"created_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"links"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "revoke_account_link",
+		"summary": "Revoke a live Invite or recovery link. Name it by the id list_account_links gives it. Nobody can spend it after.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"revoked": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"revoked"
 			],
 			"type": "object"
 		}
@@ -7786,6 +8416,10 @@ export const CATALOGUE = [
 									"ended_access_keys": {
 										"type": "integer"
 									},
+									"ended_passkeys": {
+										"description": "Passkeys a recovery link ended.",
+										"type": "integer"
+									},
 									"ended_runner_keys": {
 										"description": "Runner Keys a recovery link ended.",
 										"type": "integer"
@@ -7814,6 +8448,10 @@ export const CATALOGUE = [
 									"read_only": {
 										"type": "boolean"
 									},
+									"replaced": {
+										"description": "The Calendar Link made ended a live one.",
+										"type": "boolean"
+									},
 									"runner_key": {
 										"type": "string"
 									},
@@ -7834,6 +8472,8 @@ export const CATALOGUE = [
 									"access_key_minted",
 									"access_key_ended",
 									"session_ended",
+									"calendar_link_made",
+									"calendar_link_ended",
 									"house_notes_changed",
 									"public_address_changed",
 									"operator_raised",
@@ -7844,7 +8484,9 @@ export const CATALOGUE = [
 									"sign_in_crowd",
 									"runner_key_minted",
 									"runner_key_revoked",
-									"backup_fetched"
+									"backup_fetched",
+									"invite_revoked",
+									"recovery_link_revoked"
 								]
 							},
 							"first_at": {
@@ -8576,6 +9218,10 @@ export const CATALOGUE = [
 									"ended_access_keys": {
 										"type": "integer"
 									},
+									"ended_passkeys": {
+										"description": "Passkeys a recovery link ended.",
+										"type": "integer"
+									},
 									"ended_runner_keys": {
 										"description": "Runner Keys a recovery link ended.",
 										"type": "integer"
@@ -8604,6 +9250,10 @@ export const CATALOGUE = [
 									"read_only": {
 										"type": "boolean"
 									},
+									"replaced": {
+										"description": "The Calendar Link made ended a live one.",
+										"type": "boolean"
+									},
 									"runner_key": {
 										"type": "string"
 									},
@@ -8624,6 +9274,8 @@ export const CATALOGUE = [
 									"access_key_minted",
 									"access_key_ended",
 									"session_ended",
+									"calendar_link_made",
+									"calendar_link_ended",
 									"house_notes_changed",
 									"public_address_changed",
 									"operator_raised",
@@ -8634,7 +9286,9 @@ export const CATALOGUE = [
 									"sign_in_crowd",
 									"runner_key_minted",
 									"runner_key_revoked",
-									"backup_fetched"
+									"backup_fetched",
+									"invite_revoked",
+									"recovery_link_revoked"
 								]
 							},
 							"first_at": {
@@ -8917,7 +9571,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "change_password",
-		"summary": "Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working.",
+		"summary": "Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working. A recovery link of yours not yet used ends.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -11989,7 +12643,8 @@ export const CATALOGUE = [
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"nl"
 					]
 				},
 				"name": {
@@ -12170,7 +12825,8 @@ export const CATALOGUE = [
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"nl"
 					]
 				},
 				"name": {
@@ -12603,6 +13259,7 @@ export const CATALOGUE = [
 						"en",
 						"fr",
 						"es",
+						"nl",
 						"unknown"
 					]
 				},
@@ -13778,7 +14435,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "save_recipe_version",
-		"summary": "Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped, unless another Branch, a Translation or a Bundle already holds that Version, or an agent's Job saved it. A save with a Job Key collapses into the one Version its Job started. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, or is refused once it is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write, a Kitchen-mate's or one that arrived, is a Copy: a new Branch of the same Lineage in your own Cookbook, carrying the whole chain up to the Version you changed, and the Branch you changed is left untouched.",
+		"summary": "Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped, unless another Branch, a Translation, a Bundle or a cooking already holds that Version, or an agent's Job saved it. A save with a Job Key collapses into the one Version its Job started. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, or is refused once it is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write, a Kitchen-mate's or one that arrived, is a Copy: a new Branch of the same Lineage in your own Cookbook, carrying the whole chain up to the Version you changed, and the Branch you changed is left untouched.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -13787,6 +14444,10 @@ export const CATALOGUE = [
 				"as_operator": {
 					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
 					"type": "boolean"
+				},
+				"base_version_id": {
+					"description": "The Version this save was written from: the newest one when the recipe was opened. Where it is no longer the newest, somebody saved since, from another tab or device too, and this save starts a Version of its own rather than collapsing into theirs. Left out, the save is taken as written from the newest Version.",
+					"type": "string"
 				},
 				"branch_id": {
 					"type": "string"
@@ -14050,7 +14711,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "edit_recipe",
-		"summary": "Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch, a Translation or a Bundle already holds it, or an agent's Job saved it), an edit with a Job Key collapses and is refused as its save is, and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was keeps its Reading as it was, a misreading included; correct one with set_reading.",
+		"summary": "Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch, a Translation, a Bundle or a cooking already holds it, or an agent's Job saved it), an edit with a Job Key collapses and is refused as its save is, and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was keeps its Reading as it was, a misreading included; correct one with set_reading.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -14059,6 +14720,10 @@ export const CATALOGUE = [
 				"as_operator": {
 					"description": "Operator only: act as the Operator on this call, reaching a recipe or Cookbook you could not reach as yourself, and changing it where it is, under your own Hand. Refused to anybody else.",
 					"type": "boolean"
+				},
+				"base_version_id": {
+					"description": "The Version this save was written from: the newest one when the recipe was opened. Where it is no longer the newest, somebody saved since, from another tab or device too, and this save starts a Version of its own rather than collapsing into theirs. Left out, the save is taken as written from the newest Version.",
+					"type": "string"
 				},
 				"branch_id": {
 					"type": "string"
@@ -16788,6 +17453,10 @@ export const CATALOGUE = [
 					"description": "The recipe being translated.",
 					"type": "string"
 				},
+				"branch_name": {
+					"description": "What to call the new Branch. Left out, it is named only where the Cookbook already has a Branch of the recipe in this Language: after the translated Branch's own name, or whose that Branch is. `name` names the first Version.",
+					"type": "string"
+				},
 				"change_note": {
 					"type": "string"
 				},
@@ -16829,7 +17498,8 @@ export const CATALOGUE = [
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"nl"
 					]
 				},
 				"main_photo": {
@@ -18027,6 +18697,7 @@ export const CATALOGUE = [
 						"en",
 						"fr",
 						"es",
+						"nl",
 						"unknown"
 					]
 				}
@@ -18117,6 +18788,7 @@ export const CATALOGUE = [
 									"en",
 									"fr",
 									"es",
+									"nl",
 									"unknown"
 								]
 							},
@@ -18456,7 +19128,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept (a meal plan entry is listed only where Kamosu could not read it), `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -18480,6 +19152,61 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"meal_plan": {
+					"additionalProperties": false,
+					"description": "Present when the file held a meal plan, as a Mealie backup does (#492): its entries planned in the importing Person's own Meal Plan, past and upcoming, unsent. `planned` counts the Planned Meals this import made, and `already_planned` the entries an earlier import of the same file already planned for this Person, which are never planned twice. `as_words` names each recipe whose entries were planned as its name in written words, because the recipe did not arrive, with how many. `first_week` and `last_week` are the Mondays of the earliest and latest weeks planned, null where none was. `meal_names_left_out` says the app's meal names (breakfast, dinner) were not kept; a day's Planned Meals stand in the app's meal order.",
+					"properties": {
+						"already_planned": {
+							"type": "integer"
+						},
+						"as_words": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"count": {
+										"type": "integer"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"title",
+									"count"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"first_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"last_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"meal_names_left_out": {
+							"type": "boolean"
+						},
+						"planned": {
+							"type": "integer"
+						}
+					},
+					"required": [
+						"planned",
+						"already_planned",
+						"as_words",
+						"first_week",
+						"last_week",
+						"meal_names_left_out"
+					],
+					"type": "object"
 				},
 				"offered": {
 					"items": {
@@ -18514,7 +19241,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"related_candidates": {
-					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered. More than five recipes of one name, or of one page, offer no pair among them, and a Report offers at most 200 pairs.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -18861,7 +19588,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept (a meal plan entry is listed only where Kamosu could not read it), `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -18885,6 +19612,61 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"meal_plan": {
+					"additionalProperties": false,
+					"description": "Present when the file held a meal plan, as a Mealie backup does (#492): its entries planned in the importing Person's own Meal Plan, past and upcoming, unsent. `planned` counts the Planned Meals this import made, and `already_planned` the entries an earlier import of the same file already planned for this Person, which are never planned twice. `as_words` names each recipe whose entries were planned as its name in written words, because the recipe did not arrive, with how many. `first_week` and `last_week` are the Mondays of the earliest and latest weeks planned, null where none was. `meal_names_left_out` says the app's meal names (breakfast, dinner) were not kept; a day's Planned Meals stand in the app's meal order.",
+					"properties": {
+						"already_planned": {
+							"type": "integer"
+						},
+						"as_words": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"count": {
+										"type": "integer"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"title",
+									"count"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"first_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"last_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"meal_names_left_out": {
+							"type": "boolean"
+						},
+						"planned": {
+							"type": "integer"
+						}
+					},
+					"required": [
+						"planned",
+						"already_planned",
+						"as_words",
+						"first_week",
+						"last_week",
+						"meal_names_left_out"
+					],
+					"type": "object"
 				},
 				"offered": {
 					"items": {
@@ -18919,7 +19701,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"related_candidates": {
-					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered. More than five recipes of one name, or of one page, offer no pair among them, and a Report offers at most 200 pairs.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -19270,7 +20052,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept (a meal plan entry is listed only where Kamosu could not read it), `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -19294,6 +20076,61 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"meal_plan": {
+					"additionalProperties": false,
+					"description": "Present when the file held a meal plan, as a Mealie backup does (#492): its entries planned in the importing Person's own Meal Plan, past and upcoming, unsent. `planned` counts the Planned Meals this import made, and `already_planned` the entries an earlier import of the same file already planned for this Person, which are never planned twice. `as_words` names each recipe whose entries were planned as its name in written words, because the recipe did not arrive, with how many. `first_week` and `last_week` are the Mondays of the earliest and latest weeks planned, null where none was. `meal_names_left_out` says the app's meal names (breakfast, dinner) were not kept; a day's Planned Meals stand in the app's meal order.",
+					"properties": {
+						"already_planned": {
+							"type": "integer"
+						},
+						"as_words": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"count": {
+										"type": "integer"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"title",
+									"count"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"first_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"last_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"meal_names_left_out": {
+							"type": "boolean"
+						},
+						"planned": {
+							"type": "integer"
+						}
+					},
+					"required": [
+						"planned",
+						"already_planned",
+						"as_words",
+						"first_week",
+						"last_week",
+						"meal_names_left_out"
+					],
+					"type": "object"
 				},
 				"offered": {
 					"items": {
@@ -19353,7 +20190,7 @@ export const CATALOGUE = [
 					"type": "object"
 				},
 				"related_candidates": {
-					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered. More than five recipes of one name, or of one page, offer no pair among them, and a Report offers at most 200 pairs.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -20158,7 +20995,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept (a meal plan entry is listed only where Kamosu could not read it), `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -20182,6 +21019,61 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"meal_plan": {
+					"additionalProperties": false,
+					"description": "Present when the file held a meal plan, as a Mealie backup does (#492): its entries planned in the importing Person's own Meal Plan, past and upcoming, unsent. `planned` counts the Planned Meals this import made, and `already_planned` the entries an earlier import of the same file already planned for this Person, which are never planned twice. `as_words` names each recipe whose entries were planned as its name in written words, because the recipe did not arrive, with how many. `first_week` and `last_week` are the Mondays of the earliest and latest weeks planned, null where none was. `meal_names_left_out` says the app's meal names (breakfast, dinner) were not kept; a day's Planned Meals stand in the app's meal order.",
+					"properties": {
+						"already_planned": {
+							"type": "integer"
+						},
+						"as_words": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"count": {
+										"type": "integer"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"title",
+									"count"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"first_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"last_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"meal_names_left_out": {
+							"type": "boolean"
+						},
+						"planned": {
+							"type": "integer"
+						}
+					},
+					"required": [
+						"planned",
+						"already_planned",
+						"as_words",
+						"first_week",
+						"last_week",
+						"meal_names_left_out"
+					],
+					"type": "object"
 				},
 				"offered": {
 					"items": {
@@ -20216,7 +21108,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"related_candidates": {
-					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered. More than five recipes of one name, or of one page, offer no pair among them, and a Report offers at most 200 pairs.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -23808,7 +24700,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"left_out_of_file": {
-					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept, `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
+					"description": "What the whole file held that belongs to no recipe and did not come in (#412): `meal_plans` and `shopping_lists` are entries the app kept (a meal plan entry is listed only where Kamosu could not read it), `items` its catalogue of things to buy and `expenses` money the household recorded spending (#417), and `photos_not_in_export` counts recipes whose photo the app's export does not carry. Written by an import from another app's export; an older Report, or another importer's, may have none.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -23832,6 +24724,61 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"meal_plan": {
+					"additionalProperties": false,
+					"description": "Present when the file held a meal plan, as a Mealie backup does (#492): its entries planned in the importing Person's own Meal Plan, past and upcoming, unsent. `planned` counts the Planned Meals this import made, and `already_planned` the entries an earlier import of the same file already planned for this Person, which are never planned twice. `as_words` names each recipe whose entries were planned as its name in written words, because the recipe did not arrive, with how many. `first_week` and `last_week` are the Mondays of the earliest and latest weeks planned, null where none was. `meal_names_left_out` says the app's meal names (breakfast, dinner) were not kept; a day's Planned Meals stand in the app's meal order.",
+					"properties": {
+						"already_planned": {
+							"type": "integer"
+						},
+						"as_words": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"count": {
+										"type": "integer"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"title",
+									"count"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"first_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"last_week": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"meal_names_left_out": {
+							"type": "boolean"
+						},
+						"planned": {
+							"type": "integer"
+						}
+					},
+					"required": [
+						"planned",
+						"already_planned",
+						"as_words",
+						"first_week",
+						"last_week",
+						"meal_names_left_out"
+					],
+					"type": "object"
 				},
 				"offered": {
 					"items": {
@@ -23866,7 +24813,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"related_candidates": {
-					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered. More than five recipes of one name, or of one page, offer no pair among them, and a Report offers at most 200 pairs.",
 					"items": {
 						"additionalProperties": false,
 						"properties": {
@@ -24471,6 +25418,13 @@ export const CATALOGUE = [
 							"description": "What a Cover is drawn from, for a recipe with no photograph — the Lineage id and nothing else (#46).",
 							"type": "string"
 						},
+						"name": {
+							"description": "The Branch's name where it has one: a variation, or a Branch named when two Cookbooks joined. Null on an unnamed Branch.",
+							"type": [
+								"string",
+								"null"
+							]
+						},
 						"readings": {
 							"items": {
 								"additionalProperties": false,
@@ -24521,6 +25475,7 @@ export const CATALOGUE = [
 					"required": [
 						"branch_id",
 						"lineage_id",
+						"name",
 						"version_id",
 						"language",
 						"content",
@@ -25032,6 +25987,13 @@ export const CATALOGUE = [
 								"description": "What a Cover is drawn from, for a recipe with no photograph — the Lineage id and nothing else (#46).",
 								"type": "string"
 							},
+							"name": {
+								"description": "The Branch's name where it has one: a variation, or a Branch named when two Cookbooks joined. Null on an unnamed Branch.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
 							"readings": {
 								"items": {
 									"additionalProperties": false,
@@ -25082,6 +26044,7 @@ export const CATALOGUE = [
 						"required": [
 							"branch_id",
 							"lineage_id",
+							"name",
 							"version_id",
 							"language",
 							"content",
@@ -28951,6 +29914,14 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
+				"lineage_id": {
+					"description": "The recipe's Lineage, for a start that waited on a phone with no network (#537). With attempt_id, started_at and version_id, a recipe deleted or gone out of sight meanwhile still lands the cooking in the diary, with no recipe.",
+					"type": "string"
+				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"started_at": {
 					"description": "When cooking really started, for a start that waited on a phone with no network (#77). The same form as written_at.",
 					"type": "string"
@@ -29492,6 +30463,10 @@ export const CATALOGUE = [
 					"minimum": 0,
 					"type": "integer"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"ticked_ingredients": {
 					"items": {
 						"minimum": 0,
@@ -29500,7 +30475,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -30024,6 +30999,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"note": {
+					"maxLength": 10000,
 					"type": [
 						"string",
 						"null"
@@ -30050,8 +31026,12 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -30575,6 +31555,7 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"note": {
+					"maxLength": 10000,
 					"type": [
 						"string",
 						"null"
@@ -30601,8 +31582,12 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -31405,8 +32390,12 @@ export const CATALOGUE = [
 				"attempt_id": {
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -34031,6 +35020,10 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"shopping_yield": {
 					"additionalProperties": false,
 					"properties": {
@@ -34052,7 +35045,7 @@ export const CATALOGUE = [
 					]
 				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -34244,8 +35237,12 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -34437,6 +35434,10 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"shopping_yield": {
 					"additionalProperties": false,
 					"properties": {
@@ -34458,7 +35459,7 @@ export const CATALOGUE = [
 					]
 				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -34670,8 +35671,12 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -34861,11 +35866,16 @@ export const CATALOGUE = [
 					"description": "The id to give this line, for one typed with no network (#77): i_ and sixteen lower-case hex digits. Sending the same line twice adds it once.",
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"text": {
+					"maxLength": 2000,
 					"type": "string"
 				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -35057,8 +36067,12 @@ export const CATALOGUE = [
 				"item_id": {
 					"type": "string"
 				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
 				"written_at": {
-					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
 					"type": "string"
 				}
 			},
@@ -35235,6 +36249,1757 @@ export const CATALOGUE = [
 			"required": [
 				"chosen",
 				"rows"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "get_meal_plan",
+		"summary": "Read your Meal Plan from one day to another. It answers what you planned on each day, both days included, and on any day of each week those days touch. A week runs Monday to Sunday and is named by its Monday, and each meal says its week and its day, or no day. They come a week at a time: the week's meals with no day first, then each day's, each list in the order you put it in. A meal is a recipe or written words. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05. One read covers at most 366 days. Each recipe says whether it was cooked: you began cooking any Branch of that recipe on its day, or on any day of its week where it has no day, finished or not. The day is the one where you are, so send your time_zone; without one the days are UTC's. The plan never records a cooking itself.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"from": {
+					"description": "The first day, such as 2026-11-02.",
+					"type": "string"
+				},
+				"time_zone": {
+					"description": "Where you are, as a time zone name such as Europe/Amsterdam, so a cooking counts on the day it was where you are. UTC when left out.",
+					"type": "string"
+				},
+				"to": {
+					"description": "The last day, such as 2026-11-08.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"from",
+				"to"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"planned_meals": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"cooked": {
+								"type": "boolean"
+							},
+							"day": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"gone": {
+								"type": "boolean"
+							},
+							"main_photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"planned_meal_id": {
+								"type": "string"
+							},
+							"planned_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"position": {
+								"type": "integer"
+							},
+							"sent_at": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"sent_factor": {
+								"type": [
+									"number",
+									"null"
+								]
+							},
+							"title": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"week": {
+								"type": "string"
+							},
+							"words": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"written_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"planned_meal_id",
+							"week",
+							"day",
+							"position",
+							"branch_id",
+							"words",
+							"title",
+							"gone",
+							"planned_yield",
+							"written_yield",
+							"main_photo",
+							"sent_factor",
+							"sent_at",
+							"cooked"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"planned_meals"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "plan_recipe",
+		"summary": "Plan a recipe on a day or a week of your Meal Plan. Send `day`, or `week` as its Monday for a week with no day yet. It goes after whatever that day, or that week's meals with no day, already hold. It plans one Branch, always at its newest Version: choosing between a recipe's Branches is choosing which method you will cook. Plan it at a Yield, a multiplier (a Yield with an empty noun), or as written by sending none; a recipe whose own Yield has no amount Kamosu can count from is planned by a multiplier. The same recipe may be planned on several days, or twice on one. Planning one again elsewhere is this Operation again. Answers the Planned Meal.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"day": {
+					"description": "A calendar date, such as 2026-11-05. Send this or week.",
+					"type": "string"
+				},
+				"planned_meal_id": {
+					"description": "The id to give this Planned Meal, for one planned with no network (#77): pm_ and sixteen lower-case hex digits. Sending the same one twice plans it once.",
+					"type": "string"
+				},
+				"planned_yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
+				"week": {
+					"description": "The Monday of a week, such as 2026-11-02, for any day of it. Send this or day.",
+					"type": "string"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"planned_meal": {
+					"additionalProperties": false,
+					"properties": {
+						"branch_id": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"day": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"gone": {
+							"type": "boolean"
+						},
+						"main_photo": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"planned_meal_id": {
+							"type": "string"
+						},
+						"planned_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						},
+						"position": {
+							"type": "integer"
+						},
+						"sent_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"sent_factor": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
+						"title": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"week": {
+							"type": "string"
+						},
+						"words": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"written_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"planned_meal_id",
+						"week",
+						"day",
+						"position",
+						"branch_id",
+						"words",
+						"title",
+						"gone",
+						"planned_yield",
+						"written_yield",
+						"main_photo",
+						"sent_factor",
+						"sent_at"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"planned_meal"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_planned_yield",
+		"summary": "Say how much of a planned recipe you will cook. Send an amount and its noun, a multiplier (an amount with an empty noun), or null for the recipe as written. Written words have no Yield. Answers the Planned Meal.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"planned_meal_id": {
+					"type": "string"
+				},
+				"planned_yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"planned_meal_id",
+				"planned_yield"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"planned_meal": {
+					"additionalProperties": false,
+					"properties": {
+						"branch_id": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"day": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"gone": {
+							"type": "boolean"
+						},
+						"main_photo": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"planned_meal_id": {
+							"type": "string"
+						},
+						"planned_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						},
+						"position": {
+							"type": "integer"
+						},
+						"sent_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"sent_factor": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
+						"title": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"week": {
+							"type": "string"
+						},
+						"words": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"written_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"planned_meal_id",
+						"week",
+						"day",
+						"position",
+						"branch_id",
+						"words",
+						"title",
+						"gone",
+						"planned_yield",
+						"written_yield",
+						"main_photo",
+						"sent_factor",
+						"sent_at"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"planned_meal"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "plan_words",
+		"summary": "Write a few words on a day or a week of your Meal Plan. Words such as \"leftovers\" or \"eating out\". Send `day`, or `week` as its Monday for a week with no day yet. They are kept exactly as written, the ends trimmed, and never read: they are not a recipe and reach no Shopping List. They go after whatever that list already holds. Answers the Planned Meal, whose `words` they are.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"day": {
+					"description": "A calendar date, such as 2026-11-05. Send this or week.",
+					"type": "string"
+				},
+				"planned_meal_id": {
+					"description": "The id to give this Planned Meal, for one planned with no network (#77): pm_ and sixteen lower-case hex digits. Sending the same one twice plans it once.",
+					"type": "string"
+				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
+				"week": {
+					"description": "The Monday of a week, such as 2026-11-02, for any day of it. Send this or day.",
+					"type": "string"
+				},
+				"words": {
+					"maxLength": 2000,
+					"type": "string"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"words"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"planned_meal": {
+					"additionalProperties": false,
+					"properties": {
+						"branch_id": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"day": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"gone": {
+							"type": "boolean"
+						},
+						"main_photo": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"planned_meal_id": {
+							"type": "string"
+						},
+						"planned_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						},
+						"position": {
+							"type": "integer"
+						},
+						"sent_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"sent_factor": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
+						"title": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"week": {
+							"type": "string"
+						},
+						"words": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"written_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"planned_meal_id",
+						"week",
+						"day",
+						"position",
+						"branch_id",
+						"words",
+						"title",
+						"gone",
+						"planned_yield",
+						"written_yield",
+						"main_photo",
+						"sent_factor",
+						"sent_at"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"planned_meal"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_planned_words",
+		"summary": "Change the written words of a Planned Meal. Those are the ones plan_words wrote. They are kept exactly as written, the ends trimmed. A planned recipe has no words to change. Answers the Planned Meal.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"planned_meal_id": {
+					"type": "string"
+				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
+				"words": {
+					"maxLength": 2000,
+					"type": "string"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"planned_meal_id",
+				"words"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"planned_meal": {
+					"additionalProperties": false,
+					"properties": {
+						"branch_id": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"day": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"gone": {
+							"type": "boolean"
+						},
+						"main_photo": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"planned_meal_id": {
+							"type": "string"
+						},
+						"planned_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						},
+						"position": {
+							"type": "integer"
+						},
+						"sent_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"sent_factor": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
+						"title": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"week": {
+							"type": "string"
+						},
+						"words": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"written_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"planned_meal_id",
+						"week",
+						"day",
+						"position",
+						"branch_id",
+						"words",
+						"title",
+						"gone",
+						"planned_yield",
+						"written_yield",
+						"main_photo",
+						"sent_factor",
+						"sent_at"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"planned_meal"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "move_planned_meal",
+		"summary": "Move a Planned Meal to another day, week or place. It may be a recipe or written words. Send `day`, or `week` as its Monday for a week with no day, or the list it is in already, to change only its place. `position` counts from 0 among the others in that list; without it the meal goes last. Answers the Planned Meal.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"day": {
+					"description": "A calendar date, such as 2026-11-05. Send this or week.",
+					"type": "string"
+				},
+				"planned_meal_id": {
+					"type": "string"
+				},
+				"position": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
+				"week": {
+					"description": "The Monday of a week, such as 2026-11-02, for any day of it. Send this or day.",
+					"type": "string"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"planned_meal_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"planned_meal": {
+					"additionalProperties": false,
+					"properties": {
+						"branch_id": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"day": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"gone": {
+							"type": "boolean"
+						},
+						"main_photo": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"planned_meal_id": {
+							"type": "string"
+						},
+						"planned_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						},
+						"position": {
+							"type": "integer"
+						},
+						"sent_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"sent_factor": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
+						"title": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"week": {
+							"type": "string"
+						},
+						"words": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"written_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"planned_meal_id",
+						"week",
+						"day",
+						"position",
+						"branch_id",
+						"words",
+						"title",
+						"gone",
+						"planned_yield",
+						"written_yield",
+						"main_photo",
+						"sent_factor",
+						"sent_at"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"planned_meal"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "remove_planned_meal",
+		"summary": "Take a Planned Meal off your Meal Plan. Works whether or not its recipe can still be read, and taking one that is already gone is not an error. Answers null.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"planned_meal_id": {
+					"type": "string"
+				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"planned_meal_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"planned_meal": {
+					"additionalProperties": false,
+					"properties": {
+						"branch_id": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"day": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"gone": {
+							"type": "boolean"
+						},
+						"main_photo": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"planned_meal_id": {
+							"type": "string"
+						},
+						"planned_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						},
+						"position": {
+							"type": "integer"
+						},
+						"sent_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"sent_factor": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
+						"title": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"week": {
+							"type": "string"
+						},
+						"words": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"written_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"planned_meal_id",
+						"week",
+						"day",
+						"position",
+						"branch_id",
+						"words",
+						"title",
+						"gone",
+						"planned_yield",
+						"written_yield",
+						"main_photo",
+						"sent_factor",
+						"sent_at"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"planned_meal"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "send_to_shopping_list",
+		"summary": "Send days and weeks of your Meal Plan to your Shopping List. A day sends its own Planned Meals; a week, named by its Monday, sends its days' and its meals with no day; `any_day_of` sends a week's meals with no day alone. One chosen twice (a day and its own week) is sent once. Each recipe goes on at its planned Yield, added to what the list already holds for that Branch, never replacing it: two meals of one recipe add up. A meal sent before sends only what its Yield has grown by since, and nothing when it was lowered: nothing is taken off. Written words and recipes that can no longer be read send nothing and are named in `skipped`. A send is one write on the Shopping List's clock: one older than the list's last write adds nothing, marks nothing and answers `refused`; one with nothing to send writes nothing and answers `sent`. Emptying the list leaves what each meal sent as it was. Answers what went, what was sent before, what was skipped, the meals as they now stand and the whole list.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"any_day_of": {
+					"description": "The Monday of each week whose meals with no day are sent, without its days.",
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
+				"days": {
+					"description": "Calendar dates, such as 2026-11-05.",
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
+				"sent_at": {
+					"description": "The sender's own clock at the moment it sent this, for a write it held with no network (#537), in the form written_at takes. Kamosu moves written_at and started_at by the difference between this and its own clock, so a phone and a server whose clocks disagree still compare one write with another on one clock. Absent means the two clocks agree.",
+					"type": "string"
+				},
+				"weeks": {
+					"description": "The Monday of each week, such as 2026-11-02, for all of it.",
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List or the Meal Plan has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time, whenever either was written: a finished cooking is final. A cooking's note, rating and list of Photographs each change only for a write newer than the last one to write it; Photographs added always land. With sent_at, this is first moved onto the server's clock.",
+					"type": "string"
+				}
+			},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"already_sent": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"planned_fewer": {
+								"type": "boolean"
+							},
+							"planned_meal_id": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"planned_meal_id",
+							"branch_id",
+							"title",
+							"planned_fewer"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"outcome": {
+					"enum": [
+						"sent",
+						"refused",
+						"waiting"
+					]
+				},
+				"planned_meals": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"day": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"gone": {
+								"type": "boolean"
+							},
+							"main_photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"planned_meal_id": {
+								"type": "string"
+							},
+							"planned_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"position": {
+								"type": "integer"
+							},
+							"sent_at": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"sent_factor": {
+								"type": [
+									"number",
+									"null"
+								]
+							},
+							"title": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"week": {
+								"type": "string"
+							},
+							"words": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"written_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"planned_meal_id",
+							"week",
+							"day",
+							"position",
+							"branch_id",
+							"words",
+							"title",
+							"gone",
+							"planned_yield",
+							"written_yield",
+							"main_photo",
+							"sent_factor",
+							"sent_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"sent": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"added_factor": {
+								"type": "number"
+							},
+							"branch_id": {
+								"type": "string"
+							},
+							"planned_meals": {
+								"items": {
+									"type": "string"
+								},
+								"type": "array"
+							},
+							"raised": {
+								"type": "boolean"
+							},
+							"shopping_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"title": {
+								"type": "string"
+							},
+							"was_on_list": {
+								"type": "boolean"
+							},
+							"written_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"branch_id",
+							"title",
+							"added_factor",
+							"raised",
+							"planned_meals",
+							"was_on_list",
+							"shopping_yield",
+							"written_yield"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"shopping_list": {
+					"additionalProperties": false,
+					"properties": {
+						"chosen": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"branch_id": {
+										"type": "string"
+									},
+									"gone": {
+										"type": "boolean"
+									},
+									"shopping_yield": {
+										"additionalProperties": false,
+										"properties": {
+											"amount": {
+												"type": "string"
+											},
+											"noun": {
+												"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+												"type": "string"
+											}
+										},
+										"required": [
+											"amount",
+											"noun"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"title": {
+										"type": "string"
+									},
+									"written_yield": {
+										"additionalProperties": false,
+										"properties": {
+											"amount": {
+												"type": "string"
+											},
+											"noun": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"amount",
+											"noun"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"branch_id",
+									"title",
+									"gone",
+									"shopping_yield",
+									"written_yield"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"rows": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"id": {
+										"type": "string"
+									},
+									"kind": {
+										"enum": [
+											"food",
+											"line",
+											"loose"
+										]
+									},
+									"lines": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"branch_id": {
+													"type": "string"
+												},
+												"recipe": {
+													"type": "string"
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"branch_id",
+												"recipe",
+												"text"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"name": {
+										"type": "string"
+									},
+									"name_language": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"parts": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"about",
+														"count",
+														"as_written",
+														"no_amount"
+													]
+												},
+												"sources": {
+													"items": {
+														"type": "string"
+													},
+													"type": "array"
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text",
+												"sources"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"said": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"kind",
+									"name",
+									"name_language",
+									"parts",
+									"lines",
+									"said"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						}
+					},
+					"required": [
+						"chosen",
+						"rows"
+					],
+					"type": "object"
+				},
+				"skipped": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"planned_meal_id": {
+								"type": "string"
+							},
+							"reason": {
+								"enum": [
+									"words",
+									"gone"
+								]
+							},
+							"title": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"words": {
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"planned_meal_id",
+							"title",
+							"words",
+							"reason"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"outcome",
+				"sent",
+				"already_sent",
+				"skipped",
+				"planned_meals",
+				"shopping_list"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "make_calendar_link",
+		"summary": "Make the link a calendar app subscribes to for your plan. It shows each of your Planned Meals as an all-day event, from 90 days back on. Anyone holding it reads your plan and changes nothing. You have one at most: making one ends the one before. Its Secret is answered this once and kept nowhere; `url` is the whole link where the instance has a public address, and null where it has none, when the link is `path` at the address Kamosu is reached at.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"made_at": {
+					"type": "string"
+				},
+				"path": {
+					"description": "The link at the address Kamosu is reached at, such as /calendar/<secret>.ics.",
+					"type": "string"
+				},
+				"secret": {
+					"type": "string"
+				},
+				"url": {
+					"description": "The whole link at the instance's public address, or null where it has none.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"secret",
+				"path",
+				"url",
+				"made_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "get_calendar_link",
+		"summary": "Whether you have a live Calendar Link. It says when it was made and when a calendar app last read it, and never the link itself, which is shown once when it is made.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"calendar_link": {
+					"additionalProperties": false,
+					"properties": {
+						"last_read_at": {
+							"description": "When a calendar app last fetched it, or null where none has.",
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"made_at": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"made_at",
+						"last_read_at"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"calendar_link"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "end_calendar_link",
+		"summary": "End your Calendar Link. A calendar app holding it is answered nothing from then on. Answers whether there was one to end.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"ended": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"ended"
 			],
 			"type": "object"
 		}
@@ -35419,7 +38184,8 @@ export const CATALOGUE = [
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"nl"
 					]
 				},
 				"names": {
@@ -36456,6 +39222,7 @@ export const READS: readonly OperationName[] = [
 	'get_reading_preferences',
 	'get_person',
 	'list_accounts',
+	'list_account_links',
 	'list_backups',
 	'list_runner_keys',
 	'runner_status',
@@ -36495,6 +39262,8 @@ export const READS: readonly OperationName[] = [
 	'get_shopping_list',
 	'shopping_basis',
 	'shopping_list_as_text',
+	'get_meal_plan',
+	'get_calendar_link',
 	'list_foods',
 	'get_food',
 	'list_merge_suggestions',
@@ -36517,6 +39286,8 @@ export const METHOD_NAMES = {
 	disable_account: 'disableAccount',
 	delete_account: 'deleteAccount',
 	mint_recovery_link: 'mintRecoveryLink',
+	list_account_links: 'listAccountLinks',
+	revoke_account_link: 'revokeAccountLink',
 	set_operator: 'setOperator',
 	sweep_photographs: 'sweepPhotographs',
 	take_backup: 'takeBackup',
@@ -36648,6 +39419,17 @@ export const METHOD_NAMES = {
 	empty_shopping_list: 'emptyShoppingList',
 	add_loose_item: 'addLooseItem',
 	remove_loose_item: 'removeLooseItem',
+	get_meal_plan: 'getMealPlan',
+	plan_recipe: 'planRecipe',
+	set_planned_yield: 'setPlannedYield',
+	plan_words: 'planWords',
+	set_planned_words: 'setPlannedWords',
+	move_planned_meal: 'movePlannedMeal',
+	remove_planned_meal: 'removePlannedMeal',
+	send_to_shopping_list: 'sendToShoppingList',
+	make_calendar_link: 'makeCalendarLink',
+	get_calendar_link: 'getCalendarLink',
+	end_calendar_link: 'endCalendarLink',
 	list_foods: 'listFoods',
 	get_food: 'getFood',
 	set_food_names: 'setFoodNames',
@@ -36667,13 +39449,13 @@ export const METHOD_NAMES = {
 
 /** The typed client: one method per Operation, named as the Catalogue names it. */
 export interface KamosuClient {
-	/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking and shopping save. A Demo also names the read-only Access Key it publishes, and the Umami script it counts its visits with, if any. */
+	/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts, the address a passkey signs in at, if any, and whether it is a Demo, where only cooking, planning and shopping save. A Demo also names the read-only Access Key it publishes, and the Umami script it counts its visits with, if any. */
 	instanceStatus(input?: InstanceStatusInput): Promise<Answer<'instance_status'>>;
 	/** Set the Language and measures this Person reads in. */
 	setReadingPreferences(input: SetReadingPreferencesInput): Promise<Answer<'set_reading_preferences'>>;
 	/** The Language and measures this Person reads in. Reading Measures live on the account rather than in a browser, so every Door and every device reads the same recipe the same way; the default is American, a stated convention rather than a guess about anybody. */
 	getReadingPreferences(input?: GetReadingPreferencesInput): Promise<Answer<'get_reading_preferences'>>;
-	/** Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. */
+	/** Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. `is_operator` says whether that Person administers this instance, whichever of their Credentials asks. An Operator's ordinary key still cannot do an Operator's work: that takes their Operator key. */
 	getPerson(input?: GetPersonInput): Promise<Answer<'get_person'>>;
 	/** Change this Person's current reminder name. Every Version they ever wrote shows the new one on this instance, since a Hand is named live and nothing is keyed on the name; no id or fingerprint moves. It is also the name they sign in with, so a name somebody else here signs in with is refused. A Bundle already sent keeps the name it left with. */
 	renamePerson(input: RenamePersonInput): Promise<Answer<'rename_person'>>;
@@ -36685,8 +39467,12 @@ export interface KamosuClient {
 	disableAccount(input: DisableAccountInput): Promise<Answer<'disable_account'>>;
 	/** Delete an account while preserving its Hand in history. The Person's name is freed for somebody new to sign in with; what they wrote keeps their Hand and the name they had. Disabling an account keeps the name. */
 	deleteAccount(input: DeleteAccountInput): Promise<Answer<'delete_account'>>;
-	/** Mint a recovery link for a Person who forgot their password. The link is spent on its one use. */
+	/** Mint a recovery link for a Person who forgot their password. The link is spent on its one use, and ends any earlier one of theirs still unspent. Setting a password with it signs out everything the old one reached: Sessions, Access Keys, Runner Keys minted with it, and passkeys. */
 	mintRecoveryLink(input: MintRecoveryLinkInput): Promise<Answer<'mint_recovery_link'>>;
+	/** List the live Invites and recovery links. Live is not yet spent, not revoked, and for a recovery link, its Person's account still open. Each by its id and when it was made, never its Secret. An Invite says whether it makes an Operator; a recovery link names whose account it opens. Kitchen and Cookbook Invites are not among them. */
+	listAccountLinks(input?: ListAccountLinksInput): Promise<Answer<'list_account_links'>>;
+	/** Revoke a live Invite or recovery link. Name it by the id list_account_links gives it. Nobody can spend it after. */
+	revokeAccountLink(input: RevokeAccountLinkInput): Promise<Answer<'revoke_account_link'>>;
 	/** Make a Person an Operator, or stop them being one. The last Operator cannot be demoted (ADR 0007): an instance with nobody to administer it can never get one back, so the refusal is the point rather than a nicety. */
 	setOperator(input: SetOperatorInput): Promise<Answer<'set_operator'>>;
 	/** Take away Photographs nothing has pointed at for a week. Their Display Copies go with them. Runs daily on its own; this asks for it now. */
@@ -36747,7 +39533,7 @@ export interface KamosuClient {
 	startAddingPasskey(input: StartAddingPasskeyInput): Promise<Answer<'start_adding_passkey'>>;
 	/** Finish adding a passkey the device made. The credential is the JSON text a browser writes of it, and the name is the one it is listed under. */
 	finishAddingPasskey(input: FinishAddingPasskeyInput): Promise<Answer<'finish_adding_passkey'>>;
-	/** Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working. */
+	/** Change your password, with the current one. You choose whether your other Sessions end with it, and whether your Access Keys do. Your passkeys keep working. A recovery link of yours not yet used ends. */
 	changePassword(input: ChangePasswordInput): Promise<Answer<'change_password'>>;
 	/** Create a Kitchen, with its creator as its first member. A Kitchen is a group of People who see and cook from each other's Cookbooks. */
 	createKitchen(input: CreateKitchenInput): Promise<Answer<'create_kitchen'>>;
@@ -36807,9 +39593,9 @@ export interface KamosuClient {
 	setRelatedRecipe(input: SetRelatedRecipeInput): Promise<Answer<'set_related_recipe'>>;
 	/** Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. With a Job Key it creates the Job's own recipe, once, for a Job that has none yet: one reading pasted text, a PDF or a picture. */
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
-	/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped, unless another Branch, a Translation or a Bundle already holds that Version, or an agent's Job saved it. A save with a Job Key collapses into the one Version its Job started. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, or is refused once it is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write, a Kitchen-mate's or one that arrived, is a Copy: a new Branch of the same Lineage in your own Cookbook, carrying the whole chain up to the Version you changed, and the Branch you changed is left untouched. */
+	/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped, unless another Branch, a Translation, a Bundle or a cooking already holds that Version, or an agent's Job saved it. A save with a Job Key collapses into the one Version its Job started. Once that Job has saved, its next save is refused, failing the Job, if anyone else saved the recipe or holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, or is refused once it is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write, a Kitchen-mate's or one that arrived, is a Copy: a new Branch of the same Lineage in your own Cookbook, carrying the whole chain up to the Version you changed, and the Branch you changed is left untouched. */
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
-	/** Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch, a Translation or a Bundle already holds it, or an agent's Job saved it), an edit with a Job Key collapses and is refused as its save is, and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was keeps its Reading as it was, a misreading included; correct one with set_reading. */
+	/** Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch, a Translation, a Bundle or a cooking already holds it, or an agent's Job saved it), an edit with a Job Key collapses and is refused as its save is, and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was keeps its Reading as it was, a misreading included; correct one with set_reading. */
 	editRecipe(input: EditRecipeInput): Promise<Answer<'edit_recipe'>>;
 	/** Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it ("Vegetarian"). Changing one never changes the other. With version_id, a Version of that Branch, it starts from that older Version instead of the newest, and the recipe stays as it is. Only for those who write the recipe's Cookbook. */
 	startVariation(input: StartVariationInput): Promise<Answer<'start_variation'>>;
@@ -36949,6 +39735,28 @@ export interface KamosuClient {
 	addLooseItem(input: AddLooseItemInput): Promise<Answer<'add_loose_item'>>;
 	/** Take one typed line off your Shopping List. Answers the whole list. */
 	removeLooseItem(input: RemoveLooseItemInput): Promise<Answer<'remove_loose_item'>>;
+	/** Read your Meal Plan from one day to another. It answers what you planned on each day, both days included, and on any day of each week those days touch. A week runs Monday to Sunday and is named by its Monday, and each meal says its week and its day, or no day. They come a week at a time: the week's meals with no day first, then each day's, each list in the order you put it in. A meal is a recipe or written words. Everyone has exactly one plan, and nobody else reads it. A planned recipe is a Branch at its newest Version, so a correction made since shows here. One you can no longer read (deleted, or no longer shared with you) keeps the name it was known by and says gone. Days are calendar dates, such as 2026-11-05. One read covers at most 366 days. Each recipe says whether it was cooked: you began cooking any Branch of that recipe on its day, or on any day of its week where it has no day, finished or not. The day is the one where you are, so send your time_zone; without one the days are UTC's. The plan never records a cooking itself. */
+	getMealPlan(input: GetMealPlanInput): Promise<Answer<'get_meal_plan'>>;
+	/** Plan a recipe on a day or a week of your Meal Plan. Send `day`, or `week` as its Monday for a week with no day yet. It goes after whatever that day, or that week's meals with no day, already hold. It plans one Branch, always at its newest Version: choosing between a recipe's Branches is choosing which method you will cook. Plan it at a Yield, a multiplier (a Yield with an empty noun), or as written by sending none; a recipe whose own Yield has no amount Kamosu can count from is planned by a multiplier. The same recipe may be planned on several days, or twice on one. Planning one again elsewhere is this Operation again. Answers the Planned Meal. */
+	planRecipe(input: PlanRecipeInput): Promise<Answer<'plan_recipe'>>;
+	/** Say how much of a planned recipe you will cook. Send an amount and its noun, a multiplier (an amount with an empty noun), or null for the recipe as written. Written words have no Yield. Answers the Planned Meal. */
+	setPlannedYield(input: SetPlannedYieldInput): Promise<Answer<'set_planned_yield'>>;
+	/** Write a few words on a day or a week of your Meal Plan. Words such as "leftovers" or "eating out". Send `day`, or `week` as its Monday for a week with no day yet. They are kept exactly as written, the ends trimmed, and never read: they are not a recipe and reach no Shopping List. They go after whatever that list already holds. Answers the Planned Meal, whose `words` they are. */
+	planWords(input: PlanWordsInput): Promise<Answer<'plan_words'>>;
+	/** Change the written words of a Planned Meal. Those are the ones plan_words wrote. They are kept exactly as written, the ends trimmed. A planned recipe has no words to change. Answers the Planned Meal. */
+	setPlannedWords(input: SetPlannedWordsInput): Promise<Answer<'set_planned_words'>>;
+	/** Move a Planned Meal to another day, week or place. It may be a recipe or written words. Send `day`, or `week` as its Monday for a week with no day, or the list it is in already, to change only its place. `position` counts from 0 among the others in that list; without it the meal goes last. Answers the Planned Meal. */
+	movePlannedMeal(input: MovePlannedMealInput): Promise<Answer<'move_planned_meal'>>;
+	/** Take a Planned Meal off your Meal Plan. Works whether or not its recipe can still be read, and taking one that is already gone is not an error. Answers null. */
+	removePlannedMeal(input: RemovePlannedMealInput): Promise<Answer<'remove_planned_meal'>>;
+	/** Send days and weeks of your Meal Plan to your Shopping List. A day sends its own Planned Meals; a week, named by its Monday, sends its days' and its meals with no day; `any_day_of` sends a week's meals with no day alone. One chosen twice (a day and its own week) is sent once. Each recipe goes on at its planned Yield, added to what the list already holds for that Branch, never replacing it: two meals of one recipe add up. A meal sent before sends only what its Yield has grown by since, and nothing when it was lowered: nothing is taken off. Written words and recipes that can no longer be read send nothing and are named in `skipped`. A send is one write on the Shopping List's clock: one older than the list's last write adds nothing, marks nothing and answers `refused`; one with nothing to send writes nothing and answers `sent`. Emptying the list leaves what each meal sent as it was. Answers what went, what was sent before, what was skipped, the meals as they now stand and the whole list. */
+	sendToShoppingList(input: SendToShoppingListInput): Promise<Answer<'send_to_shopping_list'>>;
+	/** Make the link a calendar app subscribes to for your plan. It shows each of your Planned Meals as an all-day event, from 90 days back on. Anyone holding it reads your plan and changes nothing. You have one at most: making one ends the one before. Its Secret is answered this once and kept nowhere; `url` is the whole link where the instance has a public address, and null where it has none, when the link is `path` at the address Kamosu is reached at. */
+	makeCalendarLink(input?: MakeCalendarLinkInput): Promise<Answer<'make_calendar_link'>>;
+	/** Whether you have a live Calendar Link. It says when it was made and when a calendar app last read it, and never the link itself, which is shown once when it is made. */
+	getCalendarLink(input?: GetCalendarLinkInput): Promise<Answer<'get_calendar_link'>>;
+	/** End your Calendar Link. A calendar app holding it is answered nothing from then on. Answers whether there was one to end. */
+	endCalendarLink(input?: EndCalendarLinkInput): Promise<Answer<'end_calendar_link'>>;
 	/** List every Food this instance knows. Each is shown in the reader's Reading Language where it has a name there. */
 	listFoods(input?: ListFoodsInput): Promise<Answer<'list_foods'>>;
 	/** Read one Food: its names and its Cup Weight. Also how many Readings currently point at it. */

@@ -6,7 +6,7 @@
  * go to Kamosu's AI agent (#278, #349).
  */
 
-import { m } from '$lib/paraglide/messages';
+import { m } from '#lib/paraglide/messages.js';
 import type { Act } from './adding.svelte';
 
 /** An act offered as a row of its own. Sending is the last step of three of them. */

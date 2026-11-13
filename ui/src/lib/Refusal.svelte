@@ -8,8 +8,8 @@
 	reader's own Language.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { INSTALL_KAMOSU } from '$lib/demo.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { INSTALL_KAMOSU } from '#lib/demo.svelte.js';
 
 	interface Props {
 		/** What the refusal said, if anything yet. */

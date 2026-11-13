@@ -15,9 +15,9 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { GetFoodOutput } from '$lib/api/catalogue';
-import { m } from '$lib/paraglide/messages';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { GetFoodOutput } from '#lib/api/catalogue.js';
+import { m } from '#lib/paraglide/messages.js';
 import FoodTestHarness from './FoodTestHarness.svelte';
 
 type Name = GetFoodOutput['names'][number];
@@ -108,6 +108,31 @@ describe('a Food’s page', () => {
 			food_id: 'f_caster',
 			language: 'fr',
 			names: ['sucre en poudre'],
+		});
+	});
+
+	it('names a Food in Dutch on a row of its own', async () => {
+		const named = food({
+			names: [
+				{ language: 'en', name: 'caster sugar' },
+				{ language: 'nl', name: 'basterdsuiker' },
+			],
+		});
+		const kamosu = draw({ get_food: CASTER, set_food_names: named });
+
+		expect(await screen.findByText('Not named in Dutch yet')).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Add a name in Dutch' }));
+		await fireEvent.input(screen.getByPlaceholderText('Another name in Dutch'), {
+			target: { value: 'basterdsuiker' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() => expect(screen.getByText('basterdsuiker')).toBeInTheDocument());
+		const asked = kamosu.calls.find((call) => call.operation === 'set_food_names');
+		expect(asked?.input).toEqual({
+			food_id: 'f_caster',
+			language: 'nl',
+			names: ['basterdsuiker'],
 		});
 	});
 

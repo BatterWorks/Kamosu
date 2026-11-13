@@ -17,7 +17,7 @@
  * splits from it here like any other Copy.
  */
 
-import type { GetThreadOutput } from '$lib/api/catalogue';
+import type { GetThreadOutput } from '#lib/api/catalogue.js';
 
 export type ThreadVersion = GetThreadOutput['versions'][number];
 export type ThreadBranch = GetThreadOutput['branches'][number];

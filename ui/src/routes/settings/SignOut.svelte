@@ -4,8 +4,8 @@
 	alike.
 
 	What the device wrote offline is sent first (#77), because signing out
-	loses whatever has not gone: the next Session to begin here throws it
-	away. Almost always it goes, and the sheet asks the ordinary question,
+	loses whatever has not gone: it is thrown away as the device signs out
+	(#537). Almost always it goes, and the sheet asks the ordinary question,
 	which says the recipes kept here for offline use go too (#76). When some
 	still cannot go, the sheet says how many instead, and signing out anyway
 	is a choice of its own, as Todoist asks "Discard unsynced changes?"
@@ -13,14 +13,15 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import Refusal from '$lib/Refusal.svelte';
+	import Refusal from '#lib/Refusal.svelte';
 	import { onMount } from 'svelte';
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { OperationError } from '$lib/api/client';
-	import { useKamosu } from '$lib/kamosu';
-	import { useKeeping } from '$lib/offline/outbox';
-	import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { OperationError } from '#lib/api/client.js';
+	import { signedOutHere } from '#lib/offline/library.svelte.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { useKeeping } from '#lib/offline/outbox.js';
+	import { heardWhetherSignedIn } from '#lib/shell/signing-in.svelte.js';
 
 	interface Props {
 		/** The Session in your hand, where the screen already knows it. */
@@ -78,6 +79,7 @@
 		// Said before Home is drawn, so the sidebar is gone with the Session
 		// rather than a moment after it (#194).
 		heardWhetherSignedIn(false);
+		signedOutHere();
 		await goto('/');
 	}
 

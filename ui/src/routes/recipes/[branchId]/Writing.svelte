@@ -102,29 +102,29 @@
 	recipe?". Those are not questions to answer in the same glance.
 -->
 <script lang="ts">
-	import { tick } from 'svelte';
-	import Refusal from '$lib/Refusal.svelte';
+	import { tick, untrack } from 'svelte';
+	import Refusal from '#lib/Refusal.svelte';
 	import type { Attachment } from 'svelte/attachments';
-	import { m } from '$lib/paraglide/messages';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { usePhotograph } from '$lib/api/upload';
-	import type { GetRecipeOutput, ReadPastedRecipeOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { usePhotograph } from '#lib/api/upload.js';
+	import type { GetRecipeOutput, ReadPastedRecipeOutput } from '#lib/api/catalogue.js';
 	import type { Nutrition } from './divergence';
-	import { languageName, type WrittenLanguage } from '$lib/language';
-	import { hostOf } from '$lib/source';
-	import { copySaid, type Whose } from '$lib/cookbook';
-	import Cover from '$lib/cover/Cover.svelte';
-	import { FilePlace, isPicture } from '$lib/drop.svelte';
-	import { DRAWN, drawnFor } from '$lib/drop-drawings';
-	import DropCover from '$lib/DropCover.svelte';
-	import DropHere from '$lib/DropHere.svelte';
+	import { languageName, type WrittenLanguage } from '#lib/language.js';
+	import { hostOf } from '#lib/source.js';
+	import { copySaid, type Whose } from '#lib/cookbook.js';
+	import Cover from '#lib/cover/Cover.svelte';
+	import { FilePlace, isPicture } from '#lib/drop.svelte.js';
+	import { DRAWN, drawnFor } from '#lib/drop-drawings.js';
+	import DropCover from '#lib/DropCover.svelte';
+	import DropHere from '#lib/DropHere.svelte';
 	import ComponentPicker, { type NamedRecipe } from './ComponentPicker.svelte';
 	import StepUsesSheet from './StepUsesSheet.svelte';
-	import PasteCheck from '$lib/PasteCheck.svelte';
-	import { drafted as splitPaste, readPasted } from '$lib/pasted.svelte';
-	import { joined, split } from '$lib/duration';
+	import PasteCheck from '#lib/PasteCheck.svelte';
+	import { drafted as splitPaste, readPasted } from '#lib/pasted.svelte.js';
+	import { joined, split } from '#lib/duration.js';
 
 	type Content = GetRecipeOutput['versions'][number]['content'];
 	type Cooking = GetRecipeOutput['versions'][number]['cooking'];
@@ -141,6 +141,13 @@
 		whose: Whose;
 		/** The recipe as it stands, which is what the draft below starts from. */
 		content: Content;
+		/**
+		 * The Version the Branch stands on, read once when this screen opens and sent
+		 * with the save (#536). Where somebody saved since, from another tab
+		 * or device too, the Core makes this save a Version of its own rather
+		 * than folding it into theirs.
+		 */
+		baseVersionId: string;
 		/**
 		 * The Components of the recipe as it stands, so a line that already
 		 * names a Recipe opens saying so rather than looking like an ordinary
@@ -216,12 +223,20 @@
 		lineageId,
 		whose,
 		content,
+		baseVersionId,
 		components = [],
 		cooking,
 		translatingInto,
 		onCancel,
 		onSaved,
 	}: Props = $props();
+
+	/**
+	 * The base, read once when the screen opens, as the draft is (#536). The
+	 * page re-reads the recipe behind an open editor, and a base that followed
+	 * it would say a draft written from the old Version came from the new one.
+	 */
+	const openedFrom = untrack(() => baseVersionId);
 
 	/** Whether this screen is rendering the recipe into another Language rather than editing it. */
 	const translating = $derived(translatingInto !== undefined);
@@ -385,7 +400,7 @@
 	// (#83): paste a whole recipe, and Kamosu says what it made of it BEFORE
 	// anything lands. The engine is `read_pasted_recipe`, an Operation rather
 	// than a second parser in a second language — it rests on `reading.rs`,
-	// whose Unit vocabulary is `units.rs`'s in three Languages. What it made is
+	// whose Unit vocabulary is in each Language's word file. What it made is
 	// drawn by `PasteCheck`, which holds why the guess is never applied
 	// silently.
 	//
@@ -1201,7 +1216,7 @@
 						copied: false,
 						language_offer: null,
 					}
-				: await kamosu.saveRecipeVersion(common);
+				: await kamosu.saveRecipeVersion({ ...common, base_version_id: openedFrom });
 			// The Version has landed. Whatever happens to the pointers now, it
 			// has landed — so a failure here is reported beside the save rather
 			// than as one, and never as an error that hides what did work.

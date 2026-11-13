@@ -4,7 +4,7 @@
 	in the words the tracker's own steps use.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import type { Working } from './agent';
 
 	interface Props {

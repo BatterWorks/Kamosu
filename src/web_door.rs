@@ -460,11 +460,6 @@ fn upload_photograph(core: &Core, headers: &HeaderMap, body: &[u8]) -> Response 
     }
 }
 
-/// The largest file `POST /api/uploads` stages. A real 86-recipe library
-/// is 114 MB, almost all of it photographs; this leaves room for a library
-/// many times that size without letting one request fill the disk.
-const MAX_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
-
 /// `POST /api/uploads`: the raw bytes are the whole body, written to a staged
 /// file under the sender and answered with its id — the envelope every
 /// Operation answers, since the Operation that reads the file comes next.
@@ -472,22 +467,21 @@ async fn stage_upload(core: &Core, headers: &HeaderMap, body: Body) -> Response 
     let secret = bearer_from_headers(headers);
     let staged = match core
         .authenticate_to_stage_upload(secret.as_deref())
-        .and_then(|caller| core.begin_upload(&caller.person_id))
+        .and_then(|caller| core.begin_staged_upload(&caller))
     {
         Ok(staged) => staged,
         Err(err) => return respond_to(headers, Err(err)),
     };
-    let (upload_id, path) = staged;
-    match write_upload(body, &path).await {
-        Ok(()) => respond_to(headers, Ok(json!({ "upload_id": upload_id }))),
+    match write_upload(body, &staged.path, staged.largest).await {
+        Ok(()) => respond_to(headers, Ok(json!({ "upload_id": staged.upload_id }))),
         Err(err) => {
-            let _ = tokio::fs::remove_file(&path).await;
+            let _ = tokio::fs::remove_file(&staged.path).await;
             respond_to(headers, Err(err))
         }
     }
 }
 
-async fn write_upload(body: Body, path: &std::path::Path) -> Result<(), OpError> {
+async fn write_upload(body: Body, path: &std::path::Path, largest: u64) -> Result<(), OpError> {
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
 
@@ -500,8 +494,15 @@ async fn write_upload(body: Body, path: &std::path::Path) -> Result<(), OpError>
         let chunk =
             chunk.map_err(|e| OpError::bad_request(format!("the upload stopped partway: {e}")))?;
         written += chunk.len() as u64;
-        if written > MAX_UPLOAD_BYTES {
-            return Err(OpError::bad_request("the file is larger than 2 GB"));
+        if written > largest {
+            return Err(OpError::bad_request(if largest >= 1024 * 1024 * 1024 {
+                format!(
+                    "the file is larger than {} GB",
+                    largest / (1024 * 1024 * 1024)
+                )
+            } else {
+                format!("the file is larger than {} MB", largest / (1024 * 1024))
+            }));
         }
         file.write_all(&chunk)
             .await

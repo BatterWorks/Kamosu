@@ -34,11 +34,11 @@
 	control says so in those terms.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
 	import {
 		BRANCH_LANGUAGES,
 		WRITTEN_LANGUAGES,
@@ -46,7 +46,7 @@
 		languageName,
 		type BranchLanguage,
 		type WrittenLanguage,
-	} from '$lib/language';
+	} from '#lib/language.js';
 
 	interface Props {
 		branchId: string;

@@ -29,29 +29,32 @@
 	to that list, whose row for it was read while it ran.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
 	import { untrack } from 'svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { useRoom } from '$lib/room.svelte';
-	import { OperationError } from '$lib/api/client';
-	import { waitForJob } from '$lib/api/job';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { useRoom } from '#lib/room.svelte.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { waitForJob } from '#lib/api/job.js';
 	import type {
 		GetJobOutput,
 		ImportCroutonOutput,
 		ImportFromAnotherAppOutput,
-	} from '$lib/api/catalogue';
-	import RefusedExport from '$lib/RefusedExport.svelte';
-	import WhichHousehold from '$lib/WhichHousehold.svelte';
+	} from '#lib/api/catalogue.js';
+	import RefusedExport from '#lib/RefusedExport.svelte';
+	import WhichHousehold from '#lib/WhichHousehold.svelte';
 	import { goto } from '$app/navigation';
-	import { appNamed } from '$lib/other-apps';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Section from '$lib/shell/Section.svelte';
+	import { appNamed } from '#lib/other-apps.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Section from '#lib/shell/Section.svelte';
 	import { useEnded } from '../ended.svelte';
-	import AgentWork from '$lib/agent/AgentWork.svelte';
+	import AgentWork from '#lib/agent/AgentWork.svelte';
 	import SendAgain from './SendAgain.svelte';
-	import { AGENTS_OWN, working } from '$lib/agent/agent';
-	import { REPLAY_EVERY, type Replaying } from '$lib/agent/replay';
+	import { AGENTS_OWN, working } from '#lib/agent/agent.js';
+	import { isAnImport } from '#lib/imports.js';
+	import { REPLAY_EVERY, type Replaying } from '#lib/agent/replay.js';
+	import { aPlannedDateOfAnyYear } from '#lib/dates.js';
+	import { mondayOf, today } from '#lib/plan-days.js';
 
 	interface Props {
 		jobId: string;
@@ -98,9 +101,10 @@
 				waited = true;
 				if (current) job = read;
 			},
-			stopped: () => !current,
-			answersWhenFailed: holdsAReport,
-			answersWhenCancelled: (read) => read.operation === AGENTS_OWN,
+			// A Job that is no import is read once and said so, however it ended.
+			stopped: () => !current || !isAnImport(job?.operation ?? AGENTS_OWN),
+			answersWhenFailed: (read) => !isAnImport(read.operation) || holdsAReport(read),
+			answersWhenCancelled: (read) => !isAnImport(read.operation) || read.operation === AGENTS_OWN,
 		})
 			.then((read) => {
 				if (!current) return;
@@ -120,6 +124,12 @@
 		};
 	});
 
+	/**
+	 * One of the cook's Jobs that brought nothing in, such as a Backup, at an
+	 * address typed or kept (#533). Its result is no Report, so none is drawn.
+	 */
+	const notAnImport = $derived(job !== undefined && !isAnImport(job.operation));
+
 	/** A failed Job that is an agent's own Import still holds its Report (#269). */
 	function holdsAReport(read: GetJobOutput) {
 		return Boolean((read.result as Report | null)?.agent_jobs?.length);
@@ -131,6 +141,7 @@
 	 * what could not be read; that is drawn as a Report, not as a stop.
 	 */
 	const report = $derived.by(() => {
+		if (notAnImport) return undefined;
 		const result = job?.result as Report | undefined;
 		if (job?.status === 'completed') return refused || asking ? undefined : result;
 		if (job?.status === 'failed' && holdsAReport(job)) return result;
@@ -308,6 +319,26 @@
 		}));
 		return [...kinds, ...file];
 	});
+	// --- The app's meal plan, in the cook's own (#492), option B -------------
+	//
+	// A section of its own between Arrived and Stayed, chosen on 3 November
+	// 2026 (`.dev/prototypes/492-plan-report/b-names-phone.html`): the meals
+	// planned and the weeks they cover, each recipe that stayed behind and
+	// came as its name in a note, the meal names said once, and the way to
+	// the Plan.
+
+	const plan = $derived(report?.meal_plan);
+	/** The week the Plan opens on: this one inside the weeks planned, else the nearest end. */
+	const planWeek = $derived.by(() => {
+		const first = plan?.first_week;
+		const last = plan?.last_week;
+		if (!first || !last) return undefined;
+		const now = mondayOf(today());
+		if (now < first) return first;
+		if (now > last) return last;
+		return now;
+	});
+
 	/** The app it all stayed in, by name. */
 	const stayedIn = $derived(appNamed(report?.source_kind) ?? report?.source_kind ?? '');
 
@@ -533,11 +564,15 @@
 		return app ? m.report_title_app({ app }) : m.report_title();
 	});
 	const title = $derived(
-		kind
-			? kind.title()
-			: unnamedExport
-				? m.report_title_refused()
-				: ((source && TITLED[source]?.()) ?? library),
+		// A Job that brought nothing in, or one this page could not read at all,
+		// names no import of its own.
+		notAnImport || (unreachable && !job)
+			? m.imports_title()
+			: kind
+				? kind.title()
+				: unnamedExport
+					? m.report_title_refused()
+					: ((source && TITLED[source]?.()) ?? library),
 	);
 
 	/** A recipe read again whose agent failed is left as it was before. */
@@ -683,6 +718,11 @@
 	{#if unreachable}
 		<p class={['mt-4 border-l-3 border-support px-3 py-2 text-body', panel]} role="alert">
 			<Refusal words={unreachable} />
+		</p>
+	{:else if notAnImport}
+		<!-- The way back is the shell's arrow, as for any Report (#219). -->
+		<p class={['mt-4 border-l-3 border-rule px-3 py-2 text-body', panel]}>
+			{m.report_not_an_import()}
 		</p>
 	{:else if agentsOwn && (running || job?.status === 'cancelled')}
 		{#if running}
@@ -980,6 +1020,51 @@
 				</details>
 			{/if}
 		</Section>
+
+		{#if plan}
+			<Section heading={m.report_plan_heading()}>
+				{#if plan.planned > 0}
+					<p class="text-body">{m.report_plan_planned({ count: plan.planned })}</p>
+					{#if plan.first_week && plan.last_week}
+						<p class="mt-1 text-read text-ink-2">
+							{plan.first_week === plan.last_week
+								? m.report_plan_one_week({
+										first: aPlannedDateOfAnyYear(plan.first_week),
+										app: stayedIn,
+									})
+								: m.report_plan_weeks({
+										first: aPlannedDateOfAnyYear(plan.first_week),
+										last: aPlannedDateOfAnyYear(plan.last_week),
+										app: stayedIn,
+									})}
+						</p>
+					{/if}
+					{#if plan.already_planned > 0}
+						<p class="mt-1 text-read text-ink-2">
+							{m.report_plan_also_already({ count: plan.already_planned })}
+						</p>
+					{/if}
+				{:else}
+					<p class="text-body">{m.report_plan_already({ count: plan.already_planned })}</p>
+					<p class="mt-2 text-read text-ink-2">
+						{m.report_plan_already_why({ count: plan.already_planned })}
+					</p>
+				{/if}
+				{#each plan.as_words as named (named.title)}
+					<p class={['mt-3 border-l-3 border-rule px-3 py-2 text-read', panel]}>
+						{m.report_plan_as_words({ title: named.title, count: named.count, app: stayedIn })}
+					</p>
+				{/each}
+				{#if plan.meal_names_left_out}
+					<p class="mt-3 text-read text-ink-2">{m.report_plan_meal_names({ app: stayedIn })}</p>
+				{/if}
+				<a
+					href={planWeek ? `/plan?week=${planWeek}` : '/plan'}
+					class="mt-3 inline-flex min-h-12 items-center rounded-sm border border-rule px-4 font-medium text-accent"
+					>{m.report_plan_open()}</a
+				>
+			</Section>
+		{/if}
 
 		{#if stayed.length}
 			<Section heading={m.report_stayed_in({ app: stayedIn })}>

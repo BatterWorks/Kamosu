@@ -205,6 +205,27 @@ pub fn mint_recovery_link(
     Ok(json!({ "link": core.mint_recovery_link(name)? }))
 }
 
+pub fn list_account_links(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.list_account_links()
+}
+
+pub fn revoke_account_link(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let id = input
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("revoke_account_link takes { id }"))?;
+    core.revoke_account_link(caller_of(invocation)?, id)?;
+    Ok(json!({ "revoked": true }))
+}
+
 pub fn list_sessions(
     core: &Core,
     invocation: &Invocation,
@@ -1116,6 +1137,7 @@ pub fn save_recipe_version(
     let name = input.get("name").and_then(Value::as_str);
     let change_note = input.get("change_note").and_then(Value::as_str);
     let translates_version_id = input.get("translates_version_id").and_then(Value::as_str);
+    let base_version_id = input.get("base_version_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     core.save_recipe_version(
         caller,
@@ -1124,6 +1146,7 @@ pub fn save_recipe_version(
         name,
         change_note,
         translates_version_id,
+        base_version_id,
     )
 }
 
@@ -1140,6 +1163,7 @@ pub fn edit_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result
     let name = input.get("name").and_then(Value::as_str);
     let change_note = input.get("change_note").and_then(Value::as_str);
     let translates_version_id = input.get("translates_version_id").and_then(Value::as_str);
+    let base_version_id = input.get("base_version_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     core.edit_recipe(
         caller,
@@ -1148,6 +1172,7 @@ pub fn edit_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result
         name,
         change_note,
         translates_version_id,
+        base_version_id,
     )
 }
 
@@ -1287,6 +1312,8 @@ pub fn import_by_agent(
                  of at most {LONGEST_LINK} bytes, to no address on the local network"
             )));
         }
+        // A short link is handed on as the post it leads to (#497).
+        let link = &crate::web_import::followed_if_short(link, LONGEST_LINK);
         return core.import_link_by_agent(caller, link, landing(&input));
     }
     let given = ["text", "upload_id", "data", "pictures"]
@@ -1496,7 +1523,7 @@ pub fn start_translation(
     input: Value,
 ) -> Result<Value, OpError> {
     let takes = "start_translation takes { branch_id, language, title, \
-                 translates_version_id?, name?, change_note?, yield?, \
+                 translates_version_id?, name?, branch_name?, change_note?, yield?, \
                  prep_time_minutes?, cook_time_minutes?, note?, source?, ingredients?, steps? }";
     let branch_id = input
         .get("branch_id")
@@ -1509,6 +1536,7 @@ pub fn start_translation(
     let name = input.get("name").and_then(Value::as_str);
     let change_note = input.get("change_note").and_then(Value::as_str);
     let translates_version_id = input.get("translates_version_id").and_then(Value::as_str);
+    let branch_name = input.get("branch_name").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     core.start_translation(
         caller,
@@ -1518,6 +1546,7 @@ pub fn start_translation(
         name,
         change_note,
         translates_version_id,
+        branch_name,
     )
 }
 
@@ -1630,6 +1659,7 @@ pub fn import_web_link(
             html,
             effective_url,
         } => {
+            let effective_url = crate::video_link::without_tracking(&effective_url);
             let parsed = crate::web_import::extract_recipe(&html, &effective_url);
             if refuse_unread && !parsed.found_recipe {
                 return Err(OpError::refused_because(
@@ -1654,10 +1684,13 @@ pub fn import_web_link(
         }
         // A page that refused Kamosu may let an agent in (ADR 0048), so it
         // lands as a bare recipe for the agent to fill.
-        crate::web_import::Page::Refused { effective_url, .. } if has_runner => (
-            crate::web_import::unread_page(&effective_url),
-            effective_url,
-        ),
+        crate::web_import::Page::Refused { effective_url, .. } if has_runner => {
+            let effective_url = crate::video_link::without_tracking(&effective_url);
+            (
+                crate::web_import::unread_page(&effective_url),
+                effective_url,
+            )
+        }
         crate::web_import::Page::Refused { status, .. } => {
             return Err(OpError::refused_because(
                 crate::core::PAGE_REFUSED,
@@ -1674,7 +1707,7 @@ pub fn import_web_link(
             progress.report(0, None, "fetching the photo".to_string());
         }
         let bytes = crate::web_import::fetch_photo(image_url).ok()?;
-        let stored = core.store_photograph(&bytes).ok()?;
+        let stored = core.store_photograph_in_turn(&bytes).ok()?;
         stored
             .get("photograph_id")
             .and_then(Value::as_str)
@@ -1719,7 +1752,7 @@ pub fn import_web_link(
         .map(|calories| json!({ "calories": calories, "basis": "per_serving" }));
 
     let candidate = json!({
-        "foreign_id": effective_url,
+        "foreign_id": crate::video_link::link_identity(&effective_url),
         "title": parsed.title,
         "yield": recipe_yield,
         "prep_time_minutes": parsed.prep_time_minutes,
@@ -1972,7 +2005,27 @@ pub fn import_bundle(core: &Core, invocation: &Invocation, input: Value) -> Resu
                        sent to POST /api/uploads, or base64-encoded";
     let caller = caller_of(invocation)?;
     let progress = invocation.job.as_ref();
-    let bytes = sent_file(core, caller, &input, USAGE, None)?;
+    // Neither of these is read into memory (#538): a staged file that does
+    // not start as a zip does is answered as any unreadable Bundle is, from
+    // its first bytes alone, and one larger than a Bundle may unpack to is
+    // refused by `sent_file` from its size.
+    if let (Some(upload_id), None) = (
+        input.get("upload_id").and_then(Value::as_str),
+        input.get("data"),
+    ) {
+        let head = core.staged_upload_head(&caller.person_id, upload_id, 4)?;
+        if !crate::bundles::looks_like_a_zip(&head) {
+            core.forget_staged_upload(&caller.person_id, upload_id);
+            return core.import_bundle(caller, &head, landing(&input), progress);
+        }
+    }
+    let bytes = sent_file(
+        core,
+        caller,
+        &input,
+        USAGE,
+        Some(crate::bundles::MOST_IN_ALL),
+    )?;
     core.import_bundle(caller, &bytes, landing(&input), progress)
 }
 
@@ -2181,12 +2234,13 @@ pub fn start_attempt(core: &Core, invocation: &Invocation, input: Value) -> Resu
         .and_then(Value::as_str)
         .ok_or_else(|| {
             OpError::bad_request(
-                "start_attempt takes { branch_id, version_id?, attempt_id?, started_at? }",
+                "start_attempt takes { branch_id, version_id?, attempt_id?, started_at?, lineage_id? }",
             )
         })?;
     let version_id = input.get("version_id").and_then(Value::as_str);
     let attempt_id = input.get("attempt_id").and_then(Value::as_str);
     let started_at = input.get("started_at").and_then(Value::as_str);
+    let lineage_id = input.get("lineage_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     core.start_attempt(
         &caller.person_id,
@@ -2194,6 +2248,7 @@ pub fn start_attempt(core: &Core, invocation: &Invocation, input: Value) -> Resu
         version_id,
         attempt_id,
         started_at,
+        lineage_id,
     )
 }
 
@@ -2915,6 +2970,30 @@ fn landing(input: &Value) -> Option<&str> {
     input.get("cookbook_id").and_then(Value::as_str)
 }
 
+pub fn make_calendar_link(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.make_calendar_link(caller_of(invocation)?)
+}
+
+pub fn get_calendar_link(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.get_calendar_link(&caller_of(invocation)?.person_id)
+}
+
+pub fn end_calendar_link(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.end_calendar_link(caller_of(invocation)?)
+}
+
 fn caller_of(invocation: &Invocation) -> Result<&Caller, OpError> {
     invocation.caller().ok_or_else(|| {
         OpError::unauthorized("this Operation requires a Credential naming a Person")
@@ -3098,4 +3177,137 @@ pub fn remove_loose_item(
         .ok_or_else(|| OpError::bad_request("remove_loose_item takes { item_id }"))?;
     let caller = caller_of(invocation)?;
     core.remove_loose_item(&caller.person_id, item_id, written_at(&input))
+}
+
+// ── The Meal Plan (#486, ADR 0058) ───────────────────────────────────────────
+//
+// Each write answers the Planned Meal it wrote, as it now stands, or null where
+// there is none: a plan is read a week at a time, so there is no one whole to
+// hand back as the Shopping List does.
+
+/// A string field every caller of these must send.
+fn required<'a>(input: &'a Value, field: &str, operation: &str) -> Result<&'a str, OpError> {
+    input
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(format!("{operation} takes {{ {field} }}")))
+}
+
+pub fn get_meal_plan(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.meal_plan(
+        &caller.person_id,
+        required(&input, "from", "get_meal_plan")?,
+        required(&input, "to", "get_meal_plan")?,
+        input.get("time_zone").and_then(Value::as_str),
+    )
+}
+
+pub fn plan_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.plan_recipe(
+        &caller.person_id,
+        required(&input, "branch_id", "plan_recipe")?,
+        place(&input)?,
+        input.get("planned_yield"),
+        input.get("planned_meal_id").and_then(Value::as_str),
+        written_at(&input),
+    )
+}
+
+/// Where a plan write puts its meal: `day` or `week`, exactly one (#487).
+fn place(input: &Value) -> Result<crate::core::Place<'_>, OpError> {
+    crate::core::Place::from_input(
+        input.get("day").and_then(Value::as_str),
+        input.get("week").and_then(Value::as_str),
+    )
+}
+
+pub fn plan_words(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.plan_words(
+        &caller.person_id,
+        required(&input, "words", "plan_words")?,
+        place(&input)?,
+        input.get("planned_meal_id").and_then(Value::as_str),
+        written_at(&input),
+    )
+}
+
+pub fn set_planned_words(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.set_planned_words(
+        &caller.person_id,
+        required(&input, "planned_meal_id", "set_planned_words")?,
+        required(&input, "words", "set_planned_words")?,
+        written_at(&input),
+    )
+}
+
+pub fn move_planned_meal(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.move_planned_meal(
+        &caller.person_id,
+        required(&input, "planned_meal_id", "move_planned_meal")?,
+        place(&input)?,
+        input.get("position").and_then(Value::as_i64),
+        written_at(&input),
+    )
+}
+
+pub fn set_planned_yield(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.set_planned_yield(
+        &caller.person_id,
+        required(&input, "planned_meal_id", "set_planned_yield")?,
+        input.get("planned_yield"),
+        written_at(&input),
+    )
+}
+
+pub fn send_to_shopping_list(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    let dates = |field: &str| {
+        input
+            .get(field)
+            .and_then(Value::as_array)
+            .map(|dates| dates.iter().filter_map(Value::as_str).collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
+    core.send_to_shopping_list(
+        &caller.person_id,
+        &dates("days"),
+        &dates("weeks"),
+        &dates("any_day_of"),
+        written_at(&input),
+    )
+}
+
+pub fn remove_planned_meal(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.remove_planned_meal(
+        &caller.person_id,
+        required(&input, "planned_meal_id", "remove_planned_meal")?,
+        written_at(&input),
+    )
 }

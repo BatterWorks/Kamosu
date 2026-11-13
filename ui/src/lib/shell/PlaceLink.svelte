@@ -25,7 +25,7 @@
 <a
 	href={place.href}
 	aria-current={current ? 'page' : undefined}
-	class="flex flex-col items-center justify-center gap-1 text-label uppercase
+	class="place-link flex flex-col items-center justify-center gap-1 text-label uppercase
 		{edge === 'left' ? 'min-h-[68px] border-l-3' : 'min-h-[56px] border-t-3 pt-[6px] pb-1'}
 		{current ? 'border-on-accent bg-cook-ground text-on-accent' : 'border-transparent text-cook-ink-2'}"
 >

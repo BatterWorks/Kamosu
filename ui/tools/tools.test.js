@@ -1,18 +1,36 @@
 /**
  * The dev tools' own rules (#216): the parts that decide a name, a refusal or
- * a difference, tested without a browser or a dev instance. What they do
- * against a real screen is checked live, through the `just` recipes.
+ * a difference, tested without a dev instance. How a screen is settled and
+ * what the tools keep off it (#529) is tested in a real Chrome against a page
+ * served here; what they do against Kamosu's own screens is checked live,
+ * through the `just` recipes.
  */
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ToolError, chromePath, readEnv, sessionFile, signedInArgs, slugOf } from './dev.mjs';
+import { chromium } from 'playwright';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+	ROOT,
+	ToolError,
+	chromePath,
+	devEnv,
+	holdCodeStill,
+	holdWindowStill,
+	leaveNoTrace,
+	openSettled,
+	readEnv,
+	sessionFile,
+	signedInArgs,
+	slugOf,
+} from './dev.mjs';
 import { secretFrom } from './dev-session.mjs';
 import { fileFor, folderOf, server } from './proto-serve.mjs';
 import { indexOf, pageOf, photoName } from './proto-new.mjs';
-import { pictureName } from './screens.mjs';
+import { PICTURE_LIMIT, pictureName, piecesOf } from './screens.mjs';
 import { compare } from './screens-same.mjs';
 import { SIZES } from './sizes.mjs';
 
@@ -91,6 +109,36 @@ describe('a picture', () => {
 		);
 	});
 
+	it('of a page too tall for one is named piece by piece', () => {
+		expect(pictureName('/recipes', 'phone-sideways', 1)).toBe('recipes.phone-sideways-1.png');
+		expect(pictureName('/recipes', 'phone-sideways', 2)).toBe('recipes.phone-sideways-2.png');
+	});
+
+	it('is one piece while the page fits, the limit itself included', () => {
+		expect(piecesOf(844, PICTURE_LIMIT)).toEqual([{ y: 0, height: 844 }]);
+		expect(piecesOf(PICTURE_LIMIT, PICTURE_LIMIT)).toEqual([{ y: 0, height: PICTURE_LIMIT }]);
+	});
+
+	it('of a taller page is pieces that stack to its whole height, none past the limit', () => {
+		// The recipe list sideways on the phone, measured on #522.
+		const pieces = piecesOf(40811, PICTURE_LIMIT);
+		expect(pieces).toEqual([
+			{ y: 0, height: 32767 },
+			{ y: 32767, height: 8044 },
+		]);
+		for (const height of [32768, 65534, 65535, 100000]) {
+			const each = piecesOf(height, PICTURE_LIMIT);
+			let top = 0;
+			for (const piece of each) {
+				expect(piece.y).toBe(top);
+				expect(piece.height).toBeGreaterThan(0);
+				expect(piece.height).toBeLessThanOrEqual(PICTURE_LIMIT);
+				top += piece.height;
+			}
+			expect(top).toBe(height);
+		}
+	});
+
 	it('is taken at the phone and at every size #192 names', () => {
 		expect(SIZES.phone).toEqual([390, 844]);
 		expect(SIZES.macbook).toEqual([1512, 982]);
@@ -114,6 +162,12 @@ describe('what a tool is asked for', () => {
 			ToolError,
 		);
 	});
+
+	it('is refused before any browser starts when it names a Language the interface lacks', async () => {
+		await expect(
+			signedInArgs(['--session', 'c', '--locale', 'de', 'before', '/recipes'], 'x'),
+		).rejects.toThrow(/--locale/);
+	});
 });
 
 describe('comparing two sets of pictures', () => {
@@ -136,6 +190,35 @@ describe('comparing two sets of pictures', () => {
 		expect(differences).toHaveLength(2);
 		expect(differences[0]).toMatch(/^gone\.phone\.png: only in .*before$/);
 		expect(differences[1]).toMatch(/^new\.phone\.png: only in .*after$/);
+	});
+
+	it('pairs the pieces of a tall page by name', () => {
+		const pieces = { 'r.phone-sideways-1.png': 'top', 'r.phone-sideways-2.png': 'foot' };
+		expect(compare(fill('before', pieces), fill('after', pieces))).toEqual({
+			compared: 2,
+			differences: [],
+		});
+	});
+
+	it('counts a page that became pieces, or took more of them, as differing', () => {
+		const whole = fill('before', { 'r.phone-sideways.png': 'all' });
+		const two = fill('after', {
+			'r.phone-sideways-1.png': 'top',
+			'r.phone-sideways-2.png': 'foot',
+		});
+		expect(compare(whole, two).differences).toEqual([
+			expect.stringMatching(/^r\.phone-sideways-1\.png: only in .*after$/),
+			expect.stringMatching(/^r\.phone-sideways-2\.png: only in .*after$/),
+			expect.stringMatching(/^r\.phone-sideways\.png: only in .*before$/),
+		]);
+		const three = fill('third', {
+			'r.phone-sideways-1.png': 'top',
+			'r.phone-sideways-2.png': 'foot',
+			'r.phone-sideways-3.png': 'more',
+		});
+		expect(compare(two, three).differences).toEqual([
+			expect.stringMatching(/^r\.phone-sideways-3\.png: only in .*third$/),
+		]);
 	});
 
 	it('refuses two empty folders, which would pass by holding nothing', () => {
@@ -208,5 +291,247 @@ describe('serving a prototype', () => {
 		} finally {
 			running.close();
 		}
+	});
+});
+
+// A real Chrome: each test takes a few seconds, more on a busy machine.
+describe('a screen photographed', () => {
+	/** @type {import('playwright').Browser} */
+	let browser;
+	/** @type {import('node:http').Server} */
+	let site;
+	/** Whether a page said anything over the stand-in's WebSocket. */
+	let spoke = false;
+	/** The stand-in's WebSockets, ended with it. */
+	/** @type {import('node:stream').Duplex[]} */
+	const sockets = [];
+	let origin = '';
+	/** Every Operation the page asked the stand-in instance for. */
+	/** @type {string[]} */
+	const asked = [];
+
+	/** The pages the stand-in serves, by path. */
+	const PAGES = {
+		// Asks for its list only after Playwright's own "network idle" (500ms
+		// with nothing open) has passed, as a pane waiting on the Person does.
+		'/late': `<p id="pane">Loading</p><script>
+			setTimeout(async () => {
+				const answer = await fetch('/api/op/slow', { method: 'POST' });
+				document.getElementById('pane').textContent = await answer.text();
+			}, 800);
+		</script>`,
+		'/restless': `<p id="n">0</p><script>
+			setInterval(() => { const n = document.getElementById('n'); n.textContent = +n.textContent + 1; }, 100);
+		</script>`,
+		// Loaded again once by itself, as the dev server does when it writes a
+		// file it watches.
+		'/reloads': `<p id="state">first</p><img src="/slow.svg"><script>
+			if (sessionStorage.getItem('again')) document.getElementById('state').textContent = 'again';
+			else setTimeout(() => { sessionStorage.setItem('again', '1'); location.reload(); }, 300);
+		</script>`,
+		// Sends itself to the path before it without loading a page, as
+		// /settings/account sends itself to Signing in.
+		'/goes-back': `<script>setTimeout(() => history.replaceState(null, '', '/tall'), 200);</script>`,
+		// Loaded again once, at the path before it, as the dev server's reload
+		// does when it lands after the tools have moved on.
+		'/sent-back': `<p id="where">here</p><script>
+			if (!sessionStorage.getItem('sent')) {
+				sessionStorage.setItem('sent', '1');
+				history.replaceState(null, '', '/tall');
+				location.reload();
+			}
+		</script>`,
+		// Hears what the stand-in's WebSocket says, as Vite's client does.
+		'/socket': `<p id="heard"></p><script>
+			const socket = new WebSocket(location.origin.replace('http', 'ws') + '/socket');
+			socket.onopen = () => socket.send('ping');
+			socket.onmessage = (event) => { document.getElementById('heard').textContent += JSON.parse(event.data).type + ' '; };
+		</script>`,
+		'/tall': `<div style="height: 5000px">tall</div><script>
+			window.heard = [];
+			addEventListener('resize', () => window.heard.push(innerWidth + 'x' + innerHeight));
+		</script>`,
+		'/sessions': `<pre id="out"></pre><script>
+			(async () => {
+				await fetch('/api/op/note_recipe_opened', { method: 'POST', body: '{}' });
+				const answer = await fetch('/api/op/list_sessions', { method: 'POST', body: '{}' });
+				document.getElementById('out').textContent = await answer.text();
+			})();
+		</script>`,
+	};
+
+	beforeAll(async () => {
+		const env = fs.existsSync(path.join(ROOT, '.env')) ? devEnv() : {};
+		browser = await chromium.launch({ executablePath: chromePath(env) });
+		site = http.createServer((request, response) => {
+			const url = request.url ?? '/';
+			if (url.startsWith('/api/op/')) {
+				const name = url.slice('/api/op/'.length);
+				asked.push(name);
+				const json = (/** @type {unknown} */ body) => {
+					response.setHeader('content-type', 'application/json');
+					response.end(JSON.stringify(body));
+				};
+				if (name === 'slow') {
+					setTimeout(() => response.end('Arrived'), 400);
+				} else if (name === 'list_sessions') {
+					json({
+						ok: true,
+						result: {
+							sessions: [
+								{
+									id: 's1',
+									created_at: '2026-10-15T08:00:00Z',
+									last_used_at: '2026-11-08T20:07:00Z',
+									current: true,
+								},
+								{
+									id: 's2',
+									created_at: '2026-10-01T08:00:00Z',
+									last_used_at: '2026-11-08T19:00:00Z',
+									current: false,
+								},
+							],
+						},
+					});
+				} else {
+					json({ ok: true, result: {} });
+				}
+				return;
+			}
+			if (url === '/empty') {
+				response.statusCode = 204;
+				response.end();
+				return;
+			}
+			if (url === '/slow.svg') {
+				// Held long enough that a look at the page is waiting on it when
+				// the page loads again.
+				response.setHeader('content-type', 'image/svg+xml');
+				setTimeout(() => response.end('<svg xmlns="http://www.w3.org/2000/svg"/>'), 600);
+				return;
+			}
+			response.setHeader('content-type', 'text/html');
+			response.end(PAGES[/** @type {keyof typeof PAGES} */ (url)] ?? '');
+		});
+		// A WebSocket written out by hand, as far as a test needs: the
+		// handshake, five short text frames from the server, and a note of
+		// whether the page said anything back.
+		site.on('upgrade', (request, socket) => {
+			sockets.push(socket);
+			socket.on('data', () => (spoke = true));
+			const accept = crypto
+				.createHash('sha1')
+				.update(`${request.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+				.digest('base64');
+			socket.write(
+				`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
+			);
+			for (const type of ['connected', 'update', 'full-reload', 'error', 'custom']) {
+				const text = Buffer.from(JSON.stringify({ type }));
+				socket.write(Buffer.concat([Buffer.from([0x81, text.length]), text]));
+			}
+		});
+		await new Promise((done) => site.listen(0, '127.0.0.1', () => done(undefined)));
+		const address = /** @type {import('node:net').AddressInfo} */ (site.address());
+		origin = `http://127.0.0.1:${address.port}`;
+	});
+	afterAll(async () => {
+		await browser?.close();
+		for (const socket of sockets) socket.destroy();
+		await new Promise((done) => site?.close(done));
+	});
+
+	beforeEach(() => {
+		asked.length = 0;
+	});
+
+	it('waits for a request the page makes after the first quiet moment', async () => {
+		const page = await browser.newPage();
+		expect(await openSettled(page, `${origin}/late`)).toBeUndefined();
+		expect(await page.textContent('#pane')).toBe('Arrived');
+		await page.close();
+	});
+
+	it('waits out the page loading again by itself', async () => {
+		const page = await browser.newPage();
+		expect(await openSettled(page, `${origin}/reloads`, { limit: 8000 })).toBeUndefined();
+		expect(await page.textContent('#state')).toBe('again');
+		await page.close();
+	});
+
+	it('leaves a screen that sends itself to the path before', async () => {
+		const page = await browser.newPage();
+		await openSettled(page, `${origin}/tall`);
+		expect(await openSettled(page, `${origin}/goes-back`, { limit: 8000 })).toBeUndefined();
+		expect(new URL(page.url()).pathname).toBe('/tall');
+		await page.close();
+	});
+
+	it('sends on a page loaded again at the path before', async () => {
+		const page = await browser.newPage();
+		await openSettled(page, `${origin}/tall`);
+		expect(await openSettled(page, `${origin}/sent-back`, { limit: 8000 })).toBeUndefined();
+		expect(new URL(page.url()).pathname).toBe('/sent-back');
+		expect(await page.textContent('#where')).toBe('here');
+		await page.close();
+	});
+
+	it('fails at once on a path that answers with no page', async () => {
+		const page = await browser.newPage();
+		const started = Date.now();
+		await expect(openSettled(page, `${origin}/empty`)).rejects.toThrow(/ERR_ABORTED/);
+		expect(Date.now() - started).toBeLessThan(3000);
+		await page.close();
+	});
+
+	it('says so when the page never stops changing', async () => {
+		const page = await browser.newPage();
+		expect(await openSettled(page, `${origin}/restless`, { limit: 2000 })).toMatch(
+			/still changing after 2s: the page just changed/,
+		);
+		await page.close();
+	});
+
+	it('keeps the resize of a full-page picture from the page', async () => {
+		const [width, height] = SIZES['mini-sideways'];
+		const context = await browser.newContext({ viewport: { width, height } });
+		const page = await context.newPage();
+		await page.goto(`${origin}/tall`);
+		await page.screenshot({ fullPage: true });
+		// Chrome's own way of taking it, which the guard must stop: the page hears it.
+		expect(await page.evaluate(() => /** @type {any} */ (window).heard.length)).toBeGreaterThan(0);
+		await context.close();
+
+		const held = await browser.newContext({ viewport: { width, height } });
+		await holdWindowStill(held);
+		const heldPage = await held.newPage();
+		await heldPage.goto(`${origin}/tall`);
+		await heldPage.screenshot({ fullPage: true });
+		const heard = await heldPage.evaluate(() => /** @type {any} */ (window).heard);
+		expect(heard.filter((/** @type {string} */ size) => size !== `${width}x${height}`)).toEqual([]);
+		await held.close();
+	});
+
+	it('keeps the dev server code updates from the page, and passes the rest', async () => {
+		const context = await browser.newContext();
+		await holdCodeStill(context);
+		const page = await context.newPage();
+		await page.goto(`${origin}/socket`);
+		await expect.poll(() => page.textContent('#heard')).toBe('connected custom ');
+		await expect.poll(() => spoke).toBe(true);
+		await context.close();
+	});
+
+	it('shows its own Session as last used when it began, and opens no recipe', async () => {
+		const context = await browser.newContext();
+		await leaveNoTrace(context);
+		const page = await context.newPage();
+		await openSettled(page, `${origin}/sessions`);
+		const { sessions } = JSON.parse((await page.textContent('#out')) ?? '').result;
+		expect(sessions[0].last_used_at).toBe('2026-10-15T08:00:00Z');
+		expect(sessions[1].last_used_at).toBe('2026-11-08T19:00:00Z');
+		expect(asked).toEqual(['list_sessions']);
+		await context.close();
 	});
 });

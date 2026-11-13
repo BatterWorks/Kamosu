@@ -15,11 +15,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import Recipes from './+page.svelte';
-import { standIn, type StandIn } from '$lib/api/stand-in';
+import { standIn, type StandIn } from '#lib/api/stand-in.js';
 import { renderScreen } from '../../testing/render';
 import ShelfTestHarness from './ShelfTestHarness.svelte';
 import RouteTestHarness from './RouteTestHarness.svelte';
-import type { MeaningSearchStatusOutput, ReadPastedRecipeOutput } from '$lib/api/catalogue';
+import type { MeaningSearchStatusOutput, ReadPastedRecipeOutput } from '#lib/api/catalogue.js';
 import {
 	cookbookLabel,
 	kitchenAnswer,
@@ -29,8 +29,8 @@ import {
 } from '../../testing/recipes';
 import { went } from '../../testing/navigation';
 import { carrying } from '../../testing/drops';
-import { takePaste } from '$lib/pasted.svelte';
-import { forgetArrival, theArrival } from '$lib/arrival.svelte';
+import { takePaste } from '#lib/pasted.svelte.js';
+import { forgetArrival, theArrival } from '#lib/arrival.svelte.js';
 
 const kitchen = kitchenAnswer('k_home', {
 	name: 'Maison',
@@ -1969,7 +1969,7 @@ describe('the + for every new recipe (#174)', () => {
 			/** What a Demo answers a visitor's own file, text or link. */
 			const refusedInDemo = {
 				refuse: 'refused',
-				message: 'This is a demo of Kamosu, where only cooking and shopping are saved.',
+				message: 'This is a demo of Kamosu, where only cooking, planning and shopping are saved.',
 				reason: 'demo',
 			};
 			const inADemo = (answers: object = {}) =>

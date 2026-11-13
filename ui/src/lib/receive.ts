@@ -2,7 +2,7 @@
  * Receiving a recipe file already staged on the server, and going where it
  * leads: the one ending two screens share (#93, #170).
  *
- * `$lib/adding` stages a file somebody chose; the page a Share Link's *Import this
+ * `#lib/adding` stages a file somebody chose; the page a Share Link's *Import this
  * recipe* opens has the file its preview staged. Both then ask `import_bundle`
  * with the upload's id and end the same way, which is `outcomeOf`'s three
  * answers: open the recipe with its line above it, open the Import Report,
@@ -10,10 +10,10 @@
  */
 
 import { goto } from '$app/navigation';
-import { m } from '$lib/paraglide/messages';
-import { waitForJob } from '$lib/api/job';
-import { noteArrival, outcomeOf, type Arrival } from '$lib/arrival.svelte';
-import type { ImportBundleOutput, KamosuClient } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import { waitForJob } from '#lib/api/job.js';
+import { noteArrival, outcomeOf, type Arrival } from '#lib/arrival.svelte.js';
+import type { ImportBundleOutput, KamosuClient } from '#lib/api/catalogue.js';
 
 /** What the arrival line should know besides what the Report says. */
 export type Told = Pick<Arrival, 'from' | 'writer' | 'added'>;

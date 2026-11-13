@@ -6,8 +6,8 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { m } from '$lib/paraglide/messages';
-	import Story from '$lib/story/Story.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Story from '#lib/story/Story.svelte';
 </script>
 
 <svelte:head>

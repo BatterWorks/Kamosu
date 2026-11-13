@@ -40,11 +40,11 @@
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { demo, learnWhetherADemo } from '$lib/demo.svelte';
-	import { refreshed } from '$lib/offline/device.svelte';
-	import { useRoom } from '$lib/room.svelte';
-	import { story } from '$lib/story/showing.svelte';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { demo, learnWhetherADemo } from '#lib/demo.svelte.js';
+	import { refreshed } from '#lib/offline/device.svelte.js';
+	import { useRoom } from '#lib/room.svelte.js';
+	import { story } from '#lib/story/showing.svelte.js';
 	import BackArrow from './BackArrow.svelte';
 	import DemoStrip from './DemoStrip.svelte';
 	import Header from './Header.svelte';

@@ -1,5 +1,5 @@
-import type { ClientInit } from '@sveltejs/kit';
-import { holdTheInstallOffer } from '$lib/offline/device.svelte';
+import type { ClientInit } from '@sveltejs/kit/hooks';
+import { holdTheInstallOffer } from '#lib/offline/device.svelte.js';
 
 /**
  * Runs once, before any screen is loaded: where the app takes over the

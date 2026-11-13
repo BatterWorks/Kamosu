@@ -106,37 +106,14 @@ ignore = [
   { id = "RUSTSEC-2026-0206", reason = "unmaintained `rustybuzz`, via typst; shapes text in Kamosu's own bundled fonts only; no reported bug, no Typst release without it" },
   { id = "RUSTSEC-2026-0192", reason = "unmaintained `ttf-parser`, via typst and pdf-extract -> lopdf; reads Kamosu's own bundled fonts for a Sheet, and lopdf calls it only when writing a PDF; no reported bug, no release of either without it" },
 
-  # Reached, but not where the bug is. Kamosu opens a stranger's zip, a Bundle
-  # or a Crouton export, with `ZipArchive::new` and reads each entry's bytes by
-  # name into memory. All three advisories are in `extract`, which writes an
-  # archive's entries out as files, links and permissions, and no code that
-  # ships calls it. One behaviour test does, on a Backup Kamosu itself just
-  # wrote, into a fresh temporary folder. The fix is zip 9, a major release,
-  # taken deliberately as its own piece of work.
-  { id = "RUSTSEC-2026-0367", reason = "zip `extract` keeps SUID/SGID bits; Kamosu reads entries into memory and never calls `extract` outside a test on its own Backup" },
-  { id = "RUSTSEC-2026-0368", reason = "zip `extract` applies permissions through symlinks; same reasoning as RUSTSEC-2026-0367" },
-  { id = "RUSTSEC-2026-0369", reason = "zip `extract` creates symlinks pointing outside the folder; same reasoning as RUSTSEC-2026-0367" },
-
   # Arrives with passkeys (#370, ADR 0051): webauthn-rs -> crypto-glue -> rsa,
   # for the passkeys some devices sign with RS256. The Marvin attack reads a
   # private key off the time its decryption or signing takes. Kamosu holds no
   # RSA private key: it only checks a signature a device made, against that
   # device's public key, and a public key has nothing to leak. No `rsa` release
-  # carries a fix yet. Re-read when webauthn-rs 0.6 ships stable.
+  # carries a fix yet, and webauthn-rs 0.6.2, the stable release, still
+  # reaches it. Re-read whenever webauthn-rs moves.
   { id = "RUSTSEC-2023-0071", reason = "rsa Marvin timing leak of a private key; Kamosu only verifies passkey signatures with public keys, and holds no RSA private key" },
-
-  # The same path and the same reasoning, for elliptic-curve passkeys (#432):
-  # webauthn-rs -> crypto-glue -> elliptic-curve 0.13 -> crypto-bigint 0.5.
-  # Some of crypto-bigint's arithmetic can take longer for some numbers than
-  # others, which leaks those numbers when they are secret, a private key
-  # above all. Checking an ES256 signature works only on public numbers: the
-  # signature, the device's public key and the hash of what was signed. The
-  # passkey crates call no signing and hold no private key outside their own
-  # tests. The fix is crypto-bigint 0.7.6, and no 0.5 release takes it, so it
-  # waits for webauthn-rs to move to elliptic-curve 0.14. The test-only copy
-  # under p256 0.14 is on 0.7.6 already, and this id covers both, so re-read
-  # it whenever crypto-bigint appears anywhere new, and when webauthn-rs moves.
-  { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5 timing leak of secret integers, via webauthn-rs -> crypto-glue -> elliptic-curve 0.13; Kamosu only verifies passkey signatures with public keys, and no 0.5 release carries the fix" },
 ]
 
 # The interface's tree has no file of its own for this, so what `npm audit`

@@ -13,10 +13,30 @@ impl Core {
     /// Remake an uploaded picture and give it its identity (ADR 0017). Two
     /// uploads of the same picture — including this one, again — answer the
     /// same id: the write is `INSERT OR IGNORE`, never a duplicate.
+    /// Busy while two pictures are being remade (#538).
     pub fn store_photograph(&self, bytes: &[u8]) -> Result<Value, OpError> {
-        let remade = photographs::remake(bytes)?;
-        let hash = photographs::hash_bytes(&remade);
-        self.record_photograph(&hash, &remade)?;
+        let remade = self.pictures.remake(bytes)?;
+        self.store_remade(&remade)
+    }
+
+    /// [`Core::store_photograph`] for a picture an import brings, which waits
+    /// its turn rather than being answered busy: busy, it would be left out
+    /// of what landed (#538).
+    pub fn store_photograph_in_turn(&self, bytes: &[u8]) -> Result<Value, OpError> {
+        let remade = self.pictures.remake_in_turn(bytes)?;
+        self.store_remade(&remade)
+    }
+
+    /// Test-only, compiled only under the `test-jobs` feature: hold one of
+    /// the places a picture is remade in until the answer is dropped (#538).
+    #[cfg(feature = "test-jobs")]
+    pub fn hold_a_picture_place(&self) -> Result<photographs::Place<'_>, OpError> {
+        self.pictures.hold_a_place()
+    }
+
+    fn store_remade(&self, remade: &[u8]) -> Result<Value, OpError> {
+        let hash = photographs::hash_bytes(remade);
+        self.record_photograph(&hash, remade)?;
         Ok(json!({ "photograph_id": hash }))
     }
 
@@ -41,18 +61,29 @@ impl Core {
     /// record the hash — the part `store_photograph` and
     /// `store_photograph_verbatim` share once each has decided what the bytes
     /// to store actually are.
-    fn record_photograph(&self, hash: &str, bytes: &[u8]) -> Result<(), OpError> {
+    ///
+    /// **Whether the file is there is asked under the database lock, with the
+    /// row written** (#541). The sweep removes a file under that lock too,
+    /// and only while no row names it, so the two take turns. Asked outside
+    /// it, a picture uploaded again just after the sweep forgot its row would
+    /// find the file still there, skip writing it, and put its row back for
+    /// the sweep to take the file from under: a row that is never swept
+    /// again, naming bytes that are gone.
+    pub(super) fn record_photograph(&self, hash: &str, bytes: &[u8]) -> Result<(), OpError> {
         let path = photographs::photograph_path(&self.data_dir(), hash);
-        if !path.exists() {
-            std::fs::create_dir_all(photographs::photographs_dir(&self.data_dir())).map_err(
-                |e| OpError::internal(format!("cannot create Photographs directory: {e}")),
-            )?;
-            std::fs::write(&path, bytes)
-                .map_err(|e| OpError::internal(format!("cannot store Photograph: {e}")))?;
-        }
         self.db().with_conn(|conn| {
+            if !path.exists() {
+                std::fs::create_dir_all(photographs::photographs_dir(&self.data_dir())).map_err(
+                    |e| OpError::internal(format!("cannot create Photographs directory: {e}")),
+                )?;
+                std::fs::write(&path, bytes)
+                    .map_err(|e| OpError::internal(format!("cannot store Photograph: {e}")))?;
+            }
+            // A picture recorded again starts its week afresh: its old mark
+            // would have the next sweep take it before the save that names it.
             conn.execute(
-                "INSERT OR IGNORE INTO photographs (hash) VALUES (?1)",
+                "INSERT INTO photographs (hash) VALUES (?1)
+                 ON CONFLICT (hash) DO UPDATE SET unreferenced_since = NULL",
                 params![hash],
             )
             .map_err(|e| OpError::internal(format!("cannot record Photograph: {e}")))?;
@@ -267,7 +298,9 @@ impl Core {
     /// Files are removed only once that transaction has committed, so the
     /// bytes never go while a row that names them could still be rolled back.
     /// A crash between the two leaves unreferenced files with no rows, which
-    /// costs disk and nothing else.
+    /// costs disk and nothing else. They are removed under the lock again,
+    /// each only while no row names it: the same picture uploaded in between
+    /// has put its row back and keeps its bytes (#541, `record_photograph`).
     pub fn sweep_photographs(&self) -> Result<Value, OpError> {
         let (referenced_count, newly_marked, cleared, swept) = self.db().with_conn(|conn| {
             let referenced = Self::referenced_photographs(conn)?;
@@ -344,19 +377,7 @@ impl Core {
             Ok((referenced.len(), newly_marked, cleared, swept))
         })?;
 
-        // The rows are gone and the lock is released; now the bytes. A file
-        // that will not delete is left for the next sweep to meet again.
-        for hash in &swept {
-            for size in [
-                photographs::DisplaySize::Card,
-                photographs::DisplaySize::Page,
-                photographs::DisplaySize::Print,
-            ] {
-                let _ =
-                    std::fs::remove_file(photographs::display_path(&self.data_dir(), hash, size));
-            }
-            let _ = std::fs::remove_file(photographs::photograph_path(&self.data_dir(), hash));
-        }
+        self.remove_swept_files(&swept)?;
 
         Ok(json!({
             "referenced": referenced_count,
@@ -365,6 +386,49 @@ impl Core {
             "swept": swept.len(),
             "swept_photograph_ids": swept,
         }))
+    }
+
+    /// Remove the bytes of Photographs whose rows the sweep has forgotten,
+    /// with their Display Copies. A file that will not delete is left for the
+    /// next sweep to meet again.
+    ///
+    /// Done under the database lock, and only for a hash no row names now:
+    /// one uploaded again since its row went has its row back, and
+    /// `record_photograph` decided under the same lock that its file was
+    /// there to keep (#541).
+    fn remove_swept_files(&self, swept: &[String]) -> Result<(), OpError> {
+        if swept.is_empty() {
+            return Ok(());
+        }
+        self.db().with_conn(|conn| {
+            for hash in swept {
+                let recorded_again = conn
+                    .query_row(
+                        "SELECT 1 FROM photographs WHERE hash = ?1",
+                        params![hash],
+                        |_| Ok(()),
+                    )
+                    .optional()
+                    .map_err(|e| OpError::internal(format!("cannot read a Photograph: {e}")))?
+                    .is_some();
+                if recorded_again {
+                    continue;
+                }
+                for size in [
+                    photographs::DisplaySize::Card,
+                    photographs::DisplaySize::Page,
+                    photographs::DisplaySize::Print,
+                ] {
+                    let _ = std::fs::remove_file(photographs::display_path(
+                        &self.data_dir(),
+                        hash,
+                        size,
+                    ));
+                }
+                let _ = std::fs::remove_file(photographs::photograph_path(&self.data_dir(), hash));
+            }
+            Ok(())
+        })
     }
 
     /// Read a Display Copy, generating and caching it on first ask. Display
@@ -589,4 +653,98 @@ pub(super) fn content_shows_photograph(content: &Value, hash: &str) -> bool {
         .into_iter()
         .flatten()
         .any(|step| step["photo"].as_str() == Some(hash))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn a_kamosu() -> (tempfile::TempDir, Core) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(crate::db::Db::open(dir.path()).unwrap());
+        (dir, Core::open(db))
+    }
+
+    fn forget_the_row(core: &Core, hash: &str) {
+        core.db()
+            .with_conn(|conn| {
+                conn.execute("DELETE FROM photographs WHERE hash = ?1", params![hash])
+                    .map_err(|e| OpError::internal(e.to_string()))
+            })
+            .unwrap();
+    }
+
+    /// The sweep forgets a row under the database lock and removes the file
+    /// after (#541). A picture recorded again in between, its file still on
+    /// disk, has its row back by then, and the sweep leaves its bytes. Run in
+    /// the order the race runs it, one step at a time.
+    #[test]
+    fn a_picture_recorded_again_while_it_is_swept_keeps_its_file() {
+        let (_dir, core) = a_kamosu();
+        let bytes = b"a picture nothing has shown for a week";
+        let hash = photographs::hash_bytes(bytes);
+        let file = photographs::photograph_path(&core.data_dir(), &hash);
+        core.record_photograph(&hash, bytes).unwrap();
+
+        // The sweep has forgotten the row and released the lock.
+        forget_the_row(&core, &hash);
+        // The same picture arrives again; its file is still there.
+        core.record_photograph(&hash, bytes).unwrap();
+        // The sweep comes back for the file.
+        core.remove_swept_files(std::slice::from_ref(&hash))
+            .unwrap();
+        assert!(file.exists(), "a recorded picture lost its bytes");
+
+        // Not recorded again, its file goes as before.
+        forget_the_row(&core, &hash);
+        core.remove_swept_files(std::slice::from_ref(&hash))
+            .unwrap();
+        assert!(!file.exists(), "a forgotten picture kept its bytes");
+    }
+
+    /// A picture unused for more than a week, sent again before the next
+    /// sweep, is not taken by that sweep: being sent again restarts its
+    /// week, so the recipe saved with it a moment later finds its bytes.
+    #[test]
+    fn a_picture_sent_again_after_a_week_unused_starts_its_week_again() {
+        let (_dir, core) = a_kamosu();
+        let bytes = b"a picture last shown long ago";
+        let hash = photographs::hash_bytes(bytes);
+        let file = photographs::photograph_path(&core.data_dir(), &hash);
+        core.record_photograph(&hash, bytes).unwrap();
+        core.db()
+            .with_conn(|conn| {
+                conn.execute(
+                    "UPDATE photographs SET unreferenced_since = '2020-01-01T00:00:00.000Z'
+                     WHERE hash = ?1",
+                    params![hash],
+                )
+                .map_err(|e| OpError::internal(e.to_string()))
+            })
+            .unwrap();
+
+        core.record_photograph(&hash, bytes).unwrap();
+        let swept = core.sweep_photographs().unwrap();
+        assert_eq!(swept["swept"], json!(0), "{swept}");
+        assert!(file.exists(), "a picture sent again lost its bytes");
+    }
+
+    /// The other order: the sweep took the file first, while the picture's
+    /// upload was on its way. Recording it then writes the bytes again.
+    #[test]
+    fn a_picture_recorded_after_its_file_was_swept_writes_it_again() {
+        let (_dir, core) = a_kamosu();
+        let bytes = b"a picture swept a moment ago";
+        let hash = photographs::hash_bytes(bytes);
+        let file = photographs::photograph_path(&core.data_dir(), &hash);
+        core.record_photograph(&hash, bytes).unwrap();
+
+        forget_the_row(&core, &hash);
+        core.remove_swept_files(std::slice::from_ref(&hash))
+            .unwrap();
+        assert!(!file.exists());
+
+        core.record_photograph(&hash, bytes).unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), bytes);
+    }
 }

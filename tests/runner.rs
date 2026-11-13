@@ -468,8 +468,13 @@ fn read_pid(path: &Path) -> u32 {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_runner_hands_a_job_to_its_command_and_reports_what_the_agent_did() {
     let app = support::spawn_app();
-    // A hold of 600 ms, so the stand-in's two seconds outlast it three times.
-    app.core.hold_jobs_for(Duration::from_millis(600));
+    // A hold of three seconds, which the stand-in's four outlast, so the Job
+    // stays held only if the Runner renews. The Runner renews every second
+    // and gives each renewal half a second, so the hold lapses only if
+    // Kamosu leaves three renewals in a row unanswered. A 600 ms hold gave
+    // each renewal 100 ms, which a busy machine missed until the hold lapsed
+    // and the Runner took the Job a second time (#603).
+    app.core.hold_jobs_for(Duration::from_secs(3));
     let (key, runner_key) = cook_and_runner(&app);
     let data_dir = tempfile::tempdir().unwrap();
     let job_id = paste_for_the_agent(&app, &key, "writes");
@@ -477,7 +482,7 @@ async fn a_runner_hands_a_job_to_its_command_and_reports_what_the_agent_did() {
     let runner = start_runner(Start {
         kamosu: format!("http://{}", app.addr),
         runner_key: &runner_key,
-        extra_env: vec![("STAND_IN_SLEEP_S", "2".to_string())],
+        extra_env: vec![("STAND_IN_SLEEP_S", "4".to_string())],
         data_dir: data_dir.path(),
     });
     let seen = runner.seen().join(&job_id);
@@ -1401,7 +1406,15 @@ async fn an_agent_at_a_socket_reaches_its_model_through_the_runners_socket() {
 
     // The key went where the agent put the stand-in, and nowhere else.
     let sent = provider.seen();
-    assert_eq!(sent.len(), 1, "{sent:?}");
+    // Said whole when it fails, so a failure tells a Job handed over twice
+    // from a request sent twice (#503).
+    let said = runner.said();
+    assert_eq!(
+        sent.len(),
+        1,
+        "{sent:?}\nThe Runner worked the Job {} times. The Job: {finished}\nThe Runner said:\n{said}",
+        said.matches(&format!("Working Job {job_id}")).count(),
+    );
     assert_eq!(sent[0].0, "/v1/messages");
     assert_eq!(header(&sent[0].1, "x-api-key"), Some(MODEL_KEY));
     assert_eq!(header(&sent[0].1, "authorization"), None);

@@ -10,7 +10,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
 import ComponentPickerTestHarness from './ComponentPickerTestHarness.svelte';
 import {
 	searchEntry as found,
@@ -60,5 +60,19 @@ describe('the Component picker’s search', () => {
 
 		expect(await screen.findByText('Pizza Dough')).toBeInTheDocument();
 		expect(searches(kamosu).at(-1)).toMatchObject({ query: 'bread' });
+	});
+
+	it('names a fallback Language in words, as the shelf does (#598)', async () => {
+		draw({
+			search_recipes: ({ query }) => ({
+				query: query ?? null,
+				closest: false,
+				recipes: [{ ...found('naan', 'Naan'), language: 'fr', language_fallback: true }],
+			}),
+		});
+		expect(await screen.findByText('Naan')).toBeInTheDocument();
+
+		expect(screen.getByText('In French')).toBeInTheDocument();
+		expect(screen.queryByText('In fr')).not.toBeInTheDocument();
 	});
 });

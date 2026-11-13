@@ -21,8 +21,8 @@
 	The 2px line and the 18px drawing are the prototype's, as chosen.
 -->
 <script lang="ts">
-	import type { HeldFile } from '$lib/drop.svelte';
-	import { drawnFor } from '$lib/drop-drawings';
+	import type { HeldFile } from '#lib/drop.svelte.js';
+	import { drawnFor } from '#lib/drop-drawings.js';
 
 	type Props = { held: HeldFile } & (
 		| { part: 'frame'; off?: boolean }

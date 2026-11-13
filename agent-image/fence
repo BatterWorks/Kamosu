@@ -10,10 +10,14 @@ there and does nothing else.
 Started as root with NET_ADMIN, SETUID and SETGID alone, it allows the
 loopback, the container's DNS server and the addresses named in
 KAMOSU_AGENT_FENCE_ALLOW, refuses every private, loopback, link-local and
-shared address beyond those, and lets the rest of the internet through. Then
-it becomes the agent's user, which leaves it no capability, and sleeps. The
-agent's container joins its network with every capability dropped, so it
-lives inside those rules and cannot change them.
+shared IPv4 address beyond those and every IPv6 address, and lets the rest
+of the internet through. IPv6 is refused whole because a home network's
+devices hold public IPv6 addresses its ISP gave them, which no list of
+private ranges names and the fence cannot learn (#539). Then it becomes the
+agent's user, which leaves it no capability, and says in the network that
+it is up. The agent's container joins its network with every capability
+dropped, so it lives inside those rules and cannot change them, and it
+starts no Job until the fence has said so (`FENCE_UP`).
 
 KAMOSU_AGENT_FENCE_ALLOW names what the agent must still reach on a private
 address, which is Kamosu: `host:port` or `address:port`, several apart by
@@ -39,7 +43,13 @@ REFUSED_V4 = [
     "172.16.0.0/12", "192.0.0.0/24", "192.168.0.0/16", "198.18.0.0/15",
     "224.0.0.0/3",
 ]
-REFUSED_V6 = ["::/127", "::ffff:0:0/96", "64:ff9b::/96", "fc00::/7", "fe80::/10", "ff00::/8"]
+
+# Where the fence says it is up: an abstract Unix socket, which lives in the
+# network it fences and nowhere else, so the agent sharing that network
+# finds it and an agent anywhere else does not. Bound once every rule is in
+# place, and gone the moment the fence is (#539). The agent's program holds
+# the same name.
+FENCE_UP = "\0kamosu-agent-fence-up"
 
 
 def say(text):
@@ -134,14 +144,14 @@ complaint = fence(rules, "drop")
 if complaint:
     refuse(
         f"The fence could not set its rules: {complaint}",
-        "Start it with the NET_ADMIN capability. Until it is up, the agent's network",
-        "is not fenced. See docs/runner.md.",
+        "Start it with the NET_ADMIN capability. Until it is up, the agent starts no",
+        "Job. See docs/runner.md.",
     )
 reachable = allowed()
 for address, port in reachable:
     rules.append(f"{family(address)} daddr {address} tcp dport {port} accept")
 rules.append(f"ip daddr {{ {', '.join(REFUSED_V4)} }} reject")
-rules.append(f"ip6 daddr {{ {', '.join(REFUSED_V6)} }} reject")
+rules.append("meta nfproto ipv6 reject")
 complaint = fence(rules, "accept")
 if complaint:
     refuse(f"The fence could not set its rules: {complaint}", "See docs/runner.md.")
@@ -151,11 +161,22 @@ os.setgroups([])
 os.setgid(AGENT_UID)
 os.setuid(AGENT_UID)
 
+up = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+try:
+    up.bind(FENCE_UP)
+    up.listen(16)
+except OSError as e:
+    refuse(f"The fence could not say it is up: {e}. The agent will not start until it does.")
+
 say(
     "The fence is up: this network reaches the internet, "
     + (", ".join(f"{a}:{p}" for a, p in reachable) or "no private address")
     + (f", and DNS at {', '.join(map(str, dns))}" if dns else "")
-    + ". Every other private, loopback, link-local or shared address is refused."
+    + ". Every other private, loopback, link-local or shared address, and every"
+    + " IPv6 address, is refused."
 )
+# Each agent that asks whether the fence is up is answered by the call being
+# taken, and let go.
 while True:
-    signal.pause()
+    asked, _ = up.accept()
+    asked.close()

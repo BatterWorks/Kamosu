@@ -6,11 +6,11 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
-import { standIn, type Answers } from '$lib/api/stand-in';
-import type { AuthClient } from '$lib/auth';
+import { standIn, type Answers } from '#lib/api/stand-in.js';
+import type { AuthClient } from '#lib/auth.js';
 import { went } from '../testing/navigation';
 import LinkTestHarness from './LinkTestHarness.svelte';
-import { signingIn } from '$lib/shell/signing-in.svelte';
+import { signingIn } from '#lib/shell/signing-in.svelte.js';
 import CookbookInviteRoute from './cookbook-invite/[secret]/+page.svelte';
 
 const ALREADY = {

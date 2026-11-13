@@ -51,12 +51,12 @@
 	flour recipe in as many words.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import { demoRefusalOr } from '$lib/demo.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { GetRecipeOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { demoRefusalOr } from '#lib/demo.svelte.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { GetRecipeOutput } from '#lib/api/catalogue.js';
 	import ComponentPicker, { type NamedRecipe } from './ComponentPicker.svelte';
 
 	/** One slot of the `readings` array: what Kamosu understood, or nothing. */
@@ -272,7 +272,7 @@
 
 	<!--
 		THE WAY TO THE FOOD ITSELF (#107). One line, not a panel: everything a
-		Food needs saying — its names in three Languages, what a cup of it
+		Food needs saying — its names in each Language, what a cup of it
 		weighs, how many lines point at it — is a screen's worth, and this box
 		already carries five controls.
 

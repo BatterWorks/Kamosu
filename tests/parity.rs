@@ -66,6 +66,7 @@ fn arguments_for(name: &str) -> Value {
         "keep_version_as_copy" => json!({ "branch_id": "b_parity", "version_id": "v_parity" }),
         "rename_branch" => json!({ "branch_id": "b_parity", "name": "Parity" }),
         "disable_account" | "delete_account" | "mint_recovery_link" => json!({ "name": "Parity" }),
+        "revoke_account_link" => json!({ "id": "al_parity" }),
         "set_operator" => json!({ "name": "Parity", "is_operator": true }),
         "create_recipe" => json!({ "title": "Parity Recipe" }),
         "save_recipe_version" => json!({ "branch_id": "b_parity", "title": "Parity Recipe" }),
@@ -181,6 +182,8 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "disable_account"
             | "delete_account"
             | "mint_recovery_link"
+            | "list_account_links"
+            | "revoke_account_link"
             | "sweep_photographs"
             | "take_backup"
             | "list_backups"
@@ -273,7 +276,18 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "start_adding_passkey"
             | "finish_adding_passkey"
             | "change_password"
-            | "remove_loose_item" => ("{}", 401),
+            | "remove_loose_item"
+            | "get_meal_plan"
+            | "plan_recipe"
+            | "plan_words"
+            | "set_planned_words"
+            | "move_planned_meal"
+            | "set_planned_yield"
+            | "remove_planned_meal"
+            | "send_to_shopping_list"
+            | "make_calendar_link"
+            | "get_calendar_link"
+            | "end_calendar_link" => ("{}", 401),
             // Public, and answered on the token alone: a token nobody minted
             // is not found, which is the routing this check is after.
             "read_shared_recipe" => (r#"{"token":"parity-no-such-token"}"#, 404),
@@ -418,6 +432,8 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "disable_account"
                 | "delete_account"
                 | "mint_recovery_link"
+                | "list_account_links"
+                | "revoke_account_link"
                 | "sweep_photographs"
                 | "take_backup"
                 | "list_backups"
@@ -512,6 +528,17 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "finish_adding_passkey"
                 | "change_password"
                 | "remove_loose_item"
+                | "get_meal_plan"
+                | "plan_recipe"
+                | "plan_words"
+                | "set_planned_words"
+                | "move_planned_meal"
+                | "set_planned_yield"
+                | "remove_planned_meal"
+                | "send_to_shopping_list"
+                | "make_calendar_link"
+                | "get_calendar_link"
+                | "end_calendar_link"
         ) {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.
@@ -759,8 +786,13 @@ async fn a_read_only_access_keys_mcp_tool_list_carries_exactly_the_reads() {
 
     let mut expected_reads: Vec<&str> = catalogue::OPERATIONS
         .iter()
+        // Neither key here acts as an Operator, so neither is listed an
+        // Operator's Operation either (#534).
         .filter(|op| {
-            !op.write && !op.session_only && op.permission != catalogue::Permission::Runner
+            !op.write
+                && !op.session_only
+                && op.permission != catalogue::Permission::Runner
+                && op.permission != catalogue::Permission::Operator
         })
         .map(|op| op.name)
         .collect();
@@ -787,14 +819,17 @@ async fn a_read_only_access_keys_mcp_tool_list_carries_exactly_the_reads() {
     full_served.sort_unstable();
     let mut every_operation: Vec<&str> = listed_to_a_person()
         .into_iter()
-        .filter(|name| !catalogue::find(name).expect("declared").session_only)
+        .filter(|name| {
+            let op = catalogue::find(name).expect("declared");
+            !op.session_only && op.permission != catalogue::Permission::Operator
+        })
         .collect();
     every_operation.sort_unstable();
     assert_eq!(full_served, every_operation);
 }
 
-/// Every Operation but the Runner's own: what the MCP door lists to a Person,
-/// and to a caller with no Credential.
+/// Every Operation but the Runner's own: what the MCP door lists to a caller
+/// with no Credential, and to an Operator signed in.
 fn listed_to_a_person() -> Vec<&'static str> {
     catalogue::OPERATIONS
         .iter()
@@ -829,22 +864,13 @@ async fn a_runner_keys_mcp_tool_list_carries_exactly_the_runners_operations() {
     let keys = app.core.runner_keys().unwrap();
     assert_eq!(keys[0]["last_used_at"], Value::Null, "{}", keys[0]);
 
-    // A revoked Runner Key is nobody again, and is listed as nobody is.
+    // A revoked Runner Key is nobody again, and is refused the listing as a
+    // Secret naming nobody is (#534).
     app.core.revoke_runner_key(None, &key.id).unwrap();
-    let (_, listing) = app.post_mcp(
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
-        Some(&key.secret),
-    );
-    let mut served: Vec<&str> = listing["result"]["tools"]
-        .as_array()
-        .expect("tools list")
-        .iter()
-        .map(|t| t["name"].as_str().expect("tool name"))
-        .collect();
-    served.sort_unstable();
-    let mut expected = listed_to_a_person();
-    expected.sort_unstable();
-    assert_eq!(served, expected);
+    let listing = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#;
+    let revoked = app.post_mcp(listing, Some(&key.secret));
+    assert_eq!(revoked.0, 401, "{}", revoked.1);
+    assert_eq!(revoked, app.post_mcp(listing, Some(&"f".repeat(64))));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

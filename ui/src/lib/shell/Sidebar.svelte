@@ -12,7 +12,7 @@
 	Kamosu's name is written under the mark. The first prototype drew the mark
 	alone and his one objection was that the name stood nowhere on the screen.
 
-	Settings is the fifth place, at the foot. The phone reaches it through the
+	Settings is the sixth place, at the foot. The phone reaches it through the
 	gear in the header (#102, #218); with no header here there is no gear, and
 	the rail is where a wide screen looks for it.
 
@@ -25,7 +25,7 @@
 	and the current place stays as it is.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import PlaceLink from './PlaceLink.svelte';
 	import { isCurrent, places, settings } from './places';
 

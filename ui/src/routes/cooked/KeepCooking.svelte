@@ -22,16 +22,16 @@
 	no Version ids and matches no line to a line.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import Refusal from '$lib/Refusal.svelte';
-	import { demoRefusalOr } from '$lib/demo.svelte';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { ListAttemptsOutput, PromoteAsCookedOutput } from '$lib/api/catalogue';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import { copySaid } from '$lib/cookbook';
-	import { changedLines } from '$lib/as-cooked';
-	import ChangedLines from '$lib/ChangedLines.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import { demoRefusalOr } from '#lib/demo.svelte.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { ListAttemptsOutput, PromoteAsCookedOutput } from '#lib/api/catalogue.js';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import { copySaid } from '#lib/cookbook.js';
+	import { changedLines } from '#lib/as-cooked.js';
+	import ChangedLines from '#lib/ChangedLines.svelte';
 
 	type Entry = ListAttemptsOutput['attempts'][number];
 

@@ -21,8 +21,8 @@
 	paper still changes with whose recipe you are reading.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { branchLabel, type LabelledBranch } from '$lib/cookbook';
+	import { m } from '#lib/paraglide/messages.js';
+	import { branchLabel, type LabelledBranch } from '#lib/cookbook.js';
 
 	interface Props {
 		/** Every version of this recipe the reader may see, oldest first. */

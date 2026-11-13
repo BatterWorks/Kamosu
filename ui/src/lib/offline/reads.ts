@@ -6,7 +6,7 @@
  * fill still owes. One module, so the two can never disagree about a key.
  */
 
-import { READS, type OperationName } from '$lib/api/catalogue';
+import { READS, type OperationName } from '#lib/api/catalogue.js';
 
 /** Every Operation answer the phone keeps. Emptied whenever the Session changes. */
 export const READS_CACHE = 'kamosu-reads';
@@ -106,9 +106,10 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// Where what this phone shares goes (#452). Shown beside the choice that
 	// changes it, so a kept answer would put back the old choice on sight.
 	get_agent_choice: 'server-first',
-	// Who you are called (#113). Settings shows it beside the button that
-	// changes it, and a kept answer from before a rename on another device
-	// would offer to change a name you no longer have.
+	// Who you are called (#113), and whether you are an Operator (#533).
+	// Settings shows the name beside the button that changes it, and a kept
+	// answer from before a rename on another device would offer to change a
+	// name you no longer have.
 	get_person: 'server-first',
 	// Whether this is a Demo, and the Umami it counts with (#408). A kept
 	// answer from before the instance stopped counting, or stopped being a
@@ -123,6 +124,10 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// offers that address to copy, so a kept answer from before the link was
 	// ended, here or on another device, would hand out one that no longer opens.
 	get_share_link: 'server-first',
+	// Whether a Calendar Link is on and when a calendar last read it (#491).
+	// A kept answer from before a link was made on another device would offer
+	// to make one, which ends the link that device's calendar holds.
+	get_calendar_link: 'server-first',
 	list_backups: 'server-first',
 	// Whether there is a Runner and when one last asked for work, and the
 	// Runner Keys an Operator manages (#260). What a screen shows about a
@@ -138,6 +143,11 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// and a kept answer from before a save on another device would put the
 	// old notes back over the new ones at the next Save.
 	get_house_notes: 'server-first',
+	// The Meal Plan (#486). It is planned on one device and read on another,
+	// so a kept answer would show the iPad a week without the dinner the phone
+	// just put on it. Found in live acceptance. Offline, the week last read is
+	// still worth reading.
+	get_meal_plan: 'server-first',
 };
 
 /**

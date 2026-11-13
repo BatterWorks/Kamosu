@@ -18,8 +18,8 @@
 	around it, because one fills a page and the other makes a recipe.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import type { ReadPastedRecipeOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import type { ReadPastedRecipeOutput } from '#lib/api/catalogue.js';
 
 	interface Props {
 		pasted: ReadPastedRecipeOutput;

@@ -22,3 +22,9 @@ export const SIZES = {
 	macbook: [1512, 982],
 	monitor: [2560, 1440],
 };
+
+/**
+ * The narrowest phone a screen is held to, which is not photographed: the
+ * width of many Android phones, where the tab bar has the least room (#600).
+ */
+export const NARROWEST_PHONE = [360, 760];

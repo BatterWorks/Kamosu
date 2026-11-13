@@ -48,10 +48,13 @@ export function parentOf(pathname: string): string | undefined {
  * replaces, and the entry's own again when back or forward returns to it. It
  * is the one place that says how far into Kamosu this tab has gone, since a
  * browser tells a page neither where it is in the history nor what is behind
- * it. The name is SvelteKit's own (`HISTORY_INDEX` in its client) and no part
- * of what it documents, so the app reads it here and nowhere else.
+ * it. The place is SvelteKit's own and no part of what it documents, so the
+ * app reads it here and nowhere else: `historyIndex` under this key
+ * (`HISTORY_METADATA_KEY` in its client). SvelteKit 3 moved it from a key of
+ * its own, `sveltekit:history`, which left the arrow never going back (#525);
+ * `way-back.spec.ts` reads SvelteKit's client to catch the next move.
  */
-export const HISTORY_INDEX = 'sveltekit:history';
+export const HISTORY_METADATA = 'sveltekit:metadata';
 
 /**
  * Where each visit to Kamosu in this tab began: the number of the entry the
@@ -71,7 +74,8 @@ const KEPT = 20;
 
 /** The number of the history entry on screen, before SvelteKit has set one: none. */
 function entryNumber(): number | undefined {
-	const number: unknown = (history.state as Record<string, unknown> | null)?.[HISTORY_INDEX];
+	const metadata: unknown = (history.state as Record<string, unknown> | null)?.[HISTORY_METADATA];
+	const number: unknown = (metadata as Record<string, unknown> | null | undefined)?.historyIndex;
 	return typeof number === 'number' ? number : undefined;
 }
 

@@ -223,7 +223,7 @@ pub struct Gathered {
 
 // ── The words ────────────────────────────────────────────────────────────────
 
-/// A Sheet's own words, in the three Languages Kamosu speaks. Written here, as
+/// A Sheet's own words, in the Languages Kamosu speaks. Written here, as
 /// the Share Link page's are, because this page is set by the server.
 struct Words {
     ingredients: &'static str,
@@ -245,8 +245,8 @@ struct Words {
     of: &'static str,
     page_ref: &'static str,
     written_in: &'static str,
-    /// English, French and Spanish, named in this Language.
-    languages: [&'static str; 3],
+    /// English, French, Spanish and Dutch, named in this Language.
+    languages: [&'static str; 4],
     months: [&'static str; 12],
     /// How a date is set: `{day}`, `{month}`, `{year}`.
     date: &'static str,
@@ -271,7 +271,7 @@ const EN: Words = Words {
     of: "of",
     page_ref: "p.",
     written_in: "written in {language}",
-    languages: ["English", "French", "Spanish"],
+    languages: ["English", "French", "Spanish", "Dutch"],
     months: [
         "January",
         "February",
@@ -308,7 +308,7 @@ const FR: Words = Words {
     of: "sur",
     page_ref: "p.",
     written_in: "écrite en {language}",
-    languages: ["anglais", "français", "espagnol"],
+    languages: ["anglais", "français", "espagnol", "néerlandais"],
     months: [
         "janvier",
         "février",
@@ -345,7 +345,7 @@ const ES: Words = Words {
     of: "de",
     page_ref: "p.",
     written_in: "escrita en {language}",
-    languages: ["inglés", "francés", "español"],
+    languages: ["inglés", "francés", "español", "neerlandés"],
     months: [
         "enero",
         "febrero",
@@ -363,12 +363,50 @@ const ES: Words = Words {
     date: "{day} de {month} de {year}",
 };
 
+const NL: Words = Words {
+    ingredients: "Ingrediënten",
+    method: "Bereiding",
+    makes: "Voor {yield}",
+    prep: "Voorbereiden {time}",
+    cook: "Koken {time}",
+    scaled: "Omgerekend naar {wanted}, zoals geschreven voor {written}",
+    scaled_times: "Omgerekend ×{times}",
+    for_recipe: "voor {title}",
+    whole: "het hele recept",
+    part: "{share} van het recept",
+    unscaled: "Kamosu kon de hoeveelheid niet bepalen, dus dit is het recept zoals het is geschreven",
+    as_written_makes: "zoals geschreven, voor {yield}",
+    written: "geschreven op {date}",
+    printed: "afgedrukt op {date}",
+    page: "pagina",
+    of: "van",
+    page_ref: "p.",
+    written_in: "geschreven in het {language}",
+    languages: ["Engels", "Frans", "Spaans", "Nederlands"],
+    months: [
+        "januari",
+        "februari",
+        "maart",
+        "april",
+        "mei",
+        "juni",
+        "juli",
+        "augustus",
+        "september",
+        "oktober",
+        "november",
+        "december",
+    ],
+    date: "{day} {month} {year}",
+};
+
 /// The Language the page is set in: the recipe's own, where Kamosu speaks it,
 /// and English otherwise.
 fn words_for(language: &str) -> (&'static Words, &'static str) {
     match language {
         "fr" => (&FR, "fr"),
         "es" => (&ES, "es"),
+        "nl" => (&NL, "nl"),
         _ => (&EN, "en"),
     }
 }
@@ -380,6 +418,7 @@ fn language_name<'a>(code: &'a str, words: &'static Words) -> &'a str {
         "en" => words.languages[0],
         "fr" => words.languages[1],
         "es" => words.languages[2],
+        "nl" => words.languages[3],
         other => other,
     }
 }
@@ -405,13 +444,30 @@ fn long_date(stored: &str, words: &Words) -> String {
         .replace("{year}", year)
 }
 
-/// `20 min`, `1 h 30`, `2 h` — the way a time is written on a card.
-fn duration(minutes: i64) -> String {
+/// `20 min`, `1 h 30`, `2 h` — the way a time is written on a card, and on
+/// the Share Link page (#521).
+pub(crate) fn duration(minutes: i64) -> String {
+    duration_parts(minutes)
+        .into_iter()
+        .map(|(figure, unit)| match unit {
+            Some(unit) => format!("{figure} {unit}"),
+            None => figure,
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The same time in its parts, each figure with the unit it carries, for a
+/// page that sets the unit smaller than the figure: the interface's
+/// `figureOf` (#175), written once on the server for the Sheet and the Share
+/// Link page alike. Under an hour, minutes; whole hours, hours; otherwise
+/// hours and then the minutes in two digits with no unit.
+pub(crate) fn duration_parts(minutes: i64) -> Vec<(String, Option<&'static str>)> {
     let (hours, rest) = (minutes / 60, minutes % 60);
     match (hours, rest) {
-        (0, m) => format!("{m} min"),
-        (h, 0) => format!("{h} h"),
-        (h, m) => format!("{h} h {m:02}"),
+        (0, m) => vec![(m.to_string(), Some("min"))],
+        (h, 0) => vec![(h.to_string(), Some("h"))],
+        (h, m) => vec![(h.to_string(), Some("h")), (format!("{m:02}"), None)],
     }
 }
 
@@ -593,7 +649,9 @@ pub fn compose(gathered: &Gathered) -> Value {
             let how_much = match share {
                 None => words.unscaled.to_string(),
                 Some(share) if !scales(share) => words.whole.to_string(),
-                Some(share) => words.part.replace("{share}", &units::as_fraction(share)),
+                Some(share) => words
+                    .part
+                    .replace("{share}", &units::share_written(share, language)),
             };
             let mut lead = vec![words.for_recipe.replace("{title}", parent_title), how_much];
             if share.is_some()
@@ -911,6 +969,8 @@ mod tests {
         assert_eq!(duration(20), "20 min");
         assert_eq!(duration(90), "1 h 30");
         assert_eq!(duration(120), "2 h");
+        assert_eq!(duration(65), "1 h 05");
+        assert_eq!(duration(540), "9 h");
     }
 
     /// A Component nobody here holds has no block, and its line reads as

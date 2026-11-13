@@ -1,0 +1,1128 @@
+//! The Meal Plan: each Person's own days ahead, and the recipes and written
+//! words planned on them, on a day or on a week with no day (#486, #487,
+//! ADR 0058).
+
+use super::shopping_list::{add_to_choosing, shopping_list, shopping_moment, stored_yield};
+use super::*;
+
+/// The longest stretch of days one read of the plan answers: a year, so a
+/// screen asking for a week, a month or a year back is answered and a typo in
+/// a year is refused rather than read across centuries.
+const LONGEST_READ: i64 = 366;
+
+impl Core {
+    // ── The Meal Plan (#486, ADR 0058) ───────────────────────────────────────
+    //
+    // **The plan is a Person's own**, as the Shopping List is (ADR 0024):
+    // every query below is keyed on the asker, so nobody else reads it, and no
+    // Operation here accepts `as_operator`. Its writes carry `written_at` and
+    // the last one to reach the plan wins (`plan_moment`).
+
+    /// The Planned Meals from one day to another, both included, and those on
+    /// any day of a week that overlaps them. They come a week at a time, by
+    /// its Monday; in each, the week's meals with no day first, then each
+    /// day's, and in each list in its order.
+    ///
+    /// Each recipe also says whether it was `cooked` (#489), on the calendar
+    /// of `time_zone`, the cook's own as the browser names it, or UTC where
+    /// none is sent. Nothing is stored for it: it is worked out on each read.
+    pub fn meal_plan(
+        &self,
+        person_id: &str,
+        from: &str,
+        to: &str,
+        time_zone: Option<&str>,
+    ) -> Result<Value, OpError> {
+        let time_zone = match time_zone {
+            None => jiff::tz::TimeZone::UTC,
+            Some(name) => jiff::tz::TimeZone::get(name).map_err(|_| {
+                OpError::bad_request(format!(
+                    "time_zone must name a time zone, such as Europe/Amsterdam, and {name:?} names none"
+                ))
+            })?,
+        };
+        self.db().with_conn(|conn| {
+            let from = calendar_day(conn, from, "from")?;
+            let to = calendar_day(conn, to, "to")?;
+            let days: i64 = conn
+                .query_row(
+                    "SELECT julianday(?2) - julianday(?1)",
+                    params![from, to],
+                    |row| row.get::<_, f64>(0),
+                )
+                .map(|days| days as i64)
+                .map_err(|e| OpError::internal(format!("cannot count the days: {e}")))?;
+            if days < 0 {
+                return Err(OpError::bad_request(
+                    "to must be the same day as from or after it",
+                ));
+            }
+            if days >= LONGEST_READ {
+                return Err(OpError::bad_request(format!(
+                    "one read of the plan covers at most {LONGEST_READ} days"
+                )));
+            }
+            let mut statement = conn
+                .prepare(
+                    "SELECT id FROM planned_meals WHERE person_id = ?1 \
+                        AND (day BETWEEN ?2 AND ?3 OR (day IS NULL AND week BETWEEN ?4 AND ?3)) \
+                      ORDER BY week, day IS NOT NULL, day, position, planned_at, id",
+                )
+                .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
+            let ids: Vec<String> = statement
+                .query_map(
+                    params![person_id, from, to, monday_of(conn, &from)?],
+                    |row| row.get(0),
+                )
+                .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?
+                .collect::<Result<_, _>>()
+                .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
+            let mut meals = ids
+                .iter()
+                .map(|id| planned_meal(conn, person_id, id))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            for meal in &mut meals {
+                let cooked = was_cooked(conn, person_id, meal, &time_zone)?;
+                meal["cooked"] = Value::Bool(cooked);
+            }
+            Ok(json!({ "planned_meals": meals }))
+        })
+    }
+
+    /// Plan a Branch on a day or a week, after whatever that list already
+    /// holds, at a Yield or as written. `planned_meal_id` is how a meal planned
+    /// with no network arrives (#77): the phone names it, so sending it twice
+    /// plans it once.
+    pub fn plan_recipe(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+        place: Place<'_>,
+        planned_yield: Option<&Value>,
+        planned_meal_id: Option<&str>,
+        written_at: Option<&str>,
+    ) -> Result<Value, OpError> {
+        let planned_yield = stored_yield(planned_yield)?;
+        self.plan_one(person_id, place, planned_meal_id, written_at, |conn| {
+            let head = branch_head(conn, branch_id)?;
+            ensure_sees_or_absent(conn, &head.cookbook_id, person_id, no_such_branch)?;
+            Ok(Planned::Recipe {
+                branch_id,
+                known_as: branch_title(conn, &head.head_version_id)?,
+                planned_yield,
+            })
+        })
+    }
+
+    /// Put written words on a day or a week (#487): "leftovers", "eating
+    /// out". They are kept exactly as written, the ends trimmed, and never
+    /// read, as a Loose Item is.
+    pub fn plan_words(
+        &self,
+        person_id: &str,
+        words: &str,
+        place: Place<'_>,
+        planned_meal_id: Option<&str>,
+        written_at: Option<&str>,
+    ) -> Result<Value, OpError> {
+        let words = required_text(words, "words")?;
+        self.plan_one(person_id, place, planned_meal_id, written_at, |_| {
+            Ok(Planned::Words(words))
+        })
+    }
+
+    /// What `plan_recipe` and `plan_words` share: the id, sending twice, the
+    /// plan's clock, and the place at the end of its list.
+    fn plan_one<'a>(
+        &self,
+        person_id: &str,
+        place: Place<'_>,
+        planned_meal_id: Option<&str>,
+        written_at: Option<&str>,
+        what: impl FnOnce(&Connection) -> Result<Planned<'a>, OpError>,
+    ) -> Result<Value, OpError> {
+        if let Some(id) = planned_meal_id
+            && !is_minted_meal_id(id)
+        {
+            return Err(OpError::bad_request(
+                "planned_meal_id must be pm_ followed by sixteen lower-case hex digits",
+            ));
+        }
+        self.db().with_conn(|conn| {
+            let planned = what(conn)?;
+            let (week, day) = place.resolve(conn)?;
+            let id = planned_meal_id
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("pm_{}", hex::encode(random_bytes(8))));
+            let owner: Option<String> = conn
+                .query_row(
+                    "SELECT person_id FROM planned_meals WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
+            match owner {
+                // Sent twice: it is planned already, as the first send left it.
+                Some(owner) if owner == person_id => return answer(conn, person_id, &id),
+                Some(_) => return Err(OpError::bad_request("that planned_meal_id is taken")),
+                None => {}
+            }
+            let Some(moment) = plan_moment(conn, person_id, written_at)? else {
+                return answer(conn, person_id, &id);
+            };
+            insert_planned(
+                conn,
+                person_id,
+                &id,
+                planned,
+                (&week, day.as_deref()),
+                &moment,
+            )?;
+            answer(conn, person_id, &id)
+        })
+    }
+
+    /// Change the written words of a Planned Meal (#487). A recipe's are its
+    /// title, changed on the recipe.
+    pub fn set_planned_words(
+        &self,
+        person_id: &str,
+        planned_meal_id: &str,
+        words: &str,
+        written_at: Option<&str>,
+    ) -> Result<Value, OpError> {
+        let words = required_text(words, "words")?;
+        self.db().with_conn(|conn| {
+            let Some(meal) = planned_meal(conn, person_id, planned_meal_id)? else {
+                return Err(no_such_meal());
+            };
+            if meal["words"].is_null() {
+                return Err(OpError::bad_request(
+                    "this Planned Meal is a recipe, not written words",
+                ));
+            }
+            if plan_moment(conn, person_id, written_at)?.is_none() {
+                return answer(conn, person_id, planned_meal_id);
+            }
+            conn.execute(
+                "UPDATE planned_meals SET words = ?3 WHERE id = ?1 AND person_id = ?2",
+                params![planned_meal_id, person_id, words],
+            )
+            .map_err(|e| OpError::internal(format!("cannot change the words: {e}")))?;
+            answer(conn, person_id, planned_meal_id)
+        })
+    }
+
+    /// Move a Planned Meal to another day or week, or to another place in
+    /// its list (#487): `position` counts from 0 among the others in the list
+    /// it goes to, and none puts it last. The list it lands in is numbered
+    /// again from 0.
+    pub fn move_planned_meal(
+        &self,
+        person_id: &str,
+        planned_meal_id: &str,
+        place: Place<'_>,
+        position: Option<i64>,
+        written_at: Option<&str>,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let Some(meal) = planned_meal(conn, person_id, planned_meal_id)? else {
+                return Err(no_such_meal());
+            };
+            let (week, day) = place.resolve(conn)?;
+            if plan_moment(conn, person_id, written_at)?.is_none() {
+                return answer(conn, person_id, planned_meal_id);
+            }
+            let mut list = list_of(conn, person_id, &week, day.as_deref())?;
+            list.retain(|id| id != planned_meal_id);
+            let at = position.map_or(list.len(), |position| {
+                usize::try_from(position.max(0)).map_or(list.len(), |p| p.min(list.len()))
+            });
+            list.insert(at, planned_meal_id.to_string());
+            conn.execute(
+                "UPDATE planned_meals SET week = ?3, day = ?4 WHERE id = ?1 AND person_id = ?2",
+                params![planned_meal_id, person_id, week, day],
+            )
+            .map_err(|e| OpError::internal(format!("cannot move a Planned Meal: {e}")))?;
+            number(conn, person_id, &list)?;
+            // The list it left is numbered again too, so a list's positions
+            // always count from 0 with no gap.
+            let left = (meal["week"].as_str(), meal["day"].as_str());
+            if left != (Some(week.as_str()), day.as_deref()) {
+                let behind = list_of(conn, person_id, left.0.unwrap_or_default(), left.1)?;
+                number(conn, person_id, &behind)?;
+            }
+            answer(conn, person_id, planned_meal_id)
+        })
+    }
+
+    /// Say how much of a Planned Meal is to be cooked: a Yield, a multiplier,
+    /// or `None` for the recipe as written.
+    pub fn set_planned_yield(
+        &self,
+        person_id: &str,
+        planned_meal_id: &str,
+        planned_yield: Option<&Value>,
+        written_at: Option<&str>,
+    ) -> Result<Value, OpError> {
+        let planned_yield = stored_yield(planned_yield)?;
+        self.db().with_conn(|conn| {
+            let Some(meal) = planned_meal(conn, person_id, planned_meal_id)? else {
+                return Err(no_such_meal());
+            };
+            if !meal["words"].is_null() {
+                return Err(OpError::bad_request(
+                    "written words have no Yield to change",
+                ));
+            }
+            if meal["gone"] == true {
+                return Err(OpError::bad_request(
+                    "this recipe can no longer be read, so it has no Yield to change",
+                ));
+            }
+            if plan_moment(conn, person_id, written_at)?.is_none() {
+                return answer(conn, person_id, planned_meal_id);
+            }
+            // The name it is known by moves with it, as a Shopping List
+            // entry's does, so a recipe renamed and later deleted keeps the
+            // name it was last seen under.
+            conn.execute(
+                "UPDATE planned_meals SET planned_yield = ?3, known_as = ?4 \
+                  WHERE id = ?1 AND person_id = ?2",
+                params![
+                    planned_meal_id,
+                    person_id,
+                    planned_yield,
+                    meal["title"].as_str()
+                ],
+            )
+            .map_err(|e| OpError::internal(format!("cannot set the Yield: {e}")))?;
+            answer(conn, person_id, planned_meal_id)
+        })
+    }
+
+    /// Take a Planned Meal off the plan. Taking one that is already gone is not
+    /// an error, for the reason `remove_from_shopping_list` gives: a removal
+    /// replayed from a phone that had no network must not fail because it had
+    /// already worked.
+    pub fn remove_planned_meal(
+        &self,
+        person_id: &str,
+        planned_meal_id: &str,
+        written_at: Option<&str>,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            if plan_moment(conn, person_id, written_at)?.is_none() {
+                return answer(conn, person_id, planned_meal_id);
+            }
+            conn.execute(
+                "DELETE FROM planned_meals WHERE id = ?1 AND person_id = ?2",
+                params![planned_meal_id, person_id],
+            )
+            .map_err(|e| {
+                OpError::internal(format!("cannot take a Planned Meal off the plan: {e}"))
+            })?;
+            Ok(json!({ "planned_meal": Value::Null }))
+        })
+    }
+
+    /// **Send days and weeks of the plan to the Shopping List** (#488): a day
+    /// sends its own Planned Meals, a week its days' and its undated ones,
+    /// `any_day_of` a week's undated ones alone, and one chosen twice is sent
+    /// once. Each recipe sends the part of its
+    /// planned Yield not sent before, added to what the list holds for its
+    /// Branch through the list's own adding path, and remembers what it has
+    /// now sent. Written words and recipes that can no longer be read send
+    /// nothing and are named.
+    ///
+    /// **It is one write on the Shopping List's clock**: a send older than
+    /// the list's last write, made with no network and sent after the list
+    /// changed elsewhere, adds nothing and marks nothing, and says so.
+    pub fn send_to_shopping_list(
+        &self,
+        person_id: &str,
+        days: &[&str],
+        weeks: &[&str],
+        any_day_of: &[&str],
+        written_at: Option<&str>,
+    ) -> Result<Value, OpError> {
+        if days.is_empty() && weeks.is_empty() && any_day_of.is_empty() {
+            return Err(OpError::bad_request(
+                "send at least one day or week to the Shopping List",
+            ));
+        }
+        self.db().with_conn(|conn| {
+            let mut chosen_days = Vec::with_capacity(days.len());
+            for day in days {
+                chosen_days.push(calendar_day(conn, day, "days")?);
+            }
+            let mondays = |weeks: &[&str]| {
+                weeks
+                    .iter()
+                    .map(|week| Place::Week(week).resolve(conn).map(|(week, _)| week))
+                    .collect::<Result<Vec<_>, _>>()
+            };
+            let chosen_weeks = mondays(weeks)?;
+            let undated_weeks = mondays(any_day_of)?;
+            // Every meal of the weeks touched, in the plan's order, and those
+            // the choice covers: chosen twice is still once.
+            let mut touched = [chosen_weeks.clone(), undated_weeks.clone()].concat();
+            for day in &chosen_days {
+                touched.push(monday_of(conn, day)?);
+            }
+            touched.sort();
+            touched.dedup();
+            let mut meals = Vec::new();
+            for week in &touched {
+                for meal in week_of(conn, person_id, week)? {
+                    let covered = chosen_weeks.iter().any(|chosen| meal["week"] == **chosen)
+                        || (meal["day"].is_null()
+                            && undated_weeks.iter().any(|chosen| meal["week"] == **chosen))
+                        || meal["day"]
+                            .as_str()
+                            .is_some_and(|day| chosen_days.iter().any(|chosen| chosen == day));
+                    if covered {
+                        meals.push(meal);
+                    }
+                }
+            }
+
+            let mut skipped = Vec::new();
+            let mut already_sent = Vec::new();
+            // Each Branch once, in the order its first meal comes, with every
+            // meal of it that has something to send.
+            let mut sending: Vec<Sending> = Vec::new();
+            for meal in &meals {
+                let id = meal["planned_meal_id"].as_str().unwrap_or_default();
+                if !meal["words"].is_null() || meal["gone"] == true {
+                    skipped.push(json!({
+                        "planned_meal_id": id,
+                        "title": meal["title"],
+                        "words": meal["words"],
+                        "reason": if meal["words"].is_null() { "gone" } else { "words" },
+                    }));
+                    continue;
+                }
+                let factor = yield_scale(&meal["planned_yield"], &meal["written_yield"]);
+                let sent = meal["sent_factor"].as_f64().unwrap_or(0.0);
+                if factor - sent <= SAME_FACTOR {
+                    already_sent.push(json!({
+                        "planned_meal_id": id,
+                        "branch_id": meal["branch_id"],
+                        "title": meal["title"],
+                        "planned_fewer": factor < sent - SAME_FACTOR,
+                    }));
+                    continue;
+                }
+                let branch_id = meal["branch_id"].as_str().unwrap_or_default();
+                let at = match sending.iter().position(|each| each.branch_id == branch_id) {
+                    Some(at) => at,
+                    None => {
+                        sending.push(Sending {
+                            branch_id: branch_id.to_string(),
+                            title: meal["title"].as_str().unwrap_or_default().to_string(),
+                            written_yield: meal["written_yield"].clone(),
+                            factor: 0.0,
+                            raised: true,
+                            meals: Vec::new(),
+                        });
+                        sending.len() - 1
+                    }
+                };
+                sending[at].factor += factor - sent;
+                sending[at].raised &= !meal["sent_factor"].is_null();
+                sending[at].meals.push((id.to_string(), factor));
+            }
+
+            // One write: the list, its clock and the marks land together or
+            // not at all.
+            let transaction = conn
+                .unchecked_transaction()
+                .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
+            // Nothing to send writes nothing, so it takes nothing of the
+            // list's clock: an older change made offline still lands after it.
+            let moment = if sending.is_empty() {
+                String::new()
+            } else {
+                let Some(moment) = shopping_moment(conn, person_id, written_at)? else {
+                    return Ok(json!({
+                        "outcome": "refused",
+                        "sent": [],
+                        "already_sent": [],
+                        "skipped": [],
+                        "planned_meals": meals,
+                        "shopping_list": shopping_list(conn, person_id)?,
+                    }));
+                };
+                moment
+            };
+            let mut sent = Vec::with_capacity(sending.len());
+            for each in &sending {
+                let added = add_to_choosing(
+                    conn,
+                    person_id,
+                    &each.branch_id,
+                    &each.title,
+                    &each.written_yield,
+                    each.factor,
+                    &moment,
+                )?;
+                for (id, factor) in &each.meals {
+                    conn.execute(
+                        "UPDATE planned_meals SET sent_factor = ?3, sent_at = ?4 \
+                          WHERE id = ?1 AND person_id = ?2",
+                        params![id, person_id, factor, moment],
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot mark a meal sent: {e}")))?;
+                }
+                sent.push(json!({
+                    "branch_id": each.branch_id,
+                    "title": each.title,
+                    "added_factor": each.factor,
+                    "raised": each.raised,
+                    "planned_meals": each.meals.iter().map(|(id, _)| id).collect::<Vec<_>>(),
+                    "was_on_list": added.was_on_list,
+                    "shopping_yield": added.shopping_yield,
+                    "written_yield": each.written_yield,
+                }));
+            }
+            transaction
+                .commit()
+                .map_err(|e| OpError::internal(format!("cannot send to the list: {e}")))?;
+            let meals = meals
+                .iter()
+                .map(|meal| {
+                    planned_meal(
+                        conn,
+                        person_id,
+                        meal["planned_meal_id"].as_str().unwrap_or_default(),
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(json!({
+                "outcome": "sent",
+                "sent": sent,
+                "already_sent": already_sent,
+                "skipped": skipped,
+                "planned_meals": meals.into_iter().flatten().collect::<Vec<_>>(),
+                "shopping_list": shopping_list(conn, person_id)?,
+            }))
+        })
+    }
+}
+
+/// Two factors closer than this are the same: what was sent is read back
+/// from a REAL column, and a third and two thirds are not exact.
+const SAME_FACTOR: f64 = 1e-9;
+
+/// One Branch on its way to the Shopping List: how much of it, and from
+/// which Planned Meals, each with the factor it will have sent.
+struct Sending {
+    branch_id: String,
+    title: String,
+    written_yield: Value,
+    factor: f64,
+    /// Whether every meal of it had gone before, so what goes is what they grew by.
+    raised: bool,
+    meals: Vec<(String, f64)>,
+}
+
+/// A whole week of one Person's plan, its undated meals first, then each
+/// day's, each list in its order.
+fn week_of(conn: &Connection, person_id: &str, week: &str) -> Result<Vec<Value>, OpError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id FROM planned_meals WHERE person_id = ?1 AND week = ?2 \
+              ORDER BY day IS NOT NULL, day, position, planned_at, id",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
+    let ids: Vec<String> = statement
+        .query_map(params![person_id, week], |row| row.get(0))
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
+    let meals = ids
+        .iter()
+        .map(|id| planned_meal(conn, person_id, id))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(meals.into_iter().flatten().collect())
+}
+
+/// Every Planned Meal of a Person's from `days_back` days ago on, the way
+/// ahead included, for their Calendar Link (#491): a day's from that day, and
+/// a week's with no day where any of its days is. In the plan's own order.
+pub(super) fn meals_since(
+    conn: &Connection,
+    person_id: &str,
+    days_back: i64,
+) -> Result<Vec<Value>, OpError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id FROM planned_meals WHERE person_id = ?1 \
+                AND (day >= date('now', ?2) \
+                     OR (day IS NULL AND week >= date('now', ?2, '-6 days'))) \
+              ORDER BY week, day IS NOT NULL, day, position, planned_at, id",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
+    let ids: Vec<String> = statement
+        .query_map(params![person_id, format!("-{days_back} days")], |row| {
+            row.get(0)
+        })
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
+    let meals = ids
+        .iter()
+        .map(|id| planned_meal(conn, person_id, id))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(meals.into_iter().flatten().collect())
+}
+
+/// The ids of one list of a Person's plan, a day's or a week's with no day,
+/// in its order.
+fn list_of(
+    conn: &Connection,
+    person_id: &str,
+    week: &str,
+    day: Option<&str>,
+) -> Result<Vec<String>, OpError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id FROM planned_meals WHERE person_id = ?1 AND week = ?2 AND day IS ?3 \
+              ORDER BY position, planned_at, id",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
+    statement
+        .query_map(params![person_id, week, day], |row| row.get(0))
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))
+}
+
+/// Number a list from 0 in the order given.
+fn number(conn: &Connection, person_id: &str, list: &[String]) -> Result<(), OpError> {
+    for (position, id) in list.iter().enumerate() {
+        conn.execute(
+            "UPDATE planned_meals SET position = ?3 WHERE id = ?1 AND person_id = ?2",
+            params![id, person_id, position as i64],
+        )
+        .map_err(|e| OpError::internal(format!("cannot number a list of the plan: {e}")))?;
+    }
+    Ok(())
+}
+
+/// What every write answers: the Planned Meal as it now stands, or null where
+/// there is none.
+fn answer(conn: &Connection, person_id: &str, id: &str) -> Result<Value, OpError> {
+    Ok(json!({ "planned_meal": planned_meal(conn, person_id, id)? }))
+}
+
+fn no_such_meal() -> OpError {
+    OpError::not_found("there is no such Planned Meal on your plan")
+}
+
+/// One Planned Meal of this Person's, as every answer shows it: its recipe's
+/// live title and Yield where the recipe can still be read, and the name it
+/// was known by where it cannot, or its written words. `None` where this
+/// Person has no such meal, which is also the answer for another Person's.
+fn planned_meal(conn: &Connection, person_id: &str, id: &str) -> Result<Option<Value>, OpError> {
+    type Row = (
+        Option<String>,
+        Option<String>,
+        String,
+        Option<String>,
+        i64,
+        Option<String>,
+        Option<String>,
+        (Option<f64>, Option<String>),
+    );
+    let stored: Option<Row> = conn
+        .query_row(
+            "SELECT branch_id, words, week, day, position, planned_yield, known_as, \
+                    sent_factor, sent_at \
+               FROM planned_meals WHERE id = ?1 AND person_id = ?2",
+            params![id, person_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    (row.get(7)?, row.get(8)?),
+                ))
+            },
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?;
+    let Some((
+        branch_id,
+        words,
+        week,
+        day,
+        position,
+        planned_yield,
+        known_as,
+        (sent_factor, sent_at),
+    )) = stored
+    else {
+        return Ok(None);
+    };
+    let Some(branch_id) = branch_id else {
+        // Written words: nothing to read, open or scale.
+        return Ok(Some(json!({
+            "planned_meal_id": id,
+            "week": week,
+            "day": day,
+            "position": position,
+            "branch_id": Value::Null,
+            "words": words,
+            "title": Value::Null,
+            "gone": false,
+            "planned_yield": Value::Null,
+            "written_yield": Value::Null,
+            "main_photo": Value::Null,
+            "sent_factor": Value::Null,
+            "sent_at": Value::Null,
+        })));
+    };
+    // Always the Branch's newest Version, as the Shopping List reads it: a
+    // correction made on Monday is what Thursday shows.
+    let head = branch_head(conn, &branch_id).ok();
+    let readable = match &head {
+        Some(head) => sees_cookbook(conn, &head.cookbook_id, person_id)?,
+        None => false,
+    };
+    let content = match (&head, readable) {
+        (Some(head), true) => Some(version_content(conn, &head.head_version_id)?),
+        _ => None,
+    };
+    Ok(Some(json!({
+        "planned_meal_id": id,
+        "week": week,
+        "day": day,
+        "position": position,
+        "branch_id": branch_id,
+        "words": Value::Null,
+        "title": content
+            .as_ref()
+            .and_then(|content| content["title"].as_str())
+            .or(known_as.as_deref()),
+        "gone": !readable,
+        "planned_yield": planned_yield
+            .as_deref()
+            .and_then(|stored| serde_json::from_str::<Value>(stored).ok())
+            .unwrap_or(Value::Null),
+        "written_yield": content
+            .as_ref()
+            .map(|content| content["yield"].clone())
+            .unwrap_or(Value::Null),
+        // Its picture, for the day it is drawn on; none once it cannot be read.
+        "main_photo": content
+            .as_ref()
+            .map(|content| content["main_photo"].clone())
+            .unwrap_or(Value::Null),
+        // How much of the recipe as written it last sent to the Shopping
+        // List, and when (#488): none until it is sent, and unchanged when
+        // the list is emptied.
+        "sent_factor": sent_factor,
+        "sent_at": sent_at,
+    })))
+}
+
+/// **Whether a planned recipe was cooked** (#489): this Person began an
+/// Attempt of its Lineage on its day, or on any day of its week where it has
+/// no day, In Progress included. Any Branch of the Lineage counts, since an
+/// Attempt belongs to the Lineage. The day is the cook's, in `time_zone`, as
+/// the Cooked diary shows it, so a dinner late in the evening is not
+/// tomorrow's. Written words are never cooked, nor is a recipe that can no
+/// longer be read.
+fn was_cooked(
+    conn: &Connection,
+    person_id: &str,
+    meal: &Value,
+    time_zone: &jiff::tz::TimeZone,
+) -> Result<bool, OpError> {
+    // One that can no longer be read says nothing more about itself.
+    let (Some(branch_id), false) = (meal["branch_id"].as_str(), meal["gone"] == json!(true)) else {
+        return Ok(false);
+    };
+    let (first, last) = match (meal["day"].as_str(), meal["week"].as_str()) {
+        (Some(day), _) => (day.to_owned(), day.to_owned()),
+        (None, Some(week)) => {
+            let sunday: String = conn
+                .query_row("SELECT date(?1, '+6 days')", params![week], |row| {
+                    row.get(0)
+                })
+                .map_err(|e| OpError::internal(format!("cannot find a week's Sunday: {e}")))?;
+            (week.to_owned(), sunday)
+        }
+        (None, None) => return Ok(false),
+    };
+    // A day where the cook is lies within a day either side of the same day
+    // in UTC, since no time zone is a whole day from it. The moments read
+    // are those, and each is then put on the cook's calendar.
+    let mut statement = conn
+        .prepare(
+            "SELECT attempts.created_at FROM attempts \
+               JOIN branches ON branches.lineage_id = attempts.lineage_id \
+              WHERE branches.id = ?1 AND attempts.person_id = ?2 \
+                AND attempts.created_at >= date(?3, '-1 day') \
+                AND attempts.created_at < date(?4, '+2 days')",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read the cookings: {e}")))?;
+    let moments: Vec<String> = statement
+        .query_map(params![branch_id, person_id, first, last], |row| row.get(0))
+        .map_err(|e| OpError::internal(format!("cannot read the cookings: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read the cookings: {e}")))?;
+    Ok(moments.iter().any(|moment| {
+        moment
+            .parse::<jiff::Timestamp>()
+            .map(|moment| {
+                let day = moment.to_zoned(time_zone.clone()).date().to_string();
+                first <= day && day <= last
+            })
+            .unwrap_or(false)
+    }))
+}
+
+/// **Where a Planned Meal stands** (#487): on a day, or on any day of a week,
+/// the week named by its Monday.
+#[derive(Clone, Copy)]
+pub enum Place<'a> {
+    Day(&'a str),
+    Week(&'a str),
+}
+
+impl<'a> Place<'a> {
+    /// A day or a week, exactly one of the two.
+    pub fn from_input(day: Option<&'a str>, week: Option<&'a str>) -> Result<Self, OpError> {
+        match (day, week) {
+            (Some(day), None) => Ok(Place::Day(day)),
+            (None, Some(week)) => Ok(Place::Week(week)),
+            _ => Err(OpError::bad_request(
+                "send a day or a week: one of them, not both",
+            )),
+        }
+    }
+
+    /// The week (its Monday) and the day, or no day, after checking both are
+    /// real dates and a week is named by its Monday.
+    fn resolve(self, conn: &Connection) -> Result<(String, Option<String>), OpError> {
+        match self {
+            Place::Day(day) => {
+                let day = calendar_day(conn, day, "day")?;
+                Ok((monday_of(conn, &day)?, Some(day)))
+            }
+            Place::Week(week) => {
+                let week = calendar_day(conn, week, "week")?;
+                if monday_of(conn, &week)? != week {
+                    return Err(OpError::bad_request(
+                        "week must be the Monday it starts on, such as 2026-11-02",
+                    ));
+                }
+                Ok((week, None))
+            }
+        }
+    }
+}
+
+/// What is being planned: a recipe, or written words.
+pub(super) enum Planned<'a> {
+    Recipe {
+        branch_id: &'a str,
+        known_as: String,
+        planned_yield: Option<String>,
+    },
+    Words(&'a str),
+}
+
+/// Write one Planned Meal at the end of its list: the day's, or the week's
+/// with no day.
+fn insert_planned(
+    conn: &Connection,
+    person_id: &str,
+    id: &str,
+    planned: Planned<'_>,
+    (week, day): (&str, Option<&str>),
+    moment: &str,
+) -> Result<(), OpError> {
+    let (branch_id, words, planned_yield, known_as) = match planned {
+        Planned::Recipe {
+            branch_id,
+            known_as,
+            planned_yield,
+        } => (Some(branch_id), None, planned_yield, Some(known_as)),
+        Planned::Words(words) => (None, Some(words), None, None),
+    };
+    conn.execute(
+        "INSERT INTO planned_meals \
+             (id, person_id, branch_id, words, week, day, position, planned_yield, \
+              known_as, planned_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, \
+             (SELECT COALESCE(MAX(position) + 1, 0) FROM planned_meals \
+               WHERE person_id = ?2 AND week = ?5 AND day IS ?6), \
+             ?7, ?8, ?9)",
+        params![
+            id,
+            person_id,
+            branch_id,
+            words,
+            week,
+            day,
+            planned_yield,
+            known_as,
+            moment
+        ],
+    )
+    .map_err(|e| OpError::internal(format!("cannot plan a meal: {e}")))?;
+    Ok(())
+}
+
+/// Plan one entry another app's meal plan brought in (#492), at the end of
+/// its list and unsent, as `plan_recipe` or `plan_words` would: a recipe at
+/// `times` the recipe as written, or as written where there is none. The
+/// answer is the new Planned Meal's id and the Monday of its week. The caller
+/// moves the plan's clock, once for the whole file.
+pub(super) fn plan_imported(
+    conn: &Connection,
+    person_id: &str,
+    place: Place<'_>,
+    what: ImportedMeal<'_>,
+    moment: &str,
+) -> Result<(String, String), OpError> {
+    let (week, day) = place.resolve(conn)?;
+    let id = format!("pm_{}", hex::encode(random_bytes(8)));
+    let planned = match what {
+        ImportedMeal::Recipe { branch_id, times } => {
+            let head = branch_head(conn, branch_id)?;
+            let planned_yield = times
+                .map(|times| {
+                    let amount = format!("{}", (times * 1000.0).round() / 1000.0);
+                    stored_yield(Some(&json!({ "amount": amount, "noun": "" })))
+                })
+                .transpose()?
+                .flatten();
+            Planned::Recipe {
+                branch_id,
+                known_as: branch_title(conn, &head.head_version_id)?,
+                planned_yield,
+            }
+        }
+        ImportedMeal::Words(words) => Planned::Words(words),
+    };
+    insert_planned(
+        conn,
+        person_id,
+        &id,
+        planned,
+        (&week, day.as_deref()),
+        moment,
+    )?;
+    Ok((id, week))
+}
+
+/// What an imported entry plans (#492).
+pub(super) enum ImportedMeal<'a> {
+    Recipe {
+        branch_id: &'a str,
+        times: Option<f64>,
+    },
+    Words(&'a str),
+}
+
+/// The Monday of the week a calendar day is in.
+fn monday_of(conn: &Connection, day: &str) -> Result<String, OpError> {
+    conn.query_row(
+        &format!("SELECT {}", monday_sql("?1")),
+        params![day],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot find a week's Monday: {e}")))
+}
+
+/// The SQL for the Monday of the week the calendar day `day` names is in,
+/// `day` being an SQL expression: a parameter or a column.
+fn monday_sql(day: &str) -> String {
+    format!("date({day}, '-' || ((CAST(strftime('%w', {day}) AS INTEGER) + 6) % 7) || ' days')")
+}
+
+/// Move a Demo's Meal Plan, just poured, from the day its Sample Library was
+/// built to `today` (#490). Its days are bare dates, which the pour's own
+/// pass, moving only full times, leaves as they were. Every day moves by the
+/// same whole days as every other date, and a dated meal stands in the week
+/// its day now falls in. A week with no day moves by whole weeks, from the
+/// week the library was built in to today's, so a week planned as the
+/// build's own is always the current one, whatever the weekday of either.
+pub(super) fn move_poured_plan(
+    conn: &Connection,
+    built_on: &str,
+    today: &str,
+) -> rusqlite::Result<usize> {
+    conn.execute(
+        &format!(
+            "UPDATE main.planned_meals SET \
+               day = date(day, ?3), \
+               week = CASE WHEN day IS NULL \
+                 THEN date(week, (julianday({}) - julianday({})) || ' days') \
+                 ELSE {} END",
+            monday_sql("?2"),
+            monday_sql("?1"),
+            monday_sql("date(day, ?3)"),
+        ),
+        params![
+            built_on,
+            today,
+            format!("{:+} days", whole_days(conn, built_on, today)?),
+        ],
+    )
+}
+
+/// The whole days from one calendar day to another.
+fn whole_days(conn: &Connection, from: &str, to: &str) -> rusqlite::Result<i64> {
+    conn.query_row(
+        "SELECT CAST(round(julianday(?2) - julianday(?1)) AS INTEGER)",
+        params![from, to],
+        |row| row.get(0),
+    )
+}
+
+/// A calendar date as the plan holds one, YYYY-MM-DD, refused unless it is a
+/// real day: SQLite reads `2026-02-30` as a day in March, so the date it
+/// answers must be the date sent.
+fn calendar_day(conn: &Connection, day: &str, field: &str) -> Result<String, OpError> {
+    let read: Option<String> = conn
+        .query_row("SELECT date(?1)", params![day], |row| row.get(0))
+        .map_err(|e| OpError::internal(format!("cannot read a date: {e}")))?;
+    match read {
+        Some(read) if read == day && day.len() == 10 => Ok(read),
+        _ => Err(OpError::bad_request(format!(
+            "{field} must be a calendar date, such as 2026-11-05"
+        ))),
+    }
+}
+
+/// **The last device to write the plan wins**, as the Shopping List's does
+/// (`shopping_moment`, ADR 0024): the moment this write was made, or nothing
+/// where the plan has since been written later and this write, sent late by
+/// a phone that had no signal, is older. It is then dropped whole.
+pub(super) fn plan_moment(
+    conn: &Connection,
+    person_id: &str,
+    written_at: Option<&str>,
+) -> Result<Option<String>, OpError> {
+    let moment = written_moment(conn, written_at)?;
+    let last: Option<String> = conn
+        .query_row(
+            "SELECT plan_written_at FROM people WHERE id = ?1",
+            params![person_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the plan: {e}")))?
+        .flatten();
+    if last.as_deref().is_some_and(|last| moment.as_str() < last) {
+        return Ok(None);
+    }
+    conn.execute(
+        "UPDATE people SET plan_written_at = ?2 WHERE id = ?1",
+        params![person_id, moment],
+    )
+    .map_err(|e| OpError::internal(format!("cannot write the plan: {e}")))?;
+    Ok(Some(moment))
+}
+
+/// Whether a Planned Meal id is one a phone may mint: the shape the server
+/// mints its own in.
+fn is_minted_meal_id(id: &str) -> bool {
+    id.strip_prefix("pm_").is_some_and(is_sixteen_hex)
+}
+
+/// **A Planned Meal follows its recipe to the Branch kept** (#486), in the
+/// same step that moves the Shopping List's choosing: when two Cookbooks join
+/// and one Branch folds into another, and when a Co-author leaves with a Copy.
+/// [`Whose`] says which Persons' plans the move reaches.
+pub(super) fn repoint_planned_meals(
+    conn: &Connection,
+    from: &str,
+    to: &str,
+    whose: Whose<'_>,
+) -> Result<(), OpError> {
+    let moved = match whose {
+        Whose::Everyone => conn.execute(
+            "UPDATE planned_meals SET branch_id = ?2 WHERE branch_id = ?1",
+            params![from, to],
+        ),
+        Whose::Only(person_id) => conn.execute(
+            "UPDATE planned_meals SET branch_id = ?2 WHERE branch_id = ?1 AND person_id = ?3",
+            params![from, to, person_id],
+        ),
+        Whose::AllBut(person_id) => conn.execute(
+            "UPDATE planned_meals SET branch_id = ?2 WHERE branch_id = ?1 AND person_id <> ?3",
+            params![from, to, person_id],
+        ),
+    };
+    moved.map_err(|e| OpError::internal(format!("cannot move a Planned Meal: {e}")))?;
+    Ok(())
+}
+
+/// Whose Planned Meals a move reaches.
+#[derive(Clone, Copy)]
+pub(super) enum Whose<'a> {
+    Everyone,
+    Only(&'a str),
+    AllBut(&'a str),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Where each meal stands after a Demo built on `built_on` is poured on
+    /// `today`: (its day, its week) for a meal planned on 2026-11-06, the
+    /// Friday of the build's week, and for one on that week with no day.
+    fn moved(built_on: &str, today: &str) -> Vec<(Option<String>, String)> {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE planned_meals (day TEXT, week TEXT); \
+             INSERT INTO planned_meals VALUES ('2026-11-06', '2026-11-02'), (NULL, '2026-11-02');",
+        )
+        .unwrap();
+        move_poured_plan(&conn, built_on, today).unwrap();
+        conn.prepare("SELECT day, week FROM planned_meals ORDER BY day IS NULL")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn a_demos_plan_moves_its_days_by_days_and_its_undated_weeks_by_weeks() {
+        let day = |day: &str, week: &str| (Some(day.to_string()), week.to_string());
+        let undated = |week: &str| (None, week.to_string());
+        // Built on a Thursday, poured on the Tuesday after: five days on, and
+        // the meal with no day is in the Tuesday's week, not the build's.
+        assert_eq!(
+            moved("2026-11-05", "2026-11-10"),
+            vec![day("2026-11-11", "2026-11-09"), undated("2026-11-09")]
+        );
+        // Poured the same day, nothing moves.
+        assert_eq!(
+            moved("2026-11-05", "2026-11-05"),
+            vec![day("2026-11-06", "2026-11-02"), undated("2026-11-02")]
+        );
+        // Built on a Sunday, poured on the Monday after: one day, one week.
+        assert_eq!(
+            moved("2026-11-08", "2026-11-09"),
+            vec![day("2026-11-07", "2026-11-02"), undated("2026-11-09")]
+        );
+    }
+}

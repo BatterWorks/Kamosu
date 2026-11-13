@@ -26,7 +26,7 @@ import type {
 	GetShoppingListOutput,
 	GetReadingPreferencesOutput,
 	ShoppingBasisOutput,
-} from '$lib/api/catalogue';
+} from '#lib/api/catalogue.js';
 
 export type Measures = GetReadingPreferencesOutput['reading_measures'];
 export type List = GetShoppingListOutput;
@@ -271,7 +271,8 @@ export function asFraction(quantity: number): string {
 }
 
 function about(language: string): string {
-	return language === 'fr' ? 'environ' : language === 'es' ? 'aprox.' : 'about';
+	const words: Record<string, string> = { fr: 'environ', es: 'aprox.', nl: 'ongeveer' };
+	return words[language] ?? 'about';
 }
 
 /** `units::display`: only the cup has a plural. */
@@ -279,6 +280,7 @@ function display(of: Unit, language: string, plural: boolean): string {
 	if (of.id === 'cup') {
 		if (language === 'fr') return plural ? 'tasses' : 'tasse';
 		if (language === 'es') return plural ? 'tazas' : 'taza';
+		if (language === 'nl') return plural ? 'kopjes' : 'kopje';
 		return plural ? 'cups' : 'cup';
 	}
 	const fixed: Record<string, string> = {
@@ -294,10 +296,14 @@ function display(of: Unit, language: string, plural: boolean): string {
 		'imperial tablespoon': 'imperial tbsp',
 		'australian tablespoon': 'australian tbsp',
 	};
-	if (of.id === 'teaspoon')
-		return language === 'fr' ? 'c. à c.' : language === 'es' ? 'cdta' : 'tsp';
-	if (of.id === 'tablespoon')
-		return language === 'fr' ? 'c. à s.' : language === 'es' ? 'cda' : 'tbsp';
+	if (of.id === 'teaspoon') {
+		const words: Record<string, string> = { fr: 'c. à c.', es: 'cdta', nl: 'tl' };
+		return words[language] ?? 'tsp';
+	}
+	if (of.id === 'tablespoon') {
+		const words: Record<string, string> = { fr: 'c. à s.', es: 'cda', nl: 'el' };
+		return words[language] ?? 'tbsp';
+	}
 	return fixed[of.id] ?? of.id;
 }
 
@@ -311,10 +317,18 @@ function plural(quantity: number, language: string): boolean {
 	return language === 'fr' ? quantity >= 2 : quantity > 1;
 }
 
+/** `units::with_decimal_mark`: `1,5` in French, Spanish and Dutch (#496, #599), `1.5` in English. */
+export function withDecimalMark(number: string, language: string): string {
+	return ['fr', 'es', 'nl'].includes(language) ? number.replaceAll('.', ',') : number;
+}
+
 /** `units::word_it`. */
 function wordIt(measured: Measured, language: string): string {
 	const quantity = roundTo(measured.quantity, measured.unit.id);
-	const number = measured.unit.system === 'customary' ? asFraction(quantity) : asDecimal(quantity);
+	const number = withDecimalMark(
+		measured.unit.system === 'customary' ? asFraction(quantity) : asDecimal(quantity),
+		language,
+	);
 	return `${about(language)} ${number} ${display(measured.unit, language, plural(quantity, language))}`;
 }
 
@@ -330,12 +344,17 @@ export function wordedVolume(millilitres: number, measures: Measures, language: 
 }
 
 /** `units::plain_number`: a count, or the figure before a word Kamosu does not know. */
-function plainNumber(quantity: number): string {
+export function plainNumber(quantity: number): string {
 	return asFraction(roundTo(quantity, null));
 }
 
 function noAmountWritten(language: string): string {
-	return language === 'fr' ? 'sans quantité' : language === 'es' ? 'sin cantidad' : 'some';
+	const words: Record<string, string> = {
+		fr: 'sans quantité',
+		es: 'sin cantidad',
+		nl: 'zonder hoeveelheid',
+	};
+	return words[language] ?? 'some';
 }
 
 // --- Adding up ---------------------------------------------------------------
@@ -523,15 +542,17 @@ export function rows(chosen: Chosen[], loose: Row[], measures: Measures, languag
 // --- The text that leaves ------------------------------------------------------
 
 function goneWritten(language: string): string {
-	return language === 'fr'
-		? 'ne peut plus être lu'
-		: language === 'es'
-			? 'ya no se puede leer'
-			: 'can no longer be read';
+	const words: Record<string, string> = {
+		fr: 'ne peut plus être lu',
+		es: 'ya no se puede leer',
+		nl: 'kan niet meer worden gelezen',
+	};
+	return words[language] ?? 'can no longer be read';
 }
 
 function forWritten(language: string): string {
-	return language === 'fr' ? 'pour' : language === 'es' ? 'para' : 'for';
+	const words: Record<string, string> = { fr: 'pour', es: 'para', nl: 'voor' };
+	return words[language] ?? 'for';
 }
 
 /** `shopping::as_text`: the list as the text a Shortcut hands to Notes. */

@@ -10,10 +10,10 @@
 	recipe is on the list so the state is read at a glance.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { Wanted } from '$lib/how-much';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { Wanted } from '#lib/how-much.js';
 
 	interface Props {
 		branchId: string;

@@ -1,0 +1,286 @@
+# Kamosu's English words. `src/words.rs` says what each list is for and
+# which files read which recipe (ADR 0057).
+
+# --- Reading an Ingredient Line ---
+open_units = [
+    "clove", "cloves", "can", "cans", "tin", "tins", "packet", "packets",
+    "package", "packages", "sachet", "sachets", "pinch", "pinches", "bunch",
+    "bunches", "head", "heads", "stick", "sticks", "slice", "slices", "strip",
+    "strips", "leaf", "leaves", "sprig", "sprigs", "stalk", "stalks",
+    "strand", "strands", "jar", "jars", "bottle", "bottles", "box", "boxes",
+    "bag", "bags", "piece", "pieces", "drop", "drops", "dash", "dashes",
+    "handful", "handfuls", "knob", "knobs", "square", "squares", "sheet",
+    "sheets", "block", "blocks", "cube", "cubes", "bundle", "bundles",
+    # A pour of oil or wine, as #181 made `filet` one in French (#186).
+    "glug", "glugs",
+    # A length of ginger or lemongrass, the same in all three Languages
+    # (#207): `Gingembre : 1 à 3 cm`. It measures the Food and converts to
+    # nothing, as a *gousse* does.
+    "cm",
+]
+sizes = [
+    "large", "small", "medium", "big", "whole", "extra", "jumbo",
+]
+praise = [
+    "good", "good-quality", "generous", "heaping", "heaped", "rounded",
+    "level", "scant",
+]
+warmth = [
+    "cold", "warm", "lukewarm", "room-temperature", "room temperature",
+    "at room temperature",
+]
+glue = [
+    "of", "the", "a",
+]
+a_little = [
+    "a little", "a bit of",
+]
+to_taste = [
+    "to taste", "to your taste",
+]
+describing = [
+    "boneless", "skinless", "bone-in", "skin-on", "minced", "divided",
+    "chopped", "diced", "sliced", "grated", "shredded", "crushed", "peeled",
+    "seeded", "deseeded", "pitted", "cubed", "halved", "quartered", "trimmed",
+    "melted", "softened", "beaten", "sifted", "drained", "rinsed", "cooked",
+    "uncooked", "toasted", "julienned", "zested", "juiced", "mashed",
+    "packed", "heaping", "heaped", "level", "rounded", "optional", "fresh",
+    "dried", "frozen", "ground", "raw", "finely", "roughly", "coarsely",
+    "thinly", "freshly", "lightly",
+]
+describing_joins = [
+    "and",
+]
+fixed_names = [
+    "cold cuts", "cold brew",
+]
+very = [
+    "very",
+]
+names_nothing_alone = [
+    "crispy", "crisp", "crunchy", "smooth", "chunky", "creamy", "spicy",
+    "hot", "mild", "sweet", "sweetened", "unsweetened", "salted", "unsalted",
+    "plain", "natural", "organic", "light", "dark", "fine", "coarse", "extra",
+    "virgin", "low", "fat", "full", "free", "reduced", "black", "white",
+    "red", "green", "yellow", "brown", "golden", "pink", "purple", "chinese",
+    "japanese", "korean", "thai", "greek", "italian", "french", "spanish",
+    "mexican", "indian", "english", "american", "spring", "new", "baby",
+    "young", "sea", "store", "bought", "homemade", "good", "quality", "best",
+    "real", "pure", "instant", "quick", "self", "raising", "rising", "all",
+    "purpose", "such", "any", "other", "more", "some", "your", "dry",
+    "baking", "cooking", "cut", "set", "each", "mix", "mixed", "see", "note",
+    "notes", "serve", "serving", "garnish", "coating", "reserved",
+    "additional", "ready", "choice", "style", "paste", "powder", "extract",
+    "cube", "cubes", "piece", "pieces", "chunk", "chunks", "flake", "flakes",
+    "wedge", "wedges", "fillet", "fillets", "stem", "stems", "seed", "seeds",
+    "sheet", "sheets", "ball", "balls", "portion", "portions", "pouch",
+    "pouches", "spoon", "spoons", "bulk", "loaf", "splash", "minute",
+]
+cuts_and_parts = [
+    "thigh", "thighs", "breast", "breasts", "drumstick", "drumsticks", "wing",
+    "wings", "leg", "legs", "tender", "tenders", "tenderloin", "tenderloins",
+    "loin", "shoulder", "belly", "rib", "ribs", "chop", "chops", "steak",
+    "steaks", "cutlet", "cutlets", "rasher", "rashers", "mince", "meat",
+    "floret", "florets", "bulb", "bulbs", "root", "pod", "pods", "kernel",
+    "kernels", "nut", "nuts", "half", "halves", "heart", "hearts", "tip",
+    "tips", "spear", "spears", "nib", "nibs", "thread", "threads", "granule",
+    "granules",
+]
+named_kinds = [
+    "parmesan", "cheddar", "mozzarella", "feta", "ricotta", "mascarpone",
+    "halloumi", "gruyère", "pecorino", "gouda", "emmental", "manchego",
+    "basmati", "shiitake", "chorizo", "panko", "miso",
+]
+made_from = [
+    "powder", "paste", "extract", "essence", "zest", "juice", "stock",
+    "broth", "bouillon", "sauce", "flour", "meal", "oil", "butter", "milk",
+    "cream", "syrup", "vinegar", "purée", "puree", "concentrate", "jam",
+    "jelly", "water",
+]
+made_here = [
+    "sauce", "mixture", "marinade", "dressing", "batter", "dough", "glaze",
+    "filling",
+]
+name_tails = [
+    "for", "such", "like",
+]
+amount_ranges = [
+    "to", "or",
+]
+choices = [
+    "or", "and/or",
+]
+food_ends = [
+    "to", "into", "onto", "over", "with", "in", "on", "for", "from", "and",
+    "then", "until",
+]
+
+# --- Timers and ovens in a Step's text ---
+degrees = [
+    "degrees", "degree",
+]
+timer_ranges = [
+    "to", "or",
+]
+timer_more = [
+    "more", "additional", "further", "extra", "other",
+]
+spoken_half = [
+    "and a half",
+]
+spoken_quarter = [
+    "and a quarter",
+]
+timer_joins = [
+    "a", "per", "each", "an", "on", "in", "at", "for", "of", "the", "with",
+    "then", "and", "or", "about", "until", "to",
+]
+half_with_article = ["half a", "half an"]
+
+# --- Which lines a Step uses ---
+step_until = [
+    "until", "till",
+]
+step_when = [
+    "when", "once", "while",
+]
+step_for = [
+    "for",
+]
+step_stocks = [
+    "stock", "broth", "bouillon",
+]
+step_ingredients = [
+    "ingredient", "ingredients",
+]
+step_articles = [
+    "the", "a", "an",
+]
+step_then = [
+    "then",
+]
+step_next_actions = [
+    "add", "fold", "stir", "pour", "mix", "whisk", "beat", "toss", "sprinkle",
+    "scatter", "drizzle", "season", "combine", "transfer", "place", "put",
+    "serve",
+]
+step_and = [
+    "and",
+]
+
+# --- Reading a paste ---
+paste_ingredients = [
+    "ingredients",
+]
+paste_sections = [
+    "method", "instructions", "directions", "preparation", "steps",
+]
+paste_notes = [
+    "description", "notes", "note", "tips", "serving suggestions", "storage",
+]
+paste_not_a_name = [
+    "serves", "serving", "servings", "makes", "yield", "yields", "portions",
+    "by", "recipe", "adapted", "source", "difficulty", "prep", "cook",
+    "cooking", "total", "time", "feeds", "author", "posted", "photo",
+    "photos",
+]
+
+# --- What each Unit of the closed set is called ---
+
+[units]
+gram = [
+    "gm", "gram", "grams",
+]
+kilogram = [
+    "kgs", "kilo", "kilos", "kilogram", "kilograms",
+]
+ounce = [
+    "ounce", "ounces",
+]
+# The pound sign of an old American recipe card, `¼ # butter`.
+pound = [
+    "pound", "pounds", "#",
+]
+millilitre = [
+    "mls", "millilitre", "millilitres", "milliliter", "milliliters",
+]
+centilitre = [
+    "centilitre", "centilitres", "centiliter", "centiliters",
+]
+decilitre = [
+    "decilitre", "decilitres", "deciliter", "deciliters",
+]
+litre = [
+    "lt", "litre", "litres", "liter", "liters",
+]
+teaspoon = [
+    "tsps", "ts", "teaspoon", "teaspoons",
+]
+tablespoon = [
+    "tbsps", "tbs", "tb", "tablespoon", "tablespoons",
+]
+# A lone `c` is the cup of an old American recipe card, `3/4 c brown sugar`.
+cup = [
+    "c",
+]
+# The US liquid quart, four cups (#182). The bare word `quart` is left out
+# on purpose: in French it is a quarter, and a Step reading *laisser reposer
+# 1 quart d'heure* would be offered a conversion into litres.
+quart = [
+    "qt", "qts", "usqt", "us qt", "us qts", "us quart", "us quarts",
+]
+"fluid ounce" = [
+    "floz", "fluid ounce", "fluid ounces",
+]
+"imperial tablespoon" = [
+    "imperial tablespoon", "imperial tablespoons", "imperial tbsp",
+]
+"australian tablespoon" = [
+    "australian tablespoon", "australian tablespoons", "australian tbsp",
+    "aus tbsp",
+]
+
+# --- What a cup of a staple weighs, about (ADR 0016), by its name here ---
+
+[cup_weights]
+"flour" = 125.0
+"all-purpose flour" = 125.0
+"plain flour" = 125.0
+"bread flour" = 127.0
+"wholemeal flour" = 120.0
+"whole wheat flour" = 120.0
+"cornflour" = 120.0
+"cornstarch" = 120.0
+"sugar" = 200.0
+"granulated sugar" = 200.0
+"caster sugar" = 200.0
+"brown sugar" = 213.0
+"icing sugar" = 120.0
+"powdered sugar" = 120.0
+"butter" = 227.0
+"grated cheese" = 100.0
+"rice" = 185.0
+"rolled oats" = 90.0
+"oats" = 90.0
+"lentils" = 200.0
+"chocolate chips" = 170.0
+"cocoa powder" = 85.0
+"honey" = 340.0
+"walnuts" = 117.0
+"pecans" = 109.0
+"almonds" = 143.0
+"ground almonds" = 96.0
+"breadcrumbs" = 108.0
+
+# --- What a word for a length of time is worth ---
+
+[durations]
+second = [
+    "second", "seconds", "sec", "secs",
+]
+minute = [
+    "minute", "minutes", "min", "mins",
+]
+hour = [
+    "hour", "hours", "hr", "hrs", "h",
+]

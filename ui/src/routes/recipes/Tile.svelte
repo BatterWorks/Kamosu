@@ -14,7 +14,7 @@
 	neither the name nor the id.
 -->
 <script lang="ts">
-	import Cover from '$lib/cover/Cover.svelte';
+	import Cover from '#lib/cover/Cover.svelte';
 	import { matchedLabel, fallbackLanguage, type Entry } from './matched';
 
 	interface Props {

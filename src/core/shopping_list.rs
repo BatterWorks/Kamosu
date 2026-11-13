@@ -312,7 +312,7 @@ impl Core {
 /// a phone that wrote before *and* after the iPad keeps the change it made
 /// after — that one is the last write, and it is made to the list as the iPad
 /// left it.
-fn shopping_moment(
+pub(super) fn shopping_moment(
     conn: &Connection,
     person_id: &str,
     written_at: Option<&str>,
@@ -338,6 +338,95 @@ fn shopping_moment(
     Ok(Some(moment))
 }
 
+/// What adding to the choosing left on the list for one Branch.
+pub(super) struct Added {
+    /// Whether the list held the Branch before.
+    pub(super) was_on_list: bool,
+    /// The Yield it now holds, or null for the recipe as written.
+    pub(super) shopping_yield: Value,
+}
+
+/// **Add to what the list holds for a Branch** (#488): the adding path a
+/// plan sent to the list takes. `add_to_shopping_list` is a person choosing
+/// a figure, so choosing again replaces it; a plan adds to it instead, so
+/// chili planned twice and chili chosen by hand all count.
+///
+/// Yields add as factors of the recipe as written. The sum is held in the
+/// recipe's own noun where its amount can be read, so "4 people" and "4
+/// people" read "8 people", and as a multiplier where it cannot or where
+/// the recipe states none. The recipe once over is the recipe as written.
+/// The caller has checked the Branch can be read and has taken the
+/// list's clock: `moment` is this write's.
+pub(super) fn add_to_choosing(
+    conn: &Connection,
+    person_id: &str,
+    branch_id: &str,
+    title: &str,
+    written_yield: &Value,
+    factor: f64,
+    moment: &str,
+) -> Result<Added, OpError> {
+    let held: Option<Option<String>> = conn
+        .query_row(
+            "SELECT shopping_yield FROM shopping_choices WHERE person_id = ?1 AND branch_id = ?2",
+            params![person_id, branch_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the Shopping List: {e}")))?;
+    let before = held.as_ref().map(|stored| {
+        let stored = stored
+            .as_deref()
+            .and_then(|stored| serde_json::from_str(stored).ok())
+            .unwrap_or(Value::Null);
+        yield_scale(&stored, written_yield)
+    });
+    let total = before.unwrap_or(0.0) + factor;
+    let shopping_yield = if (total - 1.0).abs() < 1e-9 {
+        Value::Null
+    } else {
+        let counted = written_yield["amount"]
+            .as_str()
+            .and_then(units::parse_amount)
+            .filter(|amount| *amount > 0.0);
+        match (counted, written_yield["noun"].as_str()) {
+            (Some(amount), Some(noun)) => json!({ "amount": figure(total * amount), "noun": noun }),
+            _ => json!({ "amount": figure(total), "noun": "" }),
+        }
+    };
+    conn.execute(
+        "INSERT INTO shopping_choices (person_id, branch_id, shopping_yield, known_as, chosen_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5) \
+         ON CONFLICT (person_id, branch_id) DO UPDATE SET \
+             known_as = excluded.known_as, \
+             shopping_yield = excluded.shopping_yield",
+        params![
+            person_id,
+            branch_id,
+            stored_yield(Some(&shopping_yield))?,
+            title,
+            moment
+        ],
+    )
+    .map_err(|e| OpError::internal(format!("cannot add to the Shopping List: {e}")))?;
+    Ok(Added {
+        was_on_list: held.is_some(),
+        shopping_yield,
+    })
+}
+
+/// A sum written as a cook writes one, in eighths, where an eighth says it
+/// within a hundredth; otherwise as planned, to two places, never rounded to
+/// nothing: ×0.3 stays 0.3 rather than a quarter.
+fn figure(total: f64) -> String {
+    let written = units::plain_number(total);
+    if units::parse_amount(&written).is_some_and(|amount| (amount - total).abs() < 0.01) {
+        written
+    } else {
+        format!("{}", ((total * 100.0).round() / 100.0).max(0.01))
+    }
+}
+
 /// Whether a Loose Item id is one a phone may mint: the shape the server
 /// mints its own in.
 fn is_minted_item_id(id: &str) -> bool {
@@ -352,7 +441,7 @@ fn is_minted_item_id(id: &str) -> bool {
 /// Stored as JSON in one column exactly as `attempts.cooking_yield` is, because
 /// it is the same fact — how much of this recipe somebody means — and two
 /// spellings of one fact is how the two drift apart.
-fn stored_yield(shopping_yield: Option<&Value>) -> Result<Option<String>, OpError> {
+pub(super) fn stored_yield(shopping_yield: Option<&Value>) -> Result<Option<String>, OpError> {
     match shopping_yield {
         None | Some(Value::Null) => Ok(None),
         // The same rule a cooking's Yield is held to, multiplier included
@@ -391,7 +480,7 @@ struct Chosen {
 /// move a Yield, change your Reading Measures — the next read simply says
 /// something else, which is what a stored row could never do without going
 /// stale first.
-fn shopping_list(conn: &Connection, person_id: &str) -> Result<Value, OpError> {
+pub(super) fn shopping_list(conn: &Connection, person_id: &str) -> Result<Value, OpError> {
     let reader = Reader::of(conn, person_id)?;
     let chosen = chosen_recipes(conn, person_id)?;
 
@@ -729,8 +818,11 @@ fn version_basis_lines(
                     .and_then(units::parse_amount)
                     .map(|amount| amount * share)),
                 "unit": unit,
-                "unit_id": unit.and_then(units::recognise).map(|known| known.id),
-                "unit_key": unit.map(shopping::unit_key),
+                "unit_id": unit
+                    .and_then(|unit| crate::words::of(&reading.written_in_language).unit(unit))
+                    .map(|known| known.id),
+                "unit_key": unit
+                    .map(|unit| shopping::unit_key_in(unit, &reading.written_in_language)),
                 // The very same reader the recipe page's subordinate lines
                 // are built from, Cup Weights and all — because a cup of flour
                 // must not weigh one thing on a recipe page and another in a

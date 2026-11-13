@@ -1,0 +1,288 @@
+# Kamosu's French words. `src/words.rs` says what each list is for and
+# which files read which recipe (ADR 0057).
+
+# --- Reading an Ingredient Line ---
+open_units = [
+    # `cube` and `cubes` are spelt the same, so the English pair above
+    # covers both (#161).
+    "gousse", "gousses", "boite", "boites", "pincee", "pincees",
+    # The accepted cost is `2 pinces de crabe`, two pinches of crab (#208).
+    "pince", "pinces", "bouquet", "bouquets", "tranche", "tranches", "brin",
+    "brins", "feuille", "feuilles", "poignee", "poignees", "noix", "filet",
+    "filets", "pot", "pots", "botte", "bottes", "branche", "branches",
+    "morceau", "morceaux", "trait", "traits", "cuillere", "cuilleres",
+    "verre", "verres", "paquet", "paquets",
+    # What a shop sells a thing in, seen translating recipes into French
+    # (#181). `filet` above stays a Unit too: `un filet d'huile d'olive` is
+    # a drizzle, and `2 filets de saumon` is two fillets of salmon.
+    "bloc", "blocs", "bouteille", "bouteilles", "barquette", "barquettes",
+    "brique", "briques", "tablette", "tablettes",
+]
+sizes = [
+    "gros", "grosse", "grosses", "petit", "petite", "petits", "petites",
+    "moyen", "moyenne", "moyens", "moyennes", "grand", "grande", "grands",
+    "grandes", "entier", "entiere", "entiers", "entieres",
+]
+sizes_after = [
+    "petit", "petite", "petits", "petites", "moyen", "moyenne", "moyens",
+    "moyennes", "grand", "grande", "grands", "grandes",
+]
+praise = [
+    "bon", "bonne", "bons", "bonnes", "genereux", "genereuse", "genereuses",
+    "beau", "belle", "beaux", "belles", "copieux", "copieuse", "copieuses",
+]
+warmth = [
+    "froid", "froide", "froids", "froides", "chaud", "chaude", "chauds",
+    "chaudes", "tiède", "tièdes", "température ambiante",
+    "à température ambiante", "à la température ambiante",
+]
+glue = [
+    "de", "du", "des", "la", "le", "les", "un", "une",
+]
+accented_names = [
+    "thé", "dés", "dé",
+]
+a_few = [
+    "quelques",
+]
+a_little = [
+    "un peu de", "un peu d'",
+]
+to_taste = [
+    "au goût", "selon le goût", "selon votre goût", "selon goût", "à volonté",
+    "à convenance",
+]
+describing = [
+    "haché", "hachée", "hachés", "hachées", "émincé", "émincée", "émincés",
+    "émincées", "désossé", "désossée", "désossés", "désossées", "coupé",
+    "coupée", "coupés", "coupées", "râpé", "râpée", "râpés", "râpées", "pelé",
+    "pelée", "pelés", "pelées", "écrasé", "écrasée", "écrasés", "écrasées",
+    "concassé", "concassée", "concassés", "concassées", "cuit", "cuite",
+    "cuits", "cuites", "surgelé", "surgelée", "surgelés", "surgelées",
+    "frais", "fraîche", "fraîches", "sec", "sèche", "secs", "sèches",
+    "finement", "grossièrement",
+]
+describing_joins = [
+    "et",
+]
+elisions = [
+    "d'", "l'", "qu'", "n'",
+]
+fixed_names = [
+    "petit pois", "petits pois", "petit suisse", "petits suisses",
+]
+very = [
+    "très", "bien",
+]
+names_nothing_alone = [
+    "croustillant", "croustillante", "croustillants", "croustillantes",
+    "doux", "douce", "douces", "sucré", "sucrée", "sucrés", "sucrées", "salé",
+    "salée", "salés", "salées", "non", "nature", "noir", "noire", "noirs",
+    "noires", "blanc", "blanche", "blancs", "blanches", "rouge", "rouges",
+    "vert", "verte", "verts", "vertes", "jaune", "jaunes", "chinois",
+    "chinoise", "chinoises", "japonais", "japonaise", "grec", "grecque",
+    "grecs", "grecques", "italien", "italienne", "nouveau", "nouveaux",
+    "nouvelle", "nouvelles", "fin", "fine", "fins", "fines", "bon", "bonne",
+    "demi", "peu", "écrémé", "écrémée", "extrait", "poudre", "feuille",
+    "feuilles", "tranche", "tranches", "morceau", "morceaux", "cuisson",
+    "service", "paquet", "paquets", "boîte", "boîtes", "pot",
+]
+cuts_and_parts = [
+    "haut", "hauts", "cuisse", "cuisses", "filet", "filets", "aile", "ailes",
+    "pilon", "pilons", "escalope", "escalopes", "aiguillette", "aiguillettes",
+    "côte", "côtes", "côtelette", "côtelettes", "épaule", "branche",
+    "branches", "brin", "brins", "tige", "tiges", "fleurette", "fleurettes",
+    "tête", "têtes", "grain", "grains", "graine", "graines", "bâton",
+    "bâtons", "cerneau", "cerneaux", "copeau", "copeaux", "pousse", "pousses",
+    "cœur", "cœurs", "pointe", "pointes",
+]
+made_from = [
+    "poudre", "extrait", "zeste", "jus", "fond", "farine", "huile", "beurre",
+    "lait", "crème", "sirop", "vinaigre", "concentré", "confiture", "eau",
+]
+made_here = [
+    "mélange", "marinade", "vinaigrette", "glaçage", "garniture", "farce",
+    "appareil",
+]
+amount_ranges = [
+    "a", "ou",
+]
+choices = [
+    "ou", "et/ou",
+]
+spoon_after_c = [
+    "à", "soupe", "café", "thé", "dessert", "moka", "de", "d'",
+]
+food_ends = [
+    "dans", "sur", "avec", "pour", "et", "puis", "jusqu'à", "a", "au", "aux",
+    "en",
+]
+
+# --- Timers and ovens in a Step's text ---
+degrees = [
+    "degrés", "degres",
+]
+timer_ranges = [
+    "a", "ou",
+]
+timer_more = [
+    "autres",
+]
+spoken_half = [
+    "et demie", "et demi",
+]
+spoken_quarter = [
+    "et quart",
+]
+timer_joins = [
+    "de", "d", "du", "des", "a", "au", "aux", "en", "par", "pour", "sur",
+    "dans", "avec", "sans", "puis", "et", "ou", "environ", "chaque", "jusqu",
+]
+half_words = [
+    "demi",
+]
+half_hyphened = ["demi"]
+
+# --- Which lines a Step uses ---
+step_until = [
+    "jusqu",
+]
+step_when = [
+    "quand", "lorsque", "lorsqu",
+]
+step_stocks = [
+    "bouillon", "fond",
+]
+step_of = [
+    "de", "d", "du", "des",
+]
+step_ingredients = [
+    "ingredient", "ingredients",
+]
+step_articles = [
+    "le", "la", "les", "l", "un", "une",
+]
+step_then = [
+    "puis",
+]
+step_next_actions = [
+    "ajoutez", "ajouter", "incorporez", "versez", "mélangez", "saupoudrez",
+    "parsemez", "salez", "servez",
+]
+step_and = [
+    "et",
+]
+
+# --- Reading a paste ---
+paste_ingredients = [
+    "ingrédients",
+]
+paste_sections = [
+    "préparation", "étapes", "méthode", "instructions", "déroulé",
+]
+paste_notes = [
+    "description", "notes", "note", "conseils", "astuces",
+    "suggestions de service", "suggestion de service", "conservation",
+]
+paste_not_a_name = [
+    "pour", "personnes", "recette", "adapté", "adaptée", "d'après",
+    "difficulté", "temps", "cuisson", "par", "auteur", "niveau",
+]
+
+# --- What each Unit of the closed set is called ---
+
+[units]
+gram = [
+    "gramme", "grammes",
+]
+kilogram = [
+    "kilo", "kilos", "kilogramme", "kilogrammes",
+]
+ounce = [
+    "once", "onces",
+]
+pound = [
+    "livre", "livres",
+]
+millilitre = [
+    "millilitre", "millilitres",
+]
+centilitre = [
+    "centilitre", "centilitres",
+]
+decilitre = [
+    "decilitre", "decilitres",
+]
+litre = [
+    "litre", "litres",
+]
+# The short forms a French recipe writes as often as the long (#161).
+# `cuillère à thé` is the same spoon as Quebec names it: `thé` is a word of
+# a Food's name everywhere else, so the reader needs the whole Unit (#213).
+# `cc` is *cuillère à café*, never a cubic centimetre: the accepted cost is
+# an English `5 cc`, which reads five times too big (#208).
+teaspoon = [
+    "cuillère à café", "cuillere a cafe", "cuillères à café",
+    "cuilleres a cafe", "c à café", "c a cafe", "cuil à café", "cuil a cafe",
+    "cuill à café", "cuill a cafe", "cuillère à thé", "cuillere a the",
+    "cuillères à thé", "cuilleres a the", "c à thé", "c a the", "cuil à thé",
+    "cuil a the", "cuill à thé", "cuill a the", "c à c", "càc", "cac", "cc",
+    "c.c.",
+]
+tablespoon = [
+    "cuillère à soupe", "cuillere a soupe", "cuillères à soupe",
+    "cuilleres a soupe", "c à soupe", "c a soupe", "cuil à soupe",
+    "cuil a soupe", "cuill à soupe", "cuill a soupe", "c à s", "càs", "cas",
+    "cs", "c.s.",
+]
+cup = [
+    "tasse", "tasses",
+]
+"fluid ounce" = [
+    "once liquide", "onces liquides",
+]
+"imperial tablespoon" = [
+    "cuillère à soupe impériale", "cuillere a soupe imperiale",
+]
+"australian tablespoon" = [
+    "cuillère à soupe australienne", "cuillere a soupe australienne",
+]
+
+# --- What a cup of a staple weighs, about (ADR 0016), by its name here ---
+
+[cup_weights]
+"farine" = 125.0
+"farine complète" = 120.0
+"maïzena" = 120.0
+"maizena" = 120.0
+"sucre" = 200.0
+"cassonade" = 213.0
+"sucre glace" = 120.0
+"beurre" = 227.0
+"fromage râpé" = 100.0
+"fromage rape" = 100.0
+"riz" = 185.0
+"flocons d'avoine" = 90.0
+"lentilles" = 200.0
+"pépites de chocolat" = 170.0
+"pepites de chocolat" = 170.0
+"cacao" = 85.0
+"miel" = 340.0
+"noix" = 117.0
+"noix de pécan" = 109.0
+"amandes" = 143.0
+"poudre d'amandes" = 96.0
+"chapelure" = 108.0
+
+# --- What a word for a length of time is worth ---
+
+[durations]
+second = [
+    "seconde", "secondes",
+]
+minute = [
+    "minute", "minutes", "min", "mn",
+]
+hour = [
+    "heure", "heures", "h",
+]

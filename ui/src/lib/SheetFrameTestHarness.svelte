@@ -3,8 +3,8 @@
 	the caret go in and come back, in a Room it chooses.
 -->
 <script lang="ts">
-	import SheetFrame from '$lib/SheetFrame.svelte';
-	import { provideRoom, type Room } from '$lib/room.svelte';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import { provideRoom, type Room } from '#lib/room.svelte.js';
 
 	interface Props {
 		room?: Room;

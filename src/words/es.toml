@@ -1,0 +1,242 @@
+# Kamosu's Spanish words. `src/words.rs` says what each list is for and
+# which files read which recipe (ADR 0057).
+
+# --- Reading an Ingredient Line ---
+open_units = [
+    "diente", "dientes", "rama", "ramas", "hoja", "hojas", "punado",
+    "punados", "rodaja", "rodajas", "lata", "latas", "manojo", "manojos",
+    "pizca", "pizcas", "trozo", "trozos", "bote", "botes", "ramita",
+    "ramitas", "chorrito", "chorritos", "pastilla", "pastillas", "cubito",
+    "cubitos", "botella", "botellas", "tableta", "tabletas",
+]
+sizes = [
+    "grande", "grandes", "pequeno", "pequena", "pequenos", "pequenas",
+    "mediano", "mediana", "medianos", "medianas",
+]
+sizes_after = [
+    "grande", "grandes", "pequeno", "pequena", "pequenos", "pequenas",
+    "mediano", "mediana", "medianos", "medianas",
+]
+praise = [
+    "buen", "buena", "buenos", "buenas", "generoso", "generosa", "generosos",
+    "generosas",
+]
+warmth = [
+    "frío", "fría", "fríos", "frías", "caliente", "calientes", "tibio",
+    "tibia", "tibios", "tibias", "templado", "templada", "templados",
+    "templadas", "temperatura ambiente", "a temperatura ambiente",
+]
+glue = [
+    "de", "la", "el", "los", "las", "al",
+]
+a_few = [
+    "unos", "unas",
+]
+a_little = [
+    "un poco de",
+]
+to_taste = [
+    "al gusto", "a gusto",
+]
+describing = [
+    "picado", "picados", "deshuesado", "deshuesada", "deshuesados",
+    "deshuesadas", "rallado", "rallada", "rallados", "ralladas", "pelado",
+    "pelada", "pelados", "peladas", "troceado", "troceada", "troceados",
+    "troceadas", "molido", "molida", "molidos", "molidas", "fresco", "fresca",
+    "frescos", "frescas", "seco", "seca", "secos", "secas", "finamente",
+]
+describing_joins = [
+    "y",
+]
+very = [
+    "muy",
+]
+names_nothing_alone = [
+    "crujiente", "crujientes", "dulce", "dulces", "azucarado", "azucarada",
+    "salado", "salada", "negro", "negra", "negros", "negras", "blanco",
+    "blanca", "blancos", "blancas", "rojo", "roja", "rojos", "rojas", "verde",
+    "verdes", "amarillo", "amarilla", "chino", "china", "griego", "griega",
+    "italiano", "italiana", "nuevo", "nueva", "fino", "fina", "bueno",
+    "buena", "sin", "desnatado", "desnatada", "extracto", "polvo", "hoja",
+    "hojas", "trozo", "trozos",
+]
+cuts_and_parts = [
+    "muslo", "muslos", "contramuslo", "contramuslos", "pechuga", "pechugas",
+    "filete", "filetes", "ala", "alas", "alita", "alitas", "costilla",
+    "costillas", "chuleta", "chuletas", "carne", "diente", "dientes", "rama",
+    "ramas", "ramita", "ramitas", "tallo", "tallos", "cabeza", "cabezas",
+    "grano", "granos", "semilla", "semillas",
+]
+made_from = [
+    "polvo", "extracto", "esencia", "ralladura", "jugo", "zumo", "caldo",
+    "salsa", "harina", "aceite", "mantequilla", "leche", "crema", "nata",
+    "jarabe", "sirope", "vinagre", "puré", "concentrado", "mermelada", "agua",
+]
+made_here = [
+    "salsa", "mezcla", "marinada", "aliño", "glaseado", "relleno",
+]
+amount_ranges = [
+    "a", "o",
+]
+choices = [
+    "o", "y/o",
+]
+food_ends = [
+    "con", "sobre", "para", "y", "luego", "hasta",
+]
+
+# --- Timers and ovens in a Step's text ---
+degrees = [
+    "grados",
+]
+timer_ranges = [
+    "a", "y", "o", "hasta",
+]
+timer_more = [
+    "mas", "otros", "otras",
+]
+spoken_half = [
+    "y medio", "y media",
+]
+spoken_quarter = [
+    "y cuarto",
+]
+timer_joins = [
+    "de", "a", "en", "del", "por", "cada", "al", "con", "sin", "hasta", "y",
+    "o", "luego", "para", "sobre",
+]
+half_words = [
+    "media", "medio",
+]
+
+# --- Which lines a Step uses ---
+step_until = [
+    "hasta",
+]
+step_when = [
+    "cuando", "mientras",
+]
+step_for = [
+    "para",
+]
+step_stocks = [
+    "caldo",
+]
+step_of = [
+    "de", "del",
+]
+step_ingredients = [
+    "ingrediente", "ingredientes",
+]
+step_articles = [
+    "la", "un", "el", "los", "las", "una",
+]
+step_then = [
+    "luego",
+]
+step_next_actions = [
+    "añade", "añadir", "agrega", "agregar", "incorpora", "vierte", "mezcla",
+    "espolvorea", "sirve",
+]
+step_and = [
+    "y",
+]
+
+# --- Reading a paste ---
+paste_ingredients = [
+    "ingredientes",
+]
+paste_sections = [
+    "preparación", "elaboración", "instrucciones", "pasos",
+    "modo de preparación",
+]
+paste_notes = [
+    "descripción", "notas", "nota", "consejos", "sugerencias",
+    "sugerencias de presentación", "conservación",
+]
+paste_not_a_name = [
+    "para", "por", "rinde", "raciones", "porciones", "receta", "adaptado",
+    "adaptada", "fuente", "dificultad", "tiempo", "cocción", "autor", "nivel",
+]
+
+# --- What each Unit of the closed set is called ---
+
+[units]
+gram = [
+    "gramo", "gramos",
+]
+kilogram = [
+    "kilo", "kilos", "kilogramo", "kilogramos",
+]
+ounce = [
+    "onza", "onzas",
+]
+pound = [
+    "libra", "libras",
+]
+millilitre = [
+    "mililitro", "mililitros",
+]
+centilitre = [
+    "centilitro", "centilitros",
+]
+decilitre = [
+    "decilitro", "decilitros",
+]
+litre = [
+    "litro", "litros",
+]
+teaspoon = [
+    "cucharadita", "cucharaditas", "cdta",
+]
+tablespoon = [
+    "cucharada", "cucharadas", "cda", "cdas",
+]
+cup = [
+    "taza", "tazas",
+]
+"fluid ounce" = [
+    "onza líquida", "onza liquida", "onzas líquidas", "onzas liquidas",
+]
+"imperial tablespoon" = [
+    "cucharada imperial",
+]
+"australian tablespoon" = [
+    "cucharada australiana",
+]
+
+# --- What a cup of a staple weighs, about (ADR 0016), by its name here ---
+
+[cup_weights]
+"harina" = 125.0
+"harina integral" = 120.0
+"azúcar" = 200.0
+"azucar" = 200.0
+"azúcar moreno" = 213.0
+"azucar moreno" = 213.0
+"azúcar glas" = 120.0
+"azucar glas" = 120.0
+"mantequilla" = 227.0
+"queso rallado" = 100.0
+"arroz" = 185.0
+"avena" = 90.0
+"lentejas" = 200.0
+"pepitas de chocolate" = 170.0
+"nueces" = 117.0
+"nueces pecanas" = 109.0
+"almendras" = 143.0
+"almendra molida" = 96.0
+"pan rallado" = 108.0
+
+# --- What a word for a length of time is worth ---
+
+[durations]
+second = [
+    "segundo", "segundos",
+]
+minute = [
+    "minuto", "minutos",
+]
+hour = [
+    "hora", "horas",
+]

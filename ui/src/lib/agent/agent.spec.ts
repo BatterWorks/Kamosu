@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { LATELY_MS, arrivalWorking, noAgentAnswering } from './agent';
-import type { Arrival } from '$lib/imports';
+import type { Arrival } from '#lib/imports.js';
 
 const NOW = new Date('2026-10-15T13:20:00.000Z');
 const ago = (ms: number) => new Date(NOW.getTime() - ms).toISOString();

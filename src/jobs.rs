@@ -36,6 +36,7 @@ use tokio::sync::mpsc;
 use crate::catalogue;
 use crate::core::{Asker, Caller, ErrorKind, Invocation, OpError, generate_secret, hash_secret};
 use crate::db::Db;
+use crate::video_link::without_tracking;
 
 /// How often a client should look back at a running Job.
 pub const POLL_INTERVAL_MS: i64 = 5000;
@@ -144,6 +145,10 @@ pub struct JobRecord {
     pub person_id: Option<String>,
     pub read_only: bool,
     pub via_access_key: bool,
+    /// The Access Key that asked, when one did (#539). `via_access_key` says
+    /// that one did on every Job, and this which, on Jobs written since
+    /// migration 75 alone.
+    pub access_key_id: Option<String>,
     pub operation: String,
     pub input: Value,
     pub status: JobStatus,
@@ -306,7 +311,36 @@ pub fn recover_at_startup(db: &Arc<Db>, lanes: &Lanes) {
     }
 }
 
+/// What a test runs between a worker finding a Job queued and moving it to
+/// running, the window a cancel can land in (#541).
+#[cfg(feature = "test-jobs")]
+pub(crate) type BeforeAJobRuns = std::sync::Mutex<Option<Box<dyn Fn(&str) + Send + Sync>>>;
+
 impl crate::core::Core {
+    /// Test-only, compiled only under the `test-jobs` feature: run `hook` with
+    /// the Job's id each time a worker has found a Job queued, before it moves
+    /// it to running, so a test can land a cancel in that window by design
+    /// rather than by timing (#541).
+    #[cfg(feature = "test-jobs")]
+    pub fn before_a_job_runs(&self, hook: impl Fn(&str) + Send + Sync + 'static) {
+        *self
+            .hook_before_a_job_runs
+            .lock()
+            .expect("the hook before a Job runs is poisoned") = Some(Box::new(hook));
+    }
+
+    #[cfg(feature = "test-jobs")]
+    fn run_the_hook_before_a_job_runs(&self, job_id: &str) {
+        if let Some(hook) = self
+            .hook_before_a_job_runs
+            .lock()
+            .expect("the hook before a Job runs is poisoned")
+            .as_ref()
+        {
+            hook(job_id);
+        }
+    }
+
     /// Carry one Job from its row to its end state. Runs on the blocking pool.
     pub(crate) fn run_job(&self, job_id: &str) {
         let record = match self.job(job_id) {
@@ -321,7 +355,15 @@ impl crate::core::Core {
             return;
         }
 
-        set_running(self, job_id);
+        #[cfg(feature = "test-jobs")]
+        self.run_the_hook_before_a_job_runs(job_id);
+
+        // The row was read under one lock and is moved under another, so a
+        // cancel can land in between and answer yes. Only a row still queued
+        // moves to running, and one that no longer was is not run (#541).
+        if !set_running(self, job_id) {
+            return;
+        }
 
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             match catalogue::find(&record.operation) {
@@ -331,10 +373,10 @@ impl crate::core::Core {
                         read_only: record.read_only,
                         via_access_key: record.via_access_key,
                         is_operator: false,
-                        // A JobRecord does not carry which Access Key asked, only
-                        // that one did (`via_access_key`) — nothing built on a Job
-                        // needs the specific Key today.
-                        access_key_id: None,
+                        // The Access Key that asked, so that a Job this one
+                        // asks for in turn is that key's too, and ends when
+                        // it is revoked (#539).
+                        access_key_id: record.access_key_id.clone(),
                         // Nor which Session: a Job lists no Sessions.
                         session_id: None,
                         // A Job Key asks for no Job (ADR 0048).
@@ -434,22 +476,41 @@ fn insert(
     if caller.is_some_and(|caller| caller.as_operator) {
         input["as_operator"] = json!(true);
     }
-    let (person_id, read_only, via_access_key) = match caller {
+    let (person_id, read_only, via_access_key, access_key_id) = match caller {
         Some(caller) => (
             Some(caller.person_id.clone()),
             caller.read_only,
             caller.via_access_key,
+            caller.access_key_id.as_deref(),
         ),
-        None => (None, false, false),
+        None => (None, false, false, None),
     };
+    // A Job asks for another as the key that asked for it. Once an Add-only
+    // key has ended, its Jobs are cancelled, and one still running asks for
+    // no more (#539).
+    if let Some(key_id) = access_key_id {
+        let ended_add_only = conn
+            .query_row(
+                "SELECT 1 FROM access_keys WHERE id = ?1 AND add_only = 1 AND revoked = 1",
+                params![key_id],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(|e| OpError::internal(format!("cannot read the asking key: {e}")))?
+            .is_some();
+        if ended_add_only {
+            return Err(OpError::credential_names_nobody());
+        }
+    }
     conn.execute(
-        "INSERT INTO jobs (id, person_id, read_only, via_access_key, operation, input)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO jobs (id, person_id, read_only, via_access_key, access_key_id, operation, input)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             job_id,
             person_id,
             read_only as i64,
             via_access_key as i64,
+            access_key_id,
             operation,
             input.to_string()
         ],
@@ -745,7 +806,7 @@ fn insert_on_link(
     let job_id = insert(conn, AGENT_OPERATION, Some(caller), input)?;
     conn.execute(
         "INSERT INTO agent_jobs (job_id, branch_id, link) VALUES (?1, ?2, ?3)",
-        params![job_id, branch_id, link],
+        params![job_id, branch_id, without_tracking(link)],
     )
     .map_err(|e| OpError::internal(format!("cannot record the agent's Job: {e}")))?;
     Ok(job_id)
@@ -783,7 +844,7 @@ impl OriginalKind {
         match self {
             OriginalKind::PastedText => "text/plain; charset=utf-8",
             OriginalKind::Pdf => "application/pdf",
-            // Remade as a Photograph is (`photographs::remake_original`).
+            // Remade as a Photograph is (`photographs::Remaking::remake_original`).
             OriginalKind::Picture => "image/webp",
         }
     }
@@ -841,7 +902,7 @@ pub fn wait_for_agent_on_link_alone(
     let job_id = insert(conn, AGENT_OPERATION, Some(caller), &input)?;
     conn.execute(
         "INSERT INTO agent_jobs (job_id, link) VALUES (?1, ?2)",
-        params![job_id, link],
+        params![job_id, without_tracking(link)],
     )
     .map_err(|e| OpError::internal(format!("cannot record the agent's Job: {e}")))?;
     Ok(job_id)
@@ -1002,9 +1063,10 @@ pub fn cookbook_asked_for(conn: &Connection, job_id: &str) -> Result<Option<Stri
 /// by a second create, which the Core refuses before it runs.
 ///
 /// A Job reading a file also has its Import's ledger name the recipe by the
-/// file's digest, so the same file handed over again finds it (#271). Not
-/// where that Import was forgotten while the Job waited, and not where the
-/// ledger names something else by that digest already. Nor where the recipe
+/// file's digest, so the same file handed over again finds it (#271), and one
+/// reading a link by what that link is matched by (#464). Not where that
+/// Import was forgotten while the Job waited, and not where the ledger names
+/// something else by that digest or link already. Nor where the recipe
 /// is in another Cookbook than the Import, as when the asker left the
 /// Cookbook while the Job waited: that Import's other Co-authors could not
 /// open it.
@@ -1021,13 +1083,14 @@ pub fn take_its_recipe(conn: &Connection, job_id: &str, branch_id: &str) -> Resu
     }
     conn.execute(
         "INSERT OR IGNORE INTO import_ledger (import_id, foreign_id, lineage_id, branch_id)
-         SELECT imports.id, agent_jobs.original_digest, branches.lineage_id, branches.id
+         SELECT imports.id, COALESCE(agent_jobs.original_digest, link_identity(agent_jobs.link)),
+                branches.lineage_id, branches.id
            FROM agent_jobs
            JOIN jobs ON jobs.id = agent_jobs.job_id
            JOIN imports ON imports.id = json_extract(jobs.result, '$.import_id')
            JOIN branches ON branches.id = agent_jobs.branch_id
                         AND branches.cookbook_id = imports.cookbook_id
-          WHERE agent_jobs.job_id = ?1 AND agent_jobs.original_digest IS NOT NULL",
+          WHERE agent_jobs.job_id = ?1",
         params![job_id],
     )
     .map_err(failed)?;
@@ -1108,6 +1171,12 @@ pub const WOULD_START_A_COPY: &str = "the person who asked cannot change this re
 /// two of its saves (#265). The cook reads it in the Import Report.
 pub const CHANGED_WHILE_IT_WORKED: &str = "the recipe was changed while the agent worked on it, \
      so the agent stopped rather than write over that change. What it had saved before is kept";
+
+/// The reason an agent's Job ends with when somebody cooked the Version it was
+/// still shaping (#536): the cooking names that Version, so the Job may
+/// neither replace it nor leave a second one.
+pub const COOKED_WHILE_IT_WORKED: &str = "somebody cooked what the agent had saved, or kept a \
+     cooking as it, so the agent stopped rather than change the recipe under them. What it had saved before is kept";
 
 /// The reason an agent's Job ends with when another Branch or a Translation
 /// holds the Version it was still shaping (#265): a Copy or a variation made
@@ -1633,7 +1702,8 @@ pub fn read(core: &crate::core::Core, job_id: &str) -> Result<Option<JobRecord>,
         conn.prepare(
             "SELECT id, person_id, read_only, via_access_key, operation, input, status,
                         progress_done, progress_total, progress_message,
-                        result, error, error_code, created_at, updated_at, error_reason
+                        result, error, error_code, created_at, updated_at, error_reason,
+                        access_key_id
                  FROM jobs WHERE id = ?1",
         )
         .map_err(|e| OpError::internal(format!("cannot read Job: {e}")))?
@@ -1653,7 +1723,8 @@ pub fn read_of_person(
             .prepare(
                 "SELECT id, person_id, read_only, via_access_key, operation, input, status,
                         progress_done, progress_total, progress_message,
-                        result, error, error_code, created_at, updated_at, error_reason
+                        result, error, error_code, created_at, updated_at, error_reason,
+                        access_key_id
                  FROM jobs WHERE person_id = ?1
                  ORDER BY created_at DESC LIMIT 100",
             )
@@ -1687,6 +1758,7 @@ fn map_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<JobRecord> {
         created_at: row.get(13)?,
         updated_at: row.get(14)?,
         error_reason: row.get(15)?,
+        access_key_id: row.get(16)?,
     })
 }
 
@@ -1728,6 +1800,44 @@ pub fn cancel(core: &crate::core::Core, job_id: &str) -> Result<bool, OpError> {
         tx.commit().map_err(failed)?;
         Ok(changed > 0)
     })
+}
+
+/// Cancel every Job an Add-only key of this Person started that still
+/// waits or is held, once that key has ended (#539, ADR 0055). An Add-only
+/// key lives on a phone, where it can be taken, so whoever took it spends
+/// nothing more on the agent once it is revoked, whether one key was revoked
+/// or every key ended with a new password or a recovery. Asked after each of
+/// those, and again harmlessly: a Job cancelled already is not found.
+///
+/// A Job Kamosu does itself that a worker already carries runs to its end,
+/// as every cancel leaves it, but asks for no new Job (`insert`).
+///
+/// Asked once the keys have ended and that change is saved, so a fault here
+/// is logged and never turns the change into a failure its asker would try
+/// again.
+pub fn cancel_those_of_ended_add_only_keys(core: &crate::core::Core, person_id: &str) {
+    if let Err(error) = cancel_add_only_jobs(core, person_id) {
+        tracing::warn!("cannot cancel the Jobs of an ended Add-only key: {error}");
+    }
+}
+
+fn cancel_add_only_jobs(core: &crate::core::Core, person_id: &str) -> Result<(), OpError> {
+    let failed = |e| OpError::internal(format!("cannot read an ended key's Jobs: {e}"));
+    let standing: Vec<String> = core.db().with_conn(|conn| {
+        conn.prepare(
+            "SELECT jobs.id FROM jobs JOIN access_keys ON access_keys.id = jobs.access_key_id
+              WHERE access_keys.person_id = ?1 AND access_keys.add_only = 1
+                AND access_keys.revoked = 1 AND jobs.status IN ('queued', 'running')",
+        )
+        .map_err(failed)?
+        .query_map(params![person_id], |row| row.get(0))
+        .and_then(Iterator::collect)
+        .map_err(failed)
+    })?;
+    for job_id in standing {
+        cancel(core, &job_id)?;
+    }
+    Ok(())
 }
 
 /// Who may read a Job Kamosu does itself: the Person who asked for it, or
@@ -1789,24 +1899,37 @@ pub fn no_such_job(job_id: &str) -> OpError {
     OpError::not_found(format!("no Job with id '{job_id}'"))
 }
 
-fn set_running(core: &crate::core::Core, job_id: &str) {
-    let _ = core.db().with_conn(|conn| {
+/// Move a Job from queued to running, and answer whether it moved. A Job
+/// cancelled since it was picked stays cancelled and answers no (#541).
+///
+/// So does one whose row could not be written, since its end could not be
+/// written either. It is said in the log, and stays queued for the next
+/// start to pick up again (`recover_at_startup`).
+fn set_running(core: &crate::core::Core, job_id: &str) -> bool {
+    let moved = core.db().with_conn(|conn| {
         conn.execute(
             "UPDATE jobs SET status = 'running',
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-             WHERE id = ?1",
+             WHERE id = ?1 AND status = 'queued'",
             params![job_id],
         )
-        .map_err(|e| OpError::internal(format!("cannot start Job: {e}")))?;
-        Ok(())
+        .map_err(|e| OpError::internal(format!("cannot start Job: {e}")))
     });
+    match moved {
+        Ok(moved) => moved > 0,
+        Err(err) => {
+            tracing::warn!("Job {job_id} was not started: {err}");
+            false
+        }
+    }
 }
 
 /// End a Job. A completed Job that declared a total reads all of it done,
 /// so no work has to remember to say so itself: a Backup did forget, and read
 /// `0 of 1` for ever after (#155). A failed Job keeps its count, since how far
 /// it got is worth knowing, and a Job that never knew its total is not handed
-/// one.
+/// one. Only a running Job is ended here, so an end some other path wrote
+/// first is never overwritten (#541).
 fn finish(
     core: &crate::core::Core,
     job_id: &str,
@@ -1827,7 +1950,7 @@ fn finish(
              progress_message = CASE WHEN ?6 AND progress_total IS NOT NULL
                                 THEN 'finished' ELSE progress_message END,
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-             WHERE id = ?1",
+             WHERE id = ?1 AND status = 'running'",
             params![
                 job_id,
                 status.as_str(),

@@ -6,9 +6,9 @@
 	is not also a test of the sheet.
 -->
 <script lang="ts">
-	import type { GetRecipeOutput, KamosuClient } from '$lib/api/catalogue';
-	import type { BranchLanguage, WrittenLanguage } from '$lib/language';
-	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { GetRecipeOutput, KamosuClient } from '#lib/api/catalogue.js';
+	import type { BranchLanguage, WrittenLanguage } from '#lib/language.js';
+	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import Language, { type OtherBranch } from './Language.svelte';
 	import LanguageSheet from './LanguageSheet.svelte';
 	import LanguageOffer from './LanguageOffer.svelte';

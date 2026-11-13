@@ -1,0 +1,40 @@
+# The Unit spellings every Language writes, read beside each Language's own
+# file. `src/words.rs` says which files read which recipe (ADR 0057).
+
+[units]
+gram = [
+    "g", "gr",
+]
+kilogram = [
+    "kg",
+]
+ounce = [
+    "oz",
+]
+pound = [
+    "lb", "lbs",
+]
+millilitre = [
+    "ml",
+]
+centilitre = [
+    "cl",
+]
+decilitre = [
+    "dl",
+]
+litre = [
+    "l",
+]
+teaspoon = [
+    "tsp",
+]
+tablespoon = [
+    "tbsp",
+]
+cup = [
+    "cup", "cups",
+]
+"fluid ounce" = [
+    "fl oz",
+]

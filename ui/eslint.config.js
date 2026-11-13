@@ -73,7 +73,7 @@ export default ts.config(
 	{
 		rules: {
 			// Off because Kamosu is always served from the root. `resolve()`
-			// exists to prepend `config.kit.paths.base`, and this app has no
+			// exists to prepend the `paths.base` option, and this app has no
 			// base to prepend: ADR 0028 publishes one port serving one
 			// directory, and ADR 0033 holds the reverse proxy to carrying bytes
 			// and terminating TLS — not rewriting paths. Turn this back on the

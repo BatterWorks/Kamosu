@@ -16,9 +16,9 @@
  * where-label could not, which is why it replaces it rather than joining it.
  */
 
-import { m } from '$lib/paraglide/messages';
-import { languageName } from '$lib/language';
-import type { SearchRecipesOutput } from '$lib/api/catalogue';
+import { m } from '#lib/paraglide/messages.js';
+import { languageName } from '#lib/language.js';
+import type { SearchRecipesOutput } from '#lib/api/catalogue.js';
 
 export type Entry = SearchRecipesOutput['recipes'][number];
 export type Matched = NonNullable<Entry['matched']>;
@@ -67,7 +67,7 @@ export function matchedLabel(matched: Matched | null): string | null {
  * Related Recipes strip marks a fallback in the same words as the shelf does
  * (#105). A second copy of this mapping is how "In French" becomes "In fr" on
  * one screen and nobody notices — which is why the mapping itself moved to
- * `$lib/language` when the recipe screen needed it too (#106), and why this
+ * `#lib/language.js` when the recipe screen needed it too (#106), and why this
  * reads it rather than keeping a copy.
  */
 export function fallbackLanguage(entry: {

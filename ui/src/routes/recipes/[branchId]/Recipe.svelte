@@ -124,7 +124,7 @@
 </script>
 
 <script lang="ts">
-	import { aDate, aTime } from '$lib/dates';
+	import { aDate, aTime } from '#lib/dates.js';
 	// What the page is made of. The screen keeps its own state — the recipe it
 	// is reading, the Thread around it, the Divergence, how much it is read at,
 	// and what the last save did — and composes the rest. Each concern that
@@ -155,15 +155,15 @@
 
 	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { DivergenceOutput, GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
+	import { m } from '#lib/paraglide/messages.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { DivergenceOutput, GetRecipeOutput, GetThreadOutput } from '#lib/api/catalogue.js';
 	import Hero from './Hero.svelte';
 	import VersionStrip from './VersionStrip.svelte';
-	import { branchPlainName, yoursAmong } from '$lib/cookbook';
+	import { branchPlainName, yoursAmong } from '#lib/cookbook.js';
 	import MarkedRow from './MarkedRow.svelte';
-	import StepWords from '$lib/StepWords.svelte';
+	import StepWords from '#lib/StepWords.svelte';
 	import Correcting from './Correcting.svelte';
 	import Writing from './Writing.svelte';
 	import Promotion from './Promotion.svelte';
@@ -182,16 +182,19 @@
 	import MyPictures from './MyPictures.svelte';
 	import SheetAction from './SheetAction.svelte';
 	import ShoppingListButton from './ShoppingListButton.svelte';
+	import PlanThis from './PlanThis.svelte';
 	import DeleteRecipe from './DeleteRecipe.svelte';
 	import Carrying from './Carrying.svelte';
-	import { asBranchLanguage, type WrittenLanguage } from '$lib/language';
-	import { tappableLink } from '$lib/source';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import StepPhoto from '$lib/StepPhoto.svelte';
-	import { thisDevice, type Device } from '$lib/offline/device.svelte';
-	import { useFiles } from '$lib/api/files';
-	import { same, toSearch, type Wanted } from '$lib/how-much';
-	import { takePaste, type PastedDraft } from '$lib/pasted.svelte';
+	import { asBranchLanguage, type WrittenLanguage } from '#lib/language.js';
+	import { tappableLink } from '#lib/source.js';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import StepPhoto from '#lib/StepPhoto.svelte';
+	import { thisDevice, type Device } from '#lib/offline/device.svelte.js';
+	import { useFiles } from '#lib/api/files.js';
+	import { said, same, toSearch, type Wanted } from '#lib/how-much.js';
+	import { weekOfWhere, type Where } from '#lib/plan-days.js';
+	import { whereName } from '#lib/plan-where.js';
+	import { takePaste, type PastedDraft } from '#lib/pasted.svelte.js';
 	import {
 		between,
 		elsewhere,
@@ -210,9 +213,9 @@
 	import { myPictures } from './my-pictures.svelte';
 	import { languageFamily } from './language-family';
 	import { sharingAChain } from './sharing-a-chain';
-	import AgentWork from '$lib/agent/AgentWork.svelte';
+	import AgentWork from '#lib/agent/AgentWork.svelte';
 	import ReadAgain from './ReadAgain.svelte';
-	import type { GetJobOutput, GetRecipeJobOutput } from '$lib/api/catalogue';
+	import type { GetJobOutput, GetRecipeJobOutput } from '#lib/api/catalogue.js';
 
 	interface Props {
 		branchId: string;
@@ -221,14 +224,29 @@
 		 * goes to the share sheet rather than a tab (#149). A test hands in its own.
 		 */
 		device?: Pick<Device, 'installed' | 'apple'>;
+		/**
+		 * The amount to open at, where the address names one: a planned
+		 * recipe opens at its planned Yield (#486), as `toSearch` writes it,
+		 * and null where it was planned as written, so neither the Shopping
+		 * List nor an open cooking moves it.
+		 */
+		openAt?: Wanted;
 	}
 
-	let { branchId, device = thisDevice() }: Props = $props();
+	let { branchId, device = thisDevice(), openAt }: Props = $props();
 
 	const kamosu = useKamosu();
 	const files = useFiles();
 
 	let recipe = $state<GetRecipeOutput | undefined>(undefined);
+	/**
+	 * Which Branch `recipe` was read for. This screen is reused across
+	 * `/recipes/A` → `/recipes/B`, and A stays on it until B's read answers, so
+	 * anything that writes onto `branchId` waits until the two agree (#549).
+	 */
+	let readFor = $state<string | undefined>(undefined);
+	/** Whether what is on screen is the recipe `branchId` names, not the last one. */
+	const readHere = $derived(recipe !== undefined && readFor === branchId);
 	let divergence = $state<DivergenceOutput | undefined>(undefined);
 	/**
 	 * Every version of this recipe the reader may see, for the switch (#131):
@@ -283,6 +301,13 @@
 	 */
 	let onTheList = $state(false);
 
+	// ---- the Meal Plan (#486) ---------------------------------------------
+
+	/** "Plan this" is open. */
+	let planning = $state(false);
+	/** What was just planned from here, which the page says under the button. */
+	let planned = $state<{ where: Where; wanted: Wanted } | null>(null);
+
 	// ---- how much, for the errands (#109) ---------------------------------
 	//
 	// A VIEW THAT CARRIES FORWARD, the choice of 23 September 2026. The
@@ -319,8 +344,15 @@
 	 * for Save, the way a paste made on that screen does (#83).
 	 */
 	let pastedDraft = $state<PastedDraft | undefined>(undefined);
+	/** Close the writing screen and drop its draft: Cancel, and leaving the recipe (#549). */
+	function closeWriting() {
+		writing = false;
+		pastedDraft = undefined;
+		translatingInto = undefined;
+	}
 	$effect(() => {
-		if (!recipe || !content || writing) return;
+		// Taken once this recipe is read, so it is never laid over the last one's.
+		if (!readHere || !content || writing) return;
 		const draft = takePaste(branchId);
 		if (!draft) return;
 		pastedDraft = draft;
@@ -535,11 +567,21 @@
 			untrack(() => {
 				wrote = undefined;
 				named = undefined;
+				// A draft belongs to the recipe it was opened on (#549). The
+				// browser's Back button lands here too, and a writing screen
+				// left open would save A's words as a Version of B.
+				closeWriting();
+				// A correction is laid over a line by its index, and the same
+				// index on this recipe is another ingredient. A corrector left
+				// open holds the last recipe's Reading, and would write it onto
+				// this one's line (#559).
+				fixes.forget();
 				// The comparison was the last version's. Walking along the strip
 				// to your own must not carry its marks, or anything taken from
 				// it, onto a page that has nothing to compare (#131).
 				divergence = undefined;
 				divergent.reset();
+				planned = null;
 				choosingHowMuch = false;
 				howMuchFailed = false;
 				// A Sheet being set was the last recipe's, and stops being
@@ -554,18 +596,31 @@
 		// Read again when a Promotion has just put a Version on this Branch, so
 		// the recipe below the band becomes the recipe that was cooked (#58).
 		void reread;
+		const asked = branchId;
 		let current = true;
 		void (async () => {
 			try {
 				// At the amount already named here, so a Promotion or a Component
 				// re-read does not quietly put the page back to the recipe as
 				// written underneath somebody doing the errands (#109).
-				const at = untrack(() => named);
-				const read = await kamosu.getRecipe(
-					at === undefined ? { branch_id: branchId } : { branch_id: branchId, wanted_yield: at },
-				);
+				// A planned recipe opens at its planned Yield (#486), which the
+				// Plan's link names as the cooking's does (`toSearch`).
+				const at = untrack(() => named) ?? untrack(() => openAt);
+				const read = await kamosu
+					.getRecipe(
+						at === undefined ? { branch_id: branchId } : { branch_id: branchId, wanted_yield: at },
+					)
+					.catch((error: unknown) => {
+						// As written, with no network: the phone holds the recipe
+						// as it was read unasked, which is the same text.
+						if (at === null && error instanceof OperationError && !error.reached)
+							return kamosu.getRecipe({ branch_id: branchId });
+						throw error;
+					});
 				if (!current) return;
 				recipe = read;
+				readFor = asked;
+				if (at !== undefined && untrack(() => named) === undefined) named = at;
 
 				// Home's *recently opened* shelf, and the whole of what feeds it
 				// (#64, ADR 0027). It is a separate Operation rather than
@@ -761,8 +816,13 @@
 	 * This is the whole of the rule. A marked row reaches the corrector too,
 	 * through a second target inside its unfolded panel rather than through its
 	 * own tap — see `MarkedRow`'s `onFixReading`.
+	 *
+	 * Only once what is on screen is the recipe `branchId` names: walking to
+	 * another leaves the last one up until it answers, and a corrector opened
+	 * on its line would send that line's Reading as a correction of the new
+	 * recipe (#559), as an Edit opened then would have saved its words (#549).
 	 */
-	const correctable = true;
+	const correctable = $derived(readHere);
 
 	function corrected(index: number, reading: Slot, measuredLine: string | null) {
 		// On a page read at a named amount the answer's line was worded at the
@@ -844,11 +904,12 @@
 	the rejected option wearing the chosen one's name. `Writing.svelte` holds
 	why the shape is what it is.
 -->
-{#if writing && recipe && content}
+{#if writing && readHere && recipe && content}
 	<Writing
 		{branchId}
 		lineageId={recipe.lineage_id}
 		whose={recipe}
+		baseVersionId={recipe.head_version_id}
 		content={pastedDraft
 			? {
 					...content,
@@ -864,16 +925,10 @@
 			? undefined
 			: recipe.versions.at(-1)?.cooking}
 		{translatingInto}
-		onCancel={() => {
-			writing = false;
-			pastedDraft = undefined;
-			translatingInto = undefined;
-		}}
+		onCancel={closeWriting}
 		onSaved={(landed) => {
-			writing = false;
-			pastedDraft = undefined;
 			const wasTranslating = translatingInto !== undefined;
-			translatingInto = undefined;
+			closeWriting();
 			// A Translation is a Branch of its own, and the cook has just
 			// written it — so the page goes there, the way it follows a Copy.
 			// Staying here would leave them reading the recipe they translated
@@ -1013,12 +1068,41 @@
 				</p>
 			{/if}
 
-			<a
-				href="/cook/{branchId}{toSearch(pageScaledTo)}"
-				class="mx-gutter mt-4 flex min-h-12 items-center justify-center rounded-sm bg-accent px-4 text-center font-display text-body font-semibold text-on-accent"
-			>
-				{m.recipe_cook_this()}
-			</a>
+			<!--
+				Cook this and Plan this side by side, half the width each: the
+				choice of 31 October 2026 on #486 (T), since planning is decided
+				with the recipe in front of you, and its foot is screens away on
+				a phone.
+			-->
+			<div class="mx-gutter mt-4 grid grid-cols-2 gap-2">
+				<a
+					href="/cook/{branchId}{toSearch(pageScaledTo)}"
+					class="flex min-h-12 items-center justify-center rounded-sm bg-accent px-4 text-center font-display text-body font-semibold text-on-accent"
+				>
+					{m.recipe_cook_this()}
+				</a>
+				<button
+					type="button"
+					class="flex min-h-12 items-center justify-center rounded-sm border border-accent bg-card px-4 text-center font-display text-body font-semibold text-accent"
+					onclick={() => (planning = true)}
+				>
+					{m.plan_this()}
+				</button>
+			</div>
+			{#if planned}
+				{@const amount = said(planned.wanted)}
+				<p
+					class="mx-gutter mt-3 border-l-3 border-accent bg-card px-3 py-2 text-read"
+					role="status"
+				>
+					{amount
+						? m.plan_planned_for_amount({ day: whereName(planned.where), amount })
+						: m.plan_planned_for({ day: whereName(planned.where) })}
+					<a href="/plan?week={weekOfWhere(planned.where)}" class="ms-1 text-accent underline"
+						>{m.plan_see()}</a
+					>
+				</p>
+			{/if}
 
 			<!--
 			What this Kitchen says about the dish, above the dish itself (#104).
@@ -1651,6 +1735,19 @@
 <svelte:head>
 	<title>{content ? `${content.title} · ` : ''}{m.app_name()}</title>
 </svelte:head>
+
+{#if planning && recipe && content}
+	<PlanThis
+		branchId={recipe.branch_id}
+		title={content.title}
+		written={content.yield}
+		onPlanned={(where, wanted) => {
+			planning = false;
+			planned = { where, wanted };
+		}}
+		onClose={() => (planning = false)}
+	/>
+{/if}
 
 {#if renaming && recipe}
 	<RenameSheet

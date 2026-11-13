@@ -6,10 +6,10 @@
 	holds which pictures are yours.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
-	import PhotoToRecipe, { type Offered } from '$lib/PhotoToRecipe.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import AttemptPhoto from '#lib/offline/AttemptPhoto.svelte';
+	import PhotoToRecipe, { type Offered } from '#lib/PhotoToRecipe.svelte';
 	import type { ComponentProps } from 'svelte';
 
 	interface Props {

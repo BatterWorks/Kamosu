@@ -150,7 +150,9 @@ impl Core {
                 let prep = content["prep_time_minutes"].as_i64();
                 let cook = content["cook_time_minutes"].as_i64();
                 if prep.is_some() || cook.is_some() {
-                    let total = prep.unwrap_or(0) + cook.unwrap_or(0);
+                    // Saturating: a time saved before #553 bounded them can be
+                    // as long as an i64 holds.
+                    let total = prep.unwrap_or(0).saturating_add(cook.unwrap_or(0));
                     if total <= QUICK_TONIGHT_MINUTES {
                         quick.push(claim(total));
                     }

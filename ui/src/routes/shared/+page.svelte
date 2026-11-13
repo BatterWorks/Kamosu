@@ -1,7 +1,7 @@
 <!-- What Android's Share menu answers (#452): `Shared.svelte` draws what the worker kept. -->
 <script lang="ts">
 	import { page } from '$app/state';
-	import { readAnswer, type SharedAnswer } from '$lib/offline/shared';
+	import { readAnswer, type SharedAnswer } from '#lib/offline/shared.js';
 	import Shared from './Shared.svelte';
 
 	let answer = $state<SharedAnswer | undefined>(undefined);

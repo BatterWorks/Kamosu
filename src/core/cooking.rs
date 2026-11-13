@@ -27,6 +27,13 @@ impl Core {
     /// Progress, begun on another device while this one was out, that one
     /// is handed back as always and the phone follows it. Two devices are
     /// one cooking staying in step, and nobody is asked which they meant.
+    ///
+    /// `lineage_id` comes with such a start too (#537). A recipe deleted, or
+    /// gone out of the cook's sight, while the phone was out still leaves the
+    /// Version they cooked and its Lineage, so the cooking lands in their
+    /// diary with no recipe, as one does whose recipe left after it was
+    /// cooked. Only for a start that waited: one sent as it happens is
+    /// answered as absent, as ever.
     pub fn start_attempt(
         &self,
         person_id: &str,
@@ -34,6 +41,7 @@ impl Core {
         version_id: Option<&str>,
         attempt_id: Option<&str>,
         started_at: Option<&str>,
+        lineage_id: Option<&str>,
     ) -> Result<Value, OpError> {
         if let Some(id) = attempt_id
             && !is_minted_attempt_id(id)
@@ -43,35 +51,23 @@ impl Core {
             ));
         }
         self.db().with_conn(|conn| {
-            let (lineage_id, cookbook_id, head_version_id): (String, String, String) = conn
-                .query_row(
-                    "SELECT lineage_id, cookbook_id, head_version_id FROM branches WHERE id = ?1",
-                    params![branch_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                )
-                .optional()
-                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(no_such_branch)?;
-            ensure_sees_or_absent(conn, &cookbook_id, person_id, no_such_branch)?;
-
-            let pinned_version_id = match version_id {
-                None => head_version_id,
-                Some(requested) => {
-                    let on_this_branch: i64 = conn
-                        .query_row(
-                            "SELECT COUNT(*) FROM branch_versions \
-                              WHERE branch_id = ?1 AND version_id = ?2",
-                            params![branch_id, requested],
-                            |row| row.get(0),
-                        )
-                        .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?;
-                    if on_this_branch == 0 {
-                        return Err(OpError::bad_request(
-                            "version_id is not a Version of this Branch",
-                        ));
-                    }
-                    requested.to_string()
+            let (lineage_id, pinned_version_id) = match recipe_in_sight(conn, person_id, branch_id)? {
+                Some((lineage_id, head_version_id)) => {
+                    let pinned = match version_id {
+                        None => head_version_id,
+                        Some(requested) => version_standing_for(conn, branch_id, requested)?
+                            .ok_or_else(|| {
+                                OpError::bad_request("version_id is not a Version of this Branch")
+                            })?,
+                    };
+                    (lineage_id, pinned)
                 }
+                None => match (attempt_id, started_at, version_id, lineage_id) {
+                    (Some(_), Some(_), Some(version), Some(lineage)) => {
+                        cooked_where_the_recipe_was(conn, branch_id, lineage, version)?
+                    }
+                    _ => return Err(no_such_branch()),
+                },
             };
 
             let moment = written_moment(conn, started_at)?;
@@ -261,15 +257,17 @@ impl Core {
                 // finish keeps the first one's time. What the cook said with
                 // it — a rating, a note, pictures — is still theirs to say,
                 // exactly as a late `edit_attempt` would land it, and a phone's
-                // sending does not fail over it.
+                // sending does not fail over it. Like that edit, it changes
+                // nothing written since it was (#537).
                 if written_at.is_some() {
-                    write_attempt_judgement(conn, attempt_id, &judgement)?;
+                    let moment = written_moment(conn, written_at)?;
+                    write_attempt_judgement(conn, attempt_id, &judgement, &moment)?;
                     return attempt_by_id(conn, attempt_id);
                 }
                 return Err(OpError::bad_request("this Attempt has already finished"));
             }
             let moment = written_moment(conn, written_at)?;
-            write_attempt_judgement(conn, attempt_id, &judgement)?;
+            write_attempt_judgement(conn, attempt_id, &judgement, &moment)?;
             conn.execute(
                 "UPDATE attempts SET finished_at = ?2, \
                                       last_action_at = max(last_action_at, ?2) \
@@ -286,6 +284,10 @@ impl Core {
     /// editable by its cook (GLOSSARY.md, "Attempt"), unlike the recipe it was
     /// cooked from. `None` leaves a field as it stood; `Some(&Value::Null)`
     /// clears it; any other value sets it, validated.
+    ///
+    /// The last one written is what the cook said (#537), as on the Shopping
+    /// List: a note a phone held offline and sends after the iPad rewrote it
+    /// changes nothing.
     pub fn edit_attempt(
         &self,
         person_id: &str,
@@ -301,7 +303,7 @@ impl Core {
         self.db().with_conn(|conn| {
             let state = attempt_state_owned_by(conn, attempt_id, person_id)?;
             let moment = written_moment(conn, written_at)?;
-            write_attempt_judgement(conn, attempt_id, &judgement)?;
+            write_attempt_judgement(conn, attempt_id, &judgement, &moment)?;
 
             // Correcting a note or a rating mid-cook is itself an action —
             // the resume window counts from it exactly as advancing a Step
@@ -469,6 +471,7 @@ impl Core {
             &edited,
             head_name.as_deref(),
             change_note,
+            None,
             None,
         )
         .map(promotion_answer)
@@ -725,6 +728,7 @@ impl Core {
             name.or(head_name.as_deref()),
             change_note,
             None,
+            None,
         )
         .map(promotion_answer)
     }
@@ -810,6 +814,67 @@ impl Core {
             Ok(json!({ "attempts": entries }))
         })
     }
+}
+
+/// The Lineage and head Version of a Branch the Person may see, or `None` for
+/// one deleted or out of their sight, which answer alike (ADR 0040).
+fn recipe_in_sight(
+    conn: &Connection,
+    person_id: &str,
+    branch_id: &str,
+) -> Result<Option<(String, String)>, OpError> {
+    let found: Option<(String, String, String)> = conn
+        .query_row(
+            "SELECT lineage_id, cookbook_id, head_version_id FROM branches WHERE id = ?1",
+            params![branch_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
+    let Some((lineage_id, cookbook_id, head_version_id)) = found else {
+        return Ok(None);
+    };
+    Ok(sees_cookbook(conn, &cookbook_id, person_id)?.then_some((lineage_id, head_version_id)))
+}
+
+/// Where a cooking that waited on a phone with no network lands when its
+/// recipe has since been deleted or gone out of its cook's sight (#537): on
+/// the Lineage and Version the phone named, which outlive every Branch that
+/// held them. A Branch still standing must be of that Lineage, so naming one
+/// cannot pin a cooking to another dish; a Version or Lineage that never
+/// existed answers as the Branch does.
+fn cooked_where_the_recipe_was(
+    conn: &Connection,
+    branch_id: &str,
+    lineage_id: &str,
+    version_id: &str,
+) -> Result<(String, String), OpError> {
+    let standing: Option<String> = conn
+        .query_row(
+            "SELECT lineage_id FROM branches WHERE id = ?1",
+            params![branch_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
+    if standing.is_some_and(|standing| standing != lineage_id) {
+        return Err(no_such_branch());
+    }
+    let both: bool = conn
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM lineages WHERE id = ?1) \
+                AND EXISTS (SELECT 1 FROM versions WHERE id = ?2)",
+            params![lineage_id, version_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Version: {e}")))?;
+    if !both {
+        return Err(no_such_branch());
+    }
+    // Whether the Version is of that Lineage is not a fact Kamosu can ask:
+    // a Version is its content (ADR 0004), and two dishes written alike hold
+    // the same one. The phone held the two together because it read them so.
+    Ok((lineage_id.to_string(), version_id.to_string()))
 }
 
 /// The Attempt state every write Operation on it needs before doing
@@ -1058,10 +1123,18 @@ impl Judgement<'_> {
 /// filling these in at the stove and correcting them a week later are the
 /// same act on the same fields, and two copies of this would eventually
 /// disagree about what a rating may be.
+///
+/// `moment` is when this was written (#537). The note, the rating and the
+/// list of Photographs each remember when they were last written, and one
+/// written before that is left as it stands, each on its own: a rating held
+/// offline still lands after a newer note from the iPad. Pictures *added*
+/// always land, as adding is meant to: a list sent whole from another device
+/// never knew of the picture this phone took, so it is no reason to lose it.
 fn write_attempt_judgement(
     conn: &Connection,
     attempt_id: &str,
     judgement: &Judgement<'_>,
+    moment: &str,
 ) -> Result<(), OpError> {
     let Judgement {
         note,
@@ -1076,16 +1149,18 @@ fn write_attempt_judgement(
             _ => return Err(OpError::bad_request("note must be a string or null")),
         };
         conn.execute(
-            "UPDATE attempts SET note = ?2 WHERE id = ?1",
-            params![attempt_id, stored],
+            "UPDATE attempts SET note = ?2, note_written_at = ?3 \
+              WHERE id = ?1 AND (note_written_at IS NULL OR note_written_at <= ?3)",
+            params![attempt_id, stored, moment],
         )
         .map_err(|e| OpError::internal(format!("cannot save note: {e}")))?;
     }
     if let Some(value) = rating {
         let stored = parse_rating(value)?;
         conn.execute(
-            "UPDATE attempts SET rating = ?2 WHERE id = ?1",
-            params![attempt_id, stored],
+            "UPDATE attempts SET rating = ?2, rating_written_at = ?3 \
+              WHERE id = ?1 AND (rating_written_at IS NULL OR rating_written_at <= ?3)",
+            params![attempt_id, stored, moment],
         )
         .map_err(|e| OpError::internal(format!("cannot save rating: {e}")))?;
     }
@@ -1096,8 +1171,9 @@ fn write_attempt_judgement(
         };
         let stored = serde_json::to_string(&stored).expect("serialisable Photograph ids");
         conn.execute(
-            "UPDATE attempts SET photographs = ?2 WHERE id = ?1",
-            params![attempt_id, stored],
+            "UPDATE attempts SET photographs = ?2, photographs_written_at = ?3 \
+              WHERE id = ?1 AND (photographs_written_at IS NULL OR photographs_written_at <= ?3)",
+            params![attempt_id, stored, moment],
         )
         .map_err(|e| OpError::internal(format!("cannot save Photographs: {e}")))?;
     }
@@ -1113,9 +1189,13 @@ fn write_attempt_judgement(
             }
         }
         let stored = serde_json::to_string(&held).expect("serialisable Photograph ids");
+        // Always added, and the list counts as written then, so an older list
+        // sent whole afterwards does not take the new picture away.
         conn.execute(
-            "UPDATE attempts SET photographs = ?2 WHERE id = ?1",
-            params![attempt_id, stored],
+            "UPDATE attempts SET photographs = ?2, \
+                    photographs_written_at = max(coalesce(photographs_written_at, ?3), ?3) \
+              WHERE id = ?1",
+            params![attempt_id, stored, moment],
         )
         .map_err(|e| OpError::internal(format!("cannot save Photographs: {e}")))?;
     }
@@ -1380,6 +1460,32 @@ pub(super) fn record_finished_attempt(
     )
     .map_err(|e| OpError::internal(format!("cannot write the cooking: {e}")))?;
     Ok(id)
+}
+
+/// The Version a cooking pinned to `version_id` counts for on this Branch:
+/// that Version while the chain holds it, the one that now stands in its
+/// place where a collapse replaced it (#548), and none where the Branch never
+/// held it. A start held on a phone offline names what the phone had, which
+/// a re-save inside the collapse window may have folded away since. Pinned to
+/// the Version on the chain, the cooking is found wherever a cooking is
+/// looked for: the Thread, what a cook keeps on leaving, the next collapse.
+fn version_standing_for(
+    conn: &Connection,
+    branch_id: &str,
+    version_id: &str,
+) -> Result<Option<String>, OpError> {
+    conn.query_row(
+        "SELECT COALESCE( \
+             (SELECT version_id FROM branch_versions \
+               WHERE branch_id = ?1 AND version_id = ?2 LIMIT 1), \
+             (SELECT held.version_id FROM folded_versions AS folded \
+                JOIN branch_versions AS held \
+                  ON held.branch_id = folded.branch_id AND held.sequence = folded.sequence \
+               WHERE folded.branch_id = ?1 AND folded.version_id = ?2))",
+        params![branch_id, version_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))
 }
 
 /// Whether an Attempt id is one a phone may mint: the very shape the server

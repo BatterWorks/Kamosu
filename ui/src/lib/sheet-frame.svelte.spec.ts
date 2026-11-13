@@ -19,9 +19,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import type { ComponentProps } from 'svelte';
-import type { Room } from '$lib/room.svelte';
-import Confirm from '$lib/Confirm.svelte';
-import SheetFrameTestHarness from '$lib/SheetFrameTestHarness.svelte';
+import type { Room } from '#lib/room.svelte.js';
+import Confirm from '#lib/Confirm.svelte';
+import SheetFrameTestHarness from '#lib/SheetFrameTestHarness.svelte';
 
 type Props = ComponentProps<typeof SheetFrameTestHarness>;
 
@@ -211,20 +211,24 @@ describe('every sheet in Kamosu', () => {
 		expect(framed).toEqual([
 			'Carrying.svelte',
 			'ChangePassword.svelte',
+			'ChangeSheet.svelte',
 			'ComponentPicker.svelte',
 			'Confirm.svelte',
 			'Cooking.svelte',
 			'FilterList.svelte',
 			'HouseNotes.svelte',
 			'LanguageSheet.svelte',
+			'MoveSheet.svelte',
 			'Passkeys.svelte',
 			'PasteSheet.svelte',
 			'PhotoToRecipe.svelte',
+			'PlanThis.svelte',
 			'RelatedSheet.svelte',
 			'RenameSheet.svelte',
 			'Replays.svelte',
 			'RunnerKeySecret.svelte',
 			'SendSheet.svelte',
+			'SendToShopping.svelte',
 			'SignOut.svelte',
 			'StepPhoto.svelte',
 			'StepUsesSheet.svelte',
@@ -232,6 +236,7 @@ describe('every sheet in Kamosu', () => {
 			'Thread.svelte',
 			'UseVersion.svelte',
 			'WhichHousehold.svelte',
+			'WriteSheet.svelte',
 			'Writing.svelte',
 		]);
 	});

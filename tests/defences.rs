@@ -324,6 +324,16 @@ fn every_secret(app: &support::TestApp, key: &str) -> Vec<Secret> {
         table: "access_keys",
     });
 
+    // A Calendar Link, which a calendar app reads the plan with (#491), made
+    // by the Person logged in, as a key is.
+    let (status, made) = app.post_op("make_calendar_link", Some(&session), "{}");
+    assert_eq!(status, 200, "{made}");
+    secrets.push(Secret {
+        what: "a Calendar Link",
+        raw: made["result"]["secret"].as_str().expect("a Secret").into(),
+        table: "calendar_links",
+    });
+
     // A Runner Key, minted by the Operator logged in directly (ADR 0048).
     let (status, minted) = app.post_op(
         "mint_runner_key",
@@ -668,6 +678,11 @@ async fn a_secret_still_works_a_year_after_it_was_made() {
                 .0,
                 200,
                 "a Runner Key stopped working because a year passed"
+            ),
+            "a Calendar Link" => assert_eq!(
+                app.get(&format!("/calendar/{}.ics", secret.raw)).0,
+                200,
+                "a Calendar Link stopped working because a year passed"
             ),
             "a Session" | "an Access Key" => assert_eq!(
                 app.post_op("list_jobs", Some(&secret.raw), "{}").0,
@@ -3050,6 +3065,22 @@ async fn a_strangers_body_is_small_and_a_members_is_not() {
     );
     assert_eq!(refused.status, 413, "{}", refused.body);
     assert_eq!(refused.envelope()["error"]["code"], json!(-32600));
+
+    // A member's body past the door's own limit was never parsed, so it keeps
+    // its status, said in JSON-RPC rather than as a parse error (#534).
+    let past_the_limit = vec![b'a'; 2 * 1024 * 1024 + 1024];
+    let refused = send_raw(
+        &app,
+        &format!(
+            "POST /mcp HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n\
+             Authorization: Bearer {key}\r\nContent-Length: {}",
+            past_the_limit.len()
+        ),
+        &past_the_limit,
+    );
+    assert_eq!(refused.status, 413, "{}", refused.body);
+    assert_eq!(refused.envelope()["error"]["code"], json!(-32600));
+    assert_eq!(refused.envelope()["jsonrpc"], json!("2.0"));
 }
 
 /// A Secret that names nobody is answered at once, whatever body it declares,

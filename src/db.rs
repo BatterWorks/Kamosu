@@ -2098,6 +2098,244 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 65,
+        description: "the ledger knows a video by its post, not by the code on its link (#464)",
+        sql: r#"
+        -- A link is now landed under what it is matched by. Where one video
+        -- was landed twice under two codes the first row takes that name, and
+        -- the second, which nothing asks for again, stays as it was. A
+        -- recipe's Source is left alone: it is part of its Version's id.
+        UPDATE OR IGNORE import_ledger SET foreign_id = link_identity(foreign_id)
+         WHERE import_id IN (SELECT id FROM imports WHERE source_kind = 'web');
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 66,
+        description: "the Meal Plan: a recipe planned on a day (#486, ADR 0058)",
+        sql: r#"
+        -- A **Planned Meal**: one recipe a Person means to cook on one day.
+        -- The plan is these rows keyed on the Person, as the Shopping List is
+        -- its choosing (ADR 0024): one plan each, unnamed and always there,
+        -- read by nobody else.
+        CREATE TABLE planned_meals (
+            -- Minted by the server, or by a phone with no network (#77), so a
+            -- write held offline can name the meal it planned.
+            id         TEXT PRIMARY KEY,
+            person_id  TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+            -- A Branch at its newest Version, never pinned, and not
+            -- necessarily one that still stands: a deleted recipe stays on the
+            -- plan under `known_as`, as a Shopping List entry does.
+            branch_id  TEXT NOT NULL,
+            -- A calendar date, YYYY-MM-DD, with no time and no time zone: the
+            -- day the cook means wherever they are.
+            day        TEXT NOT NULL,
+            -- Its place among the day's Planned Meals, in the order put there.
+            position   INTEGER NOT NULL,
+            -- The Yield planned, as `shopping_choices.shopping_yield` holds
+            -- one: {"amount", "noun"}, an empty noun a multiplier. NULL is the
+            -- recipe as written.
+            planned_yield TEXT,
+            -- The name it was known by, read once it can no longer be.
+            known_as   TEXT NOT NULL,
+            planned_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+
+        CREATE INDEX planned_meals_by_day ON planned_meals(person_id, day, position);
+        CREATE INDEX planned_meals_by_branch ON planned_meals(branch_id);
+
+        -- The plan's own clock, as `shopping_written_at` is the list's: a
+        -- write made offline and sent after a later one changes nothing.
+        ALTER TABLE people ADD COLUMN plan_written_at TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 67,
+        description: "a Planned Meal on a week with no day, and written words on the plan (#487)",
+        sql: r#"
+        -- A Planned Meal now stands on a day or on a week with no day, the
+        -- week held by its Monday, and is a recipe or a few written words.
+        -- Two columns lose NOT NULL, which SQLite cannot drop, so the table is
+        -- rebuilt. Nothing references `planned_meals`, and every row carries
+        -- across onto the week its day is in.
+        CREATE TABLE planned_meals_67 (
+            id         TEXT PRIMARY KEY,
+            person_id  TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+            -- The recipe, as before; NULL where the meal is written words.
+            branch_id  TEXT,
+            -- Written words ("leftovers", "eating out"), kept exactly as
+            -- written and never read, as a Loose Item is. NULL for a recipe.
+            words      TEXT,
+            -- The Monday of the week it stands in.
+            week       TEXT NOT NULL,
+            -- The day, or NULL for any day of the week.
+            day        TEXT,
+            -- Its place in its list: the day's, or the week's with no day.
+            position   INTEGER NOT NULL,
+            planned_yield TEXT,
+            -- The name a recipe was known by. NULL for written words.
+            known_as   TEXT,
+            planned_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            CHECK ((branch_id IS NULL) <> (words IS NULL)),
+            CHECK ((branch_id IS NULL) = (known_as IS NULL))
+        );
+
+        INSERT INTO planned_meals_67
+            (id, person_id, branch_id, words, week, day, position, planned_yield, known_as, planned_at)
+        SELECT id, person_id, branch_id, NULL,
+               date(day, '-' || ((CAST(strftime('%w', day) AS INTEGER) + 6) % 7) || ' days'),
+               day, position, planned_yield, known_as, planned_at
+          FROM planned_meals;
+
+        DROP TABLE planned_meals;
+        ALTER TABLE planned_meals_67 RENAME TO planned_meals;
+
+        CREATE INDEX planned_meals_by_week ON planned_meals(person_id, week, day, position);
+        CREATE INDEX planned_meals_by_branch ON planned_meals(branch_id);
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 68,
+        description: "what a Planned Meal last sent to the Shopping List (#488)",
+        sql: r#"
+        -- How much of its recipe a Planned Meal last sent to the Shopping
+        -- List, as a factor of the recipe as written, and when. NULL is never
+        -- sent. Emptying the list leaves both as they are: they say what was
+        -- sent, never what the list holds now.
+        ALTER TABLE planned_meals ADD COLUMN sent_factor REAL;
+        ALTER TABLE planned_meals ADD COLUMN sent_at TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 69,
+        description: "a Person's Calendar Link (#491)",
+        sql: r#"
+        -- The private address a cook gives their phone's calendar app, which
+        -- reads their Meal Plan with it and no sign-in. The Secret is kept
+        -- by its hash alone and shown once (ADR 0031). A Person has one live
+        -- link at most: making one ends the one before, and an ended row
+        -- stays, dead.
+        CREATE TABLE calendar_links (
+            id           TEXT PRIMARY KEY,
+            person_id    TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+            secret_hash  TEXT NOT NULL UNIQUE,
+            made_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            -- When a calendar app last fetched it, so the cook can see it works.
+            last_read_at TEXT,
+            ended_at     TEXT
+        );
+        CREATE UNIQUE INDEX calendar_links_one_live
+            ON calendar_links(person_id) WHERE ended_at IS NULL;
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 70,
+        description: "which entry of another app's meal plan made which Planned Meal (#492)",
+        sql: r#"
+        -- An Import from a Mealie backup brings the household's meal plan
+        -- into the importing Person's own plan. One row per entry a Person
+        -- has had planned from an app's file, keyed on the Person as the plan
+        -- is, and on the app, never on a Cookbook's Import: the same file
+        -- imported again by the same Person plans none twice, whichever
+        -- Cookbook it lands in or has since joined or left, and a Co-author
+        -- importing it into their own plan still has theirs. `foreign_id` is
+        -- the app's own name for the entry, unique beyond one instance of
+        -- the app. A Planned Meal taken off the plan keeps its row, so
+        -- importing again never puts it back.
+        CREATE TABLE imported_planned_meals (
+            person_id       TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+            source_kind     TEXT NOT NULL,
+            foreign_id      TEXT NOT NULL,
+            planned_meal_id TEXT NOT NULL,
+            PRIMARY KEY (person_id, source_kind, foreign_id)
+        );
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 71,
+        description: "an id for each Invite and recovery link, to revoke it by (#535)",
+        sql: r#"
+        -- An Operator sees the live Invites and recovery links and revokes
+        -- each one (ADR 0031). A link is kept by its Secret's hash, which is
+        -- never shown, so each gets an id of its own to be named by. Every
+        -- row written from here on is given one by Kamosu.
+        ALTER TABLE account_links ADD COLUMN id TEXT;
+        UPDATE account_links SET id = 'al_' || lower(hex(randomblob(8)));
+        CREATE UNIQUE INDEX account_links_id ON account_links(id);
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 72,
+        description: "the Versions a collapse replaced, for a start held offline (#548)",
+        sql: r#"
+        -- A collapse rewrites the head row in place, so the Version it
+        -- replaced leaves no trace on the chain. A phone that cached it can
+        -- still send a start pinned to it. Each row says which place on the
+        -- Branch's chain the folded Version held, and whatever holds that
+        -- place now is the Version the cooking counts for. Local
+        -- bookkeeping: no Version's content, so no fingerprint, moves.
+        CREATE TABLE folded_versions (
+            branch_id  TEXT NOT NULL REFERENCES branches(id),
+            version_id TEXT NOT NULL,
+            sequence   INTEGER NOT NULL,
+            PRIMARY KEY (branch_id, version_id)
+        );
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 73,
+        description: "the Branch a Translation was started from (#517)",
+        sql: r#"
+        -- A Translation names the Version it renders, and a Variation shares
+        -- its head Version with the Branch it grew from until either moves,
+        -- so the Version alone cannot say which of the two was translated.
+        -- `start_translation` writes the Branch it was called on here. Empty
+        -- on every Translation made before, and on one that arrived alone in
+        -- a Bundle: those keep the old lookup, the oldest Branch holding the
+        -- Version. No reference constraint, so a deleted source leaves a
+        -- dangling id that the lookup passes over. A row about a Branch, not
+        -- a Version's content, so no fingerprint moves.
+        ALTER TABLE branches ADD COLUMN translated_from_branch_id TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 74,
+        description: "when a cooking's note, rating and Photographs were last written (#537)",
+        sql: r#"
+        -- The last one written is what the cook said, as migration 31 made it
+        -- for where the cook is and the Shopping List: a note a phone held
+        -- with no network and sent after the iPad rewrote it is older, and
+        -- changes nothing. Each of the three on its own, so a rating held
+        -- offline still lands beside a newer note. NULL on every Attempt
+        -- already written, which reads as "never written", so the next write
+        -- lands whenever it was made.
+        ALTER TABLE attempts ADD COLUMN note_written_at TEXT;
+        ALTER TABLE attempts ADD COLUMN rating_written_at TEXT;
+        ALTER TABLE attempts ADD COLUMN photographs_written_at TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 75,
+        description: "which Access Key asked for a Job (#539)",
+        sql: r#"
+        -- Revoking an Add-only key cancels the Jobs it started, waiting or
+        -- held by a Runner, so a key taken from a phone stops spending the
+        -- moment it is revoked. NULL on every Job already written, and on
+        -- one asked for with a Session, a Job Key or by nobody.
+        ALTER TABLE jobs ADD COLUMN access_key_id TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// Migration 41's Rust half: a correction carried forward by a later save.
@@ -2213,6 +2451,8 @@ impl Db {
         // computes is worth being able to ask a live database about.
         crate::fingerprint::register(&conn)
             .map_err(|e| OpError::internal(format!("cannot teach SQLite the fingerprint: {e}")))?;
+        crate::video_link::register(&conn)
+            .map_err(|e| OpError::internal(format!("cannot teach SQLite video links: {e}")))?;
         let db = Db {
             conn: Mutex::new(conn),
             data_dir: data_dir.to_path_buf(),
@@ -2467,6 +2707,139 @@ mod tests {
                 ("ak_1".to_string(), true),
                 ("ak_2".to_string(), true),
                 ("ak_3".to_string(), false),
+            ]
+        );
+    }
+
+    /// **Migration 65 names a linked video by its post** (#464), in the
+    /// ledger of links alone. Where one video landed twice the first row
+    /// takes that name, and nothing else moves.
+    #[test]
+    fn migration_65_names_a_linked_video_by_its_post() {
+        let dir = tempfile::tempdir().unwrap();
+        let before_65 = MIGRATIONS
+            .iter()
+            .position(|m| m.version == 65)
+            .expect("migration 65");
+        {
+            let old = Db::open_with_migrations(dir.path(), &MIGRATIONS[..before_65]).unwrap();
+            old.with_conn(|conn| {
+                conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
+                conn.execute_batch(
+                    r#"
+                    INSERT INTO imports (id, cookbook_id, source_kind) VALUES
+                      ('i_web', 'c', 'web'), ('i_file', 'c', 'crouton');
+                    INSERT INTO import_ledger (import_id, foreign_id, lineage_id, branch_id) VALUES
+                      ('i_web', 'https://youtu.be/VIDEOID?si=one', 'l1', 'b1'),
+                      ('i_web', 'https://youtu.be/VIDEOID?si=two', 'l2', 'b2'),
+                      ('i_web', 'https://example.org/tart?utm_source=x', 'l3', 'b3'),
+                      ('i_file', 'https://youtu.be/VIDEOID?si=one', 'l4', 'b4');
+                    "#,
+                )
+                .map_err(|e| OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        }
+        let db = Db::open(dir.path()).unwrap();
+        let ledger: Vec<(String, String)> = db
+            .with_conn(|conn| {
+                let mut statement = conn
+                    .prepare("SELECT branch_id, foreign_id FROM import_ledger ORDER BY branch_id")
+                    .unwrap();
+                Ok(statement
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .unwrap()
+                    .collect::<Result<_, _>>()
+                    .unwrap())
+            })
+            .unwrap();
+        let row = |branch: &str, foreign: &str| (branch.to_string(), foreign.to_string());
+        assert_eq!(
+            ledger,
+            [
+                row("b1", "https://www.youtube.com/watch?v=VIDEOID"),
+                row("b2", "https://youtu.be/VIDEOID?si=two"),
+                row("b3", "https://example.org/tart?utm_source=x"),
+                row("b4", "https://youtu.be/VIDEOID?si=one"),
+            ]
+        );
+    }
+
+    /// **Migration 67 puts every Planned Meal on its week** (#487): each row
+    /// keeps its day and gains the Monday of that day's week, a Sunday's
+    /// included, and nothing else about it moves.
+    #[test]
+    fn migration_67_puts_every_planned_meal_on_its_week() {
+        let dir = tempfile::tempdir().unwrap();
+        let before_67 = MIGRATIONS
+            .iter()
+            .position(|m| m.version == 67)
+            .expect("migration 67");
+        {
+            let old = Db::open_with_migrations(dir.path(), &MIGRATIONS[..before_67]).unwrap();
+            old.with_conn(|conn| {
+                conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
+                conn.execute_batch(
+                    r#"
+                    INSERT INTO people (id, name, is_operator) VALUES ('p', 'Stéphane', 0);
+                    INSERT INTO planned_meals
+                      (id, person_id, branch_id, day, position, planned_yield, known_as) VALUES
+                      ('pm_mon', 'p', 'b1', '2026-11-02', 0, NULL, 'Soupe'),
+                      ('pm_thu', 'p', 'b2', '2026-11-05', 1, '{"amount":"2","noun":""}', 'Tarte'),
+                      ('pm_sun', 'p', 'b3', '2026-11-08', 0, NULL, 'Rôti');
+                    "#,
+                )
+                .map_err(|e| OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        }
+        let db = Db::open(dir.path()).unwrap();
+        type Row = (String, String, String, i64, Option<String>, Option<String>);
+        let rows: Vec<Row> = db
+            .with_conn(|conn| {
+                let mut statement = conn
+                    .prepare(
+                        "SELECT id, week, day, position, planned_yield, words \
+                           FROM planned_meals ORDER BY id",
+                    )
+                    .unwrap();
+                Ok(statement
+                    .query_map([], |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                        ))
+                    })
+                    .unwrap()
+                    .collect::<Result<_, _>>()
+                    .unwrap())
+            })
+            .unwrap();
+        let row = |id: &str, day: &str, position: i64, wanted: Option<&str>| {
+            (
+                id.to_string(),
+                "2026-11-02".to_string(),
+                day.to_string(),
+                position,
+                wanted.map(str::to_string),
+                None,
+            )
+        };
+        assert_eq!(
+            rows,
+            [
+                row("pm_mon", "2026-11-02", 0, None),
+                row("pm_sun", "2026-11-08", 0, None),
+                row(
+                    "pm_thu",
+                    "2026-11-05",
+                    1,
+                    Some(r#"{"amount":"2","noun":""}"#)
+                ),
             ]
         );
     }

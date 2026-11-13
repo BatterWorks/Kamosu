@@ -7,7 +7,7 @@
 	should ask for an address differently.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import type { Adding } from './adding.svelte';
 
 	interface Props {

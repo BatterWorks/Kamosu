@@ -20,19 +20,19 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { m } from '$lib/paraglide/messages';
-	import { aClock } from '$lib/dates';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import Refusal from '$lib/Refusal.svelte';
-	import AgentTag from '$lib/agent/AgentTag.svelte';
-	import { EVERY_MS } from '$lib/agent/agent';
-	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import { useAdding } from '$lib/adding/adding.svelte';
-	import PasteForm from '$lib/adding/PasteForm.svelte';
-	import FilePicker from '$lib/adding/FilePicker.svelte';
-	import ToCheck from '$lib/adding/ToCheck.svelte';
-	import { Online } from '$lib/offline/device.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { aClock } from '#lib/dates.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import Refusal from '#lib/Refusal.svelte';
+	import AgentTag from '#lib/agent/AgentTag.svelte';
+	import { EVERY_MS } from '#lib/agent/agent.js';
+	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import { useAdding } from '#lib/adding/adding.svelte.js';
+	import PasteForm from '#lib/adding/PasteForm.svelte';
+	import FilePicker from '#lib/adding/FilePicker.svelte';
+	import ToCheck from '#lib/adding/ToCheck.svelte';
+	import { Online } from '#lib/offline/device.svelte.js';
 	import {
 		byDay,
 		kindOf,
@@ -43,7 +43,7 @@
 		type Next,
 		type Sent,
 		type Showing,
-	} from '$lib/sent-to-agent';
+	} from '#lib/sent-to-agent.js';
 
 	interface Props {
 		/** How often to read again while the agent waits on or reads a row. */

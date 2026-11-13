@@ -31,7 +31,7 @@
 	name, and no way into a Settings that cannot load (#218, #214).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
+	import { m } from '#lib/paraglide/messages.js';
 	import { settings } from './places';
 
 	interface Props {

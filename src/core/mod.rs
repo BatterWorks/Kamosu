@@ -27,10 +27,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use argon2::{
-    Algorithm, Argon2, Params, Version,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-};
+use argon2::{Algorithm, Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier, Version};
 use rand::{TryRng, rngs::SysRng};
 use rusqlite::Connection;
 use rusqlite::OptionalExtension;
@@ -52,6 +49,7 @@ use crate::shopping;
 use crate::units;
 
 mod accounts;
+mod calendar_links;
 mod carrying_bundles;
 mod cookbooks;
 mod cooking;
@@ -60,6 +58,7 @@ mod imports;
 mod keeping_backups;
 mod keeping_photographs;
 mod kitchens;
+mod meal_plan;
 mod originals;
 mod passkeys;
 mod reading_again;
@@ -90,6 +89,8 @@ use keeping_backups::*;
 pub(crate) use keeping_photographs::photograph_seen_by;
 use keeping_photographs::*;
 use kitchens::*;
+pub use meal_plan::Place;
+use meal_plan::{Whose, repoint_planned_meals};
 pub use originals::*;
 pub use readings::*;
 use recipes::*;
@@ -129,9 +130,13 @@ pub struct OpError {
     /// Which refusal this is, for the few a screen says in its own words
     /// rather than the Core's English sentence: a scanned PDF (#176). The web
     /// door carries it as `reason`. Nothing else is keyed on it; the sentence
-    /// is still the whole answer at the MCP door.
+    /// is still the whole answer at the MCP door. The refusal of a Secret that
+    /// names nobody carries one too, so a phone can tell it apart (#537).
     pub reason: Option<&'static str>,
 }
+
+/// The `reason` the one refusal about the Secret itself carries (#537).
+pub const CREDENTIAL_NAMES_NOBODY: &str = "credential_names_nobody";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
@@ -172,7 +177,22 @@ impl OpError {
     pub fn credential_names_nobody() -> Self {
         OpError {
             credential_names_nobody: true,
+            // Said in the body as well (#537): a phone empties what it keeps
+            // for a Session on this refusal alone, and never on one about
+            // what a Person it did recognise may do.
+            reason: Some(CREDENTIAL_NAMES_NOBODY),
             ..OpError::unauthorized("this Credential does not name anyone")
+        }
+    }
+    /// A refusal for want of any Credential at all. It carries the same
+    /// `reason` as one naming nobody (#537): a browser whose ended Session's
+    /// cookie was taken back asks with nothing, and a phone must still read
+    /// that as signed out, holding its changes for the next sign-in rather
+    /// than dropping them. There is no cookie here to take back.
+    pub fn no_credential(message: impl Into<String>) -> Self {
+        OpError {
+            reason: Some(CREDENTIAL_NAMES_NOBODY),
+            ..OpError::unauthorized(message)
         }
     }
     pub fn unknown_operation(name: &str) -> Self {
@@ -400,6 +420,8 @@ pub struct Core {
     security: security_record::Watch,
     /// The PDFs being read now, each in a program of its own (#373).
     pdf_readers: crate::pdf::Readers,
+    /// The pictures being remade now, two at most (#538).
+    pictures: crate::photographs::Remaking,
     /// How long a Runner's hold on a Job lasts unless renewed, in
     /// milliseconds: `jobs::HOLD`, until a test shortens it (#266).
     hold_millis: AtomicU64,
@@ -426,6 +448,10 @@ pub struct Core {
     /// seed each time Home is asked for, and carries nothing to pin it with.
     #[cfg(feature = "test-jobs")]
     shelf_seed: std::sync::Mutex<Option<u64>>,
+    /// What a test asked to happen after a worker found a Job queued and
+    /// before it moves it to running (#541). Compiled only under `test-jobs`.
+    #[cfg(feature = "test-jobs")]
+    pub(crate) hook_before_a_job_runs: jobs::BeforeAJobRuns,
 }
 
 impl Core {
@@ -449,6 +475,7 @@ impl Core {
             ceremonies: Default::default(),
             security: Default::default(),
             pdf_readers: Default::default(),
+            pictures: Default::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             photo_download_millis: AtomicU64::new(imports::PHOTO_DOWNLOAD_TIME.as_millis() as u64),
             job_key_creates: Default::default(),
@@ -456,6 +483,8 @@ impl Core {
             public_address: Default::default(),
             #[cfg(feature = "test-jobs")]
             shelf_seed: Default::default(),
+            #[cfg(feature = "test-jobs")]
+            hook_before_a_job_runs: Default::default(),
         }
     }
 
@@ -492,6 +521,7 @@ impl Core {
             ceremonies: Default::default(),
             security: Default::default(),
             pdf_readers: Default::default(),
+            pictures: Default::default(),
             hold_millis: AtomicU64::new(jobs::HOLD.as_millis() as u64),
             photo_download_millis: AtomicU64::new(imports::PHOTO_DOWNLOAD_TIME.as_millis() as u64),
             job_key_creates: Default::default(),
@@ -499,6 +529,8 @@ impl Core {
             public_address: Default::default(),
             #[cfg(feature = "test-jobs")]
             shelf_seed: Default::default(),
+            #[cfg(feature = "test-jobs")]
+            hook_before_a_job_runs: Default::default(),
         };
         core.passwords.prepare();
         let core = Arc::new(core);
@@ -594,8 +626,12 @@ impl Core {
                 op.name
             ))),
             (_, Permission::Public) | (Asker::Person(_), Permission::Person) => None,
-            (Asker::Nobody, Permission::Person) => Some(OpError::unauthorized(format!(
+            (Asker::Nobody, Permission::Person) => Some(OpError::no_credential(format!(
                 "Operation '{}' requires a Credential naming a Person",
+                op.name
+            ))),
+            (Asker::Nobody, Permission::Operator) => Some(OpError::no_credential(format!(
+                "Operation '{}' requires a Credential naming an Operator",
                 op.name
             ))),
             (Asker::Person(caller), Permission::Operator) if caller.is_operator => None,
@@ -656,6 +692,11 @@ impl Core {
         // describe. What it does *not* check is meaning — whether a Branch
         // exists, whether an amount parses — which stays in the handlers.
         crate::schema::validate_input(op.name, &input)?;
+        let mut input = input;
+        if input.get("sent_at").is_some() {
+            self.db()
+                .with_conn(|conn| on_the_servers_clock(conn, &mut input))?;
+        }
 
         // Acting as an Operator is asked for one call at a time (#302, ADR
         // 0049): an Operator is a Person like any other until a call says
@@ -954,26 +995,36 @@ impl Core {
     /// - an Add-only key is listed the Operations marked for it and no other
     ///   (ADR 0055);
     /// - everyone else is listed every Operation but the Runner's, an Access
-    ///   Key none that is `session_only`, and a read-only one none that
-    ///   writes either (ADR 0031, #347).
+    ///   Key none that is `session_only`, a read-only one none that writes
+    ///   either, and a Credential naming no Operator none that needs one
+    ///   (ADR 0031, #347, #534).
     ///
-    /// An unresolvable or absent Secret is listed as a full Credential is: the
-    /// listing itself requires none.
-    pub fn operations_listed_to(&self, secret: Option<&str>) -> Vec<&'static catalogue::Operation> {
+    /// An absent Secret is listed as a full Credential is: the listing itself
+    /// requires none, and a client may list before it holds a key. A Secret
+    /// that names nobody is refused as `execute` refuses it, so a mistyped key
+    /// shows when its client first lists rather than at its first call (#534).
+    pub fn operations_listed_to(
+        &self,
+        secret: Option<&str>,
+    ) -> Result<Vec<&'static catalogue::Operation>, OpError> {
         let hash = secret.filter(|s| !s.is_empty()).map(hash_secret);
-        let credential = hash
-            .as_deref()
-            .and_then(|hash| self.lookup_credential(hash).ok().flatten());
+        let (credential, is_runner, is_job_key) = match hash.as_deref() {
+            None => (None, false, false),
+            Some(hash) => {
+                let credential = self.lookup_credential(hash)?;
+                let is_runner = self.lookup_runner_key(hash)?.is_some();
+                let is_job_key = self.lookup_job_key(hash)?.is_some();
+                if credential.is_none() && !is_runner && !is_job_key {
+                    return Err(OpError::credential_names_nobody());
+                }
+                (credential, is_runner, is_job_key)
+            }
+        };
         let read_only = credential.as_ref().is_some_and(|found| found.read_only);
         let is_access_key = credential.as_ref().is_some_and(|found| !found.is_session);
         let add_only = credential.as_ref().is_some_and(|found| found.add_only);
-        let is_runner = hash
-            .as_deref()
-            .is_some_and(|hash| matches!(self.lookup_runner_key(hash), Ok(Some(_))));
-        let is_job_key = hash
-            .as_deref()
-            .is_some_and(|hash| matches!(self.lookup_job_key(hash), Ok(Some(_))));
-        catalogue::OPERATIONS
+        let names_no_operator = credential.as_ref().is_some_and(|found| !found.is_operator);
+        Ok(catalogue::OPERATIONS
             .iter()
             .filter(|op| {
                 let left_out = if is_runner {
@@ -986,6 +1037,7 @@ impl Core {
                     op.permission == Permission::Runner
                         || (read_only && op.write)
                         || (is_access_key && op.session_only)
+                        || (names_no_operator && op.permission == Permission::Operator)
                         // A Demo lists none it refuses. One that goes through
                         // on the Session in hand is no Key's to call.
                         || (self.is_demo() && op.in_demo == InDemo::Refused)
@@ -995,7 +1047,7 @@ impl Core {
                 };
                 !left_out
             })
-            .collect()
+            .collect())
     }
 
     /// The one data directory everything durable lives under (ADR 0028) — the

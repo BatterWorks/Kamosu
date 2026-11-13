@@ -42,16 +42,17 @@
 	kept the phone's sentence. The phone's screen is what it was.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import type { GetShoppingListOutput } from '$lib/api/catalogue';
-	import Screen from '$lib/shell/Screen.svelte';
-	import Section from '$lib/shell/Section.svelte';
-	import Empty from '$lib/shell/Empty.svelte';
-	import { rereads } from '$lib/offline/device.svelte';
-	import { counts, isMultiplier, said, same, stepped } from '$lib/how-much';
-	import { useRoom } from '$lib/room.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { longest } from '#lib/longest.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import type { GetShoppingListOutput } from '#lib/api/catalogue.js';
+	import Screen from '#lib/shell/Screen.svelte';
+	import Section from '#lib/shell/Section.svelte';
+	import Empty from '#lib/shell/Empty.svelte';
+	import { rereads } from '#lib/offline/device.svelte.js';
+	import { counts, isMultiplier, said, same, stepped } from '#lib/how-much.js';
+	import { useRoom } from '#lib/room.svelte.js';
 
 	const kamosu = useKamosu();
 	const room = useRoom();
@@ -575,6 +576,7 @@
 										id="loose-item"
 										class="min-w-0 flex-1 rounded-sm border border-rule bg-card px-3 py-2 text-line"
 										bind:value={typed}
+										maxlength={longest('add_loose_item', 'text')}
 										placeholder={m.shopping_loose_placeholder()}
 										autocomplete="off"
 										autofocus
