@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.6.0 - 2026-11-13
+
 ### After upgrading
 
 - If you hold Dutch recipes, set each one to Dutch, then run *Read every line again* so they are read with Dutch words from then on. [#495]
@@ -26,6 +28,7 @@
 
 ### Fixed
 
+- The agent image is rebuilt with Alpine's security updates published since the previous release. [#618]
 - Sharing a video Kamosu already holds, or is already reading, says so instead of starting it again, whichever tracking code Instagram, YouTube or TikTok put on the link that time. A short link, such as TikTok's `vm.tiktok.com` or Instagram's `/share/reel/`, is now followed to the video it leads to and known as that video. A recipe added from such a link now keeps the video's own address, without the code, which names who shared it. [#464] [#497]
 - The library Kamosu opens zip files with, for a Backup, a Bundle or another app's export, is past four published flaws, RUSTSEC-2026-0367 to RUSTSEC-2026-0369 and RUSTSEC-2026-0429, all in writing a zip's entries out as files, which Kamosu never does. The library passkeys are checked with is past RUSTSEC-2026-0387, a timing leak in arithmetic Kamosu only ever ran on public keys. [#524]
 - A library of one recipe is "1 recipe", not "1 recipes", in all three languages, and so are the few other lines that counted one in the plural. [#533]
@@ -110,6 +113,7 @@
 [#598]: https://github.com/BatterWorks/Kamosu/issues/598
 [#599]: https://github.com/BatterWorks/Kamosu/issues/599
 [#600]: https://github.com/BatterWorks/Kamosu/issues/600
+[#618]: https://github.com/BatterWorks/Kamosu/pull/618
 
 ## v0.5.0 - 2026-10-29
 

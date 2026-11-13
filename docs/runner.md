@@ -90,12 +90,10 @@ The Runner signs in with a **Runner Key**. It can ask for work, keep hold of a
 Job and report on it, and nothing else. It acts as no person and cannot touch a
 recipe.
 
-1. Sign in to Kamosu as an Operator, open **Settings**, then **Administer this
-   instance**.
-2. Open the **Instance** tab and find **Runner**.
-3. Give the key a name that tells this Runner from another, such as
+1. Sign in to Kamosu as an Operator and open **Settings › Runner and House Notes**.
+2. Give the key a name that tells this Runner from another, such as
    `kitchen laptop`, and press **Make a Runner Key**.
-4. Copy the key. Kamosu shows it once. If you lose it, revoke it and make
+3. Copy the key. Kamosu shows it once. If you lose it, revoke it and make
    another.
 
 From this moment the instance **has a Runner**, whether or not one is running:
