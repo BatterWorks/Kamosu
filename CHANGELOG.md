@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.6.0 - 2026-11-13
+
 ### After upgrading
 
 - If you hold Dutch recipes, set each one to Dutch, then run *Read every line again* so they are read with Dutch words from then on. [#495]
