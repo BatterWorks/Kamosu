@@ -28,7 +28,7 @@
 - **No What's new page, no docs-freshness check, no roadmap.** Kamosu has none of the three, so their checks and refusals are left out.
 - **The changelog keeps an empty `## Unreleased`.** `release-prepare` dates the section and leaves a new, empty one above it, because a ticket adds its line under that heading in the same commit as its change.
 - **Two gates in place of one.** Kamosu has no `just check-full`. The bump must pass `just check` and then `just test`.
-- **Five checklist items of Kamosu's own**: the glossary, the previous release's library, `just audit`, `THIRD_PARTY_NOTICES.md` and the Docker Hub overview. The last came with [#235](https://github.com/BatterWorks/Kamosu/issues/235), when the hook took on publishing that page.
+- **Checklist items of Kamosu's own**: the glossary, the previous release's library, `just audit`, `THIRD_PARTY_NOTICES.md`, the Docker Hub overview, the Demo's Sample Library, the agent image's Alpine fixes, and the newest base images for Kamosu's image. The Docker Hub overview came with [#235](https://github.com/BatterWorks/Kamosu/issues/235), when the hook took on publishing that page. The base images came after v2.10.0 of Hatchdoor shipped on an old runtime digest: a pinned base never moves by itself.
 
 ## Considered options
 
