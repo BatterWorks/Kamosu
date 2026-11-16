@@ -82,7 +82,8 @@ pub use accounts::*;
 use cookbooks::*;
 pub use cooking::*;
 pub use demo::{
-    DEMO_ACCESS_KEY, DEMO_VISITOR, Mode, links_a_demo_shows, refused_in_demo, start_demo,
+    DEMO_ACCESS_KEY, DEMO_VISITOR, Mode, SAMPLE_LIBRARY_DIR, links_a_demo_shows, refused_in_demo,
+    start_demo, start_demo_from,
 };
 pub use imports::*;
 use keeping_backups::*;

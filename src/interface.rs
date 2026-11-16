@@ -24,8 +24,13 @@ use crate::core::Core;
 
 /// The output of `npm run build` in `ui/`: SvelteKit on `adapter-static` with
 /// `fallback: index.html`, so the whole app is one shell plus its chunks.
+///
+/// A folder that is missing compiles as an empty one. A debug build reads it
+/// from disk and does not run `build.rs` again when it is deleted (#615), and
+/// `build.rs` refuses a release build without it.
 #[derive(Embed)]
 #[folder = "ui/build/"]
+#[allow_missing = true]
 struct Built;
 
 /// The shell every screen is served from. `adapter-static`'s fallback: the

@@ -12,7 +12,17 @@
 use std::path::Path;
 
 fn main() {
-    println!("cargo:rerun-if-changed=ui/build");
+    // `rust-embed` copies `ui/build` into the binary only where debug
+    // assertions are off, as in a release build; anywhere else it reads the
+    // folder from disk while running. Only a build that copies it compiles
+    // again when it changes. `just test` rebuilds `ui/build` on every run, so
+    // watching it in a debug build recompiled Kamosu and linked every test
+    // program again each time, with nothing changed (#615).
+    if std::env::var_os("CARGO_CFG_DEBUG_ASSERTIONS").is_some() {
+        println!("cargo:rerun-if-changed=build.rs");
+    } else {
+        println!("cargo:rerun-if-changed=ui/build");
+    }
 
     let built = Path::new("ui/build");
     let release = std::env::var("PROFILE").as_deref() == Ok("release");
@@ -24,9 +34,10 @@ fn main() {
         );
     }
 
-    // `rust-embed` refuses to compile against a folder that is not there, and a
-    // fresh clone has never run the frontend build. An empty one is honest in a
-    // debug build — the app is served by vite on 5174 — and the check above has
-    // already ruled it out for a release.
+    // A fresh clone has never run the frontend build. An empty folder is honest
+    // in a debug build, where the app is served by vite on 5174, and the check
+    // above has already ruled it out for a release. `src/interface.rs` also
+    // allows the folder to be missing, since a debug build no longer runs this
+    // again when it is deleted.
     std::fs::create_dir_all(built).expect("ui/build must be creatable");
 }
