@@ -109,7 +109,10 @@ not rebase-merge, and never force-push `dev` or `main`.
 
 **Whoever built a pull request merges it.** GitHub asks for nobody's approval,
 so the gate is the work's own: `just check` and `just test` pass, the review's findings are
-settled, and live acceptance has passed on the code being merged. Then merge
+settled, and live acceptance has passed on the code being merged. Run the two
+once on the finished, reviewed code, and not again before the commit or the
+merge: a run on contents that already passed only reports that pass (see
+Building, testing and running). Then merge
 with a merge commit, as `gh pr merge <number> --merge` does, and confirm the
 merge commit is on `dev`. A host that keeps a second copy of the repository
 says in its `AGENTS.local.md` what to do after a merge; do that before moving on.
@@ -198,6 +201,31 @@ just runner-logs    # follow the Runner and its agent
 just runner-stop    # stop both; a Job the Runner held waits again once the hold lapses
 KAMOSU_RUNNER_AS=<user> just runner-start   # the same three in that user's rootless Podman, capped (#381)
 ```
+
+**`just check` and `just test` run only what the branch needs, and their first
+line says which mode** (#616). `ui/tools/gate.mjs` decides:
+
+- **Full mode** is everything listed above, exactly as strong as before. It runs
+  whenever the branch changed anything but documentation since its merge base
+  with `dev`, committed or not, and on every run `just release-prepare` makes.
+  Production's nightly has no test step, so this run is the last full check
+  before production.
+- **Docs-only mode** runs when every changed path is documentation: anything
+  under `docs/`, and `CHANGELOG.md`, `README.md`, `AGENTS.md` and `GLOSSARY.md`
+  at the root, as `isDocumentation` in the gate lists them. It builds nothing.
+  `check` runs no step, since none of its checks reads documentation, and
+  `test` runs the tests that do, today the Docker Hub page test alone.
+  `SECURITY.md` is not on the list because `tests/defences.rs` reads it. A new
+  test that reads a document goes into `DOCS_READING_TESTS` in the gate.
+- **A remembered pass.** After a pass, each recipe writes a record under the
+  Cargo target folder (`kamosu-passes/`, never in Git) naming the hash of the
+  files as they stood and the mode. Run again on the same contents with a clean
+  worktree, it reports that pass and exits at once. Any edit, or any
+  uncommitted or untracked file, runs it again. A pass before a commit counts
+  after it, because the record is of the contents, not the commit. A full pass
+  answers a docs-only run; a docs-only pass never answers a full one.
+
+`KAMOSU_CHECK_MODE=full just check` forces full mode and ignores the record.
 
 **Looking at the dev instance has recipes of its own** (#216), so no ticket
 writes a browser script by hand. The scripts are in `ui/tools/`, and Playwright

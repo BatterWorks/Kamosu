@@ -47,7 +47,7 @@ The first run:
 2. Cuts `docs/release-v0.2.0` from `origin/dev`.
 3. Sets the version in `Cargo.toml`, `Cargo.lock`, `ui/package.json` and `ui/package-lock.json`, renames `## Unreleased` in `CHANGELOG.md` to `## v0.2.0 - <today>`, leaves a new, empty `## Unreleased` above it, and commits.
 4. Refuses unless the four files agree on the version, the dated section has entries, and every `[#N]` in it has a `[#N]: <url>` definition somewhere in the file.
-5. Runs `just check`, then `just test`. A cold build takes several minutes, and the output streams to the terminal.
+5. Runs `just check`, then `just test`, both in full mode, whatever the branch changed and whatever passed before. A cold build takes several minutes, and the output streams to the terminal.
 6. Pushes the branch.
 7. Opens **Prepare the v0.2.0 release** into `dev`, carrying the [checklist](#the-checklist).
 8. Creates a draft GitHub Release for `v0.2.0` targeting `main`, titled `v0.2.0`, with the changelog section as its notes. Link definitions the section uses but does not hold are copied in, so `[#N]` markers are links on the release page.

@@ -310,9 +310,12 @@ async function checkBump(version, branch) {
 		console.log(
 			`\nRunning \`just ${recipe}\`. A cold build takes several minutes; its output follows.\n`,
 		);
+		// Full mode, whatever the branch changed and whatever passed before:
+		// a release is the one run with no shortcut (#616, ui/tools/gate.mjs).
 		const result = spawnSync('just', [recipe], {
 			cwd: repositoryRoot,
 			stdio: 'inherit',
+			env: { ...process.env, KAMOSU_CHECK_MODE: 'full' },
 		});
 		if (result.error) {
 			throw result.error;
