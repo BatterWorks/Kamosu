@@ -203,14 +203,38 @@ dev-logs:
     touch "{{log_file}}" "{{vite_log_file}}"
     tail -n 20 -f "{{log_file}}" "{{vite_log_file}}"
 
-# Reclaim the build cache by deleting the cargo target directory. The next build
-# is a full rebuild — everything recompiles from scratch.
+# Reclaim the build cache by deleting cargo's intermediate folders (deps, build,
+# incremental, .fingerprint, examples) in every profile folder of the target
+# directory, `debug/` and `release/` and a cross-compiled `<triple>/debug/` alike.
+# Cargo marks each profile folder with a `.cargo-lock`. The finished
+# programs at the top of each profile stay, and so does everything outside the
+# profiles, because several projects may share the target directory
+# (#565). The next build of every project sharing it starts from scratch.
 dev-clean:
     #!/usr/bin/env bash
     set -euo pipefail
     dir="${CARGO_TARGET_DIR:-target}"
-    rm -rf "${dir}"
-    echo "removed ${dir} — the next build is a full rebuild"
+    if [[ ! -d "${dir}" ]]; then
+        echo "nothing to clean: ${dir} does not exist"
+        exit 0
+    fi
+    removed=0
+    while IFS= read -r -d '' lock; do
+        profile="$(dirname "${lock}")"
+        for part in deps build incremental .fingerprint examples; do
+            if [[ -e "${profile}/${part}" ]]; then
+                rm -rf -- "${profile:?}/${part}"
+                echo "removed ${profile}/${part}"
+                removed=$((removed + 1))
+            fi
+        done
+    done < <(find "${dir}" -mindepth 2 -maxdepth 3 -name .cargo-lock -type f -print0)
+    if (( removed == 0 )); then
+        echo "nothing to clean in ${dir}"
+        exit 0
+    fi
+    echo "kept the finished programs and everything outside the profile folders."
+    echo "The next build of every project sharing ${dir} starts from scratch."
 
 # Internal: warn when the cache crosses the threshold set at the top.
 _warn-cache-size:
@@ -221,8 +245,10 @@ _warn-cache-size:
         human="$(numfmt --to=iec --suffix=B "${size}" 2>/dev/null || echo "${size} bytes")"
         limit_human="$(numfmt --to=iec --suffix=B {{build_cache_limit_bytes}} 2>/dev/null || echo '{{build_cache_limit_bytes}} bytes')"
         echo ""
-        echo "WARNING: build cache target/ is ${human}, at or above the ${limit_human} limit."
-        echo "         Reclaim it with 'just dev-clean' (the next build is a full rebuild)."
+        echo "WARNING: build cache {{target_dir}} is ${human}, at or above the ${limit_human} limit."
+        echo "         Reclaim it with 'just dev-clean', which deletes cargo's intermediate"
+        echo "         folders and keeps the finished programs. The next build of every"
+        echo "         project sharing the folder starts from scratch."
     fi
 
 # ── Looking at the dev instance ───────────────────────────────────────────────

@@ -264,8 +264,13 @@ or the first on the path). jsdom lays nothing out, so the screen test that a
 long word breaks inside its box hands the drawn page to it to be measured
 (#385).
 
-`dev-clean` deletes `target/` to reclaim build cache; the next build is a full
-rebuild. Dev state lives in gitignored `.dev/`.
+`dev-clean` reclaims build cache by deleting cargo's intermediate folders
+(`deps`, `build`, `incremental`, `.fingerprint`, `examples`) in each profile
+folder of the target directory, `CARGO_TARGET_DIR` or `target/`. It keeps the
+finished programs at the top of each profile and everything outside the
+profiles, so it is safe on a target directory several projects share (#565).
+The next build of every project sharing it starts from scratch. Dev state lives
+in gitignored `.dev/`.
 
 **Layout is settled by a formatter in both languages** — `cargo fmt` for Rust,
 Prettier for `ui/` — and `just check` fails on either. Never argue with them and
