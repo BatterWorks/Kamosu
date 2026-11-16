@@ -76,6 +76,7 @@ const state = JSON.parse(fs.readFileSync(file, "utf8"));
 const args = process.argv.slice(2);
 const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 state.calls.push(["just", ...args, head]);
+(state.checkModes ??= []).push(process.env.KAMOSU_CHECK_MODE ?? null);
 fs.writeFileSync(file, JSON.stringify(state, null, 2));
 if (args[0] === "check" || args[0] === "test") {
   console.log("stub " + args[0]);
@@ -304,6 +305,8 @@ test('opens the bump with the checklist and draft release, ships a review fix th
 		(await stubState(context)).calls.filter((call) => call[0] === 'just').map((call) => call[1]),
 		['check', 'test'],
 	);
+	// Both in full, with no docs-only mode and no remembered pass (#616).
+	assert.deepEqual((await stubState(context)).checkModes, ['full', 'full']);
 	assert.match(
 		await readFile(path.join(context.root, 'CHANGELOG.md'), 'utf8'),
 		/^# Changelog\n\n## Unreleased\n\n## v1\.1\.0 - /,

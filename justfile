@@ -361,12 +361,24 @@ sample-library:
 
 # ── Checking the code ─────────────────────────────────────────────────────────
 
-# Run everything: the behaviour suite, and the interface's screen-seam tests.
-# The interface is built first because the behaviour suite serves it — the tests
-# drive what is actually shipped, never a stand-in for it. The test-jobs feature
-# adds `probe_job`, a demonstration Job, so slow work is provable end-to-end
-# before real Jobs (Import, Sheets) arrive in later tickets.
-test: ui-build && ui-test
+# The first line of output names the mode (#616). In full mode it runs
+# `_test-full` below. On a branch that changed only documentation it runs only
+# the tests that read documentation, and on contents that already passed, with
+# a clean worktree, it reports that pass and runs nothing. ui/tools/gate.mjs
+# decides, and says what counts as documentation. `just release-prepare`
+# always runs it in full.
+#
+# Run the tests the branch needs: full, docs-only, or a remembered pass.
+test:
+    @node ui/tools/gate.mjs test
+
+# The whole of `just test`: the behaviour suite, and the interface's
+# screen-seam tests. The interface is built first because the behaviour suite
+# serves it: the tests drive what is actually shipped, never a stand-in for
+# it. The test-jobs feature adds `probe_job`, a demonstration Job, so slow work
+# is provable end-to-end before real Jobs (Import, Sheets) arrive in later
+# tickets.
+_test-full: ui-build && ui-test
     cargo test --features test-jobs
 
 # The interface's own tests: Svelte screens against a Catalogue-derived stand-in
@@ -379,11 +391,19 @@ ui-test:
     # The release commands' tests (#234). They drive the two scripts against
     # throwaway git repositories and stand-ins for `gh`, `just` and the release
     # hook, so they run under Node's own test runner, outside jsdom. The Docker
-    # Hub page's limits (#235) and `just audit`'s npm judgement (#374) run
-    # beside them.
+    # Hub page's limits (#235), `just audit`'s npm judgement (#374) and the
+    # gate that picks `just check` and `just test`'s mode (#616) run beside
+    # them.
     node --test tools/*.test.mjs
 
-# Check formatting and lints without changing anything. Also verifies the
+# Decides as `just test` does (#616). Docs-only mode runs nothing, since no
+# check below reads documentation. Its first line names the mode.
+#
+# Check formatting and lints the branch needs: full, docs-only, or a remembered pass.
+check:
+    @node ui/tools/gate.mjs check
+
+# The whole of `just check`: formatting and lints, without changing anything. Also verifies the
 # committed design-token stylesheet and icons are fresh against their sources:
 # the build fails if what is committed has drifted from ui/. And it keeps the
 # interface's copy short: no em dash in any message file, no English phrase over
@@ -403,13 +423,13 @@ ui-test:
 # pass stays all the same: it alone lints Kamosu as a release builds it, with
 # the feature off, and the `#[cfg(not(feature = "test-jobs"))]` code in the
 # tests.
-check: _check-tokens-fresh _check-client-fresh _check-cover-fresh _check-messages ui-format-check ui-lint ui-check
+_check-full: _check-tokens-fresh _check-client-fresh _check-cover-fresh _check-messages ui-format-check ui-lint ui-check
     cargo fmt --check && cargo clippy --all-targets -- -D warnings
     cargo clippy --features test-jobs --all-targets -- -D warnings
     cargo clippy --features test-jobs {{ CORPUS_TARGETS }} -- -D warnings
 
 # Every tests/*_corpus.rs and the release's library check, as clippy target
-# flags. One list, used by `check`.
+# flags. One list, used by `_check-full`.
 CORPUS_TARGETS := "--test cooking_corpus --test crouton_corpus --test home_corpus --test meaning_corpus --test paprika_corpus --test pasting_corpus --test photographs_corpus --test reading_corpus --test shelf_corpus --test shopping_corpus --test translations_corpus --test release_library"
 
 # svelte-check in strict mode, with Svelte's accessibility warnings treated as
