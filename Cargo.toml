@@ -227,18 +227,76 @@ test = false
 name = "translations_corpus"
 test = false
 
-# Dependencies are compiled optimised even in a debug build; Kamosu's own crate
-# is not. Re-encoding a camera-original photograph runs through `image` and
-# `webp`, and unoptimised those take twenty-two seconds for one 7 MB picture —
-# past the test client's read timeout, which is why the Photograph corpus check
-# could not pass on any machine. Optimising only the dependencies keeps our own
-# code fully debuggable and costs one slower build of libraries that then cache.
+# A debug build optimises only the dependencies the tests run hard, and builds
+# every other dependency and Kamosu's own crate unoptimised (#623).
 #
-# They also carry no debug info. Kamosu's own crate keeps all of its, so a panic
-# in our code still names the file and line; what goes is the ability to step
+# Those few are optimised because unoptimised they are too slow to test with.
+# Re-encoding a camera-original photograph through `image` and `webp` took
+# twenty-two seconds for one 7 MB picture, past the test client's read timeout,
+# so the Photograph corpus check could not pass on any machine. The PDF reader
+# ran into its ten-second limit before its memory cap on the PDF built to swell
+# it. Unoptimised, the HTML parser took thirty seconds over the page nested far
+# past any real one, where optimised it takes four. WebP and resizing are much of
+# a Sample Library build, and SQLite, Argon2 and case folding run on almost
+# every test.
+#
+# Everything else stays unoptimised because optimising it cost more than it
+# saved. With every dependency optimised, the builds in `just check` and `just
+# test` took 24 minutes from an empty cache on four cores; with these alone
+# they take 11, and the warm test run is under 4% slower. Typst alone was over
+# five minutes of processor time, and the old `"*" = { opt-level = 2 }`
+# optimised the macros and build scripts too. A dependency newly found slow in
+# a test joins the list by name, with the crates it hands its work to.
+#
+# Dependencies carry no debug info. Kamosu's own crate keeps all of its, so a
+# panic in our code still names the file and line; what goes is stepping
 # through a dependency's internals in a debugger, which nothing here does. The
 # saving is in linking: every test binary statically links all 635 crates, and
 # their debug info was the bulk of what the linker had to copy.
-[profile.dev.package."*"]
-opt-level = 2
-debug = 0
+[profile.dev.package]
+"*" = { debug = 0 }
+# Photographs: decoding, resizing, colour, and WebP out.
+image = { opt-level = 2 }
+image-webp = { opt-level = 2 }
+png = { opt-level = 2 }
+zune-jpeg = { opt-level = 2 }
+zune-core = { opt-level = 2 }
+fdeflate = { opt-level = 2 }
+miniz_oxide = { opt-level = 2 }
+crc32fast = { opt-level = 2 }
+adler2 = { opt-level = 2 }
+simd-adler32 = { opt-level = 2 }
+moxcms = { opt-level = 2 }
+webp = { opt-level = 2 }
+libwebp-sys = { opt-level = 2 }
+# Inflating and deflating: the PDF reader's streams, Paprika's gzip files,
+# Bundles and Backups. `flate2` hands this work to `zlib-rs`.
+flate2 = { opt-level = 2 }
+zlib-rs = { opt-level = 2 }
+# The PDF reader.
+pdf-extract = { opt-level = 2 }
+lopdf = { opt-level = 2 }
+weezl = { opt-level = 2 }
+encoding_rs = { opt-level = 2 }
+cff-parser = { opt-level = 2 }
+postscript = { opt-level = 2 }
+adobe-cmap-parser = { opt-level = 2 }
+type1-encoding-parser = { opt-level = 2 }
+# Reading a web page: the importer's parse, and the article text read from a
+# page with no recipe data, down a page nested past any real one.
+scraper = { opt-level = 2 }
+html5ever = { opt-level = 2 }
+markup5ever = { opt-level = 2 }
+tendril = { opt-level = 2 }
+string_cache = { opt-level = 2 }
+selectors = { opt-level = 2 }
+cssparser = { opt-level = 2 }
+ego-tree = { opt-level = 2 }
+# Passwords, the database, fingerprints and case folding.
+argon2 = { opt-level = 2 }
+blake2 = { opt-level = 2 }
+sha2 = { opt-level = 2 }
+rusqlite = { opt-level = 2 }
+libsqlite3-sys = { opt-level = 2 }
+caseless = { opt-level = 2 }
+unicode-normalization = { opt-level = 2 }
