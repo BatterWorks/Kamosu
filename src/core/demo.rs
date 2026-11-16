@@ -35,7 +35,7 @@ pub const DEMO_ACCESS_KEY: &str =
 
 /// Where under the data directory a Demo builds its Sample Library, built
 /// again at every start so an upgrade brings its own.
-const SAMPLE_LIBRARY_DIR: &str = "sample-library";
+pub const SAMPLE_LIBRARY_DIR: &str = "sample-library";
 
 /// What an instance keeps of its own when its library is put back: the
 /// ledger, and Meaning Search's terms and index. The index is derived and
@@ -145,6 +145,18 @@ pub fn start_demo(
     public_address: Option<&str>,
 ) -> Result<Arc<Core>, OpError> {
     let built = sample_library::build(&db.data_dir().join(SAMPLE_LIBRARY_DIR))?;
+    start_demo_from(db, built, analytics, public_address)
+}
+
+/// Start a Demo as `start_demo` does, from a Sample Library already built
+/// rather than one built now. The behaviour suite starts its Demos this way,
+/// each from its own copy of one build (#615).
+pub fn start_demo_from(
+    db: Arc<Db>,
+    built: sample_library::Built,
+    analytics: Option<crate::config::Analytics>,
+    public_address: Option<&str>,
+) -> Result<Arc<Core>, OpError> {
     let core = Core::start_as(db, Mode::Demo);
     let _ = core.sample_library.set(built);
     if let Some(analytics) = analytics {

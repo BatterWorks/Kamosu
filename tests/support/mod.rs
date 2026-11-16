@@ -52,9 +52,19 @@ pub fn spawn_demo_in(data_dir: &std::path::Path) -> TestApp {
     spawn_app_within(data_dir, kamosu::admission::Limits::KAMOSU, Mode::Demo)
 }
 
-/// Start a real Kamosu as a Demo the way the binary starts one (#404): its
-/// Sample Library built and poured in before it serves, in a data directory
-/// the caller may have filled first with an ordinary Kamosu.
+/// Start a real Kamosu as a Demo exactly the way the binary starts one (#404):
+/// its Sample Library built at start and poured in before it serves, in a
+/// data directory the caller may have filled first with an ordinary Kamosu.
+#[allow(dead_code)]
+pub fn spawn_sample_demo_built_at_start_in(data_dir: &std::path::Path) -> TestApp {
+    let db = Arc::new(db::Db::open(data_dir).expect("database"));
+    let core = kamosu::core::start_demo(db, None, None).expect("a Demo with its Sample Library");
+    serve_core(core, kamosu::admission::Limits::KAMOSU)
+}
+
+/// Start a real Kamosu as a Demo, as `spawn_sample_demo_built_at_start_in` does,
+/// from its own copy of the one Sample Library this test process builds
+/// (#615). A build takes seconds, and the Demo tests started one each.
 #[allow(dead_code)]
 pub fn spawn_sample_demo_in(data_dir: &std::path::Path) -> TestApp {
     spawn_sample_demo_counting_in(data_dir, None)
@@ -68,8 +78,9 @@ pub fn spawn_sample_demo_counting_in(
     analytics: Option<kamosu::config::Analytics>,
 ) -> TestApp {
     let db = Arc::new(db::Db::open(data_dir).expect("database"));
-    let core =
-        kamosu::core::start_demo(db, analytics, None).expect("a Demo with its Sample Library");
+    let built = copy_of_the_sample_library(data_dir);
+    let core = kamosu::core::start_demo_from(db, built, analytics, None)
+        .expect("a Demo with its Sample Library");
     serve_core(core, kamosu::admission::Limits::KAMOSU)
 }
 
@@ -78,9 +89,41 @@ pub fn spawn_sample_demo_counting_in(
 #[allow(dead_code)]
 pub fn spawn_sample_demo_at(data_dir: &std::path::Path, public_address: &str) -> TestApp {
     let db = Arc::new(db::Db::open(data_dir).expect("database"));
-    let core = kamosu::core::start_demo(db, None, Some(public_address))
+    let built = copy_of_the_sample_library(data_dir);
+    let core = kamosu::core::start_demo_from(db, built, None, Some(public_address))
         .expect("a Demo with its Sample Library");
     serve_core(core, kamosu::admission::Limits::KAMOSU)
+}
+
+/// The one Sample Library this test process builds, copied into
+/// the folder of `data_dir` where a Demo builds its own.
+///
+/// The build sits in the cargo target folder's temporary space under this
+/// process's id, since a test process ends without dropping what a static
+/// holds. A build left by a process no longer running is removed first.
+/// Each Demo pours from its own copy: a pour takes a write lock on the
+/// library it reads, and Demos started side by side would queue on one.
+#[allow(dead_code)]
+fn copy_of_the_sample_library(data_dir: &std::path::Path) -> kamosu::sample_library::Built {
+    static BUILT: std::sync::OnceLock<kamosu::sample_library::Built> = std::sync::OnceLock::new();
+    let built = BUILT.get_or_init(|| {
+        let builds = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("demo-sample-library");
+        for left in std::fs::read_dir(&builds).into_iter().flatten().flatten() {
+            let running = left
+                .file_name()
+                .to_str()
+                .and_then(|pid| pid.parse::<u32>().ok())
+                .is_some_and(|pid| std::path::Path::new("/proc").join(pid.to_string()).exists());
+            if !running {
+                let _ = std::fs::remove_dir_all(left.path());
+            }
+        }
+        kamosu::sample_library::build(&builds.join(std::process::id().to_string()))
+            .expect("the Sample Library builds")
+    });
+    built
+        .copy_to(&data_dir.join(kamosu::core::SAMPLE_LIBRARY_DIR))
+        .expect("a copy of the Sample Library")
 }
 
 /// Start a real Kamosu held to shorter limits than a running instance's, for

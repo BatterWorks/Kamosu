@@ -48695,7 +48695,9 @@ mod a_demos_sample_library {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_demo_starts_with_its_sample_library_dated_before_today() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let app = support::spawn_sample_demo_in(dir.path());
+        // Built at start, as the binary does; the other Demo tests pour from
+        // a copy of one build.
+        let app = support::spawn_sample_demo_built_at_start_in(dir.path());
         let visitor = arrive(&app);
         let person = op(&app, "get_person", &visitor, json!({}));
         assert_eq!(person["name"], json!(kamosu::core::DEMO_VISITOR));

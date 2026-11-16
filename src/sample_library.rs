@@ -162,6 +162,48 @@ impl Built {
     pub fn replays(&self) -> &[Replay] {
         &self.replays
     }
+
+    /// This library copied into `dir`, emptied first, for a Demo to pour from
+    /// as from one it built. Nothing may hold the library open while it is
+    /// copied. A Demo builds its own at every start; the behaviour suite
+    /// builds one and gives each Demo it starts a copy, since a build takes
+    /// seconds (#615).
+    pub fn copy_to(&self, dir: &Path) -> Result<Built, OpError> {
+        if dir.starts_with(&self.dir) {
+            return Err(OpError::bad_request(format!(
+                "{} is inside the Sample Library it would hold a copy of",
+                dir.display()
+            )));
+        }
+        empty_for_building(dir)?;
+        copy_folder(&self.dir, dir)?;
+        Ok(Built {
+            dir: dir.to_path_buf(),
+            replays: self.replays.clone(),
+        })
+    }
+}
+
+/// Copy every file under `from` into `to`, folders and all.
+fn copy_folder(from: &Path, to: &Path) -> Result<(), OpError> {
+    let failed = |e: std::io::Error| {
+        OpError::internal(format!(
+            "cannot copy the Sample Library from {} to {}: {e}",
+            from.display(),
+            to.display()
+        ))
+    };
+    std::fs::create_dir_all(to).map_err(failed)?;
+    for entry in std::fs::read_dir(from).map_err(failed)? {
+        let entry = entry.map_err(failed)?;
+        let target = to.join(entry.file_name());
+        if entry.file_type().map_err(failed)?.is_dir() {
+            copy_folder(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), &target).map_err(failed)?;
+        }
+    }
+    Ok(())
 }
 
 /// Build the Sample Library into `dir`, emptied first: every step of the
