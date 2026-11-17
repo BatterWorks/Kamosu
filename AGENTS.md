@@ -295,6 +295,10 @@ does not.
 program as a Runner, and its agent command there is a short Python stand-in
 that writes a recipe with the Job Key it was handed (#274).
 
+**And `openssl`.** The dev tools' test that their Chrome speaks HTTP/1.1 to a
+server offering HTTP/2 makes a throwaway certificate with it, since Chrome
+speaks HTTP/2 over TLS alone (#640).
+
 **And a Chrome**, the one the dev tools drive (`KAMOSU_DEV_BROWSER` in `.env`,
 or the first on the path). jsdom lays nothing out, so the screen test that a
 long word breaks inside its box hands the drawn page to it to be measured

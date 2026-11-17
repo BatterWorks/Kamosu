@@ -22,10 +22,11 @@
  * movement is switched off and the caret is hidden, each screen is taken only
  * once it has stopped changing, the page is not told of the resize Chrome
  * takes a full-page picture with nor of code the dev server changed, Chrome
- * paints whole tiles, and what the tools themselves do is kept off the
- * screens (`openSettled`, `holdWindowStill`, `holdCodeStill`, `openBrowser`
- * and `leaveNoTrace` in `dev.mjs`, #529). A screen that never stops changing
- * is a fault.
+ * paints whole tiles and speaks HTTP/1.1, so the dev instance's proxy never
+ * drops a font or a read mid-page (#640), and what the tools themselves do is
+ * kept off the screens (`openSettled`, `holdWindowStill`, `holdCodeStill`,
+ * `openBrowser` and `leaveNoTrace` in `dev.mjs`, #529). A screen that never
+ * stops changing is a fault.
  */
 
 import fs from 'node:fs';
