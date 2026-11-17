@@ -437,6 +437,12 @@ export async function holdCodeStill(context) {
  *   reorders Home for the next run. The tools' browser does not tell it:
  *   the shelf follows only what a person opened. A person opening a recipe
  *   between two runs is a real change, and the pictures say so.
+ * - **Home's "never cooked".** The instance shuffles every recipe its reader
+ *   has not cooked and keeps the first twelve, afresh on each read (#151), so
+ *   no two runs drew that shelf alike (#643). The tools' browser gets the
+ *   same recipes the library's own "never cooked" filter finds, by name, cut
+ *   to the length the instance cut its shelf to. A cook's browser still
+ *   shuffles.
  *
  * The routes see every request because `signedInContext` keeps the service
  * worker out: a worker's own requests would pass them by.
@@ -450,6 +456,37 @@ export async function leaveNoTrace(context) {
 		for (const session of answer.result.sessions) {
 			if (session.current) session.last_used_at = session.created_at;
 		}
+		await route.fulfill({ response, json: answer });
+	});
+	await context.route('**/api/op/home_shelves', async (route) => {
+		const response = await route.fetch();
+		const answer = await response.json().catch(() => undefined);
+		const shelf = answer?.ok
+			? answer.result.shelves.find(
+					(/** @type {{ name: string }} */ each) => each.name === 'never_cooked',
+				)
+			: undefined;
+		if (!shelf) return route.fulfill({ response });
+		// The same request, cookie and all, asked of the library's filter.
+		const searchResponse = await route.fetch({
+			url: new URL('/api/op/search_recipes', route.request().url()).href,
+			postData: JSON.stringify({ cooking: ['never_cooked'], mine: true }),
+		});
+		const searched = await searchResponse.json().catch(() => undefined);
+		if (!searched?.ok) {
+			console.warn(
+				`Home's "never cooked" is shown shuffled: the search for it answered ${searchResponse.status()}`,
+			);
+			return route.fulfill({ response });
+		}
+		const byName = new Intl.Collator('en', { sensitivity: 'base' });
+		shelf.recipes = searched.result.recipes
+			.sort(
+				(/** @type {{ title: string, lineage_id: string }} */ a, /** @type {typeof a} */ b) =>
+					byName.compare(a.title, b.title) || (a.lineage_id < b.lineage_id ? -1 : 1),
+			)
+			.slice(0, shelf.recipes.length)
+			.map((/** @type {Record<string, unknown>} */ recipe) => ({ ...recipe, matched: null }));
 		await route.fulfill({ response, json: answer });
 	});
 	await context.route('**/api/op/note_recipe_opened', (route) =>
