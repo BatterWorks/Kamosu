@@ -771,6 +771,35 @@ describe('a screen measured', () => {
 		expect(gaps.smallest).toEqual({ px: 4, between: ['Left', 'Right'] });
 	});
 
+	it('walks a long list’s tapped areas in a few seconds (#638)', async () => {
+		// Chrome hit-tests the whole page for every point the walk asks, and a
+		// list of boxes that each clip what they hold made every point dear:
+		// the recipe list took 20 seconds, and 150 rows like these over 15.
+		// They now take under two, so the bound leaves room for a busy machine.
+		const row = (/** @type {number} */ i) =>
+			`<li style="position: relative; overflow: hidden; height: 96px"><a href="/r/${i}" style="display: flex; height: 96px; position: relative; overflow: hidden"><span style="position: absolute; inset: 0; overflow: hidden"><span style="display: block; width: 80px; height: 80px; background: #ccc"></span></span><span style="margin-left: 96px">Recipe ${i}</span></a></li>`;
+		const list = `<body style="margin: 0"><ul style="margin: 0; padding: 0; list-style: none">${Array.from({ length: 150 }, (_, i) => row(i)).join('')}</ul></body>`;
+		const started = Date.now();
+		const { tap, gaps } = await measure(list, { probe: true, size: [402, 874] });
+		expect(Date.now() - started).toBeLessThan(6000);
+		expect(tap.small).toEqual([]);
+		expect(tap.covered).toEqual([]);
+		expect(gaps.overlapping).toEqual([]);
+	});
+
+	it('names what covers a control by all its words, those lying far down the page too', async () => {
+		const { tap } = await measure(
+			`<body style="margin: 0; height: 5000px">
+			<button style="position: absolute; top: 100px; left: 100px; width: 60px; height: 60px">Hidden</button>
+			<div style="position: absolute; top: 0; left: 0; width: 300px; height: 300px">
+				<p style="position: absolute; top: 4000px; margin: 0">Far</p><p style="margin: 0">Near</p>
+			</div>
+		</body>`,
+			{ probe: true },
+		);
+		expect(tap.covered).toEqual([{ label: 'Hidden', by: 'Far Near' }]);
+	});
+
 	it('at 360, names text cut off, boxes drawn over each other and a sideways scroll', async () => {
 		const result = await measure(
 			`<body style="margin: 0 16px">
