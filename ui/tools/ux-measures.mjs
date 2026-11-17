@@ -518,13 +518,61 @@ export function measureInPage({ values, accents, probe, breakage = false }) {
 			(e) => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1,
 		);
 		const kept = scrollers.map((e) => [e.scrollLeft, e.scrollTop]);
+		const putShelvesBack = () =>
+			scrollers.forEach((e, i) => {
+				e.scrollLeft = kept[i][0];
+				e.scrollTop = kept[i][1];
+			});
 		// A point answers one element, so where two tapped areas overlap the
 		// walk gives the shared strip to whichever lies on top, and no overlap
 		// shows. Each control is walked a second time with every other control
 		// set aside, which gives the whole area it claims: Gaps compares those.
 		const aside = document.createElement('style');
 		aside.textContent =
-			'body[data-ux-alone] [data-ux-control]:not([data-ux-probing]), body[data-ux-alone] [data-ux-control]:not([data-ux-probing]) * { pointer-events: none !important; }';
+			'body[data-ux-alone] [data-ux-control]:not([data-ux-probing]), body[data-ux-alone] [data-ux-control]:not([data-ux-probing]) * { pointer-events: none !important; } [data-ux-far] { visibility: hidden !important; }';
+		// Chrome hit-tests the whole page for every point asked: on the
+		// recipe list, 24,000px tall, a point cost a quarter of a millisecond
+		// and the walk 20 seconds a screen (#638). Whatever lies, with all it
+		// holds, more than a window's width or height outside the window is
+		// under no point the walk asks, so it is hidden while the walks run,
+		// which makes each point about ten times cheaper. Finding it reads
+		// every box, so it is found again only once the window has moved half
+		// a window, or a shelf has scrolled, since it was last found: what
+		// was hidden is then still half a window away. It is all shown again
+		// before any text is read, since hidden text is no part of `innerText`.
+		/** @type {Element[]} */
+		let farAside = [];
+		/** @type {{ x: number, y: number, shelves: string } | null} */
+		let farFoundAt = null;
+		const setFarAside = () => {
+			const now = {
+				x: scrollX,
+				y: scrollY,
+				shelves: scrollers.map((e) => `${e.scrollLeft} ${e.scrollTop}`).join(),
+			};
+			if (
+				farFoundAt &&
+				Math.abs(now.x - farFoundAt.x) <= W / 2 &&
+				Math.abs(now.y - farFoundAt.y) <= H / 2 &&
+				now.shelves === farFoundAt.shelves
+			)
+				return;
+			farFoundAt = now;
+			/** @type {Set<Element>} */
+			const far = new Set();
+			for (let i = everything.length - 1; i >= 0; i--) {
+				const el = everything[i];
+				const r = el.getBoundingClientRect();
+				const out = r.bottom < -H || r.top > 2 * H || r.right < -W || r.left > 2 * W;
+				if (out && [...el.children].every((child) => far.has(child))) far.add(el);
+			}
+			const roots = new Set(
+				[...far].filter((el) => !el.parentElement || !far.has(el.parentElement)),
+			);
+			for (const el of farAside) if (!roots.has(el)) el.removeAttribute('data-ux-far');
+			for (const el of roots) el.setAttribute('data-ux-far', '');
+			farAside = [...roots];
+		};
 		document.head.append(aside);
 		for (const c of controls) c.setAttribute('data-ux-control', '');
 		const insideSentence = (/** @type {Element} */ c) => {
@@ -534,55 +582,106 @@ export function measureInPage({ values, accents, probe, breakage = false }) {
 			const own = norm(/** @type {HTMLElement} */ (c).innerText ?? '');
 			return letter.test(all.replace(own, ''));
 		};
-		for (const c of controls) {
-			const bar = inBar(c);
+		/** Whether a finger at a point lands on the control. */
+		const isOn = (/** @type {Element} */ c, /** @type {Element | null} */ e) =>
+			!!e && (e === c || c.contains(e));
+		// The screen's edge ends a tapped area as surely as a finger's
+		// reach does, so it is no reason to call the area cut short.
+		const onScreen = (/** @type {number} */ x, /** @type {number} */ y) =>
+			x >= 0 && y >= 0 && x < W && y < H;
+		/**
+		 * Bring a control to the middle of the room the bars leave, and say
+		 * where its middle is. Run over the controls in the same order from
+		 * the same start, it leaves the page as it left it the time before.
+		 * @param {Element} c
+		 */
+		const bringUp = (c) => {
 			c.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'instant' });
-			if (bar) scrollTo({ top: 0, behavior: 'instant' });
+			if (inBar(c)) scrollTo({ top: 0, behavior: 'instant' });
 			else {
 				const r = c.getBoundingClientRect();
 				scrollBy({ top: r.top + r.height / 2 - (topLimit + bottomLimit) / 2, behavior: 'instant' });
 			}
+			setFarAside();
 			const r = c.getBoundingClientRect();
-			const cx = Math.floor(r.left + r.width / 2);
-			const cy = Math.floor(r.top + r.height / 2);
-			const hit = (/** @type {number} */ x, /** @type {number} */ y) => {
-				const e = document.elementFromPoint(x, y);
-				return !!e && (e === c || c.contains(e));
-			};
-			if (!hit(cx, cy)) {
-				const e = document.elementFromPoint(cx, cy);
-				covered.push({ label: label(c), by: e ? label(e) : 'nothing' });
-				continue;
-			}
+			return { r, cx: Math.floor(r.left + r.width / 2), cy: Math.floor(r.top + r.height / 2) };
+		};
+		/** How far a walk jumps while it stays on the control, in pixels. */
+		const WALK_STRIDE = 8;
+		/**
+		 * How far a finger can move from a control's middle in each of four
+		 * directions and still tap it, and whether a bar's control stopped
+		 * it. A stride at a time while the far point is still the control's,
+		 * then a pixel at a time across the last stride, where the edge lies
+		 * (#638). A point jumped over is taken to be the control's when the
+		 * points either side of it are: something narrower than a stride lying
+		 * across the middle of a control is all this can miss.
+		 * @param {Element} c
+		 * @param {number} cx
+		 * @param {number} cy
+		 */
+		const walkFrom = (c, cx, cy) => {
+			const bar = inBar(c);
 			let short = false;
-			let alone = false;
+			const hit = (/** @type {number} */ x, /** @type {number} */ y) =>
+				isOn(c, document.elementFromPoint(x, y));
 			const walk = (/** @type {number} */ dx, /** @type {number} */ dy) => {
 				let d = 0;
 				for (;;) {
-					const x = cx + dx * (d + 1);
-					const y = cy + dy * (d + 1);
-					// The screen's edge ends a tapped area as surely as a finger's
-					// reach does, so it is no reason to call the area cut short.
-					if (x < 0 || y < 0 || x >= W || y >= H) return d;
-					if (!hit(x, y)) {
-						const e = document.elementFromPoint(x, y);
-						if (!bar && e && inBar(e) && !alone) short = true;
-						return d;
+					const far = d + WALK_STRIDE;
+					if (onScreen(cx + dx * far, cy + dy * far) && hit(cx + dx * far, cy + dy * far)) {
+						d = far;
+						continue;
 					}
-					d++;
+					for (;;) {
+						const x = cx + dx * (d + 1);
+						const y = cy + dy * (d + 1);
+						if (!onScreen(x, y)) return d;
+						if (!hit(x, y)) {
+							const e = document.elementFromPoint(x, y);
+							if (!bar && e && inBar(e)) short = true;
+							return d;
+						}
+						d++;
+					}
 				}
 			};
-			const [left, right, up, down] = [walk(-1, 0), walk(1, 0), walk(0, -1), walk(0, 1)];
-			const width = left + right + 1;
-			const height = up + down + 1;
-			alone = true;
+			const reach = [walk(-1, 0), walk(1, 0), walk(0, -1), walk(0, 1)];
+			return { reach, short };
+		};
+		const startedAt = [scrollX, scrollY];
+		/** @type {Map<Element, { r: DOMRect, width: number, height: number, short: boolean }>} */
+		const walked = new Map();
+		/** @type {{ c: Element, by: Element | null }[]} */
+		const coveredBy = [];
+		for (const c of controls) {
+			const { r, cx, cy } = bringUp(c);
+			const centre = document.elementFromPoint(cx, cy);
+			if (!isOn(c, centre)) {
+				coveredBy.push({ c, by: centre });
+				continue;
+			}
+			const { reach, short } = walkFrom(c, cx, cy);
+			const [left, right, up, down] = reach;
+			walked.set(c, { r, width: left + right + 1, height: up + down + 1, short });
+		}
+		// The second walk, each control alone, from the same start, so each
+		// control comes up where it did the first time. The page is set to
+		// "alone" once for all of them, since every change to the page's
+		// own marks has Chrome work out the whole page's styles again.
+		putShelvesBack();
+		scrollTo({ left: startedAt[0], top: startedAt[1], behavior: 'instant' });
+		document.body.setAttribute('data-ux-alone', '');
+		for (const c of controls) {
+			const { cx, cy } = bringUp(c);
+			const first = walked.get(c);
+			if (!first) continue;
 			c.setAttribute('data-ux-probing', '');
-			document.body.setAttribute('data-ux-alone', '');
-			const claimed = [walk(-1, 0), walk(1, 0), walk(0, -1), walk(0, 1)];
-			document.body.removeAttribute('data-ux-alone');
+			const claimed = walkFrom(c, cx, cy).reach;
 			c.removeAttribute('data-ux-probing');
 			// The area in the page's own layout, with the window at the top and
 			// every shelf where it started, so two controls can be compared.
+			const { r } = first;
 			const r0 = /** @type {DOMRect} */ (drawn.get(c));
 			tapped.push({
 				el: c,
@@ -594,16 +693,19 @@ export function measureInPage({ values, accents, probe, breakage = false }) {
 					r0.bottom + (cy + claimed[3] + 1 - r.bottom),
 				],
 			});
+		}
+		document.body.removeAttribute('data-ux-alone');
+		for (const el of farAside) el.removeAttribute('data-ux-far');
+		for (const { c, by } of coveredBy)
+			covered.push({ label: label(c), by: by ? label(by) : 'nothing' });
+		for (const [c, { width, height, short }] of walked) {
 			if (insideSentence(c)) inSentence.push(label(c));
 			else if (width < 48 || height < 48) {
 				if (short) cutShort.push(label(c));
 				else small.push({ label: label(c), width, height });
 			}
 		}
-		scrollers.forEach((e, i) => {
-			e.scrollLeft = kept[i][0];
-			e.scrollTop = kept[i][1];
-		});
+		putShelvesBack();
 		aside.remove();
 		for (const c of controls) c.removeAttribute('data-ux-control');
 	}
