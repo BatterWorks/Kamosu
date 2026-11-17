@@ -260,20 +260,36 @@ export function chromePath(env, searchPath = process.env.PATH ?? '') {
 }
 
 /**
- * Start the browser. `webkit` is Safari's engine, which Playwright downloads
- * itself; anything else is the Chrome already on this machine.
- * @param {{ webkit?: boolean }} [options]
+ * What the tools start Chrome with, beyond Playwright's own.
  */
-export async function openBrowser({ webkit = false } = {}) {
+export const CHROME_ARGS = [
+	// Chrome paints part of a tile again where it can, and the edges it
+	// smooths came out a shade apart from one run to the next: 117 pixels
+	// at the corners of buttons on Settings (#529). Painting whole tiles
+	// gave the same picture 8 times in 8 where three versions came before.
+	'--disable-partial-raster',
+	// The proxy in front of the dev instance closes an HTTP/2 connection
+	// after its 1000th request, and vite serves every module on its own, so
+	// a run reaches 1000 a few pages in (#640). A request Chrome had just put
+	// on that connection failed with net::ERR_FAILED and was not sent again:
+	// a page lost its fonts, its logo or its first reads, at a different size
+	// each run. Over HTTP/1.1 the proxy says on the last answer that the
+	// connection ends, so nothing is ever sent on it.
+	'--disable-http2',
+];
+
+/**
+ * Start the browser. `webkit` is Safari's engine, which Playwright downloads
+ * itself; anything else is the Chrome already on this machine, the one `env`
+ * names, read from `.env` unless a test hands it another.
+ * @param {{ webkit?: boolean, env?: Record<string, string> }} [options]
+ */
+export async function openBrowser({ webkit = false, env } = {}) {
 	const playwright = await import('playwright');
 	if (!webkit) {
 		return playwright.chromium.launch({
-			executablePath: chromePath(devEnv()),
-			// Chrome paints part of a tile again where it can, and the edges it
-			// smooths came out a shade apart from one run to the next: 117 pixels
-			// at the corners of buttons on Settings (#529). Painting whole tiles
-			// gave the same picture 8 times in 8 where three versions came before.
-			args: ['--disable-partial-raster'],
+			executablePath: chromePath(env ?? devEnv()),
+			args: CHROME_ARGS,
 		});
 	}
 	try {

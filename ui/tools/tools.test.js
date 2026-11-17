@@ -6,9 +6,11 @@
  * through the `just` recipes.
  */
 
+import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
+import http2 from 'node:http2';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -22,6 +24,7 @@ import {
 	holdCodeStill,
 	holdWindowStill,
 	leaveNoTrace,
+	openBrowser,
 	openSettled,
 	readEnv,
 	sessionFile,
@@ -101,6 +104,45 @@ describe('the browser', () => {
 
 	it('is asked for by name when there is none', () => {
 		expect(() => chromePath({}, '/nowhere')).toThrow(/KAMOSU_DEV_BROWSER/);
+	});
+
+	// The dev instance's proxy ends an HTTP/2 connection after 1000 requests,
+	// and a request Chrome had just put on it failed (#640).
+	it('speaks HTTP/1.1 to a server that offers HTTP/2', async () => {
+		const dir = fill('tls', {});
+		const key = path.join(dir, 'key.pem');
+		const cert = path.join(dir, 'cert.pem');
+		execFileSync(
+			'openssl',
+			[
+				...['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1'],
+				...['-nodes', '-days', '1', '-subj', '/CN=localhost', '-keyout', key, '-out', cert],
+			],
+			{ stdio: 'ignore' },
+		);
+		/** @type {string[]} */
+		const versions = [];
+		const site = http2.createSecureServer(
+			{ key: fs.readFileSync(key), cert: fs.readFileSync(cert), allowHTTP1: true },
+			(request, response) => {
+				versions.push(request.httpVersion);
+				response.end('<p>here</p>');
+			},
+		);
+		await new Promise((done) => site.listen(0, '127.0.0.1', () => done(undefined)));
+		const env = fs.existsSync(path.join(ROOT, '.env')) ? devEnv() : {};
+		const browser = await openBrowser({ env });
+		try {
+			const context = await browser.newContext({ ignoreHTTPSErrors: true });
+			const page = await context.newPage();
+			const { port } = /** @type {import('node:net').AddressInfo} */ (site.address());
+			await page.goto(`https://127.0.0.1:${port}/`);
+			// Chrome may ask for /favicon.ico as well, over the same version.
+			expect([...new Set(versions)]).toEqual(['1.1']);
+		} finally {
+			await browser.close();
+			site.close();
+		}
 	});
 });
 
