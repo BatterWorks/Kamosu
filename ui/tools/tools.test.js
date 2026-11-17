@@ -433,7 +433,26 @@ describe('a screen photographed', () => {
 				document.getElementById('out').textContent = await answer.text();
 			})();
 		</script>`,
+		// Reads Home twice, as two runs of the tools do.
+		'/home': `<pre id="out"></pre><script>
+			(async () => {
+				const read = async () => (await fetch('/api/op/home_shelves', { method: 'POST', body: '{}' })).json();
+				document.getElementById('out').textContent = JSON.stringify([await read(), await read()]);
+			})();
+		</script>`,
 	};
+
+	/** @param {string} title */
+	const card = (title) => ({ lineage_id: title.toLowerCase(), title });
+	/** Home's *never cooked*, cut to two of three and shuffled anew on each read. */
+	const SHUFFLES = [
+		['Crumble', 'Aioli'],
+		['Brioche', 'Crumble'],
+	];
+	let homeReads = 0;
+	/** What search_recipes was asked, by the tools' route. */
+	/** @type {unknown[]} */
+	const searched = [];
 
 	beforeAll(async () => {
 		const env = fs.existsSync(path.join(ROOT, '.env')) ? devEnv() : {};
@@ -451,6 +470,33 @@ describe('a screen photographed', () => {
 					setTimeout(() => response.end('Arrived'), 400);
 				} else if (name === 'slower') {
 					setTimeout(() => response.end('Arrived'), 2500);
+				} else if (name === 'home_shelves') {
+					const never = SHUFFLES[homeReads++ % SHUFFLES.length];
+					json({
+						ok: true,
+						result: {
+							quick_tonight_minutes: 30,
+							shelves: [
+								{ name: 'recently_added', recipes: [card('Crumble'), card('Aioli')] },
+								{ name: 'never_cooked', recipes: never.map(card) },
+							],
+						},
+					});
+				} else if (name === 'search_recipes') {
+					let body = '';
+					request.on('data', (chunk) => (body += chunk));
+					request.on('end', () => {
+						searched.push(JSON.parse(body));
+						// "aioli" in lower case: the order is by name whatever the case.
+						json({
+							ok: true,
+							result: {
+								closest: false,
+								query: null,
+								recipes: ['Crumble', 'aioli', 'Brioche'].map(card),
+							},
+						});
+					});
 				} else if (name === 'list_sessions') {
 					json({
 						ok: true,
@@ -530,6 +576,7 @@ describe('a screen photographed', () => {
 
 	beforeEach(() => {
 		asked.length = 0;
+		searched.length = 0;
 	});
 
 	it('waits for a request the page makes after the first quiet moment', async () => {
@@ -638,6 +685,28 @@ describe('a screen photographed', () => {
 		expect(sessions[0].last_used_at).toBe('2026-10-15T08:00:00Z');
 		expect(sessions[1].last_used_at).toBe('2026-11-08T19:00:00Z');
 		expect(asked).toEqual(['list_sessions']);
+		await context.close();
+	});
+
+	it('holds Home’s never cooked still across two shuffles, and leaves the other shelves be', async () => {
+		const context = await browser.newContext();
+		await leaveNoTrace(context);
+		const page = await context.newPage();
+		await openSettled(page, `${origin}/home`);
+		const [first, second] = JSON.parse((await page.textContent('#out')) ?? '');
+		/** @param {any} answer @param {string} name */
+		const titles = (answer, name) =>
+			answer.result.shelves
+				.find((/** @type {any} */ shelf) => shelf.name === name)
+				.recipes.map((/** @type {any} */ recipe) => recipe.title);
+		// Every recipe never cooked, by name, cut to the length the instance cut it to.
+		expect(titles(first, 'never_cooked')).toEqual(['aioli', 'Brioche']);
+		expect(titles(second, 'never_cooked')).toEqual(['aioli', 'Brioche']);
+		expect(titles(first, 'recently_added')).toEqual(['Crumble', 'Aioli']);
+		expect(searched).toEqual([
+			{ cooking: ['never_cooked'], mine: true },
+			{ cooking: ['never_cooked'], mine: true },
+		]);
 		await context.close();
 	});
 });
