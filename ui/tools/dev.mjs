@@ -524,13 +524,37 @@ export async function openSettled(page, url, { limit = SETTLE_LIMIT_MS, quiet = 
 	}
 	const open = new Set();
 	let lastRequest = Date.now();
+	/**
+	 * Where the page on its way to replace the one shown is, without its
+	 * fragment, or nothing when none is.
+	 */
+	let coming = '';
+	/** @param {string} url */
+	const unfragmented = (url) => url.split('#')[0];
 	/** @param {import('playwright').Request} request */
 	const began = (request) => {
 		// Playwright never says how a request the page left behind ended:
-		// once the page loads anew, what the old one asked for is forgotten.
-		if (request.isNavigationRequest() && request.frame() === page.mainFrame()) open.clear();
+		// once the page loads anew, what the old one asked for is forgotten,
+		// here and again in `replaced`.
+		if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+			open.clear();
+			coming = unfragmented(request.url());
+		}
 		open.add(request);
 		lastRequest = Date.now();
+	};
+	// The page shown goes on running until the next one replaces it, and
+	// what it asks for in that time is forgotten too: the recipe list
+	// preloaded a recipe's code as the cooking screen came in, and the wait
+	// held on to it for the whole limit (#635). The new page asks for
+	// nothing before it is in, so whatever is open then is the old one's.
+	// Only the page that was asked for replaces it: a screen changing its own
+	// address keeps its requests, after a load that never came in too.
+	/** @param {import('playwright').Frame} frame */
+	const replaced = (frame) => {
+		if (frame !== page.mainFrame() || !coming || unfragmented(frame.url()) !== coming) return;
+		coming = '';
+		open.clear();
 	};
 	/** @param {import('playwright').Request} request */
 	const ended = (request) => {
@@ -540,6 +564,7 @@ export async function openSettled(page, url, { limit = SETTLE_LIMIT_MS, quiet = 
 	page.on('request', began);
 	page.on('requestfinished', ended);
 	page.on('requestfailed', ended);
+	page.on('framenavigated', replaced);
 	try {
 		const deadline = Date.now() + limit;
 		const { origin } = new URL(url);
@@ -610,6 +635,7 @@ export async function openSettled(page, url, { limit = SETTLE_LIMIT_MS, quiet = 
 		page.off('request', began);
 		page.off('requestfinished', ended);
 		page.off('requestfailed', ended);
+		page.off('framenavigated', replaced);
 	}
 }
 
