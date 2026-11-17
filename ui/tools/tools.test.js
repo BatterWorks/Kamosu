@@ -308,6 +308,9 @@ describe('a screen photographed', () => {
 	/** The stand-in's WebSockets, ended with it. */
 	/** @type {import('node:stream').Duplex[]} */
 	const sockets = [];
+	/** The answers the stand-in never gives, ended with it. */
+	/** @type {import('node:http').ServerResponse[]} */
+	const held = [];
 	let origin = '';
 	/** Every Operation the page asked the stand-in instance for. */
 	/** @type {string[]} */
@@ -350,6 +353,33 @@ describe('a screen photographed', () => {
 			socket.onopen = () => socket.send('ping');
 			socket.onmessage = (event) => { document.getElementById('heard').textContent += JSON.parse(event.data).type + ' '; };
 		</script>`,
+		// Asks for more code while the next page is on its way, as the recipe
+		// list preloaded a recipe's page as the cooking screen replaced it
+		// (#635). The answer never comes, and once the next page is in,
+		// nothing says how the request ended.
+		'/leaves-behind': `<p>leaving</p><script>
+			addEventListener('beforeunload', () => setTimeout(() => {
+				const link = document.createElement('link');
+				link.rel = 'modulepreload';
+				link.href = '/never.js';
+				document.head.append(link);
+			}, 100));
+		</script>`,
+		// Starts loading a page that never comes, then changes its own address
+		// while a slow answer is on its way, which is still the screen's to
+		// wait for.
+		'/stays': `<p id="pane">Loading</p><script>
+			setTimeout(() => {
+				location.href = '/empty';
+				setTimeout(async () => {
+					const answer = fetch('/api/op/slower', { method: 'POST' });
+					history.pushState(null, '', '/stays-on');
+					document.getElementById('pane').textContent = await (await answer).text();
+				}, 300);
+			}, 100);
+		</script>`,
+		// Answered late, so the page before it has time to ask for more.
+		'/arrives-late': '<p>arrived</p>',
 		'/tall': `<div style="height: 5000px">tall</div><script>
 			window.heard = [];
 			addEventListener('resize', () => window.heard.push(innerWidth + 'x' + innerHeight));
@@ -377,6 +407,8 @@ describe('a screen photographed', () => {
 				};
 				if (name === 'slow') {
 					setTimeout(() => response.end('Arrived'), 400);
+				} else if (name === 'slower') {
+					setTimeout(() => response.end('Arrived'), 2500);
 				} else if (name === 'list_sessions') {
 					json({
 						ok: true,
@@ -407,6 +439,10 @@ describe('a screen photographed', () => {
 				response.end();
 				return;
 			}
+			if (url === '/never.js') {
+				held.push(response);
+				return;
+			}
 			if (url === '/slow.svg') {
 				// Held long enough that a look at the page is waiting on it when
 				// the page loads again.
@@ -415,6 +451,10 @@ describe('a screen photographed', () => {
 				return;
 			}
 			response.setHeader('content-type', 'text/html');
+			if (url === '/arrives-late') {
+				setTimeout(() => response.end(PAGES[url]), 400);
+				return;
+			}
 			response.end(PAGES[/** @type {keyof typeof PAGES} */ (url)] ?? '');
 		});
 		// A WebSocket written out by hand, as far as a test needs: the
@@ -442,6 +482,7 @@ describe('a screen photographed', () => {
 	afterAll(async () => {
 		await browser?.close();
 		for (const socket of sockets) socket.destroy();
+		for (const response of held) response.destroy();
 		await new Promise((done) => site?.close(done));
 	});
 
@@ -477,6 +518,26 @@ describe('a screen photographed', () => {
 		expect(await openSettled(page, `${origin}/sent-back`, { limit: 8000 })).toBeUndefined();
 		expect(new URL(page.url()).pathname).toBe('/sent-back');
 		expect(await page.textContent('#where')).toBe('here');
+		await page.close();
+	});
+
+	it('is not held by what the page before asked for as it left', async () => {
+		// Routed as the tools' own contexts are, which changes how Chrome
+		// reports each request to Playwright.
+		const context = await browser.newContext();
+		await leaveNoTrace(context);
+		const page = await context.newPage();
+		const before = held.length;
+		await openSettled(page, `${origin}/leaves-behind`);
+		expect(await openSettled(page, `${origin}/arrives-late`, { limit: 5000 })).toBeUndefined();
+		expect(held.length).toBeGreaterThan(before);
+		await context.close();
+	});
+
+	it('waits for its own request after a page that never came', async () => {
+		const page = await browser.newPage();
+		expect(await openSettled(page, `${origin}/stays`, { limit: 8000 })).toBeUndefined();
+		expect(await page.textContent('#pane')).toBe('Arrived');
 		await page.close();
 	});
 
