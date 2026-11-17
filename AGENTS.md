@@ -238,8 +238,16 @@ just screens <folder> <path>…     # a whole-page picture of each path at every
 just screens-same <before> <after>   # names the pictures that differ, and fails if any do
 just proto-new <issue>-<slug> <path>…   # .dev/prototypes/<issue>-<slug>/: the real screens as static pages
 just proto-serve <name> <port>    # serve .dev/prototypes/<name>/ to the LAN, caching off
+just ux-measure <folder> [--everyday]   # the UX audit's counts and pictures of every screen, on throwaway instances
 ```
 
+- **`just ux-measure` never measures the dev instance** (#629). Opening the
+  cooking screen starts a cooking and the share screen makes a Share Link, so
+  it copies the dev library into a throwaway instance on a spare port, starts a
+  second one empty for the empty screens and the pages a secret link opens, and
+  removes both. It counts the measures of
+  `docs/research/ux-reading-crowding-and-finding.md`, section 3, all but Depth,
+  which the walkthrough counts by hand. The table and pictures stay in `.dev/`.
 - **The sizes are written once**, in `ui/tools/sizes.mjs`. A script that needs a
   screen size imports it from there.
 - **"Is the phone unchanged?" is two sets of pictures.** Run `just screens` into

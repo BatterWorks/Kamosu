@@ -28,3 +28,20 @@ export const SIZES = {
  * width of many Android phones, where the tab bar has the least room (#600).
  */
 export const NARROWEST_PHONE = [360, 760];
+
+/**
+ * The sizes that stand for a screen with a mouse rather than a finger. Every
+ * other one is a phone or a tablet, which `just ux-measure` opens as a touch
+ * screen (#629). An iPad is wide and touch (#223).
+ */
+export const MOUSE_SIZES = ['macbook', 'monitor'];
+
+/**
+ * The two phones the UX audit judges comfort at (#627, decision 3), named by
+ * their widths: an iPhone 17 and a Pixel 10. A list of their own, so `just
+ * screens` keeps photographing the nine above.
+ */
+export const AUDIT_PHONES = {
+	'phone-402': [402, 874],
+	'phone-412': [412, 924],
+};

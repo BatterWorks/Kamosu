@@ -128,7 +128,7 @@ function measure(page) {
  * @param {string} size
  * @returns {Promise<{ files: string[], height: number }>}
  */
-async function photograph(page, out, route, size) {
+export async function photograph(page, out, route, size) {
 	const { width, height, ratio } = await measure(page);
 	// A clip is given in CSS pixels, the limit in the screen's.
 	const limit = Math.floor(PICTURE_LIMIT / ratio);

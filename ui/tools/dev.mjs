@@ -84,6 +84,23 @@ export function devOrigin(env = devEnv()) {
 }
 
 /**
+ * The titles of the cards that belong to the browser a tool drives and not
+ * to the screen: "your library isn't on this phone yet" and its kin, in one
+ * Language. They are found by their titles, read from the message file so a
+ * reworded card is still found. `just proto-new` strips them from a capture,
+ * and `just ux-measure` hides them before it counts (#629).
+ * @param {string} [locale]
+ */
+export function browserCardTitles(locale = 'en') {
+	const messages = JSON.parse(
+		fs.readFileSync(path.join(ROOT, 'ui', 'messages', `${locale}.json`), 'utf8'),
+	);
+	return Object.entries(messages)
+		.filter(([key]) => /^offline_(\w+_)?title(_\w+)?$/.test(key))
+		.map(([, text]) => String(text));
+}
+
+/**
  * The cookie file of the Session a label names.
  * @param {string} label
  */
@@ -280,10 +297,47 @@ export async function openBrowser({ webkit = false } = {}) {
  * @param {string} secret
  * @param {number[]} size
  * @param {string} [locale]
+ * @param {{ touch?: boolean }} [options] a touch screen, as `toolContext` takes it
  */
-export async function signedInContext(browser, origin, secret, [width, height], locale = 'en') {
+export async function signedInContext(browser, origin, secret, size, locale = 'en', options = {}) {
+	const context = await toolContext(browser, size, locale, options);
+	await context.addCookies([
+		{
+			// `__Host-` takes a cookie for this host alone, with no Domain, so it
+			// is given by its address rather than by a domain and a path (#368).
+			// Chrome refuses a Secure cookie given for http://localhost, but
+			// sends one given for its https form there, since it holds localhost
+			// safe: so `just ux-measure` signs in to an instance on plain HTTP.
+			name: '__Host-kamosu_session',
+			value: secret,
+			url: `${new URL(origin).origin.replace(/^http:\/\/localhost\b/, 'https://localhost')}/`,
+			httpOnly: true,
+			secure: true,
+			sameSite: 'Lax',
+		},
+	]);
+	return context;
+}
+
+/**
+ * A browser context of one size as every tool opens one, signed in to
+ * nothing: its interface in `locale`, the service worker kept out, and what
+ * the tools do held off the screen (`holdWindowStill`, `holdCodeStill`,
+ * `leaveNoTrace`). `just ux-measure` opens the pages a secret link leads to
+ * in one, as the stranger holding the link does (#629).
+ *
+ * With `touch`, the window is a touch screen with no mouse, as a phone or an
+ * iPad is, so a screen draws what it draws there: the `(hover: hover)` gate
+ * hides what only a pointer sees (#223).
+ * @param {import('playwright').Browser} browser
+ * @param {number[]} size
+ * @param {string} [locale]
+ * @param {{ touch?: boolean }} [options]
+ */
+export async function toolContext(browser, [width, height], locale = 'en', { touch = false } = {}) {
 	const context = await browser.newContext({
 		viewport: { width, height },
+		...(touch ? { hasTouch: true, isMobile: true } : {}),
 		serviceWorkers: 'block',
 		reducedMotion: 'reduce',
 	});
@@ -291,18 +345,6 @@ export async function signedInContext(browser, origin, secret, [width, height], 
 	await holdWindowStill(context);
 	await holdCodeStill(context);
 	await leaveNoTrace(context);
-	await context.addCookies([
-		{
-			// `__Host-` takes a cookie for this host alone, with no Domain, so it
-			// is given by its address rather than by a domain and a path (#368).
-			name: '__Host-kamosu_session',
-			value: secret,
-			url: `${new URL(origin).origin}/`,
-			httpOnly: true,
-			secure: true,
-			sameSite: 'Lax',
-		},
-	]);
 	return context;
 }
 
@@ -458,10 +500,12 @@ const watching = new WeakSet();
  * depending on which was quicker that time.
  * @param {import('playwright').Page} page
  * @param {string} url
- * @param {{ limit?: number }} [options] how long to wait, in ms; a test waits less
+ * @param {{ limit?: number, quiet?: number }} [options] how long to wait, in ms, a test
+ *   waiting less; and how long the screen must be still, `just ux-measure` asking for
+ *   the research note's two seconds (#629)
  * @returns {Promise<string | undefined>} what was still changing, or nothing once settled
  */
-export async function openSettled(page, url, { limit = SETTLE_LIMIT_MS } = {}) {
+export async function openSettled(page, url, { limit = SETTLE_LIMIT_MS, quiet = QUIET_MS } = {}) {
 	if (!watching.has(page)) {
 		watching.add(page);
 		// Before the page's own scripts, so the first change they make counts.
@@ -553,8 +597,8 @@ export async function openSettled(page, url, { limit = SETTLE_LIMIT_MS } = {}) {
 			const reasons = [
 				open.size > 0 &&
 					`waiting on ${[...new Set([...open].map((request) => request.url().slice(origin.length)))].join(', ')}`,
-				open.size === 0 && sinceRequest < QUIET_MS && 'a request just ended',
-				look.sinceChange < QUIET_MS && 'the page just changed',
+				open.size === 0 && sinceRequest < quiet && 'a request just ended',
+				look.sinceChange < quiet && 'the page just changed',
 				look.fonts !== 'loaded' && 'a font is loading',
 				!look.drawn && 'a picture is loading',
 			].filter(Boolean);

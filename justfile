@@ -320,6 +320,21 @@ proto-new name +$paths:
 proto-serve folder port:
     @node ui/tools/proto-serve.mjs "{{folder}}" "{{port}}"
 
+# Count what each screen holds at the UX audit's sizes and in every Language,
+# photograph it in English and French, and write measures.csv, details.json and
+# pictures/ into <folder> (#629). It never touches the dev instance: it copies
+# the dev library into a throwaway instance of the debug binary, starts a second
+# one empty, measures both on 127.0.0.1 and removes them. Like `just test`, it
+# builds ui/build first, which leaves a running vite answering 500 until the
+# next `just dev-start`. --everyday measures the everyday screens alone.
+ux-measure folder *flags:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _npm-deps
+    cargo build
+    just ui-build
+    node ui/tools/ux-measure.mjs --binary "{{binary}}" "{{folder}}" {{flags}}
+
 # ── Cutting a release ─────────────────────────────────────────────────────────
 
 # A release is cut by these two commands and nothing else (ADR 0047). The

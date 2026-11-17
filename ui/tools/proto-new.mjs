@@ -25,6 +25,7 @@ import {
 	ROOT,
 	ToolError,
 	atEverySize,
+	browserCardTitles,
 	openBrowser,
 	openSettled,
 	run,
@@ -32,19 +33,6 @@ import {
 	slugOf,
 } from './dev.mjs';
 import { SIZES } from './sizes.mjs';
-
-/**
- * The cards that belong to the browser doing the capture and not to the
- * screen: "your library isn't on this phone yet" and its kin. They are found
- * by their titles, read from the message file so a reworded card is still
- * found.
- */
-function browserCardTitles() {
-	const messages = JSON.parse(fs.readFileSync(path.join(ROOT, 'ui/messages/en.json'), 'utf8'));
-	return Object.entries(messages)
-		.filter(([key]) => /^offline_(\w+_)?title(_\w+)?$/.test(key))
-		.map(([, text]) => String(text));
-}
 
 /**
  * The file a photograph is kept in: its address, made safe for a file name.
