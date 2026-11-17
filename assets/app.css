@@ -273,7 +273,7 @@
     &::after {
       content: "";
       position: absolute;
-      inset: -8px;
+      inset: calc(-8px - 1px);
     }
   }
   .demo-strip-control {
@@ -304,7 +304,7 @@
     &::after {
       content: "";
       position: absolute;
-      inset: -4px;
+      inset: calc(-4px - 1px);
     }
   }
   .tap-out {
@@ -313,6 +313,9 @@
       content: "";
       position: absolute;
       inset: -8px;
+    }
+    &.border::after {
+      inset: calc(-8px - 1px);
     }
   }
   .back-arrow-phone {
