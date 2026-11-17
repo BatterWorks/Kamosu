@@ -573,13 +573,21 @@
 
    Only for a control whose neighbours are far enough away that a 16px overhang
    cannot swallow their taps — the overhang is invisible and will win a hit
-   test against anything it covers. */
+   test against anything it covers.
+
+   An inset counts from inside the border, so a control outlined with `border`
+   reaches one pixel further to stand 8 past its outline, or it is tapped at
+   46 (#634). Every outlined caller writes `border`; one outlined another way
+   needs its own line here. */
 @utility tap-out {
   position: relative;
   &::after {
     content: "";
     position: absolute;
     inset: -8px;
+  }
+  &.border::after {
+    inset: calc(-8px - 1px);
   }
 }
 
@@ -1038,7 +1046,8 @@
    Drawn at 40 and tapped at 48 (ADR 0044, 10 October 2026): a secondary
    control may be drawn smaller than 48, never tapped smaller. The 4px round
    it is invisible and wins the hit test, as `tap-out` does at the stove, so
-   two side by side keep a gap of 12 or more. */
+   two side by side keep a gap of 12 or more. An inset counts from inside the
+   1px border, which the round adds to reach 4 past the outline (#634). */
 @utility quiet-button {
   position: relative;
   display: inline-flex;
@@ -1056,7 +1065,7 @@
   &::after {
     content: "";
     position: absolute;
-    inset: -4px;
+    inset: calc(-4px - 1px);
   }
 }
 
@@ -1065,7 +1074,8 @@
    card's white. Round is a clash with the near-square house rule, raised on
    the ticket; the shopping list's − and + (#202) are the precedent. Drawn at
    32 and tapped at 48, like `quiet-button`: the 8px round each one is
-   invisible, so the two stand 16 apart. */
+   invisible, so the two stand 16 apart. An inset counts from inside the 1px
+   border, which the round adds to reach 8 past the outline (#634). */
 @utility shelf-arrow {
   position: relative;
   display: flex;
@@ -1081,7 +1091,7 @@
   &::after {
     content: "";
     position: absolute;
-    inset: -8px;
+    inset: calc(-8px - 1px);
   }
 }
 

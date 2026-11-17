@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- The small outlined buttons, such as *Rename* and *Sign out*, the arrows beside a shelf on Home, the tools beside a line or a Step while writing a recipe and the outlined buttons of the cooking screen on a phone now answer a tap anywhere within 48 pixels, as they were meant to. Before, their tap area started inside their 1-pixel outline and came out 2 pixels short, at 46. [#634]
+
+[#634]: https://github.com/BatterWorks/Kamosu/issues/634
+
 ## v0.6.0 - 2026-11-13
 
 ### After upgrading
