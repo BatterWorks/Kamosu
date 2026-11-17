@@ -41,6 +41,29 @@ export function secretFrom(setCookies) {
 	return null;
 }
 
+/**
+ * Sign in at one of an instance's `/auth/*` doors, and give back the Secret
+ * of the Session it made. `just ux-measure` signs in to its throwaway
+ * instances here too (#629).
+ * @param {string} url the door, as in `https://…/auth/login`
+ * @param {Record<string, string>} body
+ */
+export async function signInAt(url, body) {
+	const response = await reach(url, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(body),
+	});
+	const secret = secretFrom(response.headers.getSetCookie());
+	if (!response.ok || !secret) {
+		const answer = await response.json().catch(() => null);
+		throw new ToolError(
+			`${new URL(url).origin} refused the sign-in: ${answer?.error?.message ?? response.status}`,
+		);
+	}
+	return secret;
+}
+
 /** @param {string} label */
 async function start(label) {
 	const file = sessionFile(label);
@@ -53,22 +76,11 @@ async function start(label) {
 		return;
 	}
 
-	const response = await reach(`${origin}/auth/login`, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({
-			name: need(env, 'KAMOSU_DEV_ADMIN_NAME'),
-			password: need(env, 'KAMOSU_DEV_ADMIN_PASSWORD'),
-			session_name: label,
-		}),
+	const secret = await signInAt(`${origin}/auth/login`, {
+		name: need(env, 'KAMOSU_DEV_ADMIN_NAME'),
+		password: need(env, 'KAMOSU_DEV_ADMIN_PASSWORD'),
+		session_name: label,
 	});
-	const secret = secretFrom(response.headers.getSetCookie());
-	if (!response.ok || !secret) {
-		const answer = await response.json().catch(() => null);
-		throw new ToolError(
-			`the dev instance refused the sign-in: ${answer?.error?.message ?? response.status}`,
-		);
-	}
 	fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 	fs.writeFileSync(file, `${secret}\n`, { mode: 0o600 });
 	fs.chmodSync(file, 0o600);

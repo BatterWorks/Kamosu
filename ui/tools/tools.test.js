@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { chromium } from 'playwright';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -33,6 +34,8 @@ import { indexOf, pageOf, photoName } from './proto-new.mjs';
 import { PICTURE_LIMIT, pictureName, piecesOf } from './screens.mjs';
 import { compare } from './screens-same.mjs';
 import { SIZES } from './sizes.mjs';
+import { coverage, tableFingerprints, tableOf } from './ux-measure.mjs';
+import { measureInPage, valuesOf } from './ux-measures.mjs';
 
 /** @type {string} */
 let tmp;
@@ -533,5 +536,386 @@ describe('a screen photographed', () => {
 		expect(sessions[1].last_used_at).toBe('2026-11-08T19:00:00Z');
 		expect(asked).toEqual(['list_sessions']);
 		await context.close();
+	});
+});
+
+describe('what a screen was answered', () => {
+	it('is every string and number of each answer, a refusal’s words included, whitespace made single', () => {
+		const values = valuesOf({
+			ok: true,
+			result: { title: ' Tarte  tatin', yield: 4, tags: ['Sweet'] },
+		});
+		valuesOf({ ok: false, error: { message: 'No such recipe' } }, values);
+		expect([...values].sort()).toEqual(['4', 'No such recipe', 'Sweet', 'Tarte tatin']);
+	});
+});
+
+describe('a screen measured', () => {
+	/** @type {import('playwright').Browser} */
+	let browser;
+	beforeAll(async () => {
+		const env = fs.existsSync(path.join(ROOT, '.env')) ? devEnv() : {};
+		browser = await chromium.launch({ executablePath: chromePath(env) });
+	});
+	afterAll(async () => {
+		await browser?.close();
+	});
+
+	/**
+	 * Measure a page as `just ux-measure` does, in a real Chrome.
+	 * @param {string} html
+	 * @param {{ values?: string[], probe?: boolean, breakage?: boolean, size?: number[] }} [options]
+	 */
+	async function measure(
+		html,
+		{ values = [], probe = false, breakage = false, size = [390, 844] } = {},
+	) {
+		const page = await browser.newPage({ viewport: { width: size[0], height: size[1] } });
+		await page.setContent(html);
+		const result = await page.evaluate(measureInPage, {
+			values,
+			accents: ['#1d2b4c'],
+			probe,
+			breakage,
+		});
+		await page.close();
+		return result;
+	}
+
+	it('counts a word only when it holds a letter or a digit', async () => {
+		const { words } = await measure('<p>Add 3 eggs — then stir · ok</p>');
+		expect(words.interfacePage).toBe(6);
+	});
+
+	it('splits sentences after a full stop, a question mark, an exclamation mark or an ellipsis', async () => {
+		const { words } = await measure('<p>Saved. Is it right? Yes! Wait… and then</p>');
+		expect(words.sentences).toEqual(['Saved.', 'Is it right?', 'Yes!', 'Wait…', 'and then']);
+	});
+
+	it('takes a text for content on an exact match, or three words inside one with nothing touching', async () => {
+		const { words } = await measure(
+			['Plan', 'Plant', 'fritters with lime', 'ake the cake', 'the cake', 'Bake the cake']
+				.map((t) => `<p>${t}</p>`)
+				.join(''),
+			{ values: ['Plantain fritters with lime', 'Plan', 'Bake the cake until golden'] },
+		);
+		expect(words.interfaceTexts).toEqual(['Plant', 'ake the cake', 'the cake']);
+	});
+
+	it('ends a sentence where content comes between, so a title does not join two', async () => {
+		const { words } = await measure(
+			'<p>Cook <b>Tarte tatin</b> for the dinner with friends and family next week.</p>',
+			{ values: ['Tarte tatin'] },
+		);
+		expect(words.sentences).toEqual(['Cook', 'for the dinner with friends and family next week.']);
+	});
+
+	it('counts a placeholder’s size and colour with the rest of the text', async () => {
+		const { type } = await measure(
+			'<style>input::placeholder { color: rgb(200, 0, 0) }</style><p style="font-size: 16px; color: rgb(0, 0, 0)">Seen</p><input placeholder="Search" style="font-size: 20px">',
+		);
+		expect(type.sizes).toEqual([16, 20]);
+		expect(type.colours).toHaveLength(2);
+	});
+
+	it('counts no word nobody can see: a box of one pixel, or nothing drawn', async () => {
+		const { words } = await measure(
+			'<p>Seen</p><span style="position: absolute; width: 1px; height: 1px">Hidden one pixel</span><p style="opacity: 0">Hidden clear</p>',
+		);
+		expect(words.interfaceTexts).toEqual(['Seen']);
+	});
+
+	/** A phone-sized page holding what each measure looks for. */
+	const SCREEN = `<!doctype html><html><head><style>
+		body { margin: 0 16px; background: #faf7f0; color: #222; font: 16px/1.4 sans-serif; }
+		header { height: 60px; display: flex; align-items: center; }
+		nav { position: fixed; bottom: 0; left: 0; right: 0; margin: 0; height: 64px; background: #fff; display: flex; }
+		nav a { flex: 1; height: 64px; display: flex; align-items: center; justify-content: center; color: #222; text-decoration: none; }
+		.small { width: 24px; height: 24px; padding: 0; background: none; border: 0; position: relative; color: #222; font: inherit; }
+		.grown::after { content: ''; position: absolute; inset: -12px; }
+		.main { height: 48px; width: 120px; background: #1d2b4c; color: #fff; border: 0; }
+		.notice { border: 1px solid #c33; padding: 8px; }
+		.apart { margin: 40px 0; display: flex; gap: 40px; }
+		.close { display: flex; gap: 4px; margin-top: 40px; }
+	</style></head><body>
+		<header><button class="small" aria-label="Menu">≡</button></header>
+		<main>
+			<h1>Tarte tatin</h1>
+			<p>This screen shows everything you saved for later today. Plan</p>
+			<p>Bake the apples until golden, then turn the tart over.</p>
+			<button class="main">Cook</button>
+			<div role="status" class="notice">Saved</div>
+			<div class="apart">
+				<button class="small grown" aria-label="Grown">+</button>
+				<button class="small" aria-label="Tiny">x</button>
+			</div>
+			<div class="close">
+				<button class="small grown" aria-label="Left">a</button>
+				<button class="small grown" aria-label="Right">b</button>
+			</div>
+		</main>
+		<nav><a href="/">Home</a><a href="/plan">Plan</a></nav>
+	</body></html>`;
+	const VALUES = ['Tarte tatin', 'Bake the apples until golden, then turn the tart over.'];
+
+	it('tells the words a page was answered from the interface’s own', async () => {
+		const { words } = await measure(SCREEN, { values: VALUES });
+		expect(words.contentPage).toBe(2 + 10);
+		expect(words.explanationsFirst).toEqual([
+			'This screen shows everything you saved for later today.',
+		]);
+		// The same sentence ending in "Plan", then Cook, Saved, x, a, b, Home and Plan.
+		expect(words.interfacePage).toBe(10 + 7);
+		expect(words.interfaceTexts).toContain('Cook');
+		expect(words.interfaceTexts).not.toContain('Tarte tatin');
+	});
+
+	it('counts the room bars and notice cards take, once where they overlap, and the main buttons', async () => {
+		const result = await measure(SCREEN, { values: VALUES });
+		expect(result.notices).toBe(1);
+		const notice = result.room - (60 + 64) / 844;
+		expect(notice).toBeGreaterThan(30 / 844);
+		expect(notice).toBeLessThan(50 / 844);
+		expect(result.controls.mainButtons).toEqual(['Cook']);
+		// A notice pinned over the tab bar covers no room the bar has not.
+		const doubled = await measure(
+			SCREEN.replace(
+				'.notice {',
+				'.notice { position: fixed; bottom: 0; left: 0; right: 0; height: 40px;',
+			),
+			{ values: VALUES },
+		);
+		expect(doubled.room).toBe(Math.round(((60 + 64) / 844) * 1000) / 1000);
+	});
+
+	it('calls a plain action outside a bar unmarked, and one inside a bar not', async () => {
+		const { unmarked } = await measure(SCREEN, { values: VALUES });
+		expect(unmarked).toContain('Tiny');
+		expect(unmarked).not.toContain('Menu');
+		expect(unmarked).not.toContain('Home');
+	});
+
+	it('reports a small button by what a finger hits, so one grown to 48 is not small', async () => {
+		const { tap, gaps } = await measure(SCREEN, { values: VALUES, probe: true });
+		const small = tap.small.map((/** @type {{ label: string }} */ s) => s.label);
+		expect(small).toContain('Tiny');
+		expect(small).not.toContain('Grown');
+		expect(small).not.toContain('Cook');
+		// Right's layer lies over Left's, so a finger at the overlap taps Right:
+		// Left keeps 12 + 24 + 4 - 12 across, and the two layers overlap.
+		const left = tap.small.find((/** @type {{ label: string }} */ s) => s.label === 'Left');
+		expect(left?.width).toBe(28);
+		expect(small).not.toContain('Right');
+		expect(gaps.overlapping).toEqual([['Left', 'Right']]);
+		expect(gaps.smallest).toEqual({ px: 4, between: ['Left', 'Right'] });
+	});
+
+	it('at 360, names text cut off, boxes drawn over each other and a sideways scroll', async () => {
+		const result = await measure(
+			`<body style="margin: 0 16px">
+			<p style="width: 100px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">A title far too long for its box</p>
+			<div style="width: 80px; overflow: hidden; white-space: nowrap"><span>Clipped by its parent box</span></div>
+			<p style="width: 100px">Fits</p>
+			<div style="position: relative; height: 40px">
+				<span>Under</span><button style="position: absolute; left: 0; top: 0">Over</button>
+			</div>
+			<div style="width: 400px">Wide</div>
+			<nav style="position: fixed; bottom: 0; left: 0; right: 0; height: 60px; background: #fff">
+				<a href="/" style="position: absolute; left: 0">Home tab</a><a href="/plan" style="position: absolute; left: 20px">Plan tab</a>
+			</nav>
+		</body>`,
+			{ breakage: true, size: [360, 760] },
+		);
+		expect(result.cutOff).toEqual([
+			'A title far too long for its box',
+			'Clipped by its parent box',
+		]);
+		expect(result.overlaps).toEqual([
+			['Under', 'Over'],
+			['Home tab', 'Plan tab'],
+		]);
+		expect(result.sideways).toBe(16 + 400 - 360);
+	});
+});
+
+describe('what ux-measure covers', () => {
+	const found = {
+		shortRecipe: 'b_short',
+		longRecipe: 'b_long',
+		shortFood: 'f_short',
+		longFood: 'f_long',
+		search: 'tart',
+		oldVersion: 'v_old',
+		importJob: 'j_1',
+		secrets: {
+			invite: '/invite/s1',
+			kitchen: '/kitchen-invite/s2',
+			cookbook: '/cookbook-invite/s3',
+			recovery: '/recover/s4',
+		},
+	};
+	const rows = coverage(found);
+	/** @param {(row: typeof rows[number]) => boolean} which */
+	const keys = (which) =>
+		new Set(rows.filter(which).map((r) => `${r.screen} ${r.size} ${r.locale}`));
+
+	it('measures each everyday screen at the four sizes in the four languages', () => {
+		const everyday = rows.filter((r) => r.group === 'everyday' && !r.breakage);
+		const screens = new Set(everyday.map((r) => r.screen));
+		expect([...screens].sort()).toEqual(
+			[
+				'home',
+				'recipes',
+				'search',
+				'recipe-short',
+				'recipe-long',
+				'share',
+				'plus-menu',
+				'cooking',
+				'shopping',
+				'plan',
+				'food-short',
+				'food-long',
+			].sort(),
+		);
+		expect(everyday).toHaveLength(12 * 4 * 4);
+		expect(new Set(everyday.map((r) => r.size))).toEqual(
+			new Set(['phone-402', 'phone-412', 'ipad-upright', 'macbook']),
+		);
+		expect(everyday.find((r) => r.screen === 'search')).toMatchObject({
+			path: '/recipes',
+			open: 'search',
+			typed: 'tart',
+		});
+		expect(everyday.find((r) => r.screen === 'share')?.path).toBe('/recipes/b_short/share');
+	});
+
+	it('opens every size as a touch screen but the MacBook, so a phone hides what only a mouse sees', () => {
+		expect(new Set(rows.filter((r) => !r.touch).map((r) => r.size))).toEqual(new Set(['macbook']));
+		expect(rows.filter((r) => r.size === 'macbook').every((r) => !r.touch)).toBe(true);
+	});
+
+	it('photographs in English and French only', () => {
+		expect(new Set(rows.filter((r) => r.picture).map((r) => r.locale))).toEqual(
+			new Set(['en', 'fr']),
+		);
+		expect(rows.filter((r) => !r.picture).every((r) => !['en', 'fr'].includes(r.locale))).toBe(
+			true,
+		);
+	});
+
+	it('measures Settings and the operator pages at the two phones in English, and every page but /tokens', () => {
+		const settings = rows.filter((r) => r.group === 'settings' && !r.breakage);
+		expect(new Set(settings.map((r) => r.size))).toEqual(new Set(['phone-402', 'phone-412']));
+		expect(new Set(settings.map((r) => r.locale))).toEqual(new Set(['en']));
+		const paths = new Set(rows.map((r) => r.path));
+		for (const route of [
+			'/imports/from/mealie',
+			'/recipes/b_long/versions/v_old',
+			'/imports/j_1',
+			'/settings',
+			'/settings/account',
+			'/settings/tags',
+			'/operator',
+			'/foods',
+			'/about',
+		]) {
+			expect(paths).toContain(route);
+		}
+		expect(paths).not.toContain('/tokens');
+	});
+
+	it('opens the four secret-link pages signed out, on the empty instance', () => {
+		const secret = rows.filter((r) => r.group === 'secret' && !r.breakage);
+		expect(new Set(secret.map((r) => r.path))).toEqual(new Set(Object.values(found.secrets)));
+		expect(secret.every((r) => r.instance === 'empty' && r.signedOut)).toBe(true);
+	});
+
+	it('checks every screen for breakage at 360 px in English and French', () => {
+		const measured = keys((r) => !r.breakage);
+		const screens = new Set([...measured].map((k) => k.split(' ')[0]));
+		const broken = rows.filter((r) => r.breakage);
+		expect(broken.every((r) => r.size === 'narrowest')).toBe(true);
+		for (const screen of screens) {
+			for (const locale of ['en', 'fr']) {
+				expect(broken.some((r) => r.screen === screen && r.locale === locale)).toBe(true);
+			}
+		}
+	});
+
+	it('leaves the nine sizes just screens photographs as they were', () => {
+		expect(Object.keys(SIZES)).toHaveLength(9);
+		expect(SIZES.phone).toEqual([390, 844]);
+	});
+});
+
+describe('the dev database ux-measure watches', () => {
+	it('sees a changed row, and not the last-used stamps the dev server writes by itself', () => {
+		const file = path.join(tmp, 'watched.db');
+		const db = new DatabaseSync(file);
+		db.exec(
+			"CREATE TABLE sessions (id TEXT, name TEXT, last_used_at TEXT); INSERT INTO sessions VALUES ('s1', 'phone', '1')",
+		);
+		const first = tableFingerprints(file);
+		db.exec("UPDATE sessions SET last_used_at = '2'");
+		expect(tableFingerprints(file)).toEqual(first);
+		db.exec("UPDATE sessions SET name = 'laptop'");
+		expect(tableFingerprints(file)).not.toEqual(first);
+		db.close();
+	});
+});
+
+describe('the table ux-measure writes', () => {
+	it('gives a measured row its counts and a 360 row its breakage, each blank where it was not counted', () => {
+		const row = {
+			screen: 'home',
+			path: '/',
+			instance: 'library',
+			size: 'phone-402',
+			locale: 'en',
+			breakage: false,
+		};
+		const measures = {
+			words: {
+				interfaceFirst: 12,
+				interfacePage: 40,
+				contentFirst: 3,
+				contentPage: 9,
+				explanationsFirst: [],
+				explanationsPage: ['A b c d e f.'],
+				long: [],
+			},
+			room: 0.19,
+			controls: { first: 14, mainButtons: ['Cook'] },
+			unmarked: [],
+			tap: { small: [], cutShort: [], covered: [], inSentence: [] },
+			gaps: { overlapping: [], smallest: { px: 8, between: ['a', 'b'] } },
+			type: { sizes: [14, 16, 26], colours: ['1,2,3,1'] },
+			length: { screenfuls: 2.5, mainActionAt: 0.4 },
+			notices: 0,
+		};
+		const table = tableOf([
+			{ ...row, measures, picture: 'pictures/en/home.phone-402.png' },
+			{
+				...row,
+				size: 'narrowest',
+				breakage: true,
+				broken: { cutOff: ['Long'], overlaps: [], sideways: 0 },
+			},
+		]).split('\n');
+		const header = table[0].split(',');
+		const cells = (/** @type {string} */ line) =>
+			Object.fromEntries(line.split(',').map((v, i) => [header[i], v]));
+		expect(cells(table[1])).toMatchObject({
+			interface_words_first: '12',
+			room_percent: '19',
+			main_buttons_first: '1',
+			text_cut_off: '',
+		});
+		expect(cells(table[2])).toMatchObject({
+			interface_words_first: '',
+			text_cut_off: '1',
+			sideways_px: '0',
+		});
 	});
 });
