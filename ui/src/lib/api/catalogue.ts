@@ -111,6 +111,7 @@ export type MintRecoveryLinkInput = {
 /** What mint_recovery_link answers. */
 export type MintRecoveryLinkOutput = {
 	link: string;
+	url: string | null;
 };
 
 /** List the live Invites and recovery links. Live is not yet spent, not revoked, and for a recovery link, its Person's account still open. Each by its id and when it was made, never its Secret. An Invite says whether it makes an Operator; a recovery link names whose account it opens. Kitchen and Cookbook Invites are not among them. */
@@ -7764,11 +7765,20 @@ export const CATALOGUE = [
 			"additionalProperties": false,
 			"properties": {
 				"link": {
+					"description": "The link's path.",
 					"type": "string"
+				},
+				"url": {
+					"description": "The whole link at this instance's public address, or null while none is set.",
+					"type": [
+						"string",
+						"null"
+					]
 				}
 			},
 			"required": [
-				"link"
+				"link",
+				"url"
 			],
 			"type": "object"
 		}

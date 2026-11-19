@@ -423,7 +423,7 @@ describe("This instance's pages", () => {
 	it('shows a recovery link under the Person it belongs to', async () => {
 		renderScreen(People, {
 			...quiet,
-			mint_recovery_link: { link: '/recover/3b71d0ae5c92' },
+			mint_recovery_link: { link: '/recover/3b71d0ae5c92', url: null },
 		});
 
 		const camille = await openPerson('Camille');
@@ -435,6 +435,24 @@ describe("This instance's pages", () => {
 			await within(camille).findByText(`${window.location.origin}/recover/3b71d0ae5c92`),
 		).toBeInTheDocument();
 		expect(within(camille).getByText(/recovery link for Camille/i)).toBeInTheDocument();
+	});
+
+	it('shows a recovery link at the public address once one is set (#663)', async () => {
+		renderScreen(People, {
+			...quiet,
+			mint_recovery_link: {
+				link: '/recover/3b71d0ae5c92',
+				url: 'https://cuisine.example/recover/3b71d0ae5c92',
+			},
+		});
+
+		const camille = await openPerson('Camille');
+		await fireEvent.click(within(camille).getByRole('button', { name: 'Recovery link' }));
+
+		// Whoever forgot their password may be away from home when they open it.
+		expect(
+			await within(camille).findByText('https://cuisine.example/recover/3b71d0ae5c92'),
+		).toBeInTheDocument();
 	});
 
 	it('lists the Invites and recovery links not yet used, and says what each does (#535)', async () => {

@@ -95,7 +95,7 @@
 	let invite = $state<{ id: string; url: string; kitchen: string | undefined } | undefined>(
 		undefined,
 	);
-	let recovery = $state<{ who: string; link: string } | undefined>(undefined);
+	let recovery = $state<{ who: string; url: string } | undefined>(undefined);
 
 	/** Whose acts are open. One at a time. */
 	let opened = $state<string | undefined>(undefined);
@@ -104,14 +104,17 @@
 	let copied = $state<string | undefined>(undefined);
 
 	/**
-	 * A minted path as something you can send somebody: at the origin this
-	 * page is read from, the one address the instance is known to answer on.
-	 * An Invite comes with its link at the public address once one is set
-	 * (#648), since it goes to somebody who may be outside the home network,
-	 * and takes this only where none is. A recovery link still takes it.
+	 * A minted link as something you can send somebody. An Invite (#648) and a
+	 * recovery link (#663) come with their link at the public address once one
+	 * is set, since each goes to somebody who may be outside the home network.
+	 * Where none is, the path goes at the origin this page is read from, the
+	 * one address the instance is known to answer on.
 	 */
-	const reachable = (path: string) =>
-		typeof window === 'undefined' ? path : new URL(path, window.location.origin).toString();
+	const reachable = (minted: { link: string; url: string | null }) =>
+		minted.url ??
+		(typeof window === 'undefined'
+			? minted.link
+			: new URL(minted.link, window.location.origin).toString());
 
 	async function copy(link: string) {
 		await navigator.clipboard.writeText(link);
@@ -127,7 +130,7 @@
 			});
 			invite = {
 				id: minted.id,
-				url: minted.url ?? reachable(minted.link),
+				url: reachable(minted),
 				kitchen: kitchen ? kitchenName(kitchen) : undefined,
 			};
 			inviteAsOperator = false;
@@ -136,7 +139,8 @@
 
 	const mintRecovery = (who: string) =>
 		acting.act(async () => {
-			recovery = { who, link: (await kamosu.mintRecoveryLink({ name: who })).link };
+			const minted = await kamosu.mintRecoveryLink({ name: who });
+			recovery = { who, url: reachable(minted) };
 			copied = undefined;
 		}, loadLinks);
 
@@ -206,13 +210,13 @@
 
 <!--
 	A recovery link, a Secret Kamosu will never print again, shown whole with
-	the address it is read from in front of it, so what is on the screen is
-	what you send somebody. Copy is here because selecting forty hex
-	characters by dragging on a phone is the failure it prevents. An Invite is
-	drawn as every invite is (`InviteLink`, #648).
+	the public address in front of it, or the address it is read from while
+	none is set, so what is on the screen is what you send somebody. Copy is
+	here because selecting forty hex characters by dragging on a phone is the
+	failure it prevents. An Invite is drawn as every invite is (`InviteLink`,
+	#648).
 -->
-{#snippet shownOnce(said: string, link: string, dismiss: () => void)}
-	{@const whole = reachable(link)}
+{#snippet shownOnce(said: string, whole: string, dismiss: () => void)}
 	<div class="mt-3 rounded-sm border border-accent bg-card p-3" role="alert">
 		<p class="text-body font-semibold text-ink">{said}</p>
 		<code class="mt-2 block rounded-sm bg-ground p-2 text-read break-all">{whole}</code>
@@ -407,7 +411,7 @@
 							{#if recovery && recovery.who === account.name}
 								{@render shownOnce(
 									m.operator_recovery_once({ who: recovery.who }),
-									recovery.link,
+									recovery.url,
 									() => (recovery = undefined),
 								)}
 							{/if}

@@ -463,7 +463,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "is_operator": { "type": "boolean", "default": false }, "kitchen_id": { "type": "string", "description": "One of your own Kitchens, which the newcomer joins with their account. Omit for none." } }, "additionalProperties": false }),
-            output_schema: json!({ "type": "object", "properties": { "id": { "type": "string", "description": "The Invite's id, which revoke_account_link takes." }, "link": { "type": "string", "description": "The link's path." }, "url": invite_url_schema() }, "required": ["id", "link", "url"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "id": { "type": "string", "description": "The Invite's id, which revoke_account_link takes." }, "link": { "type": "string", "description": "The link's path." }, "url": public_url_schema() }, "required": ["id", "link", "url"], "additionalProperties": false }),
             handler: crate::operations::mint_invite,
         },
         Operation {
@@ -516,7 +516,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
-            output_schema: json!({ "type": "object", "properties": { "link": { "type": "string"} }, "required": ["link"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "link": { "type": "string", "description": "The link's path." }, "url": public_url_schema() }, "required": ["link", "url"], "additionalProperties": false }),
             handler: crate::operations::mint_recovery_link,
         },
         Operation {
@@ -1571,7 +1571,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
-            output_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" }, "secret": { "type": "string" }, "url": invite_url_schema() }, "required": ["invite_id", "secret", "url"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" }, "secret": { "type": "string" }, "url": public_url_schema() }, "required": ["invite_id", "secret", "url"], "additionalProperties": false }),
             handler: crate::operations::invite_to_kitchen,
         },
         Operation {
@@ -1794,7 +1794,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
-            output_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" }, "secret": { "type": "string" }, "url": invite_url_schema() }, "required": ["invite_id", "secret", "url"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" }, "secret": { "type": "string" }, "url": public_url_schema() }, "required": ["invite_id", "secret", "url"], "additionalProperties": false }),
             handler: crate::operations::invite_to_cookbook,
         },
         Operation {
@@ -6153,10 +6153,10 @@ fn listed_kitchen_schema() -> Value {
     schema
 }
 
-/// An invite's whole link at the instance's public address, or null while
-/// none is set, when a screen puts the path after the address it was read at
-/// (#648).
-fn invite_url_schema() -> Value {
+/// An invite's or a recovery link's whole link at the instance's public
+/// address, or null while none is set, when a screen puts the path after the
+/// address it was read at (#648, #663).
+fn public_url_schema() -> Value {
     json!({ "type": ["string", "null"], "description": "The whole link at this instance's public address, or null while none is set." })
 }
 
