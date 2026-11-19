@@ -78,3 +78,32 @@ describe('a control drawn under 48', () => {
 		},
 	);
 });
+
+/**
+ * The pieces #632 added are drawn at 48 or more, so they need no round: the
+ * shortest label still makes a control 48 each way, and a list row is
+ * taller than 48 whatever it holds.
+ */
+const PIECES = {
+	'main-button': '<button class="main-button">No</button>',
+	'second-button': '<button class="second-button">No</button>',
+	'second-button loses': '<button class="second-button loses">No</button>',
+	'list-row': '<button class="list-row">A</button>',
+};
+
+describe('a piece drawn at 48 or more', () => {
+	it.each(Object.entries(PIECES))(
+		'%s is drawn and tapped at 48 at least',
+		async (_name, markup) => {
+			const page = await drawn(browser, `<div style="padding: 64px">${markup}</div>`, {
+				size: SIZES.phone,
+			});
+			try {
+				const box = (await page.locator('button').boundingBox())!;
+				expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(48);
+			} finally {
+				await page.close();
+			}
+		},
+	);
+});

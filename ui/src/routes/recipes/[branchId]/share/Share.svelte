@@ -305,19 +305,10 @@
 
 		{#if link.url}
 			<p class="mt-4 border border-rule bg-card p-3 text-read break-all">{link.url}</p>
-			<button
-				type="button"
-				onclick={copy}
-				class="mt-3 block w-full bg-accent p-4 text-center font-display text-body text-on-accent"
-			>
+			<button type="button" onclick={copy} class="mt-3 main-button w-full">
 				{copied ? m.share_copied() : m.share_copy()}
 			</button>
-			<a
-				href={link.url}
-				target="_blank"
-				rel="noreferrer"
-				class="mt-2 block border border-rule p-4 text-center font-display text-body text-accent"
-			>
+			<a href={link.url} target="_blank" rel="noreferrer" class="mt-2 second-button w-full">
 				{m.share_open()}
 			</a>
 		{:else if !knowsAddress}
@@ -338,7 +329,8 @@
 			type="button"
 			onclick={end}
 			disabled={working}
-			class="mt-6 block w-full border border-support p-4 text-center font-display text-body text-support"
+			aria-busy={working ? 'true' : undefined}
+			class="mt-6 second-button w-full loses"
 		>
 			{working ? m.share_ending() : m.share_end()}
 		</button>
@@ -374,7 +366,8 @@
 			<button
 				type="submit"
 				disabled={working}
-				class="mt-6 block w-full bg-accent p-4 text-center font-display text-body text-on-accent"
+				aria-busy={working ? 'true' : undefined}
+				class="mt-6 main-button w-full"
 			>
 				{m.share_turn_on()}
 			</button>
@@ -436,11 +429,7 @@
 				<!-- The file is already on the phone, so sharing it waits for
 				     nothing (#156): the same button, no longer one that needs
 				     the server. -->
-				<button
-					type="button"
-					onclick={shareIt}
-					class="mt-4 block w-full border border-rule p-3 text-center font-display text-body text-accent"
-				>
+				<button type="button" onclick={shareIt} class="mt-4 second-button w-full">
 					{m.share_file_share()}
 				</button>
 			{:else}
@@ -448,9 +437,10 @@
 					label={saving === 'getting' ? m.share_file_getting() : m.share_file_save()}
 					waiting={m.offline_waits_file()}
 					onclick={save}
-					disabled={saving === 'getting'}
-					shapeClass="mt-4 block w-full p-3 text-center font-display text-body"
-					lookClass="border border-rule text-accent"
+					busy={saving === 'getting'}
+					shapeClass="mt-4 second-button w-full"
+					lookClass=""
+					idleClass=""
 				/>
 			{/if}
 			{#if saving === 'failed'}

@@ -65,8 +65,9 @@ top"); Progressive disclosure. *Review*, and Length is *measured*.
 **U6. One main button per screen, two at most.** The main button is filled, and
 every other action is drawn lighter. At most 16 controls reach into the first
 screenful. Note: Controls; Apple ("Keep the number of prominent buttons to one
-or two per view"). Audit: R4, I3, P3, V9. *Measured.* #632 adds a screen test
-for the main buttons.
+or two per view"). Audit: R4, I3, P3, V9. *Measured*, and *test*: every screen
+test fails when what it drew holds a third `main-button`, an open sheet counted
+on its own (`ui/src/testing/main-buttons.ts`).
 
 **U7. Bars and notice cards take at most 15% of the first screenful, and a
 screen shows one notice card at a time.** The cooking screen shows none. A
@@ -88,14 +89,21 @@ signifiers; Unmarked actions; Hidden navigation. *Review*, and Unmarked actions
 is *measured*.
 
 **U9. Use the shared pieces.** A page title is `Screen`, a section heading is
-`Section`, a small action is `quiet-button`, a sheet is `SheetFrame`. Never draw
-a heading or a button style of your own, and draw and word the same job the same
-way on every screen. 58 filled indigo controls were drawn 13 ways and 42
-headings bypassed `Section` when the audit was charted (#627). Audit: S8 (the
-share link and the invite link worded and drawn apart), V6 (dates written two
-ways). Note: Visual hierarchy. *Review.* #632 adds the main button, the
-secondary button, the list row and the notice card, and a test that holds the
-files still styling their own buttons to a list that only shrinks.
+`Section`, a sheet is `SheetFrame`. The screen's main act is `main-button`,
+every other act `second-button` (with `loses` for one that deletes, ends or
+leaves) or, for a small word beside something, `quiet-button`. A line of a list
+that opens something is `ListRow`, and a notice is `NoticeCard`. The title of a
+sheet or a card is not a section heading, and an empty list's title is
+`Empty`'s. A busy button says so with `aria-busy="true"` and words that say
+what is happening. Never draw a heading or a button style of your own, and draw
+and word the same job the same way on every screen. 58 filled indigo controls
+were drawn 13 ways and 42 headings bypassed `Section` when the audit was charted
+(#627). The pieces are drawn on the tokens page (`/tokens`), as chosen on #632.
+Audit: S8 (the share link and the invite link worded and drawn apart), V6
+(dates written two ways). Note: Visual hierarchy. *Review*, and *test* for
+buttons: `ui/src/lib/hand-styled.spec.ts` fails on a button or link given a
+fill or a border of its own in a file not on its list, and the list only
+shrinks.
 
 **U10. Tapped areas never overlap, and a control drawn under 48 px keeps 8 px
 from its neighbour.** Every control's tapped area is 48 px (ADR 0044) whatever

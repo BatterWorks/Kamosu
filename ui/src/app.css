@@ -228,6 +228,10 @@
      #110 (K3): larger than --photo-thumb because it sits in the largest type
      in the app. The recipe page's Step photograph is --photo-thumb (R2). */
   --step-photo: 96px;
+  /* The picture at the start of a list row, square: the size drawn on the
+     row chosen on #632 (`rows-E.html`). Smaller than --photo-thumb, because
+     a row is one of many and its words, not its picture, are read. */
+  --row-picture: 56px;
 
   /* ── The cooking screen on the wide layout (#197, ADR 0044) ───────────────
      A tablet propped on the counter is read from further away than a phone in
@@ -1069,6 +1073,152 @@
   }
 }
 
+/* The main button (#632): the one thing a screen is there for, filled
+   indigo, and at most two on a screen (`docs/ux-rules.md`, U6). Every other
+   act is a `second-button` or a `quiet-button`. Chosen on #632 from the
+   prototype's `buttons-B-C.html`, over the display face the share screen
+   drew it in: the interface's own face at 600, which reads at a glance where
+   the serif sets what a person wrote.
+
+   It sets no width. A screen's main act runs its column with `w-full`; one
+   in a card or beside another keeps its own width. A long label wraps. It
+   stands in the line as a word does, on its top edge, so a `w-full` one has
+   no gap under it for letters that hang below the line. Drawn
+   and tapped at 48, so it needs no invisible round. Greyed out it turns the
+   hairline's colour with secondary ink, which reads as "not yet" where a
+   faded indigo read as pressed. Busy is `aria-busy="true"` on it, set by the
+   screen while it waits: the fill stays, a turning spinner stands before the
+   words, and the words say what is happening ("Ending…"). */
+@utility main-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-2);
+  vertical-align: top;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 10px var(--spacing-4);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+
+  &:disabled:not([aria-busy="true"]) {
+    border-color: var(--color-rule);
+    background: var(--color-rule);
+    color: var(--color-ink-2);
+  }
+
+  &[aria-busy="true"] {
+    cursor: progress;
+  }
+
+  &[aria-busy="true"]::before {
+    content: "";
+    width: 1em;
+    height: 1em;
+    flex-shrink: 0;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: busy-turn 0.8s linear infinite;
+
+    @media (prefers-reduced-motion: reduce) {
+      animation: none;
+    }
+  }
+}
+
+/* The secondary button (#632): every act beside the main one that is more
+   than a small word, drawn lighter so the main one stays the one. An indigo
+   outline on the card's white, chosen on #632 (`buttons-B-C.html`) over a
+   pale indigo fill, which read as greyed out. The same shape and states as
+   `main-button`, which is why the two are written out alike.
+
+   An act that loses or ends something (Delete, End, Leave) adds `loses`,
+   which turns the outline and the words beni (U11). */
+@utility second-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-2);
+  vertical-align: top;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 10px var(--spacing-4);
+  border: 1px solid var(--button-ink, var(--color-accent));
+  border-radius: var(--radius-sm);
+  background: var(--color-card);
+  color: var(--button-ink, var(--color-accent));
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  font-weight: 500;
+  line-height: 1.25;
+  text-align: center;
+
+  &:disabled:not([aria-busy="true"]) {
+    border-color: var(--color-rule);
+    color: var(--color-ink-2);
+  }
+
+  &[aria-busy="true"] {
+    cursor: progress;
+  }
+
+  &[aria-busy="true"]::before {
+    content: "";
+    width: 1em;
+    height: 1em;
+    flex-shrink: 0;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: busy-turn 0.8s linear infinite;
+
+    @media (prefers-reduced-motion: reduce) {
+      animation: none;
+    }
+  }
+}
+
+/* The spinner a busy `main-button` or `second-button` turns. Stopped for
+   somebody who asked for less movement: its gap and the button's words still
+   say it is working. */
+@keyframes busy-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@utility loses {
+  --button-ink: var(--color-support);
+}
+
+/* One line of a list that opens something (#632, `rows-E.html`): on the
+   paper between hairlines, as Settings drew its menu, with an arrow on its
+   right that says it opens (U8). `ListRow.svelte` lays out what is in it;
+   the list around the rows wears `list-rows`, which draws the first line. */
+@utility list-row {
+  display: flex;
+  width: 100%;
+  min-height: 56px;
+  align-items: center;
+  gap: var(--spacing-3);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-rule);
+  color: var(--color-ink);
+  text-align: start;
+}
+
+@utility list-rows {
+  border-top: 1px solid var(--color-rule);
+}
+
 /* The earlier and later buttons on a shelf (#223): round and 32 across, as the
    prototype page chosen on 9 October 2026 drew them, a quiet outline on the
    card's white. Round is a clash with the near-square house rule, raised on
@@ -1277,6 +1427,17 @@
   :where(a[href], button:enabled, label:has(input[type="file"]:enabled)).bg-accent:hover {
     border-color: var(--color-accent-2);
     background-color: var(--color-accent-2);
+  }
+  /* The main button and the secondary button (#632) have fills of their
+     own without a `bg-` class, so they are named here, busy or not: the
+     line above for controls with no fill would otherwise paint the paper
+     under a main button's light words. */
+  :where(a[href], button:enabled).main-button:hover {
+    border-color: var(--color-accent-2);
+    background-color: var(--color-accent-2);
+  }
+  :where(a[href], button:enabled).second-button:hover {
+    background-color: var(--color-ground-2);
   }
   :where(a[href], button:enabled).bg-support:hover {
     --lit: color-mix(in srgb, var(--color-support) 86%, var(--color-on-accent));

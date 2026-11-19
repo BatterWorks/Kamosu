@@ -20,6 +20,8 @@
 		waiting: string;
 		onclick: () => void;
 		disabled?: boolean;
+		/** Pressed and waiting: a `main-button` or `second-button` turns its spinner (#632). */
+		busy?: boolean;
 		/** Size and place, kept in both states. */
 		shapeClass: string;
 		/** Colour online. */
@@ -36,6 +38,7 @@
 		waiting,
 		onclick,
 		disabled = false,
+		busy = false,
 		shapeClass,
 		lookClass,
 		idleClass = 'border border-rule text-ink-2 opacity-55',
@@ -45,7 +48,13 @@
 </script>
 
 {#if online.current}
-	<button type="button" {disabled} {onclick} class="{shapeClass} {lookClass}">{label}</button>
+	<button
+		type="button"
+		disabled={disabled || busy}
+		aria-busy={busy ? 'true' : undefined}
+		{onclick}
+		class="{shapeClass} {lookClass}">{label}</button
+	>
 {:else}
 	<button type="button" disabled class="{shapeClass} {idleClass}">
 		{waiting}

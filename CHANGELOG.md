@@ -2,10 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- The share screen's buttons are drawn as every screen's will be: *Turn on the link* and *Copy the link* in the interface's own bold face, *Open the page* and *Save it* outlined in indigo, and *End the link* outlined in red. A button that is working turns a spinner before its words. Before, they were set in the recipe's serif face, and *Open the page* and *Save it* had a faint outline that read as greyed out. [#632]
+
 ### Fixed
 
 - The small outlined buttons, such as *Rename* and *Sign out*, the arrows beside a shelf on Home, the tools beside a line or a Step while writing a recipe and the outlined buttons of the cooking screen on a phone now answer a tap anywhere within 48 pixels, as they were meant to. Before, their tap area started inside their 1-pixel outline and came out 2 pixels short, at 46. [#634]
 
+[#632]: https://github.com/BatterWorks/Kamosu/issues/632
 [#634]: https://github.com/BatterWorks/Kamosu/issues/634
 
 ## v0.6.0 - 2026-11-13
