@@ -88,7 +88,8 @@ export function devOrigin(env = devEnv()) {
  * to the screen: "your library isn't on this phone yet" and its kin, in one
  * Language. They are found by their titles, read from the message file so a
  * reworded card is still found. `just proto-new` strips them from a capture,
- * and `just ux-measure` hides them before it counts (#629).
+ * `just ux-measure` hides them before it counts (#629), and `just screens`
+ * before it photographs (#660).
  * @param {string} [locale]
  */
 export function browserCardTitles(locale = 'en') {
@@ -101,19 +102,22 @@ export function browserCardTitles(locale = 'en') {
 }
 
 /**
- * Hide the test browser's own cards (`browserCardTitles`) on the page as it
- * stands, before it is counted or photographed: `just ux-measure` (#629) and
- * `just ux-walk` (#639).
+ * Hide the test browser's own cards (`browserCardTitles`) on the page, before
+ * it is counted or photographed: `just ux-measure` (#629), `just ux-walk`
+ * (#639) and `just screens` (#660). It is a style rule, not a change to the
+ * cards standing now, so a card drawn afterwards is hidden too: one the
+ * browser's install offer or a worker's message puts up between the hiding
+ * and the picture. It lasts until the page loads again.
  * @param {import('playwright').Page} page
  * @param {string} [locale]
  */
 export async function hideBrowserCards(page, locale = 'en') {
 	await page.evaluate((titles) => {
-		for (const card of document.querySelectorAll('section[aria-label]')) {
-			if (titles.includes(card.getAttribute('aria-label') ?? '')) {
-				/** @type {HTMLElement} */ (card).style.display = 'none';
-			}
-		}
+		const rule = document.createElement('style');
+		rule.textContent = titles
+			.map((title) => `section[aria-label="${CSS.escape(title)}"] { display: none !important; }`)
+			.join('\n');
+		document.head.append(rule);
 	}, browserCardTitles(locale));
 }
 
