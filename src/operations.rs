@@ -157,14 +157,20 @@ pub fn mint_invite(core: &Core, invocation: &Invocation, input: Value) -> Result
             ));
         }
     };
-    let link = match input.get("kitchen_id").and_then(Value::as_str) {
-        Some(kitchen_id) => {
-            let caller = caller_of(invocation)?;
-            core.mint_invite_into_kitchen(&caller.person_id, kitchen_id, is_operator)?
-        }
-        None => core.mint_invite(is_operator)?,
-    };
-    Ok(json!({ "link": link }))
+    let caller = caller_of(invocation)?;
+    let kitchen_id = input.get("kitchen_id").and_then(Value::as_str);
+    let (id, link) = core.mint_invite_with_id(&caller.person_id, kitchen_id, is_operator)?;
+    Ok(json!({ "id": id, "url": at_public_address(core, &link), "link": link }))
+}
+
+/// A link's path at the instance's public address, or `null` while none is
+/// set (#648): an invite goes to someone outside, as a Share Link does, so it
+/// carries the address the Operator gave rather than the inviter's browser's.
+fn at_public_address(core: &Core, path: &str) -> Value {
+    match core.public_address() {
+        Some(address) => json!(format!("{address}{path}")),
+        None => Value::Null,
+    }
 }
 
 pub fn disable_account(
@@ -684,7 +690,8 @@ pub fn invite_to_kitchen(
         .ok_or_else(|| OpError::bad_request("invite_to_kitchen takes { kitchen_id }"))?;
     let caller = caller_of(invocation)?;
     let (id, secret) = core.invite_to_kitchen(&caller.person_id, kitchen_id)?;
-    Ok(json!({ "invite_id": id, "secret": secret }))
+    let url = at_public_address(core, &format!("/kitchen-invite/{secret}"));
+    Ok(json!({ "invite_id": id, "secret": secret, "url": url }))
 }
 
 pub fn accept_kitchen_invite(
@@ -815,7 +822,8 @@ pub fn invite_to_cookbook(
 ) -> Result<Value, OpError> {
     let caller = caller_of(invocation)?;
     let (id, secret) = core.invite_to_cookbook(&caller.person_id)?;
-    Ok(json!({ "invite_id": id, "secret": secret }))
+    let url = at_public_address(core, &format!("/cookbook-invite/{secret}"));
+    Ok(json!({ "invite_id": id, "secret": secret, "url": url }))
 }
 
 pub fn cancel_cookbook_invite(

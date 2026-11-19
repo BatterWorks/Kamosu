@@ -100,157 +100,220 @@ const NOT_SHARED = {
 	public_address: null,
 };
 
-describe('the share screen', () => {
-	it('says what a share carries and what ending one cannot reach, before anything is shared', async () => {
-		renderShare({ get_share_link: NOT_SHARED });
+const SHARED = {
+	shared: true,
+	share_id: 'sl_1',
+	url: 'https://kamosu.example/s/abc',
+	shared_by: 'Stéphane',
+	created_at: '2026-08-30T00:00:00Z',
+	public_address: 'https://kamosu.example',
+};
 
-		// The standing line is there from the first frame: not a dialog, nothing
-		// to dismiss, and no first-time special case (ADR 0018).
-		expect(await screen.findByText(/not copies already sent\./)).toBeInTheDocument();
-		expect(screen.getByText(/every version of this recipe/)).toBeInTheDocument();
-		// The standing line is on screen before the link's state has even
-		// arrived, which is the point of it.
-		expect(await screen.findByText(/Only your Kitchen can see it\./)).toBeInTheDocument();
-		// Turning the link on is the screen's main act, the width of its column (#632).
-		expect(screen.getByRole('button', { name: /Turn on the link/ })).toHaveClass(
-			'main-button',
-			'w-full',
-		);
+/** The clipboard and the share menu as a test sees them, put back afterwards. */
+function stubNavigator(share?: (data: ShareData) => Promise<void>) {
+	const writes: string[] = [];
+	const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+	const shareMenu = Object.getOwnPropertyDescriptor(navigator, 'share');
+	Object.defineProperty(navigator, 'clipboard', {
+		configurable: true,
+		value: { writeText: async (text: string) => void writes.push(text) },
 	});
+	if (share) Object.defineProperty(navigator, 'share', { configurable: true, value: share });
+	return {
+		writes,
+		restore() {
+			if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard);
+			else Reflect.deleteProperty(navigator, 'clipboard');
+			if (shareMenu) Object.defineProperty(navigator, 'share', shareMenu);
+			else Reflect.deleteProperty(navigator, 'share');
+		},
+	};
+}
 
-	it('asks for the public address once, at the first link, and shows the link it mints', async () => {
+describe('the share screen', () => {
+	it('says what a reader of the link gets in a panel, every time, before the link exists', async () => {
 		const { kamosu } = renderShare({
-			get_share_link: NOT_SHARED,
-			share_recipe: {
-				shared: true,
-				share_id: 'sl_1',
-				url: 'https://kamosu.example/s/abc',
-				shared_by: 'Stéphane',
-				created_at: '2026-08-30T00:00:00Z',
-				public_address: 'https://kamosu.example',
-			},
+			get_share_link: { ...NOT_SHARED, public_address: 'https://kamosu.example' },
 		});
 
-		const address = await screen.findByLabelText(/public address/i);
+		// Making a link is the screen's main act, the width of its column, and
+		// it opens the panel rather than making one (option B, chosen on #648).
+		const make = await screen.findByRole('button', { name: 'Make a link…' });
+		expect(make).toHaveClass('main-button', 'w-full');
+		expect(screen.queryByText('Anyone with the link sees')).toBeNull();
+		await fireEvent.click(make);
+
+		const panel = await screen.findByRole('dialog', { name: 'Before you make the link' });
+		expect(panel).toHaveTextContent('This recipe, with its photos');
+		expect(panel).toHaveTextContent('Every earlier version, with its notes and who wrote them');
+		expect(panel).toHaveTextContent('doesn’t take back a copy someone saved');
+		expect(kamosu.calls.some((call) => call.operation === 'share_recipe')).toBe(false);
+
+		// Not now closes it, and nothing was made.
+		await fireEvent.click(screen.getByRole('button', { name: 'Not now' }));
+		expect(screen.queryByRole('dialog')).toBeNull();
+		expect(kamosu.calls.some((call) => call.operation === 'share_recipe')).toBe(false);
+
+		// And the next time, it says so again: no first-time special case (ADR 0018).
+		await fireEvent.click(screen.getByRole('button', { name: 'Make a link…' }));
+		expect(
+			await screen.findByRole('dialog', { name: 'Before you make the link' }),
+		).toHaveTextContent('Every earlier version, with its notes and who wrote them');
+	});
+
+	it('names the recipes a link carries in the panel, as parts of this one (#50)', async () => {
+		renderShare({
+			get_share_link: { ...NOT_SHARED, public_address: 'https://kamosu.example' },
+			get_recipe: {
+				...RECIPE,
+				versions: [
+					{
+						...RECIPE.versions[0]!,
+						components: [
+							{
+								path: [0],
+								lineage_id: 'l_dough',
+								held: true,
+								stopped: false,
+								branch_id: 'b_dough',
+								title: 'Pizza dough',
+								share: null,
+								said: 'Pizza dough',
+								content: null,
+								readings: null,
+								measured: null,
+							},
+						],
+					},
+				],
+			},
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'Make a link…' }));
+		expect(await screen.findByRole('dialog')).toHaveTextContent('Pizza dough, part of this recipe');
+	});
+
+	it('asks for the public address once, at the first link, and makes the link from the panel', async () => {
+		const { kamosu } = renderShare({ get_share_link: NOT_SHARED, share_recipe: SHARED });
+
+		// No address, no panel: the link would have nothing to carry.
+		await fireEvent.click(await screen.findByRole('button', { name: 'Make a link…' }));
+		expect(screen.queryByRole('dialog')).toBeNull();
+		expect(await screen.findByRole('alert')).toHaveTextContent(/address people can open/);
+
+		const address = screen.getByLabelText('The address people use to reach this Kamosu');
 		await fireEvent.input(address, { target: { value: 'https://kamosu.example' } });
-		await fireEvent.click(screen.getByRole('button', { name: /Turn on the link/ }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Make a link…' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Make the link' }));
 
 		// The address travels with the first share and is stored once.
 		const asked = kamosu.calls.find((call) => call.operation === 'share_recipe');
-		expect(asked?.input).toEqual({
-			branch_id: 'b_1',
-			public_address: 'https://kamosu.example',
-		});
+		expect(asked?.input).toEqual({ branch_id: 'b_1', public_address: 'https://kamosu.example' });
 
 		// The link is shown, with no warning that it will vanish: it is shown
 		// again every time this screen opens (#171, ADR 0031 as amended).
 		expect(await screen.findByText('https://kamosu.example/s/abc')).toBeInTheDocument();
-		expect(screen.queryByText(/shown again/)).toBeNull();
-		expect(screen.getByText(/Shared by Stéphane/)).toBeInTheDocument();
+		expect(screen.queryByRole('dialog')).toBeNull();
+		expect(screen.getByText(/Made by Stéphane/)).toBeInTheDocument();
 	});
 
 	it('does not ask for the address again once the instance knows it', async () => {
-		renderShare({
-			get_share_link: { ...NOT_SHARED, public_address: 'https://kamosu.example' },
-		});
+		renderShare({ get_share_link: { ...NOT_SHARED, public_address: 'https://kamosu.example' } });
 
-		expect(await screen.findByText(/Only your Kitchen can see it\./)).toBeInTheDocument();
-		expect(screen.queryByLabelText(/public address/i)).toBeNull();
+		expect(await screen.findByRole('button', { name: 'Make a link…' })).toBeInTheDocument();
+		expect(screen.queryByLabelText(/address people use/i)).toBeNull();
 	});
 
-	it('shows a live link again on a fresh visit, to copy and open, not only at minting', async () => {
-		const writes: string[] = [];
-		const real = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
-		Object.defineProperty(navigator, 'clipboard', {
-			configurable: true,
-			value: { writeText: async (text: string) => void writes.push(text) },
-		});
+	it('sends a live link through the phone’s share menu, and copies it too', async () => {
+		const sent: ShareData[] = [];
+		const stubbed = stubNavigator(async (data) => void sent.push(data));
 		try {
-			renderShare({
-				get_share_link: {
-					shared: true,
-					share_id: 'sl_1',
-					url: 'https://kamosu.example/s/abc',
-					shared_by: 'Stéphane',
-					created_at: '2026-08-30T00:00:00Z',
-					public_address: 'https://kamosu.example',
-				},
-			});
+			renderShare({ get_share_link: SHARED });
 
-			expect(await screen.findByText('https://kamosu.example/s/abc')).toBeInTheDocument();
-			expect(screen.getByRole('link', { name: /Open the page/ })).toHaveAttribute(
+			const send = await screen.findByRole('button', { name: 'Send the link' });
+			expect(send).toHaveClass('main-button');
+			await fireEvent.click(send);
+			expect(sent).toEqual([{ url: 'https://kamosu.example/s/abc' }]);
+
+			const copy = screen.getByRole('button', { name: 'Copy the link' });
+			expect(copy).toHaveClass('second-button');
+			await fireEvent.click(copy);
+			expect(stubbed.writes).toEqual(['https://kamosu.example/s/abc']);
+			expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+
+			// What the friend opens, said as such (S7).
+			expect(screen.getByRole('link', { name: 'See what they’ll see' })).toHaveAttribute(
 				'href',
 				'https://kamosu.example/s/abc',
 			);
-			expect(screen.queryByText(/made before Kamosu kept its address/)).toBeNull();
-
-			// The pieces chosen on #632: copying is the main act, opening the
-			// page is beside it, and ending the link is drawn as what it is.
-			expect(screen.getByRole('button', { name: /Copy the link/ })).toHaveClass('main-button');
-			expect(screen.getByRole('link', { name: /Open the page/ })).toHaveClass('second-button');
-			expect(screen.getByRole('button', { name: /End the link/ })).toHaveClass(
-				'second-button',
-				'loses',
-			);
-
-			await fireEvent.click(screen.getByRole('button', { name: /Copy the link/ }));
-			expect(writes).toEqual(['https://kamosu.example/s/abc']);
-			expect(await screen.findByRole('button', { name: /Copied/ })).toBeInTheDocument();
 		} finally {
-			if (real) Object.defineProperty(navigator, 'clipboard', real);
-			else Reflect.deleteProperty(navigator, 'clipboard');
+			stubbed.restore();
 		}
 	});
 
-	it('ends a link, and says why one made before Kamosu kept its address has none to copy', async () => {
-		const { kamosu } = renderShare({
-			get_share_link: {
-				shared: true,
-				share_id: 'sl_1',
-				// Null because this link was minted before #171, when only the
-				// Secret's hash was stored: it still opens, and cannot be shown.
-				url: null,
-				shared_by: 'Stéphane',
-				created_at: '2026-08-30T00:00:00Z',
-				public_address: 'https://kamosu.example',
-			},
-			end_share_link: NOT_SHARED,
-		});
+	it('makes copying the main act where the browser has no share menu', async () => {
+		const stubbed = stubNavigator();
+		Reflect.deleteProperty(navigator, 'share');
+		try {
+			renderShare({ get_share_link: SHARED });
+			expect(await screen.findByRole('button', { name: 'Copy the link' })).toHaveClass(
+				'main-button',
+			);
+			expect(screen.queryByRole('button', { name: 'Send the link' })).toBeNull();
+		} finally {
+			stubbed.restore();
+		}
+	});
 
-		expect(await screen.findByText(/Anyone with this link can read/)).toBeInTheDocument();
-		expect(screen.getByText(/made before Kamosu kept its address/)).toBeInTheDocument();
-		expect(screen.queryByRole('button', { name: /Copy the link/ })).toBeNull();
-		expect(screen.queryByRole('link', { name: /Open the page/ })).toBeNull();
+	it('ends a link only once asked, apart from sending it', async () => {
+		const { kamosu } = renderShare({ get_share_link: SHARED, end_share_link: NOT_SHARED });
 
-		await fireEvent.click(screen.getByRole('button', { name: /End the link/ }));
+		const end = await screen.findByRole('button', { name: 'End the link…' });
+		expect(end).toHaveClass('second-button', 'loses');
+		await fireEvent.click(end);
+		expect(kamosu.calls.some((call) => call.operation === 'end_share_link')).toBe(false);
+
+		const asking = await screen.findByRole('dialog', { name: 'End this link?' });
+		expect(asking).toHaveTextContent('A copy someone already saved stays with them.');
+		await fireEvent.click(screen.getByRole('button', { name: 'Keep the link' }));
+		expect(kamosu.calls.some((call) => call.operation === 'end_share_link')).toBe(false);
+
+		await fireEvent.click(screen.getByRole('button', { name: 'End the link…' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'End the link' }));
 		const ended = kamosu.calls.find((call) => call.operation === 'end_share_link');
 		expect(ended?.input).toEqual({ branch_id: 'b_1' });
-		expect(await screen.findByText(/Only your Kitchen can see it\./)).toBeInTheDocument();
+		expect(await screen.findByRole('button', { name: 'Make a link…' })).toBeInTheDocument();
 	});
+
+	it('says why a link made before Kamosu kept its address has none to send', async () => {
+		renderShare({
+			// Null because this link was minted before #171, when only the
+			// Secret's hash was stored: it still opens, and cannot be shown.
+			get_share_link: { ...SHARED, url: null },
+		});
+
+		expect(await screen.findByText(/made before Kamosu kept its address/)).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Copy the link' })).toBeNull();
+		expect(screen.queryByRole('link', { name: 'See what they’ll see' })).toBeNull();
+		expect(screen.getByRole('button', { name: 'End the link…' })).toBeInTheDocument();
+	});
+
 	it('says an instance with no address has no link to show, and offers no fix it refuses', async () => {
 		renderShare({
-			get_share_link: {
-				shared: true,
-				share_id: 'sl_1',
-				// A Demo started with no address (#468): its Sample Library's
-				// link is live, and nothing can be built for it.
-				url: null,
-				shared_by: 'Camille',
-				created_at: '2026-08-30T00:00:00Z',
-				public_address: null,
-			},
+			// A Demo started with no address (#468): its Sample Library's
+			// link is live, and nothing can be built for it.
+			get_share_link: { ...SHARED, url: null, shared_by: 'Camille', public_address: null },
 		});
 
 		expect(await screen.findByText(/no public address set/)).toBeInTheDocument();
 		expect(screen.queryByText(/made before Kamosu kept its address/)).toBeNull();
-		expect(screen.queryByRole('button', { name: /Copy the link/ })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Copy the link' })).toBeNull();
 	});
+
 	// --- The recipe file (#65, #66, ADR 0020) --------------------------------
 	//
 	// Described before it is taken, which is the habit this whole screen keeps:
-	// the standing line and the line about Components both say what an act
-	// means before you do it (option C, chosen 20 September
-	// 2026).
+	// the panel says what a link carries before it is made, and the file says
+	// what it holds before it is saved (option C, chosen 20 September 2026).
 
 	it('says what the recipe file holds before offering to save it', async () => {
 		renderShare({ get_share_link: NOT_SHARED });
@@ -258,10 +321,12 @@ describe('the share screen', () => {
 		expect(await screen.findByText('Chicken Katsu Curry.zip')).toBeInTheDocument();
 		// One note and one photograph is what nearly every recipe is, so it is
 		// the case the wording has to read right in (`_one`, house style).
-		expect(screen.getByText(/It holds one note and one photograph/)).toBeInTheDocument();
-		// The half of the format a zip cannot show for itself (ADR 0020).
-		expect(screen.getByText(/another Kamosu takes it in whole/)).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: /Save it/ })).toBeInTheDocument();
+		expect(screen.getByText(/every version, one note and one photo\./)).toBeInTheDocument();
+		// Who the file is for, and who the link is for (S4, #648).
+		expect(
+			screen.getByText(/Another Kamosu takes it in whole\. To send it to a friend, use the link\./),
+		).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /Save the file/ })).toBeInTheDocument();
 	});
 
 	it('offers the file whether the link is on or off, because the file is not the link', async () => {
@@ -308,7 +373,7 @@ describe('the share screen', () => {
 
 		try {
 			renderShare({ get_share_link: NOT_SHARED });
-			await fireEvent.click(await screen.findByRole('button', { name: /Save it/ }));
+			await fireEvent.click(await screen.findByRole('button', { name: /Save the file/ }));
 			// The address `export_bundle` named, and no second Operation: the
 			// bytes come down the Credential-bearing route as a download.
 			expect(assigned).toEqual(['/api/bundles/b_1']);
@@ -399,7 +464,7 @@ describe('the recipe file in the app installed on an iPhone (#156)', () => {
 	async function readyToShare(share = theShareSheet()) {
 		const route = theBundleRoute();
 		renderShare({ get_share_link: NOT_SHARED }, { device: installedApple, files: route.files });
-		await fireEvent.click(await screen.findByRole('button', { name: /Save it/ }));
+		await fireEvent.click(await screen.findByRole('button', { name: /Save the file/ }));
 		const button = await screen.findByRole('button', { name: 'Share the file' });
 		return { share, route, button };
 	}
@@ -445,7 +510,7 @@ describe('the recipe file in the app installed on an iPhone (#156)', () => {
 			{ device: installedApple, files: realFiles(fetch as unknown as typeof globalThis.fetch) },
 		);
 
-		await fireEvent.click(await screen.findByRole('button', { name: /Save it/ }));
+		await fireEvent.click(await screen.findByRole('button', { name: /Save the file/ }));
 
 		const getting = await screen.findByRole('button', { name: 'Getting the file…' });
 		expect(getting).toBeDisabled();
@@ -480,7 +545,7 @@ describe('the recipe file in the app installed on an iPhone (#156)', () => {
 		await fireEvent.click(button);
 
 		expect(await screen.findByRole('alert')).toHaveTextContent(/could not be saved/);
-		expect(screen.getByRole('button', { name: /Save it/ })).toBeEnabled();
+		expect(screen.getByRole('button', { name: /Save the file/ })).toBeEnabled();
 	});
 
 	it('says the file could not be saved when the server does not hand it over', async () => {
@@ -497,10 +562,10 @@ describe('the recipe file in the app installed on an iPhone (#156)', () => {
 			{ device: installedApple, files: realFiles(fetch as unknown as typeof globalThis.fetch) },
 		);
 
-		await fireEvent.click(await screen.findByRole('button', { name: /Save it/ }));
+		await fireEvent.click(await screen.findByRole('button', { name: /Save the file/ }));
 
 		expect(await screen.findByRole('alert')).toHaveTextContent(/could not be saved/);
-		expect(screen.getByRole('button', { name: /Save it/ })).toBeEnabled();
+		expect(screen.getByRole('button', { name: /Save the file/ })).toBeEnabled();
 	});
 
 	it('offers to save afresh once the file has been shared', async () => {
@@ -508,7 +573,7 @@ describe('the recipe file in the app installed on an iPhone (#156)', () => {
 
 		await fireEvent.click(button);
 
-		expect(await screen.findByRole('button', { name: /Save it/ })).toBeEnabled();
+		expect(await screen.findByRole('button', { name: /Save the file/ })).toBeEnabled();
 	});
 
 	it.each([
@@ -522,7 +587,7 @@ describe('the recipe file in the app installed on an iPhone (#156)', () => {
 		try {
 			renderShare({ get_share_link: NOT_SHARED }, { device, files: route.files });
 
-			await fireEvent.click(await screen.findByRole('button', { name: /Save it/ }));
+			await fireEvent.click(await screen.findByRole('button', { name: /Save the file/ }));
 
 			expect(navigation.assigned).toEqual(['/api/bundles/b_1']);
 			expect(route.fetch).not.toHaveBeenCalled();

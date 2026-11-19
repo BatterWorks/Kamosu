@@ -2,16 +2,25 @@
 
 ## Unreleased
 
+### Added
+
+- A recipe's link and every invite can be sent through your phone's share menu, to Messages or Mail in one tap, as well as copied. [#648]
+- A Kitchen lists the invites to it nobody has opened yet, each with *Cancel…*, as your Cookbook does, and agents read them in `list_kitchens` as `invites`. [#648]
+
 ### Changed
 
-- The share screen's buttons are drawn as every screen's will be: *Turn on the link* and *Copy the link* in the interface's own bold face, *Open the page* and *Save it* outlined in indigo, and *End the link* outlined in red. A button that is working turns a spinner before its words. Before, they were set in the recipe's serif face, and *Open the page* and *Save it* had a faint outline that read as greyed out. [#632]
+- The share screen's buttons are drawn as every screen's will be: the main one in the interface's own bold face, the others outlined in indigo, and ending the link outlined in red. A button that is working turns a spinner before its words. Before, they were set in the recipe's serif face, and the outlined ones had a faint outline that read as greyed out. [#632]
+- Sharing a recipe says what a reader of the link gets before the link exists: *Make a link…* opens a panel listing the recipe and its photos, every earlier version with its notes and who wrote them, the recipes it uses, and that ending the link later doesn't take back a copy someone saved, and the link is made from there. Before, a pale line said so above *Turn on the link*, which made the link in one tap. *End the link…* now sits apart at the foot and asks first, and the recipe file says it is for moving the recipe to another Kamosu. [#648]
+- A Kitchen's card leads with inviting, and renaming it, your own name for it, removing someone and leaving are under *Change this Kitchen*, removing and leaving asking first. Before, they sat together at one weight, and removing someone took one tap. Every invite says it works once, for the first person who opens it, until you cancel it, and cancelling asks first. [#648]
 
 ### Fixed
 
+- Kitchen, Cookbook and new-account invite links carry this Kamosu's public address once one is set, as a recipe's link does, and `invite_to_kitchen`, `invite_to_cookbook` and `mint_invite` answer the whole link as `url`, `mint_invite` with the `id` revoking it takes. Before, an invite carried whatever address your browser had open, which a friend outside your home network could not open. [#648]
 - The small outlined buttons, such as *Rename* and *Sign out*, the arrows beside a shelf on Home, the tools beside a line or a Step while writing a recipe and the outlined buttons of the cooking screen on a phone now answer a tap anywhere within 48 pixels, as they were meant to. Before, their tap area started inside their 1-pixel outline and came out 2 pixels short, at 46. [#634]
 
 [#632]: https://github.com/BatterWorks/Kamosu/issues/632
 [#634]: https://github.com/BatterWorks/Kamosu/issues/634
+[#648]: https://github.com/BatterWorks/Kamosu/issues/648
 
 ## v0.6.0 - 2026-11-13
 

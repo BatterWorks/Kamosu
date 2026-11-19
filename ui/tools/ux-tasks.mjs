@@ -65,7 +65,7 @@ export const TASKS = [
 		id: 'share',
 		goal: 'Share this recipe with a friend, so they can read it.',
 		start: { recipe: 'Sunday roast chicken' },
-		steps: [{ tap: 'Share this recipe' }, { tap: 'Turn on the link' }],
+		steps: [{ tap: 'Share this recipe' }, { tap: 'Make a link…' }, { tap: 'Make the link' }],
 		finish: 'Anyone with this link can read this recipe.',
 	},
 	{
@@ -122,8 +122,12 @@ export const TASKS = [
 		id: 'invite',
 		goal: 'Invite a friend into your Family kitchen.',
 		start: '/',
-		steps: [{ tap: 'Settings' }, { tap: 'Kitchens', partial: true }, { tap: 'Invite someone' }],
-		finish: 'Send this link to the person.',
+		steps: [
+			{ tap: 'Settings' },
+			{ tap: 'Kitchens', partial: true },
+			{ tap: 'Invite someone to', partial: true },
+		],
+		finish: 'Works once, for the first person who opens it, until you cancel it.',
 		occasional: true,
 	},
 	{

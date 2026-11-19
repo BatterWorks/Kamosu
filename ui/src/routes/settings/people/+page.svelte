@@ -31,6 +31,7 @@
 		ListAccountsOutput,
 		ListKitchensOutput,
 	} from '#lib/api/catalogue.js';
+	import InviteLink from '#lib/InviteLink.svelte';
 	import OperatorOnly from '../OperatorOnly.svelte';
 
 	const kamosu = useKamosu();
@@ -91,7 +92,9 @@
 	let inviteAsOperator = $state(false);
 	/** The Kitchen the newcomer arrives in: one of the Operator's own, or none. */
 	let inviteKitchen = $state('');
-	let invite = $state<{ link: string; kitchen: string | undefined } | undefined>(undefined);
+	let invite = $state<{ id: string; url: string; kitchen: string | undefined } | undefined>(
+		undefined,
+	);
 	let recovery = $state<{ who: string; link: string } | undefined>(undefined);
 
 	/** Whose acts are open. One at a time. */
@@ -101,13 +104,11 @@
 	let copied = $state<string | undefined>(undefined);
 
 	/**
-	 * A minted link as something you can send somebody. The Core mints a path,
-	 * since it knows no address, and a path pasted into a message is not a
-	 * link. The origin this page is read from is the one address the instance
-	 * is known to answer on, because the Operator reached it there a moment
-	 * ago. Deliberately not the public address: that one is for a Share Link
-	 * going to a stranger, and it can be set, wrong, or absent while the
-	 * instance is read perfectly well on the network it lives on.
+	 * A minted path as something you can send somebody: at the origin this
+	 * page is read from, the one address the instance is known to answer on.
+	 * An Invite comes with its link at the public address once one is set
+	 * (#648), since it goes to somebody who may be outside the home network,
+	 * and takes this only where none is. A recovery link still takes it.
 	 */
 	const reachable = (path: string) =>
 		typeof window === 'undefined' ? path : new URL(path, window.location.origin).toString();
@@ -124,7 +125,11 @@
 				is_operator: inviteAsOperator,
 				...(kitchen ? { kitchen_id: kitchen.id } : {}),
 			});
-			invite = { link: minted.link, kitchen: kitchen ? kitchenName(kitchen) : undefined };
+			invite = {
+				id: minted.id,
+				url: minted.url ?? reachable(minted.link),
+				kitchen: kitchen ? kitchenName(kitchen) : undefined,
+			};
 			inviteAsOperator = false;
 			copied = undefined;
 		}, loadLinks);
@@ -200,33 +205,22 @@
 </script>
 
 <!--
-	A Secret Kamosu will never print again: an Invite, or a recovery link,
-	shown whole with the address it is read from in front of it, so what is on
-	the screen is what you send somebody. Copy is here because selecting forty
-	hex characters by dragging on a phone is the failure it prevents.
+	A recovery link, a Secret Kamosu will never print again, shown whole with
+	the address it is read from in front of it, so what is on the screen is
+	what you send somebody. Copy is here because selecting forty hex
+	characters by dragging on a phone is the failure it prevents. An Invite is
+	drawn as every invite is (`InviteLink`, #648).
 -->
-{#snippet shownOnce(said: string, link: string, dismiss: () => void, after?: string)}
+{#snippet shownOnce(said: string, link: string, dismiss: () => void)}
 	{@const whole = reachable(link)}
 	<div class="mt-3 rounded-sm border border-accent bg-card p-3" role="alert">
 		<p class="text-body font-semibold text-ink">{said}</p>
 		<code class="mt-2 block rounded-sm bg-ground p-2 text-read break-all">{whole}</code>
-		{#if after}
-			<p class="mt-2 text-read text-ink-2">{after}</p>
-		{/if}
 		<div class="mt-3 flex gap-2">
-			<button
-				type="button"
-				onclick={() => copy(whole)}
-				class="min-h-12 flex-1 rounded-sm border border-accent bg-accent px-3 text-body font-medium
-				text-on-accent"
-			>
+			<button type="button" onclick={() => copy(whole)} class="main-button flex-1">
 				{copied === whole ? m.operator_copied() : m.operator_copy()}
 			</button>
-			<button
-				type="button"
-				onclick={dismiss}
-				class="min-h-12 flex-1 rounded-sm border border-accent px-3 text-body font-medium text-accent"
-			>
+			<button type="button" onclick={dismiss} class="second-button flex-1">
 				{m.operator_invite_done()}
 			</button>
 		</div>
@@ -244,12 +238,22 @@
 	<Section heading={m.operator_invite_heading()}>
 		{#if invite}
 			{@const minted = invite}
-			{@render shownOnce(
-				m.operator_invite_once(),
-				minted.link,
-				() => (invite = undefined),
-				minted.kitchen ? m.operator_invite_into({ kitchen: minted.kitchen }) : undefined,
-			)}
+			<InviteLink
+				class=""
+				title={m.operator_invite_link_title()}
+				url={minted.url}
+				after={minted.kitchen ? m.operator_invite_into({ kitchen: minted.kitchen }) : undefined}
+				cancel={async () => {
+					await kamosu.revokeAccountLink({ id: minted.id });
+					// The list read again first, so the Invite just ended never shows in it.
+					await loadLinks();
+					invite = undefined;
+				}}
+			/>
+			<!-- Back to the form, for another Invite: the link stays live. -->
+			<button type="button" class="mt-3 second-button w-full" onclick={() => (invite = undefined)}>
+				{m.operator_invite_done()}
+			</button>
 		{:else}
 			<div class="grid gap-3">
 				{#if kitchens.length > 0}
@@ -273,9 +277,9 @@
 				<button
 					type="button"
 					disabled={acting.working}
+					aria-busy={acting.working ? 'true' : undefined}
 					onclick={mintInvite}
-					class="min-h-12 w-full rounded-sm bg-accent px-4 font-semibold text-on-accent
-					disabled:opacity-60"
+					class="main-button w-full"
 				>
 					{m.operator_invite()}
 				</button>
@@ -289,7 +293,8 @@
 			<p class="mb-3 text-body text-support" role="alert"><Refusal words={linksUnlisted} /></p>
 		{/if}
 		<ul class="overflow-hidden rounded-sm border border-rule bg-card">
-			{#each links as link (link.id)}
+			<!-- The Invite just made is on its card above, cancelled from there. -->
+			{#each links.filter((each) => each.id !== invite?.id) as link (link.id)}
 				<li class="flex items-center gap-3 border-b border-rule p-3 last:border-b-0">
 					<span class="min-w-0 flex-1">
 						<span class="block text-body break-words text-ink">{said(link).what}</span>

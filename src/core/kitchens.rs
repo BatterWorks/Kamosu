@@ -29,7 +29,11 @@ impl Core {
                     .map_err(|e| OpError::internal(format!("cannot list Kitchens: {e}")))?
             };
             ids.iter()
-                .map(|id| kitchen_summary(conn, id, person_id))
+                .map(|id| {
+                    let mut kitchen = kitchen_summary(conn, id, person_id)?;
+                    kitchen["invites"] = json!(open_invites(conn, id)?);
+                    Ok(kitchen)
+                })
                 .collect()
         })
     }
@@ -494,4 +498,23 @@ fn kitchen_summary(
         "members": members,
         "cookbooks": cookbooks,
     }))
+}
+
+/// The invites to a Kitchen nobody has opened or cancelled yet, oldest first
+/// (#648). The Secret is never among them: only its hash is kept.
+fn open_invites(conn: &Connection, kitchen_id: &str) -> Result<Vec<Value>, OpError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id, created_at FROM kitchen_invites \
+              WHERE kitchen_id = ?1 AND used_at IS NULL AND ended_at IS NULL \
+              ORDER BY created_at, id",
+        )
+        .map_err(|e| OpError::internal(format!("cannot list Kitchen Invites: {e}")))?;
+    statement
+        .query_map(params![kitchen_id], |row| {
+            Ok(json!({ "invite_id": row.get::<_, String>(0)?, "created_at": row.get::<_, String>(1)? }))
+        })
+        .map_err(|e| OpError::internal(format!("cannot list Kitchen Invites: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot list Kitchen Invites: {e}")))
 }

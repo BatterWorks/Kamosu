@@ -11,7 +11,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, fireEvent, within } from '@testing-library/svelte';
+import { screen, fireEvent, within, waitFor } from '@testing-library/svelte';
 import People from './people/+page.svelte';
 import Backups from './backups/+page.svelte';
 import Runner from './runner/+page.svelte';
@@ -319,15 +319,60 @@ describe("This instance's pages", () => {
 	});
 
 	it('shows an Invite once, and says it works once', async () => {
-		renderScreen(People, { ...quiet, mint_invite: { link: '/invite/8f2c1a94e07b' } });
+		renderScreen(People, {
+			...quiet,
+			mint_invite: { id: 'al_1', link: '/invite/8f2c1a94e07b', url: null },
+		});
 
 		await fireEvent.click(await screen.findByRole('button', { name: 'Make the invite link' }));
-		// Whole, with the address it is read from in front of it: what is on the
-		// screen is what you send somebody, and `/invite/…` alone is a path.
+		// Whole, with the address it is read from in front of it, where the
+		// instance has no public address: what is on the screen is what you
+		// send somebody, and `/invite/…` alone is a path.
 		expect(
 			await screen.findByText(`${window.location.origin}/invite/8f2c1a94e07b`),
 		).toBeInTheDocument();
-		expect(screen.getByText(/It works once/i)).toBeInTheDocument();
+		expect(screen.getByRole('status', { name: 'Invite link for a new account' })).toHaveTextContent(
+			'Works once, for the first person who opens it, until you cancel it.',
+		);
+	});
+
+	it('hands over an Invite at the public address once one is set (#648)', async () => {
+		renderScreen(People, {
+			...quiet,
+			mint_invite: {
+				id: 'al_1',
+				link: '/invite/8f2c1a94e07b',
+				url: 'https://kamosu.example/invite/8f2c1a94e07b',
+			},
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'Make the invite link' }));
+		expect(
+			await screen.findByText('https://kamosu.example/invite/8f2c1a94e07b'),
+		).toBeInTheDocument();
+	});
+
+	it('cancels the Invite just made once asked, as revoking it from the list does (#648)', async () => {
+		const { kamosu } = renderScreen(People, {
+			...quiet,
+			mint_invite: { id: 'al_1', link: '/invite/8f2c1a94e07b', url: null },
+			revoke_account_link: { revoked: true },
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'Make the invite link' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Cancel this invite…' }));
+		await fireEvent.click(
+			within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel the invite' }),
+		);
+		await waitFor(() =>
+			expect(kamosu.calls).toContainEqual({
+				operation: 'revoke_account_link',
+				input: { id: 'al_1' },
+			}),
+		);
+		await waitFor(() =>
+			expect(
+				screen.queryByText(`${window.location.origin}/invite/8f2c1a94e07b`),
+			).not.toBeInTheDocument(),
+		);
 	});
 
 	it('keeps a Person\u2019s four acts in their own row, one row open at a time', async () => {
@@ -360,7 +405,10 @@ describe("This instance's pages", () => {
 				},
 			},
 		});
-		renderScreen(People, { ...quiet, mint_invite: { link: '/invite/8f2c1a94e07b' } });
+		renderScreen(People, {
+			...quiet,
+			mint_invite: { id: 'al_1', link: '/invite/8f2c1a94e07b', url: null },
+		});
 
 		await fireEvent.click(await screen.findByRole('button', { name: 'Make the invite link' }));
 		await fireEvent.click(await screen.findByRole('button', { name: 'Copy the link' }));
@@ -470,7 +518,7 @@ describe("This instance's pages", () => {
 	it('lists an Invite as soon as it is made (#535)', async () => {
 		const { kamosu } = renderScreen(People, {
 			...quiet,
-			mint_invite: { link: '/invite/8f2c1a94e07b' },
+			mint_invite: { id: 'al_1', link: '/invite/8f2c1a94e07b', url: null },
 		});
 		await screen.findByText('No Invite or recovery link is waiting.');
 
@@ -506,7 +554,7 @@ describe("This instance's pages", () => {
 	it('mints an Invite that carries whether they arrive as an Operator', async () => {
 		const { kamosu } = renderScreen(People, {
 			...quiet,
-			mint_invite: { link: '/invite/8f2c1a94e07b' },
+			mint_invite: { id: 'al_1', link: '/invite/8f2c1a94e07b', url: null },
 		});
 
 		await fireEvent.click(
@@ -523,11 +571,18 @@ describe("This instance's pages", () => {
 			...quiet,
 			list_kitchens: {
 				kitchens: [
-					{ id: 'k_home', name: 'Home', nickname: null, members: [], cookbooks: [] },
-					{ id: 'k_cabin', name: 'The cabin', nickname: null, members: [], cookbooks: [] },
+					{ id: 'k_home', name: 'Home', nickname: null, members: [], cookbooks: [], invites: [] },
+					{
+						id: 'k_cabin',
+						name: 'The cabin',
+						nickname: null,
+						members: [],
+						cookbooks: [],
+						invites: [],
+					},
 				],
 			},
-			mint_invite: { link: '/invite/8f2c1a94e07b' },
+			mint_invite: { id: 'al_1', link: '/invite/8f2c1a94e07b', url: null },
 		});
 
 		// The first of the Operator's own is chosen to start with.
@@ -687,7 +742,7 @@ describe("This instance's pages", () => {
 		renderScreen(People, {
 			...quiet,
 			list_accounts: { refuse: 'internal', message: 'the database is unreadable' },
-			mint_invite: { link: '/invite/8f2c1a94e07b' },
+			mint_invite: { id: 'al_1', link: '/invite/8f2c1a94e07b', url: null },
 		});
 
 		expect(await screen.findByText('the database is unreadable')).toBeInTheDocument();

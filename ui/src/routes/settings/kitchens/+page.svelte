@@ -3,11 +3,19 @@
 	Cookbook, who changes them, is a page of its own beside this, so the two
 	invites are never side by side to be confused.
 
+	**A Kitchen's card leads with inviting** (K1, chosen on #648): who is in
+	it, then *Invite someone to <Kitchen>*, the card's one main button. The
+	rare acts, renaming, your own name for it, removing someone and leaving,
+	are folded under one *Change this Kitchen* row, apart from inviting and
+	each saying what it does (the audit's I3, I4, I5). Starting another
+	Kitchen is a button at the page's foot that opens a panel (I6).
+
 	**An invite is a link** (#469), as a Cookbook's and the instance's are: it
 	opens a page showing the Kitchen as its members see it, with a way to
-	join. The link is shown once, since the Core keeps only its hash, and it
-	can be cancelled until somebody opens it. It replaced a code the other
-	person pasted into a field here.
+	join. The link is shown once, since the Core keeps only its hash, at the
+	instance's public address when one is set (#648). Every invite nobody has
+	opened yet is listed under the button, and can be cancelled from there
+	(#648).
 -->
 <script lang="ts">
 	import Refusal from '#lib/Refusal.svelte';
@@ -15,10 +23,11 @@
 	import { useKamosu } from '#lib/kamosu.js';
 	import { OperationError } from '#lib/api/client.js';
 	import Screen from '#lib/shell/Screen.svelte';
-	import Section from '#lib/shell/Section.svelte';
 	import Confirm from '#lib/Confirm.svelte';
-	import { copyText } from '#lib/clipboard.js';
-	import { cookbookCalled, joinedNames, kitchenName } from '#lib/cookbook.js';
+	import SheetFrame from '#lib/SheetFrame.svelte';
+	import InviteLink from '#lib/InviteLink.svelte';
+	import WaitingInvites from '#lib/WaitingInvites.svelte';
+	import { joinedNames, kitchenName } from '#lib/cookbook.js';
 	import type { GetPersonOutput, ListKitchensOutput } from '#lib/api/catalogue.js';
 
 	const kamosu = useKamosu();
@@ -35,7 +44,21 @@
 	 * keeps a hash, so once the page is left the link cannot be shown again.
 	 */
 	let link = $state<{ kitchenId: string; inviteId: string; url: string } | undefined>(undefined);
-	let copied = $state(false);
+	/** Which Kitchen's rare acts are unfolded. One at a time. */
+	let changing = $state<string | undefined>(undefined);
+	/** The panel that starts another Kitchen. */
+	let starting = $state(false);
+	/** An invite from the list, asked about before it is cancelled. */
+	let cancelling = $state<string | undefined>(undefined);
+	/** A member asked about before they are removed. */
+	let removing = $state<{ kitchen: Kitchen; personId: string; name: string } | undefined>(
+		undefined,
+	);
+	/** Where the open sheet's act has got to: running, or refused in its own words. */
+	let sheet = $state<{ busy: boolean; failed: string | undefined }>({
+		busy: false,
+		failed: undefined,
+	});
 
 	async function load() {
 		try {
@@ -75,41 +98,77 @@
 			await load();
 		});
 
-	const removeMember = (kitchenId: string, personId: string) =>
-		withError(async () => {
-			await kamosu.removeKitchenMember({ kitchen_id: kitchenId, person_id: personId });
+	/** Run the act the open sheet asked about, saying a refusal in the sheet. */
+	async function answer(act: () => Promise<void>) {
+		sheet = { busy: true, failed: undefined };
+		try {
+			await act();
+			sheet = { busy: false, failed: undefined };
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			sheet = { busy: false, failed: error.message };
+		}
+	}
+
+	const removeMember = () =>
+		answer(async () => {
+			const who = removing;
+			if (!who) return;
+			await kamosu.removeKitchenMember({ kitchen_id: who.kitchen.id, person_id: who.personId });
+			removing = undefined;
 			await load();
 		});
+
+	/** Which Kitchen's invite is being made, so a second tap makes no second one. */
+	let inviting = $state<string | undefined>(undefined);
 
 	const invite = (kitchenId: string) =>
 		withError(async () => {
-			const minted = await kamosu.inviteToKitchen({ kitchen_id: kitchenId });
-			copied = false;
+			if (inviting) return;
+			inviting = kitchenId;
+			const minted = await kamosu
+				.inviteToKitchen({ kitchen_id: kitchenId })
+				.finally(() => (inviting = undefined));
 			link = {
 				kitchenId,
 				inviteId: minted.invite_id,
-				url: `${location.origin}/kitchen-invite/${minted.secret}`,
+				// The instance's public address, where one is set (#648); the
+				// address this page is read at only where none is.
+				url: minted.url ?? `${location.origin}/kitchen-invite/${minted.secret}`,
 			};
-		});
-
-	const cancelInvite = (inviteId: string) =>
-		withError(async () => {
-			await kamosu.cancelKitchenInvite({ invite_id: inviteId });
-			link = undefined;
-		});
-
-	async function copyLink() {
-		if (!link) return;
-		// A browser that will not copy still shows the link to select by hand.
-		copied = await copyText(link.url);
-	}
-
-	const create = () =>
-		withError(async () => {
-			await kamosu.createKitchen({ name: newKitchenName });
-			newKitchenName = '';
 			await load();
 		});
+
+	/** Cancel the invite just made, from its card, which asks first itself. */
+	async function cancelMade(inviteId: string) {
+		await kamosu.cancelKitchenInvite({ invite_id: inviteId });
+		// The list read again first, so the invite just ended never shows in it.
+		await load();
+		link = undefined;
+	}
+
+	const cancelListed = () =>
+		answer(async () => {
+			const inviteId = cancelling;
+			if (!inviteId) return;
+			await kamosu.cancelKitchenInvite({ invite_id: inviteId });
+			cancelling = undefined;
+			await load();
+		});
+
+	const create = () =>
+		answer(async () => {
+			await kamosu.createKitchen({ name: newKitchenName });
+			newKitchenName = '';
+			starting = false;
+			await load();
+		});
+
+	/** The other members' names, for the line on whose recipes the Kitchen sees. */
+	const otherNames = (kitchen: Kitchen) =>
+		kitchen.members
+			.filter((member) => member.person_id !== me?.person_id)
+			.map((member) => member.name);
 
 	/**
 	 * Leaving a Kitchen, asked first with what each side keeps (#131, screen
@@ -147,172 +206,296 @@
 	}
 </script>
 
-<Screen title={m.settings_kitchens_page()}>
+<Screen title={m.settings_kitchens_page()} blurb={m.settings_kitchens_said()}>
 	{#if signedIn}
-		<p class="mb-3 text-read text-ink-2">{m.settings_kitchens_said()}</p>
 		{#if failed}
 			<p class="mb-4 text-body text-accent" role="alert"><Refusal words={failed} /></p>
 		{/if}
 
 		<ul class="grid gap-4">
 			{#each kitchens as kitchen (kitchen.id)}
-				<li class="min-w-0 rounded-sm border border-rule bg-card p-3">
-					<!-- `min-w-0` in three places is what keeps this card inside a
-					     narrow phone (#102). Both a grid item and a flex item take
-					     `min-width: auto`, so neither will shrink below its content,
-					     and a text box's content is about twenty characters wide
-					     whatever the screen. It has to be on the <li> as well as on
-					     the two boxes, or the grid track keeps the card's minimum. -->
-					<form
-						class="flex items-center gap-2"
-						onsubmit={(event) => {
-							event.preventDefault();
-							const input = event.currentTarget.elements.namedItem('name') as HTMLInputElement;
-							rename(kitchen.id, input.value);
-						}}
-					>
-						<label class="sr-only" for={`kitchen-name-${kitchen.id}`}>
-							{m.kitchen_name_label()}
-						</label>
-						<input
-							id={`kitchen-name-${kitchen.id}`}
-							name="name"
-							class="min-h-12 min-w-0 flex-1 rounded-sm border border-rule bg-ground px-2 font-semibold text-ink"
-							value={kitchen.name}
-						/>
-						<button class="quiet-button shrink-0 text-accent" type="submit">
-							{m.kitchen_save()}
-						</button>
-					</form>
-
-					<form
-						class="mt-2 flex items-center gap-2"
-						onsubmit={(event) => {
-							event.preventDefault();
-							const input = event.currentTarget.elements.namedItem('nickname') as HTMLInputElement;
-							setNickname(kitchen.id, input.value);
-						}}
-					>
-						<label class="shrink-0 text-label text-ink-2" for={`nickname-${kitchen.id}`}>
-							{m.kitchen_nickname_label()}
-						</label>
-						<input
-							id={`nickname-${kitchen.id}`}
-							name="nickname"
-							class="min-h-12 min-w-0 flex-1 rounded-sm border border-rule bg-ground px-2 text-body text-ink"
-							placeholder={m.kitchen_nickname_placeholder()}
-							value={kitchen.nickname ?? ''}
-						/>
-						<button class="quiet-button shrink-0 text-accent" type="submit">
-							{m.kitchen_save()}
-						</button>
-					</form>
-
-					<h3 class="mt-3 mb-1 text-label text-ink-2 uppercase">{m.kitchen_members()}</h3>
-					<!-- Your own row carries no button: leaving is its own act at the
-					     foot of the card, asked first with what each side keeps (#131,
-					     screen choice 4). -->
-					<ul class="grid gap-1">
-						{#each kitchen.members as member (member.person_id)}
-							<li class="flex items-center justify-between gap-3 text-body text-ink">
-								<span>
+				{@const called = kitchenName(kitchen)}
+				{@const theirs = otherNames(kitchen)}
+				{@const open = changing === kitchen.id}
+				{@const waiting = kitchen.invites.filter((each) => each.invite_id !== link?.inviteId)}
+				<!-- `min-w-0` on the card and on each text box is what keeps this
+				     card inside a narrow phone (#102). Both a grid item and a flex
+				     item take `min-width: auto`, so neither will shrink below its
+				     content, and a text box's content is about twenty characters
+				     wide whatever the screen. -->
+				<li class="min-w-0 border border-rule bg-card p-4">
+					<h2 class="font-display text-list-title font-semibold break-words text-ink">{called}</h2>
+					{#if theirs.length === 0}
+						<p class="mt-2 text-body text-ink">{m.kitchen_only_you()}</p>
+					{:else}
+						<ul class="mt-2">
+							{#each kitchen.members as member (member.person_id)}
+								<li class="flex min-h-12 items-center border-b border-rule text-body text-ink">
 									{member.name}
 									{#if member.person_id === me?.person_id}
 										<span class="ml-1 text-label text-ink-2 uppercase"
 											>{m.kitchen_member_you()}</span
 										>
 									{/if}
-								</span>
-								{#if member.person_id !== me?.person_id}
-									<button
-										type="button"
-										class="quiet-button shrink-0 text-accent"
-										onclick={() => removeMember(kitchen.id, member.person_id)}
-									>
-										{m.kitchen_remove()}
-									</button>
-								{/if}
-							</li>
-						{/each}
-					</ul>
-					<!-- Whose recipes this Kitchen shows: every member's Cookbook,
-					     your own first, as the Core answers them. -->
-					{#if kitchen.cookbooks.length > 0}
-						<p class="mt-2 text-read text-ink-2">
-							{m.kitchen_recipes_here({
-								cookbooks: joinedNames(kitchen.cookbooks.map(cookbookCalled)),
-							})}
+								</li>
+							{/each}
+						</ul>
+						<p class="mt-3 text-read text-ink-2">
+							{m.kitchen_everyone_sees({ others: theirs.join(', ') })}
 						</p>
 					{/if}
 
-					<!-- No focus move: the link appears where Invite someone was,
-					     already under the finger that pressed it. -->
 					{#if link?.kitchenId === kitchen.id}
 						{@const made = link}
-						<div class="mt-3 rounded-sm border border-accent bg-ground p-3" role="status">
-							<p class="text-read text-ink-2">{m.kitchen_invite_link_said()}</p>
-							<code
-								class="mt-2 block rounded-sm border border-dashed border-rule bg-card p-2 text-read break-all"
-								>{made.url}</code
-							>
-							<div class="mt-2 flex flex-wrap items-center gap-4">
-								<button type="button" class="quiet-button text-accent" onclick={copyLink}>
-									{copied ? m.cookbook_invite_copied() : m.cookbook_invite_copy()}
-								</button>
-								<button
-									type="button"
-									class="quiet-button text-support"
-									onclick={() => cancelInvite(made.inviteId)}
-								>
-									{m.cookbook_invite_cancel()}
-								</button>
-							</div>
-						</div>
+						<InviteLink
+							title={m.kitchen_invite_link_for({ kitchen: called })}
+							url={made.url}
+							cancel={() => cancelMade(made.inviteId)}
+						/>
 					{:else}
 						<button
 							type="button"
-							class="quiet-button mt-3 text-accent"
+							class="mt-4 main-button w-full"
+							disabled={inviting === kitchen.id}
+							aria-busy={inviting === kitchen.id ? 'true' : undefined}
 							onclick={() => invite(kitchen.id)}
 						>
-							{m.kitchen_invite()}
+							{inviting === kitchen.id
+								? m.share_link_making()
+								: m.kitchen_invite_to({ kitchen: called })}
 						</button>
 					{/if}
-					<div class="mt-3">
+
+					<!-- Every invite nobody has opened yet, the one just made aside
+					     since its card is above (#648). -->
+					<WaitingInvites
+						invites={waiting}
+						ask={(inviteId) => {
+							sheet = { busy: false, failed: undefined };
+							cancelling = inviteId;
+						}}
+					/>
+
+					<!-- The rule above the row is its own, so the row is a plain button. -->
+					<div class="mt-4 border-t border-rule">
 						<button
 							type="button"
-							class="quiet-button text-support"
-							onclick={() => askToLeave(kitchen)}
+							class="grid min-h-[56px] w-full grid-cols-[1fr_auto] items-center py-2 text-left text-accent"
+							aria-expanded={open}
+							onclick={() => (changing = open ? undefined : kitchen.id)}
 						>
-							{m.kitchen_leave_this()}
+							<span class="text-body font-medium">{m.kitchen_change()}</span>
+							<svg
+								viewBox="0 0 24 24"
+								aria-hidden="true"
+								class="row-span-2 size-[20px] text-ink-2 {open ? 'rotate-90' : ''}"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.75"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path d="m9 5 7 7-7 7" />
+							</svg>
+							<span class="text-read text-ink-2">
+								{theirs.length === 0 ? m.kitchen_change_said_alone() : m.kitchen_change_said()}
+							</span>
 						</button>
 					</div>
+
+					{#if open}
+						<div class="mt-4 border-t border-rule pt-4">
+							<form
+								onsubmit={(event) => {
+									event.preventDefault();
+									const input = event.currentTarget.elements.namedItem('name') as HTMLInputElement;
+									rename(kitchen.id, input.value);
+								}}
+							>
+								<label
+									class="block text-body font-semibold text-ink"
+									for={`kitchen-name-${kitchen.id}`}
+								>
+									{m.kitchen_name_for_all()}
+								</label>
+								<div class="mt-2 flex gap-2">
+									<input
+										id={`kitchen-name-${kitchen.id}`}
+										name="name"
+										class="min-h-12 min-w-0 flex-1 rounded-sm border border-rule bg-ground px-3 text-body text-ink"
+										value={kitchen.name}
+									/>
+									<button class="second-button shrink-0" type="submit">{m.kitchen_rename()}</button>
+								</div>
+							</form>
+
+							<form
+								class="mt-6"
+								onsubmit={(event) => {
+									event.preventDefault();
+									const input = event.currentTarget.elements.namedItem(
+										'nickname',
+									) as HTMLInputElement;
+									setNickname(kitchen.id, input.value);
+								}}
+							>
+								<label
+									class="block text-body font-semibold text-ink"
+									for={`nickname-${kitchen.id}`}
+								>
+									{m.kitchen_own_name()}
+								</label>
+								<p class="text-read text-ink-2">{m.kitchen_own_name_said()}</p>
+								<div class="mt-2 flex gap-2">
+									<input
+										id={`nickname-${kitchen.id}`}
+										name="nickname"
+										class="min-h-12 min-w-0 flex-1 rounded-sm border border-rule bg-ground px-3 text-body text-ink"
+										placeholder={m.kitchen_nickname_placeholder()}
+										value={kitchen.nickname ?? ''}
+									/>
+									<button class="second-button shrink-0" type="submit">{m.kitchen_save()}</button>
+								</div>
+							</form>
+
+							{#if theirs.length > 0}
+								<p class="mt-6 text-body font-semibold text-ink">{m.kitchen_people_in_it()}</p>
+								<ul class="mt-2">
+									{#each kitchen.members as member (member.person_id)}
+										<li
+											class="flex min-h-12 items-center justify-between gap-3 border-b border-rule text-body text-ink"
+										>
+											<span class="min-w-0 break-words">
+												{member.name}
+												{#if member.person_id === me?.person_id}
+													<span class="ml-1 text-label text-ink-2 uppercase"
+														>{m.kitchen_member_you()}</span
+													>
+												{/if}
+											</span>
+											{#if member.person_id !== me?.person_id}
+												<button
+													type="button"
+													class="quiet-button shrink-0 text-support"
+													onclick={() => {
+														sheet = { busy: false, failed: undefined };
+														removing = { kitchen, personId: member.person_id, name: member.name };
+													}}
+												>
+													{m.kitchen_remove_ask({ name: member.name })}
+												</button>
+											{/if}
+										</li>
+									{/each}
+								</ul>
+							{/if}
+
+							<!-- Leaving is asked first with what each side keeps (#131,
+							     screen choice 4). -->
+							<button
+								type="button"
+								class="mt-6 second-button w-full loses"
+								onclick={() => askToLeave(kitchen)}
+							>
+								{m.kitchen_leave_ask({ kitchen: called })}
+							</button>
+						</div>
+					{/if}
 				</li>
 			{/each}
 		</ul>
 
-		<Section heading={m.kitchen_create_title()}>
-			<form
-				class="grid gap-3"
-				onsubmit={(event) => {
-					event.preventDefault();
-					create();
-				}}
-			>
-				<label class="grid gap-1 text-body text-ink">
-					{m.kitchen_create_name_label()}
-					<input
-						class="min-h-12 w-full rounded-sm border border-rule bg-card px-3"
-						bind:value={newKitchenName}
-						required
-					/>
-				</label>
-				<button class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent">
-					{m.kitchen_create()}
-				</button>
-			</form>
-		</Section>
+		<button
+			type="button"
+			class="mt-8 second-button w-full"
+			onclick={() => {
+				sheet = { busy: false, failed: undefined };
+				starting = true;
+			}}
+		>
+			{m.kitchen_start_another()}
+		</button>
 	{/if}
 </Screen>
+
+{#if starting}
+	<SheetFrame
+		labelledby="start-title"
+		class="overflow-y-auto border-t border-rule bg-ground px-gutter pt-6"
+		onclose={() => {
+			if (!sheet.busy) starting = false;
+		}}
+	>
+		<form
+			onsubmit={(event) => {
+				event.preventDefault();
+				create();
+			}}
+		>
+			<h2 id="start-title" class="font-display text-list-title font-semibold text-ink">
+				{m.kitchen_start_another()}
+			</h2>
+			<p class="mt-3 text-body text-ink">{m.kitchen_start_said()}</p>
+			<label class="mt-4 block text-body font-semibold text-ink" for="new-kitchen-name">
+				{m.kitchen_start_name()}
+			</label>
+			<input
+				id="new-kitchen-name"
+				class="mt-2 min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body"
+				bind:value={newKitchenName}
+				required
+			/>
+			{#if sheet.failed}
+				<p class="mt-3 text-body text-support" role="alert"><Refusal words={sheet.failed} /></p>
+			{/if}
+			<div class="mt-6 mb-4 flex flex-col gap-2">
+				<button
+					type="submit"
+					class="main-button w-full"
+					disabled={sheet.busy}
+					aria-busy={sheet.busy ? 'true' : undefined}
+				>
+					{m.kitchen_start_do()}
+				</button>
+				<button
+					type="button"
+					class="second-button w-full"
+					disabled={sheet.busy}
+					onclick={() => (starting = false)}
+				>
+					{m.operator_cancel()}
+				</button>
+			</div>
+		</form>
+	</SheetFrame>
+{/if}
+
+{#if cancelling}
+	<Confirm
+		title={m.invite_cancel_title()}
+		consequence={m.invite_cancel_said()}
+		act={m.invite_cancel_do()}
+		cancelLabel={m.invite_cancel_keep()}
+		busy={sheet.busy}
+		failed={sheet.failed}
+		run={cancelListed}
+		cancel={() => (cancelling = undefined)}
+	/>
+{/if}
+
+{#if removing}
+	{@const who = removing}
+	<Confirm
+		title={m.kitchen_remove_title({ name: who.name, kitchen: kitchenName(who.kitchen) })}
+		consequence={m.kitchen_remove_said({ name: who.name })}
+		act={m.kitchen_remove_do({ name: who.name })}
+		cancelLabel={m.kitchen_remove_keep({ name: who.name })}
+		busy={sheet.busy}
+		failed={sheet.failed}
+		run={removeMember}
+		cancel={() => (removing = undefined)}
+	/>
+{/if}
 
 {#if leaving}
 	{@const asked = leaving}

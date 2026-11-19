@@ -209,6 +209,8 @@ describe('every sheet in Kamosu', () => {
 			.filter((name) => !name.includes('TestHarness'))
 			.sort();
 		expect(framed).toEqual([
+			// Settings › Kitchens: starting another Kitchen (#648).
+			'+page.svelte',
 			'Carrying.svelte',
 			'ChangePassword.svelte',
 			'ChangeSheet.svelte',
@@ -229,6 +231,8 @@ describe('every sheet in Kamosu', () => {
 			'RunnerKeySecret.svelte',
 			'SendSheet.svelte',
 			'SendToShopping.svelte',
+			// The panel that says what a link carries before it is made (#648).
+			'Share.svelte',
 			'SignOut.svelte',
 			'StepPhoto.svelte',
 			'StepUsesSheet.svelte',
