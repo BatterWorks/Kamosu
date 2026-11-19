@@ -28,6 +28,12 @@ and 48 to match the recipe page, and both had to be redone.
 A review that cannot reach the prototype folder says so in its report, and
 leaves the point open.
 
+## A screen is read against the interface rules
+
+A change to a screen is read against every rule in `docs/ux-rules.md` marked
+*Review*, the ones only judgement can check. Each break is a finding, unless the
+ticket records that the person who chose agreed to it.
+
 ## Committed prose names a role, never a person
 
 The files in this repository are for anyone who runs Kamosu, so none of them
