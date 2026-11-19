@@ -19,8 +19,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import {
 	ROOT,
 	ToolError,
+	browserCardTitles,
 	chromePath,
 	devEnv,
+	hideBrowserCards,
 	holdCodeStill,
 	holdWindowStill,
 	leaveNoTrace,
@@ -34,7 +36,7 @@ import {
 import { secretFrom } from './dev-session.mjs';
 import { fileFor, folderOf, server } from './proto-serve.mjs';
 import { indexOf, pageOf, photoName } from './proto-new.mjs';
-import { PICTURE_LIMIT, pictureName, piecesOf } from './screens.mjs';
+import { PICTURE_LIMIT, pictureName, piecesOf, takeScreen } from './screens.mjs';
 import { compare } from './screens-same.mjs';
 import { AUDIT_PHONES, SIZES } from './sizes.mjs';
 import { coverage, tableFingerprints, tableOf } from './ux-measure.mjs';
@@ -424,6 +426,10 @@ describe('a screen photographed', () => {
 		</script>`,
 		// Answered late, so the page before it has time to ask for more.
 		'/arrives-late': '<p>arrived</p>',
+		// The screen under the install card, which the stand-in puts up on
+		// every other visit, as the dev instance does by how far the library
+		// and the sign-in had got (#660).
+		'/carded': '<main style="height: 600px; background: #fde">the screen</main>',
 		'/tall': `<div style="height: 5000px">tall</div><script>
 			window.heard = [];
 			addEventListener('resize', () => window.heard.push(innerWidth + 'x' + innerHeight));
@@ -452,6 +458,9 @@ describe('a screen photographed', () => {
 		['Brioche', 'Crumble'],
 	];
 	let homeReads = 0;
+	let cardedVisits = 0;
+	/** The install card's title as the stand-in draws it, in the Language under test. */
+	let installTitle = '';
 	/** What search_recipes was asked, by the tools' route. */
 	/** @type {unknown[]} */
 	const searched = [];
@@ -541,6 +550,15 @@ describe('a screen photographed', () => {
 				return;
 			}
 			response.setHeader('content-type', 'text/html');
+			if (url === '/carded') {
+				const install = cardedVisits++ % 2 === 0;
+				response.end(
+					(install
+						? `<section aria-label="${installTitle}" style="height: 280px; background: white">${installTitle}</section>`
+						: '') + PAGES[url],
+				);
+				return;
+			}
 			if (url === '/arrives-late') {
 				setTimeout(() => response.end(PAGES[url]), 400);
 				return;
@@ -579,6 +597,44 @@ describe('a screen photographed', () => {
 	beforeEach(() => {
 		asked.length = 0;
 		searched.length = 0;
+	});
+
+	it.each(['en', 'nl'])(
+		'is the same with the install card up as without it, in %s (#660)',
+		async (locale) => {
+			installTitle = JSON.parse(
+				fs.readFileSync(path.join(ROOT, 'ui', 'messages', `${locale}.json`), 'utf8'),
+			).offline_install_title;
+			const visits = cardedVisits;
+			const pictures = [];
+			for (const run of ['with-card', 'without-card']) {
+				const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+				const out = path.join(tmp, run);
+				fs.mkdirSync(out);
+				expect(await takeScreen(page, origin, '/carded', out, 'phone', locale)).toEqual([]);
+				pictures.push(out);
+				await page.close();
+			}
+			// One visit with the card and one without.
+			expect(cardedVisits - visits).toBe(2);
+			expect(compare(pictures[0], pictures[1])).toEqual({ compared: 1, differences: [] });
+		},
+	);
+
+	it('keeps hidden a card drawn after the cards were hidden (#660)', async () => {
+		const page = await browser.newPage();
+		await page.setContent('<p>the screen</p>');
+		await hideBrowserCards(page, 'en');
+		const title = browserCardTitles('en')[0];
+		const shown = await page.evaluate((label) => {
+			const card = document.createElement('section');
+			card.setAttribute('aria-label', label);
+			card.textContent = label;
+			document.body.prepend(card);
+			return getComputedStyle(card).display;
+		}, title);
+		expect(shown).toBe('none');
+		await page.close();
 	});
 
 	it('waits for a request the page makes after the first quiet moment', async () => {

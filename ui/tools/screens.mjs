@@ -25,8 +25,10 @@
  * paints whole tiles and speaks HTTP/1.1, so the dev instance's proxy never
  * drops a font or a read mid-page (#640), and what the tools themselves do is
  * kept off the screens (`openSettled`, `holdWindowStill`, `holdCodeStill`,
- * `openBrowser` and `leaveNoTrace` in `dev.mjs`, #529). A screen that never
- * stops changing is a fault.
+ * `openBrowser` and `leaveNoTrace` in `dev.mjs`, #529). So are the test
+ * browser's own cards, such as "Keep Kamosu on your phone", which stand at the
+ * top of a screen or not by how far the library and the sign-in had got
+ * (`hideBrowserCards`, #660). A screen that never stops changing is a fault.
  */
 
 import fs from 'node:fs';
@@ -36,6 +38,7 @@ import {
 	ToolError,
 	atEverySize,
 	fromRoot,
+	hideBrowserCards,
 	openBrowser,
 	openSettled,
 	run,
@@ -160,6 +163,48 @@ export async function photograph(page, out, route, size) {
 	return { files, height };
 }
 
+/**
+ * Open one path, settled and with the test browser's own cards hidden, and
+ * photograph it at one size: what `just screens` does for each path. It names
+ * each file it wrote and returns the faults it found, the screen still
+ * photographed when it is unsettled or scrolls sideways.
+ * @param {import('playwright').Page} page
+ * @param {string} origin
+ * @param {string} route
+ * @param {string} out
+ * @param {string} size
+ * @param {string} [locale] the Language the screens are drawn in, so its cards are found
+ * @returns {Promise<string[]>}
+ */
+export async function takeScreen(page, origin, route, out, size, locale = 'en') {
+	/** @type {string[]} */
+	const faults = [];
+	try {
+		// Before anything can fail, so a failed run leaves no earlier run's
+		// pictures to be compared as if they were this one's.
+		clearPictures(out, route, size);
+		// A screen still changing would differ from one run to the next, so it
+		// is a fault, though it is still photographed.
+		const unsettled = await openSettled(page, origin + route);
+		if (unsettled) faults.push(`${route} at ${size}: ${unsettled}`);
+		await hideBrowserCards(page, locale);
+		const spill = await page.evaluate(
+			() => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+		);
+		if (spill > 0) faults.push(`${route} at ${size}: scrolls sideways by ${spill}px`);
+		const { files, height } = await photograph(page, out, route, size);
+		if (files.length > 1) {
+			console.log(
+				`${route} at ${size} is ${height}px tall, too tall for one picture: ${files.length} pieces`,
+			);
+		}
+		for (const file of files) console.log(path.relative(ROOT, file));
+	} catch (error) {
+		faults.push(`${route} at ${size}: not photographed: ${String(error).split('\n')[0]}`);
+	}
+	return faults;
+}
+
 async function main() {
 	const args = process.argv.slice(2);
 	const webkit = args.includes('--webkit');
@@ -193,28 +238,7 @@ async function main() {
 				});
 				page.on('pageerror', (error) => faults.push(`${where()}: ${error}`));
 				for (const route of routes) {
-					try {
-						// Before anything can fail, so a failed run leaves no earlier
-						// run's pictures to be compared as if they were this one's.
-						clearPictures(out, route, size);
-						// A screen still changing would differ from one run to the next,
-						// so it is a fault, though it is still photographed.
-						const unsettled = await openSettled(page, origin + route);
-						if (unsettled) faults.push(`${route} at ${size}: ${unsettled}`);
-						const spill = await page.evaluate(
-							() => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-						);
-						if (spill > 0) faults.push(`${route} at ${size}: scrolls sideways by ${spill}px`);
-						const { files, height } = await photograph(page, out, route, size);
-						if (files.length > 1) {
-							console.log(
-								`${route} at ${size} is ${height}px tall, too tall for one picture: ${files.length} pieces`,
-							);
-						}
-						for (const file of files) console.log(path.relative(ROOT, file));
-					} catch (error) {
-						faults.push(`${route} at ${size}: not photographed: ${String(error).split('\n')[0]}`);
-					}
+					faults.push(...(await takeScreen(page, origin, route, out, size, locale)));
 				}
 			},
 			locale,
