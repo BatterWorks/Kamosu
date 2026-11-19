@@ -5,8 +5,8 @@
  *
  * The measures are the research note's, section 3
  * (`docs/research/ux-reading-crowding-and-finding.md`), counted by
- * `ux-measures.mjs`. Depth is the one left out: it is counted by hand in the
- * walkthrough.
+ * `ux-measures.mjs`. Depth is the one left out: `just ux-walk` counts it
+ * from each task's recorded path (#639).
  *
  * **Never on the dev instance.** Opening the cooking screen starts a cooking
  * and the share screen makes a public Share Link, and the dev library is the
@@ -35,10 +35,7 @@
  */
 
 import crypto from 'node:crypto';
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import net from 'node:net';
-import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync, backup } from 'node:sqlite';
 import {
@@ -51,13 +48,14 @@ import {
 	openBrowser,
 	openSettled,
 	run,
-	browserCardTitles,
+	hideBrowserCards,
 	signedInContext,
 	toolContext,
 } from './dev.mjs';
 import { signInAt } from './dev-session.mjs';
 import { photograph } from './screens.mjs';
 import { AUDIT_PHONES, MOUSE_SIZES, NARROWEST_PHONE, SIZES } from './sizes.mjs';
+import { leaveNothingNow, startInstance, throwawayFolder } from './throwaway.mjs';
 import { measureInPage, valuesOf } from './ux-measures.mjs';
 
 /** The sizes everyday screens are measured at: the two audit phones and the wide layout's two. */
@@ -272,102 +270,6 @@ export function coverage(found) {
 	return rows;
 }
 
-// ── throwaway instances ──────────────────────────────────────────────────────
-
-/**
- * What a run leaves standing until it ends: the throwaway instances' process
- * groups and their folder. A stop from the terminal does not reach the
- * instances, which are started apart, and Playwright ends the process on one
- * as soon as its browser is closed, so `leaveNothingNow` does it all without
- * handing control back. It ends the instances outright, since what they hold
- * is a copy made to be thrown away: one asked to stop politely writes to its
- * folder on its way out, and wrote it back after it was removed.
- */
-const standing = { groups: new Set(), folder: '' };
-
-/** End every instance at once, give them a moment to be gone, and remove the folder. */
-function leaveNothingNow() {
-	for (const group of standing.groups) {
-		try {
-			process.kill(-group, 'SIGKILL');
-		} catch {
-			// Already gone.
-		}
-	}
-	if (standing.groups.size > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
-	standing.groups.clear();
-	if (standing.folder) fs.rmSync(standing.folder, { recursive: true, force: true });
-}
-
-/** A port nothing on this machine is listening on, asked of the system. */
-async function sparePort() {
-	return new Promise((done, failed) => {
-		const server = net.createServer();
-		server.on('error', failed);
-		server.listen(0, '127.0.0.1', () => {
-			const { port } = /** @type {net.AddressInfo} */ (server.address());
-			server.close(() => done(port));
-		});
-	});
-}
-
-/**
- * One throwaway Kamosu: the debug binary, bound to 127.0.0.1 on a spare port,
- * its data in `data`, its log in `log`, outside the folder removed at the
- * end so a failed start can still be read, stopped as the process group it
- * was started as. `api` is where Node reaches it; `origin` is the same instance
- * as the browser opens it, at `localhost`, which Chrome holds safe enough for
- * a Session's Secure cookie.
- * @param {string} binary
- * @param {string} data
- * @param {string} logFile
- */
-async function startInstance(binary, data, logFile) {
-	const port = await sparePort();
-	const log = fs.openSync(logFile, 'w');
-	const child = spawn(binary, ['serve'], {
-		env: {
-			...process.env,
-			KAMOSU_DATA_DIR: data,
-			KAMOSU_ADDRESS: '127.0.0.1',
-			KAMOSU_PORT: String(port),
-		},
-		stdio: ['ignore', log, log],
-		detached: true,
-	});
-	/** @type {Error | undefined} */
-	let failed;
-	child.on('error', (error) => (failed = error));
-	const exited = new Promise((done) => child.on('close', done));
-	if (child.pid !== undefined) standing.groups.add(child.pid);
-	const stop = async () => {
-		if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
-		process.kill(-child.pid, 'SIGTERM');
-		const late = setTimeout(() => child.pid && process.kill(-child.pid, 'SIGKILL'), 60_000);
-		await exited;
-		clearTimeout(late);
-		standing.groups.delete(child.pid);
-	};
-	const api = `http://127.0.0.1:${port}`;
-	for (let tries = 0; ; tries++) {
-		if (failed || child.exitCode !== null) {
-			throw new ToolError(
-				`a throwaway Kamosu did not start (${failed ?? `exit ${child.exitCode}`}); its log is ${logFile}`,
-			);
-		}
-		const up = await fetch(`${api}/api/op/instance_status`, { method: 'POST', body: '{}' })
-			.then(() => true)
-			.catch(() => false);
-		if (up) break;
-		if (tries > 600)
-			throw new ToolError(
-				`a throwaway Kamosu did not answer within a minute; its log is ${logFile}`,
-			);
-		await new Promise((done) => setTimeout(done, 100));
-	}
-	return { api, origin: `http://localhost:${port}`, stop };
-}
-
 /**
  * A consistent copy of the dev instance's data, made without disturbing it:
  * the database by SQLite's backup on a read-only connection, never a plain
@@ -567,13 +469,7 @@ async function measureRow(page, row, at) {
 		await page.waitForLoadState('networkidle');
 		await page.waitForTimeout(STILL_MS);
 	}
-	await page.evaluate((titles) => {
-		for (const card of document.querySelectorAll('section[aria-label]')) {
-			if (titles.includes(card.getAttribute('aria-label') ?? '')) {
-				/** @type {HTMLElement} */ (card).style.display = 'none';
-			}
-		}
-	}, browserCardTitles(row.locale));
+	await hideBrowserCards(page, row.locale);
 	await Promise.all(at.pending);
 
 	let picture = '';
@@ -783,17 +679,7 @@ async function main() {
 		throw new ToolError(`there is no dev library at ${path.relative(ROOT, devDb)} to copy`);
 	const before = tableFingerprints(devDb);
 
-	// Stopped from the terminal, the instances would outlive the run: they
-	// are started apart from it, so the signal does not reach them.
-	for (const signal of /** @type {const} */ (['SIGINT', 'SIGTERM'])) {
-		process.once(signal, () => {
-			console.error('stopped: the throwaway instances are stopping and their folder is gone');
-			leaveNothingNow();
-			process.exit(130);
-		});
-	}
-	const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'kamosu-ux-measure-'));
-	standing.folder = scratch;
+	const scratch = throwawayFolder('ux-measure');
 	/** @type {(() => Promise<void>)[]} */
 	const stops = [];
 	/** @type {string[]} */

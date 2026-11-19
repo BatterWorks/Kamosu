@@ -36,9 +36,11 @@ import { fileFor, folderOf, server } from './proto-serve.mjs';
 import { indexOf, pageOf, photoName } from './proto-new.mjs';
 import { PICTURE_LIMIT, pictureName, piecesOf } from './screens.mjs';
 import { compare } from './screens-same.mjs';
-import { SIZES } from './sizes.mjs';
+import { AUDIT_PHONES, SIZES } from './sizes.mjs';
 import { coverage, tableFingerprints, tableOf } from './ux-measure.mjs';
 import { measureInPage, valuesOf } from './ux-measures.mjs';
+import { TASKS } from './ux-tasks.mjs';
+import { Stopped, depthTable, faultsOf, walkTask, writeHandover } from './ux-walk.mjs';
 
 /** @type {string} */
 let tmp;
@@ -1118,5 +1120,321 @@ describe('the table ux-measure writes', () => {
 			text_cut_off: '1',
 			sideways_px: '0',
 		});
+	});
+});
+
+describe('the hand-over command', () => {
+	/** A folder outside the repo holding the command and two tasks' pictures, and nothing else. */
+	function evaluatorFolder() {
+		const pictures = fill('walk', { 'a1.png': 'A1', 'a2.png': 'A2', 'b1.png': 'B1' });
+		const folder = path.join(tmp, 'evaluator');
+		writeHandover(folder, [
+			{
+				id: 'plan',
+				goal: 'Plan this recipe for Thursday.',
+				pictures: [path.join(pictures, 'a1.png'), path.join(pictures, 'a2.png')],
+			},
+			{ id: 'share', goal: 'Share this recipe.', pictures: [path.join(pictures, 'b1.png')] },
+		]);
+		fs.rmSync(pictures, { recursive: true });
+		return folder;
+	}
+
+	/**
+	 * Run the command as an evaluator does, in its own folder, with nothing of the repo around it.
+	 * @param {string} folder
+	 * @param {string[]} args
+	 */
+	function walk(folder, args) {
+		try {
+			return {
+				code: 0,
+				out: execFileSync('node', ['walk.mjs', ...args], { cwd: folder, encoding: 'utf8' }),
+			};
+		} catch (error) {
+			const failed = /** @type {{ status: number, stdout: string, stderr: string }} */ (error);
+			return { code: failed.status, out: failed.stdout + failed.stderr };
+		}
+	}
+
+	it('names the tasks and their goals, and lists no picture before one is asked for', () => {
+		const folder = evaluatorFolder();
+		const { code, out } = walk(folder, []);
+		expect(code).toBe(0);
+		expect(out).toContain('plan');
+		expect(out).toContain('Plan this recipe for Thursday.');
+		expect(out).toContain('Share this recipe.');
+		const listed = fs.readdirSync(folder, { recursive: true }).map(String);
+		expect(listed.filter((name) => name.endsWith('.png'))).toEqual([]);
+	});
+
+	it('gives one picture at a time, and the next only once the last has a guess', () => {
+		const folder = evaluatorFolder();
+		const first = walk(folder, ['next', 'plan']);
+		expect(first.code).toBe(0);
+		expect(first.out).toContain('Plan this recipe for Thursday.');
+		const shown = /(\S+\.png)/.exec(first.out)?.[1] ?? '';
+		expect(fs.readFileSync(path.join(folder, shown), 'utf8')).toBe('A1');
+		expect(
+			fs
+				.readdirSync(folder, { recursive: true })
+				.map(String)
+				.filter((n) => n.endsWith('.png')),
+		).toHaveLength(1);
+
+		const early = walk(folder, ['next', 'plan']);
+		expect(early.code).not.toBe(0);
+		expect(early.out).toMatch(/guess/);
+
+		expect(walk(folder, ['guess', 'plan', '--tap', 'Plan', '--why', 'it says plan']).code).toBe(0);
+		const second = walk(folder, ['next', 'plan']);
+		expect(second.code).toBe(0);
+		const next = /(\S+\.png)/.exec(second.out)?.[1] ?? '';
+		expect(fs.readFileSync(path.join(folder, next), 'utf8')).toBe('A2');
+	});
+
+	it('keeps every guess in order in one file, and says when a task has no pictures left', () => {
+		const folder = evaluatorFolder();
+		walk(folder, ['next', 'share']);
+		walk(folder, ['guess', 'share', '--tap', 'Done', '--why', 'it is shared', '--unclear', 'no']);
+		walk(folder, ['next', 'plan']);
+		walk(folder, ['guess', 'plan', '--tap', 'Plan', '--why', 'the word']);
+		walk(folder, ['next', 'plan']);
+		walk(folder, ['guess', 'plan', '--tap', 'Thursday', '--why', 'the day asked']);
+
+		const over = walk(folder, ['next', 'plan']);
+		expect(over.code).toBe(0);
+		expect(over.out).toMatch(/no more pictures/i);
+
+		const kept = fs
+			.readFileSync(path.join(folder, 'guesses.jsonl'), 'utf8')
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line));
+		expect(kept.map((g) => [g.task, g.picture, g.tap])).toEqual([
+			['share', 1, 'Done'],
+			['plan', 1, 'Plan'],
+			['plan', 2, 'Thursday'],
+		]);
+		expect(kept[0]).toMatchObject({ why: 'it is shared', unclear: 'no' });
+	});
+
+	it('refuses a guess with no picture shown, or with nothing to say what it would tap', () => {
+		const folder = evaluatorFolder();
+		expect(walk(folder, ['guess', 'plan', '--tap', 'Plan', '--why', 'x']).code).not.toBe(0);
+		walk(folder, ['next', 'plan']);
+		expect(walk(folder, ['guess', 'plan', '--why', 'x']).code).not.toBe(0);
+		expect(walk(folder, ['next', 'nothing']).code).not.toBe(0);
+	});
+});
+
+describe('the tasks ux-walk records', () => {
+	it('declares every task of the audit, everyday first, with no fault', () => {
+		expect(faultsOf(TASKS)).toEqual([]);
+		expect(TASKS.map((t) => t.id)).toEqual([
+			'find-search',
+			'find-browse',
+			'find-tag',
+			'read',
+			'share',
+			'cook',
+			'shopping',
+			'plan',
+			'link',
+			'language',
+			'invite',
+			'old-version',
+		]);
+		const occasional = TASKS.map((t) => Boolean(t.occasional));
+		expect(occasional.indexOf(true)).toBe(occasional.lastIndexOf(false) + 1);
+	});
+
+	it('refuses a step named by a selector, a step that both taps and types, and a task with no goal', () => {
+		const faults = faultsOf([
+			{ id: 'a', goal: 'Do it.', start: '/', finish: 'Done', steps: [{ tap: '#save' }] },
+			{ id: 'b', goal: 'Do it.', start: '/', finish: 'Done', steps: [{ tap: 'Save', type: 'x' }] },
+			{
+				id: 'c',
+				goal: '',
+				start: 'home',
+				finish: 'Done',
+				steps: [{ type: 'x', into: 'button.go' }],
+			},
+			{ id: 'a', goal: 'Again.', start: { recipe: 'Tart' }, finish: 'Done', steps: [] },
+		]);
+		expect(faults).toEqual([
+			'a, step 1: "#save" is a selector, not words',
+			'b, step 1: a step taps one control or types into one field',
+			'c: it has no goal',
+			'c: its start is neither a path nor a recipe',
+			'c, step 1: "button.go" is a selector, not words',
+			'a: declared twice',
+			'a: it has no steps',
+		]);
+	});
+});
+
+describe('the Depth table', () => {
+	it('counts each task’s taps, typing, scrolls and screens, and says how each control was reached', () => {
+		const table = depthTable([
+			{
+				id: 'plan',
+				taken: [
+					{ picture: '01.png', screen: '/r', does: 'scroll', control: 'Plan this' },
+					{ picture: '02.png', screen: '/r', does: 'tap', control: 'Plan this', reached: 'scroll' },
+					{ picture: '03.png', screen: '/r', does: 'tap', control: 'Tomorrow', reached: 'menu' },
+					{
+						picture: '04.png',
+						screen: '/plan',
+						does: 'type',
+						control: 'Words',
+						typed: 'x',
+						reached: 'visible',
+					},
+					{ picture: '05.png', screen: '/r', does: 'finish' },
+				],
+			},
+		]).split('\n');
+		expect(table[0]).toBe('task,taps,typed,scrolls,screens,screens_passed,steps');
+		expect(table[1]).toBe(
+			'plan,2,1,1,3,/r > /plan > /r,1 Plan this (scroll); 2 Tomorrow (menu); 3 Words (visible)',
+		);
+	});
+});
+
+// A real Chrome against a page served here, as `a screen photographed` does.
+describe('a task walked', () => {
+	/** @type {import('playwright').Browser} */
+	let browser;
+	/** @type {import('node:http').Server} */
+	let site;
+	let origin = '';
+
+	// A button below the fold that opens a panel after a moment, a choice in
+	// it, and a message once chosen.
+	const PAGE = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+		<body style="margin:0;font:16px sans-serif">
+		<div style="height:1200px">Top</div>
+		<button id="open" style="height:48px">Plan this</button>
+		<div id="panel" role="dialog" hidden style="position:fixed;inset:auto 0 0 0;background:#eee;padding:16px">
+			<button id="tomorrow">Tomorrow · Friday</button>
+		</div>
+		<p id="said"></p>
+		<script>
+			document.getElementById('open').onclick = () =>
+				setTimeout(() => { document.getElementById('panel').hidden = false; }, 300);
+			document.getElementById('tomorrow').onclick = () => {
+				document.getElementById('panel').hidden = true;
+				document.getElementById('said').textContent = 'Planned for Friday';
+			};
+		</script>`;
+
+	// A button inside the window but under a bar fixed to its foot, as the
+	// tab bar is on the phone.
+	const COVERED = `<!doctype html><meta charset="utf-8">
+		<body style="margin:0;font:16px sans-serif">
+		<div style="height:820px">Top</div>
+		<button style="height:48px;display:block">Save</button>
+		<div style="height:1200px"></div>
+		<nav style="position:fixed;bottom:0;left:0;right:0;height:80px;background:#123">Tabs</nav>
+		<p>Saved</p>`;
+
+	beforeAll(async () => {
+		site = http.createServer((request, response) => {
+			response.setHeader('content-type', 'text/html');
+			response.end(request.url === '/covered' ? COVERED : PAGE);
+		});
+		await new Promise((done) => site.listen(0, '127.0.0.1', () => done(undefined)));
+		const { port } = /** @type {import('node:net').AddressInfo} */ (site.address());
+		origin = `http://127.0.0.1:${port}`;
+		browser = await openBrowser({ env: fs.existsSync(path.join(ROOT, '.env')) ? devEnv() : {} });
+	});
+	afterAll(async () => {
+		await browser?.close();
+		site?.close();
+	});
+
+	/** @param {import('./ux-walk.mjs').Task & { start: string }} task */
+	async function walked(task) {
+		const page = await (
+			await browser.newContext({
+				viewport: { width: AUDIT_PHONES['phone-402'][0], height: AUDIT_PHONES['phone-402'][1] },
+			})
+		).newPage();
+		try {
+			return await walkTask(page, origin, task, path.join(tmp, task.id), { limit: 2000 });
+		} finally {
+			await page.context().close();
+		}
+	}
+
+	it('takes a picture before each step and one at the finish line, the panel caught open', async () => {
+		const taken = await walked({
+			id: 'plan',
+			goal: 'Plan it for tomorrow.',
+			start: '/',
+			steps: [
+				{ tap: 'Plan this', opens: true },
+				{ tap: 'Tomorrow', partial: true },
+			],
+			finish: 'Planned for',
+		});
+		expect(taken.map((t) => [t.picture, t.does, t.control, t.reached])).toEqual([
+			['01.png', 'scroll', 'Plan this', undefined],
+			['02.png', 'tap', 'Plan this', 'scroll'],
+			['03.png', 'tap', 'Tomorrow', 'menu'],
+			['04.png', 'finish', undefined, undefined],
+		]);
+		const folder = path.join(tmp, 'plan');
+		expect(fs.readdirSync(folder).sort()).toEqual(['01.png', '02.png', '03.png', '04.png']);
+		// The panel covers the foot of the screen in 03 alone.
+		const [scrolled, open, done] = ['02.png', '03.png', '04.png'].map((f) =>
+			fs.readFileSync(path.join(folder, f)),
+		);
+		expect(open.equals(scrolled)).toBe(false);
+		expect(open.equals(done)).toBe(false);
+	});
+
+	it('stops on a control that is not there, naming the task and the step, with a picture', async () => {
+		const walking = walked({
+			id: 'gone',
+			goal: 'Plan it.',
+			start: '/',
+			steps: [{ tap: 'Plan this' }, { tap: 'Next week' }],
+			finish: 'Planned for',
+		});
+		await expect(walking).rejects.toThrow(Stopped);
+		await expect(walking).rejects.toThrow(/gone, step 2: there is no control "Next week"/);
+		expect(fs.existsSync(path.join(tmp, 'gone', 'stopped.png'))).toBe(true);
+		expect(fs.readFileSync(path.join(tmp, 'gone', 'stopped.aria.txt'), 'utf8')).toContain(
+			'Tomorrow · Friday',
+		);
+	});
+
+	it('counts a control under a bar fixed to the foot of the screen as one scrolled to', async () => {
+		const taken = await walked({
+			id: 'covered',
+			goal: 'Save it.',
+			start: '/covered',
+			steps: [{ tap: 'Save' }],
+			finish: 'Saved',
+		});
+		expect(taken.map((t) => [t.does, t.reached])).toEqual([
+			['scroll', undefined],
+			['tap', 'scroll'],
+			['finish', undefined],
+		]);
+	});
+
+	it('stops on a finish line the screen does not show', async () => {
+		await expect(
+			walked({
+				id: 'short',
+				goal: 'Plan it.',
+				start: '/',
+				steps: [{ tap: 'Plan this' }],
+				finish: 'Planned for',
+			}),
+		).rejects.toThrow(/short, its finish line: the screen does not show "Planned for"/);
 	});
 });
