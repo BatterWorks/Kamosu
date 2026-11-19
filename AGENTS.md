@@ -386,6 +386,10 @@ it rather than removing the scoping.
 
 ## The interface
 
+**Read `docs/ux-rules.md` before writing or changing a screen**, as you read
+`docs/svelte/llms-small.txt` before writing Svelte. It holds Kamosu's own
+interface rules, drawn from the UX audit, each with its source.
+
 The frontend is **Svelte 5 + SvelteKit on `adapter-static` + TypeScript +
 Tailwind 4 + Paraglide**, and it is **compiled into the binary** (ADR 0028) —
 never copied beside it. `rust-embed` reads `ui/build` from disk in a debug build
