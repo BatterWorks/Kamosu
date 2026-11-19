@@ -380,6 +380,138 @@ async fn any_person_may_create_a_kitchen_named_by_its_creator() {
     assert_eq!(listed["result"]["kitchens"].as_array().unwrap().len(), 1);
 }
 
+/// An invite link carries the instance's public address once one is set, as a
+/// Share Link does, rather than whatever address the inviter's browser had
+/// open (#648). Before one is set there is no address to give, and the answer
+/// says so with `null`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_invite_answers_its_link_at_the_public_address_once_one_is_set() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&session),
+        &json!({ "name": "Home" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+    let kitchen = json!({ "kitchen_id": kitchen_id }).to_string();
+
+    let invites = |app: &support::TestApp| {
+        let (status, k) = app.post_op("invite_to_kitchen", Some(&session), &kitchen);
+        assert_eq!(status, 200, "{k}");
+        let (status, c) = app.post_op("invite_to_cookbook", Some(&session), "{}");
+        assert_eq!(status, 200, "{c}");
+        let (status, p) = app.post_op("mint_invite", Some(&session), "{}");
+        assert_eq!(status, 200, "{p}");
+        (
+            k["result"].clone(),
+            c["result"].clone(),
+            p["result"].clone(),
+        )
+    };
+
+    let (k, c, p) = invites(&app);
+    assert_eq!(k["url"], Value::Null, "no address yet: {k}");
+    assert_eq!(c["url"], Value::Null, "no address yet: {c}");
+    assert_eq!(p["url"], Value::Null, "no address yet: {p}");
+    assert!(p["id"].as_str().is_some_and(|id| !id.is_empty()), "{p}");
+
+    let (status, set) = app.post_op(
+        "set_public_address",
+        Some(&session),
+        &json!({ "public_address": "https://cuisine.example" }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+
+    let (k, c, p) = invites(&app);
+    let secret = k["secret"].as_str().unwrap();
+    assert_eq!(
+        k["url"],
+        json!(format!("https://cuisine.example/kitchen-invite/{secret}"))
+    );
+    let secret = c["secret"].as_str().unwrap();
+    assert_eq!(
+        c["url"],
+        json!(format!("https://cuisine.example/cookbook-invite/{secret}"))
+    );
+    let link = p["link"].as_str().unwrap();
+    assert!(link.starts_with("/invite/"), "{p}");
+    assert_eq!(p["url"], json!(format!("https://cuisine.example{link}")));
+
+    // The id an Invite answers is the one its revoking takes.
+    let (status, revoked) = app.post_op(
+        "revoke_account_link",
+        Some(&session),
+        &json!({ "id": p["id"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{revoked}");
+}
+
+/// A Kitchen lists the invites to it nobody has opened yet, so a member can
+/// see one left behind and cancel it, as a Cookbook lists its own (#648).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kitchen_lists_the_invites_nobody_has_opened_yet() {
+    let app = support::spawn_app();
+    let alice = app.core.create_person("Alice").expect("person");
+    let alice_key = app
+        .core
+        .mint_access_key(&alice, "browser", false)
+        .unwrap()
+        .secret;
+    let bob = app.core.create_person("Bob").expect("person");
+    let bob_key = app
+        .core
+        .mint_access_key(&bob, "browser", false)
+        .unwrap()
+        .secret;
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&alice_key),
+        &json!({ "name": "Home" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+    let kitchen = json!({ "kitchen_id": kitchen_id }).to_string();
+
+    let mint = || {
+        let (status, minted) = app.post_op("invite_to_kitchen", Some(&alice_key), &kitchen);
+        assert_eq!(status, 200, "{minted}");
+        minted["result"].clone()
+    };
+    let opened = mint();
+    let cancelled = mint();
+    let waiting = mint();
+
+    let (status, joined) = app.post_op(
+        "accept_kitchen_invite",
+        Some(&bob_key),
+        &json!({ "secret": opened["secret"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+    let (status, ended) = app.post_op(
+        "cancel_kitchen_invite",
+        Some(&alice_key),
+        &json!({ "invite_id": cancelled["invite_id"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{ended}");
+
+    // Every member sees the one still waiting, and nothing else.
+    for key in [&alice_key, &bob_key] {
+        let (status, listed) = app.post_op("list_kitchens", Some(key), "{}");
+        assert_eq!(status, 200, "{listed}");
+        let home = listed["result"]["kitchens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|k| k["id"] == json!(kitchen_id))
+            .expect("Home is listed")
+            .clone();
+        let invites = home["invites"].as_array().expect("invites");
+        assert_eq!(invites.len(), 1, "{home}");
+        assert_eq!(invites[0]["invite_id"], waiting["invite_id"]);
+        assert!(invites[0]["created_at"].as_str().is_some(), "{home}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn any_member_may_rename_a_kitchen_and_set_their_own_private_nickname() {
     let app = support::spawn_app();

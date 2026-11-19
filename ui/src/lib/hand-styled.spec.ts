@@ -33,7 +33,7 @@ import { describe, expect, it } from 'vitest';
 
 const SRC = join(import.meta.dirname, '..');
 
-/** The files #632 found drawing their own, less the share screen it moved. */
+/** The files #632 found drawing their own, less the share screen it moved and the Kitchens page #648 did. */
 const STILL_HAND_STYLED: string[] = [
 	'lib/AddOrImport.svelte',
 	'lib/Confirm.svelte',
@@ -118,7 +118,6 @@ const STILL_HAND_STYLED: string[] = [
 	'routes/settings/backups/+page.svelte',
 	'routes/settings/device/+page.svelte',
 	'routes/settings/keys/+page.svelte',
-	'routes/settings/kitchens/+page.svelte',
 	'routes/settings/language/+page.svelte',
 	'routes/settings/name/+page.svelte',
 	'routes/settings/people/+page.svelte',

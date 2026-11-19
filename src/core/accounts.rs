@@ -723,38 +723,52 @@ impl Core {
     }
 
     pub fn mint_invite(&self, is_operator: bool) -> Result<String, OpError> {
-        self.mint_invite_into(is_operator, None)
+        Ok(self.mint_invite_into(is_operator, None)?.1)
     }
 
-    /// An Invite that brings its newcomer into a Kitchen too (#469): one of
-    /// the Operator's own, since one they are not in is not theirs to fill.
-    pub fn mint_invite_into_kitchen(
+    /// An Invite with the id its revoking takes (#648), as `mint_invite` the
+    /// Operation answers it. It can bring its newcomer into a Kitchen too
+    /// (#469): one of the Operator's own, since one they are not in is not
+    /// theirs to fill.
+    pub fn mint_invite_with_id(
         &self,
         person_id: &str,
-        kitchen_id: &str,
+        kitchen_id: Option<&str>,
         is_operator: bool,
-    ) -> Result<String, OpError> {
+    ) -> Result<(String, String), OpError> {
+        match kitchen_id {
+            Some(kitchen_id) => {
+                self.ensure_own_kitchen(person_id, kitchen_id)?;
+                self.mint_invite_into(is_operator, Some(kitchen_id))
+            }
+            None => self.mint_invite_into(is_operator, None),
+        }
+    }
+
+    fn ensure_own_kitchen(&self, person_id: &str, kitchen_id: &str) -> Result<(), OpError> {
         let mine = self
             .db()
             .with_conn(|conn| super::kitchens::is_member(conn, kitchen_id, person_id))?;
         if !mine {
             return Err(OpError::not_found("no Kitchen of yours by that id"));
         }
-        self.mint_invite_into(is_operator, Some(kitchen_id))
+        Ok(())
     }
 
+    /// The Invite's id and its link's path.
     fn mint_invite_into(
         &self,
         is_operator: bool,
         kitchen_id: Option<&str>,
-    ) -> Result<String, OpError> {
+    ) -> Result<(String, String), OpError> {
         let secret = generate_secret();
+        let id = account_link_id();
         self.db().with_conn(|conn| {
-            conn.execute("INSERT INTO account_links (id, secret_hash, kind, is_operator, kitchen_id) VALUES (?1, ?2, 'invite', ?3, ?4)", params![account_link_id(), hash_secret(&secret), is_operator as i64, kitchen_id])
+            conn.execute("INSERT INTO account_links (id, secret_hash, kind, is_operator, kitchen_id) VALUES (?1, ?2, 'invite', ?3, ?4)", params![id, hash_secret(&secret), is_operator as i64, kitchen_id])
                 .map_err(|e| OpError::internal(format!("cannot mint Invite: {e}")))?;
             Ok(())
         })?;
-        Ok(format!("/invite/{secret}"))
+        Ok((id, format!("/invite/{secret}")))
     }
 
     pub fn redeem_invite(

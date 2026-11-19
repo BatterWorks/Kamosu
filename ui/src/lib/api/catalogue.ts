@@ -81,7 +81,9 @@ export type MintInviteInput = {
 };
 /** What mint_invite answers. */
 export type MintInviteOutput = {
+	id: string;
 	link: string;
+	url: string | null;
 };
 
 /** Disable an account so it can no longer obtain a Credential. */
@@ -593,6 +595,10 @@ export type ListKitchensOutput = {
 			name: string | null;
 		}[];
 		id: string;
+		invites: {
+			created_at: string;
+			invite_id: string;
+		}[];
 		members: {
 			name: string;
 			person_id: string;
@@ -630,6 +636,7 @@ export type InviteToKitchenInput = {
 export type InviteToKitchenOutput = {
 	invite_id: string;
 	secret: string;
+	url: string | null;
 };
 
 /** Open a Kitchen Invite: join the Kitchen it names. Spent on use. */
@@ -872,6 +879,7 @@ export type InviteToCookbookInput = Record<string, never>;
 export type InviteToCookbookOutput = {
 	invite_id: string;
 	secret: string;
+	url: string | null;
 };
 
 /** End a Cookbook Invite nobody has used yet. */
@@ -7651,12 +7659,26 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
-				"link": {
+				"id": {
+					"description": "The Invite's id, which revoke_account_link takes.",
 					"type": "string"
+				},
+				"link": {
+					"description": "The link's path.",
+					"type": "string"
+				},
+				"url": {
+					"description": "The whole link at this instance's public address, or null while none is set.",
+					"type": [
+						"string",
+						"null"
+					]
 				}
 			},
 			"required": [
-				"link"
+				"id",
+				"link",
+				"url"
 			],
 			"type": "object"
 		}
@@ -9783,6 +9805,25 @@ export const CATALOGUE = [
 							"id": {
 								"type": "string"
 							},
+							"invites": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"created_at": {
+											"type": "string"
+										},
+										"invite_id": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"invite_id",
+										"created_at"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
 							"members": {
 								"items": {
 									"additionalProperties": false,
@@ -9817,7 +9858,8 @@ export const CATALOGUE = [
 							"name",
 							"nickname",
 							"members",
-							"cookbooks"
+							"cookbooks",
+							"invites"
 						],
 						"type": "object"
 					},
@@ -9929,11 +9971,19 @@ export const CATALOGUE = [
 				},
 				"secret": {
 					"type": "string"
+				},
+				"url": {
+					"description": "The whole link at this instance's public address, or null while none is set.",
+					"type": [
+						"string",
+						"null"
+					]
 				}
 			},
 			"required": [
 				"invite_id",
-				"secret"
+				"secret",
+				"url"
 			],
 			"type": "object"
 		}
@@ -11014,11 +11064,19 @@ export const CATALOGUE = [
 				},
 				"secret": {
 					"type": "string"
+				},
+				"url": {
+					"description": "The whole link at this instance's public address, or null while none is set.",
+					"type": [
+						"string",
+						"null"
+					]
 				}
 			},
 			"required": [
 				"invite_id",
-				"secret"
+				"secret",
+				"url"
 			],
 			"type": "object"
 		}

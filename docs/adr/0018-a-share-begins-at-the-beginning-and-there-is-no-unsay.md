@@ -11,7 +11,7 @@ Because of this, **a Version missing from a chain has exactly one meaning: the b
 Two things follow in the interface:
 
 - The **Share Link page** shows the recipe and, beneath it, the **Thread** of the Branch shared — every Version in order with its name, its *what changed* line and its author — collapsed by default. Attempts still never appear on it ([ADR 0005](./0005-an-attempt-is-a-version-you-cooked-but-did-not-keep.md)).
-- The share screen carries a **standing line**, in the same words every time, on both the Share Link and the export-a-bundle path: what travels, and that turning the link off cannot reach a copy already sent. It is not a dialog, there is nothing to dismiss, and there is no first-time special case.
+- The share screen carries a **standing line**, in the same words every time, on both the Share Link and the export-a-bundle path: what travels, and that turning the link off cannot reach a copy already sent. It is not a dialog, there is nothing to dismiss, and there is no first-time special case. _(Amended by [#648](https://github.com/BatterWorks/Kamosu/issues/648): on the Share Link path the standing line now stands in a panel that *Make a link…* opens every time, and the link is made only from that panel. It is the same words every time, in body text where the old line was the palest text on the screen, and still with no first-time special case: what changed is that it is now a step to read before the link exists rather than a line beside the button, which the UX audit of 19 November 2026 found unread (S3). The recipe file says what it holds, every version among it, and that it is for another Kamosu, since nobody sends a friend a zip.)_
 
 ## Why
 

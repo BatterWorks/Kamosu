@@ -207,6 +207,7 @@ export function kitchenAnswer(id: string, over: Partial<Kitchen> = {}): Kitchen 
 		nickname: null,
 		members: [],
 		cookbooks: [cookbookLabel()],
+		invites: [],
 		...over,
 	};
 }

@@ -463,7 +463,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "is_operator": { "type": "boolean", "default": false }, "kitchen_id": { "type": "string", "description": "One of your own Kitchens, which the newcomer joins with their account. Omit for none." } }, "additionalProperties": false }),
-            output_schema: json!({ "type": "object", "properties": { "link": { "type": "string" } }, "required": ["link"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "id": { "type": "string", "description": "The Invite's id, which revoke_account_link takes." }, "link": { "type": "string", "description": "The link's path." }, "url": invite_url_schema() }, "required": ["id", "link", "url"], "additionalProperties": false }),
             handler: crate::operations::mint_invite,
         },
         Operation {
@@ -1520,7 +1520,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: empty_input(),
             output_schema: json!({
                 "type": "object",
-                "properties": { "kitchens": { "type": "array", "items": kitchen_schema() } },
+                "properties": { "kitchens": { "type": "array", "items": listed_kitchen_schema() } },
                 "required": ["kitchens"],
                 "additionalProperties": false,
             }),
@@ -1571,7 +1571,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
-            output_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" }, "secret": { "type": "string" } }, "required": ["invite_id", "secret"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" }, "secret": { "type": "string" }, "url": invite_url_schema() }, "required": ["invite_id", "secret", "url"], "additionalProperties": false }),
             handler: crate::operations::invite_to_kitchen,
         },
         Operation {
@@ -1794,7 +1794,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             in_demo: InDemo::Refused,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
-            output_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" }, "secret": { "type": "string" } }, "required": ["invite_id", "secret"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" }, "secret": { "type": "string" }, "url": invite_url_schema() }, "required": ["invite_id", "secret", "url"], "additionalProperties": false }),
             handler: crate::operations::invite_to_cookbook,
         },
         Operation {
@@ -6126,6 +6126,38 @@ fn kitchen_schema() -> Value {
         "required": ["id", "name", "nickname", "members", "cookbooks"],
         "additionalProperties": false,
     })
+}
+
+/// A Kitchen as its own member lists it: the Kitchen, and the invites to it
+/// nobody has opened yet, oldest first, so one left behind can be seen and
+/// cancelled (#648). Only `list_kitchens` answers them; a Kitchen read
+/// through an invite does not.
+fn listed_kitchen_schema() -> Value {
+    let mut schema = kitchen_schema();
+    schema["properties"]["invites"] = json!({
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "invite_id": { "type": "string" },
+                "created_at": { "type": "string" },
+            },
+            "required": ["invite_id", "created_at"],
+            "additionalProperties": false,
+        },
+    });
+    schema["required"]
+        .as_array_mut()
+        .expect("required is a list")
+        .push(json!("invites"));
+    schema
+}
+
+/// An invite's whole link at the instance's public address, or null while
+/// none is set, when a screen puts the path after the address it was read at
+/// (#648).
+fn invite_url_schema() -> Value {
+    json!({ "type": ["string", "null"], "description": "The whole link at this instance's public address, or null while none is set." })
 }
 
 /// A Cookbook as a screen labels a recipe by it (ADR 0041): its id, the name
