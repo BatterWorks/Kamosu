@@ -1234,6 +1234,7 @@
   "thread_what_changed_fixed": "Written when it was saved. It stays as it was written.",
   "tokens_blurb": "Read live from the stylesheet this page loaded.",
   "tokens_colour": "Colour",
+  "tokens_pieces": "Shared pieces",
   "tokens_shape": "Shape",
   "tokens_spacing": "Spacing",
   "tokens_specimen": "The quick brown fox · Le renard brun saute par-dessus le chien paresseux",

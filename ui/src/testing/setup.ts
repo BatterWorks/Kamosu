@@ -22,6 +22,7 @@ import { signingIn } from '#lib/shell/signing-in.svelte.js';
 import { forgetSlash } from '#lib/shell/slash.js';
 import { forgetDragHere } from '#lib/drop.svelte.js';
 import { forgetPaste } from '#lib/pasted.svelte.js';
+import { tooManyMainButtons } from './main-buttons';
 
 /**
  * One `goto` for the whole run, cleared after every test, and one `snapshot`
@@ -152,10 +153,14 @@ function blame(when: string): void {
 }
 
 afterEach(async () => {
+	// Counted before the screen is taken down, and said after, so a screen
+	// with too many still leaves the next test a clean document.
+	const tooMany = tooManyMainButtons();
 	cleanup();
 	went.mockClear();
 	await letThePendingSettle();
 	blame('during this test');
+	if (tooMany) throw tooMany;
 });
 
 afterAll(async () => {

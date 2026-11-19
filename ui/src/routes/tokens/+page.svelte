@@ -12,6 +12,8 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import Screen from '#lib/shell/Screen.svelte';
 	import Section from '#lib/shell/Section.svelte';
+	import ListRow from '#lib/ListRow.svelte';
+	import NoticeCard from '#lib/NoticeCard.svelte';
 	import {
 		COLOUR_ORDER,
 		RADIUS_ORDER,
@@ -31,7 +33,14 @@
 	$effect(() => {
 		colours = COLOUR_ORDER.map((name) => ({ name, value: readToken(name) }));
 		radii = RADIUS_ORDER.map((name) => ({ name, value: readToken(name) }));
-		layout = ['--tile-w', '--hero-h', '--rule-w', '--noren-h', '--photo-thumb'].map((name) => ({
+		layout = [
+			'--tile-w',
+			'--hero-h',
+			'--rule-w',
+			'--noren-h',
+			'--photo-thumb',
+			'--row-picture',
+		].map((name) => ({
 			name,
 			value: readToken(name),
 		}));
@@ -53,6 +62,69 @@
 				</li>
 			{/each}
 		</ul>
+	</Section>
+
+	<!--
+		The shared pieces (#632), each in every state it has, named by the class
+		or component a screen uses. The one place more than two main buttons
+		stand together: these are specimens, not a screen's acts, and
+		`data-specimens` keeps them out of the count every screen test ends on.
+	-->
+	<Section heading={m.tokens_pieces()} data-specimens>
+		<div class="grid gap-2">
+			<button type="button" class="main-button w-full">main-button</button>
+			<div><button type="button" class="main-button">main-button</button></div>
+			<button type="button" class="main-button w-full" disabled>main-button · disabled</button>
+			<button type="button" class="main-button w-full" disabled aria-busy="true">
+				main-button · aria-busy
+			</button>
+			<button type="button" class="second-button w-full">second-button</button>
+			<button type="button" class="second-button w-full" disabled>second-button · disabled</button>
+			<button type="button" class="second-button w-full" disabled aria-busy="true">
+				second-button · aria-busy
+			</button>
+			<button type="button" class="second-button w-full loses">second-button loses</button>
+			<div class="flex gap-3">
+				<button type="button" class="quiet-button text-accent">quiet-button</button>
+				<button type="button" class="quiet-button text-support">quiet-button</button>
+			</div>
+		</div>
+
+		<ul class="mt-6 list-rows">
+			<li><ListRow href="#tokens" title="ListRow" line="line" /></li>
+			<li><ListRow href="#tokens" title="ListRow" /></li>
+		</ul>
+		<ul class="mt-4 list-rows">
+			<li>
+				<ListRow href="#tokens" title="ListRow · an empty picture" line="line" picture={null} />
+			</li>
+			<li>
+				<ListRow
+					onclick={() => {}}
+					title="ListRow · onclick · a title long enough to be cut after its second line, which is where a row stops"
+					picture={null}
+				/>
+			</li>
+		</ul>
+
+		<div class="mt-6 grid gap-4">
+			<NoticeCard title="NoticeCard · plain" actions={[{ label: 'second-button', act: () => {} }]}>
+				<p>tone="plain"</p>
+			</NoticeCard>
+			<NoticeCard
+				title="NoticeCard · waiting"
+				tone="waiting"
+				actions={[
+					{ label: 'main-button', act: () => {}, main: true },
+					{ label: 'second-button', act: () => {} },
+				]}
+			>
+				<p>tone="waiting"</p>
+			</NoticeCard>
+			<NoticeCard title="NoticeCard · warning" tone="warning">
+				<p>tone="warning"</p>
+			</NoticeCard>
+		</div>
 	</Section>
 
 	<Section heading={m.tokens_type()}>

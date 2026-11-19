@@ -111,6 +111,11 @@ describe('the share screen', () => {
 		// The standing line is on screen before the link's state has even
 		// arrived, which is the point of it.
 		expect(await screen.findByText(/Only your Kitchen can see it\./)).toBeInTheDocument();
+		// Turning the link on is the screen's main act, the width of its column (#632).
+		expect(screen.getByRole('button', { name: /Turn on the link/ })).toHaveClass(
+			'main-button',
+			'w-full',
+		);
 	});
 
 	it('asks for the public address once, at the first link, and shows the link it mints', async () => {
@@ -178,6 +183,15 @@ describe('the share screen', () => {
 				'https://kamosu.example/s/abc',
 			);
 			expect(screen.queryByText(/made before Kamosu kept its address/)).toBeNull();
+
+			// The pieces chosen on #632: copying is the main act, opening the
+			// page is beside it, and ending the link is drawn as what it is.
+			expect(screen.getByRole('button', { name: /Copy the link/ })).toHaveClass('main-button');
+			expect(screen.getByRole('link', { name: /Open the page/ })).toHaveClass('second-button');
+			expect(screen.getByRole('button', { name: /End the link/ })).toHaveClass(
+				'second-button',
+				'loses',
+			);
 
 			await fireEvent.click(screen.getByRole('button', { name: /Copy the link/ }));
 			expect(writes).toEqual(['https://kamosu.example/s/abc']);
@@ -433,7 +447,9 @@ describe('the recipe file in the app installed on an iPhone (#156)', () => {
 
 		await fireEvent.click(await screen.findByRole('button', { name: /Save it/ }));
 
-		expect(await screen.findByRole('button', { name: 'Getting the file…' })).toBeDisabled();
+		const getting = await screen.findByRole('button', { name: 'Getting the file…' });
+		expect(getting).toBeDisabled();
+		expect(getting).toHaveAttribute('aria-busy', 'true');
 		arrive(new Response('PK', { headers: { 'content-type': 'application/zip' } }));
 		expect(await screen.findByRole('button', { name: 'Share the file' })).toBeEnabled();
 	});
