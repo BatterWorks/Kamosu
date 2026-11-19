@@ -253,7 +253,7 @@ Each measure has a threshold and the finding behind it. **Judgement** marks a th
 
 ### 10. Depth
 
-- **Counts.** For each starting task (find a recipe, open it, share it) and each task the walkthrough adds: the taps from Home to the end of the task, and for each tap whether its control was visible on the screen or behind a menu (☰, ⋯, ⋮, +). Counted by hand in the walkthrough, since loading one page cannot count it.
+- **Counts.** For each starting task (find a recipe, open it, share it) and each task the walkthrough adds: the taps from Home to the end of the task, and for each tap whether its control was visible on the screen or behind a menu (☰, ⋯, ⋮, +). Loading one page cannot count it, so `just ux-walk` counts it from each task's recorded path (#639).
 - **Threshold.** Every tap on the way is on a visible control, and no task goes more than two levels of disclosure deep (NN/g, progressive disclosure, and the hidden-navigation study, extended from main navigation to menus of actions). Search is at most one tap from Home, a recipe one tap from a list or result, and the share link or share sheet at most two taps from the recipe (judgement: Mealie's and Paprika's search fields need none, and Crouton's share takes one tap to the button).
 
 ## Sources not read

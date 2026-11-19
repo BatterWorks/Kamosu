@@ -101,6 +101,23 @@ export function browserCardTitles(locale = 'en') {
 }
 
 /**
+ * Hide the test browser's own cards (`browserCardTitles`) on the page as it
+ * stands, before it is counted or photographed: `just ux-measure` (#629) and
+ * `just ux-walk` (#639).
+ * @param {import('playwright').Page} page
+ * @param {string} [locale]
+ */
+export async function hideBrowserCards(page, locale = 'en') {
+	await page.evaluate((titles) => {
+		for (const card of document.querySelectorAll('section[aria-label]')) {
+			if (titles.includes(card.getAttribute('aria-label') ?? '')) {
+				/** @type {HTMLElement} */ (card).style.display = 'none';
+			}
+		}
+	}, browserCardTitles(locale));
+}
+
+/**
  * The cookie file of the Session a label names.
  * @param {string} label
  */
@@ -357,7 +374,11 @@ export async function toolContext(browser, [width, height], locale = 'en', { tou
 		serviceWorkers: 'block',
 		reducedMotion: 'reduce',
 	});
-	await context.addInitScript((chosen) => localStorage.setItem('PARAGLIDE_LOCALE', chosen), locale);
+	// Only into a browser that has chosen none yet: a screen that changes the
+	// Language and loads itself again keeps what it chose (#639).
+	await context.addInitScript((chosen) => {
+		if (!localStorage.getItem('PARAGLIDE_LOCALE')) localStorage.setItem('PARAGLIDE_LOCALE', chosen);
+	}, locale);
 	await holdWindowStill(context);
 	await holdCodeStill(context);
 	await leaveNoTrace(context);

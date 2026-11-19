@@ -239,6 +239,7 @@ just screens-same <before> <after>   # names the pictures that differ, and fails
 just proto-new <issue>-<slug> <path>…   # .dev/prototypes/<issue>-<slug>/: the real screens as static pages
 just proto-serve <name> <port>    # serve .dev/prototypes/<name>/ to the LAN, caching off
 just ux-measure <folder> [--everyday]   # the UX audit's counts and pictures of every screen, on throwaway instances
+just ux-walk <folder> [task…]     # each audit task's path as pictures, its Depth, and the evaluators' hand-over command
 ```
 
 - **`just ux-measure` never measures the dev instance** (#629). Opening the
@@ -247,7 +248,20 @@ just ux-measure <folder> [--everyday]   # the UX audit's counts and pictures of 
   second one empty for the empty screens and the pages a secret link opens, and
   removes both. It counts the measures of
   `docs/research/ux-reading-crowding-and-finding.md`, section 3, all but Depth,
-  which the walkthrough counts by hand. The table and pictures stay in `.dev/`.
+  which `just ux-walk` counts. The table and pictures stay in `.dev/`.
+- **`just ux-walk` records each task of the UX audit as pictures** (#639), one
+  before every step of its shortest path and one at its finish line, panels and
+  messages caught open, at `phone-402` in English. The tasks and their paths
+  are declared once, in `ui/tools/ux-tasks.mjs`, each step named by the words
+  a person sees, so a changed or missing control fails the run with the task,
+  the step and a picture of where it stopped. Each task walks a fresh copy of
+  the Sample Library, which the recipe builds first, on a throwaway instance
+  signed in through `kamosu recover`, never the dev instance, since the tasks
+  write. The link task fetches one real public recipe page. Beside the
+  pictures it writes `depth.csv`, the Depth table, and `handover/`, which an
+  evaluator's empty folder takes whole: `node walk.mjs` there hands the
+  pictures over one at a time and keeps each guess in `guesses.jsonl`. All of
+  it stays in `.dev/`.
 - **The sizes are written once**, in `ui/tools/sizes.mjs`. A script that needs a
   screen size imports it from there.
 - **"Is the phone unchanged?" is two sets of pictures.** Run `just screens` into

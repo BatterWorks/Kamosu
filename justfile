@@ -335,6 +335,24 @@ ux-measure folder *flags:
     just ui-build
     node ui/tools/ux-measure.mjs --binary "{{binary}}" "{{folder}}" {{flags}}
 
+# Record each UX audit task's shortest path as pictures at phone-402 (#639):
+# one before every step and one at its finish line, panels and messages
+# included, into <folder>/<task>/, beside path.json, the Depth table
+# depth.csv, and handover/, the command and pictures an evaluator walks one at
+# a time. The tasks are in ui/tools/ux-tasks.mjs; naming some records only
+# those. It never touches the dev instance: each task walks a fresh copy of
+# the Sample Library, built here first, on a throwaway instance on 127.0.0.1.
+# Like `just ux-measure`, it builds ui/build, which leaves a running vite
+# answering 500 until the next `just dev-start`.
+ux-walk folder *tasks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _npm-deps
+    cargo build
+    just ui-build
+    just sample-library
+    node ui/tools/ux-walk.mjs --binary "{{binary}}" "{{folder}}" {{tasks}}
+
 # ── Cutting a release ─────────────────────────────────────────────────────────
 
 # A release is cut by these two commands and nothing else (ADR 0047). The
