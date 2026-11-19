@@ -76,7 +76,7 @@ function runGate(root, recipe, { env = {}, fail = false } = {}) {
 	return { status, steps, first: lines[0], lines };
 }
 
-test('documentation is docs/ and the four root files, and nothing else', () => {
+test('documentation is docs/ and every root Markdown file no test reads', () => {
 	for (const file of [
 		'docs/adr/0060-something.md',
 		'docs/docker-hub/overview.md',
@@ -85,17 +85,26 @@ test('documentation is docs/ and the four root files, and nothing else', () => {
 		'README.md',
 		'AGENTS.md',
 		'GLOSSARY.md',
+		'CODING_STANDARDS.md',
+		'THIRD_PARTY_NOTICES.md',
+		// A root Markdown file added later is documentation by default.
+		'CONTRIBUTING.md',
 	]) {
 		assert.ok(isDocumentation(file), file);
 	}
-	// SECURITY.md is read by tests/defences.rs.
 	for (const file of [
+		// Read by tests/defences.rs.
 		'SECURITY.md',
-		'src/docs.rs',
+		// Markdown outside the root and docs/ may be shipped or read:
+		// the agent image ships its instructions.
+		'agent-image/instructions.md',
 		'ui/README.md',
 		'tests/fixtures/tandoor/README.md',
 		'docsx/a.md',
+		'src/docs.rs',
 		'justfile',
+		'LICENSE',
+		'notes.txt',
 	]) {
 		assert.ok(!isDocumentation(file), file);
 	}
@@ -105,6 +114,9 @@ test('no change at all, or one change outside the documentation, is full', () =>
 	assert.equal(modeFor([]), 'full');
 	assert.equal(modeFor(['docs/a.md', 'src/main.rs']), 'full');
 	assert.equal(modeFor(['docs/a.md', 'CHANGELOG.md']), 'docs-only');
+	assert.equal(modeFor(['CODING_STANDARDS.md']), 'docs-only');
+	assert.equal(modeFor(['SECURITY.md']), 'full');
+	assert.equal(modeFor(['docs/a.md', 'agent-image/instructions.md']), 'full');
 });
 
 test('a branch changing only an ADR runs docs-only, and names the mode first', async () => {

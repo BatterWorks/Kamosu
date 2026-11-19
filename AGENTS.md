@@ -211,12 +211,18 @@ line says which mode** (#616). `ui/tools/gate.mjs` decides:
   Production's nightly has no test step, so this run is the last full check
   before production.
 - **Docs-only mode** runs when every changed path is documentation: anything
-  under `docs/`, and `CHANGELOG.md`, `README.md`, `AGENTS.md` and `GLOSSARY.md`
-  at the root, as `isDocumentation` in the gate lists them. It builds nothing.
+  under `docs/`, and every Markdown file at the repository root but the ones a
+  test reads, as `isDocumentation` in the gate decides (#658). A new root
+  Markdown file is documentation from the start. `SECURITY.md` is the one
+  exception today, because `tests/defences.rs` reads it, so changing it runs
+  in full mode. Markdown anywhere else, such as `agent-image/instructions.md`,
+  counts as code. Docs-only mode builds nothing.
   `check` runs no step, since none of its checks reads documentation, and
-  `test` runs the tests that do, today the Docker Hub page test alone.
-  `SECURITY.md` is not on the list because `tests/defences.rs` reads it. A new
-  test that reads a document goes into `DOCS_READING_TESTS` in the gate.
+  `test` runs the tests that do, today the Docker Hub page test alone. A new
+  test that reads a document under `docs/` goes into `DOCS_READING_TESTS` in
+  the gate. A test that reads a root Markdown file puts that file on the
+  gate's exception list beside `SECURITY.md` instead, so changing it runs in
+  full mode.
 - **A remembered pass.** After a pass, each recipe writes a record under the
   Cargo target folder (`kamosu-passes/`, never in Git) naming the hash of the
   files as they stood and the mode. Run again on the same contents with a clean

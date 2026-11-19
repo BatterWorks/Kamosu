@@ -35,17 +35,21 @@ import { fileURLToPath } from 'node:url';
 const RECIPES = ['check', 'test'];
 
 // What counts as documentation: nothing under it is built, and no test reads
-// it but the ones in DOCS_READING_TESTS. The root files are named one by one,
-// because a root Markdown file can be read by a test: tests/defences.rs reads
-// SECURITY.md, so SECURITY.md is not on this list. A file missing here only
-// costs a full run.
+// it but the ones in DOCS_READING_TESTS. That is everything under docs/, and
+// every Markdown file at the repository root, so a new one is documentation
+// from the start (#658). A root file a test reads is the exception: it sends
+// the branch to a full run. Markdown anywhere else may be shipped or read, as
+// agent-image/instructions.md is, so it counts as code.
 const DOCUMENTATION_FOLDER = 'docs/';
-const ROOT_DOCUMENTS = new Set(['CHANGELOG.md', 'README.md', 'AGENTS.md', 'GLOSSARY.md']);
+// tests/defences.rs reads SECURITY.md. Searched on 2026-11-19: no other root
+// Markdown file is read by anything under src/, tests/, ui/, build.rs, the
+// justfile or the Dockerfiles. A test that starts reading one adds it here.
+const ROOT_DOCUMENTS_A_TEST_READS = new Set(['SECURITY.md']);
 
 // The tests that read documentation, which `just test` runs in docs-only mode.
 // The Docker Hub page test reads docs/docker-hub/ and docs/runner.md. Searched
 // on 2026-11-16: nothing else under src/, tests/, build.rs or ui/ reads docs/
-// or the root files above. A new test that reads one belongs here.
+// or the root Markdown files above. A new test that reads one belongs here.
 export const DOCS_READING_TESTS = ['ui/tools/docker-hub-page.test.mjs'];
 
 // Where the pass records live, inside the Cargo target folder. `just
@@ -59,7 +63,11 @@ const RECORD_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 const INTEGRATION_BRANCHES = ['origin/dev', 'dev'];
 
 export function isDocumentation(file) {
-	return file.startsWith(DOCUMENTATION_FOLDER) || ROOT_DOCUMENTS.has(file);
+	if (file.startsWith(DOCUMENTATION_FOLDER)) {
+		return true;
+	}
+	const atRoot = !file.includes('/');
+	return atRoot && file.endsWith('.md') && !ROOT_DOCUMENTS_A_TEST_READS.has(file);
 }
 
 // Docs-only when something changed and every change is documentation. A
