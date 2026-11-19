@@ -16,11 +16,13 @@
 ### Fixed
 
 - Kitchen, Cookbook and new-account invite links carry this Kamosu's public address once one is set, as a recipe's link does, and `invite_to_kitchen`, `invite_to_cookbook` and `mint_invite` answer the whole link as `url`, `mint_invite` with the `id` revoking it takes. Before, an invite carried whatever address your browser had open, which a friend outside your home network could not open. [#648]
+- A recovery link made under *Settings › People* carries this Kamosu's public address once one is set, and `mint_recovery_link` answers the whole link as `url`. Before, it carried whatever address your browser had open, so one sent to somebody away from home might not open. [#663]
 - The small outlined buttons, such as *Rename* and *Sign out*, the arrows beside a shelf on Home, the tools beside a line or a Step while writing a recipe and the outlined buttons of the cooking screen on a phone now answer a tap anywhere within 48 pixels, as they were meant to. Before, their tap area started inside their 1-pixel outline and came out 2 pixels short, at 46. [#634]
 
 [#632]: https://github.com/BatterWorks/Kamosu/issues/632
 [#634]: https://github.com/BatterWorks/Kamosu/issues/634
 [#648]: https://github.com/BatterWorks/Kamosu/issues/648
+[#663]: https://github.com/BatterWorks/Kamosu/issues/663
 
 ## v0.6.0 - 2026-11-13
 

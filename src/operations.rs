@@ -164,8 +164,9 @@ pub fn mint_invite(core: &Core, invocation: &Invocation, input: Value) -> Result
 }
 
 /// A link's path at the instance's public address, or `null` while none is
-/// set (#648): an invite goes to someone outside, as a Share Link does, so it
-/// carries the address the Operator gave rather than the inviter's browser's.
+/// set (#648): an invite or a recovery link goes to someone who may be
+/// outside, as a Share Link does, so it carries the address the Operator gave
+/// rather than the browser's of whoever minted it (#663).
 fn at_public_address(core: &Core, path: &str) -> Value {
     match core.public_address() {
         Some(address) => json!(format!("{address}{path}")),
@@ -208,7 +209,8 @@ pub fn mint_recovery_link(
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("mint_recovery_link takes { name }"))?;
-    Ok(json!({ "link": core.mint_recovery_link(name)? }))
+    let link = core.mint_recovery_link(name)?;
+    Ok(json!({ "url": at_public_address(core, &link), "link": link }))
 }
 
 pub fn list_account_links(

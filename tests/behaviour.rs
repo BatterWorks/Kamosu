@@ -7324,6 +7324,50 @@ async fn a_recovery_link_ends_every_session_and_access_key_the_account_held() {
     );
 }
 
+/// A recovery link carries the instance's public address once one is set, as
+/// an invite does since #648, because the Person who forgot their password may
+/// be outside the home network when they open it (#663). Before one is set
+/// there is no address to give, and `url` says so with `null`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recovery_link_answers_its_link_at_the_public_address_once_one_is_set() {
+    let app = support::spawn_app();
+    let (session, _) = operator_signed_in(&app);
+    invited(&app, &session, "Marie");
+    let mint = |app: &support::TestApp| {
+        let (status, minted) =
+            app.post_op("mint_recovery_link", Some(&session), r#"{"name":"Marie"}"#);
+        assert_eq!(status, 200, "{minted}");
+        minted["result"].clone()
+    };
+
+    let before = mint(&app);
+    assert_eq!(
+        before.get("url"),
+        Some(&Value::Null),
+        "no address yet: {before}"
+    );
+    assert!(
+        before["link"].as_str().unwrap().starts_with("/recover/"),
+        "{before}"
+    );
+
+    let (status, set) = app.post_op(
+        "set_public_address",
+        Some(&session),
+        &json!({ "public_address": "https://cuisine.example" }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+
+    let after = mint(&app);
+    let link = after["link"].as_str().unwrap();
+    assert!(link.starts_with("/recover/"), "{after}");
+    assert_eq!(
+        after["url"],
+        json!(format!("https://cuisine.example{link}"))
+    );
+    assert_eq!(recover_with(&app, link, "her own new password"), 200);
+}
+
 /// A recovery link minted for `name` at the web door, as its path.
 fn recovery_link(app: &support::TestApp, operator: &str, name: &str) -> String {
     let (status, minted) = app.post_op(
