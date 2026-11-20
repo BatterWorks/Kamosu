@@ -31,19 +31,17 @@
 		about 340px wide on an iPhone and pushed the whole empty-Home card past
 		the edge of the screen (24 September 2026).
 	-->
-	<label class="grid gap-1 text-read text-ink-2">
+	<label class="grid gap-1 text-body text-ink">
 		{m.add_title()}
 		<input
 			type="text"
 			bind:value={typed}
 			required
-			class="min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body text-ink"
+			data-sheet-focus
+			class="min-h-12 w-full rounded-sm border border-ink-2 bg-card px-3 text-body text-ink"
 		/>
 	</label>
-	<button
-		class="min-h-12 rounded-sm bg-accent px-4 py-3 font-display text-body text-on-accent disabled:opacity-60"
-		disabled={adding.working !== null}
-	>
+	<button class="main-button w-full" disabled={adding.working !== null}>
 		{m.add_write()}
 	</button>
 </form>

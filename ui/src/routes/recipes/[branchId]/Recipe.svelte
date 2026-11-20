@@ -175,6 +175,7 @@
 	import LanguageSheet from './LanguageSheet.svelte';
 	import RenameSheet from './RenameSheet.svelte';
 	import LanguageOffer from './LanguageOffer.svelte';
+	import JustAdded from './JustAdded.svelte';
 	import MetaStrip from './MetaStrip.svelte';
 	import ComponentLine from './ComponentLine.svelte';
 	import Unfolded from './Unfolded.svelte';
@@ -350,7 +351,7 @@
 	 */
 	let writing = $state(false);
 	/**
-	 * A paste the + on Recipes read and made this recipe from (#175). The
+	 * A paste the add sheet on Recipes read and made this recipe from (#175). The
 	 * recipe holds only its title; the lines wait here, on the writing screen,
 	 * for Save, the way a paste made on that screen does (#83).
 	 */
@@ -996,6 +997,12 @@
 					over={titleOnHero}
 					back={parentOf(`/recipes/${branchId}`)}
 				/>
+				<!-- Just added from a web page: said here, under the photograph, with Undo
+				     (#650). Keyed on the recipe, so walking on to another one (a
+				     translation, a variation) takes the notice and its Undo with it. -->
+				{#key branchId}
+					<JustAdded {branchId} title={content.title} />
+				{/key}
 			{/if}
 
 			<!--

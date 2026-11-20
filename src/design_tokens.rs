@@ -305,9 +305,10 @@ mod tests {
             })
             .count();
         assert_eq!(
-            steps, 20,
+            steps, 22,
             "step, title, line, list-title, shelf-heading, tile-title, panel-figure, body, \
-             step-reading, read, label; and the cooking screen read from the counter (#197): \
+             step-reading, read, label; the letters down Recipes' edge, on the phone and wide \
+             (#650): letter, letter-wide; and the cooking screen read from the counter (#197): \
              step-far, step-reading-far, panel-figure-far, body-far, line-far, read-far, label-far, \
              foot-far, next-step"
         );

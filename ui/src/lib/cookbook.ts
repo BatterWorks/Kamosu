@@ -151,3 +151,32 @@ export function branchPlainName(branch: LabelledBranch): string {
 export function kitchenName(kitchen: { name: string; nickname: string | null }): string {
 	return kitchen.nickname ?? kitchen.name;
 }
+
+/**
+ * Who the reader cooks with, said under Home's title (#650, the UX audit's
+ * H7): the people in their Kitchen, three at most and then how many more, and
+ * the Kitchen by the name the reader knows it by. In several Kitchens it names
+ * the Kitchens alone, since a list of everyone would not fit a phone's line.
+ * Nothing where the reader is in no Kitchen.
+ */
+export function cookingWith(
+	me: string,
+	kitchens: readonly {
+		name: string;
+		nickname: string | null;
+		members: readonly { person_id: string; name: string }[];
+	}[],
+): string | null {
+	const list = new Intl.ListFormat(getLocale(), { type: 'conjunction' });
+	const [only] = kitchens;
+	if (only === undefined) return null;
+	if (kitchens.length > 1)
+		return m.home_cook_in({ kitchens: list.format(kitchens.map(kitchenName)) });
+	const others = only.members.filter((member) => member.person_id !== me).map(({ name }) => name);
+	if (others.length === 0) return m.home_cook_alone({ kitchen: kitchenName(only) });
+	const people =
+		others.length <= 3
+			? list.format(others)
+			: m.home_people_more({ names: others.slice(0, 3).join(', '), count: others.length - 3 });
+	return m.home_cook_with({ people, kitchen: kitchenName(only) });
+}

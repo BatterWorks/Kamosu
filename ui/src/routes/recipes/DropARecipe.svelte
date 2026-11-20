@@ -1,7 +1,7 @@
 <!--
 	A recipe dropped onto Recipes (ADR 0044, #204): a PDF, a Kamosu zip file
 	(a Bundle, ADR 0020), or a link dragged from another tab. Each is the act
-	its row under the + is, run on the + 's own `adding`, so a drop can do
+	its row in the add sheet is, run on the add sheet's own `adding`, so a drop can do
 	nothing a button could not, and no drop is the only way to do anything.
 
 	The whole window is the place while Recipes is on screen. The sidebar is
@@ -166,7 +166,7 @@
 	});
 
 	/**
-	 * Offline, a source says what its row under the + says and nothing more.
+	 * Offline, a source says what its row in the add sheet says and nothing more.
 	 * A file the browser cannot name yet is not known to be one, and says so
 	 * once it is let go.
 	 */
@@ -185,8 +185,9 @@
 {#if showing}
 	<!--
 		`inset-x-0` and not `inset-0`: beside the sidebar that is the class the
-		rail moves over (`beside-rail` in app.css). Above the + and its list
-		(z-30), and never beside a sheet, since none is open while this is.
+		rail moves over (`beside-rail` in app.css). Above the search box pinned
+		over the list (z-10), and never beside a sheet, since none is open while
+		this is: a drop is not taken under the add sheet.
 	-->
 	<DropCover
 		class="fixed inset-x-0 inset-y-0 z-40"

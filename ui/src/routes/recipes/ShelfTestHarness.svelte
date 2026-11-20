@@ -2,7 +2,7 @@
 	Test-only. Shelf.svelte takes the arriving `?tag=` as a real prop — the route
 	reads it off `$app/state` and hands it down — so a test drives that case
 	directly rather than fighting a router the screen deliberately does not know
-	about. A test of the + can hand it an uploader, for the Kamosu zip file.
+	about. A test of the add sheet can hand it an uploader, for the Kamosu zip file.
 -->
 <script lang="ts">
 	import type { KamosuClient } from '#lib/api/catalogue.js';

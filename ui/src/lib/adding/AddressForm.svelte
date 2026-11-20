@@ -1,10 +1,15 @@
 <!--
-	Asking for a web page's address and importing it (#62, #93).
+	Asking for a web page's address and importing it (#62, #93), inside the add
+	sheet (#650, chosen 20 November 2026).
 
-	Drawn the same wherever a link is offered, the + beside the search box and
-	the dead ends alike: revealing it in place is what makes the offer *do* the
-	thing rather than navigate (ADR 0027), and there is no reason two places
-	should ask for an address differently.
+	The field is labelled with what goes in it, holds no `https://` of its own
+	that a paste could double (L4), and wraps, so the whole address can be read
+	back before it goes, where a one-line field showed only its end (L7). Its
+	button is greyed until there is an address. Enter sends it, as it did when
+	the field was one line.
+
+	The address is held by the sheet (`link`), so going to check a page read
+	from its own text and coming back finds it still typed.
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
@@ -12,34 +17,50 @@
 
 	interface Props {
 		adding: Adding;
+		link?: string;
 	}
 
-	let { adding }: Props = $props();
+	let { adding, link = $bindable('') }: Props = $props();
 
-	let link = $state('');
+	const field = $props.id();
+	const empty = $derived(link.trim() === '');
+
+	function send() {
+		if (!empty && adding.working === null) adding.link(link);
+	}
 </script>
 
 <form
-	class="grid gap-2"
+	class="grid gap-3"
 	onsubmit={(event) => {
 		event.preventDefault();
-		adding.link(link);
+		send();
 	}}
 >
-	<label class="grid gap-1 text-read text-ink-2">
-		{m.recipes_import_link()}
-		<input
-			type="url"
-			bind:value={link}
-			required
-			placeholder="https://"
-			class="min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body text-ink"
-		/>
-	</label>
+	<label for={field} class="text-body text-ink">{m.recipes_import_link()}</label>
+	<textarea
+		id={field}
+		bind:value={link}
+		rows="3"
+		inputmode="url"
+		autocapitalize="off"
+		autocomplete="off"
+		spellcheck="false"
+		data-sheet-focus
+		placeholder={m.plus_link_paste_here()}
+		onkeydown={(event) => {
+			if (event.key === 'Enter' && !event.isComposing) {
+				event.preventDefault();
+				send();
+			}
+		}}
+		class="block w-full resize-none rounded-sm border border-ink-2 bg-card px-3 py-2 text-body break-all text-ink placeholder:text-ink-2"
+	></textarea>
 	<button
-		class="min-h-12 rounded-sm bg-accent px-4 py-3 font-display text-body text-on-accent disabled:opacity-60"
-		disabled={adding.working !== null}
+		class="main-button w-full"
+		disabled={empty || adding.working !== null}
+		aria-busy={adding.working === 'link' ? 'true' : undefined}
 	>
-		{adding.working === 'link' ? m.recipes_import_working() : m.recipes_nothing_import()}
+		{adding.working === 'link' ? m.recipes_import_working() : m.plus_link_add()}
 	</button>
 </form>

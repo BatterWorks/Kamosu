@@ -3,7 +3,7 @@
 	title in a field of its own, the split drawn by `PasteCheck`, and "Make
 	this recipe".
 
-	Three things raise it: text pasted into the + (`PasteForm`), a PDF chosen
+	Three things raise it: text pasted into the add sheet (`PasteForm`), a PDF chosen
 	from it (#176), which `read_recipe_pdf` answers in the very shape a paste
 	gets, and a link to a page with no recipe data on an instance with no
 	Runner (#301), read from the page's own text and carrying the page as its

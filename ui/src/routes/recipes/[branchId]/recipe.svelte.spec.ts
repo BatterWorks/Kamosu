@@ -28,6 +28,7 @@ import { went } from '../../../testing/navigation';
 import { outlivingTheWait, withTheClockFaked } from '../../../testing/jobs';
 import { cookbookLabel, threadBranch, writtenByMe } from '../../../testing/recipes';
 import { holdPaste, takePaste } from '#lib/pasted.svelte.js';
+import { noteAdded, takeAdded, takeTakenOut } from '#lib/adding/added.js';
 
 // Deleting ends by going back to the shelf, because there is nothing left to
 // stand on. Where that goes is the router's business, not this screen's, so
@@ -4305,5 +4306,59 @@ describe('two columns where the window is roomy (#198)', () => {
 		expect(document.querySelector('.recipe-columns')).toBeNull();
 		expect(document.querySelector('.stays-in-view')).toBeNull();
 		expect(document.querySelector('.recipe-page')).toBeNull();
+	});
+});
+
+describe('a recipe just added from a web page (#650)', () => {
+	afterEach(() => {
+		takeAdded('mine');
+	});
+
+	it('says it was added and where, under its photograph, once', async () => {
+		noteAdded('mine');
+		renderRecipe();
+		const notice = await screen.findByRole('status', { name: 'Added to your recipes' });
+		expect(notice).toHaveTextContent(/Find it on Recipes, under [A-Z#]\./);
+		expect(within(notice).getByRole('button', { name: 'Undo' })).toHaveClass('second-button');
+
+		// Said once: the next visit to the recipe says nothing.
+		cleanup();
+		renderRecipe();
+		await screen.findByRole('link', { name: 'Start cooking' });
+		expect(screen.queryByText('Added to your recipes')).not.toBeInTheDocument();
+	});
+
+	it('says nothing on a recipe that was not just added', async () => {
+		noteAdded('elsewhere');
+		renderRecipe();
+		await screen.findByRole('link', { name: 'Start cooking' });
+		expect(screen.queryByText('Added to your recipes')).not.toBeInTheDocument();
+		takeAdded('elsewhere');
+	});
+
+	it('leaves the notice and its Undo behind when the cook walks on to another recipe', async () => {
+		noteAdded('mine');
+		const { goTo } = renderRecipe();
+		await screen.findByRole('status', { name: 'Added to your recipes' });
+		goTo('theirs');
+		await vi.waitFor(() =>
+			expect(screen.queryByText('Added to your recipes')).not.toBeInTheDocument(),
+		);
+		expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+	});
+
+	it('takes it back out on Undo, and lands on Recipes saying so', async () => {
+		noteAdded('mine');
+		const { kamosu } = renderRecipe({ ...forked(), delete_recipe: { deleted: true } });
+		await fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes', { replace: true }));
+		expect(kamosu.calls).toContainEqual({
+			operation: 'delete_recipe',
+			input: { branch_id: 'mine' },
+		});
+		// Recipes, once, says the recipe was taken out.
+		expect(takeTakenOut()).toBe(true);
+		expect(takeTakenOut()).toBe(false);
 	});
 });

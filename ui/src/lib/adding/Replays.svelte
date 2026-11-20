@@ -1,7 +1,7 @@
 <!--
 	The examples a Demo replays the agent's work on (#406): option B, "one row,
 	then a panel", as chosen on 22 October 2026 (the decision is a comment on
-	#406). The + offers one row, "Watch it read an example", and it opens this
+	#406). The add sheet offers one row, "Watch it read an example", and it opens this
 	panel of the four things a cook handed the agent, each drawn as what was
 	handed over: the card, the magazine page, the top of the blog post, a frame
 	of the video.

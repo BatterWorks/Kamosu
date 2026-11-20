@@ -12,7 +12,7 @@
  * this screen and nowhere else.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import Recipes from './+page.svelte';
 import { standIn, type StandIn } from '#lib/api/stand-in.js';
@@ -28,6 +28,7 @@ import {
 	writtenByMe,
 } from '../../testing/recipes';
 import { went } from '../../testing/navigation';
+import { noteTakenOut, takeAdded } from '#lib/adding/added.js';
 import { carrying } from '../../testing/drops';
 import { takePaste } from '#lib/pasted.svelte.js';
 import { forgetArrival, theArrival } from '#lib/arrival.svelte.js';
@@ -137,10 +138,10 @@ describe('the recipes screen', () => {
 
 		expect(await screen.findByText('Airfried Cauliflower')).toBeInTheDocument();
 		expect(screen.getByText('Miso Soup')).toBeInTheDocument();
-		expect(screen.getByText('2 recipes')).toBeInTheDocument();
+		expect(screen.getByText('2 recipes, A to Z')).toBeInTheDocument();
 	});
 
-	it('keeps the + beside the search box when nothing was found, and says each offer once', async () => {
+	it('keeps Add a recipe beside the title when nothing was found, and says each offer once', async () => {
 		renderScreen(Recipes, {
 			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
@@ -148,18 +149,16 @@ describe('the recipes screen', () => {
 			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
 		});
 
-		await screen.findByText(/Nothing matched .osso buco./);
-		// The + is small and always in the same place, so it stays; its list is
-		// closed, so the three big offers below are the only ones showing (#174).
-		expect(screen.getByRole('button', { name: 'Add a recipe' })).toHaveAttribute(
-			'aria-expanded',
-			'false',
-		);
-		expect(screen.getAllByRole('button', { name: /Import from a link/ })).toHaveLength(1);
-		expect(screen.getAllByRole('button', { name: 'Bring in a Kamosu zip file' })).toHaveLength(1);
+		await screen.findByText(/Nothing called .osso buco./);
+		// Add a recipe is always in the same place, so it stays; its sheet is
+		// closed, so the three offers below are the only ones showing (#174, #650).
+		expect(screen.getByRole('button', { name: 'Add a recipe' })).toBeInTheDocument();
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		expect(screen.getAllByRole('button', { name: /Add one from a web page/ })).toHaveLength(1);
+		expect(screen.getAllByRole('button', { name: 'Add one from a recipe file' })).toHaveLength(1);
 	});
 
-	it('explains why nothing matched, and offers the two things you were about to do', async () => {
+	it('offers the things you were about to do, the one main among them (#650)', async () => {
 		renderScreen(Recipes, {
 			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
@@ -168,20 +167,23 @@ describe('the recipes screen', () => {
 		});
 
 		// It names what was searched for — from the answer, not from the field.
-		expect(await screen.findByText(/Nothing matched .osso buco./)).toBeInTheDocument();
+		expect(await screen.findByText(/Nothing called .osso buco./)).toBeInTheDocument();
 
-		// And says what it looked through, and why it matched only words. An
-		// empty screen would leave a person unable to tell a missing recipe
-		// from a broken search.
-		expect(
-			screen.getByText(/searched every title, ingredient, step and cooking note/),
-		).toBeInTheDocument();
-		expect(screen.getByText(/Meaning search is off/)).toBeInTheDocument();
+		// What the search looks through is the search box's own hint now, so
+		// no sentence says it again here (#650, U3).
+		expect(screen.getByRole('searchbox')).toHaveAttribute('placeholder', 'Name, ingredient, step…');
+		expect(screen.queryByText(/searched every title/)).not.toBeInTheDocument();
 
-		expect(
-			screen.getByRole('button', { name: /Add a recipe called .osso buco./ }),
-		).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: /Import from a link/ })).toBeInTheDocument();
+		// Adding it by the name just typed is the main act; the other two beside it.
+		expect(screen.getByRole('button', { name: /Add a recipe called .osso buco./ })).toHaveClass(
+			'main-button',
+		);
+		expect(screen.getByRole('button', { name: /Add one from a web page/ })).toHaveClass(
+			'second-button',
+		);
+		expect(screen.getByRole('button', { name: 'Add one from a recipe file' })).toHaveClass(
+			'second-button',
+		);
 
 		// And no offer to turn Meaning Search on, because this reader cannot:
 		// only an Operator can, and an offer somebody cannot act on is worse
@@ -197,7 +199,7 @@ describe('the recipes screen', () => {
 			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
 		});
 
-		await screen.findByText(/Nothing matched .osso buco./);
+		await screen.findByText(/Nothing called .osso buco./);
 
 		// The offer says what is actually being agreed to before the button
 		// rather than after it: Kamosu ships no weights, so this downloads
@@ -267,7 +269,7 @@ describe('the recipes screen', () => {
 			},
 		});
 
-		expect(await screen.findByText(/Nothing matched .something with squid./)).toBeInTheDocument();
+		expect(await screen.findByText(/Nothing called .something with squid./)).toBeInTheDocument();
 		expect(screen.getByText('The closest anyway')).toBeInTheDocument();
 		expect(screen.getByText('Calamari')).toBeInTheDocument();
 		// The quoted line does not carry the words that were typed — that is
@@ -359,6 +361,7 @@ describe('the recipes screen', () => {
 
 	it('reads the link it offered to import, waiting on the Job it is', async () => {
 		const { kamosu } = renderScreen(Recipes, {
+			runner_status: { has_runner: false, last_asked_at: null },
 			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff(),
@@ -392,8 +395,8 @@ describe('the recipes screen', () => {
 			},
 		});
 
-		await fireEvent.click(await screen.findByRole('button', { name: /Import from a link/ }));
-		const field = screen.getByLabelText(/web address/);
+		await fireEvent.click(await screen.findByRole('button', { name: /Add one from a web page/ }));
+		const field = await screen.findByLabelText(/address/);
 		await fireEvent.input(field, { target: { value: 'https://example.test/osso-buco' } });
 		await fireEvent.submit(field.closest('form')!);
 
@@ -417,7 +420,7 @@ describe('the recipes screen', () => {
 		});
 
 		expect(await screen.findByText(/The shelf is empty/)).toBeInTheDocument();
-		expect(screen.queryByText(/Nothing matched/)).not.toBeInTheDocument();
+		expect(screen.queryByText(/Nothing called/)).not.toBeInTheDocument();
 	});
 
 	it('quotes the line that matched, and says where it came from', async () => {
@@ -453,13 +456,17 @@ describe('the recipes screen', () => {
 			},
 		});
 
-		expect(await screen.findByText('50 g dark chocolate')).toBeInTheDocument();
-		expect(screen.getByText('Ingredient')).toBeInTheDocument();
+		const ingredient = (await screen.findByText('Ingredient')).parentElement!;
+		expect(ingredient).toHaveTextContent('50 g dark chocolate');
+		// The word typed is set bold in the line, so it shows why it matched (#650).
+		expect(within(ingredient).getByText('chocolate').tagName).toBe('B');
 		// The number is the one the recipe page shows, Sections taking none.
-		expect(screen.getByText('Step 2')).toBeInTheDocument();
+		expect(screen.getByText('Step 2').parentElement).toHaveTextContent(
+			'Stir in a square of chocolate.',
+		);
 	});
 
-	it('does not quote a title match — the title is already on the card', async () => {
+	it('says a title match by its label alone, since the title is already on the card (#650)', async () => {
 		renderScreen(Recipes, {
 			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
@@ -477,6 +484,33 @@ describe('the recipes screen', () => {
 
 		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
 		expect(screen.getAllByText('Miso Soup')).toHaveLength(1);
+		// Every result says why it matched, a title's included (R6).
+		expect(screen.getByText('In the name')).toBeInTheDocument();
+	});
+
+	it('marks nothing bold in a line found by its meaning, which holds no word typed', async () => {
+		renderScreen(Recipes, {
+			list_tags: { tags: [] },
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff({ on: true }),
+			search_recipes: {
+				query: 'kimchi pancake',
+				closest: false,
+				recipes: [
+					entry({
+						matched: {
+							where: 'step',
+							line: 'Flip the pancake and cook the other side.',
+							step_number: 3,
+							by: 'meaning',
+						},
+					}),
+				],
+			},
+		});
+		const label = await screen.findByText('Close in meaning');
+		expect(label.parentElement).toHaveTextContent('Flip the pancake and cook the other side.');
+		expect(label.parentElement!.querySelector('b')).toBeNull();
 	});
 
 	it('marks a recipe shown in a Language its reader did not ask for', async () => {
@@ -606,9 +640,13 @@ describe('the recipes screen', () => {
 			const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
 			expect(asked.at(-1)?.input).toMatchObject({ kitchen_id: 'k_marc' });
 		});
-		// The list closed on the pick, and the button names what it holds.
+		// The list closed on the pick, and a chip says what is held, its ×
+		// letting it go in one tap (#650).
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-		expect(await groupButton('Kitchens')).toHaveTextContent('Kitchens: Chez Marc');
+		expect(await groupButton('Kitchens')).toHaveTextContent(/^Kitchens$/);
+		expect(screen.getByRole('button', { name: 'Stop showing only Chez Marc' })).toHaveTextContent(
+			'Chez Marc',
+		);
 
 		// Held on the screen and nowhere else: nothing was written to the URL,
 		// so a filter cannot greet you tomorrow or survive the back button.
@@ -629,19 +667,28 @@ describe('the recipes screen', () => {
 			}),
 		});
 
-		const list = await openGroup('Cooking');
+		const list = await openGroup('Cooked or not');
 		expect(
 			list
 				.getAllByRole('button')
 				.filter((one) => one.hasAttribute('aria-pressed'))
 				.map((one) => one.textContent?.trim()),
-		).toEqual(['Never cooked', 'Not rated', 'Again', 'Tweak it', 'No']);
-		expect(list.getByText('Show recipes that match any you tick.')).toBeInTheDocument();
+		).toEqual([
+			'Never cooked',
+			'Cooked, not rated',
+			'Would cook again',
+			'Would change something',
+			"Wouldn't cook again",
+		]);
+		expect(list.getByText('Shows recipes that match any you tick.')).toBeInTheDocument();
 
 		// Several at once, and the list stays open between them.
-		await fireEvent.click(list.getByRole('button', { name: 'Tweak it' }));
-		await fireEvent.click(list.getByRole('button', { name: 'Again' }));
-		expect(list.getByRole('button', { name: 'Again' })).toHaveAttribute('aria-pressed', 'true');
+		await fireEvent.click(list.getByRole('button', { name: 'Would change something' }));
+		await fireEvent.click(list.getByRole('button', { name: 'Would cook again' }));
+		expect(list.getByRole('button', { name: 'Would cook again' })).toHaveAttribute(
+			'aria-pressed',
+			'true',
+		);
 		// In the list's order, not the order tapped: one set of choices is one
 		// ask, so the phone keeps one answer for it.
 		await vi.waitFor(() =>
@@ -649,19 +696,28 @@ describe('the recipes screen', () => {
 		);
 		await fireEvent.click(list.getByRole('button', { name: 'Done' }));
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-		// Named in the list's order, the first and how many more.
-		expect(await groupButton('Cooking')).toHaveTextContent('Cooking: Again +1');
+		// One chip for each, in the list's order, each letting its own go (#650).
+		expect(
+			screen
+				.getAllByRole('button', { name: /^Stop showing only/ })
+				.map((chip) => chip.textContent?.trim()),
+		).toEqual(['Would cook again', 'Would change something']);
 
 		// Narrowed to nothing, it says a filter did it rather than that the shelf is empty.
-		await fireEvent.click((await openGroup('Cooking')).getByRole('button', { name: 'No' }));
+		await fireEvent.click(
+			(await openGroup('Cooked or not')).getByRole('button', { name: "Wouldn't cook again" }),
+		);
 		expect(await screen.findByText(/Nothing here matches/)).toBeInTheDocument();
 
-		// Clear lets go of all of them.
-		await fireEvent.click((await openGroup('Cooking')).getByRole('button', { name: 'Clear' }));
+		// Show all recipes lets go of all of them, and closes the list.
+		await fireEvent.click(
+			(await openGroup('Cooked or not')).getByRole('button', { name: 'Show all recipes' }),
+		);
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 		// Nothing held is no `cooking` at all: the ask the phone kept answers for
 		// before there was a Cooking list.
 		await vi.waitFor(() => expect(searches(kamosu).at(-1)).not.toHaveProperty('cooking'));
-		expect(await groupButton('Cooking')).toHaveTextContent(/^Cooking$/);
+		expect(screen.queryByRole('button', { name: /^Stop showing only/ })).not.toBeInTheDocument();
 		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
 	});
 
@@ -685,8 +741,10 @@ describe('the recipes screen', () => {
 		// A button over nothing is worse than no button. The tick that
 		// always exists is untouched, and so is Cooking, which always has its five.
 		expect(screen.queryByRole('button', { name: /^Tags/ })).not.toBeInTheDocument();
-		expect(await groupButton('Cooking')).toBeInTheDocument();
-		expect(screen.getByRole('checkbox', { name: 'Cooked or written by me' })).toBeInTheDocument();
+		expect(await groupButton('Cooked or not')).toBeInTheDocument();
+		expect(
+			screen.getByRole('checkbox', { name: 'Only ones I wrote or cooked' }),
+		).toBeInTheDocument();
 	});
 
 	it('narrows the shelf by a tag, through the Operation, and counts by that tag', async () => {
@@ -731,7 +789,7 @@ describe('the recipes screen', () => {
 		// The count is said by the tag rather than by the shelf, because that is
 		// the question the reader just asked.
 		expect(await screen.findByText('1 tagged spicy')).toBeInTheDocument();
-		expect(await groupButton('Tags')).toHaveTextContent('Tags: spicy');
+		expect(screen.getByRole('button', { name: 'Stop showing only spicy' })).toBeInTheDocument();
 
 		// Tapping the held chip again lets it go, and so does Clear.
 		const again = await openGroup('Tags');
@@ -773,8 +831,8 @@ describe('the recipes screen', () => {
 		});
 
 		await pick('Tags', /Vegan/);
-		const list = await openGroup('Cooking');
-		await fireEvent.click(list.getByRole('button', { name: 'No' }));
+		const list = await openGroup('Cooked or not');
+		await fireEvent.click(list.getByRole('button', { name: "Wouldn't cook again" }));
 		await fireEvent.click(list.getByRole('button', { name: 'Done' }));
 
 		// Twelve recipes are tagged Vegan; none of them was rated No.
@@ -913,7 +971,7 @@ describe('the recipes screen', () => {
 			expect(asked.at(0)?.input).toMatchObject({ tag_id: 't_spicy' });
 		});
 		expect(await screen.findByText('1 tagged spicy')).toBeInTheDocument();
-		expect(await groupButton('Tags')).toHaveTextContent('Tags: spicy');
+		expect(screen.getByRole('button', { name: 'Stop showing only spicy' })).toBeInTheDocument();
 	});
 
 	// --- Searching as you type (#121) ---------------------------------------
@@ -945,7 +1003,7 @@ describe('the recipes screen', () => {
 		expect(await screen.findByText('Katsu Curry')).toBeInTheDocument();
 		expect(screen.queryByText('Miso Soup')).not.toBeInTheDocument();
 
-		await fireEvent.click(screen.getByRole('checkbox', { name: 'Cooked or written by me' }));
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Only ones I wrote or cooked' }));
 		await vi.waitFor(() => {
 			expect(searches(kamosu).at(-1)).toMatchObject({ query: 'curry', mine: true });
 		});
@@ -959,7 +1017,7 @@ describe('the recipes screen', () => {
 			});
 		});
 
-		const cooking = await openGroup('Cooking');
+		const cooking = await openGroup('Cooked or not');
 		await fireEvent.click(cooking.getByRole('button', { name: 'Never cooked' }));
 		await vi.waitFor(() => {
 			expect(searches(kamosu).at(-1)).toMatchObject({
@@ -1043,7 +1101,7 @@ describe('the recipes screen', () => {
 	});
 });
 
-describe('the + for every new recipe (#174)', () => {
+describe('adding a recipe (#174, #650)', () => {
 	afterEach(() => {
 		Reflect.deleteProperty(navigator, 'onLine');
 	});
@@ -1087,22 +1145,22 @@ describe('the + for every new recipe (#174)', () => {
 		foods_created: [],
 	};
 
-	async function openThePlus() {
-		const plus = await screen.findByRole('button', { name: 'Add a recipe' });
-		expect(plus).toHaveAttribute('aria-expanded', 'false');
-		await fireEvent.click(plus);
+	/** *Add a recipe* beside the title, and the sheet it opens (#650). */
+	async function openTheSheet() {
+		const add = await screen.findByRole('button', { name: 'Add a recipe' });
+		await fireEvent.click(add);
 		// It asks whether there is a Runner first (#278).
-		await vi.waitFor(() => expect(plus).toHaveAttribute('aria-expanded', 'true'));
-		return plus;
+		await screen.findByRole('dialog', { name: 'Add a recipe' });
+		return add;
 	}
 
 	it('is there with a full library and no search, and offers the five sources', async () => {
 		renderScreen(Recipes, fullShelf);
 		await screen.findByText('Chicken katsu curry');
 
-		await openThePlus();
-		expect(screen.getByRole('button', { name: /From a link/ })).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: /From a Kamosu zip file/ })).toBeInTheDocument();
+		await openTheSheet();
+		expect(screen.getByRole('button', { name: /From a web page/ })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /From a recipe file/ })).toBeInTheDocument();
 		// A PDF has a row of its own, apart from the zip file (#176, settled on #174).
 		expect(
 			screen.getByRole('button', { name: /From a PDF.*A recipe printed or saved as a PDF/ }),
@@ -1111,7 +1169,7 @@ describe('the + for every new recipe (#174)', () => {
 		// The fourth, from #175: pasted text, before any recipe page exists.
 		expect(
 			screen.getByRole('button', {
-				name: /From pasted text.*Kamosu sorts it into title, ingredients and method/,
+				name: /From text you copied.*Kamosu sorts it into title, ingredients and method/,
 			}),
 		).toBeInTheDocument();
 		// With no Runner there is no photo or video to offer, and nothing is grouped (#278, #349).
@@ -1127,10 +1185,10 @@ describe('the + for every new recipe (#174)', () => {
 	it('writes a recipe whose title shares words with one already here, and opens it', async () => {
 		const { kamosu } = renderScreen(Recipes, { ...fullShelf, create_recipe: made });
 
-		await openThePlus();
+		await openTheSheet();
 		await fireEvent.click(screen.getByRole('button', { name: /Write it yourself/ }));
 		// The list closes and the title is asked for in place (ADR 0027).
-		expect(screen.queryByRole('button', { name: /From a link/ })).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /From a web page/ })).not.toBeInTheDocument();
 		const field = screen.getByLabelText('What is it called?');
 		await fireEvent.input(field, { target: { value: 'Chicken curry' } });
 		await fireEvent.submit(field.closest('form')!);
@@ -1159,12 +1217,14 @@ describe('the + for every new recipe (#174)', () => {
 	};
 
 	async function pasteThroughThePlus(text = 'Lemon drizzle loaf\n225g butter…') {
-		await openThePlus();
-		await fireEvent.click(screen.getByRole('button', { name: /From pasted text/ }));
+		await openTheSheet();
+		await fireEvent.click(screen.getByRole('button', { name: /From text you copied/ }));
 		const field = screen.getByLabelText('The recipe, pasted as text');
 		await fireEvent.input(field, { target: { value: text } });
 		await fireEvent.submit(field.closest('form')!);
-		return screen.findByRole('dialog', { name: 'From pasted text' });
+		// The check sheet takes the add sheet's place, under the same name (#650).
+		await screen.findByLabelText('Title');
+		return screen.getByRole('dialog', { name: 'From text you copied' });
 	}
 
 	// #175, as chosen: pasted text is a fourth source, so the recipe
@@ -1236,13 +1296,16 @@ describe('the + for every new recipe (#174)', () => {
 			...fullShelf,
 			read_pasted_recipe: { refuse: 'bad_request', message: 'too long' },
 		});
-		await openThePlus();
-		await fireEvent.click(screen.getByRole('button', { name: /From pasted text/ }));
+		await openTheSheet();
+		await fireEvent.click(screen.getByRole('button', { name: /From text you copied/ }));
 		const field = screen.getByLabelText('The recipe, pasted as text');
 		await fireEvent.input(field, { target: { value: 'something' } });
 		await fireEvent.submit(field.closest('form')!);
-		expect(await screen.findByRole('alert')).toHaveTextContent('too long');
-		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		// Said in the add sheet, under the text, which stays to be changed (#650).
+		const alert = await screen.findByRole('alert');
+		expect(alert).toHaveTextContent('too long');
+		expect(screen.getByRole('dialog', { name: 'From text you copied' })).toContainElement(alert);
+		expect(screen.getByLabelText('The recipe, pasted as text')).toHaveValue('something');
 	});
 
 	it('says why writing was refused, where the title was typed', async () => {
@@ -1251,7 +1314,7 @@ describe('the + for every new recipe (#174)', () => {
 			create_recipe: { refuse: 'bad_request', message: 'a recipe needs a title' },
 		});
 
-		await openThePlus();
+		await openTheSheet();
 		await fireEvent.click(screen.getByRole('button', { name: /Write it yourself/ }));
 		const field = screen.getByLabelText('What is it called?');
 		await fireEvent.input(field, { target: { value: 'Chicken curry' } });
@@ -1293,9 +1356,9 @@ describe('the + for every new recipe (#174)', () => {
 			},
 		});
 
-		await openThePlus();
-		await fireEvent.click(screen.getByRole('button', { name: /From a link/ }));
-		const field = screen.getByLabelText(/web address/);
+		await openTheSheet();
+		await fireEvent.click(screen.getByRole('button', { name: /From a web page/ }));
+		const field = await screen.findByLabelText(/address/);
 		await fireEvent.input(field, { target: { value: 'https://example.test/chicken-curry' } });
 		await fireEvent.submit(field.closest('form')!);
 
@@ -1303,6 +1366,51 @@ describe('the + for every new recipe (#174)', () => {
 		expect(kamosu.calls.find((call) => call.operation === 'import_web_link')?.input).toEqual({
 			url: 'https://example.test/chicken-curry',
 		});
+		// The recipe it made says so when it opens, with Undo (#650).
+		expect(takeAdded('b_landed')).toBe(true);
+	});
+
+	it('says nothing was added when the address lands on a recipe already here (#650)', async () => {
+		renderScreen(Recipes, {
+			...fullShelf,
+			import_web_link: { job_id: 'j_1' },
+			get_job: {
+				id: 'j_1',
+				operation: 'import_web_link',
+				status: 'completed',
+				progress: {},
+				error: null,
+				errorCode: null,
+				created_at: '2026-09-27T10:00:00.000Z',
+				updated_at: '2026-09-27T10:00:01.000Z',
+				result: {
+					import_id: 'i_1',
+					cookbook_id: 'c_1',
+					source_kind: 'web',
+					arrived: [
+						{
+							branch_id: 'b_had',
+							lineage_id: 'l_had',
+							foreign_id: 'https://example.test/chicken-curry',
+							status: 'unchanged',
+							title: 'Chicken curry',
+						},
+					],
+					offered: [],
+					unreadable: [],
+				},
+			},
+		});
+
+		await openTheSheet();
+		await fireEvent.click(screen.getByRole('button', { name: /From a web page/ }));
+		const field = await screen.findByLabelText(/address/);
+		await fireEvent.input(field, { target: { value: 'https://example.test/chicken-curry' } });
+		await fireEvent.submit(field.closest('form')!);
+
+		// It opens the recipe the cook already had, and offers no Undo that would delete it.
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_had'));
+		expect(takeAdded('b_had')).toBe(false);
 	});
 
 	/** A blog post with no recipe data, as an instance with no Runner reads it (#301). */
@@ -1345,14 +1453,15 @@ describe('the + for every new recipe (#174)', () => {
 			create_recipe: made,
 		});
 
-		await openThePlus();
-		await fireEvent.click(screen.getByRole('button', { name: /From a link/ }));
-		const field = screen.getByLabelText(/web address/);
+		await openTheSheet();
+		await fireEvent.click(screen.getByRole('button', { name: /From a web page/ }));
+		const field = await screen.findByLabelText(/address/);
 		await fireEvent.input(field, { target: { value: 'https://blog.example/cari-bo.html' } });
 		await fireEvent.submit(field.closest('form')!);
 
-		const sheet = await screen.findByRole('dialog', { name: 'From a link' });
-		expect(screen.getByLabelText('Title')).toHaveValue('Vietnamese Beef Curry (Cari Bo)');
+		// The check sheet takes the add sheet's place, under the same name.
+		expect(await screen.findByLabelText('Title')).toHaveValue('Vietnamese Beef Curry (Cari Bo)');
+		const sheet = screen.getByRole('dialog', { name: 'From a web page' });
 		// Why a check is asked, said before anything else (the choice on #301).
 		expect(sheet).toHaveTextContent(
 			"Kamosu found no recipe on this page, so it read the page's own text.",
@@ -1381,19 +1490,24 @@ describe('the + for every new recipe (#174)', () => {
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff(),
 			search_recipes: { query: 'cari bo', closest: false, recipes: [] },
+			runner_status: { has_runner: false, last_asked_at: null },
 			...readNotLanded,
 		});
 
-		await fireEvent.click(await screen.findByRole('button', { name: /Import from a link/ }));
-		const field = screen.getByLabelText(/web address/);
+		await fireEvent.click(await screen.findByRole('button', { name: /Add one from a web page/ }));
+		const field = await screen.findByLabelText(/address/);
 		await fireEvent.input(field, { target: { value: 'https://blog.example/cari-bo.html' } });
 		await fireEvent.submit(field.closest('form')!);
 
-		const sheet = await screen.findByRole('dialog', { name: 'From a link' });
+		// The check sheet takes the add sheet's place, under the same name.
+		expect(await screen.findByLabelText('Title')).toHaveValue('Vietnamese Beef Curry (Cari Bo)');
+		const sheet = screen.getByRole('dialog', { name: 'From a web page' });
 		expect(sheet).toHaveTextContent('Kamosu found no recipe on this page');
-		expect(screen.getByLabelText('Title')).toHaveValue('Vietnamese Beef Curry (Cari Bo)');
 		await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
-		expect(screen.queryByRole('dialog')).toBeNull();
+		// Back on the add sheet's address field, the address still there (#650).
+		expect(await screen.findByLabelText(/address/)).toHaveValue(
+			'https://blog.example/cari-bo.html',
+		);
 		expect(went).not.toHaveBeenCalled();
 	});
 
@@ -1435,8 +1549,8 @@ describe('the + for every new recipe (#174)', () => {
 		render(ShelfTestHarness, { props: { client: kamosu.client, upload } });
 		const picked = vi.spyOn(HTMLInputElement.prototype, 'click');
 
-		await openThePlus();
-		await fireEvent.click(screen.getByRole('button', { name: /From a Kamosu zip file/ }));
+		await openTheSheet();
+		await fireEvent.click(screen.getByRole('button', { name: /From a recipe file/ }));
 		// No field of its own: the tap is the picker (ADR 0027).
 		const field = screen.getByLabelText('Add a recipe from a Kamosu zip file');
 		expect(picked.mock.contexts).toContain(field);
@@ -1469,7 +1583,7 @@ describe('the + for every new recipe (#174)', () => {
 	/** Pick a PDF from the + the way a phone does: the tap is the picker. */
 	async function pickAPdf() {
 		const picked = vi.spyOn(HTMLInputElement.prototype, 'click');
-		await openThePlus();
+		await openTheSheet();
 		await fireEvent.click(screen.getByRole('button', { name: /From a PDF/ }));
 		const field = screen.getByLabelText('Add a recipe from a PDF');
 		expect(picked.mock.contexts).toContain(field);
@@ -1541,7 +1655,7 @@ describe('the + for every new recipe (#174)', () => {
 		await pickAPdf();
 		// The wording chosen on #176: why, and what to do instead.
 		expect(await screen.findByRole('alert')).toHaveTextContent(
-			"This PDF is a scan or a photo of a page, so it has no text to read. If it came from a website, use From a link instead, or copy the recipe's text and use From pasted text.",
+			'This PDF is a scan or a photo of a page, so it has no text to read. If it came from a website, use From a web page instead, or copy its text and use From text you copied.',
 		);
 		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 		expect(kamosu.calls.some((call) => call.operation === 'create_recipe')).toBe(false);
@@ -1559,24 +1673,25 @@ describe('the + for every new recipe (#174)', () => {
 		expect(await screen.findByRole('alert')).toHaveTextContent('that file is not a PDF');
 	});
 
-	it('closes its list on Escape, and when the + is tapped again', async () => {
+	it('closes its sheet on Escape, and by its own Close (#650)', async () => {
 		renderScreen(Recipes, fullShelf);
 
-		const plus = await openThePlus();
-		await fireEvent.keyDown(window, { key: 'Escape' });
-		expect(plus).toHaveAttribute('aria-expanded', 'false');
-		expect(screen.queryByRole('button', { name: /From a link/ })).not.toBeInTheDocument();
+		await openTheSheet();
+		await fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+		await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
-		await fireEvent.click(plus);
-		await fireEvent.click(plus);
-		expect(plus).toHaveAttribute('aria-expanded', 'false');
+		await openTheSheet();
+		await fireEvent.click(
+			within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }),
+		);
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 	});
 
 	it('says offline that each source waits for the server', async () => {
 		Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
 		renderScreen(Recipes, fullShelf);
 
-		await openThePlus();
+		await openTheSheet();
 		// None of the three is queued: an offline import queue would be a
 		// merge, and Kamosu never merges (#76, ADR 0013). The outbox keeps no
 		// new recipe either, so each row stays and says what it waits for.
@@ -1633,7 +1748,7 @@ describe('the + for every new recipe (#174)', () => {
 		}
 
 		async function pick(row: RegExp, label: string, file: File) {
-			await openThePlus();
+			await openTheSheet();
 			await fireEvent.click(screen.getByRole('button', { name: row }));
 			await fireEvent.change(screen.getByLabelText(label), { target: { files: [file] } });
 		}
@@ -1642,22 +1757,22 @@ describe('the + for every new recipe (#174)', () => {
 			const { kamosu } = shelfWithAgent();
 			await screen.findByText('Chicken katsu curry');
 
-			const plus = await openThePlus();
-			const list = document.getElementById(plus.getAttribute('aria-controls')!)!;
-			const rows = [...list.querySelectorAll('button')].map(
-				(button) => button.querySelector('.font-display')?.textContent,
+			await openTheSheet();
+			const sheet = screen.getByRole('dialog', { name: 'Add a recipe' });
+			const rows = [...sheet.querySelectorAll('button.list-row')].map(
+				(button) => button.querySelector('.font-medium')?.textContent,
 			);
 			expect(rows).toEqual([
-				'From a link',
-				'From a Kamosu zip file',
+				'From a web page',
+				'From a recipe file',
 				'Write it yourself',
 				'From a photo of a page',
 				'From a PDF',
-				'From pasted text',
+				'From text you copied',
 				'From a video',
 			]);
 			// The heading sits between the two groups, saying it takes minutes.
-			const heading = screen.getByText("Kamosu's AI agent makes the recipe · a few minutes");
+			const heading = screen.getByText('Kamosu’s AI reads it for you · a few minutes');
 			expect(
 				heading.compareDocumentPosition(screen.getByRole('button', { name: /Write it yourself/ })),
 			).toBe(Node.DOCUMENT_POSITION_PRECEDING);
@@ -1671,8 +1786,8 @@ describe('the + for every new recipe (#174)', () => {
 			).toBeInTheDocument();
 
 			// Read from the server every time, never kept (#278).
-			await fireEvent.click(plus);
-			await openThePlus();
+			await fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
+			await openTheSheet();
 			expect(kamosu.calls.filter((call) => call.operation === 'runner_status')).toHaveLength(2);
 		});
 
@@ -1713,7 +1828,7 @@ describe('the + for every new recipe (#174)', () => {
 			const page = (name: string) => new File(['jpeg bytes'], name, { type: 'image/jpeg' });
 			const [first, second, third, fourth] = ['p1.jpg', 'p2.jpg', 'p3.jpg', 'p4.jpg'].map(page);
 
-			await openThePlus();
+			await openTheSheet();
 			await fireEvent.click(screen.getByRole('button', { name: /From a photo of a page/ }));
 			const field = screen.getByLabelText("Send a photo of a page to Kamosu's AI agent");
 			expect(field).toHaveAttribute('multiple');
@@ -1754,7 +1869,7 @@ describe('the + for every new recipe (#174)', () => {
 
 		it('says so when more photos are picked than one recipe may be (#452)', async () => {
 			shelfWithAgent();
-			await openThePlus();
+			await openTheSheet();
 			await fireEvent.click(screen.getByRole('button', { name: /From a photo of a page/ }));
 			const twelve = Array.from(
 				{ length: 12 },
@@ -1816,8 +1931,8 @@ describe('the + for every new recipe (#174)', () => {
 		it('sends pasted text to the agent with no draft to sort', async () => {
 			const { kamosu } = shelfWithAgent({ import_by_agent: sentAs('pasted_text') });
 
-			await openThePlus();
-			await fireEvent.click(screen.getByRole('button', { name: /From pasted text/ }));
+			await openTheSheet();
+			await fireEvent.click(screen.getByRole('button', { name: /From text you copied/ }));
 			expect(
 				screen.getByText(
 					"Copy the whole recipe from anywhere. Kamosu's AI agent makes the recipe from it, and it arrives in a few minutes.",
@@ -1832,13 +1947,14 @@ describe('the + for every new recipe (#174)', () => {
 				text: 'Lemon drizzle loaf\n225g butter…',
 			});
 			expect(kamosu.calls.some((call) => call.operation === 'read_pasted_recipe')).toBe(false);
-			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+			// No draft to check: the sheet a paste is checked on never rose.
+			expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
 		});
 
 		it("sends a video's link straight to the agent, reading nothing first (#349)", async () => {
 			const { kamosu } = shelfWithAgent({ import_by_agent: sentAs('web') });
 
-			await openThePlus();
+			await openTheSheet();
 			await fireEvent.click(
 				screen.getByRole('button', {
 					name: /From a video.*A cooking video on YouTube, Instagram or TikTok/,
@@ -1870,7 +1986,7 @@ describe('the + for every new recipe (#174)', () => {
 					reason: 'no_runner',
 				},
 			});
-			await openThePlus();
+			await openTheSheet();
 			await fireEvent.click(screen.getByRole('button', { name: /From a video/ }));
 			const field = screen.getByLabelText("The video's web address");
 			await fireEvent.input(field, { target: { value: 'https://www.youtube.com/watch?v=tarte' } });
@@ -1930,19 +2046,21 @@ describe('the + for every new recipe (#174)', () => {
 			await fireEvent.drop(document.body, { dataTransfer });
 			expect(await screen.findByRole('alert')).toHaveTextContent(/didn't go anywhere/);
 
-			await openThePlus();
-			await fireEvent.click(screen.getByRole('button', { name: /From pasted text/ }));
+			await openTheSheet();
+			await fireEvent.click(screen.getByRole('button', { name: /From text you copied/ }));
 			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 		});
 
 		it("says offline that each of the agent's three waits for the server", async () => {
 			shelfWithAgent();
-			const plus = await openThePlus();
-			await fireEvent.click(plus);
+			await openTheSheet();
+			await fireEvent.click(
+				within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }),
+			);
 			Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
 			window.dispatchEvent(new Event('offline'));
 
-			await openThePlus();
+			await openTheSheet();
 			for (const words of [
 				'Sending a photo waits for the server',
 				'Sending a PDF waits for the server',
@@ -1977,19 +2095,19 @@ describe('the + for every new recipe (#174)', () => {
 
 			it("opens the agent's group with a row that shows the four examples", async () => {
 				inADemo();
-				const plus = await openThePlus();
-				const list = document.getElementById(plus.getAttribute('aria-controls')!)!;
-				const rows = [...list.querySelectorAll('button')].map(
-					(button) => button.querySelector('.font-display')?.textContent,
+				await openTheSheet();
+				const sheet = screen.getByRole('dialog', { name: 'Add a recipe' });
+				const rows = [...sheet.querySelectorAll('button.list-row')].map(
+					(button) => button.querySelector('.font-medium')?.textContent,
 				);
 				expect(rows).toEqual([
-					'From a link',
-					'From a Kamosu zip file',
+					'From a web page',
+					'From a recipe file',
 					'Write it yourself',
 					'Watch it read an example',
 					'From a photo of a page',
 					'From a PDF',
-					'From pasted text',
+					'From text you copied',
 					'From a video',
 				]);
 				expect(
@@ -2002,7 +2120,8 @@ describe('the + for every new recipe (#174)', () => {
 				const panel = await screen.findByRole('dialog', {
 					name: "Watch Kamosu's AI agent at work",
 				});
-				expect(plus).toHaveAttribute('aria-expanded', 'false');
+				// The panel stands in the add sheet's place, one sheet at a time.
+				expect(screen.queryByRole('dialog', { name: 'Add a recipe' })).not.toBeInTheDocument();
 				expect(panel).toHaveTextContent('Pick one of four things a cook handed the agent.');
 				expect(panel).toHaveTextContent('a real read takes a few minutes');
 				const tiles = within(panel)
@@ -2025,7 +2144,7 @@ describe('the + for every new recipe (#174)', () => {
 
 			it('replays the example picked from the moment it is picked', async () => {
 				inADemo();
-				await openThePlus();
+				await openTheSheet();
 				await fireEvent.click(screen.getByRole('button', { name: /Watch it read an example/ }));
 				const panel = await screen.findByRole('dialog');
 				const before = Date.now();
@@ -2074,7 +2193,7 @@ describe('the + for every new recipe (#174)', () => {
 
 			it("refuses a visitor's own video link in its field, with the way to the examples", async () => {
 				inADemo({ import_by_agent: refusedInDemo });
-				await openThePlus();
+				await openTheSheet();
 				await fireEvent.click(screen.getByRole('button', { name: /From a video/ }));
 				const field = screen.getByLabelText("The video's web address");
 				await fireEvent.input(field, {
@@ -2099,7 +2218,7 @@ describe('the + for every new recipe (#174)', () => {
 						reason: 'no_runner',
 					},
 				});
-				await openThePlus();
+				await openTheSheet();
 				await fireEvent.click(screen.getByRole('button', { name: /From a video/ }));
 				await fireEvent.input(screen.getByLabelText("The video's web address"), {
 					target: { value: 'https://www.youtube.com/watch?v=tarte' },
@@ -2115,8 +2234,8 @@ describe('the + for every new recipe (#174)', () => {
 
 			it('puts the way to the examples away when a later try says something else', async () => {
 				inADemo({ import_by_agent: refusedInDemo });
-				await openThePlus();
-				await fireEvent.click(screen.getByRole('button', { name: /From pasted text/ }));
+				await openTheSheet();
+				await fireEvent.click(screen.getByRole('button', { name: /From text you copied/ }));
 				const box = screen.getByLabelText('The recipe, pasted as text');
 				await fireEvent.input(box, { target: { value: 'Shakshuka. 4 eggs, 1 tin tomatoes.' } });
 				await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -2139,12 +2258,14 @@ describe('the + for every new recipe (#174)', () => {
 
 			it('says offline that watching an example waits for the server', async () => {
 				inADemo();
-				const plus = await openThePlus();
-				await fireEvent.click(plus);
+				await openTheSheet();
+				await fireEvent.click(
+					within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }),
+				);
 				Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
 				window.dispatchEvent(new Event('offline'));
 
-				await openThePlus();
+				await openTheSheet();
 				expect(
 					screen.getByRole('button', { name: 'Watching an example waits for the server' }),
 				).toBeDisabled();
@@ -2447,17 +2568,17 @@ describe('the + for every new recipe (#174)', () => {
 			expect(asked()).toHaveLength(started);
 		});
 
-		it('says a refusal under the search box even where the box for pasted text was open', async () => {
-			await shelf();
-			await openThePlus();
-			await fireEvent.click(screen.getByRole('button', { name: /From pasted text/ }));
+		it('takes no drop while the add sheet is open, and leaves the text being pasted (#650)', async () => {
+			const { upload } = await shelf();
+			await openTheSheet();
+			await fireEvent.click(screen.getByRole('button', { name: /From text you copied/ }));
 			const dataTransfer = carrying({ files: [new File(['x'], 'a.jpg', { type: 'image/jpeg' })] });
 
 			await fireEvent.dragEnter(document.body, { dataTransfer });
 			await fireEvent.drop(document.body, { dataTransfer });
-			expect(screen.getByRole('alert')).toHaveTextContent("That didn't go anywhere.");
-			// The drop was a new choice, so the box made way for it.
-			expect(screen.queryByLabelText('The recipe, pasted as text')).not.toBeInTheDocument();
+			expect(upload).not.toHaveBeenCalled();
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+			expect(screen.getByLabelText('The recipe, pasted as text')).toBeInTheDocument();
 		});
 
 		it('takes the words away by itself when a drag stops saying it is there', async () => {
@@ -2563,9 +2684,9 @@ describe('going back to the shelf (#191)', () => {
 		await fireEvent.input(await screen.findByRole('searchbox'), { target: { value: 'katsu' } });
 		await pick('Kitchens', 'Chez Marc');
 		await pick('Tags', /spicy/);
-		const cooking = await openGroup('Cooking');
-		await fireEvent.click(cooking.getByRole('button', { name: 'Again' }));
-		await fireEvent.click(cooking.getByRole('button', { name: 'Tweak it' }));
+		const cooking = await openGroup('Cooked or not');
+		await fireEvent.click(cooking.getByRole('button', { name: 'Would cook again' }));
+		await fireEvent.click(cooking.getByRole('button', { name: 'Would change something' }));
 		await fireEvent.click(cooking.getByRole('button', { name: 'Done' }));
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({
@@ -2581,11 +2702,17 @@ describe('going back to the shelf (#191)', () => {
 		goBack(kamosu, left);
 
 		await vi.waitFor(() => expect(screen.getByRole('searchbox')).toHaveValue('katsu'));
-		expect(await groupButton('Kitchens')).toHaveTextContent('Kitchens: Chez Marc');
+		expect(
+			await screen.findByRole('button', { name: 'Stop showing only Chez Marc' }),
+		).toBeInTheDocument();
 		await vi.waitFor(async () =>
-			expect(await groupButton('Tags')).toHaveTextContent('Tags: spicy'),
+			expect(screen.getByRole('button', { name: 'Stop showing only spicy' })).toBeInTheDocument(),
 		);
-		expect(await groupButton('Cooking')).toHaveTextContent('Cooking: Again +1');
+		expect(
+			screen
+				.getAllByRole('button', { name: /^Stop showing only/ })
+				.map((chip) => chip.textContent?.trim()),
+		).toEqual(expect.arrayContaining(['Would cook again', 'Would change something']));
 		expect(await screen.findByText('Chicken Katsu')).toBeInTheDocument();
 		expect(screen.queryByText('Miso Soup')).not.toBeInTheDocument();
 		expect(searches(kamosu).at(-1)).toMatchObject({
@@ -2608,7 +2735,7 @@ describe('going back to the shelf (#191)', () => {
 		goBack(kamosu, leave(first));
 
 		await vi.waitFor(async () =>
-			expect(await groupButton('Tags')).toHaveTextContent('Tags: spicy'),
+			expect(screen.getByRole('button', { name: 'Stop showing only spicy' })).toBeInTheDocument(),
 		);
 		expect(screen.getByRole('searchbox')).toHaveValue('');
 		expect(await groupButton('Kitchens')).toHaveTextContent(/^Kitchens$/);
@@ -2689,7 +2816,7 @@ describe('going back to the shelf (#191)', () => {
 
 		await fireEvent.input(await screen.findByRole('searchbox'), { target: { value: 'katsu' } });
 		await pick('Kitchens', 'Chez Marc');
-		await pick('Cooking', 'Never cooked');
+		await pick('Cooked or not', 'Never cooked');
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({ query: 'katsu', cooking: ['never_cooked'] }),
 		);
@@ -2701,7 +2828,7 @@ describe('going back to the shelf (#191)', () => {
 		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
 		expect(screen.getByRole('searchbox')).toHaveValue('');
 		expect(await groupButton('Kitchens')).toHaveTextContent(/^Kitchens$/);
-		expect(await groupButton('Cooking')).toHaveTextContent(/^Cooking$/);
+		expect(await groupButton('Cooked or not')).toHaveTextContent(/^Cooked or not$/);
 		expect(searches(kamosu).at(-1)).toMatchObject({
 			query: null,
 			kitchen_id: null,
@@ -2747,7 +2874,7 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		return named;
 	};
 	/** Whether a choice is held in a group's list, closing it again. */
-	const held = async (group: string, choice: string) => {
+	const held = async (group: string, choice: string | RegExp) => {
 		const list = await openGroup(group);
 		const pressed = list.getByRole('button', { name: choice }).getAttribute('aria-pressed');
 		await fireEvent.click(list.getByRole('button', { name: 'Done' }));
@@ -2765,7 +2892,9 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', kitchen_id: null }),
 		);
-		expect(await groupButton('Cookbooks')).toHaveTextContent('Cookbooks: Marc’s');
+		expect(
+			await screen.findByRole('button', { name: 'Stop showing only Marc’s' }),
+		).toBeInTheDocument();
 		expect(await held('Cookbooks', 'Marc’s')).toBe(true);
 
 		// Each list works as the Tags list does: a second tap lets go.
@@ -2778,7 +2907,7 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 
 		// And Clear lets go of whatever the list holds.
 		const list = await openGroup('Cookbooks');
-		await fireEvent.click(list.getByRole('button', { name: 'Clear' }));
+		await fireEvent.click(list.getByRole('button', { name: 'Show all recipes' }));
 		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: null }));
 	});
 
@@ -2818,11 +2947,13 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		show(kamosu);
 
 		await pick('Cookbooks', 'Marc’s');
-		await fireEvent.click(screen.getByRole('checkbox', { name: 'Cooked or written by me' }));
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Only ones I wrote or cooked' }));
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', mine: true }),
 		);
-		expect(await groupButton('Cookbooks')).toHaveTextContent('Cookbooks: Marc’s');
+		expect(
+			await screen.findByRole('button', { name: 'Stop showing only Marc’s' }),
+		).toBeInTheDocument();
 	});
 
 	it('keeps the tick in reach when it narrows the shelf to nothing', async () => {
@@ -2838,10 +2969,12 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		});
 		show(kamosu);
 
-		await fireEvent.click(await screen.findByRole('checkbox', { name: 'Cooked or written by me' }));
+		await fireEvent.click(
+			await screen.findByRole('checkbox', { name: 'Only ones I wrote or cooked' }),
+		);
 		// Not "the shelf is empty": the library is still there behind the tick.
 		expect(await screen.findByText(/Nothing here matches/)).toBeInTheDocument();
-		await fireEvent.click(screen.getByRole('checkbox', { name: 'Cooked or written by me' }));
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Only ones I wrote or cooked' }));
 		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
 	});
 
@@ -2867,7 +3000,8 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		await pick('Cookbooks', 'Marc’s');
 
 		await vi.waitFor(async () => expect(await groupButton('Tags')).toHaveTextContent(/^Tags$/));
-		expect(await line('Tags')).toEqual(['from Marc']);
+		// Each with how many recipes carry it (#650).
+		expect(await line('Tags')).toEqual(['from Marc  3']);
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', tag_id: null }),
 		);
@@ -2889,7 +3023,7 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		});
 		show(kamosu);
 
-		await pick('Tags', 'Dessert');
+		await pick('Tags', /^Dessert/);
 		await pick('Cookbooks', 'Marc’s');
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({
@@ -2897,7 +3031,7 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 				tag_id: 't_dessert_marc',
 			}),
 		);
-		expect(await held('Tags', 'dessert')).toBe(true);
+		expect(await held('Tags', /^dessert/)).toBe(true);
 
 		// And back again when the Cookbook is let go.
 		await pick('Cookbooks', 'Marc’s');
@@ -2930,23 +3064,23 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		const kamosu = shelf([shared]);
 		const first = render(RouteTestHarness, { props: { client: kamosu.client } });
 		await pick('Cookbooks', 'Marc’s');
-		await fireEvent.click(screen.getByRole('checkbox', { name: 'Cooked or written by me' }));
+		await fireEvent.click(screen.getByRole('checkbox', { name: 'Only ones I wrote or cooked' }));
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', mine: true }),
 		);
 
 		leaveAndGoBack(first, kamosu);
 		await vi.waitFor(async () =>
-			expect(await groupButton('Cookbooks')).toHaveTextContent('Cookbooks: Marc’s'),
+			expect(screen.getByRole('button', { name: 'Stop showing only Marc’s' })).toBeInTheDocument(),
 		);
-		expect(screen.getByRole('checkbox', { name: 'Cooked or written by me' })).toBeChecked();
+		expect(screen.getByRole('checkbox', { name: 'Only ones I wrote or cooked' })).toBeChecked();
 		expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: 'c_marc', mine: true });
 
 		// The tab bar is a new visit: SvelteKit restores nothing into it.
 		cleanup();
 		render(RouteTestHarness, { props: { client: kamosu.client } });
 		expect(await groupButton('Cookbooks')).toHaveTextContent(/^Cookbooks$/);
-		expect(screen.getByRole('checkbox', { name: 'Cooked or written by me' })).not.toBeChecked();
+		expect(screen.getByRole('checkbox', { name: 'Only ones I wrote or cooked' })).not.toBeChecked();
 		await vi.waitFor(() =>
 			expect(searches(kamosu).at(-1)).toMatchObject({ cookbook_id: null, mine: false }),
 		);
@@ -2966,5 +3100,197 @@ describe('filtering the shelf to one Cookbook (#231)', () => {
 		leaveAndGoBack(first, alone);
 		await vi.waitFor(() => expect(searches(alone).at(-1)).toMatchObject({ cookbook_id: null }));
 		expect(screen.queryByRole('button', { name: /^Cookbooks/ })).not.toBeInTheDocument();
+	});
+});
+
+describe('finding your way on Recipes (#650)', () => {
+	/** A shelf of fifteen, A to Z with gaps, as the Operation sends it in the shelf's order. */
+	const TITLES = [
+		'10 minute tofu',
+		'Apple pie',
+		'Avocado rice',
+		'Banana bread',
+		'Crêpes',
+		'Dal',
+		'Éclair',
+		'Eggs Benedict',
+		'Fish pie',
+		'Miso soup',
+		'Pad thai',
+		'Ramen',
+		'Shakshuka',
+		'Soba',
+		'Tarte Tatin',
+	];
+	const longShelf = (over: Record<string, unknown> = {}) => ({
+		list_tags: { tags: [shelfTag('t_dessert', 'Dessert', 3)] },
+		list_kitchens: { kitchens: [kitchen] },
+		meaning_search_status: meaningOff(),
+		search_recipes: ({ query }: { query?: string | null }) => ({
+			query: query ?? null,
+			closest: false,
+			recipes: (query
+				? TITLES.filter((title) => title.toLowerCase().includes(query.toLowerCase()))
+				: TITLES
+			).map((title, at) =>
+				entry({
+					lineage_id: `l_${at}`,
+					branch_id: `b_${at}`,
+					title,
+					matched: query ? { where: 'title', line: title, step_number: null, by: 'words' } : null,
+				}),
+			),
+		}),
+		...over,
+	});
+
+	it('says once that a recipe was taken back out, where Undo on its page lands', async () => {
+		noteTakenOut();
+		renderScreen(Recipes, longShelf());
+		expect(await screen.findByText('Taken out of your recipes.')).toBeInTheDocument();
+		cleanup();
+		renderScreen(Recipes, longShelf());
+		await screen.findByText('15 recipes, A to Z');
+		expect(screen.queryByText('Taken out of your recipes.')).not.toBeInTheDocument();
+	});
+
+	it('has no subtitle, and says the order its count is in', async () => {
+		renderScreen(Recipes, longShelf());
+		expect(await screen.findByText('15 recipes, A to Z')).toBeInTheDocument();
+		expect(screen.queryByText(/One shelf/)).not.toBeInTheDocument();
+	});
+
+	it('runs the letters down the edge, each a letter some recipe starts with or greyed', async () => {
+		renderScreen(Recipes, longShelf());
+		const letters = await screen.findByRole('navigation', { name: 'Jump to a letter' });
+		const named = within(letters)
+			.getAllByRole('button')
+			.map((letter) => letter.textContent?.trim());
+		expect(named).toEqual(['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ']);
+		expect(within(letters).getByRole('button', { name: 'S' }).firstElementChild).toHaveClass(
+			'text-accent',
+		);
+		expect(within(letters).getByRole('button', { name: 'Z' }).firstElementChild).toHaveClass(
+			'text-rule',
+		);
+	});
+
+	it('takes the list to the first recipe under a letter, or the next one held', async () => {
+		const scrolled: string[] = [];
+		// jsdom lays nothing out and has no scrolling of its own: what was
+		// asked to scroll into view is what is recorded, and put back after.
+		const before = Element.prototype.scrollIntoView;
+		Element.prototype.scrollIntoView = function (this: Element) {
+			scrolled.push(this.textContent ?? '');
+		};
+		onTestFinished(() => {
+			Element.prototype.scrollIntoView = before;
+		});
+		renderScreen(Recipes, longShelf());
+		const letters = await screen.findByRole('navigation', { name: 'Jump to a letter' });
+
+		await fireEvent.click(within(letters).getByRole('button', { name: 'S' }));
+		expect(scrolled.at(-1)).toContain('Shakshuka');
+		// Accents folded: Éclair is filed under E, before Eggs.
+		await fireEvent.click(within(letters).getByRole('button', { name: 'E' }));
+		expect(scrolled.at(-1)).toContain('Éclair');
+		// No recipe starts with N: the list goes to the next letter held.
+		await fireEvent.click(within(letters).getByRole('button', { name: 'N' }));
+		expect(scrolled.at(-1)).toContain('Pad thai');
+	});
+
+	it('has no letters on a search, whose results are in the order they matched', async () => {
+		renderScreen(Recipes, longShelf());
+		await screen.findByRole('navigation', { name: 'Jump to a letter' });
+		await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'pie' } });
+		expect(await screen.findByText('2 found')).toBeInTheDocument();
+		expect(screen.queryByRole('navigation', { name: 'Jump to a letter' })).not.toBeInTheDocument();
+	});
+
+	it('has no letters on a shelf short enough to flick through', async () => {
+		renderScreen(Recipes, {
+			list_tags: { tags: [] },
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: null, closest: false, recipes: [entry()] },
+		});
+		await screen.findByText('Miso Soup');
+		expect(screen.queryByRole('navigation', { name: 'Jump to a letter' })).not.toBeInTheDocument();
+	});
+
+	it('says what its search box searches, and clears it in one tap', async () => {
+		renderScreen(Recipes, longShelf());
+		const box = await screen.findByRole('searchbox');
+		expect(box).toHaveAttribute('placeholder', 'Name, ingredient, step…');
+		// Above the list, where a cook deep in it still reaches it.
+		expect(box.closest('.sticky')).not.toBeNull();
+		expect(screen.queryByRole('button', { name: 'Clear the search' })).not.toBeInTheDocument();
+
+		await fireEvent.input(box, { target: { value: 'pie' } });
+		await fireEvent.click(await screen.findByRole('button', { name: 'Clear the search' }));
+		expect(box).toHaveValue('');
+		expect(box).toHaveFocus();
+		expect(await screen.findByText('15 recipes, A to Z')).toBeInTheDocument();
+	});
+
+	it('lets a filter that is on go in one tap, from its chip under the buttons', async () => {
+		const { kamosu } = renderScreen(Recipes, longShelf());
+		await pick('Tags', /^Dessert/);
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ tag_id: 't_dessert' }));
+
+		const chip = screen.getByRole('button', { name: 'Stop showing only Dessert' });
+		expect(chip).toHaveClass('quiet-button');
+		// On a line of its own, never at the end of the buttons' row, which a
+		// phone scrolls sideways off its edge (#650, choice A after the build).
+		const buttons = (await groupButton('Tags')).parentElement!;
+		expect(buttons).not.toContainElement(chip);
+		expect(chip.parentElement).toHaveClass('flex-wrap');
+		await fireEvent.click(chip);
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ tag_id: null }));
+		expect(screen.queryByRole('button', { name: /^Stop showing only/ })).not.toBeInTheDocument();
+	});
+
+	it('says how a tag applies, and lists the most used first with their counts', async () => {
+		renderScreen(
+			Recipes,
+			longShelf({
+				list_tags: {
+					tags: [shelfTag('t_a', 'Asian', 2), shelfTag('t_v', 'Vegetarian', 9)],
+				},
+			}),
+		);
+		const list = await openGroup('Tags');
+		expect(
+			list.getByText('Shows only recipes with the tag you tap. Tap it again to show them all.'),
+		).toBeInTheDocument();
+		expect(
+			list
+				.getAllByRole('button')
+				.filter((one) => one.hasAttribute('aria-pressed'))
+				.map((one) => one.textContent?.replace(/\s+/g, ' ').trim()),
+		).toEqual(['Vegetarian 9', 'Asian 2']);
+		expect(list.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+		expect(list.getByRole('button', { name: 'Show all recipes' })).toHaveClass('second-button');
+	});
+
+	it('asks for a web address in the add sheet, with nothing written there first', async () => {
+		renderScreen(Recipes, longShelf({ runner_status: { has_runner: false, last_asked_at: null } }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Add a recipe' }));
+		await fireEvent.click(await screen.findByRole('button', { name: /From a web page/ }));
+
+		const sheet = screen.getByRole('dialog', { name: 'From a web page' });
+		const field = within(sheet).getByLabelText('The page’s address');
+		expect(field).toHaveValue('');
+		expect(field).toHaveAttribute('placeholder', 'Paste it here');
+		const add = within(sheet).getByRole('button', { name: 'Add this recipe' });
+		expect(add).toBeDisabled();
+		await fireEvent.input(field, { target: { value: 'https://example.test/osso-buco' } });
+		expect(add).toBeEnabled();
+
+		// The way back to every source, and nothing under the search box.
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Back' }));
+		expect(screen.getByRole('dialog', { name: 'Add a recipe' })).toBeInTheDocument();
+		// The field went with its step: no address box stands anywhere, under the search box least of all.
+		expect(screen.queryByLabelText('The page’s address')).not.toBeInTheDocument();
 	});
 });

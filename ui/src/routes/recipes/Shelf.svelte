@@ -14,12 +14,22 @@
 	Cookbook or one Kitchen, held one at a time, since a Cookbook holds the same
 	recipes in every Kitchen that sees it. *How it was cooked* is any of five
 	choices at once. A Tag is the word a recipe is filed by. Each group is one
-	button on a single row under the search box, which names what it holds and
-	opens its list (`FilterList`): the screen is about its recipes, and four
-	headed lines of chips stood between them and the search box. *Cooked or
-	written by me* is about the reader and the recipe, whoever's Cookbook it is
-	in, so it is a tick beside the count and it combines with everything else.
+	button on a single row under the search box, which opens its list
+	(`FilterList`): the screen is about its recipes, and four headed lines of
+	chips stood between them and the search box. What is held stands under the
+	buttons, on a line of its own, as a chip whose × lets it go in one tap
+	(#650). *Only ones I wrote
+	or cooked* is about the reader and the recipe, whoever's Cookbook it is in,
+	so it is a tick beside the count and it combines with everything else.
 	Beside a Cooking choice it says whose cookings judge it: the reader's alone.
+
+	**Finding the way down a long shelf** (#650, option A, chosen 20 November
+	2026). The count says the order the shelf is in, the search box stays at
+	the top of the window while the list scrolls, and the letters A to Z down
+	the right edge take the list to any part of it (`Letters`). *Add a recipe*
+	stands beside the title, where the unlabelled + beside the search box was
+	read as a search button (R4), and opens the one sheet every way in is on
+	(`AddRecipe`).
 
 	Going back is the one return that is not a fresh start (#191). Open a result,
 	find it is not the one, go back: the words, the filters, the answer and the
@@ -130,15 +140,23 @@
 	import { RecipeSearch } from '#lib/search.svelte.js';
 	import { byWord, sameWord, tagWord, type Tag } from '#lib/tags.js';
 	import { cookbookOnChip, kitchenName } from '#lib/cookbook.js';
-	import { ratingLabel } from '#lib/rating.js';
+	import { ratingVerdict } from '#lib/rating.js';
 	import FilterList, { type Choice } from './FilterList.svelte';
 	import Screen from '#lib/shell/Screen.svelte';
 	import { recipeSearchBox } from '#lib/shell/slash.js';
 	import Empty from '#lib/shell/Empty.svelte';
 	import Tile from './Tile.svelte';
 	import AddOrImport from '#lib/AddOrImport.svelte';
-	import Plus from './Plus.svelte';
+	import AddRecipe from '#lib/adding/AddRecipe.svelte';
+	import AddButton from '#lib/adding/AddButton.svelte';
+	import { useAdding } from '#lib/adding/adding.svelte.js';
+	import DropARecipe from './DropARecipe.svelte';
+	import { Online } from '#lib/offline/device.svelte.js';
+	import NoticeCard from '#lib/NoticeCard.svelte';
+	import { takeTakenOut } from '#lib/adding/added.js';
 	import MeaningOffer from './MeaningOffer.svelte';
+	import Letters from './Letters.svelte';
+	import { firstOfEach, type Letter } from './letters';
 
 	interface Props {
 		/** The Tag named by `?tag=`, where the reader arrived from a chip (#104). */
@@ -324,7 +342,7 @@
 		return cookbook.id === ownCookbook ? m.recipes_cookbook_mine() : cookbookOnChip(cookbook);
 	}
 
-	/** One Cooking choice in the reader's words; the three ratings as a cook gives them. */
+	/** One Cooking choice in the reader's words; the three ratings as the cooking log says them (#650). */
 	function cookingName(choice: Cooking): string {
 		switch (choice) {
 			case 'never_cooked':
@@ -332,60 +350,59 @@
 			case 'cooked_unrated':
 				return m.recipes_cooking_unrated();
 			default:
-				return ratingLabel(choice);
+				return ratingVerdict(choice);
 		}
 	}
 
 	/**
 	 * The row under the search box, one button per group with something to
-	 * choose, each with the names of what it holds (#445).
+	 * choose (#445). What each holds is said by its chip (`held`), not on it.
 	 */
 	const groups = $derived.by(() => {
-		const held = filter;
-		const row: {
-			key: Group;
-			title: string;
-			held: string[];
-		}[] = [];
-		if (severalCookbooks) {
-			row.push({
-				key: 'cookbooks',
-				title: m.recipes_cookbooks_title(),
-				held:
-					held.kind === 'cookbook'
-						? cookbooks.filter(({ id }) => id === held.id).map(cookbookName)
-						: [],
-			});
-		}
-		if (several) {
-			row.push({
-				key: 'kitchens',
-				title: m.recipes_kitchens_title(),
-				held:
-					held.kind === 'kitchen'
-						? kitchens.filter(({ id }) => id === held.id).map(kitchenName)
-						: [],
-			});
-		}
-		row.push({
-			key: 'cooking',
-			title: m.recipes_cooking_title(),
-			held: COOKING.filter((choice) => cooking.includes(choice)).map(cookingName),
-		});
-		if (chips.length > 0) {
-			row.push({ key: 'tags', title: m.tags_title(), held: filteringWord ? [filteringWord] : [] });
-		}
+		const row: { key: Group; title: string }[] = [];
+		if (severalCookbooks) row.push({ key: 'cookbooks', title: m.recipes_cookbooks_title() });
+		if (several) row.push({ key: 'kitchens', title: m.recipes_kitchens_title() });
+		row.push({ key: 'cooking', title: m.recipes_cooking_title() });
+		if (chips.length > 0) row.push({ key: 'tags', title: m.tags_title() });
 		return row;
 	});
 
-	/** What a group's button says: its name, or its name and what it holds. */
-	function said({ title, held }: { title: string; held: string[] }): string {
-		const [first, ...more] = held;
-		if (first === undefined) return title;
-		return more.length === 0
-			? m.recipes_filter_held({ group: title, first })
-			: m.recipes_filter_held_more({ group: title, first, more: more.length });
-	}
+	/**
+	 * Every filter that is on, as a chip under the buttons whose × lets it go
+	 * in one tap (#650, T4): a Cookbook or a Kitchen, each Cooking choice, a
+	 * Tag. A button names its group and nothing else, so what narrows the
+	 * shelf is said once, on the chip that takes it off.
+	 */
+	const held = $derived.by(() => {
+		const on: { key: string; name: string; off: () => void }[] = [];
+		const whose = filter;
+		if (whose.kind === 'cookbook') {
+			const cookbook = cookbooks.find(({ id }) => id === whose.id);
+			if (cookbook)
+				on.push({
+					key: 'cookbook',
+					name: cookbookName(cookbook),
+					off: () => (filter = { kind: 'all' }),
+				});
+		} else if (whose.kind === 'kitchen') {
+			const kitchen = kitchens.find(({ id }) => id === whose.id);
+			if (kitchen)
+				on.push({
+					key: 'kitchen',
+					name: kitchenName(kitchen),
+					off: () => (filter = { kind: 'all' }),
+				});
+		}
+		for (const choice of COOKING.filter((each) => cooking.includes(each)))
+			on.push({
+				key: `cooking-${choice}`,
+				name: cookingName(choice),
+				off: () => (cooking = cooking.filter((each) => each !== choice)),
+			});
+		if (tag !== null && filteringWord)
+			on.push({ key: 'tag', name: filteringWord, off: () => (tag = null) });
+		return on;
+	});
 
 	/**
 	 * A Tag chip that goes out of reach keeps its filter on with no way to turn
@@ -536,69 +553,179 @@
 		scrollBack = null;
 		window.scrollTo(0, to);
 	});
+
+	/**
+	 * Adding a recipe, from the sheet beside the title, a file or a link
+	 * dropped on the screen (#204), or a search that found nothing (#650).
+	 */
+	const adding = useAdding();
+	const online = new Online();
+	let addRecipe = $state<AddRecipe | undefined>(undefined);
+
+	/** A recipe just taken back out by the Undo on its page, said once here (#650). */
+	const takenOut = takeTakenOut();
+
+	/**
+	 * Where each letter starts on the shelf, for the letters down the edge
+	 * (#650). Only the whole shelf in its A to Z order has them, never a
+	 * search's results, and only once it is longer than a few screens' worth:
+	 * twelve cards are two flicks of a thumb.
+	 */
+	const starts = $derived(
+		query === null && unmatched === null && entries.length > 12
+			? firstOfEach(entries.map((entry) => entry.title))
+			: null,
+	);
+	const startsAt = $derived(
+		new Map([...(starts ?? new Map<Letter, number>())].map(([letter, at]) => [at, letter])),
+	);
+
+	/** The list at a letter's first recipe, under the search box pinned over it. */
+	function jump(letter: Letter) {
+		document.getElementById(`letter-${letter}`)?.scrollIntoView({ block: 'start' });
+	}
 </script>
 
-<Screen title={m.recipes_title()} blurb={m.recipes_blurb()} fills>
-	<search>
-		<!--
-			The + for every new recipe sits at the end of the search box (#174),
-			there with the shelf, while a search runs, and when it finds nothing.
+<!--
+	The screen's column keeps clear of the letters down its edge on the phone,
+	so no button or line sits under a letter, at 360 wide too (U15): the strip
+	is 26 wide, and 4 more keep it off what is beside it. Kept whether the
+	letters show or not, so the page never moves sideways under the cook's
+	finger as a search answers.
+-->
+<Screen title={m.recipes_title()} fills class="pr-[30px] wide:pr-gutter">
+	{#snippet aside()}
+		<AddButton onclick={() => addRecipe?.open()} />
+	{/snippet}
 
-			The box stops at the phone's column on the wide layout (#201), where
-			the grid under it runs on to the window's edge.
-		-->
-		<div class="max-w-2xl">
-			<Plus>
-				<label class="block">
-					<span class="sr-only">{m.recipes_search()}</span>
-					<input
-						type="search"
-						bind:value={typed}
-						{@attach recipeSearchBox}
-						placeholder={m.recipes_search()}
-						class="min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body"
-					/>
-				</label>
-			</Plus>
+	<!--
+		Adding is one sheet, opened from the title's line (#650). What a picked
+		or dropped file is doing is said here, under it.
+	-->
+	<AddRecipe {adding} bind:this={addRecipe} opensOnAddQuery />
+	<DropARecipe {adding} offline={!online.current} ondrop={() => addRecipe?.close()} />
+
+	{#if takenOut}
+		<NoticeCard class="mb-4">{m.added_taken_out()}</NoticeCard>
+	{/if}
+
+	<!--
+		The search box stays at the top of the window while the list scrolls
+		(#650, R7), so a cook deep in the S's can search without the long way
+		back up, below the phone's own status bar where the app is installed. It
+		is a child of the screen's whole column, since a sticky box sticks only
+		while its parent is in view. It stops at the phone's column on the wide
+		layout (#201), where the grid under it runs on to the window's edge.
+	-->
+	<search
+		class="sticky top-[env(safe-area-inset-top)] z-10 -mx-gutter bg-ground px-gutter py-2 wide:mx-0 wide:px-0"
+	>
+		<div>
+			<label class="relative block max-w-2xl">
+				<span class="sr-only">{m.recipes_search()}</span>
+				<svg
+					viewBox="0 0 24 24"
+					aria-hidden="true"
+					class="pointer-events-none absolute top-1/2 left-3 h-[22px] w-[22px] -translate-y-1/2 text-ink-2"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.75"
+					stroke-linecap="round"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg
+				>
+				<input
+					type="search"
+					bind:value={typed}
+					{@attach recipeSearchBox}
+					placeholder={m.recipes_search()}
+					class="min-h-12 w-full rounded-sm border border-ink-2 bg-card pr-[44px] pl-[44px] text-body text-ink placeholder:text-ink-2 [&::-webkit-search-cancel-button]:hidden"
+				/>
+				{#if typed !== ''}
+					<button
+						type="button"
+						aria-label={m.recipes_search_clear()}
+						class="absolute top-0 right-0 flex h-12 w-12 items-center justify-center text-ink-2"
+						onclick={(event) => {
+							typed = '';
+							(event.currentTarget.previousElementSibling as HTMLInputElement | null)?.focus();
+						}}
+					>
+						<svg
+							viewBox="0 0 24 24"
+							aria-hidden="true"
+							class="h-[18px] w-[18px]"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg
+						>
+					</button>
+				{/if}
+			</label>
 		</div>
+	</search>
 
-		<!--
-			Every filter behind one row of buttons, one per group (#445): the
-			screen is about its recipes, and a headed line per group put four of
-			them between the search box and the first card. A button names what
-			it holds, so what narrows the shelf reads without opening anything.
-			A group with nothing to choose has no button, for the reason it had
-			no line: a control that does nothing teaches people that controls do
-			nothing. Cooking always has its five.
-		-->
-		<div
-			class="relative -mx-gutter mt-4 flex [scrollbar-width:none] flex-nowrap gap-2 overflow-x-auto px-gutter wide:mx-0 wide:flex-wrap wide:overflow-visible wide:px-0"
-		>
-			{#each groups as group (group.key)}
+	<!--
+		Every filter behind one row of buttons, one per group (#445), each a
+		quiet button drawn at 40 and tapped at 48, 8 apart (#650, R3). A group
+		with nothing to choose has no button, for the reason it had no line: a
+		control that does nothing teaches people that controls do nothing.
+		Cooking always has its five.
+	-->
+	<div
+		class="relative mt-3 -ml-gutter flex [scrollbar-width:none] flex-nowrap gap-2 overflow-x-auto py-1 pl-gutter wide:ml-0 wide:flex-wrap wide:overflow-visible wide:pl-0"
+	>
+		{#each groups as group (group.key)}
+			<button
+				type="button"
+				aria-haspopup="dialog"
+				onclick={() => (open = group.key)}
+				class="quiet-button shrink-0 gap-[6px] text-body text-ink"
+			>
+				{group.title}
+				<svg
+					class="h-[12px] w-[12px] shrink-0 text-ink-2"
+					viewBox="0 0 12 12"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.6"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" /></svg
+				>
+			</button>
+		{/each}
+	</div>
+
+	<!--
+		A filter that is on stands as an indigo chip on a line of its own under
+		the buttons, whose × lets it go in one tap (#650, T4). Chosen over the
+		chosen page's chip at the end of the buttons' row, which a phone scrolled
+		off its edge, where a cook would not see a filter was on (U12). The line
+		wraps, so every chip held is in view.
+	-->
+	{#if held.length > 0}
+		<div class="mt-2 flex flex-wrap gap-x-2 gap-y-3 py-1">
+			{#each held as on (on.key)}
 				<button
 					type="button"
-					aria-haspopup="dialog"
-					onclick={() => (open = group.key)}
-					class="inline-flex min-h-8 shrink-0 items-center gap-[6px] rounded-sm border px-3 text-read {group
-						.held.length > 0
-						? 'border-accent bg-accent text-on-accent'
-						: 'border-rule text-ink-2'}"
+					aria-label={m.recipes_filter_off({ name: on.name })}
+					onclick={on.off}
+					class="quiet-button shrink-0 gap-2 border-accent bg-accent text-body text-on-accent"
 				>
-					<span class="max-w-[60vw] truncate">{said(group)}</span>
+					<span class="max-w-[60vw] truncate">{on.name}</span>
 					<svg
-						class="h-[11px] w-[11px] shrink-0"
-						viewBox="0 0 12 12"
+						viewBox="0 0 24 24"
+						aria-hidden="true"
+						class="h-[18px] w-[18px] shrink-0"
 						fill="none"
 						stroke="currentColor"
-						stroke-width="1.6"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" /></svg
+						stroke-width="2"
+						stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg
 					>
 				</button>
 			{/each}
 		</div>
-	</search>
+	{/if}
 
 	{#if open === 'cookbooks'}
 		<FilterList
@@ -655,16 +782,19 @@
 		<FilterList
 			title={m.tags_title()}
 			kind="tags"
-			choices={chips.map((held): Choice => {
-				const word = tagWord(held);
-				return {
-					id: held.id,
-					name: word.name,
-					held: tag === held.id,
-					elsewhere:
-						word.elsewhere && word.said ? { shown: word.elsewhere, said: word.said } : null,
-				};
-			})}
+			choices={chips
+				.toSorted((one, other) => other.recipes - one.recipes)
+				.map((held): Choice => {
+					const word = tagWord(held);
+					return {
+						id: held.id,
+						name: word.name,
+						held: tag === held.id,
+						elsewhere:
+							word.elsewhere && word.said ? { shown: word.elsewhere, said: word.said } : null,
+						count: held.recipes,
+					};
+				})}
 			onpick={(id) => (tag = tag === id ? null : id)}
 			onclear={() => (tag = null)}
 			onclose={() => (open = null)}
@@ -676,29 +806,27 @@
 		answer, so a tick that narrowed the shelf to nothing is still there to
 		take off. The count is the answer's and only stands where there is one.
 	-->
-	<div class="mt-4 mb-3 flex min-h-8 items-center gap-6">
+	<!-- The count says the order (#650, R7), and the tick reads at full size,
+	     tapped at 48, its square 22 across. -->
+	<div class="mt-2 mb-3 flex items-center gap-6">
 		{#if count !== null}
-			<p class="text-label text-ink-2 uppercase" role="status">{count}</p>
+			<p class="text-read text-ink" role="status">{count}</p>
 		{/if}
 		<!-- A checkbox drawn as the chosen page drew it: a square that fills
-		     with the accent, and words that darken with it. -->
-		<label
-			class="ml-auto flex min-h-8 items-center gap-2 text-read wide:ml-0 {cookedOrWritten
-				? 'text-ink'
-				: 'text-ink-2'}"
-		>
-			<span class="grid h-4 w-4 place-items-center">
+		     with the accent. -->
+		<label class="ml-auto flex min-h-12 items-center gap-2 text-read text-ink wide:ml-0">
+			<span class="grid h-[22px] w-[22px] shrink-0 place-items-center">
 				<input
 					type="checkbox"
 					bind:checked={cookedOrWritten}
-					class="col-start-1 row-start-1 h-4 w-4 appearance-none rounded-sm border {cookedOrWritten
+					class="col-start-1 row-start-1 h-[22px] w-[22px] appearance-none rounded-sm border {cookedOrWritten
 						? 'border-accent bg-accent'
-						: 'border-ink-2'}"
+						: 'border-ink-2 bg-card'}"
 				/>
 				{#if cookedOrWritten}
 					<span
 						aria-hidden="true"
-						class="pointer-events-none col-start-1 row-start-1 text-label leading-none text-on-accent"
+						class="pointer-events-none col-start-1 row-start-1 text-read leading-none text-on-accent"
 						>✓</span
 					>
 				{/if}
@@ -713,20 +841,18 @@
 		<p class="text-body text-ink-2">{m.loading()}</p>
 	{:else if unmatched !== null}
 		<!--
-			Nothing found is not an empty screen. It says what was looked
-			through, and offers the two things you were about to do anyway —
-			because with a library this size a search that finds nothing usually
-			means you do not have it yet (ADR 0027).
+			Nothing found is not an empty screen. It offers the things you were
+			about to do anyway, because with a library this size a search that
+			finds nothing usually means you do not have it yet (ADR 0027). What
+			the search looks through is the search box's own hint (#650), so no
+			sentence here says it again.
 		-->
 		<div class="max-w-2xl">
 			<h2 class="font-display text-shelf-heading font-semibold">
 				{m.recipes_nothing_title({ query: unmatched })}
 			</h2>
-			<p class="mt-2 text-read text-ink-2">
-				{meaning.status?.on ? m.recipes_nothing_why_meaning() : m.recipes_nothing_why()}
-			</p>
 			<div class="mt-4">
-				<AddOrImport title={unmatched} />
+				<AddOrImport title={unmatched} onlink={() => addRecipe?.open('link')} />
 			</div>
 			<!--
 				Offered here rather than buried in settings: this is the moment a
@@ -752,7 +878,7 @@
 			</p>
 			<ul class="tile-grid">
 				{#each entries as entry (entry.lineage_id)}
-					<Tile {entry} />
+					<Tile {entry} {query} />
 				{/each}
 			</ul>
 		{/if}
@@ -778,10 +904,16 @@
 			{/if}
 		</Empty>
 	{:else}
-		<ul class="tile-grid">
-			{#each entries as entry (entry.lineage_id)}
-				<Tile {entry} />
+		<!-- Room on the right for the letters on the wide layout, where the column
+		     keeps none (#650). -->
+		<ul class={['tile-grid', starts && 'wide:pr-[36px]']}>
+			{#each entries as entry, at (entry.lineage_id)}
+				{@const letter = startsAt.get(at)}
+				<Tile {entry} {query} anchor={letter ? `letter-${letter}` : undefined} />
 			{/each}
 		</ul>
+		{#if starts}
+			<Letters held={new Set(starts.keys())} onjump={jump} />
+		{/if}
 	{/if}
 </Screen>

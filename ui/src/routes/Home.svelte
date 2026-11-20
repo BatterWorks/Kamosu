@@ -13,8 +13,8 @@
 	another. What the choice settles:
 
 	- **A shelf is a section**, headed the way every other section in the app is
-	  headed, with the count beside it linking into the library. Home is the
-	  library's own furniture rather than a second visual system next to it.
+	  headed. Home is the library's own furniture rather than a second visual
+	  system next to it.
 	- **A section carries a rail, not a grid.** The card at the right edge is
 	  cut in half on purpose: a peeking card is the only thing that says *there
 	  is more this way* without a control saying it, and it is what puts two
@@ -30,13 +30,29 @@
 	whether to draw itself — and an instance with nothing on its shelf sends no
 	shelves at all, which is what lets the empty state be said once instead of
 	five times.
+
+	**Since #650 (option A, chosen 20 November 2026) Home also leads the way to
+	the library.** *Add a recipe* stands beside the title, opening the same
+	sheet Recipes' does (H1); under the title a line names who the cook cooks
+	with and in which Kitchen, leading to that page (H7); and a search box
+	takes the cook to Recipes with the caret in its search (H1). The subtitle
+	that explained nothing went (H2), and so did the bare count beside each
+	shelf's heading (H3). The cards are narrower on the phone, so the third on
+	each rail shows by about half and the rail reads as one that scrolls (H4).
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { m } from '#lib/paraglide/messages.js';
 	import type { HomeShelvesOutput } from '#lib/api/catalogue.js';
 	import Tile from './recipes/Tile.svelte';
-	import AddOrImport from '#lib/AddOrImport.svelte';
+	import AddRecipe from '#lib/adding/AddRecipe.svelte';
+	import AddButton from '#lib/adding/AddButton.svelte';
+	import { useAdding } from '#lib/adding/adding.svelte.js';
+	import Section from '#lib/shell/Section.svelte';
+	import { searchRecipes } from '#lib/shell/slash.js';
+	import { useKamosu } from '#lib/kamosu.js';
+	import { OperationError } from '#lib/api/client.js';
+	import { cookingWith } from '#lib/cookbook.js';
 	import { demo } from '#lib/demo.svelte.js';
 	import DemoWelcome from './DemoWelcome.svelte';
 
@@ -48,6 +64,31 @@
 	}
 
 	let { home, asking }: Props = $props();
+
+	const kamosu = useKamosu();
+	const adding = useAdding();
+	let addRecipe = $state<AddRecipe | undefined>(undefined);
+
+	/**
+	 * Who the reader cooks with, in words, or nothing while it is not known.
+	 * Asked beside the shelves and never instead of them: a Kitchen that cannot
+	 * be read just now, offline say, leaves Home standing without the line.
+	 */
+	let household = $state<string | null>(null);
+
+	$effect(() => {
+		let current = true;
+		Promise.all([kamosu.getPerson({}), kamosu.listKitchens({})])
+			.then(([me, { kitchens }]) => {
+				if (current) household = cookingWith(me.person_id, kitchens);
+			})
+			.catch((error: unknown) => {
+				if (!(error instanceof OperationError)) throw error;
+			});
+		return () => {
+			current = false;
+		};
+	});
 
 	type ShelfName = HomeShelvesOutput['shelves'][number]['name'];
 
@@ -114,8 +155,57 @@
 
 <div class="pt-6 pb-tabbar">
 	<div class="mx-auto max-w-2xl px-gutter wide:max-w-none">
-		<h1 class="font-display text-title font-semibold">{m.home_title()}</h1>
-		<p class="mt-1 max-w-2xl text-read text-ink-2">{m.home_blurb()}</p>
+		<div class="flex items-center justify-between gap-3">
+			<h1 class="font-display text-title font-semibold">{m.home_title()}</h1>
+			{#if home.shelves.length > 0}
+				<!-- An empty Home has its own, as its main button, below. -->
+				<AddButton onclick={() => addRecipe?.open()} />
+			{/if}
+		</div>
+		<AddRecipe {adding} bind:this={addRecipe} />
+		{#if household}
+			<!-- Who the reader cooks with, leading to the page that says more (H7). -->
+			<a
+				href="/settings/kitchens"
+				class="tap-tall mt-1 inline-block max-w-2xl text-body text-accent underline underline-offset-4"
+				>{household}<span aria-hidden="true">&nbsp;›</span></a
+			>
+		{/if}
+		{#if home.shelves.length > 0}
+			<!--
+				The search box Recipes holds, standing here too (H1). A tap on it,
+				or typing into it, takes the cook to Recipes with the caret in that
+				box, the way `/` does from any screen (ADR 0044): one search, with
+				its list under it, rather than a second one here with none.
+			-->
+			<label class="relative mt-3 block max-w-2xl">
+				<span class="sr-only">{m.recipes_search()}</span>
+				<svg
+					viewBox="0 0 24 24"
+					aria-hidden="true"
+					class="pointer-events-none absolute top-1/2 left-3 h-[22px] w-[22px] -translate-y-1/2 text-ink-2"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.75"
+					stroke-linecap="round"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg
+				>
+				<!-- Read-only, and left by a tap or a key: a field merely tabbed onto
+				     or reached by a screen reader keeps the cook on Home. -->
+				<input
+					type="search"
+					readonly
+					placeholder={m.recipes_search()}
+					onclick={searchRecipes}
+					onkeydown={(event) => {
+						if (event.key === 'Enter' || event.key.length === 1) {
+							event.preventDefault();
+							void searchRecipes();
+						}
+					}}
+					class="min-h-12 w-full rounded-sm border border-ink-2 bg-card pr-[44px] pl-[44px] text-body text-ink placeholder:text-ink-2"
+				/>
+			</label>
+		{/if}
 		{#if asking}
 			<div class="mt-4 grid max-w-2xl gap-3">{@render asking()}</div>
 		{/if}
@@ -132,86 +222,63 @@
 		<div class="mx-auto mt-8 max-w-2xl px-gutter wide:mx-0">
 			<div class="rounded-sm border border-dashed border-rule bg-ground-2 p-6">
 				<h2 class="font-display text-shelf-heading font-semibold">{m.home_empty_title()}</h2>
-				<p class="mt-2 text-read text-ink-2">{m.home_empty_why()}</p>
-				<!--
-					The two acts themselves, not two links to a screen that would
-					be just as empty. Nothing is known about a title here — unlike
-					Recipes, nobody has typed one — so the offer asks for one.
-				-->
-				<div class="mt-4">
-					<AddOrImport />
-				</div>
+				<!-- The one thing to do, which opens the sheet every way in is on (#650). -->
+				<div class="mt-4"><AddButton main onclick={() => addRecipe?.open()} /></div>
 			</div>
 		</div>
 	{:else}
 		{#each home.shelves as on (on.name)}
-			<section class="mt-8">
-				<div class="mx-auto max-w-2xl px-gutter wide:max-w-none">
-					<div class="mb-1 flex items-baseline justify-between gap-3 border-b border-rule pb-2">
-						<h2 class="text-label font-medium text-accent uppercase">
-							{shelf[on.name].heading()}
-						</h2>
-						<!--
-							How many cards are on this rail, so a thumb knows how far it
-							has to flick. It counts what is actually here and says
-							nothing about how many recipes *could* have qualified: the
-							Core sends a shelf's worth, not a shelf's total, and a
-							number claiming to be the total would be wrong the moment a
-							shelf was longer than one.
-
-							It is deliberately not a link. The obvious destination would
-							be Recipes — but Recipes filters by Kitchen and by *mine*,
-							not by *cooked most*, so a link there would land you on the
-							whole library having promised this shelf.
-						-->
-						<span class="flex items-center gap-3">
-							<!--
-								Earlier and later, for a pointer only (#223): a finger flicks
-								the rail, and a mouse has no way to scroll one sideways but
-								shift-wheel. `pointer-only` is the hover block's gate (#203),
-								so an iPad gets them with a trackpad and not before.
-							-->
-							<span class="pointer-only gap-4">
-								<button
-									type="button"
-									class="shelf-arrow"
-									aria-label={m.shelf_earlier()}
-									onclick={() => scroll(on.name, -1)}
-								>
-									<svg
-										viewBox="0 0 24 24"
-										aria-hidden="true"
-										class="h-4 w-4"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="1.75"
-										stroke-linecap="round"
-										stroke-linejoin="round"><path d="m15 5-7 7 7 7" /></svg
-									>
-								</button>
-								<button
-									type="button"
-									class="shelf-arrow"
-									aria-label={m.shelf_later()}
-									onclick={() => scroll(on.name, 1)}
-								>
-									<svg
-										viewBox="0 0 24 24"
-										aria-hidden="true"
-										class="h-4 w-4"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="1.75"
-										stroke-linecap="round"
-										stroke-linejoin="round"><path d="m9 5 7 7-7 7" /></svg
-									>
-								</button>
-							</span>
-							<span class="text-read text-ink-2">{on.recipes.length}</span>
-						</span>
-					</div>
-					<p class="text-read text-ink-2">{shelf[on.name].why()}</p>
-				</div>
+			<!--
+				A shelf's heading is a section heading like every other (#650), with
+				the earlier and later buttons at its end for a pointer only (#223):
+				a finger flicks the rail, and a mouse has no way to scroll one
+				sideways but shift-wheel. `pointer-only` is the hover block's gate
+				(#203), so an iPad gets them with a trackpad and not before. The
+				count that stood there went (H3): it read as a link to all of them.
+			-->
+			<Section
+				heading={shelf[on.name].heading()}
+				class="mx-auto max-w-2xl px-gutter wide:max-w-none"
+			>
+				{#snippet aside()}
+					<span class="pointer-only gap-4">
+						<button
+							type="button"
+							class="shelf-arrow"
+							aria-label={m.shelf_earlier()}
+							onclick={() => scroll(on.name, -1)}
+						>
+							<svg
+								viewBox="0 0 24 24"
+								aria-hidden="true"
+								class="h-4 w-4"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.75"
+								stroke-linecap="round"
+								stroke-linejoin="round"><path d="m15 5-7 7 7 7" /></svg
+							>
+						</button>
+						<button
+							type="button"
+							class="shelf-arrow"
+							aria-label={m.shelf_later()}
+							onclick={() => scroll(on.name, 1)}
+						>
+							<svg
+								viewBox="0 0 24 24"
+								aria-hidden="true"
+								class="h-4 w-4"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.75"
+								stroke-linecap="round"
+								stroke-linejoin="round"><path d="m9 5 7 7-7 7" /></svg
+							>
+						</button>
+					</span>
+				{/snippet}
+				<p class="-mt-2 text-read text-ink">{shelf[on.name].why()}</p>
 				<!--
 					The gutter is padding on the rail rather than on the page, so the
 					first card lines up with its heading and the last one can still be
@@ -225,19 +292,20 @@
 					own heading is still indented.
 
 					On the wide layout the rail runs to the window's right edge
-					(#201), and the cards keep the phone's width: an iPad on its
-					side then shows two whole shelves before scrolling, where
-					wider cards showed one and a half.
+					(#201), and the cards keep their width: an iPad on its side
+					then shows two whole shelves before scrolling, where wider
+					cards showed one and a half. On the phone they are narrower
+					(`--tile-w-rail`, #650), so the third shows by about half.
 				-->
 				<ul
 					bind:this={rails[on.name]}
-					class="mx-auto mt-3 flex max-w-2xl snap-x snap-mandatory scroll-pl-gutter gap-3 overflow-x-auto px-gutter wide:max-w-none [&>li]:w-[var(--tile-w)] [&>li]:shrink-0 [&>li]:snap-start"
+					class="-mx-gutter mt-3 flex snap-x snap-mandatory scroll-pl-gutter gap-3 overflow-x-auto px-gutter [&>li]:w-[var(--tile-w-rail)] [&>li]:shrink-0 [&>li]:snap-start wide:[&>li]:w-[var(--tile-w)]"
 				>
 					{#each on.recipes as entry (entry.lineage_id)}
 						<Tile {entry} />
 					{/each}
 				</ul>
-			</section>
+			</Section>
 		{/each}
 	{/if}
 </div>

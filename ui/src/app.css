@@ -175,6 +175,8 @@
      of 26 August asked for the fitted sizes to be ratified, not inherited. */
   --text-label: calc(12 * var(--type-unit));           /* uppercase labels */
   --text-label--letter-spacing: 0.15em;
+  --text-letter: calc(11 * var(--type-unit));          /* the letters A to Z down Recipes' edge (#650, option A) */
+  --text-letter-wide: calc(13 * var(--type-unit));     /* the same letters on the wide layout, as the chosen page drew them */
 
   /* ── Spacing — seven steps and a gutter, nothing else exists ──────────────
      Zero is here because it is the *absence* of a step rather than another one:
@@ -208,6 +210,7 @@
 
   /* Layout constants from the identity record (no utility namespace). */
   --tile-w: 168px;              /* shelf tile width */
+  --tile-w-rail: 140px;         /* a card on Home's rails on the phone, so the third shows by about half (#650, H4) */
   /* The recipe hero. The identity record of 26 August fitted 282px against a
      hero nothing sat on; #81 put the title ON it and the taller,
      nearer-square crop was chosen over the landscape band, which is 320px. The

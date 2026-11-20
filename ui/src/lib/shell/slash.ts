@@ -47,14 +47,15 @@ export function slashToSearch(event: KeyboardEvent): void {
 		box.focus();
 		return;
 	}
-	void openRecipes();
+	void searchRecipes();
 }
 
 /**
  * Recipes, with the caret asked for. A navigation that never arrives must not
- * leave the next visit to Recipes taking the caret for no reason.
+ * leave the next visit to Recipes taking the caret for no reason. Home's
+ * search box is this too (#650): a tap on it is `/` pressed.
  */
-async function openRecipes(): Promise<void> {
+export async function searchRecipes(): Promise<void> {
 	wanted = true;
 	try {
 		await goto('/recipes');

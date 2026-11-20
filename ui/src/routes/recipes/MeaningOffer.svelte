@@ -76,18 +76,10 @@
 			<p class="mt-3 text-read text-ink-2" role="status">{meaning.saying}</p>
 		{:else}
 			<div class="mt-3 flex flex-wrap gap-2">
-				<button
-					type="button"
-					onclick={turnOn}
-					class="min-h-12 rounded-sm bg-accent px-4 py-3 font-display text-body text-on-accent"
-				>
+				<button type="button" onclick={turnOn} class="second-button">
 					{m.recipes_nothing_meaning_turn_on()}
 				</button>
-				<button
-					type="button"
-					onclick={() => meaning.decline()}
-					class="min-h-12 rounded-sm border border-rule bg-card px-4 py-3 font-display text-body text-ink-2"
-				>
+				<button type="button" onclick={() => meaning.decline()} class="quiet-button text-ink">
 					{m.meaning_no_thanks()}
 				</button>
 			</div>

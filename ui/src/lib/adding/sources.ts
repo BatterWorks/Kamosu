@@ -1,6 +1,6 @@
 /**
  * What each way of adding a recipe is drawn with and says while the server is
- * out of reach, written once for the + (#174) and for a recipe dropped onto
+ * out of reach, written once for the add sheet (#174) and for a recipe dropped onto
  * Recipes (#204), which is the same act by another road. A photo of a page
  * and a video's link, and a PDF or pasted text on an instance with a Runner,
  * go to Kamosu's AI agent (#278, #349).
