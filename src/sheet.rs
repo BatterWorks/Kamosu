@@ -444,8 +444,9 @@ fn long_date(stored: &str, words: &Words) -> String {
         .replace("{year}", year)
 }
 
-/// `20 min`, `1 h 30`, `2 h` — the way a time is written on a card, and on
-/// the Share Link page (#521).
+/// `20 min`, `1 h 30 min`, `2 h` — the way a time is written on a card, and
+/// on the Share Link page (#521). The minutes after an hour carry their unit:
+/// `1 h 30` with a small h read as 130 on the page (#649).
 pub(crate) fn duration(minutes: i64) -> String {
     duration_parts(minutes)
         .into_iter()
@@ -461,13 +462,13 @@ pub(crate) fn duration(minutes: i64) -> String {
 /// page that sets the unit smaller than the figure: the interface's
 /// `figureOf` (#175), written once on the server for the Sheet and the Share
 /// Link page alike. Under an hour, minutes; whole hours, hours; otherwise
-/// hours and then the minutes in two digits with no unit.
+/// hours and then the minutes in two digits with theirs.
 pub(crate) fn duration_parts(minutes: i64) -> Vec<(String, Option<&'static str>)> {
     let (hours, rest) = (minutes / 60, minutes % 60);
     match (hours, rest) {
         (0, m) => vec![(m.to_string(), Some("min"))],
         (h, 0) => vec![(h.to_string(), Some("h"))],
-        (h, m) => vec![(h.to_string(), Some("h")), (format!("{m:02}"), None)],
+        (h, m) => vec![(h.to_string(), Some("h")), (format!("{m:02}"), Some("min"))],
     }
 }
 
@@ -967,9 +968,9 @@ mod tests {
         assert_eq!(long_date("2026-09-19", &ES), "19 de septiembre de 2026");
         assert_eq!(long_date("someday", &EN), "someday");
         assert_eq!(duration(20), "20 min");
-        assert_eq!(duration(90), "1 h 30");
+        assert_eq!(duration(90), "1 h 30 min");
         assert_eq!(duration(120), "2 h");
-        assert_eq!(duration(65), "1 h 05");
+        assert_eq!(duration(65), "1 h 05 min");
         assert_eq!(duration(540), "9 h");
     }
 
@@ -1019,7 +1020,7 @@ mod tests {
         );
         assert_eq!(
             composed["recipe"]["meta"],
-            json!("Makes 2 pizzas  ·  Prep 20 min  ·  Cook 1 h 30")
+            json!("Makes 2 pizzas  ·  Prep 20 min  ·  Cook 1 h 30 min")
         );
         assert_eq!(composed["recipe"]["scaled"], json!(null));
         assert_eq!(composed["printed"], json!("printed 19 September 2026"));

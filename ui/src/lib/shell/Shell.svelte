@@ -46,6 +46,7 @@
 	import { useRoom } from '#lib/room.svelte.js';
 	import { story } from '#lib/story/showing.svelte.js';
 	import BackArrow from './BackArrow.svelte';
+	import { arrowOnPhoto } from './back-on-photo.svelte.js';
 	import DemoStrip from './DemoStrip.svelte';
 	import Header from './Header.svelte';
 	import Masthead from './Masthead.svelte';
@@ -155,7 +156,8 @@
 {/if}
 
 <div class={[sidebar && 'beside-rail', backTo && 'clears-back-arrow']}>
-	{#if backTo}
+	<!-- On the phone a recipe draws the arrow on its photograph instead (#649). -->
+	{#if backTo && (sidebar || arrowOnPhoto.held === 0)}
 		<BackArrow parent={backTo} layout={sidebar ? 'wide' : 'phone'} />
 	{/if}
 	{@render screen(bare)}

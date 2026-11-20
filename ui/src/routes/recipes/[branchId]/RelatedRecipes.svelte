@@ -37,6 +37,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import Cover from '#lib/cover/Cover.svelte';
+	import Section from '#lib/shell/Section.svelte';
 	import NeedsServer from '#lib/offline/NeedsServer.svelte';
 	import { fallbackLanguage } from '../matched';
 	import RelatedSheet, { type Related } from './RelatedSheet.svelte';
@@ -75,24 +76,24 @@
 </script>
 
 <!--
-	Headed the way Ingredients, Method and Cooked are headed, in the same words
-	and the same classes, because it is a section of the recipe page and not a
-	widget sitting on one.
+	Headed by the shared `Section`, as Ingredients, Method and Cooked are
+	(#649), because it is a section of the recipe page and not a widget
+	sitting on one.
 -->
 {#if writes || shown.length > 0}
-	<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-		{m.related_title()}
-	</h2>
-	<!--
-	The gutter is padding rather than a margin so the strip scrolls to its last
-	card and stops with the gutter still there, instead of clipping it flush.
+	<Section heading={m.related_title()} class="px-gutter">
+		<!--
+	The strip runs to the window's edges, its gutter padding rather than a
+	margin, so it scrolls to its last card and stops with the gutter still
+	there, instead of clipping it flush.
 -->
-	<ul class="flex snap-x gap-3 overflow-x-auto px-gutter pb-1">
-		{#each shown as entry (entry.lineage_id)}
-			<li class="shrink-0 snap-start" style="width: var(--tile-w)">
-				{#if entry.branch_id}
-					<a href="/recipes/{entry.branch_id}" class="brightens block">
-						<!--
+		{#if shown.length > 0}
+			<ul class="-mx-gutter flex snap-x gap-3 overflow-x-auto px-gutter pb-1">
+				{#each shown as entry (entry.lineage_id)}
+					<li class="shrink-0 snap-start" style="width: var(--tile-w)">
+						{#if entry.branch_id}
+							<a href="/recipes/{entry.branch_id}" class="brightens block">
+								<!--
 						The shelf tile's frame (`Tile.svelte`): 3/4, rounded, the
 						picture absolutely filling it, lazily loaded because a strip
 						runs off the right edge and most of it is never looked at.
@@ -104,23 +105,23 @@
 						a glance; a strip of three, under a heading, on a page you
 						are already reading, is not that.
 					-->
-						<span class="relative block overflow-hidden rounded-sm" style="aspect-ratio: 3 / 4">
-							{#if entry.main_photo}
-								<img
-									src="/api/photographs/{entry.main_photo}/card"
-									alt=""
-									loading="lazy"
-									class="absolute inset-0 h-full w-full object-cover"
-								/>
-							{:else}
-								<Cover
-									lineageId={entry.lineage_id}
-									title={entry.title}
-									height="100%"
-									band={false}
-								/>
-							{/if}
-							<!--
+								<span class="relative block overflow-hidden rounded-sm" style="aspect-ratio: 3 / 4">
+									{#if entry.main_photo}
+										<img
+											src="/api/photographs/{entry.main_photo}/card"
+											alt=""
+											loading="lazy"
+											class="absolute inset-0 h-full w-full object-cover"
+										/>
+									{:else}
+										<Cover
+											lineageId={entry.lineage_id}
+											title={entry.title}
+											height="100%"
+											band={false}
+										/>
+									{/if}
+									<!--
 							Shown in a Language the reader did not ask for, and saying
 							so — the shelf tile's own chip, in the same place and the
 							same beni, because it is the same mark about the same
@@ -129,35 +130,36 @@
 							looking, since "FR" read aloud is not a fallback anyone
 							would understand.
 						-->
-							{#if marked(entry)}
-								<span
-									class="absolute top-2 right-2 rounded-sm bg-support px-1 py-1 text-label text-ground uppercase"
-								>
-									<span aria-hidden="true">{entry.language}</span>
-									<span class="sr-only">{marked(entry)}</span>
+									{#if marked(entry)}
+										<span
+											class="absolute top-2 right-2 rounded-sm bg-support px-1 py-1 text-label text-ground uppercase"
+										>
+											<span aria-hidden="true">{entry.language}</span>
+											<span class="sr-only">{marked(entry)}</span>
+										</span>
+									{/if}
 								</span>
-							{/if}
-						</span>
-						<span class="mt-1 block text-tile-title text-ink">{entry.title}</span>
-					</a>
-				{:else}
-					<!--
+								<span class="mt-1 block text-tile-title text-ink">{entry.title}</span>
+							</a>
+						{:else}
+							<!--
 					Gone from this shelf. Drawn as the recessed ground rather than as
 					a Cover: a Cover is what a recipe HAS, and there is no recipe
 					here any more — only the name this Kitchen remembers it by.
 				-->
-					<span class="block rounded-sm bg-ground-2" style="aspect-ratio: 3 / 4"></span>
-					<span class="mt-1 block text-tile-title text-ink-2">{entry.title}</span>
-					<span class="block text-read text-ink-2">{m.related_gone()}</span>
-				{/if}
-			</li>
-		{/each}
-
+							<span class="block rounded-sm bg-ground-2" style="aspect-ratio: 3 / 4"></span>
+							<span class="mt-1 block text-tile-title text-ink-2">{entry.title}</span>
+							<span class="block text-read text-ink-2">{m.related_gone()}</span>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
 		<!--
-		Dashed rather than filled, as the Tags row's own opener is: it is the one
-		card in the strip that is not a recipe, and on a recipe with no links it
-		is the whole strip, where a filled card would read as a recipe called
-		*Relate a recipe*.
+		Adding one is a small button of its own under the strip (#649, P15),
+		where a recipe with no links drew a large empty dashed card saying
+		*Relate a recipe*, which said neither what kind of link it made nor
+		earned its room.
 
 		It waits for the server, like Tagging and editing (#76, ADR 0013). An
 		offline queue for this would be a merge of two Cookbooks' links, and
@@ -165,18 +167,18 @@
 		it, since the Cookbook keeps the links (#131, question 3).
 	-->
 		{#if writes}
-			<li class="shrink-0 snap-start" style="width: var(--tile-w); aspect-ratio: 3 / 4">
+			<div class={shown.length > 0 ? 'mt-3' : ''}>
 				<NeedsServer
 					label={m.related_add()}
 					waiting={m.offline_waits_edit()}
 					onclick={() => (picking = true)}
-					shapeClass="flex h-full w-full items-center justify-center rounded-sm p-3 text-center text-read"
-					lookClass="border border-dashed border-rule text-accent"
-					idleClass="border border-dashed border-rule text-ink-2 opacity-55"
+					shapeClass="quiet-button"
+					lookClass="text-accent"
+					idleClass="text-ink-2 opacity-55"
 				/>
-			</li>
+			</div>
 		{/if}
-	</ul>
+	</Section>
 {/if}
 
 {#if picking}

@@ -8,9 +8,11 @@
 	at the foot of a long page. The cost accepted is one quiet row on the recipes
 	nobody ever Tags.
 
-	It sits under the meta strip, where the recipe's facts end and its content
-	begins — the Tags are what this Kitchen says about the dish, above the dish
-	itself.
+	It sits after the method since #649, so a recipe's first screen reaches
+	its Ingredients (P1 of the UX audit of 19 November 2026); it stood under
+	the meta strip before. A chip says it opens something with the accent's
+	colour and the arrow every opening row wears (P10, U8), and is tapped at
+	48px, its rows kept 16px apart so no two tapped areas meet (U10).
 
 	A TAG IS A WAY OF GETTING AROUND, so a chip is a link to the shelf filtered
 	by it rather than a label you can only read (#104, ADR 0027). It is a real
@@ -28,6 +30,7 @@
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import Section from '#lib/shell/Section.svelte';
 	import NeedsServer from '#lib/offline/NeedsServer.svelte';
 	import { byWord, tagWord, type Tag } from '#lib/tags.js';
 	import TagSheet from './TagSheet.svelte';
@@ -60,55 +63,54 @@
 </script>
 
 <!--
-	Headed the way Ingredients and Method are headed, in the same words and the
-	same classes, because it is a section of the recipe page and not a widget
-	sitting on one.
+	Headed by the shared `Section`, as Ingredients and Method are (#649),
+	because it is a section of the recipe page and not a widget sitting on one.
 -->
 {#if writes || shown.length > 0}
-	<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-		{m.tags_title()}
-	</h2>
-	<div class="flex flex-wrap gap-2 px-gutter">
-		{#each byWord(shown) as tag (tag.id)}
-			{@const named = tagWord(tag)}
-			<a
-				href="/recipes?tag={encodeURIComponent(tag.id)}"
-				class="inline-flex min-h-8 items-baseline gap-2 rounded-sm border border-rule bg-card px-3
-			py-1 text-read text-ink"
-			>
-				{named.name}
-				{#if named.elsewhere}
-					<!--
+	<Section heading={m.tags_title()} class="px-gutter">
+		<div class="flex flex-wrap gap-x-2 gap-y-4">
+			{#each byWord(shown) as tag (tag.id)}
+				{@const named = tagWord(tag)}
+				<a
+					href="/recipes?tag={encodeURIComponent(tag.id)}"
+					class="tap-tall inline-flex min-h-8 items-baseline gap-2 rounded-sm border border-rule bg-card
+			px-3 py-1 text-read text-accent"
+				>
+					{named.name}
+					{#if named.elsewhere}
+						<!--
 					Beni, the identity's Language-badge colour, and `Tile.svelte`'s
 					rule for what it says: the code is what fits beside a word, and
 					the whole sentence is there for anyone listening rather than
 					looking, since "FR" read aloud is not a fallback anyone would
 					understand.
 				-->
-					<span class="text-label text-support uppercase">
-						<span aria-hidden="true">{named.elsewhere}</span>
-						<span class="sr-only">{named.said}</span>
-					</span>
-				{/if}
-			</a>
-		{/each}
+						<span class="text-label text-support uppercase">
+							<span aria-hidden="true">{named.elsewhere}</span>
+							<span class="sr-only">{named.said}</span>
+						</span>
+					{/if}
+					<span aria-hidden="true">›</span>
+				</a>
+			{/each}
 
-		<!--
+			<!--
 		Dashed rather than filled: it is the one chip in the row that is not a
 		Tag, and on an untagged recipe it is the whole row, where a filled chip
 		would read as a Tag called *Add a Tag*.
 	-->
-		{#if writes}
-			<NeedsServer
-				label={m.tags_add()}
-				waiting={m.offline_waits_tagging()}
-				onclick={() => (picking = true)}
-				shapeClass="inline-flex min-h-8 items-center gap-1 rounded-sm px-3 py-1 text-read"
-				lookClass="border border-dashed border-rule text-accent"
-				idleClass="border border-dashed border-rule text-ink-2 opacity-55"
-			/>
-		{/if}
-	</div>
+			{#if writes}
+				<NeedsServer
+					label={m.tags_add()}
+					waiting={m.offline_waits_tagging()}
+					onclick={() => (picking = true)}
+					shapeClass="tap-tall inline-flex min-h-8 items-center gap-1 rounded-sm px-3 py-1 text-read"
+					lookClass="border border-dashed border-rule text-accent"
+					idleClass="border border-dashed border-rule text-ink-2 opacity-55"
+				/>
+			{/if}
+		</div>
+	</Section>
 {/if}
 
 {#if picking}

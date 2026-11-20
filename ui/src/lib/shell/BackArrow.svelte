@@ -24,8 +24,11 @@
 	interface Props {
 		/** The page's parent: where the arrow goes with nothing behind the page. */
 		parent: string;
-		/** Fixed beside the rail on the wide layout; sticky in the page's flow on the phone. */
-		layout: 'wide' | 'phone';
+		/**
+		 * Fixed beside the rail on the wide layout; sticky in the page's flow on
+		 * the phone; on a recipe's photograph, scrolling away with it (#649).
+		 */
+		layout: 'wide' | 'phone' | 'photo';
 	}
 
 	let { parent, layout }: Props = $props();
@@ -42,7 +45,11 @@
 	onclick={back}
 	aria-label={m.shell_back()}
 	class="z-10 flex h-12 w-12 items-center justify-center border border-rule bg-card text-accent
-	{layout === 'wide' ? 'fixed back-arrow' : 'back-arrow-phone'}"
+	{layout === 'wide'
+		? 'fixed back-arrow'
+		: layout === 'photo'
+			? 'back-arrow-photo'
+			: 'back-arrow-phone'}"
 >
 	<svg
 		viewBox="0 0 24 24"

@@ -23,6 +23,7 @@ import { realFiles } from '#lib/api/files.js';
 import { OperationError } from '#lib/api/client.js';
 import type { DivergenceOutput, GetRecipeOutput } from '#lib/api/catalogue.js';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
+import MoreSheet from './MoreSheet.svelte';
 import { went } from '../../../testing/navigation';
 import { outlivingTheWait, withTheClockFaked } from '../../../testing/jobs';
 import { cookbookLabel, threadBranch, writtenByMe } from '../../../testing/recipes';
@@ -414,6 +415,17 @@ function renderRecipe(
 	/** Walk to another recipe, the way tapping through to one does. */
 	const goTo = (branchId: string) => rerender({ client: kamosu.client, branchId, ...on });
 	return { kamosu, goTo };
+}
+
+/**
+ * An act in the More sheet under Start cooking (#649), opening the sheet
+ * first where it is not open already.
+ */
+async function inMore(name: string | RegExp, role: 'button' | 'link' = 'button') {
+	const title = 'More for this recipe';
+	if (!screen.queryByRole('dialog', { name: title }))
+		await fireEvent.click(await screen.findByRole('button', { name: 'More' }));
+	return within(await screen.findByRole('dialog', { name: title })).findByRole(role, { name });
 }
 
 /** A save that landed on your own version, as `save_recipe_version` answers it. */
@@ -1059,9 +1071,10 @@ describe('the Cooked section', () => {
 		renderRecipe(cooked());
 
 		expect(await screen.findByText('Stéphane')).toBeInTheDocument();
-		expect(screen.getByText('Again')).toBeInTheDocument();
+		// Said whole beside the name, never one word that reads as a label (#649).
+		expect(screen.getByText('Would cook again')).toBeInTheDocument();
 		expect(screen.getByText('Marie')).toBeInTheDocument();
-		expect(screen.getByText('Tweak it')).toBeInTheDocument();
+		expect(screen.getByText('Would change something')).toBeInTheDocument();
 
 		// ADR 0015: no average, mean or aggregate anywhere on the page — and no
 		// stars either, which is what a five-point scale would have left behind.
@@ -1082,7 +1095,7 @@ describe('the Cooked section', () => {
 		// Where the recipe still carries that Version, the mark opens it.
 		const kept = within(await row('Marie')).getByRole('link', { name: 'on an older Version' });
 		expect(kept).toHaveAttribute('href', '/recipes/mine/versions/v_older');
-		expect(within(await row('Marie')).getByText('Tweak it')).toBeInTheDocument();
+		expect(within(await row('Marie')).getByText('Would change something')).toBeInTheDocument();
 
 		// Where a later save folded it away there is no such page, so the mark
 		// is still there and opens the Thread.
@@ -1107,21 +1120,19 @@ describe('the Cooked section', () => {
 		renderRecipe(cooked({ count: 0, last_cooked_at: null }));
 
 		expect(await screen.findByText('Not cooked yet.')).toBeInTheDocument();
-		expect(screen.queryByText('Again')).not.toBeInTheDocument();
+		expect(screen.queryByText('Would cook again')).not.toBeInTheDocument();
 	});
 });
 
 /**
- * The way into the Thread (#133, choice A). The button says
- * *History* rather than the Thread's own name. It never says "version", which
- * on this page already means one of the recipe's versions in the strip. The
- * line it carried under the word, how many saves and when the last was, went
- * on 10 October 2026: it made the button taller than its neighbours.
+ * The way into the Thread (#133). Behind More since #649, saying what tapping
+ * it does, *See older versions*, rather than the Thread's own name or the
+ * bare *History* it said before (U2).
  */
 describe('the way into the Thread', () => {
-	const button = () => screen.findByRole('link', { name: /^History/ });
+	const button = () => inMore('See older versions', 'link');
 
-	it('says History and leads to the Thread', async () => {
+	it('says See older versions and leads to the Thread', async () => {
 		renderRecipe();
 		expect((await button()).getAttribute('href')).toBe('/recipes/mine/thread');
 		expect(screen.queryByText(/the thread/i)).not.toBeInTheDocument();
@@ -1308,7 +1319,7 @@ describe('the recipe screen', () => {
 	it('reads the recipe at another amount for the errands, from the Core', async () => {
 		const { kamosu } = scalable();
 		expect(await screen.findByText('Amounts for 4 servings')).toBeInTheDocument();
-		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Change amounts' }));
 		await fireEvent.click(await screen.findByRole('button', { name: '×2 · 8' }));
 
 		await vi.waitFor(() =>
@@ -1332,15 +1343,15 @@ describe('the recipe screen', () => {
 
 	it('carries the amount onto the list and into the cooking', async () => {
 		const { kamosu } = scalable();
-		await fireEvent.click(await screen.findByRole('button', { name: 'Change' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Change amounts' }));
 		await fireEvent.click(await screen.findByRole('button', { name: '×2 · 8' }));
 		expect(await screen.findByText('Amounts for 8 servings')).toBeInTheDocument();
 
-		expect(screen.getByRole('link', { name: /Cook this/i })).toHaveAttribute(
+		expect(screen.getByRole('link', { name: 'Start cooking' })).toHaveAttribute(
 			'href',
 			'/cook/mine?amount=8&noun=servings',
 		);
-		await fireEvent.click(screen.getByRole('button', { name: /Add to shopping list/i }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Shopping list' }));
 		await vi.waitFor(() =>
 			expect(kamosu.calls.find((call) => call.operation === 'add_to_shopping_list')?.input).toEqual(
 				{ branch_id: 'mine', shopping_yield: { amount: '8', noun: 'servings' } },
@@ -1364,7 +1375,7 @@ describe('the recipe screen', () => {
 			},
 		});
 		expect(await screen.findByText('Amounts for 8 servings')).toBeInTheDocument();
-		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Change amounts' }));
 		await fireEvent.click(await screen.findByRole('button', { name: '×3 · 12' }));
 		await vi.waitFor(() =>
 			expect(kamosu.calls.find((call) => call.operation === 'set_shopping_yield')?.input).toEqual({
@@ -1378,7 +1389,7 @@ describe('the recipe screen', () => {
 		const { kamosu } = scalable();
 		expect(await screen.findByText('Amounts for 4 servings')).toBeInTheDocument();
 		kamosu.answer('get_recipe', { refuse: 'internal', message: 'Kamosu could not be reached.' });
-		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Change amounts' }));
 		await fireEvent.click(await screen.findByRole('button', { name: '×2 · 8' }));
 		expect(await screen.findByText('Scaling needs Kamosu to be reachable.')).toBeInTheDocument();
 		expect(screen.getByText('Amounts for 4 servings')).toBeInTheDocument();
@@ -1983,7 +1994,7 @@ describe('the recipe screen', () => {
 			...SAVED_ONTO_MINE,
 			set_step_uses: { refuse: 'internal' },
 		} as Answers);
-		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		await fireEvent.click(await inMore('Edit this recipe'));
 		const buttons = await screen.findAllByRole('button', { name: 'Ingredients · none' });
 		await fireEvent.click(buttons[0] as HTMLElement);
 		const sheet = screen.getByRole('dialog');
@@ -2022,7 +2033,7 @@ describe('the recipe screen', () => {
 			divergence: { refuse: 'not_found' },
 		} as Answers);
 
-		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		await fireEvent.click(await inMore('Edit this recipe'));
 		const save = await screen.findAllByRole('button', { name: /Save onto mine/ });
 		await fireEvent.click(save[0] as HTMLElement);
 		const inSheet = await screen.findAllByRole('button', { name: /Save onto mine/ });
@@ -2043,7 +2054,7 @@ describe('the recipe screen', () => {
 			divergence: { refuse: 'not_found' },
 		} as Answers);
 
-		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		await fireEvent.click(await inMore('Edit this recipe'));
 		expect(await screen.findAllByRole('button', { name: /Save onto mine/ })).not.toHaveLength(0);
 
 		// The recipe walked to has not answered yet, so the last one is still
@@ -2058,7 +2069,7 @@ describe('the recipe screen', () => {
 		await tick();
 		expect(screen.queryByRole('button', { name: /Save onto/ })).toBeNull();
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Edit this recipe' }));
+		await fireEvent.click(await inMore('Edit this recipe'));
 		await tick();
 		expect(screen.queryByRole('button', { name: /Save onto/ })).toBeNull();
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('save_recipe_version');
@@ -2167,7 +2178,7 @@ describe('the recipe screen', () => {
 		renderRecipe(solo({ prep_time_minutes: 90, cook_time_minutes: 540 }));
 		const prep = (await screen.findByText('prep')).previousElementSibling;
 		const cook = screen.getByText('cook').previousElementSibling;
-		expect(prep).toHaveTextContent(/^1\s*h\s*30$/);
+		expect(prep).toHaveTextContent(/^1\s*h\s*30\s*min$/);
 		expect(cook).toHaveTextContent(/^9\s*h$/);
 		expect(screen.queryByText(/540/)).not.toBeInTheDocument();
 	});
@@ -2204,7 +2215,7 @@ describe('the recipe screen', () => {
 			...solo({ ingredients: [], steps: [] }),
 			divergence: { refuse: 'not_found' },
 		} as Answers);
-		await screen.findByRole('button', { name: 'Edit this recipe' });
+		await screen.findByRole('link', { name: 'Start cooking' });
 
 		holdPaste('another', {
 			title: 'Korean Fried Chicken',
@@ -2248,7 +2259,7 @@ describe('the recipe screen', () => {
 		holdPaste('someone-else', draft);
 		renderRecipe(solo());
 
-		expect(await screen.findByRole('button', { name: 'Edit this recipe' })).toBeInTheDocument();
+		expect(await inMore('Edit this recipe')).toBeInTheDocument();
 		expect(screen.queryByDisplayValue('a stray line')).not.toBeInTheDocument();
 		expect(takePaste('someone-else')).toEqual(draft);
 	});
@@ -2452,7 +2463,7 @@ describe('the recipe screen', () => {
 			plan_recipe: { planned_meal: null },
 		});
 		await screen.findByText('Amounts for 4 servings');
-		await fireEvent.click(screen.getByRole('button', { name: 'Plan this' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Plan' }));
 		const sheet = await screen.findByRole('dialog');
 		expect(within(sheet).getByRole('button', { name: 'Choose a day' })).toBeDisabled();
 		const tomorrow = addDays(today(), 1);
@@ -2483,7 +2494,7 @@ describe('the recipe screen', () => {
 			plan_recipe: { planned_meal: null },
 		});
 		await screen.findByText('Amounts for 4 servings');
-		await fireEvent.click(screen.getByRole('button', { name: 'Plan this' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Plan' }));
 		const sheet = await screen.findByRole('dialog');
 		const nextMonday = addDays(mondayOf(today()), 7);
 		await fireEvent.click(within(sheet).getByRole('radio', { name: 'Any day next week' }));
@@ -2590,36 +2601,6 @@ describe('correcting a Reading beside a Divergence', () => {
 		expect(await screen.findByText('¾ cup potato starch')).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /Write this into mine/i })).not.toBeInTheDocument();
 	});
-
-	it('puts the recipe on the reader’s Shopping List, and takes it back off', async () => {
-		// The list is a Person's, not a Kitchen's (ADR 0024), so the recipe
-		// screen asks for it separately rather than reading it off the recipe.
-		const { kamosu } = renderRecipe({
-			...forked(),
-			get_shopping_list: { chosen: [], rows: [] },
-			add_to_shopping_list: { chosen: [], rows: [] },
-			remove_from_shopping_list: { chosen: [], rows: [] },
-		});
-		await screen.findByText('This recipe, 2 versions');
-
-		const button = await screen.findByRole('button', { name: /Add to shopping list/i });
-		await fireEvent.click(button);
-		expect(kamosu.calls.find((call) => call.operation === 'add_to_shopping_list')?.input).toEqual({
-			branch_id: 'mine',
-		});
-
-		// What it stores is the choosing, so the button now offers the way back,
-		// and wears the done fill so the state is read at a glance (#220).
-		const on = await screen.findByRole('button', { name: /On your shopping list/i });
-		expect(on.className).toContain('act-tile-done');
-		await fireEvent.click(on);
-		expect(
-			kamosu.calls.find((call) => call.operation === 'remove_from_shopping_list')?.input,
-		).toEqual({ branch_id: 'mine' });
-		expect(
-			await screen.findByRole('button', { name: /Add to shopping list/i }),
-		).toBeInTheDocument();
-	});
 });
 
 describe('a Sheet (#75)', () => {
@@ -2658,7 +2639,7 @@ describe('a Sheet (#75)', () => {
 		});
 		await screen.findByText('This recipe, 2 versions');
 
-		await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+		await fireEvent.click(await inMore(/Print this recipe/i));
 		expect(open).toHaveBeenCalledWith('', '_blank');
 		await vi.waitFor(() => expect(tab.location.href).toBe('/api/sheets/j_sheet'));
 		expect(kamosu.calls.find((call) => call.operation === 'make_sheet')?.input).toEqual({
@@ -2679,7 +2660,7 @@ describe('a Sheet (#75)', () => {
 		});
 		await screen.findByText('This recipe, 2 versions');
 
-		await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+		await fireEvent.click(await inMore(/Print this recipe/i));
 		expect(await screen.findByRole('alert')).toHaveTextContent(/could not be made/);
 		expect(tab.close).toHaveBeenCalled();
 	});
@@ -2701,7 +2682,7 @@ describe('a Sheet (#75)', () => {
 			});
 			await screen.findByText('This recipe, 2 versions');
 
-			await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+			await fireEvent.click(await inMore(/Print this recipe/i));
 			// Several lines on this screen are statuses, so the sentence is found by
 			// its words and then checked for the role.
 			expect(await screen.findByText(/The sheet is taking a while/)).toHaveAttribute(
@@ -2709,13 +2690,37 @@ describe('a Sheet (#75)', () => {
 				'status',
 			);
 			expect(screen.queryByText(/could not be made/)).not.toBeInTheDocument();
-			// Still being set, so not offered again: a second press is a second tab.
-			expect(screen.getByRole('button', { name: /Setting the sheet/ })).toBeDisabled();
+			// Not offered again while being set: `MoreSheet` holds that, tested
+			// below, since on a faked clock the sheet the tap closed never leaves.
 
 			// The wait goes on, and the Sheet lands in the tab that was promised.
 			await vi.waitFor(() => expect(tab.location.href).toBe('/api/sheets/j_sheet'));
 			expect(tab.close).not.toHaveBeenCalled();
 		}));
+
+	it('is not offered again while one is being set: a second press is a second tab', async () => {
+		const paper = {
+			printing: 'stillSetting',
+			setting: true,
+			sharing: false,
+			share: () => {},
+		} as unknown as ComponentProps<typeof MoreSheet>['paper'];
+		const nothing = () => {};
+		render(MoreSheet, {
+			props: {
+				branchId: 'mine',
+				paper,
+				deletes: true,
+				onEdit: nothing,
+				onTranslate: nothing,
+				onPrint: nothing,
+				onRename: nothing,
+				onDelete: nothing,
+				onClose: nothing,
+			},
+		});
+		expect(await screen.findByRole('button', { name: /Setting the sheet/ })).toBeDisabled();
+	});
 
 	/** A Sheet still being set, asked for and outwaited, on the recipe `mine`. */
 	async function stillSetting() {
@@ -2730,7 +2735,7 @@ describe('a Sheet (#75)', () => {
 			get_job: outlivingTheWait({ ...sheetJob, status: 'running' as const, result: null }),
 		});
 		await screen.findByText('This recipe, 2 versions');
-		await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+		await fireEvent.click(await inMore(/Print this recipe/i));
 		await screen.findByText(/The sheet is taking a while/);
 		return { tab, ...rendered };
 	}
@@ -2744,7 +2749,7 @@ describe('a Sheet (#75)', () => {
 			await vi.waitFor(() => expect(tab.close).toHaveBeenCalled());
 			// The sheet was the last recipe's: this one offers its own.
 			expect(screen.queryByText(/The sheet is taking a while/)).not.toBeInTheDocument();
-			expect(screen.getByRole('button', { name: /Print a sheet/ })).toBeEnabled();
+			expect(await inMore(/Print this recipe/)).toBeEnabled();
 		}));
 
 	it('stops waiting on a sheet, and closes its empty tab, when the screen closes (#117)', () =>
@@ -2808,7 +2813,7 @@ describe('a Sheet (#75)', () => {
 				files: route.files,
 			});
 			await screen.findByText('This recipe, 2 versions');
-			await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+			await fireEvent.click(await inMore(/Print this recipe/i));
 			const button = await screen.findByRole('button', { name: 'Share the sheet' });
 			return { open, share, route, button, ...rendered };
 		}
@@ -2865,7 +2870,7 @@ describe('a Sheet (#75)', () => {
 			await fireEvent.click(button);
 
 			expect(await screen.findByRole('alert')).toHaveTextContent(/could not be made/);
-			expect(screen.getByRole('button', { name: /Print a sheet/i })).toBeEnabled();
+			expect(await inMore(/Print this recipe/i)).toBeEnabled();
 		});
 
 		it('offers a fresh sheet once one has been shared', async () => {
@@ -2873,7 +2878,7 @@ describe('a Sheet (#75)', () => {
 
 			await fireEvent.click(button);
 
-			expect(await screen.findByRole('button', { name: /Print a sheet/i })).toBeEnabled();
+			expect(await inMore(/Print this recipe/i)).toBeEnabled();
 		});
 
 		it('shares a Sheet already on the phone while the server is out of reach', async () => {
@@ -2895,7 +2900,7 @@ describe('a Sheet (#75)', () => {
 
 			await goTo('theirs');
 
-			expect(await screen.findByRole('button', { name: /Print a sheet/i })).toBeEnabled();
+			expect(await inMore(/Print this recipe/i)).toBeEnabled();
 			expect(screen.queryByRole('button', { name: 'Share the sheet' })).not.toBeInTheDocument();
 		});
 
@@ -2916,7 +2921,7 @@ describe('a Sheet (#75)', () => {
 					{ device: installedApple, files: theSheetRoute().files },
 				);
 				await screen.findByText('This recipe, 2 versions');
-				await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+				await fireEvent.click(await inMore(/Print this recipe/i));
 
 				expect(
 					await screen.findByText(/Stay on this page and you can share it when it is ready/),
@@ -2939,7 +2944,7 @@ describe('a Sheet (#75)', () => {
 			});
 			await screen.findByText('This recipe, 2 versions');
 
-			await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+			await fireEvent.click(await inMore(/Print this recipe/i));
 
 			expect(open).toHaveBeenCalledWith('', '_blank');
 			await vi.waitFor(() => expect(tab.location.href).toBe('/api/sheets/j_sheet'));
@@ -2959,7 +2964,7 @@ describe('a Sheet (#75)', () => {
 			});
 			await screen.findByText('This recipe, 2 versions');
 
-			await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+			await fireEvent.click(await inMore(/Print this recipe/i));
 
 			await vi.waitFor(() => expect(tab.location.href).toBe('/api/sheets/j_sheet'));
 		});
@@ -3016,6 +3021,254 @@ describe('on the phone (#76)', () => {
  * recipe, that the cooking history stays, and the Share Link only when one is
  * live. The fourth thing tested is that nothing happens until it is confirmed.
  */
+/**
+ * What a cook does with a recipe, on its first screen (#649): option A of the
+ * prototype chosen on 20 November 2026 (`en-short-A-phone.html`). Start
+ * cooking is the one main button; under it Plan, Shopping list, Share and
+ * More; behind More the rarer acts, with deleting apart from them.
+ */
+describe("the recipe's acts (#649)", () => {
+	/** A row of the list holding one of a recipe's lines. */
+	const row = (text: string, branch_id = 'mine') => ({
+		id: `r_${text}`,
+		kind: 'line' as const,
+		lines: [{ branch_id, recipe: 'Korean Fried Chicken', text }],
+		name: text,
+		name_language: null,
+		parts: [{ kind: 'as_written' as const, sources: [], text }],
+		said: null,
+	});
+	const shopping = () => ({
+		get_shopping_list: { chosen: [], rows: [] },
+		// What went on is counted off the list's own answer: three of this
+		// recipe's lines, beside another recipe's already there.
+		add_to_shopping_list: {
+			chosen: [],
+			rows: [
+				row('¼ cup honey'),
+				row('¼ cup brown sugar'),
+				row('1 Tbsp rice vinegar'),
+				row('salt', 'b_other'),
+			],
+		},
+		remove_from_shopping_list: { chosen: [], rows: [] },
+	});
+
+	it('puts Start cooking and the four everyday acts above the Ingredients, and none at the foot', async () => {
+		renderRecipe(forked());
+		const start = await screen.findByRole('link', { name: 'Start cooking' });
+		const ingredients = screen.getByRole('heading', { name: /ingredients/i });
+		const acts = [
+			screen.getByRole('button', { name: 'Plan' }),
+			screen.getByRole('button', { name: 'Shopping list' }),
+			screen.getByRole('link', { name: 'Share' }),
+			screen.getByRole('button', { name: 'More' }),
+		];
+
+		expect(start.className).toContain('main-button');
+		expect(start.getAttribute('href')).toBe('/cook/mine');
+		expect(acts[2]).toHaveAttribute('href', '/recipes/mine/share');
+		for (const act of [start, ...acts]) {
+			expect(
+				act.compareDocumentPosition(ingredients) & Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+		}
+		// The grid of tiles at the foot is gone, and with it every act it held.
+		expect(document.querySelector('.act-tile')).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Edit this recipe' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Delete this recipe' })).toBeNull();
+	});
+
+	it('keeps the rarer acts behind More, with deleting apart under them', async () => {
+		renderRecipe(forked());
+		await fireEvent.click(await screen.findByRole('button', { name: 'More' }));
+		const sheet = within(await screen.findByRole('dialog'));
+
+		expect(sheet.getByRole('heading', { name: 'More for this recipe' })).toBeInTheDocument();
+		const rows = sheet.getAllByRole('listitem').map((row) => row.textContent?.trim());
+		// The forked recipe has a second version, so this one may be named (#134).
+		expect(rows).toEqual([
+			'Edit this recipe',
+			'See older versions',
+			'Translate this recipe',
+			'Name this version',
+			'Print this recipe',
+		]);
+		expect(sheet.getByRole('link', { name: 'See older versions' })).toHaveAttribute(
+			'href',
+			'/recipes/mine/thread',
+		);
+		const del = sheet.getByRole('button', { name: 'Delete this recipe' });
+		expect(del.className).toContain('loses');
+		expect(del.closest('li')).toBeNull();
+	});
+
+	it('opens what an act in More does once the sheet has closed', async () => {
+		renderRecipe(forked());
+		await fireEvent.click(await screen.findByRole('button', { name: 'More' }));
+		await fireEvent.click(
+			within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete this recipe' }),
+		);
+		const asked = await screen.findByRole('dialog');
+
+		expect(within(asked).getByText(/Delete Korean Fried Chicken\?/)).toBeInTheDocument();
+		expect(within(asked).queryByText('More for this recipe')).toBeNull();
+	});
+
+	it('offers no deleting in More on a version somebody else writes', async () => {
+		renderRecipe(onTheirs());
+		await fireEvent.click(await screen.findByRole('button', { name: 'More' }));
+		const sheet = within(await screen.findByRole('dialog'));
+
+		expect(sheet.getByRole('button', { name: 'Edit this recipe' })).toBeInTheDocument();
+		expect(sheet.queryByRole('button', { name: 'Delete this recipe' })).toBeNull();
+	});
+
+	it('says how much went on the list, takes it back with Undo, and leads to the list once on it', async () => {
+		const { kamosu } = renderRecipe(forked(shopping()));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Shopping list' }));
+
+		expect(kamosu.calls.find((call) => call.operation === 'add_to_shopping_list')?.input).toEqual({
+			branch_id: 'mine',
+		});
+		expect(
+			await screen.findByText('3 ingredients added to the shopping list.'),
+		).toBeInTheDocument();
+		const on = screen.getByRole('link', { name: 'On the list' });
+		expect(on).toHaveAttribute('href', '/shopping');
+		expect(on.className).toContain('main-button');
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+		expect(
+			kamosu.calls.find((call) => call.operation === 'remove_from_shopping_list')?.input,
+		).toEqual({ branch_id: 'mine' });
+		expect(await screen.findByRole('button', { name: 'Shopping list' })).toBeInTheDocument();
+		expect(screen.queryByText(/added to the shopping list/)).toBeNull();
+	});
+
+	it('leaves what was added, and its Undo, behind when you walk to another recipe', async () => {
+		const { goTo } = renderRecipe(forked(shopping()));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Shopping list' }));
+		expect(await screen.findByText(/added to the shopping list/)).toBeInTheDocument();
+
+		await goTo('theirs');
+		await screen.findByRole('link', { name: 'Start cooking' });
+		expect(screen.queryByText(/added to the shopping list/)).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+	});
+
+	it('says nothing was added when the recipe was on the list before the page opened', async () => {
+		renderRecipe(
+			forked({
+				...shopping(),
+				get_shopping_list: {
+					chosen: [
+						{
+							branch_id: 'mine',
+							title: 'Korean Fried Chicken',
+							gone: false,
+							shopping_yield: null,
+							written_yield: { amount: '4', noun: 'servings' },
+						},
+					],
+					rows: [],
+				},
+			}),
+		);
+		expect(await screen.findByRole('link', { name: 'On the list' })).toBeInTheDocument();
+		expect(screen.queryByText(/added to the shopping list/)).toBeNull();
+	});
+});
+
+describe("the recipe's page, read plainly (#649)", () => {
+	it('says what the recipe makes under "makes"', async () => {
+		renderRecipe(forked());
+		const strip = (await screen.findByText('makes')).closest('div')!;
+		expect(strip).toHaveTextContent(/^4\s*servings\s*makes$/);
+	});
+
+	it('heads the Ingredients, the Method and the note with the shared Section, the note without a bar', async () => {
+		const mine = forked().get_recipe as GetRecipeOutput;
+		const withNote = structuredClone(mine);
+		withNote.versions[0]!.content.note = 'Rest the batter overnight.';
+		renderRecipe(forked({ get_recipe: withNote }));
+
+		for (const name of [/ingredients/i, /^method$/i, /^notes$/i]) {
+			const heading = await screen.findByRole('heading', { level: 2, name });
+			// The rule is under the heading, or under the row it shares with an act.
+			const ruled = heading.className.includes('border-b') ? heading : heading.parentElement!;
+			expect(ruled.className).toContain('border-b');
+			expect(heading.closest('section')).not.toBeNull();
+		}
+		const note = screen.getByText('Rest the batter overnight.');
+		expect(note.className).not.toContain('border-l-2');
+	});
+
+	it('puts the Tags after the Method, each saying it opens the recipes tagged with it', async () => {
+		const mine = forked().get_recipe as GetRecipeOutput;
+		renderRecipe(
+			forked({
+				get_recipe: {
+					...mine,
+					tags: [
+						{
+							cookbook_id: 'c_mine',
+							id: 't_dinner',
+							language: 'en',
+							language_fallback: false,
+							name: 'Dinner',
+							names: [{ language: 'en', name: 'Dinner' }],
+							recipes: 1,
+						},
+					],
+				},
+			}),
+		);
+		const tags = await screen.findByRole('heading', { name: 'Tags' });
+		const method = screen.getByRole('heading', { name: /^method$/i });
+		expect(method.compareDocumentPosition(tags) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		const tag = screen.getByRole('link', { name: /Dinner/ });
+		expect(tag).toHaveAttribute('href', '/recipes?tag=t_dinner');
+		expect(tag).toHaveTextContent('›');
+	});
+
+	it('offers a jump from the Ingredients to the Method on the phone', async () => {
+		renderRecipe(forked());
+		const jump = await screen.findByRole('link', { name: 'Go to the method' });
+		expect(jump).toHaveAttribute('href', '#method');
+		expect(document.getElementById('method')).toContainElement(
+			screen.getByRole('heading', { name: /^method$/i }),
+		);
+	});
+
+	it('says a verdict in the log whole, beside the name', async () => {
+		const mine = forked().get_recipe as GetRecipeOutput;
+		renderRecipe(
+			forked({
+				get_recipe: {
+					...mine,
+					cooked: {
+						count: 1,
+						last_cooked_at: '2026-10-31T18:00:00Z',
+						ratings: [
+							{
+								person_id: 'p_camille',
+								name: 'Camille',
+								rating: 'again',
+								at: '2026-10-31T18:00:00Z',
+								given_on: 'newest',
+								version_id: null,
+							},
+						],
+					},
+				},
+			}),
+		);
+		expect(await screen.findByText('Would cook again')).toBeInTheDocument();
+		expect(screen.queryByText('Again')).toBeNull();
+	});
+});
+
 describe('deleting a recipe', () => {
 	/**
 	 * What `get_share_link` answers, whole. The stand-in checks every answer
@@ -3036,9 +3289,9 @@ describe('deleting a recipe', () => {
 	/** Open the confirmation the way a thumb does, and let its ask settle. */
 	async function openTheSheet(answers: Answers) {
 		const rendered = renderRecipe(answers);
-		const affordance = await screen.findByRole('button', { name: 'Delete this recipe' });
-		await fireEvent.click(affordance);
-		await tick();
+		await fireEvent.click(await inMore('Delete this recipe'));
+		// It opens a frame after More has gone, once the caret is back on More.
+		await screen.findByRole('dialog', { name: /^Delete / });
 		await tick();
 		return rendered;
 	}
@@ -3050,41 +3303,8 @@ describe('deleting a recipe', () => {
 				get_recipe: { ...(forked().get_recipe as GetRecipeOutput), writes: false },
 			}),
 		);
-		expect(await screen.findByRole('button', { name: /shopping list/i })).toBeInTheDocument();
+		await inMore('Edit this recipe');
 		expect(screen.queryByRole('button', { name: 'Delete this recipe' })).toBeNull();
-	});
-
-	it('is set apart from the grid of acts rather than standing among them (#220)', async () => {
-		renderRecipe(forked({ get_share_link: shareLink(false) }));
-		const affordance = await screen.findByRole('button', { name: 'Delete this recipe' });
-
-		// Every act at the foot is a tile in a grid (option 1 of the audit of
-		// 9 October 2026, chosen on 10 October). This one is not shaped like
-		// them, which is the whole of why a thumb reaching for *Add to shopping
-		// list* cannot land on it, and it comes after them all.
-		const shopping = screen.getByRole('button', { name: /shopping list/i });
-		expect(shopping.className).toContain('act-tile');
-		expect(affordance.className).not.toContain('act-tile');
-		expect(affordance.className).toContain('underline');
-		expect(
-			shopping.compareDocumentPosition(affordance) & Node.DOCUMENT_POSITION_FOLLOWING,
-		).toBeTruthy();
-	});
-
-	it('puts Cook this alone under the servings, before the Ingredients, and Edit among the acts at the foot (#220)', async () => {
-		renderRecipe(forked({ get_share_link: shareLink(false) }));
-		const cook = await screen.findByRole('link', { name: 'Cook this' });
-		const edit = screen.getByRole('button', { name: 'Edit this recipe' });
-		const ingredients = screen.getByRole('heading', { name: /ingredients/i });
-
-		expect(
-			cook.compareDocumentPosition(ingredients) & Node.DOCUMENT_POSITION_FOLLOWING,
-		).toBeTruthy();
-		expect(
-			ingredients.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING,
-		).toBeTruthy();
-		expect(cook.className).toContain('bg-accent');
-		expect(edit.className).toContain('act-tile');
 	});
 
 	it('asks before it does anything, and asking alone deletes nothing', async () => {
@@ -3245,7 +3465,7 @@ const savedReading = (language_offer: string | null, extra: Record<string, unkno
 
 /** Open the writing screen and take the save all the way through its sheet. */
 async function editAndSave() {
-	await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+	await fireEvent.click(await inMore('Edit this recipe'));
 	const act = /Save onto mine/;
 	await fireEvent.click((await screen.findAllByRole('button', { name: act }))[0] as HTMLElement);
 	const inSheet = await screen.findAllByRole('button', { name: act });
@@ -3295,7 +3515,7 @@ describe('a recipe that has a Translation', () => {
 		// Awaited, because the Translation arrives with the Thread rather than
 		// with the recipe — and this is the assertion that proves the page did
 		// not blank out on a refused Divergence.
-		expect(await screen.findByRole('link', { name: 'Also in French.' })).toHaveAttribute(
+		expect(await screen.findByRole('link', { name: 'Read it in French' })).toHaveAttribute(
 			'href',
 			'/recipes/b_fr',
 		);
@@ -3305,7 +3525,7 @@ describe('a recipe that has a Translation', () => {
 	it('does not call a Translation a crowd of Branches either', async () => {
 		renderRecipe(withATranslation());
 
-		expect(await screen.findByRole('link', { name: 'Also in French.' })).toBeInTheDocument();
+		expect(await screen.findByRole('link', { name: 'Read it in French' })).toBeInTheDocument();
 		expect(screen.queryByText(/other versions of this recipe|too many/i)).not.toBeInTheDocument();
 	});
 });
@@ -3334,7 +3554,7 @@ describe('a Copy started from a draft that changed nothing (#329)', () => {
 		);
 		await compared();
 
-		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		await fireEvent.click(await inMore('Edit this recipe'));
 		const act = /Start my own copy/;
 		await fireEvent.click((await screen.findAllByRole('button', { name: act }))[0] as HTMLElement);
 		const inSheet = await screen.findAllByRole('button', { name: act });
@@ -3367,7 +3587,7 @@ describe('a Copy started from a draft that changed nothing (#329)', () => {
 		);
 		await compared();
 
-		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		await fireEvent.click(await inMore('Edit this recipe'));
 		const buttons = await screen.findAllByRole('button', { name: /^Ingredients ·/ });
 		await fireEvent.click(buttons[0] as HTMLElement);
 		const sheet = screen.getByRole('dialog');
@@ -3405,7 +3625,7 @@ describe('a Copy started from a draft that changed nothing (#329)', () => {
 		);
 		await compared();
 
-		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		await fireEvent.click(await inMore('Edit this recipe'));
 		const act = /Start my own copy/;
 		await fireEvent.click((await screen.findAllByRole('button', { name: act }))[0] as HTMLElement);
 		const inSheet = await screen.findAllByRole('button', { name: act });
@@ -3481,7 +3701,7 @@ describe('naming a version (#134)', () => {
 
 	/** Tap the line among the actions, and wait for the sheet it opens. */
 	async function openTheSheet(label: string) {
-		await fireEvent.click(await screen.findByRole('button', { name: label }));
+		await fireEvent.click(await inMore(label));
 		return screen.findByRole('dialog', { name: label });
 	}
 
@@ -3540,8 +3760,8 @@ describe('naming a version (#134)', () => {
 			'href',
 			'/recipes/mine',
 		);
-		// Named now, so the line offers a rename rather than a name.
-		expect(screen.getByRole('button', { name: 'Rename this version' })).toBeInTheDocument();
+		// Named now, so More offers a rename rather than a name.
+		expect(await inMore('Rename this version')).toBeInTheDocument();
 	});
 
 	it('clears a name where another version of yours has one', async () => {
@@ -3630,6 +3850,7 @@ describe('naming a version (#134)', () => {
 	it('offers no rename on a version you do not write', async () => {
 		renderRecipe(onTheirs(), 'theirs');
 		await compared();
+		await inMore('Edit this recipe');
 
 		expect(screen.queryByRole('button', { name: 'Rename this version' })).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Name this version' })).toBeNull();
@@ -3653,12 +3874,13 @@ describe('naming a version (#134)', () => {
 			expect(kamosu.calls.some((call) => call.operation === 'get_thread')).toBe(true),
 		);
 		await tick();
+		await inMore('Edit this recipe');
 		expect(screen.queryByRole('button', { name: 'Name this version' })).toBeNull();
 		cleanup();
 
 		// A version with a name can always lose or change it, alone or not.
 		renderRecipe(alone('Classic'));
-		expect(await screen.findByRole('button', { name: 'Rename this version' })).toBeInTheDocument();
+		expect(await inMore('Rename this version')).toBeInTheDocument();
 	});
 });
 
@@ -3844,7 +4066,7 @@ describe('reading the recipe again (#279)', () => {
 		Reflect.deleteProperty(navigator, 'onLine');
 	});
 
-	it('offers it above the acts, asks once, and the page then says the agent is on it', async () => {
+	it('offers it after the recipe, asks once, and the page then says the agent is on it', async () => {
 		const { kamosu } = renderRecipe(
 			forked({
 				...ON_THE_SIDE,
@@ -3859,9 +4081,9 @@ describe('reading the recipe again (#279)', () => {
 		expect(panel).toHaveTextContent(
 			m.read_again_lede_link({ site: 'mykoreankitchen.com' }) + ' ' + m.read_again_keeps(),
 		);
-		// Above the grid of the other acts.
-		const edit = screen.getByRole('button', { name: m.write_edit() });
-		expect(panel.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		// After the recipe it reads again, now the acts are at the top (#649).
+		const method = screen.getByRole('heading', { name: /^method$/i });
+		expect(method.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
 		await fireEvent.click(within(panel).getByRole('button', { name: m.read_again_do() }));
 		// The first press asks, saying what it costs; nothing is sent yet.
@@ -4069,8 +4291,8 @@ describe('two columns where the window is roomy (#198)', () => {
 		for (const outside of [
 			screen.getByRole('heading', { name: 'Tags' }),
 			screen.getByRole('heading', { name: 'Cooked' }),
-			screen.getByRole('button', { name: 'Edit this recipe' }),
-			screen.getByRole('link', { name: 'Cook this' }),
+			screen.getByRole('button', { name: 'More' }),
+			screen.getByRole('link', { name: 'Start cooking' }),
 		]) {
 			expect(columns).not.toContainElement(outside);
 		}

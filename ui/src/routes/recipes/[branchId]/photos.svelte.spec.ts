@@ -66,7 +66,7 @@ describe('your cooking photographs on the recipe page', () => {
 		const shown = screen.getAllByAltText(/^Taken /).map((image) => image.getAttribute('src'));
 		expect(shown).toEqual(['/api/photographs/p_second/card', '/api/photographs/p_first/card']);
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Use one on the recipe…' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Use one as the recipe’s photo…' }));
 		const on = within(
 			await screen.findByRole('dialog', { name: 'Use a cooking photo on the recipe' }),
 		);
@@ -102,7 +102,7 @@ describe('your cooking photographs on the recipe page', () => {
 			// A save still on its way until the test lets it land.
 			promote_attempt_photograph: () => PROMOTED,
 		});
-		const opener = await screen.findByRole('button', { name: 'Use one on the recipe…' });
+		const opener = await screen.findByRole('button', { name: 'Use one as the recipe’s photo…' });
 		opener.focus();
 		await fireEvent.click(opener);
 		const dialog = await screen.findByRole('dialog', { name: 'Use a cooking photo on the recipe' });
@@ -139,7 +139,7 @@ describe('your cooking photographs on the recipe page', () => {
 		);
 		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
 		expect(screen.queryByRole('heading', { name: 'Your photos from cooking this' })).toBeNull();
-		expect(screen.queryByRole('button', { name: 'Use one on the recipe…' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Use one as the recipe’s photo…' })).toBeNull();
 	});
 });
 
@@ -151,7 +151,9 @@ describe('a cooking photo that makes a Copy (#111)', () => {
 			list_attempts: { attempts: [diaryEntry({ photographs: ['p_first'] })] },
 			promote_attempt_photograph: { ...PROMOTED, branch_id: 'b_copy', copied: true },
 		});
-		await fireEvent.click(await screen.findByRole('button', { name: 'Use one on the recipe…' }));
+		await fireEvent.click(
+			await screen.findByRole('button', { name: 'Use one as the recipe’s photo…' }),
+		);
 		const on = within(await screen.findByRole('dialog'));
 		await fireEvent.click(await on.findByRole('button', { name: /The recipe's photo/ }));
 		return { kamosu, on };

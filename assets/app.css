@@ -71,7 +71,7 @@
     --radius-lg: 2px;
     --radius-pill: 2px;
     --tile-w: 168px;
-    --hero-h: 320px;
+    --hero-h: 190px;
     --rule-w: 1px;
     --noren-h: 3px;
     --photo-thumb: 72px;
@@ -317,6 +317,27 @@
     }
     &.border::after {
       inset: calc(-8px - 1px);
+    }
+  }
+  .tap-tall {
+    position: relative;
+    &::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: min(0px, calc(50% - 24px));
+      bottom: min(0px, calc(50% - 24px));
+    }
+  }
+  .back-arrow-photo {
+    position: absolute;
+    top: var(--spacing-3);
+    left: var(--spacing-3);
+    border-radius: 50%;
+    box-shadow: 0 2px 8px color-mix(in srgb, #1d2b4c 12%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      box-shadow: 0 2px 8px color-mix(in srgb, var(--color-accent) 12%, transparent);
     }
   }
   .back-arrow-phone {
@@ -761,20 +782,6 @@
     color: var(--color-ink);
     text-align: start;
   }
-  .act-tile {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: var(--spacing-12);
-    padding: var(--spacing-2) var(--spacing-3);
-    border: 1px solid var(--color-rule);
-    border-radius: var(--radius-sm);
-    background: var(--color-card);
-    font-size: var(--text-read);
-    font-weight: 500;
-    text-align: center;
-  }
   @media (min-width: 700px) and (min-height: 560px) {
     .diary-grid {
       display: grid;
@@ -861,6 +868,32 @@
   }
   .aspect-square {
     aspect-ratio: 1 / 1;
+  }
+  .act-line {
+    flex-direction: column;
+    gap: 2px;
+    min-height: 56px;
+    padding: var(--spacing-2) 6px;
+    font-size: var(--text-read);
+    line-height: 1.2;
+    & > svg {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+  }
+  .act-stack {
+    flex-direction: column;
+    gap: var(--spacing-1);
+    min-height: 64px;
+    padding: 6px var(--spacing-1);
+    font-size: var(--text-read);
+    line-height: 1.2;
+    & > svg {
+      width: 22px;
+      height: 22px;
+      flex-shrink: 0;
+    }
   }
   .step-button {
     width: 40px;
@@ -1272,6 +1305,9 @@
   .snap-start {
     scroll-snap-align: start;
   }
+  .scroll-mt-4 {
+    scroll-margin-top: var(--spacing-4);
+  }
   .scroll-mt-12 {
     scroll-margin-top: var(--spacing-12);
   }
@@ -1295,6 +1331,12 @@
   }
   .grid-cols-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .grid-cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   .grid-cols-7 {
     grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -1393,6 +1435,9 @@
   }
   .gap-y-2 {
     row-gap: var(--spacing-2);
+  }
+  .gap-y-4 {
+    row-gap: var(--spacing-4);
   }
   :where(.divide-y > :not(:last-child)) {
     --tw-divide-y-reverse: 0;
@@ -1498,11 +1543,6 @@
   .border-dashed {
     --tw-border-style: dashed;
     border-style: dashed;
-  }
-  .act-tile-done {
-    border-color: var(--color-accent);
-    background: var(--color-accent);
-    color: var(--color-on-accent);
   }
   .border-accent {
     border-color: var(--color-accent);
@@ -2452,6 +2492,7 @@
     --room: phone;
     @media (min-width: 700px) and (min-height: 560px) {
       --room: wide;
+      --hero-h: 260px;
     }
     @media (min-width: 700px) and (min-height: 560px) {
       @media (min-width: 1000px) {

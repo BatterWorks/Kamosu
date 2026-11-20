@@ -37,8 +37,9 @@
 			label={m.recipe_use_photo()}
 			waiting={m.offline_waits_edit()}
 			onclick={() => (promoting = true)}
-			shapeClass="mt-2 min-h-12 w-full px-4 text-body"
-			lookClass="border border-rule text-accent"
+			shapeClass="second-button mt-2 w-full"
+			lookClass=""
+			idleClass="text-ink-2 opacity-55"
 		/>
 	</div>
 {/if}

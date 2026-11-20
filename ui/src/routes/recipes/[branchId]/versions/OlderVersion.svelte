@@ -60,6 +60,10 @@
 	import { corrections } from '../corrections.svelte';
 	import { proseSince, sinceThen } from './older';
 	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import Section from '#lib/shell/Section.svelte';
+	import { parentOf } from '#lib/shell/way-back.js';
+	import ActIcon from '../ActIcon.svelte';
+	import type { ActIconName } from '../act-icons';
 	import UseVersion, { type Act } from './UseVersion.svelte';
 
 	interface Props {
@@ -192,7 +196,12 @@
 {#snippet sourceLine(source: NonNullable<NonNullable<typeof content>['source']>)}
 	{@const href = tappableLink(source.link)}
 	{#if href}
-		<a {href} target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">
+		<a
+			{href}
+			target="_blank"
+			rel="noopener noreferrer"
+			class="tap-out underline underline-offset-2"
+		>
 			{m.recipe_from_source({ source: source.text })}<span aria-hidden="true">&nbsp;↗</span><span
 				class="sr-only">, {m.recipe_source_opens()}</span
 			>
@@ -204,7 +213,7 @@
 
 {#snippet titleOnHero()}
 	{#if content?.main_photo && content.source}
-		<p class="text-label text-on-accent uppercase">{@render sourceLine(content.source)}</p>
+		<p class="text-read font-medium text-on-accent">{@render sourceLine(content.source)}</p>
 	{/if}
 	<h1 class="mt-1 font-display text-title font-semibold text-on-accent">{content?.title}</h1>
 {/snippet}
@@ -303,11 +312,12 @@
 			title={content.title}
 			photo={content.main_photo}
 			over={titleOnHero}
+			back={parentOf(`/recipes/${branchId}`)}
 		/>
 
 		<p class="px-gutter pt-3 text-read text-ink-2">{saved}</p>
 		{#if content.source && !content.main_photo}
-			<p class="px-gutter pt-3 text-label text-ink-2 uppercase">
+			<p class="px-gutter pt-3 text-read font-medium text-ink-2">
 				{@render sourceLine(content.source)}
 			</p>
 		{/if}
@@ -345,10 +355,40 @@
 			type="button"
 			disabled={cooking === 'starting' || cooking === 'another'}
 			onclick={cook}
-			class="mx-gutter mt-4 flex min-h-12 w-[calc(100%-2*var(--spacing-gutter))] items-center justify-center rounded-sm bg-accent px-4 text-center font-display text-body font-semibold text-on-accent disabled:opacity-60"
+			class="mx-gutter mt-4 main-button w-[calc(100%-2*var(--spacing-gutter))]"
 		>
 			{m.older_cook()}
 		</button>
+		<!--
+			What can be done with this Version, under its cook button as a
+			recipe's acts are under Start cooking (#649, the older version's
+			page of option A, 20 November 2026). They stood at the foot,
+			after the whole method, with a way back to the recipe the bar
+			above already gives.
+		-->
+		{#snippet act(icon: ActIconName, label: string, waiting: string, what: Act)}
+			<NeedsServer
+				{label}
+				{waiting}
+				onclick={() => (using = what)}
+				shapeClass="second-button act-line"
+				lookClass=""
+				idleClass="text-ink-2 opacity-55"
+			>
+				{#snippet before()}<ActIcon name={icon} />{/snippet}
+			</NeedsServer>
+		{/snippet}
+		<div class="mx-gutter mt-2 grid gap-2 {compared.writes ? 'grid-cols-3' : 'grid-cols-2'}">
+			{#if compared.writes}
+				{@render act('putBack', m.older_put_back(), m.offline_waits_edit(), 'back')}
+				{@render act('variation', m.older_variation(), m.offline_waits_edit(), 'variation')}
+			{:else}
+				{@render act('copy', m.older_keep(), m.offline_waits_copy(), 'keep')}
+			{/if}
+			<a href="/recipes/{branchId}/thread" class="second-button act-line">
+				<ActIcon name="history" />{m.recipe_the_thread()}
+			</a>
+		</div>
 		{#if cooking === 'another'}
 			<p class="mx-gutter mt-2 text-read text-support" role="alert">
 				{m.older_cooking_another()}
@@ -362,109 +402,107 @@
 			</p>
 		{/if}
 
-		<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-			{m.recipe_ingredients()}
-		</h2>
-		<ul class="px-gutter">
-			{#if marks.showing}
-				{#each inOrder(compared.ingredients, 'theirs') as { row, index } (rowKey('ingredients', index))}
-					{@const key = rowKey('ingredients', index)}
-					{@const own = row.theirs}
-					{@const moved = elsewhere(compared.ingredients, index, 'theirs')}
-					{#if row.kind === 'section'}
-						{@render section(
-							(own ?? row.mine)?.text ?? '',
-							moved ? words.caption(see(row, 'theirs', moved), 'theirs', undefined) : null,
-						)}
-					{:else if row.state === 'same'}
-						{@render ingredientLine(own?.text ?? '', own?.index ?? -1)}
-					{:else}
-						<!-- A marked line that names a recipe says which, and does not
+		<Section heading={m.recipe_ingredients()} class="px-gutter">
+			<ul>
+				{#if marks.showing}
+					{#each inOrder(compared.ingredients, 'theirs') as { row, index } (rowKey('ingredients', index))}
+						{@const key = rowKey('ingredients', index)}
+						{@const own = row.theirs}
+						{@const moved = elsewhere(compared.ingredients, index, 'theirs')}
+						{#if row.kind === 'section'}
+							{@render section(
+								(own ?? row.mine)?.text ?? '',
+								moved ? words.caption(see(row, 'theirs', moved), 'theirs', undefined) : null,
+							)}
+						{:else if row.state === 'same'}
+							{@render ingredientLine(own?.text ?? '', own?.index ?? -1)}
+						{:else}
+							<!-- A marked line that names a recipe says which, and does not
 						     unfold, as on the recipe page (#50). -->
-						<MarkedRow
-							{row}
-							side="theirs"
-							{words}
-							{moved}
-							beneath={own
-								? (unfold.at([], own.index)?.said ?? beneath.beneathLine(own.index))
-								: ''}
-							open={marks.isOpen(key)}
-							taken={marks.taken.get(key)}
-							onToggle={() => marks.toggle(key)}
-							onCarry={(what) => marks.carry(key, what)}
-						/>
-					{/if}
-				{/each}
-			{:else}
-				{#each content.ingredients as item, index (index)}
-					{#if item.kind === 'section'}
-						{@render section(item.text)}
-					{:else}
-						{@render ingredientLine(item.text, index)}
-					{/if}
-				{/each}
-			{/if}
-		</ul>
+							<MarkedRow
+								{row}
+								side="theirs"
+								{words}
+								{moved}
+								beneath={own
+									? (unfold.at([], own.index)?.said ?? beneath.beneathLine(own.index))
+									: ''}
+								open={marks.isOpen(key)}
+								taken={marks.taken.get(key)}
+								onToggle={() => marks.toggle(key)}
+								onCarry={(what) => marks.carry(key, what)}
+							/>
+						{/if}
+					{/each}
+				{:else}
+					{#each content.ingredients as item, index (index)}
+						{#if item.kind === 'section'}
+							{@render section(item.text)}
+						{:else}
+							{@render ingredientLine(item.text, index)}
+						{/if}
+					{/each}
+				{/if}
+			</ul>
+		</Section>
 		{#if nutritionText(content.nutrition ?? null)}
 			<p class="mt-3 px-gutter text-read text-ink-2">{nutritionText(content.nutrition ?? null)}</p>
 		{/if}
 		{@render fieldMarks(['nutrition'])}
 
-		<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-			{m.recipe_method()}
-		</h2>
-		<ol class="px-gutter">
-			{#if marks.showing}
-				{@const number = numbering()}
-				{#each inOrder(compared.steps, 'theirs') as { row, index } (rowKey('steps', index))}
-					{@const key = rowKey('steps', index)}
-					{@const own = row.theirs}
-					{@const n = row.kind === 'section' ? null : number(!own)}
-					{@const moved = elsewhere(compared.steps, index, 'theirs')}
-					{#if row.kind === 'section'}
-						{@render section(
-							(own ?? row.mine)?.text ?? '',
-							moved ? words.caption(see(row, 'theirs', moved), 'theirs', undefined) : null,
-						)}
-					{:else if row.state === 'same' && own}
-						{@render stepLine(own.text, own.index, n, content.steps[own.index]?.photo ?? null)}
-					{:else}
-						<MarkedRow
-							{row}
-							side="theirs"
-							{words}
-							{moved}
-							number={n}
-							conversions={own ? (measured.steps[own.index] ?? []) : []}
-							photo={own ? (content.steps[own.index]?.photo ?? null) : null}
-							open={marks.isOpen(key)}
-							taken={marks.taken.get(key)}
-							onToggle={() => marks.toggle(key)}
-							onCarry={(what) => marks.carry(key, what)}
-						/>
-					{/if}
-				{/each}
-			{:else}
-				{@const number = numbering()}
-				{#each content.steps as item, index (index)}
-					{#if item.kind === 'section'}
-						{@render section(item.text)}
-					{:else}
-						{@render stepLine(item.text, index, number(false), item.photo)}
-					{/if}
-				{/each}
-			{/if}
-		</ol>
+		<Section heading={m.recipe_method()} class="px-gutter">
+			<ol>
+				{#if marks.showing}
+					{@const number = numbering()}
+					{#each inOrder(compared.steps, 'theirs') as { row, index } (rowKey('steps', index))}
+						{@const key = rowKey('steps', index)}
+						{@const own = row.theirs}
+						{@const n = row.kind === 'section' ? null : number(!own)}
+						{@const moved = elsewhere(compared.steps, index, 'theirs')}
+						{#if row.kind === 'section'}
+							{@render section(
+								(own ?? row.mine)?.text ?? '',
+								moved ? words.caption(see(row, 'theirs', moved), 'theirs', undefined) : null,
+							)}
+						{:else if row.state === 'same' && own}
+							{@render stepLine(own.text, own.index, n, content.steps[own.index]?.photo ?? null)}
+						{:else}
+							<MarkedRow
+								{row}
+								side="theirs"
+								{words}
+								{moved}
+								number={n}
+								conversions={own ? (measured.steps[own.index] ?? []) : []}
+								photo={own ? (content.steps[own.index]?.photo ?? null) : null}
+								open={marks.isOpen(key)}
+								taken={marks.taken.get(key)}
+								onToggle={() => marks.toggle(key)}
+								onCarry={(what) => marks.carry(key, what)}
+							/>
+						{/if}
+					{/each}
+				{:else}
+					{@const number = numbering()}
+					{#each content.steps as item, index (index)}
+						{#if item.kind === 'section'}
+							{@render section(item.text)}
+						{:else}
+							{@render stepLine(item.text, index, number(false), item.photo)}
+						{/if}
+					{/each}
+				{/if}
+			</ol>
+		</Section>
 
 		{#each unfold.annexes as component (component.path.join('.'))}
 			<Annexe {component} />
 		{/each}
 
 		{#if content.note}
-			<div class="mx-gutter mt-6 border-l-2 border-accent py-1 pl-4 text-body whitespace-pre-wrap">
-				{content.note}
-			</div>
+			<Section heading={m.recipe_notes()} class="px-gutter">
+				<p class="text-body whitespace-pre-wrap">{content.note}</p>
+			</Section>
 		{/if}
 		{@render fieldMarks(['note'])}
 
@@ -477,27 +515,6 @@
 				{m.divergence_save_failed()}
 			</p>
 		{/if}
-
-		<div class="mx-gutter mt-6 grid grid-cols-2 gap-2">
-			<a href="/recipes/{branchId}" class="act-tile text-accent">{m.older_back()}</a>
-			<a href="/recipes/{branchId}/thread" class="act-tile text-accent">{m.recipe_the_thread()}</a>
-			{#snippet tile(label: string, waiting: string, act: Act)}
-				<NeedsServer
-					{label}
-					{waiting}
-					onclick={() => (using = act)}
-					shapeClass="act-tile"
-					lookClass="text-accent"
-					idleClass="text-ink-2 opacity-55"
-				/>
-			{/snippet}
-			{#if compared.writes}
-				{@render tile(m.older_put_back(), m.offline_waits_edit(), 'back')}
-				{@render tile(m.older_variation(), m.offline_waits_edit(), 'variation')}
-			{:else}
-				{@render tile(m.older_keep(), m.offline_waits_copy(), 'keep')}
-			{/if}
-		</div>
 
 		{#if using}
 			<UseVersion

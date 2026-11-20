@@ -1737,7 +1737,7 @@ mod tests {
     fn a_notes_times_read_in_hours_and_minutes() {
         for (minutes, prep, cook) in [
             (540, "9 h prep", "9 h cook"),
-            (90, "1 h 30 prep", "1 h 30 cook"),
+            (90, "1 h 30 min prep", "1 h 30 min cook"),
             (15, "15 min prep", "15 min cook"),
         ] {
             let mut written = contents();

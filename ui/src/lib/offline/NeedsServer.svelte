@@ -12,6 +12,7 @@
 	`offline_waits_edit` and `offline_waits_copy`.
 -->
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { Online } from './device.svelte';
 
 	interface Props {
@@ -31,6 +32,8 @@
 		 * where grey ink would not read.
 		 */
 		idleClass?: string;
+		/** Drawn before the words online, as a recipe's act draws its icon (#649). */
+		before?: Snippet;
 	}
 
 	let {
@@ -42,6 +45,7 @@
 		shapeClass,
 		lookClass,
 		idleClass = 'border border-rule text-ink-2 opacity-55',
+		before,
 	}: Props = $props();
 
 	const online = new Online();
@@ -53,7 +57,7 @@
 		disabled={disabled || busy}
 		aria-busy={busy ? 'true' : undefined}
 		{onclick}
-		class="{shapeClass} {lookClass}">{label}</button
+		class="{shapeClass} {lookClass}">{@render before?.()}{label}</button
 	>
 {:else}
 	<button type="button" disabled class="{shapeClass} {idleClass}">

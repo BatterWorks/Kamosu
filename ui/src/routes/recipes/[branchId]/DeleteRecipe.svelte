@@ -1,33 +1,28 @@
 <!--
-	Deleting this recipe (#120). Set apart from the grid of acts above, below
-	a rule and a gap, as small underlined text rather than another tile. That
-	was the choice of 22 September 2026 and option 1 of the audit of
-	9 October 2026 kept it (#220, chosen on 10 October over a list of rows in
-	which it was the last).
+	Deleting this recipe (#120). Asked for from the More sheet under Start
+	cooking (#649, option A chosen on 20 November 2026), where it stands apart
+	from every other act under a rule, in beni (U11). It stood under the grid
+	of acts at the foot of the page before, as small underlined text (#220).
 
-	The reasoning is about the thumb, not the look. Everything above is the
-	same shape, and *Add to shopping list* is the one people tap most often
-	without reading; a destructive tile beside it is a mis-tap waiting to
-	happen. Something that is not button-shaped, past the end of the acts,
-	cannot be reached by the habit that reaches for those.
+	The reasoning is about the thumb, not the look: *Add to shopping list* is
+	the act people tap most often without reading, and a destructive act
+	beside it is a mis-tap waiting to happen. Behind More, apart and asking
+	once, it cannot be reached by the habit that reaches for that one.
 
-	NOT in Writing, where the mockup drew it: that screen holds an unsaved
-	draft the whole time it is open, and a screen that can both lose your
-	typing and destroy the recipe is asking two very different questions with
-	one set of buttons.
+	NOT in Writing: that screen holds an unsaved draft the whole time it is
+	open, and a screen that can both lose your typing and destroy the recipe
+	is asking two very different questions with one set of buttons.
 
-	`NeedsServer` because deleting is a write against the recipes, which are
-	the server's side of the line and never queued (ADR 0013). The outbox
-	carries your own history, never the recipes — and it queues from an
-	allowlist, so this is already true rather than arranged.
+	Deleting is a write against the recipes, which are the server's side of
+	the line and never queued (ADR 0013); the More sheet greys it offline.
 
 	Only on a recipe you write (#131): deleting is a change, and anybody else's
 	version is theirs to keep or delete, so offering it would only ever be
-	offering a refusal. The recipe screen draws this only there.
+	offering a refusal. The recipe screen offers it only there.
 
-	The confirmation is drawn here too, on the reading page, and goes with it:
-	a read of the recipe that fails while it is open takes it away along with
-	the recipe it was about (#188).
+	The confirmation is drawn here, on the reading page, and goes with it: a
+	read of the recipe that fails while it is open takes it away along with
+	the recipe it was about (#188). The page opens it with `ask`.
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
@@ -35,7 +30,6 @@
 	import { useKamosu } from '#lib/kamosu.js';
 	import { OperationError } from '#lib/api/client.js';
 	import Confirm from '#lib/Confirm.svelte';
-	import NeedsServer from '#lib/offline/NeedsServer.svelte';
 
 	interface Props {
 		branchId: string;
@@ -77,7 +71,7 @@
 	 * opens rather than before — the sheet is drawn immediately either way,
 	 * and the line appears if the answer arrives saying there is one.
 	 */
-	async function ask() {
+	export async function ask() {
 		failed = undefined;
 		shareIsLive = 'no';
 		confirming = true;
@@ -113,17 +107,6 @@
 		}
 	}
 </script>
-
-<div class="mx-gutter mt-8 border-t border-rule pt-4 text-center">
-	<NeedsServer
-		label={m.recipe_delete()}
-		waiting={m.offline_waits_delete()}
-		onclick={ask}
-		shapeClass="inline-block px-3 py-2 text-read"
-		lookClass="text-support underline underline-offset-4"
-		idleClass="text-ink-2 opacity-55"
-	/>
-</div>
 
 <!--
 	The confirmation, in the one sheet Kamosu asks every irreversible thing

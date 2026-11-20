@@ -38,11 +38,11 @@ describe('a time typed as hours and minutes', () => {
 });
 
 describe('a time on the reading page', () => {
-	it('puts the unit in the figure: 15 min, 1 h 30, 9 h', () => {
+	it('puts the unit in the figure: 15 min, 1 h 30 min, 9 h (#649)', () => {
 		expect(figureOf(15)).toEqual([{ value: '15', unit: 'min' }]);
 		expect(figureOf(90)).toEqual([
 			{ value: '1', unit: 'h' },
-			{ value: '30', unit: null },
+			{ value: '30', unit: 'min' },
 		]);
 		expect(figureOf(540)).toEqual([{ value: '9', unit: 'h' }]);
 	});
@@ -50,13 +50,13 @@ describe('a time on the reading page', () => {
 	it('writes the minutes after an hour with two digits, as a Sheet does', () => {
 		expect(figureOf(65)).toEqual([
 			{ value: '1', unit: 'h' },
-			{ value: '05', unit: null },
+			{ value: '05', unit: 'min' },
 		]);
 	});
 
 	it('says a time inside a sentence the same way', () => {
 		expect(timeText(15)).toBe('15 min');
-		expect(timeText(90)).toBe('1 h 30');
+		expect(timeText(90)).toBe('1 h 30 min');
 		expect(timeText(540)).toBe('9 h');
 	});
 });

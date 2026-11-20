@@ -21,7 +21,7 @@ function renderThread(branchId: string, answers: Answers) {
 }
 
 describe('the Thread screen', () => {
-	it('is headed History, the word on the recipe’s button that opens it (#133)', async () => {
+	it('is headed History (#133), which a recipe opens as See older versions (#649)', async () => {
 		renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',

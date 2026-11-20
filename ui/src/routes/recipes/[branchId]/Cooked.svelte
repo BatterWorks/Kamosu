@@ -19,13 +19,18 @@
 
 	Worded impersonally, as the delete confirmation is (`DeleteRecipe.svelte`):
 	the count is the household's, never the reader's.
+
+	A verdict is said whole beside the name, "Would cook again", where the
+	button the cook pressed at the end of cooking says only "Again" (#649,
+	P13): beside a name, a single word read as a label, a rating or a button.
 -->
 <script lang="ts">
 	import { aDate } from '#lib/dates.js';
 	import type { Snippet } from 'svelte';
 	import { m } from '#lib/paraglide/messages.js';
 	import type { GetRecipeOutput } from '#lib/api/catalogue.js';
-	import { ratingLabel } from '#lib/rating.js';
+	import Section from '#lib/shell/Section.svelte';
+	import { ratingVerdict } from '#lib/rating.js';
 
 	interface Props {
 		cooked: GetRecipeOutput['cooked'];
@@ -38,10 +43,7 @@
 	let { cooked, branchId, children }: Props = $props();
 </script>
 
-<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-	{m.recipe_cooked()}
-</h2>
-<div class="px-gutter">
+<Section heading={m.recipe_cooked()} class="px-gutter">
 	{#if cooked.count === 0 || !cooked.last_cooked_at}
 		<p class="text-read text-ink-2">{m.recipe_cooked_never()}</p>
 	{:else}
@@ -71,10 +73,10 @@
 							</a>
 						{/if}
 					</span>
-					<span class="text-read text-accent uppercase">{ratingLabel(verdict.rating)}</span>
+					<span class="shrink-0 text-read text-accent">{ratingVerdict(verdict.rating)}</span>
 				</li>
 			{/each}
 		</ul>
 	{/if}
 	{@render children?.()}
-</div>
+</Section>

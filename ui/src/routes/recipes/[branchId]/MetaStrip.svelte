@@ -13,7 +13,7 @@
 </script>
 
 <!--
-	A time in the strip, with its unit in the figure: `15 min`, `1 h 30`, `9 h`
+	A time in the strip, with its unit in the figure: `15 min`, `1 h 30 min`, `9 h`
 	(#175, reading option 1). It printed the stored minutes bare
 	before, over "min prep", so a 9-hour prove read 540. The label beneath is
 	now only Prep or Cook, since the figure says its own unit.
@@ -33,23 +33,30 @@
 {#if content.prep_time_minutes !== null || content.cook_time_minutes !== null || content.yield}
 	<div class="mt-4 flex border-y border-rule">
 		{#if content.prep_time_minutes !== null}
-			<div class="flex-1 px-2 py-3 text-center">
+			<div class="flex-1 px-2 py-2 text-center">
 				{@render timeFigure(content.prep_time_minutes)}
 				<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_prep()}</span>
 			</div>
 		{/if}
 		{#if content.cook_time_minutes !== null}
-			<div class="flex-1 border-l border-rule px-2 py-3 text-center first:border-l-0">
+			<div class="flex-1 border-l border-rule px-2 py-2 text-center first:border-l-0">
 				{@render timeFigure(content.cook_time_minutes)}
 				<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_cook()}</span>
 			</div>
 		{/if}
 		{#if content.yield}
-			<div class="flex-1 border-l border-rule px-2 py-3 text-center first:border-l-0">
+			<div class="flex-1 border-l border-rule px-2 py-2 text-center first:border-l-0">
+				<!--
+					What it makes, with its noun in the figure as a time carries its
+					unit, under "makes" (#649, P8): "1 dish" alone was read as a
+					count of something unnamed.
+				-->
 				<b class="block font-display text-panel-figure font-semibold">
-					{content.yield.amount}
+					{content.yield.amount}{#if content.yield.noun}<small class="ms-1 text-read font-normal"
+							>{content.yield.noun}</small
+						>{/if}
 				</b>
-				<span class="mt-1 block text-label text-ink-2 uppercase">{content.yield.noun}</span>
+				<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_makes()}</span>
 			</div>
 		{/if}
 	</div>

@@ -80,6 +80,51 @@ describe('a control drawn under 48', () => {
 });
 
 /**
+ * A control `tap-tall` grows to 48 tall and no wider (#649), so its row's
+ * neighbours beside it stay clear: a recipe's Tag, outlined as it is drawn,
+ * and an Ingredient Line, the width of its column.
+ */
+const TALL = {
+	'tap-tall on a Tag':
+		'<a href="#" class="tap-tall inline-flex min-h-8 items-baseline gap-2 rounded-sm border px-3 py-1 text-read">Dinner ›</a>',
+	'tap-tall on an Ingredient Line':
+		'<button class="tap-tall block w-full text-left"><span class="block text-line">250 g flour</span></button>',
+};
+
+describe('a control tapped tall', () => {
+	it.each(Object.entries(TALL))('%s is tapped 48 tall, and no wider', async (_name, markup) => {
+		const page = await drawn(browser, `<div style="padding: 64px">${markup}</div>`, {
+			size: SIZES.phone,
+		});
+		try {
+			const control = page.locator('a, button').first();
+			const box = (await control.boundingBox())!;
+			expect(box.height).toBeLessThan(48);
+			const x = box.x + box.width / 2;
+			const y = box.y + box.height / 2;
+			const hits = await page.evaluate(
+				(points) => {
+					const control = document.querySelector('a, button')!;
+					return points.map(([x, y]) => {
+						const hit = document.elementFromPoint(x, y);
+						return hit !== null && control.contains(hit);
+					});
+				},
+				[
+					[x, y - REACH],
+					[x, y + REACH],
+					[box.x - 2, y],
+					[box.x + box.width + 2, y],
+				] as [number, number][],
+			);
+			expect(hits).toEqual([true, true, false, false]);
+		} finally {
+			await page.close();
+		}
+	});
+});
+
+/**
  * The pieces #632 added are drawn at 48 or more, so they need no round: the
  * shortest label still makes a control 48 each way, and a list row is
  * taller than 48 whatever it holds.

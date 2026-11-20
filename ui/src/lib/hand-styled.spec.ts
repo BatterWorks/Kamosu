@@ -5,7 +5,7 @@
  * button drawn by hand: the audit of November 2026 counted 58 filled indigo
  * controls drawn 13 ways. The pieces are `main-button`, `second-button` and
  * `quiet-button`, with the controls that have one shape of their own
- * (`shelf-arrow`, `step-button`, `act-tile`, `tap-out`) and the rows of a
+ * (`shelf-arrow`, `step-button`, `tap-out`) and the rows of a
  * list (`list-row`).
  *
  * The files that drew their own when the pieces arrived are listed below.
@@ -89,12 +89,9 @@ const STILL_HAND_STYLED: string[] = [
 	'routes/recipes/[branchId]/LanguageOffer.svelte',
 	'routes/recipes/[branchId]/LanguageSheet.svelte',
 	'routes/recipes/[branchId]/MarkedRow.svelte',
-	'routes/recipes/[branchId]/MyPictures.svelte',
 	'routes/recipes/[branchId]/PlanThis.svelte',
 	'routes/recipes/[branchId]/Promotion.svelte',
 	'routes/recipes/[branchId]/ReadAgain.svelte',
-	'routes/recipes/[branchId]/Recipe.svelte',
-	'routes/recipes/[branchId]/RelatedRecipes.svelte',
 	'routes/recipes/[branchId]/RelatedSheet.svelte',
 	'routes/recipes/[branchId]/RenameSheet.svelte',
 	'routes/recipes/[branchId]/StepUsesSheet.svelte',
@@ -132,7 +129,6 @@ const PIECES = [
 	'quiet-button',
 	'shelf-arrow',
 	'step-button',
-	'act-tile',
 	'tap-out',
 	'list-row',
 ];
