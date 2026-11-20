@@ -109,18 +109,11 @@
 		{#if refused}
 			<p class="mt-2 text-read text-support" role="alert"><Refusal words={refused} /></p>
 		{/if}
-		<button
-			class="mt-4 block w-full bg-accent p-4 text-center font-display text-body text-on-accent disabled:opacity-60"
-			disabled={working}
-		>
+		<button class="mt-4 main-button w-full" disabled={working}>
 			{m.recipe_version_name_save()}
 		</button>
 	</form>
-	<button
-		type="button"
-		class="mt-2 block w-full border border-rule p-4 text-center font-display text-body text-accent"
-		onclick={onClose}
-	>
+	<button type="button" class="mt-2 second-button w-full" onclick={onClose}>
 		{m.recipe_version_name_cancel()}
 	</button>
 	{#if name !== null}

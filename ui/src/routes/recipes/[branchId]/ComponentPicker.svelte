@@ -122,7 +122,7 @@
 					<li>
 						<button
 							type="button"
-							class="block min-h-12 w-full border-b border-rule px-gutter py-3 text-left"
+							class="list-row flex-col items-start gap-0 px-gutter"
 							onclick={() => onChoose({ lineageId: entry.lineage_id, title: entry.title })}
 						>
 							<span class="block text-line">{entry.title}</span>
@@ -142,11 +142,9 @@
 		{/if}
 	</div>
 
-	<button
-		type="button"
-		class="block w-full border-t border-rule p-4 text-center font-display text-body text-ink-2"
-		onclick={onCancel}
-	>
-		{m.component_pick_cancel()}
-	</button>
+	<div class="border-t border-rule px-gutter py-3">
+		<button type="button" class="second-button w-full" onclick={onCancel}>
+			{m.component_pick_cancel()}
+		</button>
+	</div>
 </SheetFrame>

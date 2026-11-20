@@ -29,6 +29,7 @@
 	import { useUpload } from '#lib/api/upload.js';
 	import { OperationError } from '#lib/api/client.js';
 	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import NoticeCard from '#lib/NoticeCard.svelte';
 	import { Online } from '#lib/offline/device.svelte.js';
 	import { ICON } from '#lib/adding/sources.js';
 	import type { CanReadRecipeAgainOutput } from '#lib/api/catalogue.js';
@@ -175,28 +176,22 @@
 		}
 	}
 
-	const PRIMARY =
-		'min-h-12 w-full rounded-sm px-4 font-display text-body font-semibold disabled:opacity-60';
-	const SECOND = 'min-h-12 w-full rounded-sm border border-rule px-4 text-body disabled:opacity-40';
+	/** The panel's act, and the way back out of it, under the page's one main button (U6). */
+	const ACT = 'second-button w-full';
+	const AWAY = 'quiet-button w-full text-ink-2 whitespace-normal';
 </script>
 
 {#if offered}
-	<section
-		class="mx-gutter mt-6 rounded-sm border border-rule bg-card px-3 py-3"
-		aria-labelledby="{uid}-heading"
-	>
-		<h2 id="{uid}-heading" class="text-label font-normal text-ink-2 uppercase">
-			{m.read_again_heading()}
-		</h2>
-		<p class="mt-1 text-read text-ink-2">{lede} {m.read_again_keeps()}</p>
+	<NoticeCard title={m.read_again_heading()} announce={false} class="mx-gutter mt-6">
+		<p class="text-ink-2">{lede} {m.read_again_keeps()}</p>
 
 		{#if step === 'rest'}
 			<NeedsServer
 				label={m.read_again_do()}
 				waiting={m.read_again_waits()}
 				onclick={press}
-				shapeClass="mt-3 {SECOND}"
-				lookClass="text-accent"
+				shapeClass="mt-3 {ACT}"
+				lookClass=""
 				idleClass="text-ink-2 opacity-55"
 			/>
 		{:else}
@@ -257,10 +252,11 @@
 							waiting={m.read_again_waits()}
 							disabled={sending}
 							onclick={send}
-							shapeClass={PRIMARY}
-							lookClass="bg-accent text-on-accent"
+							shapeClass={ACT}
+							lookClass=""
+							idleClass="text-ink-2 opacity-55"
 						/>
-						<button type="button" class="{SECOND} text-accent" disabled={sending} onclick={back}
+						<button type="button" class={AWAY} disabled={sending} onclick={back}
 							>{m.read_again_no()}</button
 						>
 					</div>
@@ -288,11 +284,7 @@
 					<div class="mt-3 grid gap-2">
 						<!-- Not NeedsServer: the chosen page draws a camera beside the words. -->
 						{#if online.current}
-							<button
-								type="button"
-								class="{PRIMARY} flex items-center justify-center gap-2 bg-accent text-on-accent"
-								onclick={() => field?.click()}
-							>
+							<button type="button" class={ACT} onclick={() => field?.click()}>
 								{#if original === 'picture'}
 									<svg
 										viewBox="0 0 24 24"
@@ -308,16 +300,9 @@
 								{original === 'pdf' ? m.read_again_choose_pdf() : m.read_again_choose_picture()}
 							</button>
 						{:else}
-							<button
-								type="button"
-								disabled
-								class="{PRIMARY} border border-rule text-ink-2 opacity-55"
-								>{m.read_again_waits()}</button
-							>
+							<button type="button" disabled class={ACT}>{m.read_again_waits()}</button>
 						{/if}
-						<button type="button" class="{SECOND} text-accent" onclick={back}
-							>{m.read_again_back()}</button
-						>
+						<button type="button" class={AWAY} onclick={back}>{m.read_again_back()}</button>
 					</div>
 				{:else}
 					<div class="mt-3 grid gap-2">
@@ -326,18 +311,16 @@
 							waiting={m.read_again_waits()}
 							disabled={sending || (step === 'pasting' && pasted.trim() === '')}
 							onclick={send}
-							shapeClass={PRIMARY}
-							lookClass="bg-accent text-on-accent"
+							shapeClass={ACT}
+							lookClass=""
+							idleClass="text-ink-2 opacity-55"
 						/>
 						{#if step === 'choosing'}
-							<button
-								type="button"
-								class="{SECOND} text-accent"
-								disabled={sending}
-								onclick={() => (chosen = null)}>{m.read_again_choose_another()}</button
+							<button type="button" class={AWAY} disabled={sending} onclick={() => (chosen = null)}
+								>{m.read_again_choose_another()}</button
 							>
 						{:else}
-							<button type="button" class="{SECOND} text-accent" disabled={sending} onclick={back}
+							<button type="button" class={AWAY} disabled={sending} onclick={back}
 								>{m.read_again_back()}</button
 							>
 						{/if}
@@ -345,5 +328,5 @@
 				{/if}
 			</div>
 		{/if}
-	</section>
+	</NoticeCard>
 {/if}

@@ -1100,6 +1100,8 @@
   font-size: var(--text-read);
   font-weight: 500;
   white-space: nowrap;
+  /* Its own white darkens as a card's does, on indigo too (#666). */
+  --under-pointer: var(--color-ground-2);
 
   &::after {
     content: "";
@@ -1234,6 +1236,13 @@
   --button-ink: var(--color-support);
 }
 
+/* A secondary button that leads into the library, in matcha: the colour of
+   a Reading that points at a recipe everywhere on the recipe page (#50,
+   #666). */
+@utility matcha {
+  --button-ink: var(--color-support-2);
+}
+
 /* One line of a list that opens something (#632, `rows-E.html`): on the
    paper between hairlines, as Settings drew its menu, with an arrow on its
    right that says it opens (U8). `ListRow.svelte` lays out what is in it;
@@ -1277,6 +1286,53 @@
     content: "";
     position: absolute;
     inset: calc(-8px - 1px);
+  }
+}
+
+/* A version's chip on the band at the top of a recipe kept in several
+   versions (#131, #666): its name over whose it is, an outline on the band's
+   own colour, and the version on screen in the card's white. No other piece
+   draws an outline in the band's own ink with one of them filled, so it is
+   a piece of its own. The version on screen says so with
+   `aria-current="page"`, which is what draws it. */
+@utility version-chip {
+  display: flex;
+  min-height: 48px;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--spacing-1) var(--spacing-3);
+  border: 1px solid color-mix(in srgb, var(--color-on-accent) 35%, transparent);
+  border-radius: var(--radius-sm);
+  color: var(--color-on-accent);
+
+  &[aria-current="page"] {
+    border-color: var(--color-card);
+    background: var(--color-card);
+    color: var(--color-ink);
+    --under-pointer: var(--color-ground-2);
+  }
+}
+
+/* A recipe's Tag, the word that opens the shelf of every recipe it is on
+   (#666, option B chosen on 20 November 2026 over the `quiet-button`): an
+   outlined word on the card's white, drawn 32 tall. A piece of its own
+   because none of the others is that shape. It is tapped 48 tall by
+   `tap-tall` beside it. "Add a tag" wears it dashed and unfilled, so on an
+   untagged recipe it does not read as a Tag called "Add a tag". */
+@utility tag-chip {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: baseline;
+  gap: var(--spacing-2);
+  padding: var(--spacing-1) var(--spacing-3);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  background: var(--color-card);
+  font-size: var(--text-read);
+  --under-pointer: var(--color-ground-2);
+
+  &.border-dashed {
+    background: none;
   }
 }
 

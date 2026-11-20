@@ -5,8 +5,8 @@
  * button drawn by hand: the audit of November 2026 counted 58 filled indigo
  * controls drawn 13 ways. The pieces are `main-button`, `second-button` and
  * `quiet-button`, with the controls that have one shape of their own
- * (`shelf-arrow`, `step-button`, `tap-out`) and the rows of a
- * list (`list-row`).
+ * (`shelf-arrow`, `step-button`, `tap-out`, `version-chip`, `tag-chip`) and
+ * the rows of a list (`list-row`).
  *
  * The files that drew their own when the pieces arrived are listed below.
  * The list only shrinks: each area ticket of #627 moves its files onto the
@@ -83,21 +83,6 @@ const STILL_HAND_STYLED: string[] = [
 	'routes/recipes/MeaningOffer.svelte',
 	'routes/recipes/Plus.svelte',
 	'routes/recipes/Shelf.svelte',
-	'routes/recipes/[branchId]/Carrying.svelte',
-	'routes/recipes/[branchId]/ComponentPicker.svelte',
-	'routes/recipes/[branchId]/Correcting.svelte',
-	'routes/recipes/[branchId]/LanguageOffer.svelte',
-	'routes/recipes/[branchId]/LanguageSheet.svelte',
-	'routes/recipes/[branchId]/MarkedRow.svelte',
-	'routes/recipes/[branchId]/PlanThis.svelte',
-	'routes/recipes/[branchId]/Promotion.svelte',
-	'routes/recipes/[branchId]/ReadAgain.svelte',
-	'routes/recipes/[branchId]/RelatedSheet.svelte',
-	'routes/recipes/[branchId]/RenameSheet.svelte',
-	'routes/recipes/[branchId]/StepUsesSheet.svelte',
-	'routes/recipes/[branchId]/TagSheet.svelte',
-	'routes/recipes/[branchId]/Tags.svelte',
-	'routes/recipes/[branchId]/VersionStrip.svelte',
 	'routes/recipes/[branchId]/Writing.svelte',
 	'routes/recipes/[branchId]/thread/ThreadGraph.svelte',
 	'routes/recipes/[branchId]/versions/OlderVersion.svelte',
@@ -131,6 +116,11 @@ const PIECES = [
 	'step-button',
 	'tap-out',
 	'list-row',
+	// A version's chip stands on the recipe's indigo or beni band, where
+	// the pieces drawn for the paper would not read (#666).
+	'version-chip',
+	// A recipe's Tag, today's outlined word, chosen over the quiet button (#666).
+	'tag-chip',
 ];
 
 const FILL = /(?<![\w-])bg-(?!transparent(?![\w-]))[a-z]/;

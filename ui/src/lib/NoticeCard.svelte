@@ -36,10 +36,26 @@
 		title?: string;
 		tone?: 'plain' | 'waiting' | 'warning';
 		actions?: NoticeAction[];
+		/**
+		 * Whether a screen reader reads it out as it appears and as it changes.
+		 * Off for a card that holds a form or a list a person works through, as
+		 * reading again or keeping a cooking does (#666): read out, every word
+		 * typed or label turned would read the whole card again. It is then a
+		 * named region, found by its title.
+		 */
+		announce?: boolean;
 		children: Snippet;
 	}
 
-	let { title, tone = 'plain', actions = [], children, class: more, ...rest }: Props = $props();
+	let {
+		title,
+		tone = 'plain',
+		actions = [],
+		announce = true,
+		children,
+		class: more,
+		...rest
+	}: Props = $props();
 </script>
 
 <section
@@ -51,7 +67,7 @@
 		more,
 	]}
 	aria-label={title}
-	role={tone === 'warning' ? 'alert' : 'status'}
+	role={!announce ? undefined : tone === 'warning' ? 'alert' : 'status'}
 >
 	{#if title}
 		<h2 class={['mb-1 font-display text-line font-semibold', tone === 'warning' && 'text-support']}>

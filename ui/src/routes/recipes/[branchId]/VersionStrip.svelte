@@ -60,9 +60,7 @@
 				<a
 					href="/recipes/{version.branch_id}"
 					aria-current={here ? 'page' : undefined}
-					class="flex min-h-12 flex-col justify-center rounded-sm border px-3 py-1 {here
-						? 'border-card bg-card text-ink'
-						: 'border-on-accent/35 text-on-accent'}"
+					class="version-chip"
 				>
 					<span class="font-display text-body font-semibold">{label.name}</span>
 					<span class="text-label opacity-75">{label.whose}</span>
@@ -88,11 +86,7 @@
 				{m.divergence_unshared({ count: compared.unshared, kitchen: compared.with })}
 			{/if}
 		</p>
-		<button
-			type="button"
-			onclick={toggleMarks}
-			class="rounded-sm border border-rule bg-card px-3 py-1 text-read text-accent"
-		>
+		<button type="button" onclick={toggleMarks} class="quiet-button shrink-0 text-accent">
 			{marks ? m.divergence_hide() : m.divergence_show()}
 		</button>
 	</div>

@@ -141,8 +141,7 @@
 						disabled={here || barred || saying !== null}
 						aria-current={here ? 'true' : undefined}
 						onclick={() => say(each)}
-						class="flex min-h-12 w-full items-center gap-3 border-b border-rule px-gutter py-2
-						text-left disabled:opacity-60"
+						class="list-row px-gutter disabled:opacity-60"
 					>
 						<span class="min-w-0 flex-1">
 							<span class="block text-line {barred ? 'text-ink-2' : 'text-ink'}">
@@ -189,8 +188,7 @@
 							type="button"
 							disabled={saying !== null}
 							onclick={() => onTranslate(into)}
-							class="flex min-h-12 w-full items-center border-b border-rule px-gutter py-2
-							text-left text-line text-accent disabled:opacity-60"
+							class="list-row px-gutter text-line text-accent disabled:opacity-60"
 						>
 							{m.recipe_language_translate_into({ language: languageName(into) })}
 						</button>
@@ -200,11 +198,9 @@
 		{/if}
 	</div>
 
-	<button
-		type="button"
-		class="block w-full border-t border-rule p-4 text-center font-display text-body text-accent"
-		onclick={onClose}
-	>
-		{m.recipe_language_done()}
-	</button>
+	<div class="border-t border-rule px-gutter py-3">
+		<button type="button" class="second-button w-full" onclick={onClose}>
+			{m.recipe_language_done()}
+		</button>
+	</div>
 </SheetFrame>
