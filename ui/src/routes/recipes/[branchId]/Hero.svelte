@@ -19,6 +19,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Cover from '#lib/cover/Cover.svelte';
+	import BackOnPhoto from '#lib/shell/BackOnPhoto.svelte';
 
 	interface Props {
 		lineageId: string;
@@ -27,9 +28,14 @@
 		photo: string | null;
 		/** What stands on it, at the hem. */
 		over: Snippet;
+		/**
+		 * Where the back arrow on its corner leads, on the phone (#649). Omitted
+		 * where the page draws no arrow, as the writing screen does.
+		 */
+		back?: string;
 	}
 
-	let { lineageId, title, photo, over }: Props = $props();
+	let { lineageId, title, photo, over, back }: Props = $props();
 </script>
 
 <div class="relative overflow-hidden">
@@ -49,4 +55,7 @@
 	<div class="absolute inset-x-0 bottom-0 px-gutter pt-8 pb-4">
 		{@render over()}
 	</div>
+	{#if back}
+		<BackOnPhoto parent={back} />
+	{/if}
 </div>

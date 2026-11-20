@@ -96,7 +96,7 @@ export function marking(page: {
 
 	/**
 	 * A marked value in words. The two times are minutes, so they read with
-	 * their unit, `1 h 30`, as they do in the strip (#175); everything else is
+	 * their unit, `1 h 30 min`, as they do in the strip (#175); everything else is
 	 * `fieldText`'s.
 	 */
 	function markText(name: Field, value: unknown): string {

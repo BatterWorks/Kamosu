@@ -13,15 +13,27 @@
 
 	interface Props extends HTMLAttributes<HTMLElement> {
 		heading: string;
+		/** A small act at the heading's end, as the recipe's jump to its Method (#649). */
+		aside?: Snippet;
 		children: Snippet;
 	}
 
-	let { heading, children, class: more, ...rest }: Props = $props();
+	let { heading, aside, children, class: more, ...rest }: Props = $props();
+
+	/** The rule under a heading, and the words of one, written once for both shapes. */
+	const RULED = 'mb-3 border-b border-rule pb-2';
+	const WORDS = 'text-label font-medium text-accent uppercase';
 </script>
 
 <section {...rest} class={['mt-8', more]}>
-	<h2 class="mb-3 border-b border-rule pb-2 text-label font-medium text-accent uppercase">
-		{heading}
-	</h2>
+	{#if aside}
+		<!-- An act stands beside the heading rather than inside it, so the heading's name stays its words. -->
+		<div class="{RULED} flex items-baseline justify-between gap-3">
+			<h2 class={WORDS}>{heading}</h2>
+			{@render aside()}
+		</div>
+	{:else}
+		<h2 class="{RULED} {WORDS}">{heading}</h2>
+	{/if}
 	{@render children()}
 </section>

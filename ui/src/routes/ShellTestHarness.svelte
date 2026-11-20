@@ -12,15 +12,17 @@
 	import Kamosu from '#lib/shell/Kamosu.svelte';
 	import Shell from '#lib/shell/Shell.svelte';
 	import Shelf from './recipes/Shelf.svelte';
+	import BackOnPhoto from '#lib/shell/BackOnPhoto.svelte';
 
 	interface Props {
 		pathname: string;
 		room: Room;
 		/**
 		 * What the screen holds: the account form, as `/` does for a stranger,
-		 * the story, or the shelf Recipes draws, with its search box.
+		 * the story, the shelf Recipes draws, with its search box, or a
+		 * recipe's photograph carrying its own back arrow (#649).
 		 */
-		holds?: 'account' | 'story' | 'shelf';
+		holds?: 'account' | 'story' | 'shelf' | 'photo';
 		/** The instance is a Demo, which draws its strip (#407). */
 		demo?: boolean;
 	}
@@ -69,6 +71,8 @@
 					<Story ending="about" />
 				{:else if holds === 'shelf'}
 					<Shelf tag={null} />
+				{:else if holds === 'photo'}
+					<div class="relative"><BackOnPhoto parent="/recipes" /></div>
 				{/if}
 			</main>
 		{/snippet}

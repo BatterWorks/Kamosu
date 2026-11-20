@@ -19,6 +19,22 @@ import type { GetRecipeOutput } from '#lib/api/catalogue.js';
  */
 export type Rating = GetRecipeOutput['cooked']['ratings'][number]['rating'];
 
+/**
+ * One verdict as the cooking log says it beside a cook's name (#649): whole,
+ * "Would cook again", where the button the cook pressed says "Again". Beside
+ * a name a single word read as a label, a rating or a button (P13).
+ */
+export function ratingVerdict(rating: Rating): string {
+	switch (rating) {
+		case 'again':
+			return m.cooked_verdict_again();
+		case 'tweak':
+			return m.cooked_verdict_tweak();
+		case 'no':
+			return m.cooked_verdict_no();
+	}
+}
+
 /** One verdict in the reader's language. */
 export function ratingLabel(rating: Rating): string {
 	switch (rating) {

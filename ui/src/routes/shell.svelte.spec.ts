@@ -19,7 +19,7 @@ import { went } from '../testing/navigation';
 import { forgetSlash } from '#lib/shell/slash.js';
 import type { Room } from '#lib/room.svelte.js';
 
-function shell(pathname: string, room: Room, holds?: 'account' | 'story' | 'shelf') {
+function shell(pathname: string, room: Room, holds?: 'account' | 'story' | 'shelf' | 'photo') {
 	render(ShellTestHarness, { props: { pathname, room, holds } });
 }
 
@@ -438,6 +438,22 @@ describe('the back arrow', () => {
 			expect(arrow()?.className).not.toContain('fixed');
 		},
 	);
+
+	it('is drawn on the photograph on the phone where a recipe carries one there, and only there (#649)', () => {
+		shell('/recipes/b_soba', 'phone', 'photo');
+
+		expect(screen.getAllByRole('link', { name: m.shell_back() })).toHaveLength(1);
+		expect(arrow()).toHaveAttribute('href', '/recipes');
+		expect(arrow()?.className).toContain('back-arrow-photo');
+	});
+
+	it('stays the shell’s own on the wide layout, where a photograph carries none (#649)', () => {
+		shell('/recipes/b_soba', 'wide', 'photo');
+
+		expect(screen.getAllByRole('link', { name: m.shell_back() })).toHaveLength(1);
+		expect(arrow()?.className).toContain('back-arrow');
+		expect(arrow()?.className).not.toContain('back-arrow-photo');
+	});
 
 	it.each([['/'], ['/recipes'], ['/plan'], ['/shopping'], ['/cooked'], ['/settings']])(
 		"is not on %s on the phone either, one of the bar's places or the gear's",

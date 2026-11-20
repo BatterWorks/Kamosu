@@ -220,6 +220,8 @@ describe('every sheet in Kamosu', () => {
 			'FilterList.svelte',
 			'HouseNotes.svelte',
 			'LanguageSheet.svelte',
+			// The rarer acts on a recipe, behind More (#649).
+			'MoreSheet.svelte',
 			'MoveSheet.svelte',
 			'Passkeys.svelte',
 			'PasteSheet.svelte',

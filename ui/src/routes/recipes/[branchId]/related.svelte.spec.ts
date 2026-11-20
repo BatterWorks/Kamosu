@@ -72,7 +72,7 @@ describe('a recipe’s related recipes', () => {
 		draw([]);
 
 		expect(screen.getByText('Related recipes')).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Relate a recipe' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Add a related recipe' })).toBeInTheDocument();
 	});
 
 	it('draws each link as a card that opens that recipe', () => {
@@ -129,7 +129,7 @@ describe('a recipe’s related recipes', () => {
 			},
 		});
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Relate a recipe' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Add a related recipe' }));
 
 		// The one place ADR 0035's promise is spelt out. Said here rather than on
 		// every recipe forever, which would be a lecture.
@@ -143,7 +143,7 @@ describe('a recipe’s related recipes', () => {
 			set_related_recipe: { related_recipes: [NAAN] },
 		});
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Relate a recipe' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Add a related recipe' }));
 		const row = await screen.findByRole('switch', { name: /Naan/ });
 		expect(row).toHaveAttribute('aria-checked', 'false');
 
@@ -174,7 +174,7 @@ describe('a recipe’s related recipes', () => {
 			set_related_recipe: { related_recipes: [] },
 		});
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Relate a recipe' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Add a related recipe' }));
 
 		// It is listed even though no search could find it, because it is not on
 		// the shelf to be found.
@@ -199,7 +199,7 @@ describe('a recipe’s related recipes', () => {
 			},
 		});
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Relate a recipe' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Add a related recipe' }));
 
 		expect(await screen.findByRole('switch', { name: /Naan/ })).toBeInTheDocument();
 		expect(screen.queryByRole('switch', { name: /This one/ })).not.toBeInTheDocument();
@@ -210,7 +210,7 @@ describe('a recipe’s related recipes', () => {
 			search_recipes: { closest: false, query: null, recipes: [found('naan', 'Naan')] },
 		});
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Relate a recipe' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Add a related recipe' }));
 
 		expect(await screen.findAllByRole('switch', { name: /Naan/ })).toHaveLength(1);
 	});
@@ -221,7 +221,7 @@ describe('a recipe’s related recipes', () => {
 			set_related_recipe: { related_recipes: [NAAN, RICE] },
 		});
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Relate a recipe' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Add a related recipe' }));
 		await fireEvent.click(await screen.findByRole('switch', { name: /Avocado Rice/ }));
 
 		// Relating is not what a recipe is (ADR 0035), and it never joins two
@@ -244,7 +244,7 @@ describe('a recipe’s related recipes', () => {
 				recipes: query === 'rice' ? [found('marcs_rice', 'Marc’s Rice')] : [found('naan', 'Naan')],
 			}),
 		});
-		await fireEvent.click(screen.getByRole('button', { name: 'Relate a recipe' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Add a related recipe' }));
 		expect(await screen.findByRole('switch', { name: /Naan/ })).toBeInTheDocument();
 
 		await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'rice' } });
@@ -263,7 +263,7 @@ describe('a recipe’s related recipes', () => {
 				recipes: [served === 'phone' ? found('naan', 'Naan') : found('rice', 'Avocado Rice')],
 			}),
 		});
-		await fireEvent.click(screen.getByRole('button', { name: 'Relate a recipe' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Add a related recipe' }));
 		await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'side' } });
 		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ query: 'side' }));
 		expect(await screen.findByRole('switch', { name: /Naan/ })).toBeInTheDocument();

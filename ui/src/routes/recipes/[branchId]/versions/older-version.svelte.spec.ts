@@ -303,25 +303,32 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 			expect(screen.queryByRole('heading', { name: gone })).toBeNull();
 		for (const gone of [
 			'Edit this recipe',
-			'Language',
-			'Share this recipe',
-			'Print a sheet',
-			'Add to shopping list',
+			'Translate this recipe',
+			'Share',
+			'Print this recipe',
+			'Shopping list',
+			'More',
 			'Delete this recipe',
 			'Change',
 		])
 			expect(screen.queryByRole('button', { name: gone })).toBeNull();
 		expect(screen.queryByRole('link', { name: 'Share this recipe' })).toBeNull();
 
-		// The foot holds the way back, and the Thread.
-		expect(screen.getByRole('link', { name: 'The recipe as it stands' })).toHaveAttribute(
+		// The bar holds the way back, and the Thread is among this Version's
+		// acts under its cook button (#649).
+		expect(screen.getByRole('link', { name: 'The recipe now' })).toHaveAttribute(
 			'href',
 			'/recipes/b_1',
 		);
-		expect(screen.getByRole('link', { name: 'History' })).toHaveAttribute(
-			'href',
-			'/recipes/b_1/thread',
-		);
+		const older = screen.getByRole('link', { name: 'See older versions' });
+		expect(older).toHaveAttribute('href', '/recipes/b_1/thread');
+		const cook = screen.getByRole('button', { name: 'Cook this older Version' });
+		const ingredients = screen.getByRole('heading', { name: /ingredients/i });
+		expect(cook.compareDocumentPosition(older) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(
+			older.compareDocumentPosition(ingredients) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(screen.queryByRole('link', { name: 'The recipe as it stands' })).toBeNull();
 	});
 
 	it('cooks from this Version: the Attempt is pinned to it', async () => {

@@ -11,6 +11,8 @@
 
 - The share screen's buttons are drawn as every screen's will be: the main one in the interface's own bold face, the others outlined in indigo, and ending the link outlined in red. A button that is working turns a spinner before its words. Before, they were set in the recipe's serif face, and the outlined ones had a faint outline that read as greyed out. [#632]
 - Sharing a recipe says what a reader of the link gets before the link exists: *Make a link…* opens a panel listing the recipe and its photos, every earlier version with its notes and who wrote them, the recipes it uses, and that ending the link later doesn't take back a copy someone saved, and the link is made from there. Before, a pale line said so above *Turn on the link*, which made the link in one tap. *End the link…* now sits apart at the foot and asks first, and the recipe file says it is for moving the recipe to another Kamosu. [#648]
+- A recipe's first screen holds what you do with it: *Start cooking*, and under it *Plan*, *Shopping list*, *Share* and *More*, which holds editing, older versions, translating, printing and, apart, deleting. The photograph is shorter, the tags come after the method, and a link beside *Ingredients* jumps to the method, so the ingredients start on the first screen. Adding to the shopping list says how many ingredients went, with *Undo*. Before, every act but cooking and planning sat in a grid at the foot of the page, after the whole method. [#649]
+- A recipe says plainly what it means: a yield reads *4 servings* under *makes*, a long time *1 h 30 min* here, on a printed recipe, on a shared recipe's page and in a recipe's notes file, the cooking log *Would cook again* beside a name, and the note after the method has its heading. The back arrow on a phone stands on the photograph and scrolls away with it rather than covering a step. Before, *1 h 30* with a small *h* could read as 130, and the log said only *AGAIN*. [#649]
 - A Kitchen's card leads with inviting, and renaming it, your own name for it, removing someone and leaving are under *Change this Kitchen*, removing and leaving asking first. Before, they sat together at one weight, and removing someone took one tap. Every invite says it works once, for the first person who opens it, until you cancel it, and cancelling asks first. [#648]
 
 ### Fixed
@@ -22,6 +24,7 @@
 [#632]: https://github.com/BatterWorks/Kamosu/issues/632
 [#634]: https://github.com/BatterWorks/Kamosu/issues/634
 [#648]: https://github.com/BatterWorks/Kamosu/issues/648
+[#649]: https://github.com/BatterWorks/Kamosu/issues/649
 [#663]: https://github.com/BatterWorks/Kamosu/issues/663
 
 ## v0.6.0 - 2026-11-13

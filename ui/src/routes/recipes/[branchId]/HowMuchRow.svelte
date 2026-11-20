@@ -25,7 +25,7 @@
 	let { written, scaledTo, choosing = $bindable(), failed, onchoose }: Props = $props();
 </script>
 
-<div class="mx-gutter mb-2">
+<div class="mb-2">
 	<div class="flex items-center justify-between gap-3">
 		<p class="min-w-0 text-read {scaledTo ? 'font-semibold text-accent' : 'text-ink-2'}">
 			{scaledTo

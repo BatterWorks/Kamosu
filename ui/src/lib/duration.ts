@@ -53,9 +53,10 @@ export interface FigurePart {
 
 /**
  * A time as the reading page draws it, with the unit in the figure: `15 min`,
- * `1 h 30`, `9 h` (#175, reading option 1). The minutes after an hour carry no
- * unit and two digits, the same rule the Sheet's `duration` follows in
- * `src/sheet.rs`, so a printed recipe and the page agree.
+ * `1 h 30 min`, `9 h` (#175, reading option 1). The minutes after an hour
+ * carry their unit and two digits: a bare `1 h 30` with a small h read as 130
+ * (#649). The Sheet's `duration` in `src/sheet.rs` follows the same rule, so a
+ * printed recipe and the page agree.
  */
 export function figureOf(minutes: number): FigurePart[] {
 	const hours = Math.floor(minutes / 60);
@@ -64,12 +65,12 @@ export function figureOf(minutes: number): FigurePart[] {
 	if (rest === 0) return [{ value: String(hours), unit: 'h' }];
 	return [
 		{ value: String(hours), unit: 'h' },
-		{ value: String(rest).padStart(2, '0'), unit: null },
+		{ value: String(rest).padStart(2, '0'), unit: 'min' },
 	];
 }
 
 /**
- * A time as one line of words, `1 h 30`, where it sits inside a sentence
+ * A time as one line of words, `1 h 30 min`, where it sits inside a sentence
  * rather than in the strip: the mark that says another Branch's recipe takes
  * a different time (#175), which said a bare `540` before.
  */

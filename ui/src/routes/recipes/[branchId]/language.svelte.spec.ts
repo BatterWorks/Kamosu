@@ -80,7 +80,7 @@ describe('what a recipe says about its Language', () => {
 	it('names the other Languages of its Lineage, each a way into that recipe', () => {
 		draw({ language: 'en', others: [{ branch_id: 'b_fr', language: 'fr' }] });
 
-		const link = screen.getByRole('link', { name: 'Also in French.' });
+		const link = screen.getByRole('link', { name: 'Read it in French' });
 		// A Translation is an ordinary Branch, so walking to it is walking to a
 		// recipe — never a switch on this page, and never a screen of its own.
 		expect(link).toHaveAttribute('href', '/recipes/b_fr');
@@ -108,14 +108,14 @@ describe('what a recipe says about its Language', () => {
 			others: [THE_ENGLISH],
 		});
 
-		const link = screen.getByRole('link', { name: 'Translated from the text in English.' });
+		const link = screen.getByRole('link', { name: 'Read the original in English' });
 		expect(link).toHaveAttribute('href', '/recipes/b_en');
 
 		// Up to date says nothing. Silence is what "nothing to do" looks like,
 		// and the source must not also get an "Also in" line of its own: one
 		// recipe said twice reads as two recipes.
 		expect(screen.queryByText(/has been changed/)).not.toBeInTheDocument();
-		expect(screen.queryByText('Also in English.')).not.toBeInTheDocument();
+		expect(screen.queryByText('Read it in English')).not.toBeInTheDocument();
 	});
 
 	it('says how far behind a Translation has fallen in words, not in a number', () => {

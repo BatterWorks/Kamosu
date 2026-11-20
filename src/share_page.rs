@@ -195,7 +195,7 @@ struct Words {
     ended_title: &'static str,
     ended_body: &'static str,
     /// The labels under a time in the strip. The figure carries its own
-    /// unit, `1 h 30`, so the label is only which time it is (#175, #521).
+    /// unit, `1 h 30 min`, so the label is only which time it is (#175, #521).
     prep: &'static str,
     cook: &'static str,
     /// The name a Step's photograph square is read out by (#110, #521).
@@ -977,7 +977,7 @@ fn meta(content: &Value, words: &Words) -> String {
 }
 
 /// A time in the strip with its unit in the figure, set smaller as the app
-/// sets it: `15 min`, `1 h 30`, `9 h` (#175, #521). The rule is the Sheet's,
+/// sets it: `15 min`, `1 h 30 min`, `9 h` (#175, #521, #649). The rule is the Sheet's,
 /// so the two server pages and the app write a time the same way.
 fn time_figure(minutes: i64) -> String {
     crate::sheet::duration_parts(minutes)
@@ -1705,13 +1705,13 @@ mod tests {
     /// `540` over "min prep" before.
     #[test]
     fn a_time_in_the_strip_carries_its_own_unit() {
-        for (minutes, figure) in [(540, "9 h"), (90, "1 h 30"), (15, "15 min")] {
+        for (minutes, figure) in [(540, "9 h"), (90, "1 h 30 min"), (15, "15 min")] {
             let content = serde_json::json!({ "prep_time_minutes": minutes });
             let strip = shown(&meta(&content, &EN));
             assert_eq!(strip, format!("{figure} prep"), "{minutes} minutes");
         }
         let content = serde_json::json!({ "cook_time_minutes": 75 });
-        assert_eq!(shown(&meta(&content, &FR)), "1 h 15 cuisson");
+        assert_eq!(shown(&meta(&content, &FR)), "1 h 15 min cuisson");
     }
 
     /// The chat card's description says the total as the strip would.
@@ -1728,7 +1728,7 @@ mod tests {
         });
         let tags = open_graph("tok", &shared, "Pot roast", "Stéphane", "en");
         assert!(
-            tags.contains(r#"og:description" content="1 h 30""#),
+            tags.contains(r#"og:description" content="1 h 30 min""#),
             "{tags}"
         );
         assert!(!tags.contains("90 min"), "{tags}");
