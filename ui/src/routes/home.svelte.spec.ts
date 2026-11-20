@@ -442,7 +442,18 @@ describe('Home', () => {
 			runner_status: { has_runner: false, last_asked_at: null },
 		});
 
-		expect(await screen.findByRole('heading', { name: 'No recipes yet' })).toBeInTheDocument();
+		// Said the way every empty list says itself, by the empty-state piece,
+		// not a heading (#632's split, chosen on #671), with its button under it.
+		const said = await screen.findByText('No recipes yet');
+		expect(said.tagName).toBe('P');
+		expect(said).toHaveClass('border-dashed', 'bg-ground-2', 'text-ink-2');
+		expect(screen.queryByRole('heading', { name: 'No recipes yet' })).not.toBeInTheDocument();
+		// Under the box, not inside it: a button in the sentence would follow it too.
+		expect(said.querySelector('button')).toBeNull();
+		expect(
+			said.compareDocumentPosition(screen.getByRole('button', { name: 'Add a recipe' })) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
 		// The one thing to do, which *does* it: the add sheet, not a link to a
 		// second empty screen.
 		// One Add a recipe, the main button: none stands beside the title too (#650).

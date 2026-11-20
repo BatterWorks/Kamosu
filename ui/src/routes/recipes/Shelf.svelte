@@ -848,9 +848,9 @@
 			sentence here says it again.
 		-->
 		<div class="max-w-2xl">
-			<h2 class="font-display text-shelf-heading font-semibold">
-				{m.recipes_nothing_title({ query: unmatched })}
-			</h2>
+			<!-- Said by the empty-state piece, as every empty list says itself
+			     (#632, chosen on #671), with the offers under it. -->
+			<Empty>{m.recipes_nothing_title({ query: unmatched })}</Empty>
 			<div class="mt-4">
 				<AddOrImport title={unmatched} onlink={() => addRecipe?.open('link')} />
 			</div>
