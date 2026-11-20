@@ -50,8 +50,11 @@ export const TYPE_ORDER = [
 	'--text-body',
 	'--text-tile-title',
 	'--text-step-reading',
+	// The letters down Recipes' edge on the wide layout, and on the phone (#650).
+	'--text-letter-wide',
 	'--text-read',
 	'--text-label',
+	'--text-letter',
 	// The cooking screen on the wide layout, read from the counter (#197).
 	// Its Step is larger than everything above.
 	'--text-step-far',

@@ -31,6 +31,13 @@
 		 * lays two columns out there (#202). The phone's column is unchanged.
 		 */
 		columns?: boolean;
+		/**
+		 * An act at the end of the title's line, as *Add a recipe* on Recipes
+		 * and Home (#650). The title keeps its words; the act stands beside it.
+		 */
+		aside?: Snippet;
+		/** More classes on the screen's column, as Recipes' room for its letters (#650). */
+		class?: string;
 		children?: Snippet;
 	}
 
@@ -41,6 +48,8 @@
 		card = false,
 		fills = false,
 		columns = false,
+		aside,
+		class: more,
 		children,
 	}: Props = $props();
 </script>
@@ -57,16 +66,27 @@
 				'mx-auto px-gutter pt-6 pb-tabbar',
 				columns ? 'two-column-page' : 'max-w-2xl',
 				fills && 'wide:max-w-none',
+				more,
 			]}
 >
-	<h1
-		class="font-display text-title font-semibold"
-		style={expandsFrom
-			? `view-transition-name: ${expandsFrom}; view-transition-class: expanding`
-			: undefined}
-	>
-		{title}
-	</h1>
+	{#snippet heading()}
+		<h1
+			class="font-display text-title font-semibold"
+			style={expandsFrom
+				? `view-transition-name: ${expandsFrom}; view-transition-class: expanding`
+				: undefined}
+		>
+			{title}
+		</h1>
+	{/snippet}
+	{#if aside}
+		<div class="flex items-center justify-between gap-3">
+			{@render heading()}
+			{@render aside()}
+		</div>
+	{:else}
+		{@render heading()}
+	{/if}
 	{#if blurb}
 		<p class="mt-1 max-w-2xl text-read text-ink-2">{blurb}</p>
 	{/if}

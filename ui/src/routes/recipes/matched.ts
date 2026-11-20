@@ -6,8 +6,10 @@
  * search looks broken. The Operation answers where it matched and the line
  * itself; this turns the where into the short label set above the quote.
  *
- * A title match is deliberately unlabelled: the title is already on the tile's
- * band, so quoting it back under the tile would say the same thing twice.
+ * Every result says why, a title match included (#650): when only some did,
+ * the ones that said nothing read as matching for no reason (the UX audit's
+ * R6). A title match says so in a label alone, with no quote: the title is
+ * already on the tile's band, and quoting it back would say it twice.
  *
  * A **meaning** match is labelled as one, and only as one. Its quoted line does
  * not contain the words that were typed — that is the whole point of it — so
@@ -23,7 +25,7 @@ import type { SearchRecipesOutput } from '#lib/api/catalogue.js';
 export type Entry = SearchRecipesOutput['recipes'][number];
 export type Matched = NonNullable<Entry['matched']>;
 
-/** The label above a quoted line, or null where the line should not be quoted. */
+/** The label above a quoted line, or above nothing for a title, or null where nothing matched. */
 export function matchedLabel(matched: Matched | null): string | null {
 	if (!matched) return null;
 	// A meaning match always quotes a real line of the recipe — never its
@@ -32,7 +34,7 @@ export function matchedLabel(matched: Matched | null): string | null {
 	if (matched.by === 'meaning') return m.recipes_matched_meaning();
 	switch (matched.where) {
 		case 'title':
-			return null;
+			return m.recipes_matched_title();
 		case 'tag':
 			return m.recipes_matched_tag();
 		case 'ingredient':
@@ -76,4 +78,55 @@ export function fallbackLanguage(entry: {
 }): string | null {
 	if (!entry.language_fallback) return null;
 	return m.recipes_language_fallback({ language: languageName(entry.language) });
+}
+
+/** A piece of a quoted line, set bold where it is a word that was typed. */
+export interface Part {
+	text: string;
+	typed: boolean;
+}
+
+/**
+ * A quoted line cut where it holds a word that was searched for, so the card
+ * can set those words bold and a reader sees why it matched (#650). Only a
+ * word match is marked: a meaning match's line does not hold the words typed,
+ * which is its point. Words of one letter are not marked, since they would
+ * light up half the line. Case is ignored, as the search ignores it.
+ */
+export function parts(line: string, query: string | null, by: Matched['by']): Part[] {
+	const words =
+		by === 'words' && query
+			? query
+					.toLocaleLowerCase()
+					.split(/\s+/)
+					.filter((word) => word.length > 1)
+			: [];
+	if (words.length === 0) return [{ text: line, typed: false }];
+	const lower = line.toLocaleLowerCase();
+	// Lower-casing can change a string's length (İ, ẞ); marking then falls back to none.
+	if (lower.length !== line.length) return [{ text: line, typed: false }];
+	const out: Part[] = [];
+	let at = 0;
+	while (at < line.length) {
+		let found = -1;
+		let word = '';
+		for (const each of words) {
+			const index = lower.indexOf(each, at);
+			if (
+				index !== -1 &&
+				(found === -1 || index < found || (index === found && each.length > word.length))
+			) {
+				found = index;
+				word = each;
+			}
+		}
+		if (found === -1) {
+			out.push({ text: line.slice(at), typed: false });
+			break;
+		}
+		if (found > at) out.push({ text: line.slice(at, found), typed: false });
+		out.push({ text: line.slice(found, found + word.length), typed: true });
+		at = found + word.length;
+	}
+	return out;
 }

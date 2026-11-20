@@ -18,8 +18,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, within, fireEvent } from '@testing-library/svelte';
 import Page from './+page.svelte';
 import { renderScreen } from '../testing/render';
+import { went } from '../testing/navigation';
 import { writtenByMe } from '../testing/recipes';
-import type { GetCookbookOutput, HomeShelvesOutput } from '#lib/api/catalogue.js';
+import type {
+	GetCookbookOutput,
+	HomeShelvesOutput,
+	ListKitchensOutput,
+} from '#lib/api/catalogue.js';
+import type { Answers } from '#lib/api/stand-in.js';
 import { demo, INSTALL_KAMOSU, openWelcomeAgain } from '#lib/demo.svelte.js';
 import { m } from '#lib/paraglide/messages.js';
 
@@ -87,6 +93,30 @@ const joinOf = (over: Partial<Join> = {}): Join => ({
 	...over,
 });
 
+/** The reader, Tom, as `get_person` answers for them. */
+const TOM = { person_id: 'p_1', name: 'Tom', is_operator: false };
+
+/** Tom's Kitchen, which he cooks in with Camille (#650). */
+const WITH_CAMILLE: ListKitchensOutput = {
+	kitchens: [
+		{
+			id: 'k_1',
+			name: 'Dupont kitchen',
+			nickname: null,
+			members: [
+				{ person_id: 'p_1', name: 'Tom' },
+				{ person_id: 'p_2', name: 'Camille' },
+			],
+			cookbooks: [{ id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Tom' }] }],
+			invites: [],
+		},
+	],
+};
+
+/** Home, answering who the reader is and the Kitchen they cook in unless a test says otherwise. */
+const renderHome = (answers: Answers = {}) =>
+	renderScreen(Page, { get_person: TOM, list_kitchens: WITH_CAMILLE, ...answers });
+
 const home = (shelves: Shelf[], minutes = 30): HomeShelvesOutput => ({
 	quick_tonight_minutes: minutes,
 	shelves,
@@ -97,7 +127,7 @@ describe('a Cookbook join waiting on you (#135)', () => {
 
 	it('is asked above the shelves, and a yes answers it by the Operation', async () => {
 		let answered = false;
-		const { kamosu } = renderScreen(Page, {
+		const { kamosu } = renderHome({
 			home_shelves: shelves,
 			get_cookbook: () => (answered ? ALONE : { ...ALONE, joins: [joinOf()] }),
 			answer_cookbook_join: () => {
@@ -130,7 +160,7 @@ describe('a Cookbook join waiting on you (#135)', () => {
 	});
 
 	it('answers no by the Operation too', async () => {
-		const { kamosu } = renderScreen(Page, {
+		const { kamosu } = renderHome({
 			home_shelves: shelves,
 			get_cookbook: { ...ALONE, joins: [joinOf()] },
 			answer_cookbook_join: ALONE,
@@ -143,7 +173,7 @@ describe('a Cookbook join waiting on you (#135)', () => {
 	});
 
 	it('shows only the question among joins that also wait on others', async () => {
-		renderScreen(Page, {
+		renderHome({
 			home_shelves: shelves,
 			get_cookbook: {
 				...ALONE,
@@ -157,7 +187,7 @@ describe('a Cookbook join waiting on you (#135)', () => {
 	});
 
 	it('says nothing on Home about a join that is not waiting on you', async () => {
-		renderScreen(Page, {
+		renderHome({
 			home_shelves: shelves,
 			get_cookbook: { ...ALONE, joins: [joinOf({ you: 'answered' })] },
 		});
@@ -172,7 +202,7 @@ describe('Home', () => {
 	it('gives each shelf an earlier and a later button that a pointer sees and a finger does not (#223)', async () => {
 		const scrollBy = vi.fn();
 		Element.prototype.scrollBy = scrollBy;
-		renderScreen(Page, {
+		renderHome({
 			get_cookbook: ALONE,
 			home_shelves: home([{ name: 'cooked_most', recipes: [card({ title: 'Katsu Curry' })] }]),
 		});
@@ -194,7 +224,7 @@ describe('Home', () => {
 	});
 
 	it('shows each shelf the Core sent, under its own heading', async () => {
-		renderScreen(Page, {
+		renderHome({
 			get_cookbook: ALONE,
 			home_shelves: home([
 				{ name: 'cooked_most', recipes: [card({ title: 'Katsu Curry' })] },
@@ -212,7 +242,7 @@ describe('Home', () => {
 	});
 
 	it('leaves no heading behind for a shelf the Core did not send', async () => {
-		renderScreen(Page, {
+		renderHome({
 			get_cookbook: ALONE,
 			home_shelves: home([{ name: 'never_cooked', recipes: [card()] }]),
 		});
@@ -228,7 +258,7 @@ describe('Home', () => {
 	});
 
 	it('leads with what was recently added, newest first, in the order the Core sent', async () => {
-		renderScreen(Page, {
+		renderHome({
 			get_cookbook: ALONE,
 			home_shelves: home([
 				{
@@ -259,7 +289,7 @@ describe('Home', () => {
 	});
 
 	it('takes the line quick tonight is drawn at from the Core, never from its own words', async () => {
-		renderScreen(Page, {
+		renderHome({
 			get_cookbook: ALONE,
 			home_shelves: home([{ name: 'quick_tonight', recipes: [card()] }], 20),
 		});
@@ -270,8 +300,8 @@ describe('Home', () => {
 		expect(screen.queryByText('On the table inside 30 minutes')).not.toBeInTheDocument();
 	});
 
-	it('counts what is on the rail, and does not offer a filtered library that does not exist', async () => {
-		renderScreen(Page, {
+	it('puts no count beside a shelf, and offers no filtered library that does not exist (#650)', async () => {
+		renderHome({
 			get_cookbook: ALONE,
 			home_shelves: home([
 				{
@@ -283,44 +313,151 @@ describe('Home', () => {
 
 		const heading = await screen.findByRole('heading', { name: 'Cooked most' });
 		const section = heading.closest('section') as HTMLElement;
-		const cards = within(section).getAllByRole('listitem');
+		expect(within(section).getAllByRole('listitem')).toHaveLength(2);
+		// The bare number read as a link to all of them (H3), and is gone.
+		expect(within(section).queryByText('2')).not.toBeInTheDocument();
 
-		// The number beside the heading is the number of cards under it — not a
-		// total the Core never sent. The Core answers a shelf's worth, cut to
-		// length, so a figure claiming to be *all* of them would be wrong the
-		// moment a shelf was longer than one screenful.
-		expect(within(section).getByText(String(cards.length))).toBeInTheDocument();
-		expect(cards).toHaveLength(2);
-
-		// And it is not a link. Recipes filters by Kitchen and by *mine*, never
-		// by *cooked most*, so a link there would promise this shelf and deliver
-		// the whole library.
+		// Every link on the shelf opens a recipe. Recipes filters by Kitchen and
+		// by *mine*, never by *cooked most*, so a link there would promise this
+		// shelf and deliver the whole library.
 		const links = within(section).getAllByRole('link');
 		expect(links.every((link) => link.getAttribute('href')?.startsWith('/recipes/'))).toBe(true);
 	});
 
+	it('draws a shelf heading as every section heading is drawn (#650)', async () => {
+		renderHome({
+			get_cookbook: ALONE,
+			home_shelves: home([{ name: 'cooked_most', recipes: [card()] }]),
+		});
+		const heading = await screen.findByRole('heading', { name: 'Cooked most' });
+		expect(heading.className).toContain('text-accent');
+		expect(heading.closest('section')?.className).toContain('mt-8');
+	});
+
+	it('says no subtitle under its title (#650)', async () => {
+		renderHome({
+			get_cookbook: ALONE,
+			home_shelves: home([{ name: 'cooked_most', recipes: [card()] }]),
+		});
+		await screen.findByRole('heading', { name: 'Home', level: 1 });
+		expect(screen.queryByText(/Five ways in/)).not.toBeInTheDocument();
+	});
+
+	it('names who the reader cooks with and in which Kitchen, leading to that page (#650)', async () => {
+		renderHome({
+			get_cookbook: ALONE,
+			home_shelves: home([{ name: 'cooked_most', recipes: [card()] }]),
+		});
+		const line = await screen.findByRole('link', {
+			name: /You cook with Camille, in Dupont kitchen/,
+		});
+		expect(line).toHaveAttribute('href', '/settings/kitchens');
+	});
+
+	it('says the reader cooks alone where nobody else is in their Kitchen', async () => {
+		const [kitchen] = WITH_CAMILLE.kitchens;
+		renderHome({
+			get_cookbook: ALONE,
+			home_shelves: home([{ name: 'cooked_most', recipes: [card()] }]),
+			list_kitchens: {
+				kitchens: [{ ...kitchen!, nickname: 'Home', members: [kitchen!.members[0]!] }],
+			},
+		});
+		expect(await screen.findByRole('link', { name: /Home: just you/ })).toBeInTheDocument();
+	});
+
+	it('names three people at most, then how many more', async () => {
+		const [kitchen] = WITH_CAMILLE.kitchens;
+		const members = ['Tom', 'Camille', 'Marc', 'Inès', 'Paul', 'Zoé'].map((name, at) => ({
+			person_id: `p_${at + 1}`,
+			name,
+		}));
+		renderHome({
+			get_cookbook: ALONE,
+			home_shelves: home([{ name: 'cooked_most', recipes: [card()] }]),
+			list_kitchens: { kitchens: [{ ...kitchen!, members }] },
+		});
+		expect(
+			await screen.findByRole('link', {
+				name: /You cook with Camille, Marc, Inès and 2 more, in Dupont kitchen/,
+			}),
+		).toBeInTheDocument();
+	});
+
+	it('names every Kitchen the reader cooks in, where there are several', async () => {
+		const [kitchen] = WITH_CAMILLE.kitchens;
+		renderHome({
+			get_cookbook: ALONE,
+			home_shelves: home([{ name: 'cooked_most', recipes: [card()] }]),
+			list_kitchens: {
+				kitchens: [kitchen!, { ...kitchen!, id: 'k_2', name: 'Lyon', nickname: null }],
+			},
+		});
+		expect(
+			await screen.findByRole('link', { name: /You cook in Dupont kitchen and Lyon/ }),
+		).toBeInTheDocument();
+	});
+
+	it('leaves the shelves standing without the line when the Kitchens cannot be read', async () => {
+		renderHome({
+			get_cookbook: ALONE,
+			home_shelves: home([{ name: 'cooked_most', recipes: [card({ title: 'Katsu Curry' })] }]),
+			list_kitchens: { refuse: 'busy' },
+		});
+		expect(await screen.findByText('Katsu Curry')).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(screen.queryByRole('link', { name: /You cook/ })).not.toBeInTheDocument(),
+		);
+	});
+
+	it('opens the add sheet from beside its title (#650)', async () => {
+		renderHome({
+			get_cookbook: ALONE,
+			home_shelves: home([{ name: 'cooked_most', recipes: [card()] }]),
+			runner_status: { has_runner: false, last_asked_at: null },
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'Add a recipe' }));
+		const sheet = await screen.findByRole('dialog', { name: 'Add a recipe' });
+		expect(within(sheet).getByRole('button', { name: /From a web page/ })).toBeInTheDocument();
+		expect(within(sheet).getByRole('button', { name: 'Close' })).toBeInTheDocument();
+	});
+
+	it('takes the cook to Recipes when its search box is touched (#650)', async () => {
+		renderHome({
+			get_cookbook: ALONE,
+			home_shelves: home([{ name: 'cooked_most', recipes: [card()] }]),
+		});
+		const box = await screen.findByRole('searchbox', { name: 'Name, ingredient, step…' });
+		// Tabbed onto, it stays: only a tap or a key leaves Home.
+		await fireEvent.focus(box);
+		expect(went).not.toHaveBeenCalled();
+		await fireEvent.click(box);
+		expect(went).toHaveBeenCalledWith('/recipes');
+	});
+
 	it('tells a brand-new instance what to do instead of showing four empty rows', async () => {
-		renderScreen(Page, {
+		renderHome({
 			get_cookbook: ALONE,
 			home_shelves: home([]),
+			runner_status: { has_runner: false, last_asked_at: null },
 		});
 
-		expect(await screen.findByRole('heading', { name: 'Your shelf is empty' })).toBeInTheDocument();
-		// The two things that were going to happen next anyway — and both of
-		// them *do* the thing. A link to Recipes would land the first person who
-		// ever opened Kamosu on a second empty screen.
-		expect(screen.getByLabelText('What is it called?')).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Write a recipe' })).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Import from a link' })).toBeInTheDocument();
-		expect(screen.queryByRole('link', { name: 'Write a recipe' })).not.toBeInTheDocument();
-		// And not one heading for a shelf that is not there.
+		expect(await screen.findByRole('heading', { name: 'No recipes yet' })).toBeInTheDocument();
+		// The one thing to do, which *does* it: the add sheet, not a link to a
+		// second empty screen.
+		// One Add a recipe, the main button: none stands beside the title too (#650).
+		expect(screen.getByRole('button', { name: 'Add a recipe' })).toHaveClass('main-button');
+		expect(screen.queryByRole('link', { name: 'Add a recipe' })).not.toBeInTheDocument();
+		// No search box over nothing to search, and no heading for a shelf that is not there.
+		expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
 		expect(screen.queryByRole('heading', { name: 'Never cooked' })).not.toBeInTheDocument();
 	});
 
 	it('writes the recipe from the empty state rather than pointing at a screen to write it on', async () => {
-		const { kamosu } = renderScreen(Page, {
+		const { kamosu } = renderHome({
 			get_cookbook: ALONE,
 			home_shelves: home([]),
+			runner_status: { has_runner: false, last_asked_at: null },
 			create_recipe: {
 				branch_id: 'b_new',
 				lineage_id: 'l_new',
@@ -342,6 +479,9 @@ describe('Home', () => {
 			},
 		});
 
+		await fireEvent.click(await screen.findByRole('button', { name: 'Add a recipe' }));
+		const sheet = await screen.findByRole('dialog', { name: 'Add a recipe' });
+		await fireEvent.click(within(sheet).getByRole('button', { name: /Write it yourself/ }));
 		const field = await screen.findByLabelText('What is it called?');
 		await fireEvent.input(field, { target: { value: 'Tarte Tatin' } });
 		await fireEvent.click(screen.getByRole('button', { name: 'Write a recipe' }));
@@ -357,7 +497,7 @@ describe('Home', () => {
 	it('stands the login form at / for anybody who is not a Person yet', async () => {
 		// Refused for want of a Credential is not a failure — it is the answer,
 		// and the answer is the form. There is no cookie read anywhere here.
-		renderScreen(Page, {
+		renderHome({
 			get_cookbook: ALONE,
 			home_shelves: { refuse: 'unauthorized' },
 			instance_status: {
@@ -378,7 +518,7 @@ describe('Home', () => {
 		// A refusal that is not about a Credential must never be answered with
 		// the login form: telling a signed-in cook to sign in again is the worst
 		// possible reading of a server that is simply down.
-		renderScreen(Page, {
+		renderHome({
 			get_cookbook: ALONE,
 			home_shelves: { refuse: 'internal', message: 'boom' },
 		});
@@ -405,7 +545,7 @@ describe("a Demo's welcome card", () => {
 
 	it('sits above the heading, saying what saves, when it cleans, and how an AI reads it', async () => {
 		Object.assign(demo, { is: true, key: 'a-published-key' });
-		renderScreen(Page, shelves());
+		renderHome(shelves());
 		const heading = await screen.findByRole('heading', { level: 1 });
 
 		const card = welcome()!;
@@ -422,7 +562,7 @@ describe("a Demo's welcome card", () => {
 
 	it('is put away on this device by Got it', async () => {
 		Object.assign(demo, { is: true, key: 'a-published-key' });
-		renderScreen(Page, shelves());
+		renderHome(shelves());
 		await screen.findByRole('heading', { level: 1 });
 
 		await fireEvent.click(within(welcome()!).getByRole('button', { name: m.demo_welcome_close() }));
@@ -434,7 +574,7 @@ describe("a Demo's welcome card", () => {
 	it('stands again at the top once the strip brought it back', async () => {
 		Object.assign(demo, { is: true, key: 'a-published-key' });
 		openWelcomeAgain();
-		renderScreen(Page, shelves());
+		renderHome(shelves());
 		await screen.findByRole('heading', { level: 1 });
 
 		expect(welcome()).not.toBeNull();
@@ -444,7 +584,7 @@ describe("a Demo's welcome card", () => {
 		Object.assign(demo, { is: true, key: 'a-published-key' });
 		const writeText = vi.fn().mockResolvedValue(undefined);
 		Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-		renderScreen(Page, shelves());
+		renderHome(shelves());
 		await screen.findByRole('heading', { level: 1 });
 
 		await fireEvent.click(
@@ -462,7 +602,7 @@ describe("a Demo's welcome card", () => {
 	});
 
 	it('is not there on an instance that is no Demo', async () => {
-		renderScreen(Page, shelves());
+		renderHome(shelves());
 		await screen.findByRole('heading', { level: 1 });
 
 		expect(welcome()).toBeNull();

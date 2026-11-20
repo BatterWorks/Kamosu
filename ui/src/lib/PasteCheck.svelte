@@ -14,7 +14,7 @@
 	long way (hence every line being able to take the split itself).
 
 	Two places draw it (#175): the writing screen's paste sheet, and the sheet
-	the + on Recipes raises, for pasted text or a PDF (#176). Each says its own title line and its own buttons
+	the add sheet on Recipes raises, for pasted text or a PDF (#176). Each says its own title line and its own buttons
 	around it, because one fills a page and the other makes a recipe.
 -->
 <script lang="ts">

@@ -6,9 +6,9 @@
  * photo, a video, a PDF and pasted text go to Kamosu's AI agent rather than
  * to a draft sorted by hand (#278, #349).
  *
- * Two places offer them. The + beside the search box offers all three every
- * day, and the dead ends `AddOrImport` draws (a search that matched nothing,
- * an empty Home) offer them as full-width buttons. Each place holds its own
+ * Two places offer them. The sheet *Add a recipe* opens on Recipes and Home
+ * offers every one (#650), and a search that matched nothing offers three as
+ * full-width buttons (`AddOrImport`). Each place holds its own
  * `Adding`, so one screen's work never quiets the other's buttons, but the acts
  * themselves live here and nowhere else. One act written twice is one act that
  * will eventually be two, which is how #93 moved the first two out of
@@ -35,6 +35,7 @@ import type {
 } from '#lib/api/catalogue.js';
 import { holdPaste, readPdf, type PageReading, type PastedDraft } from '#lib/pasted.svelte.js';
 import { noteArrival } from '#lib/arrival.svelte.js';
+import { noteAdded } from './added';
 
 /**
  * `send` is handing a photo, a PDF, pasted text or a video's link to Kamosu's
@@ -88,14 +89,14 @@ export class Adding {
 	 * text go to Kamosu's AI agent (#278), or nothing while that has not been
 	 * read yet. Read from the server each time it matters, never from what
 	 * the phone kept (`runner_status` is never cached), and `null` reads as
-	 * no Runner: the + then offers what it offers on every instance.
+	 * no Runner: the add sheet then offers what it offers on every instance.
 	 */
 	runner = $state<boolean | null>(null);
 	/** A photo or a PDF waiting on the sheet that asks before it is sent, or none. */
 	toSend = $state<ToSend | null>(null);
 	/**
 	 * The examples a Demo replays the agent's work on (#406), or none on any
-	 * other instance. Read from the server each time the + opens, and from
+	 * other instance. Read from the server each time the add sheet opens, and from
 	 * what the phone kept when it is out of reach.
 	 */
 	replays = $state<ListReplaysOutput['replays']>([]);
@@ -133,6 +134,16 @@ export class Adding {
 			const landed =
 				result.arrived?.find((row) => row.subject) ?? result.arrived?.[0] ?? result.offered?.[0];
 			if (landed) {
+				// A web page that made a new recipe says so on it, with Undo
+				// (#650). Not one already here, which a second import of the
+				// same address lands on, nor a Share Link's, which brings others
+				// with it: Undo there would delete what the cook already had.
+				const made =
+					result.arrived?.length === 1 &&
+					landed === result.arrived[0] &&
+					!landed.subject &&
+					landed.status === 'created';
+				if (made) noteAdded(landed.branch_id);
 				await goto(`/recipes/${landed.branch_id}`);
 				return undefined;
 			}
@@ -168,7 +179,7 @@ export class Adding {
 
 	/**
 	 * Read again whether this instance has a Runner (#278). A refusal leaves
-	 * what was known: the + then draws what it drew.
+	 * what was known: the add sheet then draws what it drew.
 	 */
 	async readRunner(): Promise<boolean> {
 		try {

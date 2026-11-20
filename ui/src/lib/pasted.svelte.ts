@@ -4,7 +4,7 @@
  * `read_recipe_pdf` (#176).
  *
  * Two places take one. The writing screen fills its own fields from it, and
- * the + beside the Recipes search box makes a new recipe from it (#175, both
+ * the add sheet makes a new recipe from it (#175, both
  * options were chosen). Both read it and split it the same way, so both
  * live here.
  */
@@ -99,15 +99,15 @@ export function drafted(
 }
 
 /**
- * A paste on its way from the + to the writing screen of the recipe it just
+ * A paste on its way from the add sheet to the writing screen of the recipe it just
  * made. It has to survive one `goto`, so it is held here rather than in the
  * URL, the way a recipe file's arrival line is (`arrival.svelte.ts`). It is
- * NOT saved: the recipe the + made holds only its title, and the pasted lines
+ * NOT saved: the recipe the add sheet made holds only its title, and the pasted lines
  * wait on the writing screen for Save, as they do when pasted there (#83).
  */
 let held = $state<{ branchId: string; draft: PastedDraft } | undefined>(undefined);
 
-/** Said by the + just before it opens the recipe it made. */
+/** Said by the add sheet just before it opens the recipe it made. */
 export function holdPaste(branchId: string, draft: PastedDraft): void {
 	held = { branchId, draft };
 }

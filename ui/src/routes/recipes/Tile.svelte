@@ -15,19 +15,32 @@
 -->
 <script lang="ts">
 	import Cover from '#lib/cover/Cover.svelte';
-	import { matchedLabel, fallbackLanguage, type Entry } from './matched';
+	import { matchedLabel, fallbackLanguage, parts, type Entry } from './matched';
 
 	interface Props {
 		entry: Entry;
+		/** What was searched for, whose words are set bold in the quoted line (#650). */
+		query?: string | null;
+		/**
+		 * The id the letters down Recipes' edge take the list to, on the first
+		 * recipe filed under each letter (#650).
+		 */
+		anchor?: string;
 	}
 
-	let { entry }: Props = $props();
+	let { entry, query = null, anchor }: Props = $props();
 
 	const label = $derived(matchedLabel(entry.matched));
 	const fallback = $derived(fallbackLanguage(entry));
+	const quoted = $derived(
+		entry.matched && entry.matched.where !== 'title'
+			? parts(entry.matched.line, query, entry.matched.by)
+			: [],
+	);
 </script>
 
-<li>
+<!-- Clear of the search box pinned over the list when a letter brings it to the top. -->
+<li id={anchor} class="scroll-mt-[72px]">
 	<a href="/recipes/{entry.branch_id}" class="brightens block">
 		<!--
 			3:4 rather than a fixed height, so two tiles fit any phone's width and
@@ -55,7 +68,8 @@
 					class="absolute inset-x-0 bottom-0 px-gutter py-3"
 					style="background: color-mix(in srgb, var(--color-ink) 84%, transparent)"
 				>
-					<div class="line-clamp-3 font-display text-tile-title font-semibold text-on-accent">
+					<!-- Two lines at most, so a long title leaves the photograph showing (#650, R8). -->
+					<div class="line-clamp-2 font-display text-tile-title font-semibold text-on-accent">
 						{entry.title}
 					</div>
 				</div>
@@ -90,10 +104,11 @@
 		</div>
 	</a>
 
-	{#if label && entry.matched}
-		<p class="mt-1 text-read text-ink-2">
-			<span class="block text-label uppercase">{label}</span>
-			{entry.matched.line}
+	{#if label}
+		<p class="mt-1 text-read text-ink">
+			<span class="block text-label text-ink-2 uppercase">{label}</span>
+			{#each quoted as part, at (at)}{#if part.typed}<b class="font-semibold">{part.text}</b
+					>{:else}{part.text}{/if}{/each}
 		</p>
 	{/if}
 </li>

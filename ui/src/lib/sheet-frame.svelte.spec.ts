@@ -211,6 +211,8 @@ describe('every sheet in Kamosu', () => {
 		expect(framed).toEqual([
 			// Settings › Kitchens: starting another Kitchen (#648).
 			'+page.svelte',
+			// Every way of adding a recipe, on Recipes and Home (#650).
+			'AddRecipe.svelte',
 			'Carrying.svelte',
 			'ChangePassword.svelte',
 			'ChangeSheet.svelte',

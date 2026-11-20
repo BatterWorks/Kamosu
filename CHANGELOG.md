@@ -15,6 +15,8 @@
 - A recipe's first screen holds what you do with it: *Start cooking*, and under it *Plan*, *Shopping list*, *Share* and *More*, which holds editing, older versions, translating, printing and, apart, deleting. The photograph is shorter, the tags come after the method, and a link beside *Ingredients* jumps to the method, so the ingredients start on the first screen. Adding to the shopping list says how many ingredients went, with *Undo*. Before, every act but cooking and planning sat in a grid at the foot of the page, after the whole method. [#649]
 - A recipe says plainly what it means: a yield reads *4 servings* under *makes*, a long time *1 h 30 min* here, on a printed recipe, on a shared recipe's page and in a recipe's notes file, the cooking log *Would cook again* beside a name, and the note after the method has its heading. The back arrow on a phone stands on the photograph and scrolls away with it rather than covering a step. Before, *1 h 30* with a small *h* could read as 130, and the log said only *AGAIN*. [#649]
 - A Kitchen's card leads with inviting, and renaming it, your own name for it, removing someone and leaving are under *Change this Kitchen*, removing and leaving asking first. Before, they sat together at one weight, and removing someone took one tap. Every invite says it works once, for the first person who opens it, until you cancel it, and cancelling asks first. [#648]
+- Adding a recipe starts from *Add a recipe* beside the title of Recipes and Home, which opens one panel with every way in, each said plainly (*From a web page*, *From a recipe file*), and a *Close*. A web page's address is pasted there, shown whole, with *Add this recipe* greyed until there is one, and the recipe it adds says it was added and where, with *Undo*. Before, adding was an unlabelled + beside the search box, its address field opened between the search box and the filters, and an imported recipe opened with no word that it was saved. [#650]
+- Recipes is easier to get around: its count says the list is A to Z, letters down the right edge jump to any part of it, and the search box stays at the top while you scroll and says what it searches. A filter that is on shows as a chip whose × turns it off in one tap, the cooking filter reads *Cooked or not* and the tick *Only ones I wrote or cooked*, and every search result says why it matched. Home names who you cook with and has a search box, and its rows lost their bare counts. Before, the list said nothing of its order, the search box scrolled away and a tag filter took two taps to turn off. [#650]
 
 ### Fixed
 
@@ -27,6 +29,7 @@
 [#634]: https://github.com/BatterWorks/Kamosu/issues/634
 [#648]: https://github.com/BatterWorks/Kamosu/issues/648
 [#649]: https://github.com/BatterWorks/Kamosu/issues/649
+[#650]: https://github.com/BatterWorks/Kamosu/issues/650
 [#663]: https://github.com/BatterWorks/Kamosu/issues/663
 [#666]: https://github.com/BatterWorks/Kamosu/issues/666
 [#667]: https://github.com/BatterWorks/Kamosu/issues/667

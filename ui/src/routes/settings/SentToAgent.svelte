@@ -16,7 +16,7 @@
 	**What to do next is the server's to say** (`next`), as the Operations
 	that do it would answer: read the recipe again, send the same file again
 	while Kamosu keeps it, send a link again, or paste the recipe's text. Each
-	lands where the + lands it: on the new Job's Report, which follows it.
+	lands where the add sheet lands it: on the new Job's Report, which follows it.
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
@@ -129,7 +129,7 @@
 			return asked.branch_id ? `/recipes/${asked.branch_id}` : undefined;
 		});
 
-	/** A link sent again goes as the + sends one, and lands where it does. */
+	/** A link sent again goes as the add sheet sends one, and lands where it does. */
 	const sendLinkAgain = (row: Sent) =>
 		act(row, async () => {
 			await adding.send({ link: row.link ?? '' });
@@ -137,7 +137,7 @@
 			return undefined;
 		});
 
-	/** The pickers another photo or PDF is chosen with, as the + chooses one. */
+	/** The pickers another photo or PDF is chosen with, as the add sheet chooses one. */
 	let photoPicker = $state<FilePicker | undefined>(undefined);
 	let pdfPicker = $state<FilePicker | undefined>(undefined);
 
@@ -163,7 +163,7 @@
 			run: (row) => {
 				pasting = pasting === row.job_id ? undefined : row.job_id;
 				// The paste box says what it does by whether there is an agent,
-				// which the + reads as it opens and this page has not.
+				// which the add sheet reads as it opens and this page has not.
 				if (pasting && online.current) void adding.readRunner();
 			},
 		},

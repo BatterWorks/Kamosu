@@ -3,10 +3,10 @@
 	nothing imported and the file not kept. The card says why in the screen's
 	own words, since the reason is data, and what to do next. For a file no
 	app made, that is the apps Kamosu reads, where to ask for another, and the
-	ways one recipe at a time always comes in. Those rows open the + on
+	ways one recipe at a time always comes in. Those rows open the add sheet on
 	Recipes, whose PDF and photo rows open the phone's picker on the next tap:
 	a browser opens a picker only for a tap. The photo row is there only where
-	a Runner is, as under the +.
+	a Runner is, as in the add sheet.
 
 	Drawn under the import place, and on the Report of a refused import.
 	The prototype is `.dev/prototypes/412-import-place/b-refused-phone.html`.

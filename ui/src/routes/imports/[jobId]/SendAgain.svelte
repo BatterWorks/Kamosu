@@ -9,7 +9,7 @@
 	a Report (a Job with no recipe has no Co-authors), so whoever sees it may
 	ask. While Kamosu keeps the file it is offered on an instance with a
 	Runner; once the file is deleted, 30 days after the Job ended (#270), the
-	Report says so instead and points at the +.
+	Report says so instead and points at the add sheet.
 
 	Sending lands on the new Job's own Report, which follows it (#277), or on
 	the recipe, where an agent has made one from the same file since.

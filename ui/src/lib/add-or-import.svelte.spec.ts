@@ -94,12 +94,20 @@ const running = (operation: string) => ({
 	result: null,
 });
 
+/**
+ * The offer's own picker. The add sheet beside it holds one for a recipe file
+ * too, drawn first, as on Recipes (#650).
+ */
+function offerPicker(): HTMLElement {
+	return screen.getAllByLabelText('Add a recipe from a Kamosu zip file').at(-1)!;
+}
+
 async function bringIn(answers: Answers, upload = vi.fn(async () => 'u_staged')) {
 	const kamosu = standIn(answers);
 	render(AddOrImportTestHarness, {
 		props: { client: kamosu.client, upload, pathname: '/recipes/b_soba' },
 	});
-	await fireEvent.change(screen.getByLabelText('Add a recipe from a Kamosu zip file'), {
+	await fireEvent.change(offerPicker(), {
 		target: { files: [file()] },
 	});
 	return { kamosu, upload };
@@ -221,7 +229,7 @@ describe('bringing a recipe file in', () => {
 				pathname: '/recipes/b_soba',
 			},
 		});
-		await fireEvent.change(screen.getByLabelText('Add a recipe from a Kamosu zip file'), {
+		await fireEvent.change(offerPicker(), {
 			target: { files: [file()] },
 		});
 
@@ -276,7 +284,7 @@ describe('bringing a recipe file in', () => {
 			throw new OperationError('upload', 'bad_request', 'the file is larger than 2 GB');
 		});
 		render(AddOrImportTestHarness, { props: { client: kamosu.client, upload } });
-		await fireEvent.change(screen.getByLabelText('Add a recipe from a Kamosu zip file'), {
+		await fireEvent.change(offerPicker(), {
 			target: { files: [file()] },
 		});
 
@@ -333,7 +341,7 @@ describe('bringing a recipe file in', () => {
 		});
 		expect(waiting).toBeDisabled();
 		expect(
-			screen.queryByRole('button', { name: 'Bring in a Kamosu zip file' }),
+			screen.queryByRole('button', { name: 'Add one from a recipe file' }),
 		).not.toBeInTheDocument();
 	});
 });
@@ -342,12 +350,13 @@ describe('importing from a link', () => {
 	it('says a page still being read is still being read, not that Kamosu went wrong (#117)', () =>
 		withTheClockFaked(async () => {
 			const kamosu = standIn({
+				runner_status: { has_runner: false, last_asked_at: null },
 				import_web_link: { job_id: 'j_9' },
 				get_job: outlivingTheWait(running('import_web_link')),
 			});
 			render(AddOrImportTestHarness, { props: { client: kamosu.client, upload: vi.fn() } });
-			await fireEvent.click(screen.getByRole('button', { name: /Import from a link/ }));
-			const field = screen.getByLabelText(/web address/);
+			await fireEvent.click(screen.getByRole('button', { name: /Add one from a web page/ }));
+			const field = await screen.findByLabelText(/address/);
 			await fireEvent.input(field, { target: { value: 'https://example.test/osso-buco' } });
 			await fireEvent.submit(field.closest('form')!);
 
@@ -362,6 +371,7 @@ describe('importing from a link', () => {
 		// A Share Link arrives as the Bundle it serves, so its Report names a
 		// subject and its Passengers, and nothing orders the subject first.
 		const kamosu = standIn({
+			runner_status: { has_runner: false, last_asked_at: null },
 			import_web_link: { job_id: 'j_9' },
 			get_job: {
 				id: 'j_9',
@@ -376,8 +386,8 @@ describe('importing from a link', () => {
 			},
 		});
 		render(AddOrImportTestHarness, { props: { client: kamosu.client, upload: vi.fn() } });
-		await fireEvent.click(screen.getByRole('button', { name: /Import from a link/ }));
-		const field = screen.getByLabelText(/web address/);
+		await fireEvent.click(screen.getByRole('button', { name: /Add one from a web page/ }));
+		const field = await screen.findByLabelText(/address/);
 		await fireEvent.input(field, { target: { value: 'https://recipes.example/s/4b8c6f26' } });
 		await fireEvent.submit(field.closest('form')!);
 
@@ -389,6 +399,7 @@ describe('importing from a link', () => {
 		// An ended Share Link fails its Job with the share page's own sentence.
 		// Before #169 a failed Job escaped here as "Kamosu went wrong".
 		const kamosu = standIn({
+			runner_status: { has_runner: false, last_asked_at: null },
 			import_web_link: { job_id: 'j_9' },
 			get_job: {
 				id: 'j_9',
@@ -403,8 +414,8 @@ describe('importing from a link', () => {
 			},
 		});
 		render(AddOrImportTestHarness, { props: { client: kamosu.client, upload: vi.fn() } });
-		await fireEvent.click(screen.getByRole('button', { name: /Import from a link/ }));
-		const field = screen.getByLabelText(/web address/);
+		await fireEvent.click(screen.getByRole('button', { name: /Add one from a web page/ }));
+		const field = await screen.findByLabelText(/address/);
 		await fireEvent.input(field, { target: { value: 'https://recipes.example/s/4b8c6f26' } });
 		await fireEvent.submit(field.closest('form')!);
 

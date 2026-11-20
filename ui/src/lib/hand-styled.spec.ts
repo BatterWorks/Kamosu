@@ -35,7 +35,6 @@ const SRC = join(import.meta.dirname, '..');
 
 /** The files #632 found drawing their own, less the share screen it moved and the Kitchens page #648 did. */
 const STILL_HAND_STYLED: string[] = [
-	'lib/AddOrImport.svelte',
 	'lib/Confirm.svelte',
 	'lib/CookbookJoins.svelte',
 	'lib/HowMuch.svelte',
@@ -45,13 +44,9 @@ const STILL_HAND_STYLED: string[] = [
 	'lib/PlanPicker.svelte',
 	'lib/RefusedExport.svelte',
 	'lib/WhichHousehold.svelte',
-	'lib/adding/AddressForm.svelte',
-	'lib/adding/PasteForm.svelte',
 	'lib/adding/PasteSheet.svelte',
 	'lib/adding/Replays.svelte',
 	'lib/adding/SendSheet.svelte',
-	'lib/adding/TitleForm.svelte',
-	'lib/adding/VideoForm.svelte',
 	'lib/adding/WatchExamples.svelte',
 	'lib/agent/AgentWork.svelte',
 	'lib/offline/InstallSteps.svelte',
@@ -79,10 +74,6 @@ const STILL_HAND_STYLED: string[] = [
 	'routes/plan/Plan.svelte',
 	'routes/plan/SendToShopping.svelte',
 	'routes/plan/WriteSheet.svelte',
-	'routes/recipes/FilterList.svelte',
-	'routes/recipes/MeaningOffer.svelte',
-	'routes/recipes/Plus.svelte',
-	'routes/recipes/Shelf.svelte',
 	'routes/recipes/[branchId]/Writing.svelte',
 	'routes/recipes/[branchId]/thread/ThreadGraph.svelte',
 	'routes/recipes/[branchId]/versions/OlderVersion.svelte',

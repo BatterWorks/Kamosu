@@ -1,13 +1,13 @@
 <!--
 	A whole recipe pasted as text, read, checked, and made (#175).
 
-	This sits in the + beside the Recipes search box as a fourth source,
+	This sits in the add sheet as one of its sources (#650),
 	because you usually hold the text before any recipe page exists: making a
 	title up first, only for the paste to replace it, was the long way round.
-	It opens under the search row like From a link does (ADR 0027).
+	It opens inside that sheet, as From a web page does.
 
 	Reading asks `read_pasted_recipe`, which saves nothing. What it made is
-	shown in `PasteSheet`, the sheet a PDF chosen from the + raises too (#176).
+	shown in `PasteSheet`, the sheet a PDF chosen from the add sheet raises too (#176).
 
 	On an instance with a Runner the text goes to Kamosu's AI agent instead,
 	with no draft to sort (#278): the box says so and its button is Send. No
@@ -26,13 +26,20 @@
 
 	interface Props {
 		adding: Adding;
+		/** What is typed, where the sheet holding the form keeps it (#650). */
+		text?: string;
+		/**
+		 * The text was read: hand it on, where the sheet holding this form
+		 * raises the sheet it is checked on in its own place, one sheet at a
+		 * time (#650). Without it, the form raises that sheet itself.
+		 */
+		onread?: (pasted: ReadPastedRecipeOutput) => void;
 	}
 
-	let { adding }: Props = $props();
+	let { adding, text = $bindable(''), onread }: Props = $props();
 
 	const kamosu = useKamosu();
 
-	let text = $state('');
 	let reading = $state(false);
 	let failed = $state<string | undefined>(undefined);
 	/** What came back, or nothing while the text has not been read yet. */
@@ -52,6 +59,8 @@
 			const answer = await readPasted(kamosu, text);
 			if (typeof answer === 'string') {
 				failed = answer;
+			} else if (onread) {
+				onread(answer);
 			} else {
 				pasted = answer;
 			}
@@ -68,21 +77,23 @@
 		read();
 	}}
 >
-	<p class="text-read text-ink-2">
+	<p class="text-read text-ink">
 		{adding.runner ? m.plus_agent_paste_hint() : m.plus_paste_hint()}
 	</p>
 	<textarea
 		bind:value={text}
 		rows="8"
+		data-sheet-focus
 		aria-label={m.write_paste_label()}
-		class="block w-full rounded-sm border border-rule bg-card p-2 text-body text-ink"></textarea>
+		class="block w-full rounded-sm border border-ink-2 bg-card p-2 text-body text-ink"></textarea>
 	{#if failed ?? (adding.runner ? adding.failed : undefined)}
 		<p class="text-read text-support" role="alert"><Refusal words={failed ?? adding.failed} /></p>
 	{/if}
 	<WatchExamples {adding} />
 	<button
-		class="min-h-12 rounded-sm bg-accent px-4 py-3 font-display text-body text-on-accent disabled:opacity-60"
+		class="main-button w-full"
 		disabled={reading || adding.working !== null}
+		aria-busy={reading || adding.working === 'send' ? 'true' : undefined}
 	>
 		{#if adding.runner}
 			{reading ? m.send_doing() : m.send_do()}

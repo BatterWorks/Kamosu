@@ -16,7 +16,7 @@
 	**It asks in place.** Reading again takes an agent minutes and costs
 	whoever runs it, so the first press says so and asks; the second sends.
 	Where Kamosu has deleted what the recipe was read from (#270), the press
-	asks for the photo or the PDF again, shows it once as the + does (#278),
+	asks for the photo or the PDF again, shows it once as the add sheet does (#278),
 	or takes the text pasted again.
 
 	Offline, every button says what it waits for, as the other acts do.
