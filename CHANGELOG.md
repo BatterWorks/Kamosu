@@ -17,6 +17,7 @@
 - A Kitchen's card leads with inviting, and renaming it, your own name for it, removing someone and leaving are under *Change this Kitchen*, removing and leaving asking first. Before, they sat together at one weight, and removing someone took one tap. Every invite says it works once, for the first person who opens it, until you cancel it, and cancelling asks first. [#648]
 - Adding a recipe starts from *Add a recipe* beside the title of Recipes and Home, which opens one panel with every way in, each said plainly (*From a web page*, *From a recipe file*), and a *Close*. A web page's address is pasted there, shown whole, with *Add this recipe* greyed until there is one, and the recipe it adds says it was added and where, with *Undo*. Before, adding was an unlabelled + beside the search box, its address field opened between the search box and the filters, and an imported recipe opened with no word that it was saved. [#650]
 - Recipes is easier to get around: its count says the list is A to Z, letters down the right edge jump to any part of it, and the search box stays at the top while you scroll and says what it searches. A filter that is on shows as a chip whose × turns it off in one tap, the cooking filter reads *Cooked or not* and the tick *Only ones I wrote or cooked*, and every search result says why it matched. Home names who you cook with and has a search box, and its rows lost their bare counts. Before, the list said nothing of its order, the search box scrolled away and a tag filter took two taps to turn off. [#650]
+- An empty Home and a search on Recipes that finds nothing say so in the same grey box as every other empty list, with their buttons under it. Before, each said it in a large heading. [#671]
 
 ### Fixed
 
@@ -33,6 +34,7 @@
 [#663]: https://github.com/BatterWorks/Kamosu/issues/663
 [#666]: https://github.com/BatterWorks/Kamosu/issues/666
 [#667]: https://github.com/BatterWorks/Kamosu/issues/667
+[#671]: https://github.com/BatterWorks/Kamosu/issues/671
 
 ## v0.6.0 - 2026-11-13
 

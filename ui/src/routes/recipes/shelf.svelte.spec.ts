@@ -166,8 +166,20 @@ describe('the recipes screen', () => {
 			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
 		});
 
-		// It names what was searched for — from the answer, not from the field.
-		expect(await screen.findByText(/Nothing called .osso buco./)).toBeInTheDocument();
+		// It names what was searched for — from the answer, not from the field —
+		// the way every empty list says itself: the empty-state piece, not a
+		// heading (#632's split, chosen on #671), with the offers under it.
+		const said = await screen.findByText(/Nothing called .osso buco./);
+		expect(said.tagName).toBe('P');
+		expect(said).toHaveClass('border-dashed', 'bg-ground-2', 'text-ink-2');
+		expect(screen.queryByRole('heading', { name: /Nothing called/ })).not.toBeInTheDocument();
+		// Under the box, not inside it: a button in the sentence would follow it too.
+		expect(said.querySelector('button')).toBeNull();
+		expect(
+			said.compareDocumentPosition(
+				screen.getByRole('button', { name: /Add a recipe called .osso buco./ }),
+			) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
 
 		// What the search looks through is the search box's own hint now, so
 		// no sentence says it again here (#650, U3).

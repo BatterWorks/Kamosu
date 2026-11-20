@@ -49,6 +49,7 @@
 	import AddButton from '#lib/adding/AddButton.svelte';
 	import { useAdding } from '#lib/adding/adding.svelte.js';
 	import Section from '#lib/shell/Section.svelte';
+	import Empty from '#lib/shell/Empty.svelte';
 	import { searchRecipes } from '#lib/shell/slash.js';
 	import { useKamosu } from '#lib/kamosu.js';
 	import { OperationError } from '#lib/api/client.js';
@@ -214,17 +215,17 @@
 	{#if home.shelves.length === 0}
 		<!--
 			A brand-new instance, and the first thing anybody ever sees. One
-			sentence saying why there is nothing here, and the two things that
-			were going to happen next anyway — the same answer *nothing found*
-			gives on the Recipes screen, because it is the same situation: you do
-			not have it yet, and adding it was what you came to do (ADR 0027).
+			sentence saying why there is nothing here, said by the empty-state
+			piece as every empty list says itself (#632, chosen on #671), and
+			under it the thing that was going to happen next anyway: the button
+			that opens the sheet every way in is on (#650). It is the same answer
+			*nothing found* gives on the Recipes screen, because it is the same
+			situation: you do not have it yet, and adding it was what you came to
+			do (ADR 0027).
 		-->
 		<div class="mx-auto mt-8 max-w-2xl px-gutter wide:mx-0">
-			<div class="rounded-sm border border-dashed border-rule bg-ground-2 p-6">
-				<h2 class="font-display text-shelf-heading font-semibold">{m.home_empty_title()}</h2>
-				<!-- The one thing to do, which opens the sheet every way in is on (#650). -->
-				<div class="mt-4"><AddButton main onclick={() => addRecipe?.open()} /></div>
-			</div>
+			<Empty>{m.home_empty_title()}</Empty>
+			<div class="mt-4"><AddButton main onclick={() => addRecipe?.open()} /></div>
 		</div>
 	{:else}
 		{#each home.shelves as on (on.name)}
