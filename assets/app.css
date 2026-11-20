@@ -302,6 +302,7 @@
     font-size: var(--text-read);
     font-weight: 500;
     white-space: nowrap;
+    --under-pointer: var(--color-ground-2);
     &::after {
       content: "";
       position: absolute;
@@ -611,8 +612,14 @@
   .mt-3 {
     margin-top: var(--spacing-3);
   }
+  .mt-3\! {
+    margin-top: var(--spacing-3) !important;
+  }
   .mt-4 {
     margin-top: var(--spacing-4);
+  }
+  .mt-4\! {
+    margin-top: var(--spacing-4) !important;
   }
   .mt-6 {
     margin-top: var(--spacing-6);
@@ -781,6 +788,40 @@
     border-bottom: 1px solid var(--color-rule);
     color: var(--color-ink);
     text-align: start;
+  }
+  .version-chip {
+    display: flex;
+    min-height: 48px;
+    flex-direction: column;
+    justify-content: center;
+    padding: var(--spacing-1) var(--spacing-3);
+    border: 1px solid color-mix(in srgb, #f4efe3 35%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      border: 1px solid color-mix(in srgb, var(--color-on-accent) 35%, transparent);
+    }
+    border-radius: var(--radius-sm);
+    color: var(--color-on-accent);
+    &[aria-current="page"] {
+      border-color: var(--color-card);
+      background: var(--color-card);
+      color: var(--color-ink);
+      --under-pointer: var(--color-ground-2);
+    }
+  }
+  .tag-chip {
+    display: inline-flex;
+    min-height: 32px;
+    align-items: baseline;
+    gap: var(--spacing-2);
+    padding: var(--spacing-1) var(--spacing-3);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    background: var(--color-card);
+    font-size: var(--text-read);
+    --under-pointer: var(--color-ground-2);
+    &.border-dashed {
+      background: none;
+    }
   }
   @media (min-width: 700px) and (min-height: 560px) {
     .diary-grid {
@@ -1389,6 +1430,9 @@
   .justify-end {
     justify-content: flex-end;
   }
+  .gap-0 {
+    gap: var(--spacing-0);
+  }
   .gap-1 {
     gap: var(--spacing-1);
   }
@@ -1448,6 +1492,9 @@
   }
   :where(.divide-rule > :not(:last-child)) {
     border-color: var(--color-rule);
+  }
+  .self-center {
+    align-self: center;
   }
   .self-start {
     align-self: flex-start;
@@ -1547,9 +1594,6 @@
   .border-accent {
     border-color: var(--color-accent);
   }
-  .border-card {
-    border-color: var(--color-card);
-  }
   .border-cook-accent {
     border-color: var(--color-cook-accent);
   }
@@ -1569,18 +1613,6 @@
     border-color: color-mix(in srgb, #f4efe3 25%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       border-color: color-mix(in oklab, var(--color-on-accent) 25%, transparent);
-    }
-  }
-  .border-on-accent\/35 {
-    border-color: color-mix(in srgb, #f4efe3 35%, transparent);
-    @supports (color: color-mix(in lab, red, red)) {
-      border-color: color-mix(in oklab, var(--color-on-accent) 35%, transparent);
-    }
-  }
-  .border-on-accent\/40 {
-    border-color: color-mix(in srgb, #f4efe3 40%, transparent);
-    @supports (color: color-mix(in lab, red, red)) {
-      border-color: color-mix(in oklab, var(--color-on-accent) 40%, transparent);
     }
   }
   .border-rule {
@@ -1675,9 +1707,6 @@
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-ink) 70%, transparent);
     }
-  }
-  .bg-on-accent {
-    background-color: var(--color-on-accent);
   }
   .bg-rule {
     background-color: var(--color-rule);
@@ -2007,6 +2036,9 @@
   .break-all {
     word-break: break-all;
   }
+  .whitespace-normal {
+    white-space: normal;
+  }
   .whitespace-nowrap {
     white-space: nowrap;
   }
@@ -2073,9 +2105,6 @@
   }
   .underline-offset-2 {
     text-underline-offset: 2px;
-  }
-  .underline-offset-3 {
-    text-underline-offset: 3px;
   }
   .underline-offset-4 {
     text-underline-offset: 4px;
@@ -2157,6 +2186,9 @@
   }
   .loses {
     --button-ink: var(--color-support);
+  }
+  .matcha {
+    --button-ink: var(--color-support-2);
   }
   .first\:mt-0:first-child {
     margin-top: var(--spacing-0);

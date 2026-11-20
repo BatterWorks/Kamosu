@@ -37,6 +37,7 @@
 	import { OperationError } from '#lib/api/client.js';
 	import { languageName, type BranchLanguage } from '#lib/language.js';
 	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import NoticeCard from '#lib/NoticeCard.svelte';
 
 	interface Props {
 		branchId: string;
@@ -100,8 +101,8 @@
 		{m.recipe_language_offer_done({ language: languageName(became ?? offered) })}
 	</p>
 {:else if answered !== 'left'}
-	<div class="mx-gutter mt-2 border border-rule bg-card p-3">
-		<p class="text-read text-ink">
+	<NoticeCard class="mx-gutter mt-2">
+		<p>
 			{m.recipe_language_offer({
 				filed: languageName(filed),
 				reads: languageName(offered),
@@ -124,15 +125,15 @@
 				waiting={m.offline_waits_edit()}
 				disabled={answered === 'saying'}
 				onclick={accept}
-				shapeClass="min-h-12 flex-1 px-3 py-2 text-center font-display text-read"
-				lookClass="bg-accent text-on-accent"
+				shapeClass="second-button flex-1"
+				lookClass=""
+				idleClass="text-ink-2 opacity-55"
 			/>
 			<button
 				type="button"
 				disabled={answered === 'saying'}
 				onclick={() => (answered = 'left')}
-				class="min-h-12 flex-1 border border-rule px-3 py-2 text-center font-display text-read
-				text-accent disabled:opacity-60"
+				class="quiet-button text-ink-2"
 			>
 				{m.recipe_language_offer_decline()}
 			</button>
@@ -142,5 +143,5 @@
 			accept is deciding whether to put an entry in the recipe's history.
 		-->
 		<p class="mt-2 text-read text-ink-2">{m.recipe_language_offer_version()}</p>
-	</div>
+	</NoticeCard>
 {/if}

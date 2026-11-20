@@ -58,6 +58,8 @@
 	import { goto } from '$app/navigation';
 	import type { GetRecipeOutput, GetThreadOutput } from '#lib/api/catalogue.js';
 	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import NoticeCard from '#lib/NoticeCard.svelte';
+	import Section from '#lib/shell/Section.svelte';
 	import { Online } from '#lib/offline/device.svelte.js';
 	import { copySaid, type Whose } from '#lib/cookbook.js';
 	import { changedLines } from '#lib/as-cooked.js';
@@ -186,16 +188,21 @@
 {#if saved}
 	<p class="mx-gutter mt-6 text-read text-accent" role="status">{m.recipe_promoted()}</p>
 {:else if pending}
-	<div class="mx-gutter mt-6 rounded-sm border border-accent p-4">
-		<p class="text-label text-accent uppercase">{m.recipe_cooked_differently()}</p>
-		<p class="mt-1 font-display text-line">{m.recipe_cooked_differently_on({ when })}</p>
+	<NoticeCard
+		title={m.recipe_cooked_differently()}
+		tone="waiting"
+		announce={false}
+		class="mx-gutter mt-6"
+	>
+		<p>{m.recipe_cooked_differently_on({ when })}</p>
 
 		{#if opened}
 			{#if movedOn}
 				<p class="mt-3 text-read text-support">{m.recipe_moved_on_since()}</p>
 			{/if}
-			<h2 class="mt-4 text-label text-ink-2 uppercase">{m.recipe_as_cooked_lines()}</h2>
-			<ChangedLines lines={marked} />
+			<Section heading={m.recipe_as_cooked_lines()} class="mt-4!">
+				<ChangedLines lines={marked} />
+			</Section>
 
 			{#if forking && pending.as_cooked}
 				<p class="mt-4 text-label text-support uppercase">{m.write_will_fork()}</p>
@@ -208,13 +215,14 @@
 				waiting={m.offline_waits_keep()}
 				disabled={saving}
 				onclick={promote}
-				shapeClass="mt-3 block w-full p-4 text-center font-display text-body"
-				lookClass="{forking ? 'bg-support' : 'bg-accent'} text-on-accent disabled:opacity-60"
+				shapeClass="mt-3 second-button w-full"
+				lookClass={forking ? 'loses' : ''}
+				idleClass="text-ink-2 opacity-55"
 			/>
 			<button
 				type="button"
 				onclick={() => (opened = false)}
-				class="mt-2 block w-full border border-rule p-4 text-center font-display text-body text-ink-2"
+				class="quiet-button mt-2 w-full whitespace-normal text-ink-2"
 			>
 				{m.recipe_not_now()}
 			</button>
@@ -223,14 +231,15 @@
 				label={forking ? m.recipe_keep_as_copy() : m.recipe_keep_as_version()}
 				waiting={m.offline_waits_keep()}
 				onclick={() => (opened = true)}
-				shapeClass="mt-3 block w-full p-4 text-center font-display text-body"
-				lookClass="bg-accent text-on-accent"
+				shapeClass="mt-3 second-button w-full"
+				lookClass=""
+				idleClass="text-ink-2 opacity-55"
 			/>
 			{#if online.current}
 				<button
 					type="button"
 					onclick={decline}
-					class="mt-2 block w-full border border-rule p-4 text-center font-display text-body text-ink-2"
+					class="quiet-button mt-2 w-full whitespace-normal text-ink-2"
 				>
 					{m.recipe_leave_in_diary()}
 				</button>
@@ -240,5 +249,5 @@
 		{#if failed}
 			<p class="mt-2 text-read text-support" role="alert"><Refusal words={failed} /></p>
 		{/if}
-	</div>
+	</NoticeCard>
 {/if}

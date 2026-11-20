@@ -71,11 +71,7 @@
 		<div class="flex flex-wrap gap-x-2 gap-y-4">
 			{#each byWord(shown) as tag (tag.id)}
 				{@const named = tagWord(tag)}
-				<a
-					href="/recipes?tag={encodeURIComponent(tag.id)}"
-					class="tap-tall inline-flex min-h-8 items-baseline gap-2 rounded-sm border border-rule bg-card
-			px-3 py-1 text-read text-accent"
-				>
+				<a href="/recipes?tag={encodeURIComponent(tag.id)}" class="tap-tall tag-chip text-accent">
 					{named.name}
 					{#if named.elsewhere}
 						<!--
@@ -104,9 +100,9 @@
 					label={m.tags_add()}
 					waiting={m.offline_waits_tagging()}
 					onclick={() => (picking = true)}
-					shapeClass="tap-tall inline-flex min-h-8 items-center gap-1 rounded-sm px-3 py-1 text-read"
-					lookClass="border border-dashed border-rule text-accent"
-					idleClass="border border-dashed border-rule text-ink-2 opacity-55"
+					shapeClass="tap-tall tag-chip items-center gap-1 border-dashed"
+					lookClass="text-accent"
+					idleClass="text-ink-2 opacity-55"
 				/>
 			{/if}
 		</div>

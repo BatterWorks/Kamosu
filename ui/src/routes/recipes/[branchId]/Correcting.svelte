@@ -105,9 +105,10 @@
 	/**
 	 * The way in to the library, in matcha — the colour of a Reading that
 	 * points at a recipe everywhere else on this page (#50). Named once because
-	 * it is worn by two controls here and two more on the writing screen.
+	 * it is worn by two controls here. The shared secondary button in that ink
+	 * (#666), with `matcha` as `loses` gives it beni.
 	 */
-	const MATCHA = 'rounded-sm border border-support-2 px-2 py-1 text-read text-support-2';
+	const MATCHA = 'second-button matcha';
 
 	/**
 	 * The three fields are a draft, seeded ONCE from the Reading as it stands
@@ -225,7 +226,7 @@
 					-->
 						<button
 							type="button"
-							class="rounded-sm border border-rule px-2 py-1 text-read text-ink-2"
+							class="quiet-button text-ink-2"
 							onclick={() => (namedRecipe = null)}
 						>
 							{m.reading_not_recipe()}
@@ -253,18 +254,10 @@
 		</div>
 
 		<div class="mt-3 flex gap-2">
-			<button
-				type="submit"
-				disabled={saving}
-				class="flex-1 rounded-sm bg-accent p-2 text-center text-read text-on-accent"
-			>
+			<button type="submit" disabled={saving} class="second-button flex-1">
 				{m.reading_save()}
 			</button>
-			<button
-				type="button"
-				onclick={onCancel}
-				class="rounded-sm border border-rule px-3 py-2 text-read text-ink-2"
-			>
+			<button type="button" onclick={onCancel} class="quiet-button self-center text-ink-2">
 				{m.reading_cancel()}
 			</button>
 		</div>
@@ -291,20 +284,12 @@
 		Matcha, like every other way out of this page into another (#50).
 	-->
 	{#if !isComponent && reading?.target}
-		<a
-			href="/foods?q={encodeURIComponent(reading.target)}"
-			class="mt-2 block w-full text-center {MATCHA}"
-		>
+		<a href="/foods?q={encodeURIComponent(reading.target)}" class="mt-2 flex w-full {MATCHA}">
 			{m.reading_about_food({ food: reading.target })}
 		</a>
 	{/if}
 
-	<button
-		type="button"
-		onclick={clear}
-		disabled={saving}
-		class="mt-2 block w-full rounded-sm border border-rule p-2 text-center text-read text-accent"
-	>
+	<button type="button" onclick={clear} disabled={saving} class="mt-2 second-button w-full loses">
 		{m.reading_clear()}
 	</button>
 

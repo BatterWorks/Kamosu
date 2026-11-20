@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import NoticeCard from '#lib/NoticeCard.svelte';
 	import StepPhoto from '#lib/StepPhoto.svelte';
 	import StepWords from '#lib/StepWords.svelte';
 	import type { StepConversions } from '#lib/step-conversions.js';
@@ -157,16 +158,13 @@
 	</div>
 
 	{#if open}
-		<div class="mt-2 border border-rule bg-card p-3">
-			<p class="text-label text-ink-2 uppercase">{say.heading(seen, side)}</p>
-			<p class="mt-1 text-body">{say.sentence(seen, side)}</p>
+		<NoticeCard title={say.heading(seen, side)} announce={false} class="mt-2">
+			<p>{say.sentence(seen, side)}</p>
 			{#if what}
 				<button
 					type="button"
 					onclick={() => onCarry(what)}
-					class="mt-3 block w-full p-2 text-center text-read {what === 'undo'
-						? 'border border-rule text-ink-2'
-						: 'bg-accent text-on-accent'}"
+					class={['mt-3 second-button w-full', what === 'undo' && 'loses']}
 				>
 					{say.offerLabel(row, what)}
 				</button>
@@ -181,15 +179,11 @@
 				the other Kitchen's words, this one is about Kamosu's own.
 			-->
 			{#if onFixReading}
-				<button
-					type="button"
-					onclick={onFixReading}
-					class="mt-2 block w-full border border-rule p-2 text-center text-read text-accent"
-				>
+				<button type="button" onclick={onFixReading} class="mt-2 second-button w-full">
 					{m.reading_fix()}
 				</button>
 			{/if}
-		</div>
+		</NoticeCard>
 	{/if}
 </li>
 

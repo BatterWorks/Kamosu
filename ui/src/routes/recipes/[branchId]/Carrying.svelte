@@ -37,15 +37,11 @@
 				label={m.divergence_save()}
 				waiting={m.offline_waits_save()}
 				onclick={marking.startSaving}
-				shapeClass="flex-1 p-2 text-center text-read"
-				lookClass="bg-on-accent text-accent"
-				idleClass="border border-on-accent/40 text-on-accent opacity-55"
+				shapeClass="second-button flex-1"
+				lookClass=""
+				idleClass="text-ink-2 opacity-55"
 			/>
-			<button
-				type="button"
-				onclick={marking.undoAll}
-				class="flex-1 border border-on-accent/40 p-2 text-center text-read"
-			>
+			<button type="button" onclick={marking.undoAll} class="quiet-button shrink-0 text-support">
 				{m.divergence_undo()}
 			</button>
 		</div>
@@ -75,13 +71,14 @@
 			label={m.divergence_save()}
 			waiting={m.offline_waits_save()}
 			onclick={marking.save}
-			shapeClass="mt-4 block w-full p-4 text-center font-display text-body"
-			lookClass="bg-accent text-on-accent"
+			shapeClass="mt-4 main-button w-full"
+			lookClass=""
+			idleClass=""
 		/>
 		<button
 			type="button"
 			onclick={() => (marking.saving = false)}
-			class="mt-2 block w-full border border-rule p-4 text-center font-display text-body text-accent"
+			class="mt-2 second-button w-full"
 		>
 			{m.divergence_cancel()}
 		</button>

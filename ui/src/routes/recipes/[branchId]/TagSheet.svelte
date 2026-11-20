@@ -221,8 +221,7 @@
 							type="button"
 							disabled={working !== null}
 							onclick={() => create(newWord)}
-							class="flex min-h-12 w-full items-center gap-3 border-b border-rule px-gutter py-2
-							text-left disabled:opacity-60"
+							class="list-row px-gutter disabled:opacity-60"
 						>
 							<span class="block h-4 w-4 shrink-0 rounded-sm border border-accent"></span>
 							<span class="font-display text-line text-accent">
@@ -241,8 +240,7 @@
 							aria-checked={on.has(tag.id)}
 							disabled={working !== null}
 							onclick={() => toggle(tag)}
-							class="flex min-h-12 w-full items-center gap-3 border-b border-rule px-gutter py-2
-							text-left disabled:opacity-60"
+							class="list-row px-gutter disabled:opacity-60"
 						>
 							<!--
 								Shape only, no tick glyph in the markup: the state is
@@ -284,11 +282,9 @@
 		{/if}
 	</div>
 
-	<button
-		type="button"
-		class="block w-full border-t border-rule p-4 text-center font-display text-body text-accent"
-		onclick={onClose}
-	>
-		{m.tags_done()}
-	</button>
+	<div class="border-t border-rule px-gutter py-3">
+		<button type="button" class="second-button w-full" onclick={onClose}>
+			{m.tags_done()}
+		</button>
+	</div>
 </SheetFrame>

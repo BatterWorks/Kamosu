@@ -53,6 +53,7 @@
 </script>
 
 <script lang="ts">
+	import Section from '#lib/shell/Section.svelte';
 	import { m } from '#lib/paraglide/messages.js';
 	import Refusal from '#lib/Refusal.svelte';
 	import SheetFrame from '#lib/SheetFrame.svelte';
@@ -164,8 +165,7 @@
 		aria-checked={ticked}
 		disabled={working !== null}
 		onclick={() => toggle(entry)}
-		class="flex min-h-12 w-full items-center gap-3 border-b border-rule px-gutter py-2
-		text-left disabled:opacity-60"
+		class="list-row px-gutter disabled:opacity-60"
 	>
 		<!--
 			Shape only, no tick glyph in the markup: the state is on the switch
@@ -211,12 +211,13 @@
 		{/if}
 
 		{#if carried.length > 0}
-			<h3 class="px-gutter pt-3 text-label text-ink-2 uppercase">{m.related_carried()}</h3>
-			<ul>
-				{#each carried as entry (entry.lineage_id)}
-					<li>{@render row(entry, true)}</li>
-				{/each}
-			</ul>
+			<Section heading={m.related_carried()} class="mt-3! px-gutter">
+				<ul class="-mx-gutter">
+					{#each carried as entry (entry.lineage_id)}
+						<li>{@render row(entry, true)}</li>
+					{/each}
+				</ul>
+			</Section>
 		{/if}
 
 		<!--
@@ -253,11 +254,9 @@
 		{/if}
 	</div>
 
-	<button
-		type="button"
-		class="block w-full border-t border-rule p-4 text-center font-display text-body text-accent"
-		onclick={onClose}
-	>
-		{m.related_done()}
-	</button>
+	<div class="border-t border-rule px-gutter py-3">
+		<button type="button" class="second-button w-full" onclick={onClose}>
+			{m.related_done()}
+		</button>
+	</div>
 </SheetFrame>

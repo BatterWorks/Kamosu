@@ -110,7 +110,7 @@
 							type="button"
 							role="checkbox"
 							aria-checked={chosen.has(line.id)}
-							class="flex min-h-12 w-full items-start gap-3 border-b border-rule py-3 text-left"
+							class="list-row items-start"
 							onclick={() => toggle(line.id)}
 						>
 							<!--
@@ -154,36 +154,24 @@
 
 	<div class="grid gap-2 border-t border-rule px-gutter pt-3 pb-4">
 		<div class="flex gap-2">
-			<button
-				type="button"
-				class="min-h-12 flex-1 rounded-sm bg-accent font-display text-body font-semibold text-on-accent"
-				onclick={() => onDone(inOrder())}
-			>
+			<button type="button" class="main-button flex-1" onclick={() => onDone(inOrder())}>
 				{m.step_uses_done()}
 			</button>
 			{#if next !== null}
-				<button
-					type="button"
-					class="min-h-12 flex-1 rounded-sm border border-accent text-body text-accent"
-					onclick={() => onNext(inOrder())}
-				>
+				<button type="button" class="second-button flex-1" onclick={() => onNext(inOrder())}>
 					{m.step_uses_next({ number: next })}
 				</button>
 			{/if}
 		</div>
 		<div class="flex justify-between gap-2">
 			{#if byHand}
-				<button
-					type="button"
-					class="min-h-12 text-body text-ink-2 underline underline-offset-3"
-					onclick={onPutBack}
-				>
+				<button type="button" class="quiet-button text-ink-2" onclick={onPutBack}>
 					{m.step_uses_put_back()}
 				</button>
 			{/if}
 			<button
 				type="button"
-				class="min-h-12 text-body text-ink-2 underline underline-offset-3 {byHand ? '' : 'mx-auto'}"
+				class="quiet-button text-ink-2 {byHand ? '' : 'mx-auto'}"
 				onclick={onCancel}
 			>
 				{m.step_uses_cancel()}
