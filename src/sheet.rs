@@ -250,6 +250,10 @@ struct Words {
     months: [&'static str; 12],
     /// How a date is set: `{day}`, `{month}`, `{year}`.
     date: &'static str,
+    /// The units a time is written in, the interface's `time_unit_hours` and
+    /// `time_unit_minutes`: `u` for an hour in Dutch (#667).
+    hours: &'static str,
+    minutes: &'static str,
 }
 
 const EN: Words = Words {
@@ -287,6 +291,8 @@ const EN: Words = Words {
         "December",
     ],
     date: "{day} {month} {year}",
+    hours: "h",
+    minutes: "min",
 };
 
 const FR: Words = Words {
@@ -324,6 +330,8 @@ const FR: Words = Words {
         "décembre",
     ],
     date: "{day} {month} {year}",
+    hours: "h",
+    minutes: "min",
 };
 
 const ES: Words = Words {
@@ -361,6 +369,8 @@ const ES: Words = Words {
         "diciembre",
     ],
     date: "{day} de {month} de {year}",
+    hours: "h",
+    minutes: "min",
 };
 
 const NL: Words = Words {
@@ -398,6 +408,8 @@ const NL: Words = Words {
         "december",
     ],
     date: "{day} {month} {year}",
+    hours: "u",
+    minutes: "min",
 };
 
 /// The Language the page is set in: the recipe's own, where Kamosu speaks it,
@@ -445,15 +457,18 @@ fn long_date(stored: &str, words: &Words) -> String {
 }
 
 /// `20 min`, `1 h 30 min`, `2 h` — the way a time is written on a card, and
-/// on the Share Link page (#521). The minutes after an hour carry their unit:
-/// `1 h 30` with a small h read as 130 on the page (#649).
-pub(crate) fn duration(minutes: i64) -> String {
-    duration_parts(minutes)
+/// on the Share Link page (#521), in the units of the page's Language: `1 u
+/// 30 min` in Dutch, as the interface writes it (#667). The minutes after an
+/// hour carry their unit: `1 h 30` with a small h read as 130 on the page
+/// (#649).
+pub(crate) fn duration(minutes: i64, language: &str) -> String {
+    written_duration(minutes, words_for(language).0)
+}
+
+fn written_duration(minutes: i64, words: &Words) -> String {
+    parts_of(minutes, words)
         .into_iter()
-        .map(|(figure, unit)| match unit {
-            Some(unit) => format!("{figure} {unit}"),
-            None => figure,
-        })
+        .map(|(figure, unit)| format!("{figure} {unit}"))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -463,12 +478,19 @@ pub(crate) fn duration(minutes: i64) -> String {
 /// `figureOf` (#175), written once on the server for the Sheet and the Share
 /// Link page alike. Under an hour, minutes; whole hours, hours; otherwise
 /// hours and then the minutes in two digits with theirs.
-pub(crate) fn duration_parts(minutes: i64) -> Vec<(String, Option<&'static str>)> {
+pub(crate) fn duration_parts(minutes: i64, language: &str) -> Vec<(String, &'static str)> {
+    parts_of(minutes, words_for(language).0)
+}
+
+fn parts_of(minutes: i64, words: &Words) -> Vec<(String, &'static str)> {
     let (hours, rest) = (minutes / 60, minutes % 60);
     match (hours, rest) {
-        (0, m) => vec![(m.to_string(), Some("min"))],
-        (h, 0) => vec![(h.to_string(), Some("h"))],
-        (h, m) => vec![(h.to_string(), Some("h")), (format!("{m:02}"), Some("min"))],
+        (0, m) => vec![(m.to_string(), words.minutes)],
+        (h, 0) => vec![(h.to_string(), words.hours)],
+        (h, m) => vec![
+            (h.to_string(), words.hours),
+            (format!("{m:02}"), words.minutes),
+        ],
     }
 }
 
@@ -487,10 +509,18 @@ fn meta_line(content: &Value, words: &Words) -> Option<String> {
         parts.push(words.makes.replace("{yield}", &made));
     }
     if let Some(minutes) = content["prep_time_minutes"].as_i64().filter(|m| *m > 0) {
-        parts.push(words.prep.replace("{time}", &duration(minutes)));
+        parts.push(
+            words
+                .prep
+                .replace("{time}", &written_duration(minutes, words)),
+        );
     }
     if let Some(minutes) = content["cook_time_minutes"].as_i64().filter(|m| *m > 0) {
-        parts.push(words.cook.replace("{time}", &duration(minutes)));
+        parts.push(
+            words
+                .cook
+                .replace("{time}", &written_duration(minutes, words)),
+        );
     }
     (!parts.is_empty()).then(|| parts.join("  ·  "))
 }
@@ -967,11 +997,30 @@ mod tests {
         assert_eq!(long_date("2026-08-01T10:00:00Z", &FR), "1 août 2026");
         assert_eq!(long_date("2026-09-19", &ES), "19 de septiembre de 2026");
         assert_eq!(long_date("someday", &EN), "someday");
-        assert_eq!(duration(20), "20 min");
-        assert_eq!(duration(90), "1 h 30 min");
-        assert_eq!(duration(120), "2 h");
-        assert_eq!(duration(65), "1 h 05 min");
-        assert_eq!(duration(540), "9 h");
+        assert_eq!(duration(20, "en"), "20 min");
+        assert_eq!(duration(90, "en"), "1 h 30 min");
+        assert_eq!(duration(120, "en"), "2 h");
+        assert_eq!(duration(65, "en"), "1 h 05 min");
+        assert_eq!(duration(540, "en"), "9 h");
+    }
+
+    /// A time on paper is written in the units the app writes it in, for the
+    /// page's Language: an hour is `u` in Dutch and `h` in the others (#667).
+    #[test]
+    fn a_time_on_paper_is_written_in_the_pages_language() {
+        let content =
+            json!({ "title": "Stoof", "prep_time_minutes": 90, "cook_time_minutes": 120 });
+        for (language, line) in [
+            ("en", "Prep 1 h 30 min  ·  Cook 2 h"),
+            ("fr", "Prép. 1 h 30 min  ·  Cuisson 2 h"),
+            ("es", "Prep. 1 h 30 min  ·  Cocción 2 h"),
+            ("nl", "Voorbereiden 1 u 30 min  ·  Koken 2 u"),
+        ] {
+            let mut sheet = gathered(content.clone(), Vec::new());
+            sheet.language = language.into();
+            assert_eq!(compose(&sheet)["recipe"]["meta"], json!(line), "{language}");
+            assert_eq!(duration(45, language), "45 min", "{language}");
+        }
     }
 
     /// A Component nobody here holds has no block, and its line reads as

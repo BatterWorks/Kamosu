@@ -550,7 +550,8 @@ fn note(
 ) -> String {
     let carried = &contents.branches[index];
     let record = &carried.record;
-    let words = words(record["language"].as_str().unwrap_or(""));
+    let language = record["language"].as_str().unwrap_or("");
+    let words = words(language);
     let empty = Value::Null;
     let content = head(record).map_or(&empty, |version| &version["content"]);
     let title = content["title"].as_str().unwrap_or("");
@@ -574,13 +575,14 @@ fn note(
         meta.push(inline(recipe_yield.trim()));
     }
     // A time is written as the app, the Sheet and the Share Link page write
-    // it, `9 h prep` and never `540 min prep` (#546).
+    // it, `9 h prep` and never `540 min prep` (#546), in the units of the
+    // recipe's Language: `1 u 30 min` in Dutch (#667).
     if let Some(minutes) = content["prep_time_minutes"].as_i64() {
-        let time = crate::sheet::duration(minutes);
+        let time = crate::sheet::duration(minutes, language);
         meta.push(format!("{time} {}", words.prep));
     }
     if let Some(minutes) = content["cook_time_minutes"].as_i64() {
-        let time = crate::sheet::duration(minutes);
+        let time = crate::sheet::duration(minutes, language);
         meta.push(format!("{time} {}", words.cook));
     }
     if !meta.is_empty() {
@@ -1732,16 +1734,22 @@ mod tests {
 
     /// A time on the note reads as the app, the Sheet and the Share Link page
     /// write it, never as the stored minutes: a 9-hour prove read `540 min
-    /// prep` before (#546).
+    /// prep` before (#546). An hour is `u` in Dutch, as in the app (#667).
     #[test]
     fn a_notes_times_read_in_hours_and_minutes() {
-        for (minutes, prep, cook) in [
-            (540, "9 h prep", "9 h cook"),
-            (90, "1 h 30 min prep", "1 h 30 min cook"),
-            (15, "15 min prep", "15 min cook"),
+        for (language, minutes, prep, cook) in [
+            ("en", 540, "9 h prep", "9 h cook"),
+            ("en", 90, "1 h 30 min prep", "1 h 30 min cook"),
+            ("en", 15, "15 min prep", "15 min cook"),
+            (
+                "nl",
+                90,
+                "1 u 30 min voorbereidingstijd",
+                "1 u 30 min kooktijd",
+            ),
         ] {
             let mut written = contents();
-            written.branches[0].record["language"] = json!("en");
+            written.branches[0].record["language"] = json!(language);
             written.branches[0].record["versions"][1]["content"] = json!({
                 "title": "Bœuf bourguignon",
                 "prep_time_minutes": minutes,

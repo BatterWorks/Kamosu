@@ -757,7 +757,7 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
         hero = hero(token, recipe, content, words),
         branch_name = branch_name(recipe),
         source_on_paper = source_on_paper(content, words),
-        meta = meta(content, words),
+        meta = meta(content, words, language),
         ingredients_heading = escape(words.ingredients),
         ingredients = ingredients(content, carried, words),
         nutrition = nutrition(content, words),
@@ -809,7 +809,7 @@ fn open_graph(token: &str, shared: &Value, title: &str, sharer: &str, language: 
         .unwrap_or(0)
         .saturating_add(content["cook_time_minutes"].as_i64().unwrap_or(0));
     if minutes > 0 {
-        facts.push(crate::sheet::duration(minutes));
+        facts.push(crate::sheet::duration(minutes, language));
     }
     if let Some(source) = content["source"].as_object()
         && let Some(text) = source.get("text").and_then(Value::as_str)
@@ -945,7 +945,7 @@ fn web_link(link: &str) -> Option<&str> {
 }
 
 /// The meta: one strip of up to three cells, hairlines between.
-fn meta(content: &Value, words: &Words) -> String {
+fn meta(content: &Value, words: &Words, language: &str) -> String {
     let mut cells: Vec<String> = Vec::new();
     let mut cell = |figure: String, label: String| {
         cells.push(format!(
@@ -956,10 +956,10 @@ fn meta(content: &Value, words: &Words) -> String {
         ));
     };
     if let Some(minutes) = content["prep_time_minutes"].as_i64() {
-        cell(time_figure(minutes), escape(words.prep));
+        cell(time_figure(minutes, language), escape(words.prep));
     }
     if let Some(minutes) = content["cook_time_minutes"].as_i64() {
-        cell(time_figure(minutes), escape(words.cook));
+        cell(time_figure(minutes, language), escape(words.cook));
     }
     if let Some(y) = content["yield"].as_object() {
         cell(
@@ -977,16 +977,15 @@ fn meta(content: &Value, words: &Words) -> String {
 }
 
 /// A time in the strip with its unit in the figure, set smaller as the app
-/// sets it: `15 min`, `1 h 30 min`, `9 h` (#175, #521, #649). The rule is the Sheet's,
-/// so the two server pages and the app write a time the same way.
-fn time_figure(minutes: i64) -> String {
-    crate::sheet::duration_parts(minutes)
+/// sets it: `15 min`, `1 h 30 min`, `9 h`, and `1 u 30 min` in Dutch (#175,
+/// #521, #649, #667). The rule and the units are the Sheet's, so the two
+/// server pages and the app write a time the same way.
+fn time_figure(minutes: i64, language: &str) -> String {
+    crate::sheet::duration_parts(minutes, language)
         .into_iter()
         .enumerate()
         .map(|(index, (figure, unit))| {
-            let unit = unit.map_or(String::new(), |unit| {
-                format!(r#"<small class="ms-1 text-read font-normal">{unit}</small>"#)
-            });
+            let unit = format!(r#"<small class="ms-1 text-read font-normal">{unit}</small>"#);
             let gap = if index > 0 { r#" class="ms-1""# } else { "" };
             format!("<span{gap}>{figure}{unit}</span>")
         })
@@ -1707,11 +1706,43 @@ mod tests {
     fn a_time_in_the_strip_carries_its_own_unit() {
         for (minutes, figure) in [(540, "9 h"), (90, "1 h 30 min"), (15, "15 min")] {
             let content = serde_json::json!({ "prep_time_minutes": minutes });
-            let strip = shown(&meta(&content, &EN));
+            let strip = shown(&meta(&content, &EN, "en"));
             assert_eq!(strip, format!("{figure} prep"), "{minutes} minutes");
         }
         let content = serde_json::json!({ "cook_time_minutes": 75 });
-        assert_eq!(shown(&meta(&content, &FR)), "1 h 15 min cuisson");
+        assert_eq!(shown(&meta(&content, &FR, "fr")), "1 h 15 min cuisson");
+    }
+
+    /// An hour on a shared recipe's page is written as the app writes it in
+    /// the page's Language, `u` in Dutch, in the strip and on the chat card
+    /// alike (#667).
+    #[test]
+    fn a_shared_time_is_written_in_the_pages_language() {
+        for (language, words) in PAGE_WORDS {
+            let figure = if language == "nl" {
+                "1 u 30 min"
+            } else {
+                "1 h 30 min"
+            };
+            let shared = serde_json::json!({
+                "shared_by": "Ana",
+                "public_address": "https://kamosu.example",
+                "recipe": {
+                    "language": language,
+                    "content": { "title": "Stoof", "prep_time_minutes": 90 },
+                },
+            });
+            let html = render("tok", &shared, None);
+            assert!(
+                shown(&html).contains(&format!("{figure} {}", words.prep)),
+                "{language}: {}",
+                shown(&html)
+            );
+            assert!(
+                html.contains(&format!(r#"og:description" content="{figure}""#)),
+                "{language}: {html}"
+            );
+        }
     }
 
     /// The chat card's description says the total as the strip would.
