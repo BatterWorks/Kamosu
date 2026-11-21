@@ -1236,8 +1236,13 @@ impl Core {
                 versions.extend(rows);
             }
 
+            // What the recipe is called on the Branch the History was opened
+            // from, which the page names it by (#652).
+            let title = branch_title(conn, &branch_head(conn, branch_id)?.head_version_id)?;
+
             Ok(json!({
                 "lineage_id": lineage_id,
+                "title": title,
                 "branches": branches,
                 "versions": versions,
                 "attempts": attempts_for_lineage(conn, &lineage_id, person_id, &visible_version_ids)?,

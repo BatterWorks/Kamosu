@@ -22,6 +22,7 @@ function show(over: Answers = {}) {
 		get_recipe: recipeAnswer(),
 		get_thread: {
 			lineage_id: 'l_1',
+			title: 'Tteokbokki',
 			branches: [threadBranch('b_1', { hand_id: 'h_1', head_version_id: 'v_1' })],
 			versions: [],
 			attempts: [],

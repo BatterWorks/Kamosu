@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { foldedLines, graphOf, linesBelow, runsOf, type GraphRow } from './graph';
+import { foldedLines, graphOf, linesBelow, newestFirst, runsOf, type GraphRow } from './graph';
 import type { ThreadVersion } from './tree';
 
 let clock = 0;
@@ -488,5 +488,73 @@ describe('a Branch with no Version of its own, in the Thread (#250)', () => {
 			false,
 			true,
 		]);
+	});
+});
+
+describe('the Thread newest first (#652)', () => {
+	it('puts the newest Version on top, each line now reaching up where it reached down', () => {
+		const graph = newestFirst(
+			graphOf(
+				['b_1'],
+				[
+					v('b_1', 1, 'a', '2026-01-01'),
+					v('b_1', 2, 'b', '2026-01-02'),
+					v('b_1', 3, 'c', '2026-01-03'),
+				],
+			),
+		);
+		expect(shape(graph.rows)).toEqual(['c@0', 'b@0', 'a@0']);
+		const [newest, middle, oldest] = graph.rows as VersionRow[];
+		expect(newest.lines).toEqual([{ lane: 0, tone: 0, reach: 'below' }]);
+		expect(middle.lines).toEqual([{ lane: 0, tone: 0, reach: 'full' }]);
+		expect(oldest.lines).toEqual([{ lane: 0, tone: 0, reach: 'above' }]);
+	});
+
+	it('draws a Copy above the Version it parts at, its line leaving that dot upwards', () => {
+		const graph = newestFirst(
+			graphOf(
+				['b_papi', 'b_camille'],
+				[
+					v('b_papi', 1, 'root', '2026-08-02'),
+					v('b_camille', 1, 'root', '2026-08-02'),
+					v('b_papi', 2, 'p1', '2026-08-30'),
+					v('b_camille', 2, 'c1', '2026-09-05'),
+				],
+			),
+		);
+		expect(shape(graph.rows)).toEqual(['c1@1', 'p1@0', 'root@0→[1]']);
+		const c1 = versionRow(graph.rows, 'c1');
+		expect(c1.lines).toEqual([{ lane: 1, tone: 1, reach: 'below' }]);
+		const p1 = versionRow(graph.rows, 'p1');
+		expect(p1.lines).toEqual([
+			{ lane: 0, tone: 0, reach: 'below' },
+			{ lane: 1, tone: 1, reach: 'full' },
+		]);
+		const root = versionRow(graph.rows, 'root');
+		expect(root.lines).toEqual([{ lane: 0, tone: 'shared', reach: 'above' }]);
+	});
+
+	it('folds a run of quiet saves the same way, its line reaching from the newer rows to the older', () => {
+		const quiet = { change_note: null };
+		const graph = newestFirst(
+			graphOf(
+				['b_1'],
+				[
+					v('b_1', 1, 'a', '2026-01-01'),
+					v('b_1', 2, 'q1', '2026-01-02', quiet),
+					v('b_1', 3, 'q2', '2026-01-03', quiet),
+					v('b_1', 4, 'q3', '2026-01-04', quiet),
+					v('b_1', 5, 'q4', '2026-01-05', quiet),
+					v('b_1', 6, 'z', '2026-01-06'),
+				],
+			),
+		);
+		const items = runsOf(graph.rows, (row) => !row.version.change_note);
+		expect(items.map((item) => item.kind)).toEqual(['row', 'run', 'row']);
+		const run = items[1];
+		if (run.kind !== 'run') throw new Error('no run');
+		expect(run.rows.map((row) => row.version.version_id)).toEqual(['q4', 'q3', 'q2', 'q1']);
+		expect(foldedLines(run.rows)).toEqual([{ lane: 0, tone: 0, reach: 'full' }]);
+		expect(linesBelow(run.rows[3])).toEqual([{ lane: 0, tone: 0, reach: 'full' }]);
 	});
 });

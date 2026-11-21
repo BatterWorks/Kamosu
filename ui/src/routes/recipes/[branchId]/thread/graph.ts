@@ -545,6 +545,26 @@ export function graphOf(branchIds: string[], versions: ThreadVersion[]): Graph {
 	return { rows, lanes: widest + 1 };
 }
 
+/** Which part of a row a line covers once the row is turned upside down. */
+const turned = (reach: Line['reach']): Line['reach'] =>
+	reach === 'above' ? 'below' : reach === 'below' ? 'above' : reach;
+
+/**
+ * The Thread newest first (#652), as most histories read: the same graph
+ * turned upside down. The rows run the other way, and every line that
+ * reached down from a dot now reaches up to it, so a Copy's line, which came
+ * out of its first Version's dot and ran down, now leaves that dot upwards.
+ * A row's `sprouts` keep their meaning, the lines that leave its dot; the
+ * screen draws them going up.
+ */
+export function newestFirst(graph: Graph): Graph {
+	const flip = (lines: Line[]) => lines.map((line) => ({ ...line, reach: turned(line.reach) }));
+	return {
+		lanes: graph.lanes,
+		rows: [...graph.rows].reverse().map((row) => ({ ...row, lines: flip(row.lines) })),
+	};
+}
+
 /** A row as the screen shows it: on its own, or folded into a run of quiet saves. */
 export type Item =
 	{ kind: 'row'; row: GraphRow } | { kind: 'run'; key: string; rows: VersionRow[] };

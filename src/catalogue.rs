@@ -3676,8 +3676,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       As Cooked once that was kept as a Version, otherwise the \
                       Version it started from. Its person_name is who cooked, \
                       and mine says whether that is you. branch_id is only the \
-                      entry point — any Branch of the Lineage answers the same \
-                      Thread.",
+                      entry point: any Branch of the Lineage answers the same \
+                      Thread, and title is what the recipe is called on that \
+                      Branch.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -6852,11 +6853,13 @@ fn thread_schema() -> Value {
         "type": "object",
         "properties": {
             "lineage_id": { "type": "string" },
+            // The title of the Branch the Thread was entered from (#652).
+            "title": { "type": "string" },
             "branches": { "type": "array", "items": thread_branch_schema() },
             "versions": { "type": "array", "items": thread_version_schema() },
             "attempts": { "type": "array", "items": thread_attempt_schema() },
         },
-        "required": ["lineage_id", "branches", "versions", "attempts"],
+        "required": ["lineage_id", "title", "branches", "versions", "attempts"],
         "additionalProperties": false,
     })
 }

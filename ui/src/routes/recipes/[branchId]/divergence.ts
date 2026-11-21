@@ -203,6 +203,12 @@ export interface Words {
 	unsaved(count: number): string;
 	/** Under the *what changed* field of the save. */
 	saveHint: string;
+	/**
+	 * Whether a row's caption is a sentence in reading type rather than a
+	 * small capitals label: an older Version's "Now: …" carries a whole line
+	 * of the recipe (#652).
+	 */
+	plainCaption?: boolean;
 }
 
 /** The words between two Branches, named for whose the other one is. */

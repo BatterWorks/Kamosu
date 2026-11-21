@@ -146,18 +146,13 @@
 	{/if}
 	<button
 		type="button"
-		class="mt-4 block w-full rounded-sm bg-accent p-4 text-center font-display text-body text-on-accent disabled:opacity-60"
+		class="mt-4 main-button w-full"
 		disabled={working || (named && name.trim() === '')}
 		onclick={run}
 	>
 		{does}
 	</button>
-	<button
-		type="button"
-		class="mt-2 mb-4 block w-full rounded-sm border border-rule p-4 text-center font-display text-body text-ink-2"
-		disabled={working}
-		onclick={onClose}
-	>
+	<button type="button" class="mt-2 mb-4 second-button w-full" disabled={working} onclick={onClose}>
 		{m.write_back()}
 	</button>
 </SheetFrame>
