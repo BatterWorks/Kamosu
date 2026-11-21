@@ -143,7 +143,8 @@ function firstOtherApp() {
  * @property {string} shortFood
  * @property {string} longFood
  * @property {string} search a word that finds recipes
- * @property {string} oldVersion the long recipe's first Version, for a Version's own page
+ * @property {{ recipe: string, version: string } | null} olderVersion a Version that is not its
+ *   recipe's newest, for an older version's own page, or none when every recipe holds one
  * @property {string | null} importJob one import's Job, for its page, when the library holds one
  * @property {{ invite: string, kitchen: string, cookbook: string, recovery: string }} secrets each page's path
  */
@@ -229,7 +230,14 @@ export function coverage(found) {
 	// The pages a route parameter leads to, beyond the everyday ones.
 	for (const [screen, route] of [
 		['recipe-thread', `/recipes/${found.longRecipe}/thread`],
-		['recipe-version', `/recipes/${found.longRecipe}/versions/${found.oldVersion}`],
+		...(found.olderVersion
+			? [
+					[
+						'recipe-version',
+						`/recipes/${found.olderVersion.recipe}/versions/${found.olderVersion.version}`,
+					],
+				]
+			: []),
 		['import-from-app', `/imports/from/${firstOtherApp()}`],
 		...(found.importJob ? [['import-job', `/imports/${found.importJob}`]] : []),
 	]) {
@@ -336,6 +344,47 @@ export function tableFingerprints(file) {
 // ── what the library holds ───────────────────────────────────────────────────
 
 /**
+ * @typedef {object} Sized one recipe as `chooseFrom` reads it
+ * @property {string} id
+ * @property {number} size its lines and Steps
+ * @property {string} head_version_id its newest Version
+ * @property {{ version_id: string, sequence: number }[]} versions
+ */
+
+/**
+ * A Version that is not its recipe's newest, for an older version's own page:
+ * the first Version of the longest recipe holding more than one, ties to the
+ * lower id. None when every recipe holds one Version, since an older
+ * version's page sends the newest to the recipe and would measure that.
+ * @param {Sized[]} recipes
+ * @returns {{ recipe: string, version: string } | null}
+ */
+export function olderVersionIn(recipes) {
+	const longestFirst = recipes.toSorted((a, b) => b.size - a.size || a.id.localeCompare(b.id));
+	for (const recipe of longestFirst) {
+		const [first] = recipe.versions
+			.filter((v) => v.version_id !== recipe.head_version_id)
+			.toSorted((a, b) => a.sequence - b.sequence);
+		if (first) return { recipe: recipe.id, version: first.version_id };
+	}
+	return null;
+}
+
+/**
+ * The pages `coverage` leaves out because the library holds nothing to open
+ * them with, each as a fault for the end of the run.
+ * @param {Pick<Found, 'olderVersion'>} found
+ * @returns {string[]}
+ */
+export function missingPages(found) {
+	return found.olderVersion
+		? []
+		: [
+				"recipe-version: not measured, since every recipe in the library holds one Version and an older version's page needs a recipe with two",
+			];
+}
+
+/**
  * The short and the long recipe, the Foods read least and most, and a word
  * that finds several recipes. Ties go to the lower id, so two runs over one
  * library choose alike.
@@ -344,8 +393,10 @@ export function tableFingerprints(file) {
  */
 async function chooseFrom(api, secret) {
 	const { recipes } = await op(api, secret, 'search_recipes', {});
-	/** @type {{ id: string, size: number, title: string }[]} */
+	/** @type {(Sized & { title: string })[]} */
 	const sized = [];
+	/** @type {Sized[]} */
+	const allRecipes = [];
 	for (const { branch_id: id } of recipes) {
 		const recipe = await op(api, secret, 'get_recipe', { branch_id: id });
 		const head = recipe.versions.find(
@@ -356,19 +407,20 @@ async function chooseFrom(api, secret) {
 		const count = (list, kind) => (list ?? []).filter((item) => item.kind === kind).length;
 		const lines = count(content.ingredients, 'ingredient');
 		const steps = count(content.steps, 'step');
-		if (lines > 0 && steps > 0) sized.push({ id, size: lines + steps, title: content.title ?? '' });
+		const summary = {
+			id,
+			size: lines + steps,
+			head_version_id: recipe.head_version_id,
+			versions: recipe.versions,
+		};
+		allRecipes.push(summary);
+		if (lines > 0 && steps > 0) sized.push({ ...summary, title: content.title ?? '' });
 	}
 	if (sized.length < 2)
 		throw new ToolError('the dev library holds fewer than two recipes with lines and steps');
 	const fewest = [...sized].sort((a, b) => a.size - b.size || a.id.localeCompare(b.id));
 	const most = [...sized].sort((a, b) => b.size - a.size || a.id.localeCompare(b.id));
-	const long = await op(api, secret, 'get_recipe', { branch_id: most[0].id });
-	const [oldVersion] = long.versions
-		.toSorted(
-			(/** @type {{ sequence: number }} */ a, /** @type {{ sequence: number }} */ b) =>
-				a.sequence - b.sequence,
-		)
-		.map((/** @type {{ version_id: string }} */ v) => v.version_id);
+	const olderVersion = olderVersionIn(allRecipes);
 
 	const { imports } = await op(api, secret, 'list_imports', {});
 	const [importJob = null] = imports
@@ -402,7 +454,7 @@ async function chooseFrom(api, secret) {
 		shortFood: least[0].id,
 		longFood: oftenest[0].id,
 		search,
-		oldVersion,
+		olderVersion,
 		importJob,
 	};
 }
@@ -719,6 +771,7 @@ async function main() {
 			secrets: await makeSecrets(empty.api, emptySecret, firstPerson.name),
 		};
 		fs.writeFileSync(path.join(out, 'chosen.json'), `${JSON.stringify(found, null, '\t')}\n`);
+		if (!everydayOnly) faults.push(...missingPages(found));
 
 		const rows = coverage(found).filter(
 			(row) => !everydayOnly || ['everyday', 'empty'].includes(row.group),
