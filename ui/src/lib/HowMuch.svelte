@@ -3,15 +3,18 @@
 
 	The cooking screen asks it before a fresh cooking starts, in the place the
 	amounts and the Step will stand; the recipe page opens it under the
-	ingredients' heading, for the errands. That shape was chosen on
-	23 September 2026 from three built against the real corpus (option B on
-	#109); the reasoning is there.
+	ingredients' heading, for the errands; planning a recipe asks it too.
 
-	− and + count in the recipe's own noun, one serving at a time. The four
-	quick choices are ×½ · as written · ×2 · ×3, each labelled with what it comes
-	to where it counts (`×2 · 24`). A recipe that never said what it makes —
-	a third of the real library — has nothing to count from, so it gets the
-	multipliers alone and a sentence saying why.
+	FOUR CHOICES, EACH SAYING WHAT IT MAKES (#651, option B, chosen on the
+	prototype on 20 November 2026): half, as written, double and triple, a row
+	each with a ring, and what it comes to in the recipe's own noun where it
+	counts ("Double · 8 servings"). − and + did the same job beside them and
+	are behind *Another amount* now, open by themselves when what is chosen is
+	none of the four. A recipe that never said what it makes — a third of the
+	real library — has four multiples of the recipe and a sentence saying why,
+	and nothing to count one serving at a time from. Before #651 the choices
+	were chips reading `×2 · 8` (#109, option B), which the UX audit found
+	needed decoding (C3).
 
 	It chooses and says nothing else. What a choice does to the amounts comes
 	back from the Core (ADR 0016), and whoever holds this decides when to ask.
@@ -19,6 +22,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import {
+		choiceName,
 		choices,
 		counts,
 		isMultiplier,
@@ -47,33 +51,89 @@
 		wanted && written && wanted.noun === written.noun ? wanted.amount : (written?.amount ?? ''),
 	);
 	const cook = $derived(room === 'cook');
+	/** − and + are open: asked for, or what is chosen is none of the four. */
+	let another = $state(false);
+	const onAChoice = $derived(quick.some((choice) => same(choice.wanted, wanted)));
+	const stepping = $derived(counts(written) && (another || !onAChoice));
+
+	/**
+	 * The four are one group a keyboard enters once and moves through with the
+	 * arrow keys, as radio buttons are (#651): the chosen one, or the first
+	 * where none is, takes Tab, and an arrow chooses the next one round.
+	 */
+	let group = $state<HTMLElement | undefined>(undefined);
+	const tabStop = $derived(
+		Math.max(
+			0,
+			quick.findIndex((choice) => same(choice.wanted, wanted)),
+		),
+	);
+	function arrow(event: KeyboardEvent, at: number) {
+		const by = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
+		if (by === undefined) return;
+		event.preventDefault();
+		const to = (at + by + quick.length) % quick.length;
+		another = false;
+		onchoose(quick[to].wanted);
+		group?.querySelectorAll<HTMLElement>('[role="radio"]')[to]?.focus();
+	}
 </script>
 
-<p class="text-label uppercase {cook ? 'text-cook-ink-2' : 'text-ink-2'}">
-	{m.how_much_question()}
-</p>
-{#if counts(written) && written}
-	<div class="flex items-center gap-4 py-3 wide:max-w-[360px]">
+{#if cook}
+	<h2 class="font-display text-title font-semibold">{m.how_much_question()}</h2>
+{:else}
+	<p class="text-label text-ink-2 uppercase">{m.how_much_question()}</p>
+{/if}
+<div
+	bind:this={group}
+	role="radiogroup"
+	aria-label={m.how_much_question()}
+	class="grid gap-2 {cook ? 'max-w-[420px] pt-4 wide:max-w-[560px]' : 'pt-3'}"
+>
+	{#each quick as choice, at (choice.times)}
+		{@const chosen = same(choice.wanted, wanted)}
 		<button
 			type="button"
-			class="min-h-12 w-12 rounded-sm border font-display text-title disabled:opacity-40
-				{cook ? 'border-cook-accent text-cook-accent' : 'border-accent text-accent'}"
+			role="radio"
+			aria-checked={chosen}
+			tabindex={at === tabStop ? 0 : -1}
+			class="second-button how-much-choice"
+			onkeydown={(event) => arrow(event, at)}
+			onclick={() => {
+				another = false;
+				onchoose(choice.wanted);
+			}}
+		>
+			<span class="how-much-ring" aria-hidden="true"></span>
+			<span class="min-w-0 flex-1 text-left font-semibold"
+				>{choiceName(choice.of, !!choice.count)}</span
+			>
+			{#if choice.count && written}
+				<span class="font-display text-line">{choice.count} {written.noun}</span>
+			{/if}
+		</button>
+	{/each}
+</div>
+{#if stepping && written}
+	<div class="flex items-center gap-4 pt-4 {cook ? 'max-w-[420px] wide:max-w-[560px]' : ''}">
+		<button
+			type="button"
+			class="second-button how-much-step"
 			disabled={fewer === undefined}
 			aria-label={m.how_much_fewer()}
 			onclick={() => fewer !== undefined && onchoose(fewer)}
 		>
 			−
 		</button>
-		<p class="min-w-0 flex-1 text-center font-display text-title font-semibold" aria-live="polite">
+		<p class="min-w-0 flex-1 text-center font-display text-step font-semibold" aria-live="polite">
 			{isMultiplier(wanted) ? said(wanted) : shown}
-			<span class="text-body font-normal {cook ? 'text-cook-ink-2' : 'text-ink-2'}">
+			<span class="font-sans text-body font-normal {cook ? 'text-cook-soft' : 'text-ink-2'}">
 				{isMultiplier(wanted) ? '' : written.noun}
 			</span>
 		</p>
 		<button
 			type="button"
-			class="min-h-12 w-12 rounded-sm border font-display text-title disabled:opacity-40
-				{cook ? 'border-cook-accent text-cook-accent' : 'border-accent text-accent'}"
+			class="second-button how-much-step"
 			disabled={more === undefined}
 			aria-label={m.how_much_more()}
 			onclick={() => more !== undefined && onchoose(more)}
@@ -81,33 +141,18 @@
 			+
 		</button>
 	</div>
-{:else}
-	<p class="py-3 text-read {cook ? 'text-cook-ink-2' : 'text-ink-2'}">
-		<!--
-			Nothing to count from: no Yield at all, or one like `a dozen` or
-			`1½` that a whole serving cannot be stepped off. The second is not
-			the recipe saying nothing, and is not told it is.
-		-->
+{:else if counts(written)}
+	<button type="button" class="quiet-button mt-3 self-start" onclick={() => (another = true)}>
+		{m.how_much_another()}
+	</button>
+{/if}
+{#if !counts(written)}
+	<!--
+		Nothing to count from: no Yield at all, or one like `a dozen` or `1½`
+		that a whole serving cannot be stepped off. The second is not the recipe
+		saying nothing, and is not told it is.
+	-->
+	<p class="pt-3 {cook ? 'text-step-reading text-cook-soft' : 'text-read text-ink-2'}">
 		{written ? m.how_much_multiply_only() : m.how_much_says_nothing()}
 	</p>
 {/if}
-<div class="flex flex-wrap gap-2">
-	{#each quick as choice (choice.times)}
-		{@const chosen = same(choice.wanted, wanted)}
-		<button
-			type="button"
-			aria-pressed={chosen}
-			class="min-h-12 rounded-sm border px-4 text-read font-semibold
-				{cook
-				? chosen
-					? 'border-cook-accent bg-cook-accent text-cook-on-accent'
-					: 'border-cook-rule text-cook-ink'
-				: chosen
-					? 'border-accent bg-accent text-on-accent'
-					: 'border-rule text-ink'}"
-			onclick={() => onchoose(choice.wanted)}
-		>
-			{choice.times ?? m.how_much_as_written()}{choice.count ? ` · ${choice.count}` : ''}
-		</button>
-	{/each}
-</div>

@@ -1321,7 +1321,7 @@ describe('the recipe screen', () => {
 		const { kamosu } = scalable();
 		expect(await screen.findByText('Amounts for 4 servings')).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Change amounts' }));
-		await fireEvent.click(await screen.findByRole('button', { name: '×2 · 8' }));
+		await fireEvent.click(await screen.findByRole('radio', { name: 'Double 8 servings' }));
 
 		await vi.waitFor(() =>
 			expect(kamosu.calls.at(-1)).toEqual({
@@ -1335,7 +1335,7 @@ describe('the recipe screen', () => {
 		expect(screen.getByText('about 2.8 kg')).toBeInTheDocument();
 		// The line with nothing to scale says so, rather than standing silent
 		// under a heading that says every amount is for eight.
-		expect(screen.getByText(/^not scaled/)).toBeInTheDocument();
+		expect(screen.getByText('kept as written')).toBeInTheDocument();
 		// And nothing was written for having looked.
 		const wrote = kamosu.calls.map((call) => call.operation);
 		expect(wrote).not.toContain('save_recipe_version');
@@ -1345,7 +1345,7 @@ describe('the recipe screen', () => {
 	it('carries the amount onto the list and into the cooking', async () => {
 		const { kamosu } = scalable();
 		await fireEvent.click(await screen.findByRole('button', { name: 'Change amounts' }));
-		await fireEvent.click(await screen.findByRole('button', { name: '×2 · 8' }));
+		await fireEvent.click(await screen.findByRole('radio', { name: 'Double 8 servings' }));
 		expect(await screen.findByText('Amounts for 8 servings')).toBeInTheDocument();
 
 		expect(screen.getByRole('link', { name: 'Start cooking' })).toHaveAttribute(
@@ -1377,7 +1377,7 @@ describe('the recipe screen', () => {
 		});
 		expect(await screen.findByText('Amounts for 8 servings')).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Change amounts' }));
-		await fireEvent.click(await screen.findByRole('button', { name: '×3 · 12' }));
+		await fireEvent.click(await screen.findByRole('radio', { name: 'Triple 12 servings' }));
 		await vi.waitFor(() =>
 			expect(kamosu.calls.find((call) => call.operation === 'set_shopping_yield')?.input).toEqual({
 				branch_id: 'mine',
@@ -1391,7 +1391,7 @@ describe('the recipe screen', () => {
 		expect(await screen.findByText('Amounts for 4 servings')).toBeInTheDocument();
 		kamosu.answer('get_recipe', { refuse: 'internal', message: 'Kamosu could not be reached.' });
 		await fireEvent.click(screen.getByRole('button', { name: 'Change amounts' }));
-		await fireEvent.click(await screen.findByRole('button', { name: '×2 · 8' }));
+		await fireEvent.click(await screen.findByRole('radio', { name: 'Double 8 servings' }));
 		expect(await screen.findByText('Scaling needs Kamosu to be reachable.')).toBeInTheDocument();
 		expect(screen.getByText('Amounts for 4 servings')).toBeInTheDocument();
 		expect(screen.queryByText('about 2.8 kg')).not.toBeInTheDocument();
@@ -2469,6 +2469,8 @@ describe('the recipe screen', () => {
 		expect(within(sheet).getByRole('button', { name: 'Choose a day' })).toBeDisabled();
 		const tomorrow = addDays(today(), 1);
 		await fireEvent.click(within(sheet).getByRole('radio', { name: /^Tomorrow · / }));
+		// − and + are behind Another amount, as everywhere how much is asked (#651).
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Another amount' }));
 		await fireEvent.click(within(sheet).getByRole('button', { name: 'One more' }));
 		await fireEvent.click(within(sheet).getByRole('button', { name: /^Plan it for / }));
 

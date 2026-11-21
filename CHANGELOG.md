@@ -18,6 +18,7 @@
 - Adding a recipe starts from *Add a recipe* beside the title of Recipes and Home, which opens one panel with every way in, each said plainly (*From a web page*, *From a recipe file*), and a *Close*. A web page's address is pasted there, shown whole, with *Add this recipe* greyed until there is one, and the recipe it adds says it was added and where, with *Undo*. Before, adding was an unlabelled + beside the search box, its address field opened between the search box and the filters, and an imported recipe opened with no word that it was saved. [#650]
 - Recipes is easier to get around: its count says the list is A to Z, letters down the right edge jump to any part of it, and the search box stays at the top while you scroll and says what it searches. A filter that is on shows as a chip whose × turns it off in one tap, the cooking filter reads *Cooked or not* and the tick *Only ones I wrote or cooked*, and every search result says why it matched. Home names who you cook with and has a search box, and its rows lost their bare counts. Before, the list said nothing of its order, the search box scrolled away and a tag filter took two taps to turn off. [#650]
 - An empty Home and a search on Recipes that finds nothing say so in the same grey box as every other empty list, with their buttons under it. Before, each said it in a large heading. [#671]
+- The cooking screen names the recipe at the top, with a back arrow beside it that leaves and keeps your place, and says *Step 2 of 5* in words. How much you are making is asked as four choices, *Half*, *As written*, *Double* and *Triple*, each saying what it makes, with *Another amount* for any other, here, on a recipe and when planning one; it is no longer drawn as step 1, and *Back* on the first step returns to it. *Photo*, *Note a change* (was *Changed it*), the timer and the amount are buttons with an icon, the tick box says what it is for, and the screen's smaller words are brighter and larger. *Throw it away* is set apart in red, with *Keep cooking* the filled button. Before, the only way out was a block reading *Pause*, the choices read *×2 · 8*, and *Photo* and *Changed it* were dim words. [#651]
 
 ### Fixed
 
@@ -31,6 +32,7 @@
 [#648]: https://github.com/BatterWorks/Kamosu/issues/648
 [#649]: https://github.com/BatterWorks/Kamosu/issues/649
 [#650]: https://github.com/BatterWorks/Kamosu/issues/650
+[#651]: https://github.com/BatterWorks/Kamosu/issues/651
 [#663]: https://github.com/BatterWorks/Kamosu/issues/663
 [#666]: https://github.com/BatterWorks/Kamosu/issues/666
 [#667]: https://github.com/BatterWorks/Kamosu/issues/667

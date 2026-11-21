@@ -13,6 +13,7 @@
  * #49). A screen shows what `get_recipe` answers and never works a line out.
  */
 import type { ReadonlyURLSearchParams } from '$app/state';
+import { m } from '#lib/paraglide/messages.js';
 import { parseAmount, yieldScale } from '#lib/offline/shopping.js';
 import type { GetRecipeOutput } from '#lib/api/catalogue.js';
 
@@ -66,6 +67,8 @@ export function timesOf(written: Written, times: number): Wanted {
 
 /** One of the quick choices: what it is, and the two halves of its label. */
 export interface Choice {
+	/** Which of the four it is: half, as written, double or triple. */
+	of: (typeof TIMES)[number];
 	wanted: Wanted;
 	/** `×2`, `×½`, or null for the recipe as written. */
 	times: string | null;
@@ -77,6 +80,7 @@ export function choices(written: Written): Choice[] {
 	return TIMES.map((times) => {
 		const wanted = timesOf(written, times);
 		return {
+			of: times,
 			wanted,
 			times: times === 1 ? null : `×${timesText(times)}`,
 			count:
@@ -156,4 +160,34 @@ export function fromSearch(search: ReadonlyURLSearchParams): Wanted | undefined 
 	const noun = search.get('noun');
 	if (amount === null || noun === null) return undefined;
 	return { amount, noun };
+}
+
+/**
+ * A quick choice's words (#651). Where it counts in the recipe's noun it is
+ * the short name, and what it comes to stands beside it; where it does not,
+ * it says what it is of the recipe in whole.
+ */
+export function choiceName(of: number, counted: boolean): string {
+	if (counted)
+		return of === 0.5
+			? m.how_much_half()
+			: of === 2
+				? m.how_much_double()
+				: of === 3
+					? m.how_much_triple()
+					: m.how_much_as_written();
+	return wholeRecipe(of) ?? m.how_much_recipe_as_written();
+}
+
+/**
+ * A multiple of the whole recipe in words, where it is one of the four:
+ * *Twice the recipe* rather than `×2`, which the audit found needed decoding
+ * (#651, C3). Any other multiple has no words, and is said as `×1.5`.
+ */
+export function wholeRecipe(of: number | null): string | null {
+	if (of === 0.5) return m.how_much_half_recipe();
+	if (of === 1) return m.how_much_recipe_as_written();
+	if (of === 2) return m.how_much_twice_recipe();
+	if (of === 3) return m.how_much_three_times_recipe();
+	return null;
 }

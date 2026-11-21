@@ -296,7 +296,7 @@ describe('the cooking screen', () => {
 		const addition = (await screen.findAllByText('(about 240 g)'))[0];
 		const step = addition.closest('.text-step') as HTMLElement;
 		expect(step).toHaveClass('text-step');
-		expect(addition).toHaveClass('text-step-reading', 'text-cook-ink-2');
+		expect(addition).toHaveClass('text-step-reading', 'text-cook-soft');
 		expect(step.textContent?.replace(/\s+/g, ' ').trim()).toBe(
 			'Coat the chicken in 1 cup (about 240 g) panko, then 1 cup (about 240 g) more, and bake at 350° (about 180 °C).',
 		);
@@ -395,7 +395,50 @@ describe('the cooking screen', () => {
 
 	it('shows the cook where they are without making them read a number', async () => {
 		await cook({ start_attempt: attempt({ current_step_index: 2 }) });
-		expect(await screen.findByText(/step 2 of 3/i)).toBeInTheDocument();
+		// Said in words beside the noren, where it was `2/3` (#651, C2).
+		expect(await exactly('Step 2 of 3')).toBeVisible();
+	});
+
+	it('names the recipe, and the way out is on every step (#651, C1)', async () => {
+		await cook({ start_attempt: attempt({ current_step_index: 2 }) });
+		// One link, the back arrow and the name, read aloud as leaving.
+		const out = await screen.findByRole('link', { name: 'Leave for now: Chicken Katsu Curry' });
+		expect(out).toHaveAttribute('href', '/recipes/b_1');
+		expect(out).toHaveTextContent('Chicken Katsu Curry');
+		expect(out.closest('header')).not.toBeNull();
+		// Pause was the way out, and nobody read it as one.
+		expect(screen.queryByText('Pause')).toBeNull();
+		// More says its word, where it was a ⋯ alone (U8).
+		expect(screen.getByRole('button', { name: 'More' })).toHaveTextContent('More');
+	});
+
+	it('says what the tick box is for, and draws it to be hit with a wet thumb (#651, C6)', async () => {
+		await cook({ advance_attempt: attempt({ ticked_ingredients: [2] }) });
+		expect(await screen.findByText('Tick each one as it goes in')).toBeVisible();
+		const panko = screen.getByRole('button', { name: /1 cup panko/i });
+		await fireEvent.click(panko);
+		await vi.waitFor(() => expect(panko).toHaveAttribute('aria-pressed', 'true'));
+		// The box is drawn ticked, a tick inside it, not only filled.
+		expect(panko.querySelector('svg')).not.toBeNull();
+	});
+
+	it('draws every control on the step as a button that says what it does (#651, C5)', async () => {
+		await cook({ start_attempt: attempt({ current_step_index: 2 }) });
+		for (const name of [
+			'Cooking 4 servings. Change how much',
+			'Set a timer for 7 min',
+			'Note a change',
+		])
+			expect(await screen.findByRole('button', { name })).toHaveClass('quiet-button');
+		expect(screen.getByRole('button', { name: 'Set a timer for 7 min' })).toHaveTextContent(
+			'Timer 7 min',
+		);
+		expect(screen.getByLabelText('Take a photograph of this cooking').closest('label')).toHaveClass(
+			'quiet-button',
+		);
+		// Next is the step's one main button, Back the second one beside it.
+		expect(screen.getByRole('button', { name: 'Next step' })).toHaveClass('main-button');
+		expect(screen.getByRole('button', { name: 'Back' })).toHaveClass('second-button');
 	});
 
 	it('offers to finish only on the last Step, and asks for no judgement to do it', async () => {
@@ -421,7 +464,12 @@ describe('the cooking screen', () => {
 		await fireEvent.click(await screen.findByRole('button', { name: /not really cooking/i }));
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('delete_attempt');
 
-		await fireEvent.click(await screen.findByRole('button', { name: /throw it away/i }));
+		// Keeping on is the filled one, and Enter; throwing away is set apart in
+		// beni, never the button a wet thumb reaches first (#651, U11).
+		expect(screen.getByRole('button', { name: 'Keep cooking' })).toHaveClass('main-button');
+		const away = screen.getByRole('button', { name: /throw it away/i });
+		expect(away).toHaveClass('second-button', 'loses');
+		await fireEvent.click(away);
 		const deleted = kamosu.calls.find((call) => call.operation === 'delete_attempt');
 		expect(deleted?.input).toEqual({ attempt_id: 'at_1' });
 	});
@@ -504,7 +552,7 @@ describe('the cooking screen on a tablet on the counter (#197)', () => {
 
 	it('gives the room back while the cook is writing on the Step', async () => {
 		await cook({}, { room: 'wide' });
-		await fireEvent.click(await screen.findByRole('button', { name: 'Changed it' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Note a change' }));
 		expect(comingNext()).not.toBeInTheDocument();
 	});
 });
@@ -512,16 +560,16 @@ describe('the cooking screen on a tablet on the counter (#197)', () => {
 describe('writing down what you actually cooked', () => {
 	/** Turn the step in front of the cook into fields. */
 	async function startWriting() {
-		await fireEvent.click(await screen.findByRole('button', { name: /changed it/i }));
+		await fireEvent.click(await screen.findByRole('button', { name: /note a change/i }));
 	}
 
 	/** The field holding one line, found by what it currently says. */
 	const field = (value: string) =>
 		screen.findByDisplayValue((_, node) => (node as HTMLInputElement)?.value === value);
 
-	it('costs a cooking that deviated from nothing one word and no state', async () => {
+	it('costs a cooking that deviated from nothing one button and no state', async () => {
 		const kamosu = await cook();
-		expect(await screen.findByRole('button', { name: /changed it/i })).toBeInTheDocument();
+		expect(await screen.findByRole('button', { name: /note a change/i })).toBeInTheDocument();
 		// Nothing else: no row, no panel, no badge. And crucially nothing sent —
 		// ordinary cooking is free (ADR 0005).
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('set_as_cooked');
@@ -578,7 +626,7 @@ describe('writing down what you actually cooked', () => {
 		// of the time, so without this the line a cook actually changed is
 		// usually not on screen at all.
 		expect(screen.queryByDisplayValue('a pinch of salt')).not.toBeInTheDocument();
-		await fireEvent.click(await screen.findByRole('button', { name: /any other line/i }));
+		await fireEvent.click(await screen.findByRole('button', { name: /the other ingredients/i }));
 		expect(await field('a pinch of salt')).toBeInTheDocument();
 		expect(await field('800 ml water')).toBeInTheDocument();
 	});
@@ -586,7 +634,7 @@ describe('writing down what you actually cooked', () => {
 	it('adds a line, and drops one without it vanishing under a wet finger', async () => {
 		const kamosu = await cook();
 		await startWriting();
-		await fireEvent.click(await screen.findByRole('button', { name: /any other line/i }));
+		await fireEvent.click(await screen.findByRole('button', { name: /the other ingredients/i }));
 
 		// Dropped: still on screen, struck, and the same tap puts it back. Taken
 		// by its own row, because every line in writing mode carries this control
@@ -750,15 +798,37 @@ describe('photographing the cooking (#77)', () => {
 
 	it('asks how much before a fresh cooking starts, and the foot starts it', async () => {
 		kamosu = await cook({}, { asked: true });
-		expect(await screen.findByText('Before you start')).toBeInTheDocument();
-		expect(screen.getByText('The recipe makes 4 servings.')).toBeInTheDocument();
+		// The question is the heading, and nothing says a step has started
+		// (#651, C2): no count, and no Back, since how much is no step.
+		expect(
+			await screen.findByRole('heading', { name: 'How much are you making?' }),
+		).toBeInTheDocument();
+		expect(screen.queryByText('Before you start')).toBeNull();
+		expect(screen.queryByText(/^Step \d of/)).toBeNull();
 		// The question stands where the Step will: the Step is not on screen yet.
 		expect(screen.queryByText('Coat the chicken in panko.')).not.toBeInTheDocument();
-		// The one change made to B: no Start button of its own. The foot's
-		// right-hand button is it, and Back has nowhere to go.
+		// The foot's one button starts the cooking, as the screen's main button.
 		expect(screen.getAllByRole('button', { name: 'Start cooking' })).toHaveLength(1);
-		expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled();
+		expect(screen.getByRole('button', { name: 'Start cooking' })).toHaveClass('main-button');
+		expect(screen.queryByRole('button', { name: 'Back' })).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Next step' })).not.toBeInTheDocument();
+		// Four choices, each saying what it makes, the recipe as written chosen.
+		const choices = screen.getAllByRole('radio');
+		expect(choices.map((each) => each.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+			'Half 2 servings',
+			'As written 4 servings',
+			'Double 8 servings',
+			'Triple 12 servings',
+		]);
+		expect(screen.getByRole('radio', { name: /As written/ })).toHaveAttribute(
+			'aria-checked',
+			'true',
+		);
+		// − and + are behind Another amount, since the four do the same job.
+		expect(screen.queryByRole('button', { name: 'One more' })).toBeNull();
+		expect(
+			screen.getByText('Every amount changes to match, with the recipe’s own beneath it.'),
+		).toBeVisible();
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
 		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
@@ -769,12 +839,24 @@ describe('photographing the cooking (#77)', () => {
 	it('never asks a cooking that is already under way', async () => {
 		await cook({ start_attempt: attempt({ current_step_index: 2 }) }, { asked: true });
 		expect(await exactly('Pour in the water and simmer for about 7 minutes.')).toBeInTheDocument();
-		expect(screen.queryByText('Before you start')).not.toBeInTheDocument();
+		expect(screen.queryByRole('heading', { name: 'How much are you making?' })).toBeNull();
+	});
+
+	it('goes back to how much from the first step, so Back is never greyed out (#651)', async () => {
+		await cook();
+		const back = await screen.findByRole('button', { name: 'Back' });
+		expect(back).toBeEnabled();
+		await fireEvent.click(back);
+		expect(
+			await screen.findByRole('heading', { name: 'How much are you making?' }),
+		).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
+		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
 	});
 
 	it('stores the Yield on the Attempt, and the scaled amount leads', async () => {
 		kamosu = await cook(scalingKamosu(), { asked: true });
-		await fireEvent.click(await screen.findByRole('button', { name: '×2 · 8' }));
+		await fireEvent.click(await screen.findByRole('radio', { name: 'Double 8 servings' }));
 		await vi.waitFor(() => {
 			const sent = kamosu?.calls.filter((call) => call.operation === 'advance_attempt');
 			expect(sent?.at(-1)?.input).toEqual({
@@ -783,8 +865,8 @@ describe('photographing the cooking (#77)', () => {
 			});
 		});
 		// Chosen, and shown as chosen, before anything else.
-		expect(await screen.findByRole('button', { name: '×2 · 8' })).toHaveAttribute(
-			'aria-pressed',
+		expect(await screen.findByRole('radio', { name: 'Double 8 servings' })).toHaveAttribute(
+			'aria-checked',
 			'true',
 		);
 		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
@@ -796,7 +878,7 @@ describe('photographing the cooking (#77)', () => {
 		expect(screen.getByText('recipe: 1 cup panko')).toBeInTheDocument();
 		// A line Kamosu could not scale keeps its words and says so.
 		expect(await exactly('2 chicken breasts')).toHaveClass('text-panel-figure');
-		expect(screen.getByText(/^not scaled/)).toBeInTheDocument();
+		expect(screen.getByText('kept as written')).toBeInTheDocument();
 		// Nothing about a recipe was written: only the Attempt moved.
 		const wrote = kamosu.calls.map((call) => call.operation);
 		expect(wrote).not.toContain('save_recipe_version');
@@ -812,17 +894,75 @@ describe('photographing the cooking (#77)', () => {
 			],
 		};
 		kamosu = await cook({ get_recipe: noYield }, { asked: true });
-		expect(await screen.findByText(/No yield given/)).toBeInTheDocument();
+		expect(
+			await screen.findByText('This recipe doesn’t say how much it makes, so choose a multiple.'),
+		).toBeInTheDocument();
+		expect(screen.getAllByRole('radio').map((each) => each.textContent?.trim())).toEqual([
+			'Half the recipe',
+			'The recipe as written',
+			'Twice the recipe',
+			'Three times the recipe',
+		]);
+		// Nothing to count from, so no − and +, and nothing that opens them.
 		expect(screen.queryByRole('button', { name: 'One more' })).not.toBeInTheDocument();
-		await fireEvent.click(screen.getByRole('button', { name: '×2' }));
+		expect(screen.queryByRole('button', { name: 'Another amount' })).toBeNull();
+		await fireEvent.click(screen.getByRole('radio', { name: 'Twice the recipe' }));
 		await vi.waitFor(() => {
 			const sent = kamosu?.calls.find((call) => call.operation === 'advance_attempt');
 			expect(sent?.input).toEqual({ attempt_id: 'at_1', cooking_yield: { amount: '2', noun: '' } });
 		});
 	});
 
+	it('moves between the four choices with the arrow keys, as radio buttons do (#651)', async () => {
+		kamosu = await cook(scalingKamosu(), { asked: true });
+		const written = await screen.findByRole('radio', { name: 'As written 4 servings' });
+		// One Tab stop for the group: the chosen one.
+		expect(written).toHaveAttribute('tabindex', '0');
+		expect(screen.getByRole('radio', { name: 'Double 8 servings' })).toHaveAttribute(
+			'tabindex',
+			'-1',
+		);
+		await fireEvent.keyDown(written, { key: 'ArrowDown' });
+		await vi.waitFor(() => {
+			const sent = kamosu?.calls.filter((call) => call.operation === 'advance_attempt');
+			expect(sent?.at(-1)?.input).toEqual({
+				attempt_id: 'at_1',
+				cooking_yield: { amount: '8', noun: 'servings' },
+			});
+		});
+		expect(screen.getByRole('radio', { name: 'Double 8 servings' })).toHaveFocus();
+	});
+
+	it('says a multiple of a recipe with no yield in words on the step (#651, C3)', async () => {
+		const recipe = answers().get_recipe as GetRecipeOutput;
+		const noYield: GetRecipeOutput = {
+			...recipe,
+			versions: [
+				{ ...recipe.versions[0], content: { ...recipe.versions[0].content, yield: null } },
+			],
+		};
+		await cook({
+			get_recipe: noYield,
+			start_attempt: attempt({ current_step_index: 2, cooking_yield: { amount: '2', noun: '' } }),
+		});
+		expect(
+			await screen.findByRole('button', { name: 'Cooking Twice the recipe. Change how much' }),
+		).toHaveTextContent('Twice the recipe');
+	});
+
+	it('closes More when how much is asked again', async () => {
+		await cook({ start_attempt: attempt({ current_step_index: 2 }) });
+		await fireEvent.click(await screen.findByRole('button', { name: 'More' }));
+		expect(screen.getByRole('button', { name: 'Not really cooking' })).toBeInTheDocument();
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Cooking 4 servings. Change how much' }),
+		);
+		expect(screen.queryByRole('button', { name: 'Not really cooking' })).toBeNull();
+	});
+
 	it('counts one serving at a time in the recipe’s own noun', async () => {
 		kamosu = await cook(scalingKamosu(), { asked: true });
+		await fireEvent.click(await screen.findByRole('button', { name: 'Another amount' }));
 		await fireEvent.click(await screen.findByRole('button', { name: 'One more' }));
 		await vi.waitFor(() => {
 			const sent = kamosu?.calls.find((call) => call.operation === 'advance_attempt');
@@ -846,9 +986,14 @@ describe('photographing the cooking (#77)', () => {
 		await fireEvent.click(
 			await screen.findByRole('button', { name: 'Cooking 8 servings. Change how much' }),
 		);
-		expect(await screen.findByText('Change how much')).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: '×2 · 8' })).toHaveAttribute('aria-pressed', 'true');
-		expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled();
+		expect(
+			await screen.findByRole('heading', { name: 'How much are you making?' }),
+		).toBeInTheDocument();
+		expect(screen.getByRole('radio', { name: 'Double 8 servings' })).toHaveAttribute(
+			'aria-checked',
+			'true',
+		);
+		expect(screen.queryByRole('button', { name: 'Back' })).toBeNull();
 		await fireEvent.click(screen.getByRole('button', { name: 'Back to step 2' }));
 		expect(await exactly('Pour in the water and simmer for about 7 minutes.')).toBeInTheDocument();
 	});
@@ -860,7 +1005,7 @@ describe('photographing the cooking (#77)', () => {
 			{ advance_attempt: attempt({ cooking_yield: { amount: '8', noun: 'servings' } }) },
 			{ asked: true },
 		);
-		await fireEvent.click(await screen.findByRole('button', { name: '×2 · 8' }));
+		await fireEvent.click(await screen.findByRole('radio', { name: 'Double 8 servings' }));
 		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
 		expect(
 			await screen.findByText('Amounts scale to 8 servings once Kamosu can be reached.'),
