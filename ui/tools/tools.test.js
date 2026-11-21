@@ -39,7 +39,13 @@ import { indexOf, pageOf, photoName } from './proto-new.mjs';
 import { PICTURE_LIMIT, pictureName, piecesOf, takeScreen } from './screens.mjs';
 import { compare } from './screens-same.mjs';
 import { AUDIT_PHONES, SIZES } from './sizes.mjs';
-import { coverage, tableFingerprints, tableOf } from './ux-measure.mjs';
+import {
+	coverage,
+	missingPages,
+	olderVersionIn,
+	tableFingerprints,
+	tableOf,
+} from './ux-measure.mjs';
 import { measureInPage, valuesOf } from './ux-measures.mjs';
 import { TASKS } from './ux-tasks.mjs';
 import { Stopped, depthTable, faultsOf, walkTask, writeHandover } from './ux-walk.mjs';
@@ -997,22 +1003,28 @@ describe('a screen measured', () => {
 	});
 });
 
+/**
+ * What ux-measure finds in a library, with the older version it opens.
+ * @param {{ recipe: string, version: string } | null} olderVersion
+ */
+const foundWith = (olderVersion) => ({
+	shortRecipe: 'b_short',
+	longRecipe: 'b_long',
+	shortFood: 'f_short',
+	longFood: 'f_long',
+	search: 'tart',
+	olderVersion,
+	importJob: 'j_1',
+	secrets: {
+		invite: '/invite/s1',
+		kitchen: '/kitchen-invite/s2',
+		cookbook: '/cookbook-invite/s3',
+		recovery: '/recover/s4',
+	},
+});
+
 describe('what ux-measure covers', () => {
-	const found = {
-		shortRecipe: 'b_short',
-		longRecipe: 'b_long',
-		shortFood: 'f_short',
-		longFood: 'f_long',
-		search: 'tart',
-		oldVersion: 'v_old',
-		importJob: 'j_1',
-		secrets: {
-			invite: '/invite/s1',
-			kitchen: '/kitchen-invite/s2',
-			cookbook: '/cookbook-invite/s3',
-			recovery: '/recover/s4',
-		},
-	};
+	const found = foundWith({ recipe: 'b_long', version: 'v_old' });
 	const rows = coverage(found);
 	/** @param {(row: typeof rows[number]) => boolean} which */
 	const keys = (which) =>
@@ -1105,6 +1117,65 @@ describe('what ux-measure covers', () => {
 	it('leaves the nine sizes just screens photographs as they were', () => {
 		expect(Object.keys(SIZES)).toHaveLength(9);
 		expect(SIZES.phone).toEqual([390, 844]);
+	});
+});
+
+describe('the older version ux-measure opens', () => {
+	/**
+	 * @param {string} id
+	 * @param {number} size
+	 * @param {string[]} versions oldest first, the last the newest
+	 */
+	const recipe = (id, size, versions) => ({
+		id,
+		size,
+		head_version_id: versions.at(-1) ?? '',
+		versions: versions.map((version_id, i) => ({ version_id, sequence: i + 1 })),
+	});
+
+	it("is not its recipe's newest, when the longest recipe holds one Version and another holds two", () => {
+		const library = [
+			recipe('b_long', 30, ['v_only']),
+			recipe('b_short', 5, ['v_first', 'v_second']),
+		];
+		expect(olderVersionIn(library)).toEqual({ recipe: 'b_short', version: 'v_first' });
+	});
+
+	it('comes from the longest recipe that has more than one Version, its first', () => {
+		const library = [
+			recipe('b_mid', 12, ['v_m1', 'v_m2']),
+			recipe('b_long', 30, ['v_l1', 'v_l2', 'v_l3']),
+			recipe('b_short', 5, ['v_s1', 'v_s2']),
+		];
+		expect(olderVersionIn(library)).toEqual({ recipe: 'b_long', version: 'v_l1' });
+	});
+
+	it('is the same on every run when two recipes are as long, the lower id', () => {
+		const library = [recipe('b_b', 10, ['v_b1', 'v_b2']), recipe('b_a', 10, ['v_a1', 'v_a2'])];
+		expect(olderVersionIn(library)).toEqual({ recipe: 'b_a', version: 'v_a1' });
+	});
+
+	it('is none when every recipe holds one Version, and then no row and one fault say so', () => {
+		const library = [recipe('b_long', 30, ['v_l']), recipe('b_short', 5, ['v_s'])];
+		expect(olderVersionIn(library)).toBeNull();
+		const found = foundWith(null);
+		const rows = coverage(found);
+		expect(rows.some((r) => r.screen === 'recipe-version')).toBe(false);
+		expect(rows.some((r) => r.path.includes('/versions/'))).toBe(false);
+		const faults = missingPages(found);
+		expect(faults).toHaveLength(1);
+		expect(faults[0]).toMatch(/recipe-version/);
+		expect(faults[0]).toMatch(/one Version/);
+	});
+
+	it("opens the chosen recipe's own page for that Version, whichever recipe it is", () => {
+		const found = foundWith({ recipe: 'b_short', version: 'v_first' });
+		const version = coverage(found).filter((r) => r.screen === 'recipe-version');
+		expect(version.length).toBeGreaterThan(0);
+		expect(new Set(version.map((r) => r.path))).toEqual(
+			new Set(['/recipes/b_short/versions/v_first']),
+		);
+		expect(missingPages(found)).toEqual([]);
 	});
 });
 
