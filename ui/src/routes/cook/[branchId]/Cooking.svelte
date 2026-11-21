@@ -82,7 +82,7 @@
 	} from './as-cooked.svelte';
 	import { useKeeping } from '#lib/offline/outbox.js';
 	import { photographCooking, pickedFile } from '#lib/offline/photograph.js';
-	import { rereads } from '#lib/offline/device.svelte.js';
+	import { reach, rereads } from '#lib/offline/device.svelte.js';
 	import { navigating, page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import HowMuch from '#lib/HowMuch.svelte';
@@ -108,6 +108,10 @@
 
 	let { branchId }: Props = $props();
 
+	/** The first wait before the recipe is read again, and the longest (#674). */
+	const RETRY_FIRST_MS = 1_000;
+	const RETRY_MOST_MS = 30_000;
+
 	const kamosu = useKamosu();
 	const keeping = useKeeping();
 	const countdown = timer();
@@ -116,6 +120,48 @@
 	let attempt = $state<StartAttemptOutput | undefined>(undefined);
 	let recipe = $state<GetRecipeOutput | undefined>(undefined);
 	let failed = $state(false);
+
+	/**
+	 * The recipe is read from four places: the cooking opening, a change of
+	 * how much, a refresh behind, and a read tried again. Two can be on their
+	 * way at once, and the older can land last (#674). Each read is numbered
+	 * as it is asked, and an answer older than the one on screen is dropped,
+	 * so amounts for an earlier choice never come back over the ones for the
+	 * later.
+	 */
+	let asked = 0;
+	/**
+	 * The number of the read whose answer is on screen. An answer lands when
+	 * it is newer than that, so a newer read that failed never costs the
+	 * screen an older one that came back (found in review): the cooking would
+	 * otherwise stay on loading when a refresh's read failed as it opened.
+	 */
+	let shown = 0;
+	/** Reads of the recipe on their way now. */
+	let reading = $state(0);
+	/** Goes up as each read comes back or fails, so the retry looks again. */
+	let settled = $state(0);
+
+	/** Read the recipe and show it, unless a newer answer is already shown. */
+	async function readRecipe(): Promise<void> {
+		const mine = ++asked;
+		reading += 1;
+		try {
+			const read = await kamosu.getRecipe({ branch_id: branchId });
+			if (mine > shown) {
+				shown = mine;
+				recipe = read;
+			}
+		} finally {
+			reading -= 1;
+			settled += 1;
+		}
+	}
+
+	/** A read that failed is tried again below, so its refusal is dropped. */
+	function dropRefused(error: unknown) {
+		if (!(error instanceof OperationError)) throw error;
+	}
 	let finished = $state(false);
 
 	// ---- saying you did it differently (#58, ADR 0005) --------------------
@@ -197,9 +243,8 @@
 				const started = await kamosu.startAttempt({ branch_id: branchId });
 				if (!current) return;
 				attempt = started;
-				const read = await kamosu.getRecipe({ branch_id: branchId });
+				await readRecipe();
 				if (!current) return;
-				recipe = read;
 				// A cooking nothing has happened to yet opens on the question
 				// (#109) — already set to what the recipe page was scaled to,
 				// where the cook came from one that was (the errands).
@@ -322,18 +367,9 @@
 	const reread = rereads('get_recipe');
 	$effect(() => {
 		if (reread.count === 0) return;
-		let current = true;
-		void kamosu
-			.getRecipe({ branch_id: branchId })
-			.then((read) => {
-				if (current) recipe = read;
-			})
-			.catch((error: unknown) => {
-				if (!(error instanceof OperationError)) throw error;
-			});
-		return () => {
-			current = false;
-		};
+		// Untracked: the read counts itself in `reading`, which this must not
+		// come to depend on and run again for.
+		untrack(() => readRecipe().catch(dropRefused));
 	});
 
 	// ---- where the cook is standing --------------------------------------
@@ -766,9 +802,11 @@
 	 */
 	// `?? null`: a recipe the phone kept before #109 has no `scaled_to` at all,
 	// and was as written.
-	const current = $derived(version ? caughtUp(version.scaled_to ?? null, wanted, written) : true);
+	const amountsCaughtUp = $derived(
+		version ? caughtUp(version.scaled_to ?? null, wanted, written) : true,
+	);
 	/** The amounts on screen are not the recipe's as written. */
-	const scaled = $derived(current && (version?.scaled_to ?? null) !== null);
+	const scaled = $derived(amountsCaughtUp && (version?.scaled_to ?? null) !== null);
 
 	/**
 	 * Say how much is being cooked. It is shown at once and sent like every
@@ -792,12 +830,32 @@
 			howMuchFailed = true;
 			return;
 		}
-		try {
-			recipe = await kamosu.getRecipe({ branch_id: branchId });
-		} catch (error) {
-			if (!(error instanceof OperationError)) throw error;
-		}
+		await readRecipe().catch(dropRefused);
 	}
+
+	/**
+	 * Read the recipe again while the amounts on screen are not scaled to what
+	 * is being cooked and Kamosu can be reached (#674): the read after a change
+	 * failed, or came back before the change was applied, or the outbox held
+	 * the change and sent it with no service worker to tell the page. Each try
+	 * waits twice as long as the one before, up to half a minute, and none
+	 * starts while a read is on its way. Out of reach, nothing is asked: the
+	 * line says the amounts wait, and the outbox tells the page once it sends.
+	 */
+	let missed = 0;
+	$effect(() => {
+		void settled;
+		if (!version || amountsCaughtUp || reading > 0 || !reach.server) return;
+		const wait = Math.min(RETRY_FIRST_MS * 2 ** missed, RETRY_MOST_MS);
+		const retry = setTimeout(() => {
+			missed += 1;
+			readRecipe().catch(dropRefused);
+		}, wait);
+		return () => clearTimeout(retry);
+	});
+	$effect(() => {
+		if (amountsCaughtUp) missed = 0;
+	});
 
 	// ---- the timer --------------------------------------------------------
 
@@ -1122,7 +1180,7 @@
 						ones the phone had, and say nothing beneath them rather than a
 						figure for the wrong amount.
 					-->
-					{#if !current}
+					{#if !amountsCaughtUp}
 						<p class="pb-2 text-step-reading text-cook-soft" role="status">
 							{m.cook_scaling_waits({ amount: howMuch })}
 						</p>
@@ -1295,7 +1353,7 @@
 													<span class="block text-step-reading text-cook-soft"
 														>{m.how_much_not_scaled()}</span
 													>
-												{:else if amount.beneath && current}
+												{:else if amount.beneath && amountsCaughtUp}
 													<span class="block text-step-reading text-cook-soft"
 														>{amount.beneath}</span
 													>

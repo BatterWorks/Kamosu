@@ -12,7 +12,9 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/svelte';
-import { standIn, type Answers } from '#lib/api/stand-in.js';
+import { standIn, type Answers, type Refusal } from '#lib/api/stand-in.js';
+import { reached, refreshed } from '#lib/offline/device.svelte.js';
+import { page } from '$app/state';
 import type { GetRecipeOutput, StartAttemptOutput } from '#lib/api/catalogue.js';
 import type { Room } from '#lib/room.svelte.js';
 import CookingTestHarness from './CookingTestHarness.svelte';
@@ -1013,6 +1015,185 @@ describe('photographing the cooking (#77)', () => {
 		// The written line stands, and no figure worked out for 4 sits under it.
 		expect(await exactly('1 cup panko')).toBeInTheDocument();
 		expect(screen.queryByText('about 240 g')).not.toBeInTheDocument();
+	});
+
+	// ---- the amounts catch up with the choice (#674) -------------------------
+
+	/** The recipe scaled to `amount` servings, its panko line saying how much. */
+	function scaledPanko(amount: string): GetRecipeOutput {
+		const recipe = scaledTo(amount, 'servings');
+		const version = recipe.versions[0];
+		const ingredients = [null, null, `about ${Number(amount) * 60} g`, 'about 1.6 l', null];
+		return {
+			...recipe,
+			versions: [{ ...version, measured: { ...version.measured, ingredients } }],
+		};
+	}
+
+	/**
+	 * A stand-in that holds what was last sent as how much, as the Core does,
+	 * and answers each read of the recipe through `read`: what the Core would
+	 * answer now, and how many reads came before this one.
+	 */
+	function holdingKamosu(
+		read: (
+			held: StartAttemptOutput['cooking_yield'],
+			asked: number,
+		) => GetRecipeOutput | Refusal | Promise<GetRecipeOutput>,
+	): Answers {
+		let held: StartAttemptOutput['cooking_yield'] = null;
+		let asked = 0;
+		return {
+			advance_attempt: (input) => {
+				if (input.cooking_yield !== undefined) held = input.cooking_yield;
+				return attempt({ cooking_yield: held });
+			},
+			get_recipe: () => read(held, asked++),
+		};
+	}
+
+	const plain = () => answers().get_recipe as GetRecipeOutput;
+
+	/** Every read of the recipe the screen asked for. */
+	const recipeReads = (kamosu: ReturnType<typeof standIn>) =>
+		kamosu.calls.filter((call) => call.operation === 'get_recipe');
+
+	/** Whether this figure is on screen now, as `exactly` finds one. */
+	const shows = (text: string) =>
+		screen.queryAllByText(
+			(_, node) => node?.textContent?.trim() === text && node.children.length === 0,
+		).length > 0;
+
+	it('reads the recipe again when the read after a change of how much fails (#674)', async () => {
+		let failed = 0;
+		await cook(
+			holdingKamosu((held) => {
+				if (held === null) return plain();
+				if (failed++ === 0) return { refuse: 'internal', message: 'The read went wrong.' };
+				return scaledPanko(held.amount);
+			}),
+			{ asked: true },
+		);
+		await fireEvent.click(await screen.findByRole('radio', { name: 'Double 8 servings' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
+		await vi.waitFor(() => expect(shows('about 480 g')).toBe(true), { timeout: 5_000 });
+		expect(screen.queryByText(/once Kamosu can be reached/)).toBeNull();
+	});
+
+	it('reads the recipe again when it came back before the change was applied (#674)', async () => {
+		let early = 0;
+		await cook(
+			holdingKamosu((held) =>
+				held === null || early++ === 0 ? plain() : scaledPanko(held.amount),
+			),
+			{ asked: true },
+		);
+		await fireEvent.click(await screen.findByRole('radio', { name: 'Double 8 servings' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
+		expect(
+			await screen.findByText('Amounts scale to 8 servings once Kamosu can be reached.'),
+		).toBeInTheDocument();
+		await vi.waitFor(() => expect(shows('about 480 g')).toBe(true), { timeout: 5_000 });
+		expect(screen.queryByText(/once Kamosu can be reached/)).toBeNull();
+	});
+
+	it('shows the later choice where its read overtakes the read of an amount carried in (#674)', async () => {
+		// Sent from a recipe page scaled to eight servings (#109).
+		const address = vi
+			.spyOn(page, 'url', 'get')
+			.mockReturnValue(new URL('https://kamosu.example/cook/b_1?amount=8&noun=servings'));
+		let release = () => {};
+		const slow = new Promise<void>((resolve) => (release = resolve));
+		try {
+			const kamosu = await cook(
+				holdingKamosu(async (held) => {
+					if (held === null) return plain();
+					// The carried amount's read is the slow one.
+					if (held.amount === '8') await slow;
+					return scaledPanko(held.amount);
+				}),
+				{ asked: true },
+			);
+			await vi.waitFor(() => expect(recipeReads(kamosu).length).toBeGreaterThanOrEqual(2));
+			await fireEvent.click(await screen.findByRole('radio', { name: 'Triple 12 servings' }));
+			await vi.waitFor(() => expect(recipeReads(kamosu)).toHaveLength(3));
+			await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
+			expect(await exactly('about 720 g')).toBeInTheDocument();
+			// The carried amount's answer lands last, and is not shown over it.
+			release();
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			expect(shows('about 720 g')).toBe(true);
+			expect(shows('about 480 g')).toBe(false);
+		} finally {
+			release();
+			address.mockRestore();
+		}
+	});
+
+	it('keeps the opening read where a refresh asked after it fails (#674)', async () => {
+		let release = () => {};
+		const slow = new Promise<void>((resolve) => (release = resolve));
+		let reads = 0;
+		try {
+			const kamosu = await cook(
+				{
+					get_recipe: async () => {
+						reads += 1;
+						if (reads === 1) {
+							await slow;
+							return plain();
+						}
+						return { refuse: 'internal', message: 'The read went wrong.' };
+					},
+				},
+				{ asked: true },
+			);
+			await vi.waitFor(() => expect(recipeReads(kamosu)).toHaveLength(1));
+			// The worker says the recipe changed while the first read is out.
+			refreshed.set('get_recipe', (refreshed.get('get_recipe') ?? 0) + 1);
+			await vi.waitFor(() => expect(recipeReads(kamosu)).toHaveLength(2));
+			release();
+			expect(
+				await screen.findByRole('heading', { name: 'How much are you making?' }),
+			).toBeInTheDocument();
+		} finally {
+			release();
+		}
+	});
+
+	it('waits while Kamosu cannot be reached, and scales once the outbox has sent (#674)', async () => {
+		let landed = false;
+		const kamosu = await cook(
+			{
+				// The phone holds the change (#77) and answers for the server.
+				advance_attempt: attempt({ cooking_yield: { amount: '8', noun: 'servings' } }),
+				get_recipe: () => (landed ? scaledPanko('8') : plain()),
+			},
+			{ asked: true },
+		);
+		await screen.findByRole('radio', { name: 'Double 8 servings' });
+		reached(false);
+		try {
+			await fireEvent.click(screen.getByRole('radio', { name: 'Double 8 servings' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
+			expect(
+				await screen.findByText('Amounts scale to 8 servings once Kamosu can be reached.'),
+			).toBeInTheDocument();
+			// Nothing is asked over and over of a server out of reach.
+			const reads = recipeReads(kamosu).length;
+			await new Promise((resolve) => setTimeout(resolve, 1_500));
+			expect(recipeReads(kamosu)).toHaveLength(reads);
+			expect(screen.getByText(/once Kamosu can be reached/)).toBeInTheDocument();
+
+			// Back, and the outbox sends what it held, which tells the page.
+			landed = true;
+			reached(true);
+			refreshed.set('get_recipe', (refreshed.get('get_recipe') ?? 0) + 1);
+			expect(await exactly('about 480 g')).toBeInTheDocument();
+			expect(screen.queryByText(/once Kamosu can be reached/)).toBeNull();
+		} finally {
+			reached(true);
+		}
 	});
 });
 

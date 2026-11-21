@@ -50,12 +50,13 @@ export type AnsweredJob = { job_id: string } | Refusal;
 
 /**
  * A function answer is handed what the screen sent, so a test can answer a
- * search for *naan* differently from a search for *rice*.
+ * search for *naan* differently from a search for *rice*. It may answer with a
+ * promise, to answer later than an ask made after it.
  */
 export type Answers = {
 	[N in OperationName]?: Operations[N]['kind'] extends 'job'
-		? AnsweredJob | ((input: Operations[N]['input']) => AnsweredJob)
-		: Answered<N> | ((input: Operations[N]['input']) => Answered<N>);
+		? AnsweredJob | ((input: Operations[N]['input']) => AnsweredJob | Promise<AnsweredJob>)
+		: Answered<N> | ((input: Operations[N]['input']) => Answered<N> | Promise<Answered<N>>);
 };
 
 export interface StandIn {
@@ -221,10 +222,15 @@ export function standIn(answers: Answers = {}): StandIn {
 			);
 		}
 
-		const answer =
+		const given: unknown =
 			typeof programmedAnswer === 'function'
 				? (programmedAnswer as (input: unknown) => unknown)(input ?? {})
 				: programmedAnswer;
+		// A function may answer later, so a test can hold one answer back
+		// while a later ask overtakes it (#674). Only a promise is waited for:
+		// an answer given at once comes back in the same turn it always did,
+		// which screens' tests count on.
+		const answer = given instanceof Promise ? await given : given;
 
 		if (isRefusal(answer)) {
 			throw new OperationError(
