@@ -596,9 +596,6 @@
   .float-right {
     float: right;
   }
-  .clear-both {
-    clear: both;
-  }
   .open-card {
     width: calc(100% - 2 * var(--spacing-4));
     max-width: var(--card-column);
@@ -1322,6 +1319,9 @@
   .w-\[88px\] {
     width: 88px;
   }
+  .w-\[96px\] {
+    width: 96px;
+  }
   .w-\[99px\] {
     width: 99px;
   }
@@ -1330,9 +1330,6 @@
   }
   .w-\[160px\] {
     width: 160px;
-  }
-  .w-\[calc\(100\%-2\*var\(--spacing-gutter\)\)\] {
-    width: calc(100% - 2 * var(--spacing-gutter));
   }
   .w-\[var\(--photo-thumb\)\] {
     width: var(--photo-thumb);
@@ -1922,9 +1919,6 @@
   .py-\[1px\] {
     padding-block: 1px;
   }
-  .py-\[6px\] {
-    padding-block: 6px;
-  }
   .py-\[10px\] {
     padding-block: 10px;
   }
@@ -2338,6 +2332,9 @@
   .matcha {
     --button-ink: var(--color-support-2);
   }
+  .first-letter\:uppercase::first-letter {
+    text-transform: uppercase;
+  }
   .placeholder\:text-ink-2::placeholder {
     color: var(--color-ink-2);
   }
@@ -2446,6 +2443,9 @@
     }
     .wide\:grid-cols-3 {
       grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .wide\:grid-cols-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
     }
     .wide\:flex-col {
       flex-direction: column;

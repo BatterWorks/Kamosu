@@ -17,7 +17,7 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import SheetFrame from '#lib/SheetFrame.svelte';
 	import { useKamosu } from '#lib/kamosu.js';
-	import { ratingLabel } from '#lib/rating.js';
+	import { ratingVerdict } from '#lib/rating.js';
 	import { OperationError } from '#lib/api/client.js';
 	import Screen from '#lib/shell/Screen.svelte';
 	import ThreadGraph from './ThreadGraph.svelte';
@@ -162,7 +162,14 @@
 	}
 </script>
 
-<Screen title={m.thread_title()} blurb={m.thread_blurb()}>
+<!--
+	The blurb names the recipe (#652). A Thread this phone kept from before the
+	Core said its title has none, and the blurb then names no recipe.
+-->
+<Screen
+	title={m.thread_title()}
+	blurb={thread?.title ? m.thread_blurb({ title: thread.title }) : m.thread_blurb_untitled()}
+>
 	{#if failed}
 		<p class="text-body text-accent" role="alert">{m.thread_failed()}</p>
 	{:else if !thread}
@@ -170,6 +177,7 @@
 	{:else}
 		<ThreadGraph
 			{thread}
+			{branchId}
 			{me}
 			{attemptsByVersion}
 			{languageSaid}
@@ -192,10 +200,10 @@
 		class="rounded-sm bg-card p-4"
 		onclose={closeSheets}
 	>
-		<button type="button" class="float-right text-label text-ink-2 uppercase" onclick={closeSheets}>
+		{@render children()}
+		<button type="button" class="mt-4 second-button w-full" onclick={closeSheets}>
 			{m.thread_close()}
 		</button>
-		{@render children()}
 	</SheetFrame>
 {/snippet}
 
@@ -210,13 +218,13 @@
 	{#if cookings.length === 1}
 		{@const cooking = cookings[0]}
 		{#if cooking.rating}
-			<p class="text-body text-ink">{ratingLabel(cooking.rating)}</p>
+			<p class="text-body text-ink">{ratingVerdict(cooking.rating)}</p>
 		{/if}
 		<p class="mt-1 text-body text-ink-2">{cooking.note ?? m.thread_attempt_no_note()}</p>
 	{:else}
-		<!-- Newest first: the rating on the badge is the one at the top that has one.
-		     Below the Close button, which floats, and scrolling inside the sheet. -->
-		<ul class="clear-both max-h-[60vh] overflow-y-auto">
+		<!-- Newest first: the rating on the button is the one at the top that has one.
+		     Scrolling inside the sheet, above its Close button. -->
+		<ul class="max-h-[60vh] overflow-y-auto">
 			{#each [...cookings].reverse() as cooking (cooking.id)}
 				<li class="border-b border-rule py-2 last:border-b-0">
 					<p class="text-read text-ink">
@@ -226,7 +234,7 @@
 								: `${cooking.person_name} · ${aDate(cooking.created_at)}`}
 						</span>
 						{#if cooking.rating}
-							{` · ${ratingLabel(cooking.rating)}`}
+							{` · ${ratingVerdict(cooking.rating)}`}
 						{/if}
 					</p>
 					<p class="text-read text-ink-2">{cooking.note ?? m.thread_attempt_no_note()}</p>

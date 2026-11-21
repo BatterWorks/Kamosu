@@ -49,6 +49,7 @@ async function drawnPage(): Promise<string> {
 		get_recipe: recipeWithTheAddress(),
 		get_thread: {
 			lineage_id: 'l_1',
+			title: 'Tteokbokki',
 			branches: [threadBranch('b_1', { hand_id: 'h_1', head_version_id: 'v_1' })],
 			versions: [],
 			attempts: [],

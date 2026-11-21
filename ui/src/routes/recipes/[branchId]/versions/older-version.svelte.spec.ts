@@ -182,9 +182,12 @@ const SAVED = {
 	translates_version_id: null,
 };
 
+/** Who is reading: not the cook who saved this Version, unless a test says so. */
+const READER = { person_id: 'p_camille', name: 'Camille', is_operator: false };
+
 function renderOlder(answers: Answers = {}) {
 	const went: string[] = [];
-	const kamosu = standIn({ changed_since: compared(), ...answers });
+	const kamosu = standIn({ changed_since: compared(), get_person: READER, ...answers });
 	render(OlderVersionTestHarness, {
 		props: {
 			client: kamosu.client,
@@ -211,19 +214,23 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 			version_id: 'v_then',
 		});
 
-		// The bar that follows the reader down the page.
-		expect(screen.getByText('Older Version')).toBeInTheDocument();
-		expect(screen.getByRole('link', { name: 'The recipe now' })).toHaveAttribute(
-			'href',
-			'/recipes/b_1',
-		);
-		expect(screen.getByText('Saved 14 Aug 2026 · Stéphane · “Less sweet”')).toBeInTheDocument();
+		// The bar that follows the reader down the page, its way back full size (#652).
+		expect(screen.getByText('An older version')).toBeInTheDocument();
+		expect(screen.getByText('Saved 14 Aug 2026')).toBeInTheDocument();
+		const back = screen.getByRole('link', { name: 'The recipe now' });
+		expect(back).toHaveAttribute('href', '/recipes/b_1');
+		expect(back).toHaveClass('second-button');
+		expect(screen.getByText('Saved by Stéphane · “Less sweet”')).toBeInTheDocument();
 
 		// Its own words, not the recipe's.
 		expect(screen.getByText('¾ cup potato starch')).toBeInTheDocument();
 		expect(screen.getByText('¼ cup honey')).toBeInTheDocument();
 		expect(screen.getByText('Coat the chicken.')).toBeInTheDocument();
-		expect(screen.getByText('4 lines are not as the recipe has them now')).toBeInTheDocument();
+		// What is different in the recipe now, in one sentence (#652, V8).
+		expect(screen.getByText('Different in the recipe now:').closest('p')).toHaveTextContent(
+			'Different in the recipe now: 3 ingredients and 1 step.',
+		);
+		expect(screen.getByText('Each one is marked below.')).toBeInTheDocument();
 	});
 
 	it('marks a changed line in place, and unfolds what the recipe says now', async () => {
@@ -231,7 +238,8 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 		const starch = within(
 			await screen.findByText('¾ cup potato starch').then(() => rowOf('¾ cup potato starch')),
 		);
-		expect(starch.getByText('different now')).toBeInTheDocument();
+		// What the recipe says now, under the line it replaced (#652).
+		expect(starch.getByText('Now: 1 cup potato starch')).toBeInTheDocument();
 		expect(starch.queryByText('1 cup potato starch')).toBeNull();
 
 		await fireEvent.click(starch.getByText('¾ cup potato starch'));
@@ -245,13 +253,15 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 	it('shows a line added since as a Ghost: struck through, where the recipe has it', async () => {
 		renderOlder();
 		await screen.findByText('¾ cup potato starch');
-		const oil = within(rowOf('1 Tbsp sesame oil'));
-		expect(oil.getByText('added since, not in this Version')).toBeInTheDocument();
-		expect(rowOf('1 Tbsp sesame oil')).toHaveClass('mark-ghost');
+		// The caption carries the line, dashed and not struck through (#652).
+		const added = screen.getByText('Added since: 1 Tbsp sesame oil');
+		const oil = within(added.closest('li')!);
+		expect(added.closest('li')).toHaveClass('mark-added');
+		expect(screen.queryByText('1 Tbsp sesame oil')).toBeNull();
 
-		await fireEvent.click(oil.getByText('1 Tbsp sesame oil'));
+		await fireEvent.click(added);
 		expect(
-			oil.getByText('This line was written after this Version was saved.'),
+			oil.getByText('This line was written after this version was saved.'),
 		).toBeInTheDocument();
 		expect(
 			oil.getByRole('button', { name: 'Take it out of the recipe again' }),
@@ -267,7 +277,7 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 
 		await fireEvent.click(vinegar.getByText('1 Tbsp rice vinegar'));
 		expect(
-			vinegar.getByText('This line was taken out after this Version was saved.'),
+			vinegar.getByText('This line was taken out after this version was saved.'),
 		).toBeInTheDocument();
 		expect(
 			vinegar.getByRole('button', { name: 'Put this line back into the recipe' }),
@@ -288,12 +298,13 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 
 	it('puts the marks away and brings them back', async () => {
 		renderOlder();
-		await fireEvent.click(await screen.findByRole('button', { name: 'Hide them' }));
-		expect(screen.queryByText('different now')).toBeNull();
+		await fireEvent.click(await screen.findByRole('button', { name: 'Hide the marks' }));
+		expect(screen.getByText('The marks are hidden.')).toBeInTheDocument();
+		expect(screen.queryByText(/^Now: /)).toBeNull();
 		expect(screen.queryByText('1 Tbsp sesame oil')).toBeNull();
 		expect(screen.getByText('1 Tbsp rice vinegar')).toBeInTheDocument();
-		await fireEvent.click(screen.getByRole('button', { name: 'Show them' }));
-		expect(screen.getAllByText('different now')).toHaveLength(2);
+		await fireEvent.click(screen.getByRole('button', { name: 'Show the marks' }));
+		expect(screen.getAllByText(/^Now: /)).toHaveLength(2);
 	});
 
 	it('leaves to the recipe as it stands everything that is the recipe’s', async () => {
@@ -314,15 +325,15 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 			expect(screen.queryByRole('button', { name: gone })).toBeNull();
 		expect(screen.queryByRole('link', { name: 'Share this recipe' })).toBeNull();
 
-		// The bar holds the way back, and the Thread is among this Version's
-		// acts under its cook button (#649).
+		// The bar holds the way back, and the History is among this Version's
+		// four acts, after cooking it (#649, #652).
 		expect(screen.getByRole('link', { name: 'The recipe now' })).toHaveAttribute(
 			'href',
 			'/recipes/b_1',
 		);
-		const older = screen.getByRole('link', { name: 'See older versions' });
+		const older = screen.getByRole('link', { name: 'See all versions' });
 		expect(older).toHaveAttribute('href', '/recipes/b_1/thread');
-		const cook = screen.getByRole('button', { name: 'Cook this older Version' });
+		const cook = screen.getByRole('button', { name: 'Cook this version' });
 		const ingredients = screen.getByRole('heading', { name: /ingredients/i });
 		expect(cook.compareDocumentPosition(older) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 		expect(
@@ -333,7 +344,7 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 
 	it('cooks from this Version: the Attempt is pinned to it', async () => {
 		const { kamosu, went } = renderOlder({ start_attempt: attempt('v_then') });
-		await fireEvent.click(await screen.findByRole('button', { name: 'Cook this older Version' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Cook this version' }));
 		await expect.poll(() => went).toEqual(['/cook/b_1']);
 		expect(kamosu.calls.find((call) => call.operation === 'start_attempt')?.input).toEqual({
 			branch_id: 'b_1',
@@ -343,7 +354,7 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 
 	it('says so and stays where a cooking from another Version is already under way', async () => {
 		const { went } = renderOlder({ start_attempt: attempt('v_now') });
-		await fireEvent.click(await screen.findByRole('button', { name: 'Cook this older Version' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Cook this version' }));
 		expect(await screen.findByRole('alert')).toHaveTextContent(/already under way/);
 		expect(screen.getByRole('link', { name: 'Open that cooking' })).toHaveAttribute(
 			'href',
@@ -441,7 +452,7 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 		await fireEvent.click(
 			screen.getByRole('button', { name: 'Put this line back into the recipe' }),
 		);
-		await fireEvent.click(screen.getByText('1 Tbsp sesame oil'));
+		await fireEvent.click(screen.getByText('Added since: 1 Tbsp sesame oil'));
 		await fireEvent.click(screen.getByRole('button', { name: 'Take it out of the recipe again' }));
 		await fireEvent.click(screen.getByText('Coat the chicken.'));
 		await fireEvent.click(
@@ -456,13 +467,13 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 			within(rowOf('1 Tbsp sesame oil')).getByText('leaving the recipe when you save'),
 		).toBeInTheDocument();
 		expect(
-			screen.getByText('4 lines from this Version are set to go into the recipe. Not saved.'),
+			screen.getByText('4 lines from this version are set to go into the recipe. Not saved.'),
 		).toBeInTheDocument();
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Save a Version' }));
 		const sheet = within(await screen.findByRole('dialog'));
 		expect(sheet.getByRole('textbox')).toHaveValue(
-			'Put back ¾ cup potato starch, 1 Tbsp rice vinegar and the step that starts “Coat the chicken.” from the Version of 14 Aug 2026. Took out 1 Tbsp sesame oil, as in the Version of 14 Aug 2026.',
+			'Put back ¾ cup potato starch, 1 Tbsp rice vinegar and the step that starts “Coat the chicken.” from the version of 14 Aug 2026. Took out 1 Tbsp sesame oil, as in the version of 14 Aug 2026.',
 		);
 		await fireEvent.click(sheet.getByRole('button', { name: 'Save a Version' }));
 
@@ -494,9 +505,9 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 
 	it('puts the Version back as the recipe once the sheet is confirmed (#354)', async () => {
 		const { kamosu, went } = renderOlder({ put_back_version: { ...SAVED, version_id: 'v_then' } });
-		await fireEvent.click(await screen.findByRole('button', { name: 'Put this Version back' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Put this version back' }));
 		const sheet = within(await screen.findByRole('dialog'));
-		expect(sheet.getByText(/The History keeps every Version/)).toBeInTheDocument();
+		expect(sheet.getByText(/The History keeps every version/)).toBeInTheDocument();
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('put_back_version');
 		await fireEvent.click(sheet.getByRole('button', { name: 'Put it back' }));
 		await expect.poll(() => went).toEqual(['/recipes/b_1']);
@@ -527,17 +538,17 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 	it('offers its writer the two acts, and nobody else either of them (#354)', async () => {
 		renderOlder({ changed_since: compared({ writes: false }) });
 		await screen.findByText('¾ cup potato starch');
-		expect(screen.queryByRole('button', { name: 'Put this Version back' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Put this version back' })).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Start a variation from it' })).toBeNull();
 		expect(
-			screen.getByRole('button', { name: 'Keep this Version as your own copy' }),
+			screen.getByRole('button', { name: 'Keep this version as your own copy' }),
 		).toBeInTheDocument();
 	});
 
 	it('gives its writer no copy to keep (#354)', async () => {
 		renderOlder();
-		await screen.findByRole('button', { name: 'Put this Version back' });
-		expect(screen.queryByRole('button', { name: 'Keep this Version as your own copy' })).toBeNull();
+		await screen.findByRole('button', { name: 'Put this version back' });
+		expect(screen.queryByRole('button', { name: 'Keep this version as your own copy' })).toBeNull();
 	});
 
 	it('keeps the Version as a reader’s own copy, saying whose stays as it is (#354)', async () => {
@@ -546,7 +557,7 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 			keep_version_as_copy: recipeAnswer({ branch_id: 'b_mine' }),
 		});
 		await fireEvent.click(
-			await screen.findByRole('button', { name: 'Keep this Version as your own copy' }),
+			await screen.findByRole('button', { name: 'Keep this version as your own copy' }),
 		);
 		const sheet = within(await screen.findByRole('dialog'));
 		expect(sheet.getByText(/Stéphane’s stays as it is/)).toBeInTheDocument();
@@ -565,7 +576,7 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 			keep_version_as_copy: recipeAnswer({ branch_id: 'b_mine' }),
 		});
 		await fireEvent.click(
-			await screen.findByRole('button', { name: 'Keep this Version as your own copy' }),
+			await screen.findByRole('button', { name: 'Keep this version as your own copy' }),
 		);
 		const sheet = within(await screen.findByRole('dialog'));
 		expect(sheet.getByText(/You already have your own Korean Fried Chicken/)).toBeInTheDocument();
@@ -578,7 +589,7 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 
 	it('says what the Core refused and stays open (#354)', async () => {
 		const { went } = renderOlder({ put_back_version: { refuse: 'bad_request' } });
-		await fireEvent.click(await screen.findByRole('button', { name: 'Put this Version back' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Put this version back' }));
 		const sheet = within(await screen.findByRole('dialog'));
 		await fireEvent.click(sheet.getByRole('button', { name: 'Put it back' }));
 		expect(await sheet.findByRole('alert')).toBeInTheDocument();
@@ -590,11 +601,105 @@ describe('an older Version, opened as a recipe page (#211)', () => {
 		answer.version.newest = true;
 		const { went } = renderOlder({ changed_since: answer });
 		await expect.poll(() => went).toEqual(['/recipes/b_1']);
-		expect(screen.queryByText('Older Version')).toBeNull();
+		expect(screen.queryByText('An older version')).toBeNull();
 	});
 
 	it('says so when the Version cannot be read', async () => {
 		renderOlder({ changed_since: { refuse: 'not_found' } });
-		expect(await screen.findByRole('alert')).toHaveTextContent('This Version could not be read.');
+		expect(await screen.findByRole('alert')).toHaveTextContent('This version could not be read.');
+	});
+});
+
+describe('what is different in the recipe now, on an older version (#652)', () => {
+	/** The audit's case: the last save changed the photo and nothing else. */
+	function onlyThePhoto(): ChangedSinceOutput {
+		const answer = compared();
+		answer.ingredients = answer.ingredients
+			.filter((row) => row.state === 'same')
+			.map((row) => ({ ...row }));
+		answer.steps = answer.steps.filter((row) => row.state === 'same');
+		answer.mine.content.main_photo = 'p_cake';
+		answer.fields.main_photo = { same: false, mine: 'p_cake', theirs: null };
+		return answer;
+	}
+
+	it('says only the photo is different, and shows the two side by side', async () => {
+		renderOlder({ changed_since: onlyThePhoto() });
+		expect(
+			(await screen.findByText('Different in the recipe now:')).closest('p'),
+		).toHaveTextContent('Different in the recipe now: the photo.');
+		expect(screen.getByText('Every ingredient and step is the same as here.')).toBeInTheDocument();
+		const now = screen.getByText('The recipe now', { selector: 'figcaption' }).closest('figure');
+		expect(now?.querySelector('img')).toHaveAttribute('src', '/api/photographs/p_cake/card');
+		expect(screen.getByText('This version', { selector: 'figcaption' })).toBeInTheDocument();
+		// Nothing is marked on the page, so there are no marks to hide.
+		expect(screen.queryByRole('button', { name: /the marks/ })).toBeNull();
+	});
+
+	it('lists every value that is different, as a sentence', async () => {
+		const answer = compared();
+		answer.fields.yield = { same: false, mine: { amount: '4', noun: 'servings' }, theirs: null };
+		answer.fields.note = { same: false, mine: 'Rest it longer.', theirs: null };
+		renderOlder({ changed_since: answer });
+		expect(
+			(await screen.findByText('Different in the recipe now:')).closest('p'),
+		).toHaveTextContent(
+			'Different in the recipe now: 3 ingredients, 1 step, how much it makes and the note.',
+		);
+	});
+
+	it('says so when nothing is different', async () => {
+		const answer = onlyThePhoto();
+		answer.fields.main_photo = { same: true, mine: null, theirs: null };
+		answer.mine.content.main_photo = null;
+		renderOlder({ changed_since: answer });
+		expect(
+			await screen.findByText(
+				'Nothing is different: this version reads exactly as the recipe now.',
+			),
+		).toBeInTheDocument();
+	});
+
+	it('counts a heading of the list, and a Step whose photograph alone changed', async () => {
+		const answer = onlyThePhoto();
+		answer.fields.main_photo = { same: true, mine: null, theirs: null };
+		answer.mine.content.main_photo = null;
+		answer.ingredients = [
+			...answer.ingredients,
+			{
+				kind: 'section',
+				state: 'changed',
+				from_branch_point: true,
+				place: { mine: 3, theirs: 3 },
+				mine: { kind: 'section', text: 'For the glaze', index: 3 },
+				theirs: { kind: 'section', text: 'Glaze', index: 3 },
+			},
+		];
+		// The Step both have, word for word, with a photograph only the recipe has now.
+		answer.mine.content.steps = answer.mine.content.steps.map((each, index) =>
+			index === 1 ? { ...each, photo: 'p_fry' } : each,
+		);
+		renderOlder({ changed_since: answer });
+		expect(
+			(await screen.findByText('Different in the recipe now:')).closest('p'),
+		).toHaveTextContent('Different in the recipe now: 1 ingredient and 1 step.');
+	});
+
+	it('says you saved it, where you did', async () => {
+		renderOlder({ get_person: { person_id: 'p_stephane', name: 'Stéphane', is_operator: false } });
+		expect(await screen.findByText('Saved by you · “Less sweet”')).toBeInTheDocument();
+	});
+
+	it('draws no main button: cooking it is one of four acts of one weight', async () => {
+		renderOlder();
+		const cook = await screen.findByRole('button', { name: 'Cook this version' });
+		expect(document.querySelector('.main-button')).toBeNull();
+		for (const act of [
+			cook,
+			screen.getByRole('button', { name: 'Put this version back' }),
+			screen.getByRole('button', { name: 'Start a variation from it' }),
+			screen.getByRole('link', { name: 'See all versions' }),
+		])
+			expect(act).toHaveClass('second-button');
 	});
 });

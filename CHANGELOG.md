@@ -19,6 +19,7 @@
 - Recipes is easier to get around: its count says the list is A to Z, letters down the right edge jump to any part of it, and the search box stays at the top while you scroll and says what it searches. A filter that is on shows as a chip whose × turns it off in one tap, the cooking filter reads *Cooked or not* and the tick *Only ones I wrote or cooked*, and every search result says why it matched. Home names who you cook with and has a search box, and its rows lost their bare counts. Before, the list said nothing of its order, the search box scrolled away and a tag filter took two taps to turn off. [#650]
 - An empty Home and a search on Recipes that finds nothing say so in the same grey box as every other empty list, with their buttons under it. Before, each said it in a large heading. [#671]
 - The cooking screen names the recipe at the top, with a back arrow beside it that leaves and keeps your place, and says *Step 2 of 5* in words. How much you are making is asked as four choices, *Half*, *As written*, *Double* and *Triple*, each saying what it makes, with *Another amount* for any other, here, on a recipe and when planning one; it is no longer drawn as step 1, and *Back* on the first step returns to it. *Photo*, *Note a change* (was *Changed it*), the timer and the amount are buttons with an icon, the tick box says what it is for, and the screen's smaller words are brighter and larger. *Throw it away* is set apart in red, with *Keep cooking* the filled button. Before, the only way out was a block reading *Pause*, the choices read *×2 · 8*, and *Photo* and *Changed it* were dim words. [#651]
+- History reads newest first and names the recipe, with *The recipe now* on the version you see on its page. Each version is a row that opens, dated as the recipe dates things, its note in full-size type, and says who cooked it in words, *You cooked this · Would cook again* or *Cooked by Mum*, where it showed a pot and *Again*. An older version says at the top what is different in the recipe now, the photo included, with the two photos side by side, and a changed line says what the recipe has now. *The recipe now* is a full-size button in its bar, and *Cook this version* is one of four buttons of one weight rather than the page's main button. The recipe's cooking log says *cooked from an older version*. `get_thread` answers the recipe's `title`. Before, History ran oldest first, a version whose photo alone had changed said *Every line is as the recipe has it now*, and *Version* had a capital everywhere. [#652]
 
 ### Fixed
 
@@ -34,6 +35,7 @@
 [#649]: https://github.com/BatterWorks/Kamosu/issues/649
 [#650]: https://github.com/BatterWorks/Kamosu/issues/650
 [#651]: https://github.com/BatterWorks/Kamosu/issues/651
+[#652]: https://github.com/BatterWorks/Kamosu/issues/652
 [#663]: https://github.com/BatterWorks/Kamosu/issues/663
 [#666]: https://github.com/BatterWorks/Kamosu/issues/666
 [#667]: https://github.com/BatterWorks/Kamosu/issues/667

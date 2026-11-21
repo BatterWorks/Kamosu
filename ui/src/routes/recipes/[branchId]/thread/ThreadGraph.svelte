@@ -7,6 +7,14 @@
 	`graph.ts` decides the shape, which rows go where included; this only
 	draws it.
 
+	NEWEST FIRST, as chosen on #652 (`history-phone.html?ck=A`, 21 November
+	2026): the graph is turned upside down, so a line that leaves a dot runs
+	up from it. The newest Version of the recipe the page was opened from
+	says "The recipe now", and the newest of every other line says it too,
+	by that line's name. Each Version is one row that opens, with a › at its
+	end, and who cooked it sits in the row as words (cookings "A"), never as
+	an unexplained chip.
+
 	A Version you saved can be named or renamed in place, under its row
 	(choice "A"). Its *what changed* line is shown beside the field
 	and never offered for editing: it records why an edit was made, at the
@@ -14,9 +22,10 @@
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import { aDate } from '#lib/dates.js';
 	import Refusal from '#lib/Refusal.svelte';
 	import { demoRefusalOr } from '#lib/demo.svelte.js';
-	import { ratingLabel } from '#lib/rating.js';
+	import { ratingVerdict } from '#lib/rating.js';
 	import { isUnknown, languageName } from '#lib/language.js';
 	import { OperationError } from '#lib/api/client.js';
 	import { useKamosu } from '#lib/kamosu.js';
@@ -25,6 +34,7 @@
 		foldedLines,
 		graphOf,
 		linesBelow,
+		newestFirst,
 		rowKey,
 		runsOf,
 		type Lane,
@@ -32,6 +42,7 @@
 		type Tone,
 		type VersionRow,
 	} from './graph';
+	import ActIcon from '../ActIcon.svelte';
 	import type { ThreadBranch, ThreadVersion } from './tree';
 	import type { GetThreadOutput } from '#lib/api/catalogue.js';
 
@@ -39,6 +50,8 @@
 
 	interface Props {
 		thread: GetThreadOutput;
+		/** The recipe the History was opened from, whose newest Version is "the recipe now". */
+		branchId: string;
 		/** The reader's own Hand: only the Versions it saved offer a rename. */
 		me: string | undefined;
 		attemptsByVersion: Map<string, Attempt[]>;
@@ -53,6 +66,7 @@
 
 	let {
 		thread,
+		branchId,
 		me,
 		attemptsByVersion,
 		languageSaid,
@@ -67,11 +81,55 @@
 	/** Your own version, which the switch labels *your Cookbook* (#136). */
 	const yoursId = $derived(yoursAmong(thread.branches)?.branch_id);
 	const graph = $derived(
-		graphOf(
-			thread.branches.map((branch) => branch.branch_id),
-			thread.versions,
+		newestFirst(
+			graphOf(
+				thread.branches.map((branch) => branch.branch_id),
+				thread.versions,
+			),
 		),
 	);
+
+	/** The newest Version of each Branch, by its place in that Branch's chain. */
+	const newest = $derived.by(() => {
+		const at = new Map<string, number>();
+		for (const version of thread.versions) {
+			at.set(version.branch_id, Math.max(at.get(version.branch_id) ?? 0, version.sequence));
+		}
+		return at;
+	});
+
+	/**
+	 * Which occurrence a row opens: the recipe the page was opened from where
+	 * the row holds it, so a row that says "The recipe now" opens that recipe,
+	 * and otherwise the one the row is drawn from.
+	 */
+	function opening(row: VersionRow): ThreadVersion {
+		const here = row.occurrences.find((occurrence) => occurrence.branch_id === branchId);
+		if (!here) return row.version;
+		return (
+			thread.versions.find(
+				(version) => version.branch_id === here.branch_id && version.sequence === here.sequence,
+			) ?? row.version
+		);
+	}
+
+	/**
+	 * What a row says when it is a recipe as it stands (#652): "The recipe
+	 * now" for the one the page was opened from, wherever that row stands,
+	 * and the line's own name on the newest row of any other line it alone
+	 * holds. A row several lines share is the newest of another only where
+	 * that line has saved nothing since, and its own row below says so.
+	 */
+	function nowLabel(row: VersionRow): string | undefined {
+		const heads = row.occurrences.filter(
+			(occurrence) => newest.get(occurrence.branch_id) === occurrence.sequence,
+		);
+		if (heads.some((occurrence) => occurrence.branch_id === branchId)) return m.thread_now();
+		if (heads.length === 1 && row.occurrences.length === 1) {
+			return m.thread_now_other({ name: branchesNamed([heads[0].branch_id]) });
+		}
+		return undefined;
+	}
 
 	/**
 	 * A save with nothing written down, which runs of get folded away. Saying
@@ -79,7 +137,11 @@
 	 * reason that row exists.
 	 */
 	const isQuiet = (row: VersionRow) =>
-		!row.version.name && !row.version.change_note && !languageSaid.has(rowKey(row.version));
+		!row.version.name &&
+		!row.version.change_note &&
+		!languageSaid.has(rowKey(row.version)) &&
+		// A recipe as it stands is never folded away under a count (#652).
+		nowLabel(row) === undefined;
 
 	let expanded = $state(new Set<string>());
 	const items = $derived(runsOf(graph.rows, isQuiet));
@@ -137,11 +199,11 @@
 
 	/**
 	 * A line coming out of a row's dot (#250): a curve from the dot to the
-	 * lane it runs down, drawn in a box 100 tall that is stretched over the
-	 * part of the row below the dot.
+	 * lane it runs up (#652), drawn in a box 100 tall that is stretched over
+	 * the part of the row above the dot.
 	 */
 	const sproutPath = (from: number, to: number) =>
-		`M${x(from)} 0 C ${x(from)} 60, ${x(to)} 40, ${x(to)} 100`;
+		`M${x(from)} 100 C ${x(from)} 40, ${x(to)} 60, ${x(to)} 0`;
 
 	/**
 	 * What names a Branch, or a line several still share: the name the
@@ -168,7 +230,8 @@
 	 * Who a Hand is, in words (#113, ADR 0015), named live by the server. A
 	 * Hand nothing here has a name for is said to be one, never printed as an id.
 	 */
-	function handName(holder: { hand_name: string | null }): string {
+	function handName(holder: { hand_id: string; hand_name: string | null }): string {
+		if (holder.hand_id === me) return m.thread_you();
 		return holder.hand_name ?? m.thread_unnamed_hand();
 	}
 
@@ -185,6 +248,22 @@
 	 */
 	const lastRating = (cookings: Attempt[]) =>
 		cookings.filter((cooking) => cooking.rating).at(-1)?.rating;
+
+	/**
+	 * Your own cookings of a Version in words (#652, V4): that you cooked it,
+	 * how often where more than once, and the last verdict you gave.
+	 */
+	function yourCookings(cookings: Attempt[]): string {
+		const rating = lastRating(cookings);
+		const count = cookings.length;
+		if (rating) {
+			const verdict = ratingVerdict(rating);
+			return count > 1
+				? m.thread_you_cooked_times({ count, verdict })
+				: m.thread_you_cooked({ verdict });
+		}
+		return count > 1 ? m.thread_you_cooked_times_plain({ count }) : m.thread_you_cooked_plain();
+	}
 
 	/**
 	 * Who else cooked a Version, in the order they first did, with a count
@@ -252,8 +331,15 @@
 	function whatItWas(version: ThreadVersion): string {
 		const said = languageSaid.get(rowKey(version));
 		if (said !== undefined) return m.thread_said_language({ language: languageName(said) });
-		return version.change_note ?? m.thread_quiet_save();
+		if (version.change_note) return version.change_note;
+		return version.parent_version_id === null && !version.translates_version_id
+			? m.thread_first_save()
+			: m.thread_quiet_save();
 	}
+
+	/** Whether what a row says is a note somebody wrote, read at full size (V7). */
+	const written = (version: ThreadVersion) =>
+		!!version.change_note || languageSaid.has(rowKey(version));
 </script>
 
 {#snippet gutterOf(
@@ -267,8 +353,8 @@
 		{/each}
 		{#if sprouts.length}
 			<svg
-				class="absolute left-0"
-				style={`top:${DOT_Y}px;width:${gutter}px;height:calc(100% - ${DOT_Y}px)`}
+				class="absolute top-0 left-0"
+				style={`width:${gutter}px;height:${DOT_Y}px`}
 				viewBox={`0 0 ${gutter} 100`}
 				preserveAspectRatio="none"
 			>
@@ -290,25 +376,109 @@
 {#snippet when(row: VersionRow)}
 	<!-- After the first split, a row says which Branch it is on, in its colour. -->
 	{#if row.labelled}
-		<span style={`color:${colour(row.tone)}`}>{branchesNamed(row.branchIds)}</span> ·
+		<span class="font-semibold" style={`color:${colour(row.tone)}`}
+			>{branchesNamed(row.branchIds)}</span
+		> ·
 	{/if}
-	{row.version.created_at.slice(0, 10)}
+	{aDate(row.version.created_at)} · {handName(row.version)}
 {/snippet}
 
 {#snippet versionRow(row: VersionRow)}
 	{@const version = row.version}
+	{@const now = nowLabel(row)}
+	{@const cooked = attemptsByVersion.get(version.version_id) ?? []}
+	{@const mine = cooked.filter((cooking) => cooking.mine)}
+	{@const theirs = cooked.filter((cooking) => !cooking.mine)}
 	<li class="flex">
 		{@render gutterOf(row, row.sprouts)}
-		<div class="min-w-0 flex-1 border-b border-rule py-2 pl-2">
+		<div class="min-w-0 flex-1 border-b border-rule pt-2 pb-3 pl-2">
+			<!--
+				The whole Version is the thing to open, with a › at its end (#652,
+				V2): an older one as a page of its own, the newest as the recipe.
+			-->
+			<button
+				type="button"
+				class="flex min-h-12 w-full items-start gap-2 text-left"
+				onclick={() => onOpenVersion(opening(row))}
+			>
+				<span class="grid min-w-0 flex-1 gap-[2px]">
+					<span class="text-read text-ink-2">{@render when(row)}</span>
+					{#if now}
+						<span class="w-fit rounded-sm bg-accent px-2 text-read font-semibold text-on-accent">
+							{now}
+						</span>
+					{/if}
+					{#if version.name}
+						<span class="font-display text-body font-semibold text-ink">“{version.name}”</span>
+					{/if}
+					<span class={written(version) ? 'text-body text-ink' : 'text-read text-ink-2'}>
+						{whatItWas(version)}
+					</span>
+					{#if row.adrift}
+						<!-- Nothing in this History to sit under, so the row says it (#250). -->
+						<span class="text-read text-ink">{m.thread_translates_absent()}</span>
+					{/if}
+				</span>
+				<svg
+					viewBox="0 0 24 24"
+					aria-hidden="true"
+					class="h-[22px] w-[22px] shrink-0 self-center text-accent"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.75"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				>
+					<path d="m9 5 7 7-7 7" />
+				</svg>
+			</button>
+			<!--
+				Who cooked it, in words (#652, cookings "A"): your own cookings
+				with the last verdict you gave, and everyone else's together, by
+				name. Each opens what it stands for (#249).
+			-->
+			{#if cooked.length || (yours(row) && editing !== row.key)}
+				<div class="mt-2 flex flex-wrap gap-3">
+					{#if mine.length}
+						<button
+							type="button"
+							class="quiet-button gap-[6px] text-ink"
+							onclick={() => onOpenCookings(mine)}
+						>
+							<ActIcon name="cook" class="h-[18px] w-[18px] shrink-0" />{yourCookings(mine)}
+						</button>
+					{/if}
+					{#if theirs.length}
+						<button
+							type="button"
+							class="quiet-button gap-[6px] text-ink"
+							onclick={() => onOpenCookings(theirs)}
+						>
+							<ActIcon name="cook" class="h-[18px] w-[18px] shrink-0" />{m.thread_cooked_by({
+								names: cooksOf(theirs),
+							})}
+						</button>
+					{/if}
+					{#if yours(row) && editing !== row.key}
+						<button
+							type="button"
+							class="quiet-button gap-[6px] text-ink"
+							onclick={() => startNaming(row)}
+						>
+							<ActIcon name="name" class="h-[18px] w-[18px] shrink-0" />
+							{version.name ? m.thread_rename() : m.thread_name_it()}
+						</button>
+					{/if}
+				</div>
+			{/if}
 			{#if editing === row.key}
 				<form
-					class="grid gap-2"
+					class="mt-3 grid gap-3"
 					onsubmit={(event) => {
 						event.preventDefault();
 						void rename(row, draft);
 					}}
 				>
-					<p class="text-label text-ink-2 uppercase">{@render when(row)}</p>
 					<label class="grid gap-1 text-body text-ink">
 						{m.thread_name_label()}
 						<input
@@ -321,31 +491,26 @@
 					{#if renameError}
 						<p class="text-body text-accent" role="alert"><Refusal words={renameError} /></p>
 					{/if}
-					<div class="flex flex-wrap items-center gap-4">
+					<div class="flex flex-wrap gap-3">
+						<button class="main-button" disabled={saving}>{m.thread_name_save()}</button>
 						<button
-							class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
+							type="button"
+							class="second-button"
 							disabled={saving}
+							onclick={() => (editing = undefined)}
 						>
-							{m.thread_name_save()}
+							{m.thread_name_keep()}
 						</button>
 						{#if version.name}
 							<button
 								type="button"
-								class="text-read text-accent underline"
+								class="second-button loses"
 								disabled={saving}
 								onclick={() => rename(row, null)}
 							>
 								{m.thread_name_remove()}
 							</button>
 						{/if}
-						<button
-							type="button"
-							class="text-read text-accent underline"
-							disabled={saving}
-							onclick={() => (editing = undefined)}
-						>
-							{m.thread_name_keep()}
-						</button>
 					</div>
 					<!--
 						Shown, never a field: the why of an edit is written when it is
@@ -357,71 +522,11 @@
 						<p class="text-label text-ink-2">{m.thread_what_changed_fixed()}</p>
 					</div>
 				</form>
-			{:else}
-				<button type="button" class="block w-full text-left" onclick={() => onOpenVersion(version)}>
-					<span class="block text-label text-ink-2 uppercase">{@render when(row)}</span>
-					<span class="block font-display text-body text-ink">
-						{handName(version)}{#if version.name}
-							<!-- In an expression: a space leading a tag's text is trimmed away. -->
-							<span class="text-accent">{` · “${version.name}”`}</span>
-						{/if}
-					</span>
-					<span class="block text-read text-ink-2">{whatItWas(version)}</span>
-					{#if row.adrift}
-						<!-- Nothing in this History to sit under, so the row says it (#250). -->
-						<span class="block text-read text-ink">{m.thread_translates_absent()}</span>
-					{/if}
-				</button>
-				<!--
-					Two badges at most, however often the Version was cooked (#249):
-					the reader's own cookings as the last rating they gave, and
-					everyone else's together, by name. Each opens what it stands for.
-				-->
-				{@const cooked = attemptsByVersion.get(version.version_id) ?? []}
-				{@const mine = cooked.filter((cooking) => cooking.mine)}
-				{@const theirs = cooked.filter((cooking) => !cooking.mine)}
-				{#if cooked.length || yours(row)}
-					<div class="mt-1 flex flex-wrap items-center gap-2">
-						{#if mine.length}
-							{@const rating = lastRating(mine)}
-							<button
-								type="button"
-								class="rounded-sm border border-accent px-1 text-label text-ink"
-								onclick={() => onOpenCookings(mine)}
-							>
-								{rating ? `🍲 ${ratingLabel(rating)}` : '🍲'}
-							</button>
-						{/if}
-						{#if theirs.length}
-							{@const names = cooksOf(theirs)}
-							<button
-								type="button"
-								class="rounded-sm border border-dashed border-ink-2 px-1 text-label text-ink-2"
-								aria-label={m.thread_cooked_by({ names })}
-								onclick={() => onOpenCookings(theirs)}
-							>
-								{names}
-							</button>
-						{/if}
-						{#if yours(row)}
-							<button
-								type="button"
-								class="text-read text-accent underline"
-								onclick={() => startNaming(row)}
-							>
-								{version.name ? m.thread_rename() : m.thread_name_it()}
-							</button>
-						{/if}
-					</div>
-				{/if}
-				{#if lastRename?.key === row.key}
-					<p
-						role="status"
-						class="mt-2 border-l-3 border-accent bg-card px-3 py-2 text-read text-ink"
-					>
-						{lastRename.cleared ? m.thread_name_removed() : m.thread_named()}
-					</p>
-				{/if}
+			{/if}
+			{#if lastRename?.key === row.key}
+				<p role="status" class="mt-2 border-l-3 border-accent bg-card px-3 py-2 text-read text-ink">
+					{lastRename.cleared ? m.thread_name_removed() : m.thread_named()}
+				</p>
 			{/if}
 		</div>
 	</li>
@@ -431,22 +536,22 @@
 	{#each items as item (item.kind === 'run' ? item.key : item.row.key)}
 		{#if item.kind === 'run' && !expanded.has(item.key)}
 			{@const first = item.rows[0]}
+			{@const last = item.rows[item.rows.length - 1]}
 			<li class="flex">
 				{@render gutterOf({ ...first, lines: foldedLines(item.rows) }, [], true)}
-				<button
-					type="button"
-					class="flex min-h-12 min-w-0 flex-1 items-center gap-3 border-b border-rule py-2 pl-2 text-left"
-					onclick={() => toggle(item.key)}
-				>
+				<div class="flex min-h-12 min-w-0 flex-1 items-center gap-3 border-b border-rule py-2 pl-2">
+					<!-- Newest first, so the run reads from its oldest date to its newest. -->
 					<span class="min-w-0 flex-1 text-read text-ink-2">
 						{m.thread_quiet_run({
 							count: item.rows.length,
-							from: first.version.created_at.slice(0, 10),
-							to: item.rows[item.rows.length - 1].version.created_at.slice(0, 10),
+							from: aDate(last.version.created_at),
+							to: aDate(first.version.created_at),
 						})}
 					</span>
-					<span class="shrink-0 text-label text-accent uppercase">{m.thread_show()}</span>
-				</button>
+					<button type="button" class="quiet-button shrink-0" onclick={() => toggle(item.key)}>
+						{m.thread_show()}
+					</button>
+				</div>
 			</li>
 		{:else if item.kind === 'run'}
 			{#each item.rows as row (row.key)}
@@ -458,20 +563,19 @@
 						<span class="absolute" style={lineStyle(line)}></span>
 					{/each}
 				</span>
-				<button
-					type="button"
-					class="w-full py-1 pl-2 text-left text-label text-ink-2 uppercase"
-					onclick={() => toggle(item.key)}
-				>
-					{m.thread_collapse()}
-				</button>
+				<div class="py-2 pl-2">
+					<button type="button" class="quiet-button" onclick={() => toggle(item.key)}>
+						{m.thread_collapse()}
+					</button>
+				</div>
 			</li>
 		{:else if item.row.kind === 'version'}
 			{@render versionRow(item.row)}
 		{:else}
 			<!--
 				A Branch with no Version past this point (#250): its name, in its
-				colour, under the last Version it holds. Either it starts there and
+				colour, above the last Version it holds, the History reading newest
+				first (#652). Either it starts there and
 				nothing was saved on it, or it is the recipe, left as it was while a
 				variation carried on. The dot is hollow, as it is for anything on
 				this line that is not one saved Version.
@@ -480,7 +584,7 @@
 			<li class="flex">
 				{@render gutterOf(starting, [], true)}
 				<div class="min-w-0 flex-1 border-b border-rule py-2 pl-2">
-					<p class="text-label uppercase" style={`color:${colour(starting.tone)}`}>
+					<p class="text-read font-semibold" style={`color:${colour(starting.tone)}`}>
 						{branchesNamed([starting.branchId])}
 					</p>
 					<p class="text-read text-ink-2">

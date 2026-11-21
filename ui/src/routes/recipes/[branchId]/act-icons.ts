@@ -14,6 +14,7 @@ function placePath(href: string): string {
 
 export const ACT_ICONS = {
 	plan: placePath('/plan'),
+	cook: placePath('/cooked'),
 	shopping: placePath('/shopping'),
 	onList: 'M20 6 9 17l-5-5',
 	share: 'M12 15V3M7 8l5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7',

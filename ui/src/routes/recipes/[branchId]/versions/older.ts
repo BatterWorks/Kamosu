@@ -29,9 +29,11 @@ export function sinceThen(writes: boolean): Words {
 			if (taken === 'remove') return m.older_taken_remove();
 			if (taken) return m.older_taken();
 			if (seen.elsewhere) return nowAt(seen.elsewhere);
-			if (seen.ghost) return m.older_added();
-			return seen.other ? m.older_changed() : m.older_taken_out();
+			if (seen.ghost) return m.older_added({ line: seen.other?.text ?? '' });
+			// What the recipe says now, under the line it replaced (#652).
+			return seen.other ? m.older_changed({ line: seen.other.text }) : m.older_taken_out();
 		},
+		plainCaption: true,
 		heading: (seen) =>
 			seen.ghost || !seen.other || seen.elsewhere
 				? m.divergence_what_happened()

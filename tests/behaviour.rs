@@ -1983,6 +1983,41 @@ async fn only_the_hand_that_wrote_a_version_may_rename_it() {
     );
 }
 
+/// The History names the recipe it is the history of (#652): the title of
+/// the newest Version of the Branch it was opened from, the one the recipe
+/// page shows.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_thread_says_the_title_of_the_recipe_it_was_opened_from() {
+    let app = support::spawn_app();
+    let first =
+        json!({ "name": "Stéphane", "password": "the right password", "session_name": "phone" });
+    let signed_up = app.post_auth_response("/auth/first-person", &first.to_string());
+    assert_eq!(signed_up.status, 200, "{}", signed_up.text());
+    let secret = support::session_cookie_secret(&signed_up);
+    let secret = secret.as_str();
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(secret),
+        &json!({ "title": "Soupe" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    backdate_branch_head(&app, &branch_id);
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(secret),
+        &json!({ "branch_id": branch_id, "title": "Soupe à l'oignon" }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+
+    let (status, thread) = app.post_op(
+        "get_thread",
+        Some(secret),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{thread}");
+    assert_eq!(thread["result"]["title"], json!("Soupe à l'oignon"));
+}
+
 /// Spec item 22, ADR 0015 (#113). A Hand is named live, so renaming yourself
 /// reaches every Version you ever wrote, and it moves nothing: no Version id,
 /// no fingerprint, no Hand. The name is also what you sign in with, so the

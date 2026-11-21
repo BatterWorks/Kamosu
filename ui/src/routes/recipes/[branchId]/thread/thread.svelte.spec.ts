@@ -14,6 +14,9 @@ import { cookbookLabel, threadBranch } from '../../../../testing/recipes';
 /** Who is reading. Nobody in these fixtures unless a test says otherwise. */
 const NOBODY = { person_id: 'p_nobody', name: 'Nobody', is_operator: false };
 
+/** The lines that leave a row's dot, drawn in its gutter (#250). */
+const SPROUTS = 'span[aria-hidden="true"] > svg path';
+
 function renderThread(branchId: string, answers: Answers) {
 	const kamosu = standIn({ get_person: NOBODY, ...answers });
 	render(ThreadTestHarness, { props: { client: kamosu.client, branchId } });
@@ -25,6 +28,7 @@ describe('the Thread screen', () => {
 		renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches: [threadBranch('b_mine', { cookbook: cookbookLabel('c_1', ['Stéphane']) })],
 				versions: [],
 				attempts: [],
@@ -33,10 +37,11 @@ describe('the Thread screen', () => {
 		expect(await screen.findByRole('heading', { level: 1, name: 'History' })).toBeInTheDocument();
 	});
 
-	it("reads one Branch's Versions oldest first, a quiet save shown plainly, an Attempt hanging off it", async () => {
+	it("reads one Branch's Versions newest first, the newest marked, an Attempt hanging off it (#652)", async () => {
 		const { kamosu } = renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches: [
 					{
 						branch_id: 'b_mine',
@@ -105,10 +110,22 @@ describe('the Thread screen', () => {
 		});
 
 		expect(await screen.findByText('Imported from mykoreankitchen.com')).toBeInTheDocument();
-		expect(screen.getByText('Saved with nothing written down.')).toBeInTheDocument();
-		expect(screen.getByText(/Hotter second fry/)).toBeInTheDocument();
-		// A rating is the cook's verdict about next time, not a score (#59).
-		expect(screen.getByRole('button', { name: /🍲 Again/ })).toBeInTheDocument();
+		// The page names the recipe it is the history of.
+		expect(
+			screen.getByText('Every saved version of Tteokbokki, newest first.'),
+		).toBeInTheDocument();
+		const [newest, oldest] = screen.getAllByRole('listitem');
+		// Newest on top, marked as the recipe as it stands, by its date and who saved it.
+		expect(newest).toHaveTextContent('14 Mar 2026 · Stéphane');
+		expect(within(newest).getByText('The recipe now')).toBeInTheDocument();
+		expect(within(newest).getByText('“Hotter second fry”')).toBeInTheDocument();
+		expect(within(newest).getByText('No note was written.')).toBeInTheDocument();
+		expect(oldest).toHaveTextContent('3 Mar 2026 · Stéphane');
+		expect(within(oldest).queryByText('The recipe now')).toBeNull();
+		// A rating is the cook's verdict about next time, not a score (#59), said in words.
+		expect(
+			within(oldest).getByRole('button', { name: 'You cooked this · Would cook again' }),
+		).toBeInTheDocument();
 		expect(kamosu.calls.map((call) => call.operation)).toContain('get_thread');
 	});
 
@@ -116,6 +133,7 @@ describe('the Thread screen', () => {
 		renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches: [
 					{
 						branch_id: 'b_mine',
@@ -204,14 +222,15 @@ describe('the Thread screen', () => {
 		// No row of its own says the recipe splits (#250): Marc's line comes
 		// out of the dot of the Version the two share.
 		expect(screen.queryByText(/Splits into/)).toBeNull();
-		expect(screen.getAllByRole('listitem')[0].querySelectorAll('svg path')).toHaveLength(1);
+		// Newest first (#652): the Version the two share is the last row, its line going up.
+		expect(screen.getAllByRole('listitem').at(-1)?.querySelectorAll(SPROUTS)).toHaveLength(1);
 		// Each Branch is named as the version switch names it (#131): your own
 		// is Yours, another Cookbook's is whose it is. Each Version still says
 		// who wrote it.
 		expect(screen.getAllByText('Yours').length).toBeGreaterThan(0);
 		expect(screen.getAllByText('Marc’s').length).toBeGreaterThan(0);
-		expect(screen.getAllByText('Stéphane').length).toBeGreaterThan(0);
-		expect(screen.getAllByText('Marc').length).toBeGreaterThan(0);
+		expect(screen.getAllByText(/· Stéphane$/).length).toBeGreaterThan(0);
+		expect(screen.getAllByText(/· Marc$/).length).toBeGreaterThan(0);
 		// A Hand is shown by its name, never by the id a person cannot read (#113).
 		expect(screen.queryByText(/h_stephane|h_marc/)).not.toBeInTheDocument();
 		expect(screen.getByText('Hotter second fry')).toBeInTheDocument();
@@ -225,6 +244,7 @@ describe('the Thread screen', () => {
 		renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches: [
 					{
 						branch_id: 'b_mine',
@@ -376,11 +396,10 @@ describe('the Thread screen', () => {
 		// Two partings happened: v1 parts mine from {marc, camille}, then m1
 		// parts marc from camille. Each is one line coming out of one dot.
 		await screen.findByText(/Kid-friendly/);
-		const sprouting = screen
-			.getAllByRole('listitem')
-			.filter((item) => item.querySelector('svg path'));
+		const sprouting = screen.getAllByRole('listitem').filter((item) => item.querySelector(SPROUTS));
 		expect(sprouting).toHaveLength(2);
-		expect(within(sprouting[1]).getByText('Air fryer')).toBeInTheDocument();
+		// Newest first (#652): m1, where Marc and Camille part, is above v1.
+		expect(within(sprouting[0]).getByText('Air fryer')).toBeInTheDocument();
 
 		// "Air fryer" (m_1's change note) must appear exactly once: Marc and
 		// Camille share it, so it is one row, not one per Branch.
@@ -409,6 +428,7 @@ describe('the Thread screen', () => {
 			get_person: NOBODY,
 			get_thread: {
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches: [
 					threadBranch('b_mine', {
 						cookbook: cookbookLabel('c_1', ['Stéphane']),
@@ -437,7 +457,7 @@ describe('the Thread screen', () => {
 	});
 
 	it('collapses a run of four or more quiet saves, and expands it on request', async () => {
-		const versions = [1, 2, 3, 4].map((n) => ({
+		const versions = [1, 2, 3, 4, 5].map((n) => ({
 			branch_id: 'b_mine',
 			sequence: n,
 			version_id: `v_${n}`,
@@ -445,7 +465,8 @@ describe('the Thread screen', () => {
 			hand_id: 'h_stephane',
 			hand_name: 'Stéphane',
 			name: null,
-			change_note: null,
+			// The newest says what it did, and is the recipe now: never folded.
+			change_note: n === 5 ? 'Less salt' : null,
 			created_at: `2026-08-1${n}T00:00:00Z`,
 			translates_version_id: null,
 			language: 'en',
@@ -454,6 +475,7 @@ describe('the Thread screen', () => {
 		renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches: [
 					{
 						branch_id: 'b_mine',
@@ -464,7 +486,7 @@ describe('the Thread screen', () => {
 						hand_id: 'h_stephane',
 						hand_name: 'Stéphane',
 						language: 'en',
-						head_version_id: 'v_4',
+						head_version_id: 'v_5',
 						translation: null,
 					},
 				],
@@ -473,12 +495,95 @@ describe('the Thread screen', () => {
 			},
 		});
 
-		const showButton = await screen.findByRole('button', { name: /4 quiet saves/ });
-		expect(within(showButton).getByText('Show')).toBeInTheDocument();
+		expect(
+			await screen.findByText('4 versions with no note, 11 Aug 2026 to 14 Aug 2026'),
+		).toBeInTheDocument();
 
-		await fireEvent.click(showButton);
-		expect(screen.getAllByText('Saved with nothing written down.')).toHaveLength(4);
-		expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Show them' }));
+		expect(screen.getAllByText('No note was written.')).toHaveLength(3);
+		expect(screen.getByText('The recipe as it was first saved.')).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Fold them away' })).toBeInTheDocument();
+	});
+
+	it('never folds away the recipe now, however many quiet saves lead up to it (#652)', async () => {
+		const versions = [1, 2, 3, 4, 5].map((n) => ({
+			branch_id: 'b_mine',
+			sequence: n,
+			version_id: `v_${n}`,
+			parent_version_id: n === 1 ? null : `v_${n - 1}`,
+			hand_id: 'h_stephane',
+			hand_name: 'Stéphane',
+			name: null,
+			change_note: n === 1 ? 'Imported' : null,
+			created_at: `2026-08-1${n}T00:00:00Z`,
+			translates_version_id: null,
+			language: 'en',
+		}));
+		renderThread('b_mine', {
+			get_thread: {
+				lineage_id: 'l_1',
+				title: 'Tteokbokki',
+				branches: [threadBranch('b_mine', { head_version_id: 'v_5' })],
+				versions,
+				attempts: [],
+			},
+		});
+		const [newest] = await screen.findAllByRole('listitem');
+		expect(within(newest).getByText('The recipe now')).toBeInTheDocument();
+		// The three quiet saves under it are too few to fold.
+		expect(screen.queryByText(/versions with no note/)).toBeNull();
+	});
+
+	it('opens the recipe it was opened from on the row it shares with another (#652)', async () => {
+		const went: string[] = [];
+		const shared = (branch_id: string) => ({
+			branch_id,
+			sequence: 1,
+			version_id: 'v_1',
+			parent_version_id: null,
+			hand_id: 'h_stephane',
+			hand_name: 'Stéphane',
+			name: null,
+			change_note: 'Imported',
+			created_at: '2026-03-01T00:00:00Z',
+			translates_version_id: null,
+			language: 'en',
+		});
+		const kamosu = standIn({
+			get_person: NOBODY,
+			get_thread: {
+				lineage_id: 'l_1',
+				title: 'Tteokbokki',
+				branches: [
+					threadBranch('b_mine', { head_version_id: 'v_2' }),
+					threadBranch('b_gf', { name: 'Gluten-free', head_version_id: 'v_1' }),
+				],
+				versions: [
+					shared('b_mine'),
+					shared('b_gf'),
+					{
+						...shared('b_mine'),
+						sequence: 2,
+						version_id: 'v_2',
+						parent_version_id: 'v_1',
+						change_note: 'Less sugar',
+						created_at: '2026-03-05T00:00:00Z',
+					},
+				],
+				attempts: [],
+			},
+		});
+		render(ThreadTestHarness, {
+			props: {
+				client: kamosu.client,
+				branchId: 'b_gf',
+				navigate: async (to: string) => void went.push(to),
+			},
+		});
+		const row = (await screen.findByText('Imported')).closest('li') as HTMLElement;
+		expect(within(row).getByText('The recipe now')).toBeInTheDocument();
+		await fireEvent.click(within(row).getByText('Imported'));
+		expect(went).toEqual(['/recipes/b_gf']);
 	});
 });
 
@@ -522,6 +627,7 @@ describe('a cooking that changed the recipe, in the Thread (#209)', () => {
 	/** Two Versions on one Branch, and whichever cookings a test hangs off them. */
 	const threadWith = <Cooking>(attempts: Cooking[]) => ({
 		lineage_id: 'l_1',
+		title: 'Tteokbokki',
 		branches: [threadBranch('b_mine', { head_version_id: 'v_2' })],
 		versions: [version(1, 'As it came'), version(2, 'Less five-spice')],
 		attempts,
@@ -538,18 +644,22 @@ describe('a cooking that changed the recipe, in the Thread (#209)', () => {
 		renderCooked('v_2');
 
 		const keptAs = await rowOf('Less five-spice');
-		expect(within(keptAs).getByRole('button', { name: /🍲 Again/ })).toBeInTheDocument();
+		expect(
+			within(keptAs).getByRole('button', { name: 'You cooked this · Would cook again' }),
+		).toBeInTheDocument();
 		const startedFrom = await rowOf('As it came');
-		expect(within(startedFrom).queryByRole('button', { name: /🍲/ })).not.toBeInTheDocument();
+		expect(within(startedFrom).queryByRole('button', { name: /cooked/ })).not.toBeInTheDocument();
 	});
 
 	it('leaves a cooking nobody kept under the Version it started from', async () => {
 		renderCooked('v_1');
 
 		const startedFrom = await rowOf('As it came');
-		expect(within(startedFrom).getByRole('button', { name: /🍲 Again/ })).toBeInTheDocument();
+		expect(
+			within(startedFrom).getByRole('button', { name: 'You cooked this · Would cook again' }),
+		).toBeInTheDocument();
 		const newer = await rowOf('Less five-spice');
-		expect(within(newer).queryByRole('button', { name: /🍲/ })).not.toBeInTheDocument();
+		expect(within(newer).queryByRole('button', { name: /cooked/ })).not.toBeInTheDocument();
 	});
 
 	it('keeps a cooking on the History where a Thread kept on the phone names no eaten Version', async () => {
@@ -567,7 +677,9 @@ describe('a cooking that changed the recipe, in the Thread (#209)', () => {
 		});
 
 		const startedFrom = await rowOf('As it came');
-		expect(within(startedFrom).getByRole('button', { name: /🍲 Again/ })).toBeInTheDocument();
+		expect(
+			within(startedFrom).getByRole('button', { name: 'You cooked this · Would cook again' }),
+		).toBeInTheDocument();
 	});
 
 	describe('a Version cooked several times (#249)', () => {
@@ -586,12 +698,12 @@ describe('a cooking that changed the recipe, in the Thread (#209)', () => {
 			created_at: `2026-03-${String(day).padStart(2, '0')}T12:00:00Z`,
 		});
 
-		/** The badges under the first Version, as their words. */
+		/** The buttons saying who cooked the first Version, as their words (#652). */
 		async function badges(attempts: ReturnType<typeof cooking>[]) {
 			renderThread('b_mine', { get_thread: threadWith(attempts) });
 			const row = await rowOf('As it came');
 			// The first button is the Version itself. Nobody here may name it,
-			// so the rest are its badges.
+			// so the rest say who cooked it.
 			const [, ...cooked] = within(row).getAllByRole('button');
 			return { row, words: cooked.map((button) => button.textContent.trim()) };
 		}
@@ -602,92 +714,97 @@ describe('a cooking that changed the recipe, in the Thread (#209)', () => {
 				(line.textContent ?? '').replace(/\s+/g, ' ').trim(),
 			);
 
-		it('shows one cooking as its rating, and opens it', async () => {
+		it('says one cooking of yours in words with its verdict, and opens it (#652)', async () => {
 			const { row, words } = await badges([cooking(2, 'again', 'Crisp.')]);
-			expect(words).toEqual(['🍲 Again']);
+			expect(words).toEqual(['You cooked this · Would cook again']);
 
-			await fireEvent.click(within(row).getByRole('button', { name: '🍲 Again' }));
+			await fireEvent.click(
+				within(row).getByRole('button', { name: 'You cooked this · Would cook again' }),
+			);
 			const sheet = screen.getByRole('dialog', { name: 'Cooked 2 Mar 2026' });
-			expect(within(sheet).getByText('Again')).toBeInTheDocument();
+			expect(within(sheet).getByText('Would cook again')).toBeInTheDocument();
 			expect(within(sheet).getByText('Crisp.')).toBeInTheDocument();
 		});
 
-		it('shows a cooking with no rating as the pot alone', async () => {
+		it('says a cooking with no rating in words alone', async () => {
 			const { words } = await badges([cooking(2, null)]);
-			expect(words).toEqual(['🍲']);
+			expect(words).toEqual(['You cooked this']);
 		});
 
-		it('shows the same rating once however often it was given, with no count', async () => {
+		it('says how often you cooked it, with the verdict once however often it was given', async () => {
 			const { row, words } = await badges([
 				cooking(2, 'again', 'First go.'),
 				cooking(5, 'again'),
 				cooking(9, 'again', 'Third go.'),
 			]);
-			expect(words).toEqual(['🍲 Again']);
+			const said = 'You cooked this 3 times · Would cook again';
+			expect(words).toEqual([said]);
 
 			// Every cooking is still one press away, newest first.
-			await fireEvent.click(within(row).getByRole('button', { name: '🍲 Again' }));
+			await fireEvent.click(within(row).getByRole('button', { name: said }));
 			expect(
-				screen.getByRole('dialog', { name: 'You cooked this Version 3 times' }),
+				screen.getByRole('dialog', { name: 'You cooked this version 3 times' }),
 			).toBeInTheDocument();
 			expect(sheetLines()).toEqual([
-				'9 Mar 2026 · Again Third go.',
-				'5 Mar 2026 · Again No notes written down.',
-				'2 Mar 2026 · Again First go.',
+				'9 Mar 2026 · Would cook again Third go.',
+				'5 Mar 2026 · Would cook again No notes written down.',
+				'2 Mar 2026 · Would cook again First go.',
 			]);
 		});
 
 		it('shows the last rating where they differ, and the older ones on opening', async () => {
 			const { row, words } = await badges([cooking(2, 'again'), cooking(5, 'no', 'Too salty.')]);
-			expect(words).toEqual(['🍲 No']);
+			const said = "You cooked this 2 times · Wouldn't cook again";
+			expect(words).toEqual([said]);
 
-			await fireEvent.click(within(row).getByRole('button', { name: '🍲 No' }));
+			await fireEvent.click(within(row).getByRole('button', { name: said }));
 			expect(sheetLines()).toEqual([
-				'5 Mar 2026 · No Too salty.',
-				'2 Mar 2026 · Again No notes written down.',
+				"5 Mar 2026 · Wouldn't cook again Too salty.",
+				'2 Mar 2026 · Would cook again No notes written down.',
 			]);
 		});
 
 		it('keeps the last rating given when a later cooking has none', async () => {
 			const { row, words } = await badges([cooking(2, 'again'), cooking(5, null)]);
-			expect(words).toEqual(['🍲 Again']);
+			const said = 'You cooked this 2 times · Would cook again';
+			expect(words).toEqual([said]);
 
-			await fireEvent.click(within(row).getByRole('button', { name: '🍲 Again' }));
+			await fireEvent.click(within(row).getByRole('button', { name: said }));
 			expect(sheetLines()).toEqual([
 				'5 Mar 2026 No notes written down.',
-				'2 Mar 2026 · Again No notes written down.',
+				'2 Mar 2026 · Would cook again No notes written down.',
 			]);
 		});
 
-		it('puts everyone else together in a second badge, by name', async () => {
+		it('puts everyone else together in a second button, by name', async () => {
 			const { row, words } = await badges([
 				cooking(2, 'again'),
 				cooking(3, 'tweak', 'Less vanilla.', 'p_sam'),
 				cooking(4, 'again', null, 'p_camille'),
 				cooking(5, 'again', null, 'p_sam'),
 			]);
-			expect(words).toEqual(['🍲 Again', 'Sam ×2 · Camille']);
+			expect(words).toEqual(['You cooked this · Would cook again', 'Cooked by Sam ×2 · Camille']);
 
 			await fireEvent.click(
 				within(row).getByRole('button', { name: 'Cooked by Sam ×2 · Camille' }),
 			);
 			expect(
-				screen.getByRole('dialog', { name: 'Others cooked this Version 3 times' }),
+				screen.getByRole('dialog', { name: 'Others cooked this version 3 times' }),
 			).toBeInTheDocument();
 			expect(sheetLines()).toEqual([
-				'Sam · 5 Mar 2026 · Again No notes written down.',
-				'Camille · 4 Mar 2026 · Again No notes written down.',
-				'Sam · 3 Mar 2026 · Tweak it Less vanilla.',
+				'Sam · 5 Mar 2026 · Would cook again No notes written down.',
+				'Camille · 4 Mar 2026 · Would cook again No notes written down.',
+				'Sam · 3 Mar 2026 · Would change something Less vanilla.',
 			]);
 		});
 
 		it('opens the one cooking of someone else with their name on it', async () => {
 			const { row, words } = await badges([cooking(4, 'no', 'Sour.', 'p_camille')]);
-			expect(words).toEqual(['Camille']);
+			expect(words).toEqual(['Cooked by Camille']);
 
 			await fireEvent.click(within(row).getByRole('button', { name: 'Cooked by Camille' }));
 			const sheet = screen.getByRole('dialog', { name: 'Camille cooked 4 Mar 2026' });
-			expect(within(sheet).getByText('No')).toBeInTheDocument();
+			expect(within(sheet).getByText("Wouldn't cook again")).toBeInTheDocument();
 			expect(within(sheet).getByText('Sour.')).toBeInTheDocument();
 		});
 
@@ -713,7 +830,9 @@ describe('a cooking that changed the recipe, in the Thread (#209)', () => {
 			});
 
 			const row = await rowOf('As it came');
-			expect(await within(row).findByRole('button', { name: '🍲 Again' })).toBeInTheDocument();
+			expect(
+				await within(row).findByRole('button', { name: 'You cooked this · Would cook again' }),
+			).toBeInTheDocument();
 			expect(
 				within(row).getByRole('button', { name: 'Cooked by Someone Kamosu has no name for' }),
 			).toBeInTheDocument();
@@ -746,6 +865,7 @@ describe('a Language said, in the Thread', () => {
 	const saidItIsFrench = {
 		get_thread: {
 			lineage_id: 'l_1',
+			title: 'Tteokbokki',
 			branches: [
 				{
 					branch_id: 'b_mine',
@@ -778,7 +898,7 @@ describe('a Language said, in the Thread', () => {
 
 		expect(await screen.findByText('Said this recipe is in French.')).toBeInTheDocument();
 		// And it is not passed off as an ordinary save with nothing written down.
-		expect(screen.queryByText('Saved with nothing written down.')).not.toBeInTheDocument();
+		expect(screen.queryByText('No note was written.')).not.toBeInTheDocument();
 	});
 
 	it('never folds a Language said into a run of quiet saves', async () => {
@@ -841,6 +961,7 @@ describe('who wrote each Version, in the Thread (#113)', () => {
 		renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches: [
 					{
 						branch_id: 'b_mine',
@@ -862,8 +983,8 @@ describe('who wrote each Version, in the Thread (#113)', () => {
 			},
 		});
 
-		expect(await screen.findAllByText('Stéphane Dupont')).toHaveLength(2);
-		expect(screen.getByText('Someone Kamosu has no name for')).toBeInTheDocument();
+		expect(await screen.findAllByText(/· Stéphane Dupont$/)).toHaveLength(2);
+		expect(screen.getByText(/· Someone Kamosu has no name for$/)).toBeInTheDocument();
 		expect(screen.queryByText(/p_stranger|p_stephane/)).not.toBeInTheDocument();
 	});
 });
@@ -912,6 +1033,7 @@ describe('naming a Version from the Thread (#115)', () => {
 			get_person: ME,
 			get_thread: () => ({
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches,
 				versions: versions.map((v) => ({
 					...v,
@@ -941,19 +1063,23 @@ describe('naming a Version from the Thread (#115)', () => {
 		});
 
 		await screen.findByText('Mamie’s way');
-		// Camille's row: readable, nothing to rename.
-		expect(within(rows()[0]).queryByRole('button', { name: /Name it|Rename/ })).toBeNull();
+		// Camille's row, the older: readable, nothing to rename.
+		expect(within(rows()[1]).queryByRole('button', { name: /Name|Rename/ })).toBeNull();
 
-		await fireEvent.click(await within(rows()[1]).findByRole('button', { name: 'Name it' }));
-		const field = screen.getByRole('textbox', { name: 'Name for this Version' });
+		// Your own save is said to be yours (#652).
+		expect(rows()[0]).toHaveTextContent('2 Sept 2026 · you');
+		await fireEvent.click(
+			await within(rows()[0]).findByRole('button', { name: 'Name this version' }),
+		);
+		const field = screen.getByRole('textbox', { name: 'A name for this version' });
 		await fireEvent.input(field, { target: { value: 'Weeknight' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Save the name' }));
 
 		expect(await screen.findByRole('status')).toHaveTextContent(
-			'Named. Nothing else about this Version changed.',
+			'Named. Nothing else about this version changed.',
 		);
-		// The name sits after its writer with a space either side of the dot.
-		expect(rows()[1]).toHaveTextContent('Stéphane · “Weeknight”');
+		// The name has a line of its own, in quotes.
+		expect(within(rows()[0]).getByText('“Weeknight”')).toBeInTheDocument();
 		const renames = kamosu.calls.filter((call) => call.operation === 'rename_version');
 		expect(renames.map((call) => call.input)).toEqual([
 			{ branch_id: 'b_mine', sequence: 2, name: 'Weeknight' },
@@ -974,11 +1100,11 @@ describe('naming a Version from the Thread (#115)', () => {
 			},
 		});
 
-		await fireEvent.click(await screen.findByRole('button', { name: 'Rename' }));
-		await fireEvent.click(screen.getByRole('button', { name: 'Remove the name' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Rename this version' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Take the name off' }));
 
 		expect(await screen.findByRole('status')).toHaveTextContent(
-			'Name removed. Nothing else about this Version changed.',
+			'Name removed. Nothing else about this version changed.',
 		);
 		expect(screen.queryByRole('alert')).toBeNull();
 		expect(screen.queryByText(/Sunday gratin/)).toBeNull();
@@ -988,7 +1114,7 @@ describe('naming a Version from the Thread (#115)', () => {
 			name: null,
 		});
 		// With no name left, the row offers to name it again.
-		expect(screen.getByRole('button', { name: 'Name it' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Name this version' })).toBeInTheDocument();
 	});
 
 	it('shows what changed beside the name, and never as something to edit', async () => {
@@ -997,7 +1123,7 @@ describe('naming a Version from the Thread (#115)', () => {
 			threadKeepingNames([saved('b_mine', 1, 'p_stephane', { change_note: 'Gruyère on top' })]),
 		);
 
-		await fireEvent.click(await screen.findByRole('button', { name: 'Name it' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Name this version' }));
 		// The name is the only field; the note is read, with the reason it stays.
 		expect(screen.getAllByRole('textbox')).toHaveLength(1);
 		expect(screen.getByText('What changed')).toBeInTheDocument();
@@ -1020,9 +1146,10 @@ describe('naming a Version from the Thread (#115)', () => {
 		const { kamosu } = renderThread('b_mine', world);
 
 		expect(await screen.findByText('Less salt')).toBeInTheDocument();
-		await fireEvent.click(within(rows()[0]).getByRole('button', { name: 'Name it' }));
+		// Newest first (#652): the Version the two share is the last row.
+		await fireEvent.click(within(rows()[2]).getByRole('button', { name: 'Name this version' }));
 		await fireEvent.input(screen.getByRole('textbox'), { target: { value: 'The first' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Save the name' }));
 
 		await screen.findByRole('status');
 		expect(
@@ -1031,8 +1158,8 @@ describe('naming a Version from the Thread (#115)', () => {
 			{ branch_id: 'b_mine', sequence: 1, name: 'The first' },
 			{ branch_id: 'b_chalet', sequence: 1, name: 'The first' },
 		]);
-		// Camille's own Version on the Chalet's line is hers alone to name.
-		expect(within(rows()[2]).queryByRole('button', { name: /Name it|Rename/ })).toBeNull();
+		// Camille's own Version on the Chalet's line, the newest, is hers alone to name.
+		expect(within(rows()[0]).queryByRole('button', { name: /Name|Rename/ })).toBeNull();
 	});
 
 	it('offers no rename on a shared Version another cook saved on one of its Branches', async () => {
@@ -1052,8 +1179,10 @@ describe('naming a Version from the Thread (#115)', () => {
 		);
 
 		expect(await screen.findByText('Less salt')).toBeInTheDocument();
-		expect(within(rows()[0]).queryByRole('button', { name: /Name it|Rename/ })).toBeNull();
-		expect(within(rows()[1]).getByRole('button', { name: 'Name it' })).toBeInTheDocument();
+		expect(within(rows()[2]).queryByRole('button', { name: /Name|Rename/ })).toBeNull();
+		expect(
+			within(rows()[1]).getByRole('button', { name: 'Name this version' }),
+		).toBeInTheDocument();
 	});
 
 	it('says a failed rename failed, and reads the Thread again to show what did land', async () => {
@@ -1065,9 +1194,9 @@ describe('naming a Version from the Thread (#115)', () => {
 			rename_version: { refuse: 'internal' },
 		});
 
-		await fireEvent.click(await screen.findByRole('button', { name: 'Name it' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Name this version' }));
 		await fireEvent.input(screen.getByRole('textbox'), { target: { value: 'Sunday' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Save the name' }));
 
 		expect(await screen.findByRole('alert')).toHaveTextContent(
 			'The name could not be saved. Try again.',
@@ -1112,6 +1241,7 @@ describe('a Translation, and a Branch nothing was saved on, in the Thread (#250)
 		renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches: [threadBranch('b_mine'), french],
 				versions: [
 					...recipe,
@@ -1121,26 +1251,27 @@ describe('a Translation, and a Branch nothing was saved on, in the Thread (#250)
 			},
 		});
 		await screen.findByText('One more egg');
-		// Written last and drawn second: the first row is the first Version.
+		// Written last and drawn just above the first Version, newest first (#652).
 		expect(rows()).toHaveLength(4);
-		expect(within(rows()[0]).getByText(/The original/)).toBeInTheDocument();
+		expect(within(rows()[3]).getByText(/The original/)).toBeInTheDocument();
 		// Its line comes out of that Version's dot.
-		expect(rows()[0].querySelectorAll('svg path')).toHaveLength(1);
+		expect(rows()[3].querySelectorAll(SPROUTS)).toHaveLength(1);
 		// The row names its Branch and keeps its date; nothing says what it
 		// translates, since where it sits does.
-		expect(rows()[1]).toHaveTextContent('Yours (French)');
-		expect(rows()[1]).toHaveTextContent('2026-05-24');
+		expect(rows()[2]).toHaveTextContent('Yours (French)');
+		expect(rows()[2]).toHaveTextContent('24 May 2026');
 		expect(screen.queryByText(/Translates/)).toBeNull();
 		expect(screen.queryByText(/Splits into/)).toBeNull();
 		// Rows name their Branch from the second line on, and not before it.
-		expect(rows()[0]).not.toHaveTextContent('Yours');
-		expect(rows()[2]).toHaveTextContent('Yours');
+		expect(rows()[3]).not.toHaveTextContent('Yours');
+		expect(rows()[1]).toHaveTextContent('Yours');
 	});
 
 	it('says so where the Version a Translation translates is not in the History', async () => {
 		renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches: [threadBranch('b_mine'), french],
 				versions: [
 					...recipe,
@@ -1149,18 +1280,20 @@ describe('a Translation, and a Branch nothing was saved on, in the Thread (#250)
 				attempts: [],
 			},
 		});
-		const said = await screen.findByText('Translates a Version that is not in this History.');
-		// At the foot, whatever its date, and nothing claims the recipe split.
-		expect(rows().at(-1)).toContainElement(said);
+		const said = await screen.findByText('Translates a version that is not in this History.');
+		// Apart from the recipe's line, at the top now the History reads newest
+		// first (#652), whatever its date, and nothing claims the recipe split.
+		expect(rows()[0]).toContainElement(said);
 		// Two Branches and no dot to say where they part: every row names its own.
-		expect(rows()[0]).toHaveTextContent('Yours');
-		expect(document.querySelector('ul svg')).toBeNull();
+		expect(rows().at(-1)).toHaveTextContent('Yours');
+		expect(document.querySelector(SPROUTS)).toBeNull();
 	});
 
 	it('gives a variation nothing was saved on a row of its own, by the name it was given', async () => {
 		renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches: [threadBranch('b_mine'), threadBranch('b_gf', { name: 'Gluten-free' })],
 				versions: [
 					...recipe,
@@ -1171,18 +1304,19 @@ describe('a Translation, and a Branch nothing was saved on, in the Thread (#250)
 			},
 		});
 		await screen.findByText('One more egg');
-		// Under the Version it starts from, and before the recipe's next one.
-		expect(rows()[2]).toHaveTextContent('Gluten-free');
-		expect(rows()[2]).toHaveTextContent('Starts here. Nothing changed yet.');
+		// Above the Version it starts from, and below the recipe's next one (#652).
+		expect(rows()[1]).toHaveTextContent('Gluten-free');
+		expect(rows()[1]).toHaveTextContent('Starts here. Nothing changed yet.');
 		// It is no Version: nothing to open, name or cook from.
-		expect(within(rows()[2]).queryByRole('button')).toBeNull();
-		expect(rows()[3]).toHaveTextContent('One more egg');
+		expect(within(rows()[1]).queryByRole('button')).toBeNull();
+		expect(rows()[0]).toHaveTextContent('One more egg');
 	});
 
 	it('says nothing changed since on the recipe, where only its variation went on', async () => {
 		renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches: [threadBranch('b_mine'), threadBranch('b_vegan', { name: 'Vegan' })],
 				versions: [
 					...recipe,
@@ -1193,11 +1327,14 @@ describe('a Translation, and a Branch nothing was saved on, in the Thread (#250)
 			},
 		});
 		await screen.findByText('No eggs');
-		// Under the last Version it holds, by its own name: it did not start there.
-		expect(rows()[3]).toHaveTextContent('Yours');
-		expect(rows()[3]).toHaveTextContent('Nothing changed since.');
+		// Above the last Version it holds, by its own name: it did not start there.
+		expect(rows()[1]).toHaveTextContent('Yours');
+		expect(rows()[1]).toHaveTextContent('Nothing changed since.');
 		expect(screen.queryByText('Starts here. Nothing changed yet.')).toBeNull();
-		expect(rows()[4]).toHaveTextContent('Vegan');
+		expect(rows()[0]).toHaveTextContent('Vegan');
+		// The recipe as it stands is the Version both still hold.
+		expect(within(rows()[2]).getByText('The recipe now')).toBeInTheDocument();
+		expect(within(rows()[0]).getByText('Vegan as it is now')).toBeInTheDocument();
 	});
 
 	it('draws five Branches in five colours', async () => {
@@ -1205,6 +1342,7 @@ describe('a Translation, and a Branch nothing was saved on, in the Thread (#250)
 		renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches: ids.map((id, index) =>
 					threadBranch(id, index ? { name: `Variation ${index}` } : {}),
 				),
@@ -1217,7 +1355,7 @@ describe('a Translation, and a Branch nothing was saved on, in the Thread (#250)
 		});
 		await screen.findByText('Change 4');
 		const colours = rows()
-			.slice(1)
+			.slice(0, -1)
 			.map((row) => row.querySelector('span[style^="color"]')?.getAttribute('style'));
 		expect(new Set(colours).size).toBe(5);
 	});

@@ -36,10 +36,21 @@
 	(#192, story 64).
 
 	The newest Version is the recipe, so its address goes there.
+
+	REDRAWN BY #652 (`older-phone.html?lay=A&step=A`, 21 November 2026): the
+	bar says "An older version" and when it was saved, and its way back to
+	the recipe now is a full-size button. A box under the hero says what is
+	different in the recipe now, the photo included, with the two photos side
+	by side when that differs: the audit's reader, told only that every line
+	was the same, took a Version whose photo alone had changed for the wrong
+	one (V8). Cooking it is one act among four, no longer the page's main
+	button (V9), and a changed line says what the recipe has now.
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { m } from '#lib/paraglide/messages.js';
+	import { getLocale } from '#lib/paraglide/runtime.js';
+	import Cover from '#lib/cover/Cover.svelte';
 	import { aDate } from '#lib/dates.js';
 	import { useKamosu } from '#lib/kamosu.js';
 	import { OperationError } from '#lib/api/client.js';
@@ -92,6 +103,8 @@
 	};
 
 	let compared = $state<ChangedSinceOutput | undefined>(undefined);
+	/** The reader, whose own saves the page says "you" of (#652). */
+	let me = $state<string | undefined>(undefined);
 	let failed = $state(false);
 	/** Bumped after a save, to read the two again: the recipe has moved. */
 	let reread = $state(0);
@@ -121,6 +134,15 @@
 		return () => {
 			current = false;
 		};
+	});
+
+	$effect(() => {
+		kamosu
+			.getPerson()
+			.then((person) => (me = person.person_id))
+			.catch((error: unknown) => {
+				if (!(error instanceof OperationError)) throw error;
+			});
 	});
 
 	/** When this Version was saved, as every sentence here says it. */
@@ -159,10 +181,67 @@
 
 	const saved = $derived.by(() => {
 		if (!compared) return '';
-		const who = compared.version.hand_name ?? m.thread_unnamed_hand();
 		const name = compared.version.name;
-		return name ? m.older_saved_named({ when, who, name }) : m.older_saved({ when, who });
+		// Said whole where it is yours: "you" is "ti" after "por", "jou" after "door".
+		if (compared.version.hand_id === me) {
+			return name ? m.older_saved_by_you_named({ name }) : m.older_saved_by_you();
+		}
+		const who = compared.version.hand_name ?? m.thread_unnamed_hand();
+		return name ? m.older_saved_named({ who, name }) : m.older_saved({ who });
 	});
+
+	/**
+	 * What is different in the recipe now (#652, V8), in the order the page
+	 * reads: lines first, by how many, then each single value, the photo last.
+	 * A line moved is marked on the page, so it counts, and so does a heading
+	 * of the list, which is marked as a line is. A Step whose words are the
+	 * same counts where its photograph is not. Empty when nothing is.
+	 */
+	const differs = (rows: ChangedSinceOutput['steps'], photos = false) =>
+		rows.filter((row) => {
+			if (row.state !== 'same') return true;
+			if (!photos || !compared || !row.mine || !row.theirs) return false;
+			const now = compared.mine.content.steps[row.mine.index]?.photo ?? null;
+			const then = compared.theirs.content.steps[row.theirs.index]?.photo ?? null;
+			return now !== then;
+		}).length;
+	const different = $derived.by((): string[] => {
+		if (!compared) return [];
+		const ingredients = differs(compared.ingredients);
+		const steps = differs(compared.steps, true);
+		const said: string[] = [];
+		if (ingredients === 1) said.push(m.older_diff_ingredient());
+		else if (ingredients > 1) said.push(m.older_diff_ingredients({ count: ingredients }));
+		if (steps === 1) said.push(m.older_diff_step());
+		else if (steps > 1) said.push(m.older_diff_steps({ count: steps }));
+		const fields = compared.fields;
+		const values: [keyof typeof fields, () => string][] = [
+			['title', m.older_diff_title],
+			['source', m.older_diff_source],
+			['yield', m.older_diff_yield],
+			['prep_time_minutes', m.older_diff_prep],
+			['cook_time_minutes', m.older_diff_cook],
+			['nutrition', m.older_diff_nutrition],
+			['note', m.older_diff_note],
+			['main_photo', m.older_diff_photo],
+		];
+		for (const [name, words] of values) if (!fields[name].same) said.push(words());
+		return said;
+	});
+	/** Whether every ingredient and step reads as the recipe has it now. */
+	const linesSame = $derived(
+		!!compared && differs(compared.ingredients) + differs(compared.steps, true) === 0,
+	);
+	/**
+	 * What is different, the list joined as each Language joins one. Kamosu's
+	 * English is British, with no comma before the last "and".
+	 */
+	const differentList = $derived.by(() => {
+		const locale = getLocale() === 'en' ? 'en-GB' : getLocale();
+		return new Intl.ListFormat(locale, { type: 'conjunction' }).format(different);
+	});
+	/** The photo now, where it is not this Version's: the box shows the two side by side. */
+	const photoMoved = $derived(compared ? !compared.fields.main_photo.same : false);
 
 	/**
 	 * Cook this Version. The Attempt is pinned to it, and the cooking screen
@@ -283,6 +362,19 @@
 	</li>
 {/snippet}
 
+{#snippet thumb(said: string, photo: string | null)}
+	<figure class="grid gap-1">
+		<figcaption class="text-label text-ink-2 uppercase">{said}</figcaption>
+		<div class="h-[72px] w-[96px] overflow-hidden rounded-sm">
+			{#if photo}
+				<img src="/api/photographs/{photo}/card" alt="" class="h-[72px] w-[96px] object-cover" />
+			{:else if compared}
+				<Cover lineageId={compared.lineage_id} title="" height="72px" band={false} />
+			{/if}
+		</div>
+	</figure>
+{/snippet}
+
 <div class="older mx-auto max-w-2xl pb-tabbar">
 	{#if failed}
 		<p class="px-gutter py-6 text-body text-support" role="alert">{m.older_failed()}</p>
@@ -297,12 +389,26 @@
 		<div class="older-bar flex min-h-12 items-center gap-3 bg-ink px-gutter py-2 text-on-accent">
 			<p class="min-w-0 flex-1 text-read">
 				<b class="block font-display text-body font-semibold">{m.older_bar_title()}</b>
-				{when}
+				{m.older_bar_saved({ when })}
 			</p>
+			<!-- The way back, full size and never the smallest control (#652, V9). -->
 			<a
 				href="/recipes/{branchId}"
-				class="tap-out shrink-0 rounded-sm border border-on-accent px-[10px] py-[6px] text-read"
+				class="second-button shrink-0 gap-1 pl-2 font-semibold whitespace-nowrap"
+				style="--button-ink: var(--color-ink)"
 			>
+				<svg
+					viewBox="0 0 24 24"
+					aria-hidden="true"
+					class="h-[20px] w-[20px] shrink-0"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.75"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				>
+					<path d="m15 5-7 7 7 7" />
+				</svg>
 				{m.older_bar_back()}
 			</a>
 		</div>
@@ -322,49 +428,49 @@
 			</p>
 		{/if}
 
-		{#if marks.unshared === 0}
-			<p class="border-b border-rule px-gutter py-2 text-read text-ink-2">
-				{m.older_unshared_none()}
+		<!--
+			What is different in the recipe now (#652, V8): the list, the two
+			photos side by side when the photo is one of them, and the marks'
+			switch where any line is marked.
+		-->
+		<div class="mx-gutter mt-3 border-l-3 border-accent bg-card p-3">
+			<p class="text-body text-ink">
+				{#if different.length}
+					<b class="font-semibold">{m.older_diff_lead()}</b>
+					{differentList}.
+				{:else}
+					{m.older_diff_none()}
+				{/if}
 			</p>
-		{:else}
-			<div class="flex items-center gap-3 border-b border-rule px-gutter py-2">
-				<p class="flex-1 text-read text-ink-2">
-					{#if !marks.marks}
-						{m.divergence_put_away({ count: marks.unshared })}
-					{:else if marks.unshared === 1}
-						{m.older_unshared_one()}
-					{:else}
-						{m.older_unshared({ count: marks.unshared })}
-					{/if}
+			{#if different.length && linesSame}
+				<p class="text-body text-ink">{m.older_diff_lines_same()}</p>
+			{/if}
+			{#if photoMoved}
+				<div class="mt-3 flex items-end gap-3">
+					{@render thumb(m.older_photo_this(), content.main_photo)}
+					<span class="pb-6 text-ink-2" aria-hidden="true">→</span>
+					{@render thumb(m.older_photo_now(), compared.mine.content.main_photo)}
+				</div>
+			{/if}
+			{#if marks.unshared > 0}
+				<p class="mt-2 text-read text-ink">
+					{marks.marks ? m.older_marks_shown() : m.older_marks_hidden()}
 				</p>
-				<button
-					type="button"
-					onclick={marks.toggleMarks}
-					class="rounded-sm border border-rule bg-card px-3 py-1 text-read text-accent"
-				>
-					{marks.marks ? m.divergence_hide() : m.divergence_show()}
+				<button type="button" onclick={marks.toggleMarks} class="mt-2 second-button">
+					{marks.marks ? m.older_marks_hide() : m.older_marks_show()}
 				</button>
-			</div>
-		{/if}
+			{/if}
+		</div>
 		{@render fieldMarks(['title', 'source'])}
 
 		<MetaStrip {content} />
 		{@render fieldMarks(['prep_time_minutes', 'cook_time_minutes', 'yield'])}
 
-		<button
-			type="button"
-			disabled={cooking === 'starting' || cooking === 'another'}
-			onclick={cook}
-			class="mx-gutter mt-4 main-button w-[calc(100%-2*var(--spacing-gutter))]"
-		>
-			{m.older_cook()}
-		</button>
 		<!--
-			What can be done with this Version, under its cook button as a
-			recipe's acts are under Start cooking (#649, the older version's
-			page of option A, 20 November 2026). They stood at the foot,
-			after the whole method, with a way back to the recipe the bar
-			above already gives.
+			What can be done with this Version (#649), four acts of one weight
+			(#652): cooking it is one of them and not the page's main button,
+			since a reader comes here to read (V9). Two by two on the phone, in
+			one row on the wide layout.
 		-->
 		{#snippet act(icon: ActIconName, label: string, waiting: string, what: Act)}
 			<NeedsServer
@@ -378,7 +484,19 @@
 				{#snippet before()}<ActIcon name={icon} />{/snippet}
 			</NeedsServer>
 		{/snippet}
-		<div class="mx-gutter mt-2 grid gap-2 {compared.writes ? 'grid-cols-3' : 'grid-cols-2'}">
+		<div
+			class="mx-gutter mt-4 grid gap-2 {compared.writes
+				? 'grid-cols-2 wide:grid-cols-4'
+				: 'grid-cols-3'}"
+		>
+			<button
+				type="button"
+				disabled={cooking === 'starting' || cooking === 'another'}
+				onclick={cook}
+				class="second-button act-line"
+			>
+				<ActIcon name="cook" />{m.older_cook()}
+			</button>
 			{#if compared.writes}
 				{@render act('putBack', m.older_put_back(), m.offline_waits_edit(), 'back')}
 				{@render act('variation', m.older_variation(), m.offline_waits_edit(), 'variation')}
@@ -386,7 +504,7 @@
 				{@render act('copy', m.older_keep(), m.offline_waits_copy(), 'keep')}
 			{/if}
 			<a href="/recipes/{branchId}/thread" class="second-button act-line">
-				<ActIcon name="history" />{m.recipe_the_thread()}
+				<ActIcon name="history" />{m.older_see_all()}
 			</a>
 		</div>
 		{#if cooking === 'another'}

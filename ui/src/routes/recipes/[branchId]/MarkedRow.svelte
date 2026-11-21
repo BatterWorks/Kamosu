@@ -105,9 +105,20 @@
 	const struck = $derived(carried ? carried.leaving : seen.ghost);
 	const say = $derived(words ?? between(otherKitchen));
 	const what = $derived(say.offer(row, taken));
+	/**
+	 * A line written since, on an older Version's page (#652): its caption
+	 * carries the line, "Added since: …", with a dashed rule, and the line is
+	 * not drawn struck through as one taken out would be. Once it is set to
+	 * leave the recipe, the caption says that instead, so the line is drawn.
+	 */
+	const added = $derived(!!say.plainCaption && seen.ghost && !carried && !taken);
 </script>
 
-<li class="border-b border-rule py-3 pl-3 {struck ? 'mark-ghost' : 'mark-diff'}">
+<li
+	class="border-b border-rule py-3 pl-3 {struck ? 'mark-ghost' : 'mark-diff'} {added
+		? 'mark-added'
+		: ''}"
+>
 	<div class="flex gap-3">
 		<button type="button" class="flex min-w-0 flex-1 gap-3 text-left" onclick={onToggle}>
 			{#if isStep}
@@ -124,13 +135,15 @@
 				<span class="ingredient-marker shrink-0" aria-hidden="true"></span>
 			{/if}
 			<span class="min-w-0 flex-1">
-				<span class="block {isStep ? 'text-body' : 'text-line'} {struck ? 'ghost-text' : ''}">
-					<StepWords
-						text={shown}
-						conversions={struck || carried ? [] : conversions}
-						readingClass="text-read text-ink-2"
-					/>
-				</span>
+				{#if !added}
+					<span class="block {isStep ? 'text-body' : 'text-line'} {struck ? 'ghost-text' : ''}">
+						<StepWords
+							text={shown}
+							conversions={struck || carried ? [] : conversions}
+							readingClass="text-read text-ink-2"
+						/>
+					</span>
+				{/if}
 				{#if beneath && !struck && !carried}
 					<span class="block text-read text-ink-2">{beneath}</span>
 				{/if}
@@ -139,7 +152,11 @@
 						{m.divergence_replacing({ text: carried.replaced })}
 					</span>
 				{/if}
-				<span class="mt-1 block text-label uppercase {struck ? 'text-support' : 'text-accent'}">
+				<span
+					class="mt-1 block {say.plainCaption
+						? 'text-read first-letter:uppercase'
+						: 'text-label uppercase'} {struck ? 'text-support' : 'text-accent'}"
+				>
 					{#if carried}
 						{carried.leaving ? m.divergence_leaving() : m.divergence_carried()}
 					{:else}
@@ -210,6 +227,11 @@
 	}
 	:global([data-side='theirs']) .mark-ghost::before {
 		background: var(--color-accent);
+	}
+	/* A line written since, on an older Version's page (#652): dashed. */
+	.mark-added::before {
+		background: none;
+		border-left: 2px dashed var(--color-accent);
 	}
 
 	/* The marker's shape is the `ingredient-marker` utility, shared with the

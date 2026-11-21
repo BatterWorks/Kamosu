@@ -96,6 +96,7 @@ const recipe = (branch_id: string): GetRecipeOutput => ({
  */
 const thread = (branch_id: string, others: string[] = []) => ({
 	lineage_id: `l_${branch_id}`,
+	title: 'Soup',
 	branches: [threadBranch(branch_id), ...others.map((id) => theirBranch(id))],
 	versions: [branch_id, ...others].flatMap((id) => [
 		threadVersion(id, 'v_root'),

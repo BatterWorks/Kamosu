@@ -304,6 +304,7 @@ function forked(extra: Answers = {}) {
 		},
 		get_thread: {
 			lineage_id: 'l_1',
+			title: 'Tteokbokki',
 			branches: [MINE_IN_THREAD, THEIRS_IN_THREAD],
 			// **A real Divergence shares a Version.** Two Branches that parted
 			// have a root in common and their own heads after it, and the page
@@ -916,6 +917,7 @@ describe('a Divergence', () => {
 			forked({
 				get_thread: {
 					lineage_id: 'l_1',
+					title: 'Tteokbokki',
 					branches: [
 						MINE_IN_THREAD,
 						THEIRS_IN_THREAD,
@@ -980,6 +982,7 @@ describe('a Divergence', () => {
 			forked({
 				get_thread: {
 					lineage_id: 'l_1',
+					title: 'Tteokbokki',
 					branches: [MINE_IN_THREAD],
 					versions: [],
 					attempts: [],
@@ -1086,29 +1089,33 @@ describe('the Cooked section', () => {
 
 	// #229, the quiet mark of ADR 0005: a verdict on the recipe as it was must
 	// not read as a verdict on the recipe as it stands.
-	it('marks a verdict given on an older Version, and leaves one on the newest bare', async () => {
+	it('marks a verdict given on an older version in the words History uses (#652), and leaves one on the newest bare', async () => {
 		renderRecipe(cooked());
 		const row = async (name: string) => (await screen.findByText(name)).closest('li')!;
 
-		expect(within(await row('Stéphane')).queryByText('on an older Version')).toBeNull();
+		expect(within(await row('Stéphane')).queryByText('cooked from an older version')).toBeNull();
 		expect(within(await row('Stéphane')).queryByRole('link')).toBeNull();
 
 		// Where the recipe still carries that Version, the mark opens it.
-		const kept = within(await row('Marie')).getByRole('link', { name: 'on an older Version' });
+		const kept = within(await row('Marie')).getByRole('link', {
+			name: 'cooked from an older version',
+		});
 		expect(kept).toHaveAttribute('href', '/recipes/mine/versions/v_older');
 		expect(within(await row('Marie')).getByText('Would change something')).toBeInTheDocument();
 
 		// Where a later save folded it away there is no such page, so the mark
 		// is still there and opens the Thread.
 		const folded = within(await row('Camille')).getByRole('link', {
-			name: 'on an older Version',
+			name: 'cooked from an older version',
 		});
 		expect(folded).toHaveAttribute('href', '/recipes/mine/thread');
 
 		// A verdict on a variation or a Translation is not an older state of
 		// this recipe, and is not called one.
-		expect(within(await row('Bruno')).queryByText('on an older Version')).toBeNull();
-		const sibling = within(await row('Bruno')).getByRole('link', { name: 'on another Version' });
+		expect(within(await row('Bruno')).queryByText('cooked from an older version')).toBeNull();
+		const sibling = within(await row('Bruno')).getByRole('link', {
+			name: 'cooked from another version',
+		});
 		expect(sibling).toHaveAttribute('href', '/recipes/mine/thread');
 	});
 
@@ -1266,6 +1273,7 @@ describe('the recipe screen', () => {
 			get_recipe: recipe,
 			get_thread: {
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches: [MINE_IN_THREAD],
 				versions: [],
 				attempts: [],
@@ -3481,6 +3489,7 @@ const withATranslation = (extra: Answers = {}) =>
 		...ON_THE_SIDE,
 		get_thread: {
 			lineage_id: 'l_1',
+			title: 'Tteokbokki',
 			branches: [
 				MINE_IN_THREAD,
 				threadBranch('b_fr', {
@@ -3687,6 +3696,7 @@ describe('naming a version (#134)', () => {
 			get_recipe: { ...base, branch_id: onPage, name: names[onPage] },
 			get_thread: {
 				lineage_id: 'l_1',
+				title: 'Tteokbokki',
 				branches: [
 					{ ...MINE_IN_THREAD, name: names.mine },
 					threadBranch('veg', { cookbook: MY_COOKBOOK, name: names.veg }),
@@ -3865,6 +3875,7 @@ describe('naming a version (#134)', () => {
 				get_recipe: { ...(forked().get_recipe as GetRecipeOutput), name },
 				get_thread: {
 					lineage_id: 'l_1',
+					title: 'Tteokbokki',
 					branches: [{ ...MINE_IN_THREAD, name }],
 					versions: [occurrenceOf('mine', 1, 'v_mine', null)],
 					attempts: [],
