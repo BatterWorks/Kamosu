@@ -150,6 +150,16 @@ describe('the Plan', () => {
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
 		const sheet = await screen.findByRole('dialog');
+		// The four choices, as how much is asked everywhere (#651); six servings
+		// is none of them, so − and + stand open under them.
+		const choices = within(sheet).getAllByRole('radio');
+		expect(choices.map((each) => each.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+			'Half 2 servings',
+			'As written 4 servings',
+			'Double 8 servings',
+			'Triple 12 servings',
+		]);
+		expect(choices.every((each) => each.getAttribute('aria-checked') === 'false')).toBe(true);
 		await fireEvent.click(within(sheet).getByRole('button', { name: 'One more' }));
 
 		expect(kamosu.calls.at(-1)).toEqual({

@@ -37,7 +37,6 @@ const SRC = join(import.meta.dirname, '..');
 const STILL_HAND_STYLED: string[] = [
 	'lib/Confirm.svelte',
 	'lib/CookbookJoins.svelte',
-	'lib/HowMuch.svelte',
 	'lib/OneTimeSecret.svelte',
 	'lib/PasteCheck.svelte',
 	'lib/PhotoToRecipe.svelte',
@@ -58,7 +57,6 @@ const STILL_HAND_STYLED: string[] = [
 	'routes/+layout.svelte',
 	'routes/Account.svelte',
 	'routes/DemoWelcome.svelte',
-	'routes/cook/[branchId]/Cooking.svelte',
 	'routes/cookbook-invite/[secret]/+page.svelte',
 	'routes/cooked/Diary.svelte',
 	'routes/cooked/KeepCooking.svelte',

@@ -32,6 +32,10 @@ export const COLOUR_ORDER = [
 	'--color-cook-panel',
 	'--color-cook-accent',
 	'--color-cook-on-accent',
+	'--color-cook-soft',
+	'--color-cook-line',
+	'--color-cook-beni',
+	'--color-cook-accent-2',
 ] as const;
 
 export const RADIUS_ORDER = ['--radius-sm', '--radius-md', '--radius-lg', '--radius-pill'] as const;

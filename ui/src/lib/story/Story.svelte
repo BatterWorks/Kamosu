@@ -199,7 +199,7 @@
 											<span class="was">{m.story_chillies({}, L)}</span>
 											<span class="now">{m.story_chilli({}, L)}</span>
 										</p>
-										<p class="cook-said">{m.cook_changed_it({}, L)}</p>
+										<p class="cook-said">{m.cook_note_a_change({}, L)}</p>
 									</div>
 									{@render diary([3, 2, 1])}
 								{:else if at === 5}
