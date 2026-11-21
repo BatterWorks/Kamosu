@@ -26,6 +26,7 @@
 - A recovery link made under *Settings › People* carries this Kamosu's public address once one is set, and `mint_recovery_link` answers the whole link as `url`. Before, it carried whatever address your browser had open, so one sent to somebody away from home might not open. [#663]
 - The small outlined buttons, such as *Rename* and *Sign out*, the arrows beside a shelf on Home, the tools beside a line or a Step while writing a recipe and the outlined buttons of the cooking screen on a phone now answer a tap anywhere within 48 pixels, as they were meant to. Before, their tap area started inside their 1-pixel outline and came out 2 pixels short, at 46. [#634]
 - A printed recipe, a shared recipe's page and a recipe's notes file write an hour in Dutch as *u*, as the app does, so 90 minutes reads *1 u 30 min*. Before, they wrote *h* in every Language. [#667]
+- After you change how much you are making while cooking, the amounts change to match as soon as Kamosu has them, without reloading the page. Before, when the read after the change failed or came back first, the screen could go on saying *Amounts scale to … once Kamosu can be reached* although they already had. [#674]
 
 [#632]: https://github.com/BatterWorks/Kamosu/issues/632
 [#634]: https://github.com/BatterWorks/Kamosu/issues/634
@@ -37,6 +38,7 @@
 [#666]: https://github.com/BatterWorks/Kamosu/issues/666
 [#667]: https://github.com/BatterWorks/Kamosu/issues/667
 [#671]: https://github.com/BatterWorks/Kamosu/issues/671
+[#674]: https://github.com/BatterWorks/Kamosu/issues/674
 
 ## v0.6.0 - 2026-11-13
 
