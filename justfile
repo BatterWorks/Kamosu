@@ -326,11 +326,13 @@ proto-serve folder port:
 # the dev library into a throwaway instance of the debug binary, starts a second
 # one empty, measures both on 127.0.0.1 and removes them. Like `just test`, it
 # builds ui/build first, which leaves a running vite answering 500 until the
-# next `just dev-start`. --everyday measures the everyday screens alone.
+# next `just dev-start`. --everyday measures the everyday screens alone; screen
+# names (the `screen` column of measures.csv) measure only those (#684).
 ux-measure folder *flags:
     #!/usr/bin/env bash
     set -euo pipefail
     just _npm-deps
+    node ui/tools/ux-measure.mjs --binary "{{binary}}" --check-only "{{folder}}" {{flags}}
     cargo build
     just ui-build
     node ui/tools/ux-measure.mjs --binary "{{binary}}" "{{folder}}" {{flags}}

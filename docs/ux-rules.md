@@ -20,7 +20,10 @@ The em dash and length guard on phrases is `ui/check-messages.mjs`. Each fails
 Each rule ends with how it is checked. **Review** means a reviewer reads the
 screen against it (`CODING_STANDARDS.md` points there). **Measured** means
 `just ux-measure` or `just ux-walk` counts it, and the reviewer compares the
-numbers before and after.
+numbers before and after. For a measure, "before" is the audit's row for the
+screen in `docs/design/2026-11-19-ux-audit-measures.csv`, unless the screen's
+code changed since, and "after" is a run naming only the ticket's screens
+(`AGENTS.md`, "A UX fix measures its own screens").
 
 ## Words
 
