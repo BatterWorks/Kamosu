@@ -244,7 +244,7 @@ just screens <folder> <path>…     # a whole-page picture of each path at every
 just screens-same <before> <after>   # names the pictures that differ, and fails if any do
 just proto-new <issue>-<slug> <path>…   # .dev/prototypes/<issue>-<slug>/: the real screens as static pages
 just proto-serve <name> <port>    # serve .dev/prototypes/<name>/ to the LAN, caching off
-just ux-measure <folder> [--everyday]   # the UX audit's counts and pictures of every screen, on throwaway instances
+just ux-measure <folder> [--everyday | <screen>…]   # the UX audit's counts and pictures of every screen, or of the named ones, on throwaway instances
 just ux-walk <folder> [task…]     # each audit task's path as pictures, its Depth, and the evaluators' hand-over command
 ```
 
@@ -255,6 +255,25 @@ just ux-walk <folder> [task…]     # each audit task's path as pictures, its De
   removes both. It counts the measures of
   `docs/research/ux-reading-crowding-and-finding.md`, section 3, all but Depth,
   which `just ux-walk` counts. The table and pictures stay in `.dev/`.
+- **A UX fix measures its own screens, against the audit's numbers** (#684).
+  A full run takes about 25 minutes (19 November 2026), so a fix names its
+  screens, the `screen` column of `measures.csv`: `just ux-measure .dev/after
+  plan shopping` measures those alone, at every size and Language a full run
+  gives them. An unknown name fails at once and lists every name.
+  - **Before** is the audit's rows for those screens, committed in
+    `docs/design/2026-11-19-ux-audit-measures.csv`, with no run. A screen whose
+    code changed since 19 November 2026 (`git log --since=2026-11-19` on its
+    route and the components it draws) is measured, named, before the fix
+    changes it, and that run is its before.
+  - **After** is one named run of the ticket's screens, again after each fix
+    that moves them.
+  - **Compare the interface's columns**: its words, explanations, controls,
+    tapped areas, overlaps, room and the rest. The `content_words_*` columns
+    count the recipes', and each run copies the dev library as it stands now,
+    so they move with no screen changing: read them as approximate.
+  - **Say how long a run will take before starting it.** Each run prints its
+    `run time` last; take the figure from the last run of that size, or the
+    25 minutes of a full one.
 - **`just ux-walk` records each task of the UX audit as pictures** (#639), one
   before every step of its shortest path and one at its finish line, panels and
   messages caught open, at `phone-402` in English. The tasks and their paths

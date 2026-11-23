@@ -1,5 +1,5 @@
 /**
- * `just ux-measure <folder> [--everyday]` (#629): count what each screen
+ * `just ux-measure <folder> [--everyday | <screen>…]` (#629): count what each screen
  * holds, at the UX audit's sizes and in every Language the interface speaks,
  * photograph it, and write one table.
  *
@@ -32,6 +32,13 @@
  * (which sentences, which controls); and `pictures/<locale>/`, a whole-page
  * picture of each screen in English and French. `--everyday` measures the
  * everyday screens alone, to time them before the full set.
+ *
+ * `just ux-measure <folder> <screen>…` measures the named screens alone, at
+ * every size and in every Language a full run gives them (#684). The names are
+ * the `screen` column of `measures.csv`. An unknown one fails before any
+ * instance starts, with the list of names, and so does an unknown flag. The
+ * cooking and share screens are still opened first, named or not, so every
+ * screen sees the library a full run sees.
  */
 
 import crypto from 'node:crypto';
@@ -276,6 +283,112 @@ export function coverage(found) {
 		}
 	}
 	return rows;
+}
+
+/**
+ * What a library offering every page would hold, for the names of the screens
+ * alone: no value here is ever opened.
+ * @type {Found}
+ */
+const EVERY_PAGE = {
+	shortRecipe: '-',
+	longRecipe: '-',
+	shortFood: '-',
+	longFood: '-',
+	search: '-',
+	olderVersion: { recipe: '-', version: '-' },
+	importJob: '-',
+	secrets: { invite: '-', kitchen: '-', cookbook: '-', recovery: '-' },
+};
+
+/** Every screen a full run can measure, in its order, known before any library is open (#684). */
+export function screenNames() {
+	return [...new Set(coverage(EVERY_PAGE).map((row) => row.screen))];
+}
+
+/**
+ * @typedef {object} Args what `just ux-measure` was asked
+ * @property {string} folder
+ * @property {string} binary
+ * @property {boolean} everydayOnly
+ * @property {string[]} names the screens to measure, or none for all of them
+ * @property {boolean} checkOnly read and check the command line, and do nothing else
+ */
+
+const USAGE = 'usage: just ux-measure <folder> [--everyday | <screen>…]';
+
+/** The flags a run takes, beside `--binary <path>`. */
+const FLAGS = ['--everyday', '--check-only'];
+
+/**
+ * The command line, read and checked before any instance starts: an unknown
+ * screen name fails here with the list of names a run can measure.
+ * @param {string[]} argv
+ * @returns {Args}
+ */
+export function readArgs(argv) {
+	const args = [...argv];
+	const binaryAt = args.indexOf('--binary');
+	const binary = binaryAt >= 0 ? args.splice(binaryAt, 2)[1] : undefined;
+	const flags = args.filter((arg) => arg.startsWith('--'));
+	const strange = flags.filter((flag) => !FLAGS.includes(flag));
+	if (strange.length) throw new ToolError(`no flag is called ${strange.join(', ')}\n${USAGE}`);
+	const everydayOnly = flags.includes('--everyday');
+	const checkOnly = flags.includes('--check-only');
+	const [folder, ...names] = args.filter((arg) => !arg.startsWith('--'));
+	if (!folder || !binary) throw new ToolError(USAGE);
+	if (everydayOnly && names.length) {
+		throw new ToolError(`name screens or give --everyday, not both\n${USAGE}`);
+	}
+	const valid = screenNames();
+	const unknown = names.filter((name) => !valid.includes(name));
+	if (unknown.length) {
+		throw new ToolError(
+			`no screen is called ${unknown.join(', ')}. The screens are:\n${valid.join('\n')}`,
+		);
+	}
+	return { folder, binary, everydayOnly, names, checkOnly };
+}
+
+/**
+ * The rows a run measures, and a fault for each page it was asked for that
+ * the library holds none of. With no names and no `--everyday`, every row.
+ * @param {Found} found
+ * @param {Pick<Args, 'everydayOnly' | 'names'>} asked
+ */
+export function rowsFor(found, { everydayOnly, names }) {
+	const rows = coverage(found).filter(
+		(row) =>
+			(!everydayOnly || ['everyday', 'empty'].includes(row.group)) &&
+			(!names.length || names.includes(row.screen)),
+	);
+	if (everydayOnly) return { rows, faults: [] };
+	if (!names.length) return { rows, faults: missingPages(found) };
+	const measured = new Set(rows.map((row) => row.screen));
+	const faults = names
+		.filter((name) => !measured.has(name))
+		.map(
+			(name) =>
+				missingPages(found).find((fault) => fault.startsWith(`${name}:`)) ??
+				`${name}: not measured, since the library holds no page for it`,
+		);
+	return { rows, faults };
+}
+
+/**
+ * The pages that change the library on one instance, which every run opens
+ * before it counts anything, whichever screens it was named.
+ * @param {Found} found
+ * @param {Row['instance']} instance
+ */
+export function routesThatChange(found, instance) {
+	return [
+		...new Set(
+			coverage(found)
+				.filter((row) => row.instance === instance && row.changesLibrary)
+				.map((row) => row.path),
+		),
+	];
 }
 
 /**
@@ -607,13 +720,13 @@ export function tableOf(results) {
  * Open the screens that change the library once before anything is counted:
  * the cooking screen starts a cooking and the share screen makes a Share
  * Link. Every row then sees the library as it stands after both, rather than
- * the first size and Language seeing it before and the rest after.
+ * the first size and Language seeing it before and the rest after, and a run
+ * named only some screens sees what a full run sees (#684).
  * @param {import('playwright').Browser} browser
- * @param {Row[]} rows
+ * @param {string[]} changing the routes `routesThatChange` gives
  * @param {Place} at
  */
-async function settleWhatRowsChange(browser, rows, at) {
-	const changing = [...new Set(rows.filter((r) => r.changesLibrary).map((r) => r.path))];
+async function settleWhatRowsChange(browser, changing, at) {
 	if (changing.length === 0) return;
 	const context = await signedInContext(
 		browser,
@@ -711,13 +824,11 @@ const took = (ms) => `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 100
 
 async function main() {
 	const began = Date.now();
-	const args = process.argv.slice(2);
-	const everydayOnly = args.includes('--everyday');
-	const binaryAt = args.indexOf('--binary');
-	const binary = binaryAt >= 0 ? args.splice(binaryAt, 2)[1] : undefined;
-	const [folder] = args.filter((arg) => !arg.startsWith('--'));
-	if (!folder || !binary) throw new ToolError('usage: just ux-measure <folder> [--everyday]');
-	const out = fromRoot(folder);
+	const asked = readArgs(process.argv.slice(2));
+	// The recipe asks this first, so a misspelt name fails before the build.
+	if (asked.checkOnly) return;
+	const { binary } = asked;
+	const out = fromRoot(asked.folder);
 	fs.mkdirSync(out, { recursive: true });
 
 	const env = devEnv();
@@ -771,27 +882,19 @@ async function main() {
 			secrets: await makeSecrets(empty.api, emptySecret, firstPerson.name),
 		};
 		fs.writeFileSync(path.join(out, 'chosen.json'), `${JSON.stringify(found, null, '\t')}\n`);
-		if (!everydayOnly) faults.push(...missingPages(found));
-
-		const rows = coverage(found).filter(
-			(row) => !everydayOnly || ['everyday', 'empty'].includes(row.group),
-		);
+		const { rows, faults: missing } = rowsFor(found, asked);
+		faults.push(...missing);
 		console.log(`measuring ${rows.length} rows on two throwaway instances`);
 		const browser = await openBrowser();
 		try {
-			/** @type {[Place, Row[]][]} */
+			/** @type {[Row['instance'], Place][]} */
 			const places = [
-				[
-					{ origin: library.origin, secret: librarySecret, out, faults },
-					rows.filter((r) => r.instance === 'library'),
-				],
-				[
-					{ origin: empty.origin, secret: emptySecret, out, faults },
-					rows.filter((r) => r.instance === 'empty'),
-				],
+				['library', { origin: library.origin, secret: librarySecret, out, faults }],
+				['empty', { origin: empty.origin, secret: emptySecret, out, faults }],
 			];
-			for (const [place, theirs] of places) {
-				await settleWhatRowsChange(browser, theirs, place);
+			for (const [instance, place] of places) {
+				await settleWhatRowsChange(browser, routesThatChange(found, instance), place);
+				const theirs = rows.filter((r) => r.instance === instance);
 				await measureOn(browser, theirs, place, results);
 			}
 		} finally {

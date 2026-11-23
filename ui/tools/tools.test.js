@@ -43,6 +43,10 @@ import {
 	coverage,
 	missingPages,
 	olderVersionIn,
+	readArgs,
+	routesThatChange,
+	rowsFor,
+	screenNames,
 	tableFingerprints,
 	tableOf,
 } from './ux-measure.mjs';
@@ -1176,6 +1180,93 @@ describe('the older version ux-measure opens', () => {
 			new Set(['/recipes/b_short/versions/v_first']),
 		);
 		expect(missingPages(found)).toEqual([]);
+	});
+});
+
+describe('the screens a ux-measure run is named (#684)', () => {
+	const found = foundWith({ recipe: 'b_long', version: 'v_old' });
+	const binary = ['--binary', '/bin/kamosu'];
+
+	it('knows every screen a full run measures before any library is open', () => {
+		expect(screenNames()).toEqual([...new Set(coverage(found).map((r) => r.screen))]);
+	});
+
+	it('measures with no names exactly what a full run always measured', () => {
+		expect(rowsFor(found, readArgs([...binary, '.dev/x']))).toEqual({
+			rows: coverage(found),
+			faults: [],
+		});
+	});
+
+	it('measures a named screen alone, at every size and in every language a full run gives it', () => {
+		const { rows, faults } = rowsFor(found, readArgs([...binary, '.dev/x', 'plan', 'settings']));
+		expect(new Set(rows.map((r) => r.screen))).toEqual(new Set(['plan', 'settings']));
+		expect(rows).toEqual(coverage(found).filter((r) => ['plan', 'settings'].includes(r.screen)));
+		expect(faults).toEqual([]);
+	});
+
+	it('refuses an unknown name and lists every screen it could have been, one to a line', () => {
+		expect(() => readArgs([...binary, '.dev/x', 'plan', 'planning'])).toThrow(ToolError);
+		/** @type {string} */
+		let message = '';
+		try {
+			readArgs([...binary, '.dev/x', 'planning']);
+		} catch (error) {
+			message = /** @type {Error} */ (error).message;
+		}
+		const [first, ...listed] = message.split('\n');
+		expect(first).toMatch(/planning/);
+		expect(listed).toEqual(screenNames());
+	});
+
+	it('refuses a flag it does not know, so a misspelt --everyday starts no full run', () => {
+		expect(() => readArgs([...binary, '.dev/x', '--everday'])).toThrow(/--everday/);
+	});
+
+	it('refuses names beside --everyday, which already chooses the screens', () => {
+		expect(() => readArgs([...binary, '.dev/x', 'plan', '--everyday'])).toThrow(ToolError);
+	});
+
+	it('reads the folder, the binary and --everyday as before', () => {
+		expect(readArgs(['--binary', '/bin/kamosu', '.dev/x', '--everyday'])).toEqual({
+			folder: '.dev/x',
+			binary: '/bin/kamosu',
+			everydayOnly: true,
+			names: [],
+			checkOnly: false,
+		});
+		expect(readArgs([...binary, '--check-only', '.dev/x', 'plan'])).toMatchObject({
+			checkOnly: true,
+			names: ['plan'],
+		});
+		expect(() => readArgs(['.dev/x'])).toThrow(/usage/);
+	});
+
+	it('says a named screen the library holds no page for was not measured', () => {
+		const bare = foundWith(null);
+		const { rows, faults } = rowsFor(bare, readArgs([...binary, '.dev/x', 'recipe-version']));
+		expect(rows).toEqual([]);
+		expect(faults).toEqual(missingPages(bare));
+	});
+
+	it('leaves the missing older version out of a named run that did not ask for it', () => {
+		expect(rowsFor(foundWith(null), readArgs([...binary, '.dev/x', 'plan'])).faults).toEqual([]);
+	});
+
+	it('says a named import page was not measured when the library holds no import', () => {
+		const noImport = { ...found, importJob: null };
+		const { rows, faults } = rowsFor(
+			noImport,
+			readArgs([...binary, '.dev/x', 'import-job', 'plan']),
+		);
+		expect(new Set(rows.map((r) => r.screen))).toEqual(new Set(['plan']));
+		expect(faults).toHaveLength(1);
+		expect(faults[0]).toMatch(/^import-job: not measured/);
+	});
+
+	it('opens the cooking and share screens first however few screens are named, as a full run does', () => {
+		expect(routesThatChange(found, 'library')).toEqual(['/recipes/b_short/share', '/cook/b_short']);
+		expect(routesThatChange(found, 'empty')).toEqual([]);
 	});
 });
 
