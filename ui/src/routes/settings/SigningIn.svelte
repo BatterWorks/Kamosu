@@ -210,8 +210,13 @@
 									</div>
 								</form>
 							{:else}
-								<div class="flex items-center justify-between gap-3">
-									<div class="min-w-0">
+								<!-- Where the buttons would leave the name less than 150 units
+								     beside them, they go under it, and wrap there if they must:
+								     in Spanish on an iPad mini held upright they ran the row
+								     past the window (#689). The phone in English keeps them
+								     beside the name, as the passkeys above it do. -->
+								<div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+									<div class="min-w-0 grow basis-[calc(150*var(--type-unit))]">
 										<p class="text-body break-words text-ink">
 											{#if session.name === UNNAMED_SESSION}
 												<span class="text-ink-2 italic">{m.sessions_unnamed()}</span>
@@ -230,10 +235,16 @@
 											})} · {whenLastUsed(session.last_used_at)}
 										</p>
 									</div>
-									<div class="flex shrink-0 items-center gap-3">
+									<div class="flex min-w-0 flex-wrap items-center gap-3">
 										{#if session.current && !online.current}
-											<!-- Signing out needs the server, as at the foot of the menu (#380). -->
-											<button type="button" class="quiet-button text-ink-2 opacity-55" disabled>
+											<!-- Signing out needs the server, as at the foot of the menu (#380).
+											     Its words break onto two lines where a phone's row is too
+											     narrow for them at a large text size (#689). -->
+											<button
+												type="button"
+												class="quiet-button whitespace-normal text-ink-2 opacity-55"
+												disabled
+											>
 												{m.offline_waits_sign_out()}
 											</button>
 										{:else}
