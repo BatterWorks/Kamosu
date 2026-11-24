@@ -211,7 +211,7 @@ describe('the settings screen', () => {
 			'/settings/people',
 		);
 		expect(screen.getByRole('heading', { name: 'This instance' })).toBeInTheDocument();
-		expect(screen.getByRole('link', { name: /Stéphane/ })).toHaveTextContent('Operator');
+		expect(screen.getByRole('link', { name: /Stéphane/ })).toHaveTextContent('Runs this Kamosu');
 	});
 
 	it('offers every language Paraglide compiled, with the current one pressed', () => {
@@ -368,18 +368,53 @@ describe('the settings screen', () => {
 
 		// American is the default, stated plainly rather than guessed at from
 		// anything about the person (ADR 0016).
-		const american = await screen.findByRole('button', { name: 'American' });
-		expect(american).toHaveAttribute('aria-pressed', 'true');
-		expect(screen.getByRole('button', { name: 'Metric' })).toHaveAttribute('aria-pressed', 'false');
+		// Each choice is named for what it shows (#653): the American default is cups.
+		const cups = await screen.findByRole('button', { name: 'Cups' });
+		expect(cups).toHaveAttribute('aria-pressed', 'true');
+		const metric = screen.getByRole('button', { name: 'Grams' });
+		expect(metric).toHaveAttribute('aria-pressed', 'false');
+		expect(screen.getByRole('button', { name: 'As written' })).toBeInTheDocument();
+		// One row of three equal parts (#653, choice 4), not a wrapping row of buttons.
+		expect(cups.closest('[role="group"]')).toHaveClass('segmented');
+		// An example line, and what Kamosu would show under it.
+		expect(screen.getByText('250 g flour')).toBeInTheDocument();
+		expect(screen.getByText('2 cups')).toBeInTheDocument();
+		expect(screen.queryByText(/Saved/)).not.toBeInTheDocument();
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Metric' }));
+		await fireEvent.click(metric);
 
 		// It goes to the ACCOUNT, not to this browser — so the same cook reads
 		// the same recipe the same way on the iPad on the worktop. The Reading
 		// Language rides along unchanged.
 		const sent = kamosu.calls.find((call) => call.operation === 'set_reading_preferences');
 		expect(sent?.input).toEqual({ reading_language: 'en', reading_measures: 'metric' });
-		expect(screen.getByRole('button', { name: 'Metric' })).toHaveAttribute('aria-pressed', 'true');
+		expect(metric).toHaveAttribute('aria-pressed', 'true');
+		// It says it applied, with no Save to look for (#653, G7).
+		expect(await screen.findByText(/✓ Saved/)).toBeInTheDocument();
+		expect(screen.getByText('1 cup flour')).toBeInTheDocument();
+		expect(screen.getByText('125 g')).toBeInTheDocument();
+	});
+
+	it('takes the tick away when the next measure is refused, putting the last one back (#653)', async () => {
+		const { kamosu } = renderScreen(Language, {
+			instance_status: {
+				version: '0.1.0',
+				setup_complete: true,
+				password_minimum: 15,
+				passkey_origin: null,
+				demo: false,
+			},
+			...readsInAmerican,
+			set_reading_preferences: { reading_language: 'en', reading_measures: 'metric' },
+		});
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Grams' }));
+		expect(await screen.findByText(/✓ Saved/)).toBeInTheDocument();
+
+		kamosu.answer('set_reading_preferences', { refuse: 'busy' });
+		await fireEvent.click(screen.getByRole('button', { name: 'Cups' }));
+		await waitFor(() => expect(screen.queryByText(/✓ Saved/)).not.toBeInTheDocument());
+		expect(screen.getByRole('button', { name: 'Grams' })).toHaveAttribute('aria-pressed', 'true');
 	});
 
 	it("shows a minted Access Key's secret where the form was, once, then never again (#142)", async () => {
@@ -1045,29 +1080,30 @@ describe('the settings screen', () => {
 		);
 	});
 
-	it('groups its pages by whose they are, each row saying what is inside (#469)', async () => {
+	it('puts Language first, then the people you cook with, each row saying what is inside (#469, #653)', async () => {
 		const { kamosu } = renderScreen(Settings, {
 			get_person: { person_id: 'p_1', name: 'Stéphane', is_operator: true },
 		});
 
 		await screen.findByRole('heading', { name: 'This instance' });
 		expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent?.trim())).toEqual([
+			'People you cook with',
 			'You',
-			'Your household',
+			'Your recipes',
 			'Add recipes',
 			'This instance',
 		]);
 		const rows = screen.getAllByRole('link');
 		expect(rows.map((row) => row.getAttribute('href'))).toEqual([
 			'/settings/name',
+			'/settings/language',
+			'/settings/kitchens',
+			'/settings/cookbook',
 			'/settings/signing-in',
 			'/settings/keys',
 			'/settings/calendar',
-			'/settings/language',
 			'/settings/device',
 			'/settings/security',
-			'/settings/kitchens',
-			'/settings/cookbook',
 			'/settings/tags',
 			'/foods',
 			'/settings/import',
@@ -1085,8 +1121,26 @@ describe('the settings screen', () => {
 		]);
 		const row = (href: string) => rows.find((each) => each.getAttribute('href') === href)!;
 		expect(row('/settings/signing-in')).toHaveTextContent('Password, passkeys, devices signed in');
-		expect(row('/settings/kitchens')).toHaveTextContent('Who sees and cooks your recipes');
-		expect(row('/settings/cookbook')).toHaveTextContent('Who can change your recipes');
+		// Every line is in full ink: it is what tells the rows apart (G2).
+		expect(row('/settings/kitchens').querySelector('span.text-ink-2')).toBeNull();
+		// Language is named in every Language, so it is found without reading English.
+		expect(row('/settings/language')).toHaveTextContent('Language · Langue · Idioma · Taal');
+		// Each says which one invites people to do what (#653, I1, I2).
+		expect(row('/settings/kitchens')).toHaveTextContent(
+			'Invite people to see and cook your recipes',
+		);
+		expect(row('/settings/cookbook')).toHaveTextContent(
+			'Invite someone to change your recipes with you',
+		);
+		// Kamosu's own words, said plainly (G1).
+		expect(row('/settings/keys')).toHaveTextContent('Keys For the phone Shortcut or an AI agent');
+		expect(row('/settings/calendar')).toHaveTextContent('Calendar');
+		expect(row('/settings/device')).toHaveTextContent(
+			'On your Home screen, and without a connection',
+		);
+		expect(row('/settings/security')).toHaveTextContent('Sign-in history');
+		expect(row('/imports')).toHaveTextContent('Import history');
+		expect(screen.getByRole('link', { name: /Stéphane/ })).toHaveTextContent('Runs this Kamosu');
 		expect(row('/settings/import')).toHaveTextContent('Crouton');
 		expect(row('/settings/share')).toHaveTextContent('Save from your phone');
 		expect(row('/settings/share')).toHaveTextContent(
@@ -1230,39 +1284,132 @@ describe('the settings screen', () => {
 		expect(screen.getByText(/reaches every recipe with the tag/)).toBeInTheDocument();
 	});
 
-	it('renames a tag through the Operation, saying it reaches every recipe at once', async () => {
+	/** A tag's row, which opens its sheet (#653). */
+	const openTag = async (name: RegExp | string) => {
+		await fireEvent.click(await screen.findByRole('button', { name }));
+		return screen.getByRole('dialog');
+	};
+
+	it('lists each tag as one row with its count, and nothing else to tap (#653)', async () => {
+		renderScreen(Tags, {
+			...withKitchen,
+			list_tags: {
+				tags: [settingsTag('t_dessert', 'dessert', 12), settingsTag('t_one', 'brunch', 1)],
+			},
+		});
+
+		const dessert = await screen.findByRole('button', { name: /dessert/ });
+		expect(dessert).toHaveClass('list-row');
+		expect(dessert).toHaveTextContent('12 recipes');
+		expect(screen.getByRole('button', { name: /brunch/ })).toHaveTextContent('1 recipe');
+		// No text box, merge menu or Delete on the page: the sheet holds them.
+		expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+		expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+		expect(screen.getAllByRole('button')).toHaveLength(2);
+	});
+
+	it("opens a tag's sheet: its name, its recipes, merging, and deleting apart (#653)", async () => {
+		renderScreen(Tags, {
+			...withKitchen,
+			list_tags: {
+				tags: [settingsTag('t_dessert', 'dessert', 12), settingsTag('t_sweet', 'sweet', 3)],
+			},
+		});
+
+		const sheet = within(await openTag(/dessert/));
+		expect(sheet.getByRole('heading', { name: 'dessert' })).toBeInTheDocument();
+		expect(sheet.getByText('On 12 recipes. Tap the name to change it.')).toBeInTheDocument();
+		// The Recipes list, narrowed to the tag, as a chip on a recipe leads there.
+		expect(sheet.getByRole('link', { name: /See its 12 recipes/ })).toHaveAttribute(
+			'href',
+			'/recipes?tag=t_dessert',
+		);
+		expect(sheet.getByRole('button', { name: /Merge into another tag/ })).toBeInTheDocument();
+		expect(sheet.getByRole('button', { name: 'Delete this tag…' })).toBeInTheDocument();
+		expect(sheet.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+	});
+
+	it('renames a tag from its name, saying it reaches every recipe at once', async () => {
 		const { kamosu } = renderScreen(Tags, {
 			...withKitchen,
 			list_tags: { tags: [settingsTag('t_dessert', 'dessert', 12)] },
 			rename_tag: settingsTag('t_dessert', 'desserts', 9),
 		});
 
-		// The count is on the row: 12 recipes carry this word, and that is the
-		// fact a person weighs before touching it.
-		expect(await screen.findByDisplayValue('dessert')).toBeInTheDocument();
-		expect(screen.getByText('12 recipes')).toBeInTheDocument();
-		// The promise a rename makes, said once at the top of the page.
-		expect(screen.getByText(/reaches every recipe with the tag/)).toBeInTheDocument();
-
-		const field = screen.getByDisplayValue('dessert');
+		const sheet = within(await openTag(/dessert/));
+		await fireEvent.click(sheet.getByRole('button', { name: 'Rename dessert' }));
+		// Said before anything is renamed, beside the field.
+		expect(sheet.getByText('The new name shows on all 12 recipes at once.')).toBeInTheDocument();
+		const field = sheet.getByRole('textbox', { name: 'Tag name' });
+		expect(field).toHaveValue('dessert');
 		await fireEvent.input(field, { target: { value: 'desserts' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+		await fireEvent.click(sheet.getByRole('button', { name: 'Save the name' }));
 
 		expect(kamosu.calls).toContainEqual({
 			operation: 'rename_tag',
 			input: { tag_id: 't_dessert', language: 'en', name: 'desserts' },
 		});
-
-		// And it says what it reached. "Renaming reaches every recipe carrying
-		// it, immediately" is the whole reason a Tag is kept once per Kitchen,
-		// and a promise nothing on screen stands behind is not the criterion
-		// being met.
-		//
-		// The number is the one `rename_tag` ANSWERED with — 9 here, against a
-		// row that was showing 12 — because a row read a minute ago is the
-		// stale one, and this sentence is the wrong place to be approximately
-		// right.
+		// The number is the one `rename_tag` answered with, 9 here against a
+		// row that showed 12: a row read a minute ago is the stale one.
 		expect(await screen.findByText('Renamed on 9 recipes, all at once.')).toBeInTheDocument();
+	});
+
+	it('says nothing of a rename once that tag is deleted', async () => {
+		renderScreen(Tags, {
+			...withKitchen,
+			list_tags: { tags: [settingsTag('t_dessert', 'dessert', 12)] },
+			rename_tag: settingsTag('t_dessert', 'desserts', 9),
+			delete_tag: { deleted: true },
+		});
+
+		const sheet = within(await openTag(/dessert/));
+		await fireEvent.click(sheet.getByRole('button', { name: 'Rename dessert' }));
+		// The sheet keeps a name while its name is a field.
+		expect(screen.getByRole('dialog', { name: 'Tag name' })).toBeInTheDocument();
+		await fireEvent.input(sheet.getByRole('textbox', { name: 'Tag name' }), {
+			target: { value: 'desserts' },
+		});
+		await fireEvent.click(sheet.getByRole('button', { name: 'Save the name' }));
+		await sheet.findByText('Renamed on 9 recipes, all at once.');
+		await fireEvent.click(sheet.getByRole('button', { name: 'Delete this tag…' }));
+		await fireEvent.click(sheet.getByRole('button', { name: /^Delete / }));
+
+		await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+		expect(screen.queryByText(/Renamed on/)).not.toBeInTheDocument();
+	});
+
+	it("carries no name typed for one tag into another's sheet", async () => {
+		renderScreen(Tags, {
+			...withKitchen,
+			list_tags: {
+				tags: [
+					settingsTag('t_mijote', 'mijoté', 7, 'fr'),
+					settingsTag('t_hoofd', 'stamppot', 2, 'nl'),
+				],
+			},
+		});
+
+		let sheet = within(await openTag(/mijoté/));
+		await fireEvent.input(sheet.getByRole('textbox', { name: 'Name it in English' }), {
+			target: { value: 'Stew' },
+		});
+		await fireEvent.click(sheet.getByRole('button', { name: 'Close' }));
+		sheet = within(await openTag(/stamppot/));
+		expect(sheet.getByRole('textbox', { name: 'Name it in English' })).toHaveValue('');
+	});
+
+	it('keeps the name as it was, changing nothing', async () => {
+		const { kamosu } = renderScreen(Tags, {
+			...withKitchen,
+			list_tags: { tags: [settingsTag('t_dessert', 'dessert', 12)] },
+		});
+
+		const sheet = within(await openTag(/dessert/));
+		await fireEvent.click(sheet.getByRole('button', { name: 'Rename dessert' }));
+		await fireEvent.click(sheet.getByRole('button', { name: 'Keep dessert' }));
+
+		expect(sheet.getByRole('heading', { name: 'dessert' })).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('rename_tag');
 	});
 
 	it('names a tag in the Language the Person reads recipes in, not the interface locale', async () => {
@@ -1275,9 +1422,11 @@ describe('the settings screen', () => {
 			rename_tag: settingsTag('t_mijote', 'guisado', 7, 'es'),
 		});
 
-		const adding = await screen.findByPlaceholderText('Name it in Spanish');
-		await fireEvent.input(adding, { target: { value: 'guisado' } });
-		await fireEvent.click(within(adding.closest('form') as HTMLElement).getByRole('button'));
+		const sheet = within(await openTag(/mijoté/));
+		await fireEvent.input(sheet.getByRole('textbox', { name: 'Name it in Spanish' }), {
+			target: { value: 'guisado' },
+		});
+		await fireEvent.click(sheet.getByRole('button', { name: 'Add the name' }));
 
 		expect(kamosu.calls).toContainEqual({
 			operation: 'rename_tag',
@@ -1295,9 +1444,11 @@ describe('the settings screen', () => {
 			rename_tag: settingsTag('t_hoofd', 'Hoofdgerechten', 7, 'nl'),
 		});
 
-		const shown = await screen.findByDisplayValue('Hoofdgerecht');
-		await fireEvent.input(shown, { target: { value: 'Hoofdgerechten' } });
-		await fireEvent.submit(shown.closest('form') as HTMLElement);
+		const sheet = within(await openTag(/Hoofdgerecht/));
+		await fireEvent.click(sheet.getByRole('button', { name: 'Rename Hoofdgerecht' }));
+		const field = sheet.getByRole('textbox', { name: 'Tag name' });
+		await fireEvent.input(field, { target: { value: 'Hoofdgerechten' } });
+		await fireEvent.submit(field.closest('form') as HTMLElement);
 
 		expect(kamosu.calls).toContainEqual({
 			operation: 'rename_tag',
@@ -1306,95 +1457,99 @@ describe('the settings screen', () => {
 	});
 
 	it('gives a tag known only in French an English name, without renaming the French one', async () => {
-		// The fallback ADR 0006 built, finally fixable: nothing until now let
-		// anybody add the name it fell back from.
+		// The fallback ADR 0006 built, fixable: a tag holds a name per Language.
 		const { kamosu } = renderScreen(Tags, {
 			...withKitchen,
 			list_tags: { tags: [settingsTag('t_mijote', 'mijoté', 7, 'fr')] },
 			rename_tag: settingsTag('t_mijote', 'slow-cooked', 7),
 		});
 
-		expect(await screen.findByDisplayValue('mijoté')).toBeInTheDocument();
-		expect(screen.getByText('fr')).toBeInTheDocument();
+		// The row marks the Language its name fell back to.
+		expect(await screen.findByRole('button', { name: /mijoté \(FR\)/ })).toBeInTheDocument();
+		const sheet = within(await openTag(/mijoté/));
+		await fireEvent.input(sheet.getByRole('textbox', { name: 'Name it in English' }), {
+			target: { value: 'slow-cooked' },
+		});
+		await fireEvent.click(sheet.getByRole('button', { name: 'Add the name' }));
 
-		const adding = screen.getByPlaceholderText('Name it in English');
-		await fireEvent.input(adding, { target: { value: 'slow-cooked' } });
-		await fireEvent.click(within(adding.closest('form') as HTMLElement).getByRole('button'));
-
-		// Named in the reader's Language, leaving the French name where it is: a
-		// tag holds a name per Language rather than one tag per Language.
 		expect(kamosu.calls).toContainEqual({
 			operation: 'rename_tag',
 			input: { tag_id: 't_mijote', language: 'en', name: 'slow-cooked' },
 		});
 	});
 
-	it('asks before deleting a tag, leading with how many recipes lose it', async () => {
+	it('asks before deleting a tag, saying how many recipes lose it', async () => {
 		const { kamosu } = renderScreen(Tags, {
 			...withKitchen,
 			list_tags: { tags: [settingsTag('t_try', 'to try', 18)] },
 			delete_tag: { deleted: true },
 		});
 
-		await screen.findByDisplayValue('to try');
-		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+		const sheet = within(await openTag(/to try/));
+		await fireEvent.click(sheet.getByRole('button', { name: 'Delete this tag…' }));
 
-		// The figure leads, because "18 recipes lose this tag" is something a
-		// person can weigh and "are you sure?" is not (#103).
-		expect(await screen.findByText('Delete the tag to try?')).toBeInTheDocument();
-		expect(screen.getByText('18')).toBeInTheDocument();
-		expect(screen.getByText('recipes lose this tag')).toBeInTheDocument();
-		// And it says outright that the recipes themselves are untouched.
-		expect(screen.getByText(/The recipes are untouched/)).toBeInTheDocument();
-
-		// Not yet done: the sheet is the act, not the button behind it.
+		// The figure is said, and that the recipes themselves are untouched.
+		expect(sheet.getByRole('heading', { name: 'Delete to try?' })).toBeInTheDocument();
+		expect(
+			sheet.getByText('The tag comes off its 18 recipes. The recipes are untouched.'),
+		).toBeInTheDocument();
+		// Not yet done: the question is the act, not the row behind it.
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('delete_tag');
 
-		const sheet = screen.getByRole('dialog');
-		await fireEvent.click(within(sheet).getByRole('button', { name: 'Delete' }));
-		expect(kamosu.calls).toContainEqual({
-			operation: 'delete_tag',
-			input: { tag_id: 't_try' },
-		});
+		const act = sheet.getByRole('button', { name: 'Delete to try' });
+		expect(act).toHaveClass('second-button', 'loses');
+		await fireEvent.click(act);
+		expect(kamosu.calls).toContainEqual({ operation: 'delete_tag', input: { tag_id: 't_try' } });
 	});
 
-	it('says “1 recipe loses this tag”, never “1 recipes”', async () => {
-		// The figure and the phrase sit side by side in the sheet, so the phrase
-		// has to inflect with it.
+	it('says “its recipe”, never “1 recipes”', async () => {
 		renderScreen(Tags, {
 			...withKitchen,
 			list_tags: { tags: [settingsTag('t_one', 'brunch', 1)] },
-			delete_tag: { deleted: true },
 		});
 
-		await screen.findByDisplayValue('brunch');
-		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-
-		expect(await screen.findByText('recipe loses this tag')).toBeInTheDocument();
-		expect(screen.queryByText('recipes lose this tag')).not.toBeInTheDocument();
+		const sheet = within(await openTag(/brunch/));
+		expect(sheet.getByText('On 1 recipe. Tap the name to change it.')).toBeInTheDocument();
+		expect(sheet.getByRole('link', { name: /See its recipe/ })).toBeInTheDocument();
+		await fireEvent.click(sheet.getByRole('button', { name: 'Delete this tag…' }));
+		expect(
+			sheet.getByText('The tag comes off its recipe. The recipe is untouched.'),
+		).toBeInTheDocument();
 	});
 
-	it('asks before merging two tags, saying which way round it goes', async () => {
+	it('merges one tag into another found by name, saying which way round it goes', async () => {
 		const { kamosu } = renderScreen(Tags, {
 			...withKitchen,
 			list_tags: {
-				tags: [settingsTag('t_quick', 'quick', 9), settingsTag('t_weeknight', 'weeknight', 21)],
+				tags: [
+					settingsTag('t_quick', 'quick', 9),
+					settingsTag('t_weeknight', 'weeknight', 21),
+					settingsTag('t_party', 'party', 4),
+				],
 			},
 			merge_tags: settingsTag('t_weeknight', 'weeknight', 30),
 		});
 
-		await screen.findByDisplayValue('quick');
-		const row = screen.getByDisplayValue('quick').closest('li') as HTMLElement;
-		await fireEvent.change(within(row).getByRole('combobox'), { target: { value: 't_weeknight' } });
+		const sheet = within(await openTag(/quick/));
+		await fireEvent.click(sheet.getByRole('button', { name: /Merge into another tag/ }));
+		expect(sheet.getByRole('heading', { name: 'Merge quick into…' })).toBeInTheDocument();
+		// Never itself, and narrowed by what is typed.
+		expect(sheet.queryByRole('button', { name: /quick.*9 recipes/ })).not.toBeInTheDocument();
+		await fireEvent.input(sheet.getByRole('searchbox', { name: 'Find a tag' }), {
+			target: { value: 'week' },
+		});
+		expect(sheet.queryByRole('button', { name: /party/ })).not.toBeInTheDocument();
+		await fireEvent.click(sheet.getByRole('button', { name: /weeknight/ }));
 
 		// Which way round matters and is easy to get backwards, so it is spelt
-		// out in both directions before anything moves.
-		expect(await screen.findByText('Merge quick into weeknight?')).toBeInTheDocument();
-		expect(screen.getByText('recipes move over')).toBeInTheDocument();
+		// out before anything moves.
+		expect(sheet.getByRole('heading', { name: 'Merge quick into weeknight?' })).toBeInTheDocument();
+		expect(
+			sheet.getByText('Its 9 recipes take the tag weeknight, and quick is gone.'),
+		).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('merge_tags');
 
-		// The button that acts says what it does, without the picker's ellipsis.
-		const sheet = screen.getByRole('dialog');
-		await fireEvent.click(within(sheet).getByRole('button', { name: 'Merge' }));
+		await fireEvent.click(sheet.getByRole('button', { name: 'Merge into weeknight' }));
 		expect(kamosu.calls).toContainEqual({
 			operation: 'merge_tags',
 			input: { keep_tag_id: 't_weeknight', merge_tag_id: 't_quick' },
@@ -1425,7 +1580,7 @@ describe('the Reading Language (#112)', () => {
 	});
 
 	const words = () => screen.getByRole('list', { name: 'Language' });
-	const recipes = () => screen.getByRole('list', { name: 'Recipes in' });
+	const recipes = () => screen.getByRole('list', { name: 'Recipe titles' });
 
 	/**
 	 * Each test starts from its own state (#590): no call counted and no
@@ -1443,8 +1598,21 @@ describe('the Reading Language (#112)', () => {
 			set_reading_preferences: { reading_language: 'fr', reading_measures: 'us' },
 		});
 
-		expect(await screen.findByText(/Recipe titles follow it\./)).toBeInTheDocument();
-		expect(screen.queryByRole('list', { name: 'Recipes in' })).not.toBeInTheDocument();
+		// One line per Language, the one in use ticked (#653, choice 4).
+		const english = within(await vi.waitFor(() => words())).getByRole('button', {
+			name: 'English',
+		});
+		expect(english).toHaveClass('list-row');
+		expect(english).toHaveAttribute('aria-pressed', 'true');
+		expect(english.querySelector('svg')).not.toBeNull();
+		expect(
+			within(words()).getByRole('button', { name: 'Français' }).querySelector('svg'),
+		).toBeNull();
+		// It says what the one control changes, and shows the mark (#653, G6).
+		expect(
+			await screen.findByText(/Kamosu’s buttons, menus and recipe titles change at once\./),
+		).toBeInTheDocument();
+		expect(screen.queryByRole('list', { name: 'Recipe titles' })).not.toBeInTheDocument();
 
 		// The account first, then the interface: `setLocale` reloads the page,
 		// and a save still in flight when it does is a save that may not land.
@@ -1461,9 +1629,11 @@ describe('the Reading Language (#112)', () => {
 			operation: 'set_reading_preferences',
 			input: { reading_language: 'fr', reading_measures: 'us' },
 		});
-		// The reload would take the line saying what moved with it, so it is
-		// left for the next load of this screen.
+		// The reload would take the line saying what changed with it, so it is
+		// left for the next load of this screen, and the install card stays
+		// away on that load (#653, G9).
 		expect(sessionStorage.getItem('kamosu.reading-language-moved')).toBe('fr');
+		expect(sessionStorage.getItem('kamosu.words-changed')).toBe('1');
 	});
 
 	it('offers Dutch, and choosing it moves both to Dutch (#496)', async () => {
@@ -1485,7 +1655,11 @@ describe('the Reading Language (#112)', () => {
 		realSetLocale('nl', { reload: false });
 		try {
 			renderScreen(Language, signedIn('nl'));
-			expect(await screen.findByText('Recepttitels volgen deze taal.')).toBeInTheDocument();
+			expect(
+				await screen.findByText(
+					/De knoppen, menu’s en recepttitels van Kamosu veranderen meteen\./,
+				),
+			).toBeInTheDocument();
 			expect(
 				within(screen.getByRole('list', { name: 'Taal' })).getByRole('button', {
 					name: 'Nederlands',
@@ -1496,13 +1670,12 @@ describe('the Reading Language (#112)', () => {
 		}
 	});
 
-	it('says what moved once the reload that carried both is over', async () => {
-		sessionStorage.setItem('kamosu.reading-language-moved', 'fr');
+	it('says what changed once the reload that carried it is over', async () => {
+		// The page comes back in the Language just chosen, English here.
+		sessionStorage.setItem('kamosu.reading-language-moved', 'en');
 		renderScreen(Language, signedIn('en'));
 
-		expect(
-			await screen.findByText("Titles now show in French where there's one. Others are marked."),
-		).toBeInTheDocument();
+		expect(await screen.findByText(/Saved\. Kamosu is now in English\./)).toBeInTheDocument();
 		// Said once: the next visit is quiet.
 		expect(sessionStorage.getItem('kamosu.reading-language-moved')).toBeNull();
 	});
@@ -1514,7 +1687,7 @@ describe('the Reading Language (#112)', () => {
 		});
 
 		await fireEvent.click(
-			await screen.findByRole('button', { name: 'Read recipes in another language' }),
+			await screen.findByRole('button', { name: 'Show recipe titles in another language' }),
 		);
 
 		// Split, the recipes have a control of their own.
@@ -1529,10 +1702,8 @@ describe('the Reading Language (#112)', () => {
 			operation: 'set_reading_preferences',
 			input: { reading_language: 'es', reading_measures: 'us' },
 		});
-		// It says what just changed on the shelf, in the reader's words.
-		expect(
-			await screen.findByText("Titles now show in Spanish where there's one. Others are marked."),
-		).toBeInTheDocument();
+		// It says it applied, beside the titles' heading (#653, G7).
+		expect(await screen.findByText(/✓ Saved/)).toBeInTheDocument();
 		expect(within(recipes()).getByRole('button', { name: 'Español' })).toHaveAttribute(
 			'aria-pressed',
 			'true',
@@ -1570,18 +1741,18 @@ describe('the Reading Language (#112)', () => {
 		});
 
 		await fireEvent.click(
-			await screen.findByRole('button', { name: 'Recipes in the same language as Kamosu' }),
+			await screen.findByRole('button', { name: 'Titles in the same language as Kamosu' }),
 		);
 
 		expect(kamosu.calls).toContainEqual({
 			operation: 'set_reading_preferences',
 			input: { reading_language: 'en', reading_measures: 'us' },
 		});
-		expect(await screen.findByText(/Recipe titles follow it\./)).toBeInTheDocument();
-		expect(screen.queryByRole('list', { name: 'Recipes in' })).not.toBeInTheDocument();
 		expect(
-			screen.getByText("Titles now show in English where there's one. Others are marked."),
+			await screen.findByText(/Kamosu’s buttons, menus and recipe titles change at once\./),
 		).toBeInTheDocument();
+		expect(screen.queryByRole('list', { name: 'Recipe titles' })).not.toBeInTheDocument();
+		expect(screen.getByText(/✓ Saved/)).toBeInTheDocument();
 	});
 
 	it('reads no Tags here: they live on their own page, which reads the Reading Language afresh (#221)', async () => {
@@ -1605,7 +1776,7 @@ describe('the Reading Language (#112)', () => {
 
 		const tagReads = () => kamosu.calls.filter((call) => call.operation === 'list_tags').length;
 		await fireEvent.click(
-			await screen.findByRole('button', { name: 'Read recipes in another language' }),
+			await screen.findByRole('button', { name: 'Show recipe titles in another language' }),
 		);
 		await fireEvent.click(within(recipes()).getByRole('button', { name: 'Français' }));
 		await vi.waitFor(() =>
@@ -1633,7 +1804,8 @@ describe('the Reading Language (#112)', () => {
 				'true',
 			),
 		);
-		expect(screen.queryByText(/Your shelf now shows/)).not.toBeInTheDocument();
+		// A refused save says nothing was saved.
+		expect(screen.queryByText(/✓ Saved/)).not.toBeInTheDocument();
 	});
 
 	it('promises a stranger nothing about recipes, since there is no account to follow', async () => {
@@ -1652,7 +1824,7 @@ describe('the Reading Language (#112)', () => {
 		await vi.waitFor(() =>
 			expect(kamosu.calls.map((call) => call.operation)).toContain('get_reading_preferences'),
 		);
-		expect(screen.queryByText(/Recipe titles follow it/)).not.toBeInTheDocument();
+		expect(screen.queryByText(/recipe titles change at once/)).not.toBeInTheDocument();
 		expect(screen.queryByRole('heading', { name: 'Measures' })).not.toBeInTheDocument();
 	});
 });
@@ -2294,13 +2466,5 @@ describe('your Cookbook (#131)', () => {
 			expect(book.getByText('Bob said no, so nothing changed.')).toBeInTheDocument();
 			expect(book.queryByText(/To join anyway/)).not.toBeInTheDocument();
 		});
-	});
-
-	it('heads the Tags with your Cookbook, the only one whose words you rename', async () => {
-		renderScreen(
-			Tags,
-			signedIn({ get_cookbook: cookbookOf({ name: 'Chez nous' }), list_tags: { tags: [] } }),
-		);
-		expect(await screen.findByRole('heading', { name: 'Chez nous' })).toBeInTheDocument();
 	});
 });

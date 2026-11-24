@@ -75,8 +75,7 @@
 			<button
 				type="submit"
 				disabled={acting.working || typed.trim() === ''}
-				class="mt-2 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium
-				text-accent disabled:opacity-60"
+				class="mt-2 second-button w-full"
 			>
 				{m.operator_address_save()}
 			</button>

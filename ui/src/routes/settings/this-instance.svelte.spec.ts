@@ -130,6 +130,14 @@ async function openPerson(name: string) {
 	return row;
 }
 
+/**
+ * Upkeep counts the Foods that look alike and folds them behind one button
+ * (#653): open them, as an Operator would.
+ */
+async function openPairs() {
+	await fireEvent.click(await screen.findByRole('button', { name: /^Look at the/ }));
+}
+
 describe("This instance's pages", () => {
 	it.each([
 		['People', People, 'list_kitchens'],
@@ -202,7 +210,8 @@ describe("This instance's pages", () => {
 			merge_food: { food: flour, ingredient_lines: 14, readings: 20 },
 		});
 
-		expect(await screen.findByText(/arrived as one recipe/i)).toBeInTheDocument();
+		await openPairs();
+		expect(screen.getByText(/arrived as one recipe/i)).toBeInTheDocument();
 		await fireEvent.click(await screen.findByRole('button', { name: 'Keep flour' }));
 
 		const sheet = await screen.findByRole('dialog');
@@ -248,6 +257,7 @@ describe("This instance's pages", () => {
 			},
 		});
 
+		await openPairs();
 		expect(await screen.findByRole('button', { name: 'Keep flour (en)' })).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Keep flour (fr)' })).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'Keep flour' })).not.toBeInTheDocument();
@@ -274,6 +284,7 @@ describe("This instance's pages", () => {
 			},
 		});
 
+		await openPairs();
 		const keeps = await screen.findAllByRole('button', { name: /^Keep flour/ });
 		expect(keeps).toHaveLength(2);
 		const labels = keeps.map((button) => button.textContent?.trim());
@@ -461,13 +472,31 @@ describe("This instance's pages", () => {
 			list_account_links: { links: [operatorInvite, camillesRecovery] },
 		});
 
-		const section = (await screen.findByRole('heading', { name: 'Links not yet used' })).closest(
+		const section = (await screen.findByRole('heading', { name: 'Links not opened yet' })).closest(
 			'section',
 		) as HTMLElement;
 		expect(await within(section).findByText('Operator Invite')).toBeInTheDocument();
 		expect(within(section).getByText('Recovery link for Camille')).toBeInTheDocument();
 		expect(within(section).getAllByText(/^Made /)).toHaveLength(2);
 		expect(within(section).getAllByRole('button', { name: 'Revoke' })).toHaveLength(2);
+	});
+
+	it('shows the three newest links, and the rest behind one button (#653)', async () => {
+		const invites = Array.from({ length: 5 }, (_, index) => ({
+			...operatorInvite,
+			id: `l_${index}`,
+			operator: false,
+		}));
+		renderScreen(People, { ...quiet, list_account_links: { links: invites } });
+
+		const section = (await screen.findByRole('heading', { name: 'Links not opened yet' })).closest(
+			'section',
+		) as HTMLElement;
+		await within(section).findAllByText('Invite');
+		expect(within(section).getAllByRole('button', { name: 'Revoke' })).toHaveLength(3);
+		await fireEvent.click(within(section).getByRole('button', { name: 'Show the other 2' }));
+		expect(within(section).getAllByRole('button', { name: 'Revoke' })).toHaveLength(5);
+		expect(within(section).queryByRole('button', { name: /Show the other/ })).toBeNull();
 	});
 
 	it('says when no link is waiting', async () => {
@@ -546,7 +575,7 @@ describe("This instance's pages", () => {
 		await fireEvent.click(await screen.findByRole('button', { name: 'Make the invite link' }));
 
 		const section = screen
-			.getByRole('heading', { name: 'Links not yet used' })
+			.getByRole('heading', { name: 'Links not opened yet' })
 			.closest('section') as HTMLElement;
 		expect(await within(section).findByText('Invite')).toBeInTheDocument();
 	});
@@ -576,7 +605,7 @@ describe("This instance's pages", () => {
 		});
 
 		await fireEvent.click(
-			await screen.findByRole('checkbox', { name: 'They arrive as an Operator' }),
+			await screen.findByRole('checkbox', { name: 'They run this Kamosu too' }),
 		);
 		await fireEvent.click(screen.getByRole('button', { name: 'Make the invite link' }));
 		expect(kamosu.calls.find((call) => call.operation === 'mint_invite')?.input).toEqual({
@@ -628,6 +657,23 @@ describe("This instance's pages", () => {
 		expect(screen.queryByText(/They arrive in/)).not.toBeInTheDocument();
 	});
 
+	it('counts the Foods no line uses, and shows five at a time (#653)', async () => {
+		const unused = Array.from({ length: 23 }, (_, index) =>
+			food({ id: `f_${index}`, name: `leftover ${index}`, language: 'en' }),
+		);
+		renderScreen(Upkeep, { ...quiet, list_foods: { foods: [flour, ...unused] } });
+
+		expect(
+			await screen.findByText('23 foods that no ingredient line uses any more.'),
+		).toBeInTheDocument();
+		expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(5);
+		await fireEvent.click(screen.getByRole('button', { name: 'Show 15 more' }));
+		expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(20);
+		await fireEvent.click(screen.getByRole('button', { name: 'Show 3 more' }));
+		expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(23);
+		expect(screen.queryByRole('button', { name: /^Show \d+ more/ })).toBeNull();
+	});
+
 	it('asks before sweeping, because a swept Photograph does not come back', async () => {
 		const { kamosu } = renderScreen(Upkeep, {
 			...quiet,
@@ -640,13 +686,13 @@ describe("This instance's pages", () => {
 			},
 		});
 
-		await fireEvent.click(await screen.findByRole('button', { name: 'Sweep now' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Clear them now' }));
 		const sheet = await screen.findByRole('dialog');
 		expect(within(sheet).getByText(/cannot be undone/i)).toBeInTheDocument();
 		expect(within(sheet).getByText(/A picture a recipe shows is kept/i)).toBeInTheDocument();
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('sweep_photographs');
 
-		await fireEvent.click(within(sheet).getByRole('button', { name: 'Sweep now' }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Clear them now' }));
 		expect(kamosu.calls.map((call) => call.operation)).toContain('sweep_photographs');
 		expect(await screen.findByText(/Swept 2\. 65 are still in use\./)).toBeInTheDocument();
 	});

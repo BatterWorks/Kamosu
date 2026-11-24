@@ -17,6 +17,11 @@
 	that do it would answer: read the recipe again, send the same file again
 	while Kamosu keeps it, send a link again, or paste the recipe's text. Each
 	lands where the add sheet lands it: on the new Job's Report, which follows it.
+
+	**The newest 20 first** (#653, approved as drawn on 24 November 2026,
+	`.dev/prototypes/653-settings/agent.html`): a list of every send there ever
+	was ran to 39 screenfuls on the dev library. *Show 20 older* brings the
+	next, and choosing what to show starts again from the newest.
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
@@ -28,6 +33,7 @@
 	import AgentTag from '#lib/agent/AgentTag.svelte';
 	import { EVERY_MS } from '#lib/agent/agent.js';
 	import NeedsServer from '#lib/offline/NeedsServer.svelte';
+	import Section from '#lib/shell/Section.svelte';
 	import { useAdding } from '#lib/adding/adding.svelte.js';
 	import PasteForm from '#lib/adding/PasteForm.svelte';
 	import FilePicker from '#lib/adding/FilePicker.svelte';
@@ -88,12 +94,16 @@
 	});
 
 	let showing = $state<Showing>('all');
+	/** How many sends show, newest first, and how many more each tap brings. */
+	const STEP = 20;
+	let shown = $state(STEP);
 	const counts = $derived({
 		all: sent?.length ?? 0,
 		failed: sent?.filter((row) => shows(row, 'failed')).length ?? 0,
 		working: sent?.filter(working).length ?? 0,
 	});
-	const days = $derived(byDay((sent ?? []).filter((row) => shows(row, showing))));
+	const chosen = $derived((sent ?? []).filter((row) => shows(row, showing)));
+	const days = $derived(byDay(chosen.slice(0, shown)));
 
 	/** The row a button was pressed on, while what it asked is under way. */
 	let acting = $state<string | undefined>(undefined);
@@ -169,8 +179,7 @@
 		},
 	};
 
-	const BUTTON =
-		'min-h-[40px] rounded-sm border border-accent px-3 text-read font-medium disabled:opacity-60';
+	const BUTTON = 'second-button';
 </script>
 
 {#snippet thumb(row: Sent)}
@@ -266,7 +275,7 @@
 						     itself when its own button is pressed. -->
 						<button
 							type="button"
-							class="{BUTTON} bg-card text-accent"
+							class={BUTTON}
 							aria-expanded={pasting === row.job_id}
 							onclick={() => NEXT[next].run(row)}>{NEXT[next].label(row)}</button
 						>
@@ -277,7 +286,7 @@
 							disabled={acting !== undefined || adding.working !== null}
 							onclick={() => NEXT[next].run(row)}
 							shapeClass={BUTTON}
-							lookClass="bg-card text-accent"
+							lookClass=""
 						/>
 					{/if}
 				{/each}
@@ -297,7 +306,7 @@
 	{/if}
 {/snippet}
 
-<p class="text-read text-ink-2">{m.sent_blurb()}</p>
+<p class="text-read text-ink">{m.sent_blurb()}</p>
 
 {#if refused}
 	<p class="mt-4 border-l-3 border-support bg-card px-3 py-2 text-body" role="alert">
@@ -313,10 +322,11 @@
 			<button
 				type="button"
 				aria-pressed={showing === choice}
-				onclick={() => (showing = choice as Showing)}
-				class="min-h-[40px] rounded-sm border px-3 text-read
-					{showing === choice ? 'border-accent bg-accent text-on-accent' : 'border-rule bg-card text-ink'}"
-				>{label}</button
+				onclick={() => {
+					showing = choice as Showing;
+					shown = STEP;
+				}}
+				class="second-button">{label}</button
 			>
 		{/each}
 	</div>
@@ -325,33 +335,37 @@
 		<p class="mt-4 text-body text-ink-2">{m.sent_none_showing()}</p>
 	{/if}
 	{#each days as day (day.heading)}
-		<h3 class="mt-[18px] border-b border-rule pb-1 text-read font-medium text-ink-2">
-			{day.heading}
-		</h3>
-		<ul>
-			{#each day.rows as row (row.job_id)}
-				{@const what = whatWasSent(row)}
-				<li class="flex gap-3 border-b border-rule py-3">
-					{@render thumb(row)}
-					<span class="min-w-0 flex-1">
-						<span class="block text-read text-ink-2">
-							{kindOf(row)} · {aClock(row.created_at)}
+		<Section heading={day.heading} class="mt-6!">
+			<ul>
+				{#each day.rows as row (row.job_id)}
+					{@const what = whatWasSent(row)}
+					<li class="flex gap-3 border-b border-rule py-3">
+						{@render thumb(row)}
+						<span class="min-w-0 flex-1">
+							<span class="block text-read text-ink-2">
+								{kindOf(row)} · {aClock(row.created_at)}
+							</span>
+							<span
+								class={[
+									// Two lines of a quote, one of a link or a count. A clamp
+									// draws its own box, so the quote is not also a block.
+									'text-body break-words',
+									what.gone ? 'text-ink-2 italic' : 'text-ink',
+									what.quoted ? 'line-clamp-2' : ['block', !what.gone && 'truncate'],
+								]}>{what.quoted ? `“${what.said}”` : what.said}</span
+							>
+							{@render ending(row)}
 						</span>
-						<span
-							class={[
-								// Two lines of a quote, one of a link or a count. A clamp
-								// draws its own box, so the quote is not also a block.
-								'text-body break-words',
-								what.gone ? 'text-ink-2 italic' : 'text-ink',
-								what.quoted ? 'line-clamp-2' : ['block', !what.gone && 'truncate'],
-							]}>{what.quoted ? `“${what.said}”` : what.said}</span
-						>
-						{@render ending(row)}
-					</span>
-				</li>
-			{/each}
-		</ul>
+					</li>
+				{/each}
+			</ul>
+		</Section>
 	{/each}
+	{#if chosen.length > shown}
+		<button type="button" class="mt-4 second-button w-full" onclick={() => (shown += STEP)}>
+			{m.sent_show_older({ count: Math.min(STEP, chosen.length - shown) })}
+		</button>
+	{/if}
 {/if}
 
 <FilePicker {adding} kind="picture" bind:this={photoPicker} />

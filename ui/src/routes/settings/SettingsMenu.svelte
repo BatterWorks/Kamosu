@@ -1,7 +1,12 @@
 <!--
 	Settings' menu (#469, option C of 26 October 2026): your name as a card,
-	then four groups by whose a thing is, each row a name and a short line
-	saying what is inside. About Kamosu and Sign out stand at the foot.
+	then groups by whose a thing is, each row a name and a short line saying
+	what is inside. About Kamosu and Sign out stand at the foot.
+
+	#653 (option C of 24 November 2026) put Language first under the card,
+	named in every Language with a globe, and the people you cook with before
+	you; the rows are `ListRow`s and the groups `Section`s, each line in full
+	ink. The prototype is `.dev/prototypes/653-settings/menu-C.html`.
 
 	**On the phone it is the whole screen at `/settings`**, reached through the
 	gear in the header (#218), and each row opens its page. **On the wide
@@ -26,7 +31,9 @@
 	import { useKamosu } from '#lib/kamosu.js';
 	import { useRoom } from '#lib/room.svelte.js';
 	import { Online } from '#lib/offline/device.svelte.js';
-	import { ABOUT, GROUPS, NAME_PAGE, type PageEntry } from './pages';
+	import ListRow from '#lib/ListRow.svelte';
+	import Section from '#lib/shell/Section.svelte';
+	import { ABOUT, GROUPS, LANGUAGE, NAME_PAGE, type PageEntry } from './pages';
 	import SignOut from './SignOut.svelte';
 
 	interface Props {
@@ -70,65 +77,64 @@
 		};
 	});
 
+	/** The menu itself, where the row of the page open beside it is looked for. */
+	let list = $state<HTMLElement | undefined>(undefined);
+
 	/**
 	 * The row of the page open beside the menu, brought into the menu's own
-	 * view: with 21 rows, This instance's pages are below the fold of the
+	 * view: with 22 rows, This instance's pages are below the fold of the
 	 * column on a tablet.
 	 */
-	function inView(row: HTMLElement) {
-		row.scrollIntoView?.({ block: 'nearest' });
-	}
+	$effect(() => {
+		void current;
+		void operator;
+		list?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView?.({
+			block: 'nearest',
+		});
+	});
 
 	const groups = $derived(GROUPS.filter((group) => !group.operator || operator));
 </script>
 
-{#snippet chevron()}
+{#snippet row(entry: PageEntry)}
+	<ListRow
+		href={entry.href}
+		title={entry.title()}
+		line={entry.inside()}
+		current={room.wide && current === entry.href}
+		inkLine
+	/>
+{/snippet}
+
+{#snippet globe()}
 	<svg
 		viewBox="0 0 24 24"
 		aria-hidden="true"
-		class="h-6 w-6 shrink-0 text-ink-2"
+		class="h-[26px] w-[26px] shrink-0 text-accent"
 		fill="none"
 		stroke="currentColor"
-		stroke-width="1.75"
+		stroke-width="1.6"
 		stroke-linecap="round"
 		stroke-linejoin="round"
 	>
-		<path d="m9 5 7 7-7 7" />
+		<circle cx="12" cy="12" r="9" />
+		<path
+			d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"
+		/>
 	</svg>
-{/snippet}
-
-{#snippet row(entry: PageEntry)}
-	{@const here = room.wide && current === entry.href}
-	<li class="border-b border-rule">
-		<a
-			href={entry.href}
-			aria-current={here ? 'page' : undefined}
-			{@attach here ? inView : undefined}
-			class={[
-				'flex min-h-[52px] items-center gap-3 py-2 text-ink',
-				room.wide && 'px-2',
-				here && 'bg-ground-2 shadow-[inset_3px_0_0_var(--color-accent)]',
-			]}
-		>
-			<span class="min-w-0 flex-1">
-				<span class="block font-display text-line font-semibold">{entry.title()}</span>
-				<span class="block text-read text-ink-2">{entry.inside()}</span>
-			</span>
-			{@render chevron()}
-		</a>
-	</li>
 {/snippet}
 
 {#snippet menu()}
 	{#if name}
 		{@const here = room.wide && current === NAME_PAGE}
+		<!-- Your name as a card: a row of the list drawn larger, as #469 chose it. -->
 		<a
 			href={NAME_PAGE}
 			aria-current={here ? 'page' : undefined}
 			class={[
-				'flex items-center gap-3 rounded-sm border border-rule text-ink',
-				room.wide ? 'px-2 py-[10px]' : 'p-3',
-				here ? 'bg-ground-2 shadow-[inset_3px_0_0_var(--color-accent)]' : 'bg-card',
+				'list-row rounded-sm border border-rule',
+				room.wide ? 'px-2' : 'px-3',
+				!here && 'bg-card',
 			]}
 		>
 			<span class="min-w-0 flex-1">
@@ -138,28 +144,49 @@
 						room.wide ? 'text-line' : 'text-title',
 					]}>{name}</span
 				>
-				<span class="block text-read text-ink-2"
+				<span class="block text-read text-ink"
 					>{operator ? m.settings_card_operator() : m.settings_card_cook()}</span
 				>
 			</span>
-			{@render chevron()}
+			<svg
+				viewBox="0 0 24 24"
+				aria-hidden="true"
+				class="h-[20px] w-[20px] shrink-0 text-ink-2"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="1.75"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+			>
+				<path d="m9 5 7 7-7 7" />
+			</svg>
 		</a>
 	{/if}
 
+	<!-- Language first, named in every Language at once (#653): the person
+	     who needs another language is the least able to read this list. -->
+	<div class="mt-4 list-rows">
+		<ListRow
+			href={LANGUAGE.href}
+			title={LANGUAGE.title()}
+			line={LANGUAGE.inside()}
+			icon={globe}
+			current={room.wide && current === LANGUAGE.href}
+			inkLine
+		/>
+	</div>
+
 	{#each groups as group (group.heading())}
-		<h2 class="mt-[28px] mb-1 text-label font-medium text-accent uppercase">
-			{group.heading()}
-		</h2>
-		<ul class="border-t border-rule">
+		<Section heading={group.heading()}>
 			{#each group.entries.filter((entry) => entry.offered?.() ?? true) as entry (entry.href)}
 				{@render row(entry)}
 			{/each}
-		</ul>
+		</Section>
 	{/each}
 
-	<ul class="mt-[28px] border-t border-rule">
+	<div class="mt-8 list-rows">
 		{@render row(ABOUT)}
-	</ul>
+	</div>
 
 	<div class="mt-3">
 		<button
@@ -192,7 +219,7 @@
 	<!-- The list beside what is open draws no Screen of its own; the page
 	     beside it names the tab. -->
 	<nav class="list-column" aria-label={m.settings_title()}>
-		<div class="min-h-0 flex-1 overflow-y-auto px-gutter pb-6">
+		<div bind:this={list} class="min-h-0 flex-1 overflow-y-auto px-gutter pb-6 [&_.list-row]:px-2">
 			<h2 class="flex min-h-12 items-center font-display text-title font-semibold">
 				{m.settings_title()}
 			</h2>
@@ -201,7 +228,7 @@
 	</nav>
 {:else}
 	<Screen title={m.settings_title()} expandsFrom="settings">
-		{@render menu()}
+		<div bind:this={list}>{@render menu()}</div>
 	</Screen>
 {/if}
 

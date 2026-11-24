@@ -73,17 +73,17 @@ describe('a Food’s page', () => {
 		draw({ get_food: CASTER });
 
 		expect(await screen.findByRole('heading', { name: 'caster sugar' })).toBeInTheDocument();
-		expect(screen.getByText('9 lines point at this')).toBeInTheDocument();
+		expect(screen.getByText('In 9 ingredient lines')).toBeInTheDocument();
 		// The honest state of a Cup Weight nobody has set: an empty box that
 		// says so, rather than a zero that would be a lie about a weight.
-		expect(screen.getByLabelText('A cup of it weighs')).toHaveValue('');
+		expect(screen.getByLabelText('What a cup of it weighs')).toHaveValue('');
 		expect(screen.getByPlaceholderText('Kamosu has no figure')).toBeInTheDocument();
 	});
 
 	it('counts one Reading as a line rather than as “1 lines”', async () => {
 		draw({ get_food: food({ reading_count: 1 }) });
 
-		expect(await screen.findByText('1 line points at this')).toBeInTheDocument();
+		expect(await screen.findByText('In 1 ingredient line')).toBeInTheDocument();
 	});
 
 	it('sets a name in a Language the Food has none in, and draws the Core’s answer', async () => {
@@ -202,10 +202,14 @@ describe('a Food’s page', () => {
 		draw({ get_food: CASTER });
 
 		expect(await screen.findByRole('heading', { name: 'caster sugar' })).toBeInTheDocument();
+		// Said where somebody is deciding, inside the form, and not on the page (#653).
+		expect(
+			screen.queryByText('A Food needs at least one name, so the last one stays.'),
+		).not.toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Change the names in English' }));
 		expect(
 			screen.getByText('A Food needs at least one name, so the last one stays.'),
 		).toBeInTheDocument();
-		await fireEvent.click(screen.getByRole('button', { name: 'Change the names in English' }));
 		expect(screen.getByRole('textbox', { name: 'English name 1' })).toHaveValue('caster sugar');
 		expect(screen.queryByRole('button', { name: /^Take off/ })).not.toBeInTheDocument();
 	});
@@ -259,7 +263,7 @@ describe('a Food’s page', () => {
 		const kamosu = draw({ get_food: CASTER, set_food_cup_weight: food({ cup_weight_grams: 200 }) });
 
 		await screen.findByRole('heading', { name: 'caster sugar' });
-		await fireEvent.input(screen.getByLabelText('A cup of it weighs'), {
+		await fireEvent.input(screen.getByLabelText('What a cup of it weighs'), {
 			target: { value: '200' },
 		});
 		await fireEvent.click(screen.getByRole('button', { name: 'Save what a cup weighs' }));
@@ -279,7 +283,7 @@ describe('a Food’s page', () => {
 		});
 
 		await screen.findByRole('heading', { name: 'caster sugar' });
-		await fireEvent.input(screen.getByLabelText('A cup of it weighs'), {
+		await fireEvent.input(screen.getByLabelText('What a cup of it weighs'), {
 			target: { value: '125,5' },
 		});
 		await fireEvent.click(screen.getByRole('button', { name: 'Save what a cup weighs' }));
@@ -301,8 +305,12 @@ describe('a Food’s page', () => {
 			set_food_cup_weight: CASTER,
 		});
 
-		await waitFor(() => expect(screen.getByLabelText('A cup of it weighs')).toHaveValue('200'));
-		await fireEvent.input(screen.getByLabelText('A cup of it weighs'), { target: { value: '' } });
+		await waitFor(() =>
+			expect(screen.getByLabelText('What a cup of it weighs')).toHaveValue('200'),
+		);
+		await fireEvent.input(screen.getByLabelText('What a cup of it weighs'), {
+			target: { value: '' },
+		});
 		await fireEvent.click(screen.getByRole('button', { name: 'Save what a cup weighs' }));
 
 		await waitFor(() =>
@@ -317,7 +325,7 @@ describe('a Food’s page', () => {
 		const kamosu = draw({ get_food: CASTER });
 
 		await screen.findByRole('heading', { name: 'caster sugar' });
-		await fireEvent.input(screen.getByLabelText('A cup of it weighs'), {
+		await fireEvent.input(screen.getByLabelText('What a cup of it weighs'), {
 			target: { value: 'a handful' },
 		});
 		await fireEvent.click(screen.getByRole('button', { name: 'Save what a cup weighs' }));
@@ -333,7 +341,7 @@ describe('a Food’s page', () => {
 		const kamosu = draw({ get_food: CASTER, set_food_cup_weight: food({ cup_weight_grams: 200 }) });
 
 		await screen.findByRole('heading', { name: 'caster sugar' });
-		await user.type(screen.getByLabelText('A cup of it weighs'), '200{Enter}');
+		await user.type(screen.getByLabelText('What a cup of it weighs'), '200{Enter}');
 
 		await waitFor(() =>
 			expect(kamosu.calls.filter((call) => call.operation === 'set_food_cup_weight')).toEqual([
@@ -365,7 +373,7 @@ describe('a Food’s page', () => {
 		});
 
 		await screen.findByRole('heading', { name: 'caster sugar' });
-		await fireEvent.input(screen.getByLabelText('A cup of it weighs'), {
+		await fireEvent.input(screen.getByLabelText('What a cup of it weighs'), {
 			target: { value: '200' },
 		});
 		await fireEvent.click(screen.getByRole('button', { name: 'Save what a cup weighs' }));
@@ -376,9 +384,11 @@ describe('a Food’s page', () => {
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('save_recipe_version');
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('set_reading');
 		// Says so on the page too, because a screen that quietly edits recipes
-		// and one that quietly does not look identical.
+		// and one that quietly does not look identical: once, under the title (#653).
 		expect(
-			screen.getByText('Correcting a Food changes no recipe and no line.'),
+			screen.getByText(
+				'An ingredient Kamosu found in your recipes. Changing it changes no recipe.',
+			),
 		).toBeInTheDocument();
 	});
 
@@ -426,7 +436,7 @@ describe('when another Food is opened in place of this one', () => {
 	it('shows the other Food, read by its own id', async () => {
 		const kamosu = await fromCasterToEggs();
 
-		expect(screen.getByText('12 lines point at this')).toBeInTheDocument();
+		expect(screen.getByText('In 12 ingredient lines')).toBeInTheDocument();
 		expect(kamosu.calls.at(-1)).toEqual({ operation: 'get_food', input: { food_id: 'f_eggs' } });
 	});
 
@@ -456,7 +466,7 @@ describe('when another Food is opened in place of this one', () => {
 
 	it('forgets what was said about the last Food', async () => {
 		await fromCasterToEggs(async () => {
-			await fireEvent.input(screen.getByLabelText('A cup of it weighs'), {
+			await fireEvent.input(screen.getByLabelText('What a cup of it weighs'), {
 				target: { value: 'a lot' },
 			});
 			await fireEvent.click(screen.getByRole('button', { name: m.food_cup_weight_save() }));
@@ -482,7 +492,7 @@ describe('when another Food is opened in place of this one', () => {
 		};
 		const drawn = render(FoodTestHarness, { props: { client: slow, foodId: 'f_caster' } });
 		await screen.findByRole('heading', { name: 'caster sugar' });
-		await fireEvent.input(screen.getByLabelText('A cup of it weighs'), {
+		await fireEvent.input(screen.getByLabelText('What a cup of it weighs'), {
 			target: { value: '200' },
 		});
 		await fireEvent.click(screen.getByRole('button', { name: m.food_cup_weight_save() }));
@@ -494,7 +504,7 @@ describe('when another Food is opened in place of this one', () => {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 
 		expect(screen.getByRole('heading', { name: 'eggs' })).toBeInTheDocument();
-		expect(screen.getByLabelText('A cup of it weighs')).toHaveValue('');
+		expect(screen.getByLabelText('What a cup of it weighs')).toHaveValue('');
 		await waitFor(() =>
 			expect(screen.getByRole('button', { name: m.food_cup_weight_save() })).toBeEnabled(),
 		);

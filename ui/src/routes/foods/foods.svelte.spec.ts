@@ -59,7 +59,7 @@ describe('the Foods list', () => {
 
 		const rows = await screen.findAllByRole('link');
 		expect(rows[0]).toHaveTextContent('salt');
-		expect(rows[0]).toHaveTextContent('58 lines point at this');
+		expect(rows[0]).toHaveTextContent('In 58 ingredient lines');
 	});
 
 	it('lands on the Food the Reading corrector arrived for', async () => {
@@ -236,7 +236,7 @@ describe('on the wide layout', () => {
 		const [first] = await rows();
 		expect(seen(first)).toBe('salt 58');
 		// The number alone says nothing aloud, so the sentence is still there to be read out.
-		expect(first).toHaveTextContent('58 lines point at this');
+		expect(first).toHaveTextContent('In 58 ingredient lines');
 	});
 
 	it('leads to the same address the phone opens a Food at', async () => {
@@ -385,7 +385,7 @@ describe('on the phone layout', () => {
 		phone();
 
 		const [first] = await screen.findAllByRole('link');
-		expect(first).toHaveTextContent('58 lines point at this');
+		expect(first).toHaveTextContent('In 58 ingredient lines');
 		expect(first).not.toHaveAttribute('aria-current');
 		expect(screen.queryByText(m.foods_choose())).toBeNull();
 	});

@@ -145,7 +145,7 @@
 		<Section heading={m.settings_password()}>
 			<button
 				type="button"
-				class="min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium text-accent"
+				class="second-button w-full"
 				onclick={() => {
 					passwordChanged = undefined;
 					changingPassword = true;
@@ -197,10 +197,7 @@
 										</p>
 									{/if}
 									<div class="flex flex-wrap items-center gap-4">
-										<button
-											class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
-											disabled={renaming}
-										>
+										<button class="main-button" disabled={renaming}>
 											{m.sessions_name_save()}
 										</button>
 										<button

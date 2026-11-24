@@ -14,7 +14,11 @@
 	(#535), each with Revoke. A link sent to the wrong place, or forgotten,
 	works until it is used or revoked (ADR 0031), so the Operator has to see
 	it to end it. A row says what the link does and when it was made, never
-	the link itself, which Kamosu keeps by its hash alone.
+	the link itself, which Kamosu keeps by its hash alone. The newest three
+	show, and the rest wait behind one button, so the page stays under two
+	screenfuls (#653, approved as drawn on 24 November 2026,
+	`.dev/prototypes/653-settings/people.html`). An Operator is said in the
+	words Settings' card uses: they run this Kamosu.
 -->
 <script lang="ts">
 	import Refusal from '#lib/Refusal.svelte';
@@ -46,6 +50,9 @@
 	let unlisted = $state<string | undefined>(undefined);
 	let kitchens = $state<Kitchen[]>([]);
 	let links = $state<Link[]>([]);
+	/** How many unopened links show before *Show the other N*. */
+	const LINKS_SHOWN = 3;
+	let allLinks = $state(false);
 	/** Why the links could not be listed: never shown as none waiting. */
 	let linksUnlisted = $state<string | undefined>(undefined);
 
@@ -292,14 +299,15 @@
 	</Section>
 
 	<Section heading={m.operator_links_heading()}>
-		<p class="mb-3 text-read text-ink-2">{m.operator_links_said()}</p>
 		{#if linksUnlisted}
 			<p class="mb-3 text-body text-support" role="alert"><Refusal words={linksUnlisted} /></p>
 		{/if}
-		<ul class="overflow-hidden rounded-sm border border-rule bg-card">
+		{@const waiting = links.filter((each) => each.id !== invite?.id)}
+		{@const hidden = allLinks ? 0 : Math.max(0, waiting.length - LINKS_SHOWN)}
+		<ul class="border-t border-rule">
 			<!-- The Invite just made is on its card above, cancelled from there. -->
-			{#each links.filter((each) => each.id !== invite?.id) as link (link.id)}
-				<li class="flex items-center gap-3 border-b border-rule p-3 last:border-b-0">
+			{#each allLinks ? waiting : waiting.slice(0, LINKS_SHOWN) as link (link.id)}
+				<li class="flex items-center gap-3 border-b border-rule py-2">
 					<span class="min-w-0 flex-1">
 						<span class="block text-body break-words text-ink">{said(link).what}</span>
 						<span class="block text-read text-ink-2">{said(link).made}</span>
@@ -308,18 +316,22 @@
 						type="button"
 						disabled={acting.working}
 						onclick={() => (asking = { kind: 'revoke', link })}
-						class="min-h-12 shrink-0 rounded-sm border border-support px-3 text-read
-						font-medium text-support disabled:opacity-60"
+						class="second-button shrink-0 loses"
 					>
 						{m.operator_links_revoke()}
 					</button>
 				</li>
 			{:else}
 				{#if !linksUnlisted}
-					<li class="p-3 text-body text-ink-2">{m.operator_links_empty()}</li>
+					<li class="py-3 text-body text-ink-2">{m.operator_links_empty()}</li>
 				{/if}
 			{/each}
 		</ul>
+		{#if hidden > 0}
+			<button type="button" class="mt-3 second-button" onclick={() => (allLinks = true)}>
+				{hidden === 1 ? m.operator_links_other_one() : m.operator_links_others({ count: hidden })}
+			</button>
+		{/if}
 	</Section>
 
 	<Section heading={m.operator_everyone_heading()}>
@@ -370,8 +382,7 @@
 									type="button"
 									disabled={acting.working}
 									onclick={() => setOperator(account.name, !account.is_operator)}
-									class="min-h-12 rounded-sm border border-accent px-3 text-read font-medium
-									text-accent disabled:opacity-60"
+									class="second-button"
 								>
 									{account.is_operator ? m.operator_stand_down() : m.operator_make_operator()}
 								</button>
@@ -379,8 +390,7 @@
 									type="button"
 									disabled={acting.working}
 									onclick={() => mintRecovery(account.name)}
-									class="min-h-12 rounded-sm border border-rule px-3 text-read font-medium
-									text-ink disabled:opacity-60"
+									class="second-button"
 								>
 									{m.operator_recovery()}
 								</button>
@@ -389,8 +399,7 @@
 										type="button"
 										disabled={acting.working}
 										onclick={() => (asking = { kind: 'disable', who: account.name })}
-										class="min-h-12 rounded-sm border border-rule px-3 text-read font-medium
-										text-ink disabled:opacity-60"
+										class="second-button"
 									>
 										{m.operator_disable()}
 									</button>
@@ -399,8 +408,7 @@
 									type="button"
 									disabled={acting.working}
 									onclick={() => (asking = { kind: 'delete', who: account.name })}
-									class="min-h-12 rounded-sm border border-support px-3 text-read font-medium
-									text-support disabled:opacity-60 {account.disabled ? 'col-span-2' : ''}"
+									class="second-button loses {account.disabled ? 'col-span-2' : ''}"
 								>
 									{m.operator_delete()}
 								</button>

@@ -1340,6 +1340,14 @@
     color: var(--color-ink-2);
   }
 
+  /* One choice of several, the one chosen (#653): filled in indigo, as
+     Settings' language and measures drew theirs before the pieces. */
+  &[aria-pressed="true"] {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+
   &[aria-busy="true"] {
     cursor: progress;
   }
@@ -1394,6 +1402,56 @@
   border-bottom: 1px solid var(--color-rule);
   color: var(--color-ink);
   text-align: start;
+
+  /* The row of a list kept beside the page it opens marks that page (#469,
+     ADR 0044), as Settings' menu drew it before it took `ListRow` (#653). */
+  &[aria-current="page"] {
+    background: var(--color-ground-2);
+    box-shadow: inset 3px 0 0 var(--color-accent);
+  }
+}
+
+/* A few short choices of one setting, side by side in one row of equal
+   parts, the chosen one filled (#653, choice 4 of 24 November 2026,
+   `lang-opt-B.html`): the language page's measures. Each part is tapped at
+   48px and cut with an ellipsis rather than wrapped, so its words are short. */
+@utility segmented {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+
+  & > button {
+    min-height: 48px;
+    padding: 0 var(--spacing-1);
+    border-left: 1px solid var(--color-accent);
+    background: var(--color-card);
+    color: var(--color-accent);
+    font-size: var(--text-read);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    --under-pointer: var(--color-ground-2);
+  }
+  /* The row clips what stands outside it, so the caret's ring is drawn
+     inside the part it is on. */
+  & > button:focus-visible {
+    outline-offset: -4px;
+  }
+  & > button[aria-pressed="true"]:focus-visible {
+    outline-color: var(--color-on-accent);
+  }
+  & > button:first-child {
+    border-left: 0;
+  }
+  & > button[aria-pressed="true"] {
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+    font-weight: 600;
+  }
 }
 
 @utility list-rows {
@@ -1674,8 +1732,16 @@
     border-color: var(--color-accent-2);
     background-color: var(--color-accent-2);
   }
-  :where(a[href], button:enabled).second-button:hover {
+  :where(a[href], button:enabled).second-button:not([aria-pressed="true"]):hover {
     background-color: var(--color-ground-2);
+  }
+  :where(a[href], button:enabled).second-button[aria-pressed="true"]:hover {
+    border-color: var(--color-accent-2);
+    background-color: var(--color-accent-2);
+  }
+  /* The chosen part of a row of choices keeps its fill (#653). */
+  :where(.segmented > button:enabled)[aria-pressed="true"]:hover {
+    background-color: var(--color-accent-2);
   }
   :where(a[href], button:enabled).bg-support:hover {
     --lit: color-mix(in srgb, var(--color-support) 86%, var(--color-on-accent));

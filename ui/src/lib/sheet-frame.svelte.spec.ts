@@ -241,6 +241,8 @@ describe('every sheet in Kamosu', () => {
 			'StepPhoto.svelte',
 			'StepUsesSheet.svelte',
 			'TagSheet.svelte',
+			// Settings › Tags: one tag's name, recipes, merging and deleting (#653).
+			'Tags.svelte',
 			'Thread.svelte',
 			'UseVersion.svelte',
 			'WhichHousehold.svelte',

@@ -421,6 +421,22 @@ describe('in a browser tab', () => {
 		expect(screen.queryByText('Keep Kamosu on your phone')).not.toBeInTheDocument();
 	});
 
+	it('waits for the next page after Kamosu’s words change, whose load says so (#653, G9)', async () => {
+		filled(['b_1']);
+		sessionStorage.setItem('kamosu.words-changed', '1');
+		show(library(), device({ apple: true }));
+		// Given the time the card takes to arrive on the next page below, it
+		// does not arrive on this one.
+		await expect(
+			screen.findByText('Keep Kamosu on your phone', {}, { timeout: 500 }),
+		).rejects.toThrow();
+		// Asked once and forgotten: the next page offers it.
+		expect(sessionStorage.getItem('kamosu.words-changed')).toBeNull();
+		cleanup();
+		show(library(), device({ apple: true }));
+		expect(await screen.findByText('Keep Kamosu on your phone')).toBeInTheDocument();
+	});
+
 	it('explains how to add it to the Home Screen on an iPhone, and never refuses', async () => {
 		filled(['b_1']);
 		show(library(), device({ apple: true }));

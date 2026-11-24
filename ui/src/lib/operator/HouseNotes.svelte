@@ -81,12 +81,7 @@
 				class="mt-1 block w-full rounded-sm border border-rule bg-ground px-3 py-2 text-body text-ink"
 			></textarea>
 		</label>
-		<button
-			type="submit"
-			disabled={saving || !changed}
-			class="mt-2 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium
-			text-accent disabled:opacity-60"
-		>
+		<button type="submit" disabled={saving || !changed} class="mt-2 second-button w-full">
 			{m.operator_notes_save()}
 		</button>
 	</form>

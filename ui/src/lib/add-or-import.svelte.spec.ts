@@ -320,7 +320,7 @@ describe('bringing a recipe file in', () => {
 			});
 
 			expect(await screen.findByRole('status')).toHaveTextContent(
-				'still going. The recipe will arrive by itself, and Settings › What has been brought in will show how it went.',
+				'still going. The recipe will arrive by itself, and Settings › Import history will show how it went.',
 			);
 			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 			expect(went).not.toHaveBeenCalled();

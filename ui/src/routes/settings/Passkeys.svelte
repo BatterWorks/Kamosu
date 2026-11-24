@@ -203,10 +203,7 @@
 									<p class="text-body text-accent" role="alert"><Refusal words={renameFailed} /></p>
 								{/if}
 								<div class="flex flex-wrap items-center gap-4">
-									<button
-										class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
-										disabled={renameBusy}
-									>
+									<button class="main-button" disabled={renameBusy}>
 										{m.sessions_name_save()}
 									</button>
 									<button
@@ -272,11 +269,7 @@
 				{/if}
 			</p>
 		{:else}
-			<button
-				type="button"
-				class="mb-6 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium text-accent"
-				onclick={startAdding}
-			>
+			<button type="button" class="mb-6 second-button w-full" onclick={startAdding}>
 				{m.passkeys_add()}
 			</button>
 		{/if}
@@ -317,10 +310,7 @@
 				<p class="mt-2 text-body text-support" role="alert"><Refusal words={addFailed} /></p>
 			{/if}
 			<div class="mt-6 mb-4 flex flex-col gap-2">
-				<button
-					class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
-					disabled={addBusy}
-				>
+				<button class="main-button" disabled={addBusy}>
 					{m.passkeys_add_continue()}
 				</button>
 				<button

@@ -143,8 +143,7 @@
 					<button
 						type="button"
 						onclick={() => (asking = { kind: 'revoke', key })}
-						class="min-h-12 shrink-0 rounded-sm border border-support px-3 text-read
-						font-medium text-support disabled:opacity-60"
+						class="second-button shrink-0 loses"
 					>
 						{m.operator_runner_revoke()}
 					</button>
@@ -171,8 +170,7 @@
 				<button
 					type="submit"
 					disabled={acting.working || name.trim() === ''}
-					class="mt-2 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium
-					text-accent disabled:opacity-60"
+					class="mt-2 second-button w-full"
 				>
 					{m.operator_runner_mint()}
 				</button>
@@ -197,8 +195,7 @@
 			<button
 				type="button"
 				onclick={() => (asking = { kind: 'house-notes', notes })}
-				class="mt-3 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium
-				text-accent"
+				class="mt-3 second-button w-full"
 			>
 				{m.operator_notes_write()}
 			</button>

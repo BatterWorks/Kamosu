@@ -172,8 +172,8 @@
 			waiting={m.share_waits()}
 			disabled={making || runner === null}
 			onclick={() => void make()}
-			shapeClass="mt-3 min-h-12 w-full rounded-sm px-4 font-semibold disabled:opacity-60"
-			lookClass="bg-accent text-on-accent"
+			shapeClass="main-button mt-3 w-full"
+			lookClass=""
 		/>
 	{/if}
 	{#if failed}
@@ -184,10 +184,7 @@
 {#snippet install()}
 	<p class="text-read text-ink-2">{m.share_install_note()}</p>
 	{#if SHORTCUT_URL}
-		<a
-			href={SHORTCUT_URL}
-			class="mt-3 flex min-h-12 items-center justify-center rounded-sm border border-accent bg-card px-4 font-semibold text-accent"
-		>
+		<a href={SHORTCUT_URL} class="mt-3 second-button">
 			{m.share_get_shortcut()}
 		</a>
 	{:else}

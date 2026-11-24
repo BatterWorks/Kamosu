@@ -97,8 +97,8 @@
 			waiting={m.report_again_waits()}
 			disabled={sending}
 			onclick={send}
-			shapeClass="min-h-12 w-full rounded-sm px-4 font-display text-body font-semibold disabled:opacity-60"
-			lookClass="bg-accent text-on-accent"
+			shapeClass="main-button w-full"
+			lookClass=""
 		/>
 		<p class="mt-2 text-read text-ink-2">
 			{kind === 'pasted_text'

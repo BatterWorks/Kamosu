@@ -114,7 +114,7 @@ describe('the Security Record (#371)', () => {
 			...signedIn,
 			get_person: OPERATOR,
 		});
-		const row = await screen.findByRole('link', { name: /Your security record/ });
+		const row = await screen.findByRole('link', { name: /Sign-in history/ });
 		expect(row).toHaveAttribute('href', '/settings/security');
 		expect(row).toHaveTextContent('Sign-ins and keys, the last 90 days');
 		const instance = await screen.findByRole('link', { name: /Instance security record/ });

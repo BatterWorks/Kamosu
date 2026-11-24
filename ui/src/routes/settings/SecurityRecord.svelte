@@ -12,6 +12,7 @@
 	says what a room that is not here says (ADR 0040).
 -->
 <script lang="ts">
+	import Section from '#lib/shell/Section.svelte';
 	import { m } from '#lib/paraglide/messages.js';
 	import { useKamosu } from '#lib/kamosu.js';
 	import { OperationError } from '#lib/api/client.js';
@@ -73,12 +74,13 @@
 		<p class="text-body text-ink-2">{m.security_empty({ days: record.kept_for_days })}</p>
 	{:else}
 		{#each byDay(record.events) as day (day.heading)}
-			<h3 class="mt-[18px] mb-[6px] text-label text-ink-2 uppercase">{day.heading}</h3>
-			<ul class="rounded-sm border border-rule bg-card">
-				{#each day.rows as event (event.id)}
-					{@render row(event)}
-				{/each}
-			</ul>
+			<Section heading={day.heading} class="mt-6!">
+				<ul class="rounded-sm border border-rule bg-card">
+					{#each day.rows as event (event.id)}
+						{@render row(event)}
+					{/each}
+				</ul>
+			</Section>
 		{/each}
 	{/if}
 {/if}

@@ -1,5 +1,5 @@
 <!--
-	Renaming, merging and deleting a Tag — Settings, not the recipe page (#104).
+	Renaming, merging and deleting a Tag: Settings, not the recipe page (#104).
 
 	They were put here on 22 September 2026, after first being shown
 	inside the recipe's own tag sheet. The answer was: "I don't think a recipe page is the place
@@ -8,34 +8,41 @@
 	dish*, and this answers *what my words are*. One is about a dish and the
 	other is about a library.
 
+	**Each tag is one row that opens a sheet** (#653, option A of 24 November
+	2026, its panel as redrawn; the prototype is
+	`.dev/prototypes/653-settings/tags-A-*.html`). The page was a text box, a
+	merge menu and two small words on every tag, 178 controls tapped under
+	48px on the dev library. Now a row says the tag and how many recipes have
+	it, and the sheet holds the rest one thing at a time: the name, which a tap
+	turns into a field; the tag's recipes; merging, which picks the other tag
+	from a list that can be searched; and deleting, apart at the foot. Merging
+	and deleting each ask once, inside the sheet.
+
 	THE COUNT IS ON EVERY ROW, and it is the same number the shelf shows for the
 	same tag, because both count Lineages (`recipes_with_tag`). That is what
-	makes deleting an informed act rather than a leap: *18 recipes lose this
-	tag* is a fact you can weigh.
+	makes deleting an informed act rather than a leap.
 
-	NOTHING HERE CHANGES A RECIPE (ADR 0035), and the section says so once at the
+	NOTHING HERE CHANGES A RECIPE (ADR 0035), and the page says so once at the
 	top rather than on every row. A rename reaches every recipe carrying the Tag
-	immediately, which is the whole point of keeping Tags once per Cookbook and
-	is why no recipe has to be walked or re-saved.
+	immediately, which is the whole point of keeping Tags once per Cookbook.
 
-	ONE CARD, YOUR COOKBOOK'S (#131, screen choice 5). Tags belong to the
-	Cookbook that writes the recipes (question 3), so the words listed here are
-	the ones you and your Co-authors file by. A Kitchen-mate's words are theirs
-	to rename; the shelf's filter row still merges the same word across every
-	Cookbook it shows.
+	ONE COOKBOOK'S TAGS (#131, screen choice 5). Tags belong to the Cookbook that
+	writes the recipes, so the words listed here are the ones you and your
+	Co-authors file by.
 
 	A TAG IS NAMED PER LANGUAGE, NOT SPLIT BY IT (ADR 0006). So a row shows the
-	name in the reader's own Language where there is one, says which Language it
-	fell back to where there is not, and offers to add the missing one — which is
+	name in the reader's own Language where there is one, marks the Language it
+	fell back to where there is not, and the sheet offers to add the missing one:
 	the only place in Kamosu where a Tag known only as *mijoté* can be given an
 	English name.
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import Refusal from '#lib/Refusal.svelte';
+	import ListRow from '#lib/ListRow.svelte';
+	import SheetFrame from '#lib/SheetFrame.svelte';
 	import { useKamosu } from '#lib/kamosu.js';
 	import { OperationError } from '#lib/api/client.js';
-	import Confirm from '#lib/Confirm.svelte';
 	import {
 		byWord,
 		tagLanguage,
@@ -47,8 +54,6 @@
 	import { languageName } from '#lib/language.js';
 
 	interface Props {
-		/** Your Cookbook, named as Settings names it: the card's heading. */
-		cookbook: string;
 		/**
 		 * The Language this Person reads RECIPES in, which Settings has already
 		 * asked for. Not the interface locale: the two are separate settings,
@@ -58,34 +63,29 @@
 		readingLanguage: ReadingLanguage;
 	}
 
-	let { cookbook, readingLanguage }: Props = $props();
+	let { readingLanguage }: Props = $props();
 
 	const kamosu = useKamosu();
+	const uid = $props.id();
 
 	/** Your Cookbook's Tags, as last read. */
 	let held = $state<Tag[]>([]);
 	let failed = $state<string | undefined>(undefined);
-	/** The act running right now, so a row cannot be fired twice. */
+	/** The act running right now, so nothing can be fired twice. */
 	let busy = $state(false);
-	/**
-	 * What is being confirmed, and what doing it would take: a delete, or a
-	 * merge that has been chosen. It carries the ids and the words rather than
-	 * the Tags, so the act needs nothing narrowed or cast back out of it — the
-	 * compiler is the reviewer this frontend does not have (ADR 0012), and a
-	 * cast is where it stops looking.
-	 */
-	let confirming = $state<
-		| { kind: 'delete'; id: string; name: string; recipes: number; run: () => void }
-		| {
-				kind: 'merge';
-				fromName: string;
-				intoName: string;
-				recipes: number;
-				run: () => void;
-		  }
-		| null
-	>(null);
-	/** What a rename just reached, said once and cleared by the next act. */
+	/** The Tag whose sheet is open, by id, so a fresh list keeps it open. */
+	let openId = $state<string | null>(null);
+	/** Which step of the sheet shows: the tag itself, its name being typed, a merge, or a delete. */
+	let step = $state<'tag' | 'rename' | 'merge' | 'merging' | 'delete'>('tag');
+	/** The name being typed, in the Language of the name on screen. */
+	let typed = $state('');
+	/** The missing name being typed, in the reader's own Language. */
+	let added = $state('');
+	/** What *Find a tag* holds. */
+	let found = $state('');
+	/** The Tag a merge goes into, once chosen. */
+	let intoId = $state<string | null>(null);
+	/** What a rename just reached, said once on the page and cleared by the next act. */
 	let renamed = $state<number | null>(null);
 
 	async function load() {
@@ -100,27 +100,60 @@
 	// Read again whenever the Reading Language changes: the Core chose each
 	// word and its mark for the Language asked for when the list was read, so
 	// a list kept across a change shows one Language while renames write
-	// another (#112). And whenever the Cookbook's name changes, which is how a
-	// Cookbook just joined arrives with its Co-author's words.
+	// another (#112).
 	$effect(() => {
 		void readingLanguage;
-		void cookbook;
 		void load();
 	});
 
-	/** The field that adds the missing name says which Language it wants, in words. */
-	const addName = $derived(m.settings_tags_add_name({ language: languageName(readingLanguage) }));
-
 	/** In the order a reader can predict: by the word they see. */
 	const listed = $derived(byWord(held));
+	const open = $derived(listed.find((tag) => tag.id === openId));
+	const into = $derived(listed.find((tag) => tag.id === intoId));
 
-	async function act(run: () => Promise<void>) {
+	/** The other Tags a merge can go into, narrowed by what is typed. */
+	const others = $derived.by(() => {
+		const wanted = found.trim().toLocaleLowerCase();
+		return listed.filter(
+			(tag) =>
+				tag.id !== openId &&
+				(wanted === '' || tagWord(tag).name.toLocaleLowerCase().includes(wanted)),
+		);
+	});
+
+	const recipes = (count: number) =>
+		count === 1 ? m.settings_tags_one_recipe() : m.settings_tags_recipes({ count });
+
+	function openTag(tag: Tag) {
+		openId = tag.id;
+		step = 'tag';
+		failed = undefined;
+		renamed = null;
+		added = '';
+	}
+
+	function close() {
+		if (busy) return;
+		openId = null;
+		intoId = null;
+		found = '';
+		failed = undefined;
+	}
+
+	function startRenaming(tag: Tag) {
+		typed = tag.name ?? '';
+		step = 'rename';
+	}
+
+	async function act(run: () => Promise<void>, after: 'close' | 'tag') {
 		failed = undefined;
 		busy = true;
 		try {
 			await run();
 			await load();
-			confirming = null;
+			busy = false;
+			if (after === 'close') close();
+			else step = 'tag';
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			failed = error.message;
@@ -131,62 +164,69 @@
 
 	/**
 	 * Name a Tag in one Language, or change the name it has there. Which
-	 * Language is the one the name on screen is written in — renaming what you
-	 * can see — except where that is not the reader's own, and then the second
-	 * field below adds the missing name instead. One Operation either way.
+	 * Language is the one the name on screen is written in, renaming what you
+	 * can see; the missing name goes in the reader's own (ADR 0006).
 	 *
-	 * It says what it reached, because "renaming reaches every recipe carrying
-	 * it, immediately" is the whole reason Tags are kept once per Cookbook and
-	 * was until now a promise with nothing on screen behind it.
-	 *
-	 * The number comes from the RENAME'S OWN ANSWER rather than from the count
-	 * the row was showing. They are the same number whenever the row is fresh,
-	 * and when it is not — somebody tagged that recipe on their phone a moment
-	 * ago — the row's is the stale one, and a sentence about how far a rename
-	 * reached is the wrong place to be approximately right.
+	 * The number said afterwards comes from the rename's own answer rather than
+	 * the row's count, which may be stale.
 	 */
 	function rename(tag: Tag, language: TagLanguage, name: string) {
 		const word = name.trim();
-		if (word === '' || word === tag.name) return;
+		if (word === '' || word === tag.name) {
+			step = 'tag';
+			return;
+		}
 		renamed = null;
 		return act(async () => {
-			const renamedTag = await kamosu.renameTag({ tag_id: tag.id, language, name: word });
-			renamed = renamedTag.recipes;
-		});
+			renamed = (await kamosu.renameTag({ tag_id: tag.id, language, name: word })).recipes;
+		}, 'tag');
 	}
 
-	function merge(fromId: string, intoId: string) {
-		renamed = null;
-		return act(async () => {
-			await kamosu.mergeTags({ keep_tag_id: intoId, merge_tag_id: fromId });
-		});
-	}
+	// Neither says how far a rename reached any more: that tag is gone.
+	const merge = (fromId: string, toId: string) =>
+		act(
+			() =>
+				kamosu.mergeTags({ keep_tag_id: toId, merge_tag_id: fromId }).then(() => {
+					renamed = null;
+				}),
+			'close',
+		);
 
-	function remove(tagId: string) {
-		renamed = null;
-		return act(async () => {
-			await kamosu.deleteTag({ tag_id: tagId });
-		});
-	}
-
-	/** What a Tag can be merged into: this Cookbook's other Tags, never itself. */
-	function others(tag: Tag): Tag[] {
-		return listed.filter((other) => other.id !== tag.id);
-	}
+	const remove = (tagId: string) =>
+		act(
+			() =>
+				kamosu.deleteTag({ tag_id: tagId }).then(() => {
+					renamed = null;
+				}),
+			'close',
+		);
 </script>
 
-<p class="mb-4 text-read text-ink-2">{m.settings_tags_blurb()}</p>
+{#snippet back(label: string, to: typeof step)}
+	<button
+		type="button"
+		class="flex min-h-12 items-center gap-1 text-body text-accent"
+		onclick={() => (step = to)}
+	>
+		<svg
+			viewBox="0 0 24 24"
+			aria-hidden="true"
+			class="h-[20px] w-[20px] shrink-0"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.75"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+		>
+			<path d="m15 5-7 7 7 7" />
+		</svg>
+		{label}
+	</button>
+{/snippet}
 
-{#if failed}
-	<p class="mb-4 text-body text-support" role="alert"><Refusal words={failed} /></p>
-{/if}
+<p class="mb-4 text-read text-ink">{m.settings_tags_blurb()}</p>
 
-<!--
-	What the rename just reached. The ticket asks that renaming is *seen* to
-	reach every recipe carrying the Tag, and until this line the only evidence
-	was a sentence promising it would.
--->
-{#if renamed !== null}
+{#if renamed !== null && openId === null}
 	<p class="mb-4 text-read text-accent" role="status">
 		{renamed === 0
 			? m.settings_tags_renamed_none()
@@ -196,185 +236,267 @@
 	</p>
 {/if}
 
-<section class="min-w-0 rounded-sm border border-rule bg-card p-3">
-	<h3 class="mb-2 text-label text-ink-2 uppercase">{cookbook}</h3>
+{#if listed.length === 0}
+	<p class="text-body text-ink-2">{m.settings_tags_none()}</p>
+{:else}
+	<div class="list-rows">
+		{#each listed as tag (tag.id)}
+			{@const word = tagWord(tag)}
+			<ListRow
+				title={word.elsewhere ? `${word.name} (${word.elsewhere.toUpperCase()})` : word.name}
+				line={recipes(tag.recipes)}
+				onclick={() => openTag(tag)}
+			/>
+		{/each}
+	</div>
+{/if}
 
-	{#if listed.length === 0}
-		<p class="text-read text-ink-2">{m.settings_tags_none()}</p>
-	{:else}
-		<ul class="grid gap-3">
-			{#each listed as tag (tag.id)}
-				{@const word = tagWord(tag)}
-				<li class="min-w-0 border-t border-rule pt-3 first:border-t-0 first:pt-0">
-					<!--
-								`min-w-0` on the row and on the box, for the reason
-								the Kitchen card above documents: a text box will
-								not shrink below its content otherwise, and at a
-								320 px viewport the card shoves the whole page
-								sideways.
-							-->
+{#if open}
+	{@const tag = open}
+	{@const word = tagWord(tag)}
+	<SheetFrame labelledby="{uid}-tag" tall={85} class="flex flex-col bg-ground" onclose={close}>
+		<div class="relative min-h-0 flex-1 overflow-y-auto px-gutter pt-4 pb-6">
+			<button
+				type="button"
+				aria-label={m.settings_tags_close()}
+				class="absolute top-2 right-2 flex h-12 w-12 items-center justify-center text-ink"
+				onclick={close}
+			>
+				<svg
+					viewBox="0 0 24 24"
+					aria-hidden="true"
+					class="h-6 w-6"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.75"
+					stroke-linecap="round"
+				>
+					<path d="M6 6l12 12M18 6 6 18" />
+				</svg>
+			</button>
+
+			{#if step === 'tag' || step === 'rename'}
+				<p class="text-label font-medium text-accent uppercase">{m.settings_tags_sheet_kicker()}</p>
+				{#if step === 'rename'}
 					<form
-						class="flex items-center gap-2"
+						class="pr-12"
 						onsubmit={(event) => {
 							event.preventDefault();
-							const input = event.currentTarget.elements.namedItem('name') as HTMLInputElement;
-							// Renaming what is on screen names it in the
-							// Language it is written in, which is not
-							// necessarily the one this Person reads
-							// recipes in (ADR 0006).
-							// The Language the name on screen is written in, or
-							// this reader's own where it is already theirs.
-							rename(tag, tagLanguage(word.elsewhere, readingLanguage), input.value);
+							void rename(tag, tagLanguage(word.elsewhere, readingLanguage), typed);
 						}}
 					>
-						<label class="sr-only" for={`tag-name-${tag.id}`}>
-							{m.settings_tags_name_label()}
-						</label>
+						<!-- Names the sheet while the name is a field (SheetFrame's labelledby). -->
+						<label id="{uid}-tag" class="sr-only" for="{uid}-name"
+							>{m.settings_tags_name_label()}</label
+						>
 						<input
-							id={`tag-name-${tag.id}`}
-							name="name"
-							value={tag.name ?? ''}
-							class="min-h-12 min-w-0 flex-1 rounded-sm border border-rule bg-ground px-2 text-body
-									text-ink"
+							id="{uid}-name"
+							data-sheet-focus
+							bind:value={typed}
+							class="mt-1 min-h-12 w-full rounded-sm border border-accent bg-card px-2 font-display text-title font-semibold text-ink"
 						/>
-						{#if word.elsewhere}
-							<span class="shrink-0 text-label text-support uppercase">
-								<span aria-hidden="true">{word.elsewhere}</span>
-								<span class="sr-only">{word.said}</span>
-							</span>
-						{/if}
-						<span class="shrink-0 text-read text-ink-2">
-							{tag.recipes === 1
-								? m.settings_tags_one_recipe()
-								: m.settings_tags_recipes({ count: tag.recipes })}
-						</span>
-						<button class="shrink-0 text-label text-accent underline" type="submit" disabled={busy}>
-							{m.settings_tags_rename()}
-						</button>
+						<p class="mt-2 text-read text-ink">
+							{tag.recipes === 0
+								? m.settings_tags_rename_reaches_none()
+								: tag.recipes === 1
+									? m.settings_tags_rename_reaches_one()
+									: m.settings_tags_rename_reaches({ count: tag.recipes })}
+						</p>
+						<div class="mt-4 grid grid-cols-2 gap-3">
+							<button type="button" class="second-button" onclick={() => (step = 'tag')}>
+								{m.settings_tags_keep_name({ name: word.name })}
+							</button>
+							<button
+								type="submit"
+								class="main-button"
+								disabled={busy}
+								aria-busy={busy ? 'true' : undefined}
+							>
+								{m.settings_tags_save_name()}
+							</button>
+						</div>
 					</form>
+				{:else}
+					<h2 id="{uid}-tag" class="pr-12">
+						<button
+							type="button"
+							class="mt-1 w-full rounded-sm text-left font-display text-title font-semibold break-words text-ink"
+							aria-label={m.settings_tags_rename_named({ tag: word.name })}
+							onclick={() => startRenaming(tag)}>{word.name}</button
+						>
+					</h2>
+					<p class="mt-1 text-read text-ink">
+						{tag.recipes === 1
+							? m.settings_tags_on_one()
+							: m.settings_tags_on({ count: tag.recipes })}
+					</p>
+					{#if renamed !== null}
+						<p class="mt-2 text-read text-accent" role="status">
+							{renamed === 0
+								? m.settings_tags_renamed_none()
+								: renamed === 1
+									? m.settings_tags_renamed_one()
+									: m.settings_tags_renamed({ count: renamed })}
+						</p>
+					{/if}
+				{/if}
 
-					<!--
-								The missing name, offered where the Tag has none in
-								the reader's own Language. This is the fallback
-								being *fixed* rather than merely displayed: ADR
-								0006 built the falling back, and nothing until now
-								let anybody add the name it fell back from.
-							-->
+				{#if step === 'tag'}
 					{#if word.elsewhere}
+						<!--
+							The missing name, offered where the Tag has none in the
+							reader's own Language (ADR 0006): the fallback fixed
+							rather than merely displayed.
+						-->
 						<form
-							class="mt-2 flex items-center gap-2"
+							class="mt-4"
 							onsubmit={(event) => {
 								event.preventDefault();
-								const input = event.currentTarget.elements.namedItem('added') as HTMLInputElement;
-								rename(tag, readingLanguage, input.value);
+								// Emptied once the name is added; kept to try again if refused.
+								void rename(tag, readingLanguage, added)?.then(() => {
+									if (failed === undefined) added = '';
+								});
 							}}
 						>
-							<label class="sr-only" for={`tag-add-${tag.id}`}>
-								{addName}
+							<label class="block text-read text-ink" for="{uid}-added">
+								{m.settings_tags_add_name({ language: languageName(readingLanguage) })}
 							</label>
-							<input
-								id={`tag-add-${tag.id}`}
-								name="added"
-								placeholder={addName}
-								class="min-h-12 min-w-0 flex-1 rounded-sm border border-rule bg-ground px-2 text-body
-										text-ink"
-							/>
-							<button
-								class="shrink-0 text-label text-accent underline"
-								type="submit"
-								disabled={busy}
-							>
-								{m.settings_tags_rename()}
-							</button>
+							<div class="mt-1 flex gap-2">
+								<input
+									id="{uid}-added"
+									bind:value={added}
+									class="min-h-12 min-w-0 flex-1 rounded-sm border border-rule bg-card px-2 text-body text-ink"
+								/>
+								<button type="submit" class="second-button" disabled={busy}>
+									{m.settings_tags_add_name_do()}
+								</button>
+							</div>
 						</form>
 					{/if}
 
-					<div class="mt-2 flex flex-wrap items-center gap-4">
-						{#if others(tag).length > 0}
-							<label class="flex min-w-0 items-center gap-2">
-								<span class="sr-only">{m.settings_tags_merge_label()}</span>
-								<select
-									disabled={busy}
-									class="min-h-12 min-w-0 rounded-sm border border-rule bg-ground px-2 text-read
-											text-accent"
-									onchange={(event) => {
-										const chosen = event.currentTarget.value;
-										event.currentTarget.value = '';
-										const into = others(tag).find((held) => held.id === chosen);
-										if (!into) return;
-										// Asked before it happens, like every
-										// other act that cannot be undone
-										// (#103): the sheet leads with how many
-										// recipes move.
-										confirming = {
-											kind: 'merge',
-											fromName: word.name,
-											intoName: tagWord(into).name,
-											recipes: tag.recipes,
-											run: () => void merge(tag.id, into.id),
-										};
-									}}
-								>
-									<option value="">{m.settings_tags_merge()}</option>
-									{#each others(tag) as into (into.id)}
-										<option value={into.id}>{tagWord(into).name}</option>
-									{/each}
-								</select>
-							</label>
+					<div class="mt-5 list-rows">
+						{#if tag.recipes > 0}
+							<ListRow
+								title={tag.recipes === 1
+									? m.settings_tags_see_one()
+									: m.settings_tags_see({ count: tag.recipes })}
+								href="/recipes?tag={encodeURIComponent(tag.id)}"
+							/>
 						{/if}
+						{#if listed.length > 1}
+							<ListRow
+								title={m.settings_tags_merge_row()}
+								line={m.settings_tags_merge_row_line()}
+								onclick={() => {
+									found = '';
+									step = 'merge';
+								}}
+							/>
+						{/if}
+					</div>
+
+					<div class="mt-10 border-t border-rule pt-3">
 						<button
 							type="button"
-							disabled={busy}
-							onclick={() =>
-								(confirming = {
-									kind: 'delete',
-									id: tag.id,
-									name: word.name,
-									recipes: tag.recipes,
-									run: () => void remove(tag.id),
-								})}
-							class="text-label text-support uppercase underline"
+							class="flex min-h-12 items-center gap-2 text-body text-support"
+							onclick={() => (step = 'delete')}
 						>
-							{m.settings_tags_delete()}
+							<svg
+								viewBox="0 0 24 24"
+								aria-hidden="true"
+								class="h-[20px] w-[20px] shrink-0"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.75"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+							</svg>
+							{m.settings_tags_delete_row()}
 						</button>
 					</div>
-				</li>
-			{/each}
-		</ul>
-	{/if}
-</section>
+				{/if}
+			{:else if step === 'merge'}
+				{@render back(word.name, 'tag')}
+				<h2 id="{uid}-tag" class="mt-2 pr-12 font-display text-title font-semibold text-ink">
+					{m.settings_tags_merge_into_title({ from: word.name })}
+				</h2>
+				<label class="sr-only" for="{uid}-find">{m.settings_tags_find()}</label>
+				<input
+					id="{uid}-find"
+					type="search"
+					data-sheet-focus
+					bind:value={found}
+					placeholder={m.settings_tags_find()}
+					class="mt-3 min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body text-ink"
+				/>
+				<div class="mt-3 list-rows">
+					{#each others as other (other.id)}
+						<ListRow
+							title={tagWord(other).name}
+							line={recipes(other.recipes)}
+							onclick={() => {
+								intoId = other.id;
+								step = 'merging';
+							}}
+						/>
+					{:else}
+						<p class="py-3 text-body text-ink-2">{m.settings_tags_find_none()}</p>
+					{/each}
+				</div>
+			{:else if step === 'merging' && into}
+				{@const intoName = tagWord(into).name}
+				{@render back(m.settings_tags_other_tags(), 'merge')}
+				<h2 id="{uid}-tag" class="mt-2 pr-12 font-display text-title font-semibold text-ink">
+					{m.settings_tags_merge_title({ from: word.name, into: intoName })}
+				</h2>
+				<p class="mt-2 text-body text-ink">
+					{tag.recipes === 0
+						? m.settings_tags_merge_said_none({ from: word.name })
+						: tag.recipes === 1
+							? m.settings_tags_merge_said_one({ from: word.name, into: intoName })
+							: m.settings_tags_merge_said({
+									count: tag.recipes,
+									from: word.name,
+									into: intoName,
+								})}
+				</p>
+				<button
+					type="button"
+					class="mt-5 main-button w-full"
+					disabled={busy}
+					aria-busy={busy ? 'true' : undefined}
+					onclick={() => void merge(tag.id, into.id)}
+				>
+					{m.settings_tags_merge_do({ into: intoName })}
+				</button>
+			{:else if step === 'delete'}
+				{@render back(word.name, 'tag')}
+				<h2 id="{uid}-tag" class="mt-2 pr-12 font-display text-title font-semibold text-ink">
+					{m.settings_tags_delete_title({ tag: word.name })}
+				</h2>
+				<p class="mt-2 text-body text-ink">
+					{tag.recipes === 0
+						? m.settings_tags_delete_said_none()
+						: tag.recipes === 1
+							? m.settings_tags_delete_said_one()
+							: m.settings_tags_delete_said({ count: tag.recipes })}
+				</p>
+				<button
+					type="button"
+					class="mt-5 second-button w-full loses"
+					disabled={busy}
+					aria-busy={busy ? 'true' : undefined}
+					onclick={() => void remove(tag.id)}
+				>
+					{m.settings_tags_delete_do({ tag: word.name })}
+				</button>
+			{/if}
 
-{#if confirming?.kind === 'delete'}
-	{@const asked = confirming}
-	<Confirm
-		title={m.settings_tags_delete_title({ tag: asked.name })}
-		count={asked.recipes}
-		counting={asked.recipes === 1
-			? m.settings_tags_delete_counting_one()
-			: m.settings_tags_delete_counting()}
-		consequence={m.settings_tags_delete_consequence()}
-		act={m.settings_tags_delete()}
-		{busy}
-		{failed}
-		run={asked.run}
-		cancel={() => (confirming = null)}
-	/>
-{:else if confirming?.kind === 'merge'}
-	{@const asked = confirming}
-	<Confirm
-		title={m.settings_tags_merge_title({ from: asked.fromName, into: asked.intoName })}
-		count={asked.recipes}
-		counting={asked.recipes === 1
-			? m.settings_tags_merge_counting_one()
-			: m.settings_tags_merge_counting()}
-		consequence={m.settings_tags_merge_consequence({
-			from: asked.fromName,
-			into: asked.intoName,
-		})}
-		act={m.settings_tags_merge_act()}
-		{busy}
-		{failed}
-		run={asked.run}
-		cancel={() => (confirming = null)}
-	/>
+			{#if failed}
+				<p class="mt-4 text-body text-support" role="alert"><Refusal words={failed} /></p>
+			{/if}
+		</div>
+	</SheetFrame>
 {/if}

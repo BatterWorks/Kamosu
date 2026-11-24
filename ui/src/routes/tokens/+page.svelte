@@ -84,6 +84,15 @@
 				second-button · aria-busy
 			</button>
 			<button type="button" class="second-button w-full loses">second-button loses</button>
+			<!-- A few short choices of one setting, the chosen one filled (#653). -->
+			<div class="segmented" role="group" aria-label="segmented">
+				<button type="button" aria-pressed="true">segmented</button>
+				<button type="button" aria-pressed="false">not chosen</button>
+				<button type="button" aria-pressed="false">a third</button>
+			</div>
+			<button type="button" class="second-button w-full" aria-pressed="true">
+				second-button · aria-pressed
+			</button>
 			<div class="flex gap-3">
 				<button type="button" class="quiet-button text-accent">quiet-button</button>
 				<button type="button" class="quiet-button text-support">quiet-button</button>

@@ -1,5 +1,5 @@
 <!--
-	Tags (#104, #469). One card, your Cookbook's, since #131 put Tags in the
+	Tags (#104, #469). One list, your Cookbook's, since #131 put Tags in the
 	Cookbook that writes the recipes they file. Renaming and merging are here
 	and not on the recipe page, the choice of 22 September 2026 that
 	`Tags.svelte` records: a tag is discovered on a recipe, and this is where
@@ -15,22 +15,20 @@
 	import { useKamosu } from '#lib/kamosu.js';
 	import { OperationError } from '#lib/api/client.js';
 	import Screen from '#lib/shell/Screen.svelte';
-	import { cookbookCalled } from '#lib/cookbook.js';
-	import type { GetCookbookOutput, GetReadingPreferencesOutput } from '#lib/api/catalogue.js';
+	import type { GetReadingPreferencesOutput } from '#lib/api/catalogue.js';
 	import Tags from '../Tags.svelte';
 
 	const kamosu = useKamosu();
 
-	let cookbook = $state<GetCookbookOutput | undefined>(undefined);
 	let preferences = $state<GetReadingPreferencesOutput | undefined>(undefined);
 	let signedIn = $state(false);
 
 	$effect(() => {
 		let current = true;
-		Promise.all([kamosu.getCookbook(), kamosu.getReadingPreferences()])
-			.then(([book, answer]) => {
+		kamosu
+			.getReadingPreferences()
+			.then((answer) => {
 				if (!current) return;
-				cookbook = book;
 				preferences = answer;
 				signedIn = true;
 			})
@@ -45,9 +43,6 @@
 
 <Screen title={m.settings_tags()}>
 	{#if signedIn}
-		<Tags
-			cookbook={cookbook ? cookbookCalled(cookbook) : m.settings_cookbook()}
-			readingLanguage={preferences?.reading_language ?? 'en'}
-		/>
+		<Tags readingLanguage={preferences?.reading_language ?? 'en'} />
 	{/if}
 </Screen>

@@ -233,10 +233,7 @@
 					{#if failed && !askingOperator}
 						<p class="text-body text-accent" role="alert"><Refusal words={failed} /></p>
 					{/if}
-					<button
-						class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
-						disabled={minting}
-					>
+					<button class="main-button" disabled={minting}>
 						{m.access_key_mint()}
 					</button>
 				</form>

@@ -170,10 +170,7 @@
 			<p class="text-body text-support" role="alert"><Refusal words={failed} /></p>
 		{/if}
 		<div class="mt-2 mb-4 flex flex-col gap-2">
-			<button
-				class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
-				disabled={busy}
-			>
+			<button class="main-button" disabled={busy}>
 				{m.password_do()}
 			</button>
 			<button

@@ -215,11 +215,7 @@
 		-->
 		<div class={['mt-4', pad]}>
 			<Empty>{m.foods_no_match({ word: typed })}</Empty>
-			<button
-				type="button"
-				onclick={() => (typed = '')}
-				class="mt-3 w-full rounded-sm border border-rule p-2 text-center text-read text-accent"
-			>
+			<button type="button" onclick={() => (typed = '')} class="mt-3 second-button w-full">
 				{m.foods_show_all()}
 			</button>
 		</div>
@@ -233,10 +229,7 @@
 							data-sveltekit-reset="false"
 							aria-current={food.id === open ? 'page' : undefined}
 							tabindex={food.id === tabStop ? 0 : -1}
-							class={[
-								'flex min-h-12 items-center justify-between gap-3 border-b border-l-3 border-rule px-gutter py-3',
-								food.id === open ? 'border-l-accent bg-card' : 'border-l-transparent',
-							]}
+							class="list-row justify-between px-gutter"
 						>
 							<span class="min-w-0 truncate text-body text-ink"
 								>{food.name ?? m.food_unnamed()}</span
@@ -248,10 +241,7 @@
 							<span class="sr-only">{linesPointingAt(food.reading_count)}</span>
 						</a>
 					{:else}
-						<a
-							href={addressOf(food.id)}
-							class="flex min-h-12 items-center justify-between gap-3 border-b border-rule py-3"
-						>
+						<a href={addressOf(food.id)} class="list-row justify-between">
 							<span class="min-w-0">
 								<span class="block truncate text-body text-ink"
 									>{food.name ?? m.food_unnamed()}</span

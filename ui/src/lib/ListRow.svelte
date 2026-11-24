@@ -12,21 +12,46 @@
 
 	A row goes somewhere (`href`) or opens something on this screen
 	(`onclick`), never both.
+	A row may carry a small drawing before its title in place of a picture
+	(`icon`), as Settings' Language row carries its globe (#653), and a row of
+	a list kept beside the page it opens says it is that page (`current`).
 -->
 <script lang="ts">
+	import type { Snippet } from 'svelte';
+
 	type Props = {
 		title: string;
 		/** One line under the title, in the secondary ink. */
 		line?: string;
 		/** The picture's address; `null` for an empty square in a list that has pictures. */
 		picture?: string | null;
+		/** A small drawing before the title, where a row has no picture. */
+		icon?: Snippet;
+		/** The page this row opens is the one beside the list (ADR 0044). */
+		current?: boolean;
+		/**
+		 * The line is what tells the rows apart, as on Settings' menu, so it is
+		 * in full ink rather than the secondary (#653, the audit's G2).
+		 */
+		inkLine?: boolean;
 	} & ({ href: string; onclick?: never } | { onclick: () => void; href?: never });
 
-	let { title, line, picture, href, onclick }: Props = $props();
+	let {
+		title,
+		line,
+		picture,
+		icon,
+		current = false,
+		inkLine = false,
+		href,
+		onclick,
+	}: Props = $props();
 </script>
 
 {#snippet inside()}
-	{#if picture}
+	{#if icon}
+		{@render icon()}
+	{:else if picture}
 		<img
 			src={picture}
 			alt=""
@@ -44,7 +69,9 @@
 			>{title}</span
 		>
 		{#if line}
-			<span class="mt-[2px] block text-read leading-[1.35] text-ink-2">{line}</span>
+			<span class={['mt-[2px] block text-read leading-[1.35]', inkLine ? 'text-ink' : 'text-ink-2']}
+				>{line}</span
+			>
 		{/if}
 	</span>
 	<svg
@@ -62,7 +89,7 @@
 {/snippet}
 
 {#if href !== undefined}
-	<a {href} class="list-row">{@render inside()}</a>
+	<a {href} class="list-row" aria-current={current ? 'page' : undefined}>{@render inside()}</a>
 {:else}
 	<button type="button" {onclick} class="list-row">{@render inside()}</button>
 {/if}

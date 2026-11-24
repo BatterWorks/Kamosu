@@ -891,7 +891,7 @@
 						<div class="mt-3 flex items-center gap-2">
 							<button
 								type="button"
-								class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-40"
+								class="main-button"
 								disabled={ticked.length === 0 || relating}
 								onclick={() => answer(ticked)}
 							>
@@ -1058,9 +1058,7 @@
 				{#if plan.meal_names_left_out}
 					<p class="mt-3 text-read text-ink-2">{m.report_plan_meal_names({ app: stayedIn })}</p>
 				{/if}
-				<a
-					href={planWeek ? `/plan?week=${planWeek}` : '/plan'}
-					class="mt-3 inline-flex min-h-12 items-center rounded-sm border border-rule px-4 font-medium text-accent"
+				<a href={planWeek ? `/plan?week=${planWeek}` : '/plan'} class="mt-3 second-button"
 					>{m.report_plan_open()}</a
 				>
 			</Section>
